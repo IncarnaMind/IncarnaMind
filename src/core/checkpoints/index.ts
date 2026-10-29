@@ -18,7 +18,9 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { figureRunsFor, installFigureRuns } from "../../shared/figureRuns";
 import { resolveProposals } from "../../shared/proposals";
+import { citationElementId, isMine, signOffsOf } from "../../shared/signOffs";
 import { nodeOf, topLevelBlocks } from "../answers/blocks";
+import { citationSentences } from "../answers/checks/sentences";
 import { addCitedUnits, addCitedVersions, type CitedUnits } from "../answers/citedVersions";
 import {
   ANSWER_BLOCK,
@@ -28,10 +30,13 @@ import {
   type Checkpoint,
   type CheckpointList,
   type CheckpointReason,
+  CITATION_NODE,
+  type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
   MIND_CONTENT_FIELD,
   type MindComparison,
   RECENTLY_DELETED_DAYS,
+  type RenamedCheckpoint,
   type RestoredCheckpoint,
   WORD_CHANGE_ID,
 } from "../api";
@@ -57,6 +62,8 @@ export interface CheckpointsOptions {
   /** Marks the Mind's Answers left "streaming" with nothing writing them as stopped. */
   settleAnswers(mindId: string): void;
   reportError(error: unknown): void;
+  /** The User, whose own checks a restore counts (#1933). */
+  personId(): string | null;
 }
 
 interface Row {
@@ -64,9 +71,11 @@ interface Row {
   mind_id: string;
   reason: string;
   created_at: string;
+  name: string | null;
+  detail: string | null;
 }
 
-const COLUMNS = "id, mind_id, reason, created_at";
+const COLUMNS = "id, mind_id, reason, created_at, name, detail";
 
 const isReason = (value: unknown): value is CheckpointReason =>
   CHECKPOINT_REASONS.some((reason) => reason === value);
@@ -89,6 +98,8 @@ const toCheckpoint = (row: Row): Checkpoint => ({
   mindId: row.mind_id,
   reason: isReason(row.reason) ? row.reason : "others",
   createdAt: row.created_at,
+  name: row.name,
+  file: row.detail,
 });
 
 const streamingAnswers = (blocks: Y.XmlFragment): string[] =>
@@ -110,6 +121,27 @@ function citedIn(doc: Y.Doc): RetainVersion[] {
   );
 }
 
+const CITATION_ID = "id" satisfies keyof CitationAttributes;
+
+/**
+ * A restore never changes the User's marks. It copies each Citation it brings back, so one without
+ * an id of its own first takes the one it goes by in every version (`citationElementId`): a mark
+ * made on it, before or after this restore, then finds it however it was edited or deleted.
+ */
+function nameCitations(blocks: Y.XmlFragment): void {
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const node of block.createTreeWalker(
+      (each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE,
+    )) {
+      if (!(node instanceof Y.XmlElement) || typeof node.getAttribute(CITATION_ID) === "string")
+        continue;
+      const id = citationElementId(node);
+      if (id) node.setAttribute(CITATION_ID, id);
+    }
+  }
+}
+
 export function createCheckpoints(options: CheckpointsOptions) {
   const { db, content, retention } = options;
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -127,7 +159,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const thin = (mindId: string) => {
     const idle = db.all<Row>(
       `SELECT ${COLUMNS} FROM mind_checkpoints
-       WHERE mind_id = ? AND reason = 'idle' AND deleted_at IS NULL`,
+       WHERE mind_id = ? AND reason = 'idle' AND name IS NULL AND deleted_at IS NULL`,
       [mindId],
     );
     const at = options.now();
@@ -160,16 +192,25 @@ export function createCheckpoints(options: CheckpointsOptions) {
   const sameState = (saved: Uint8Array, snapshot: Y.Snapshot) =>
     saved.byteLength > 0 && Y.equalSnapshots(Y.decodeSnapshot(saved), snapshot);
 
-  const save = (mindInput: unknown, reasonInput: unknown): Checkpoint => {
+  /**
+   * Saves the Mind as it is, or for one sent as `file`, as it was when it was read for sending
+   * (`sentState`): a sent one is always its own.
+   */
+  const save = (
+    mindInput: unknown,
+    reasonInput: unknown,
+    sent: { file: string; state: Uint8Array } | null = null,
+  ): Checkpoint => {
     const reason = parseReason(reasonInput);
     const mindId = options.requireMind(mindInput);
     options.rebuildFigureRetention(mindId);
-    const state = content.storedState(mindId);
+    const state = sent?.state ?? content.storedState(mindId);
+    const file = sent?.file ?? null;
     const doc = docOf(state);
     try {
       const snapshot = Y.snapshot(doc);
       const last = newest(mindId);
-      if (last && sameState(last.snapshot, snapshot)) {
+      if (last && file === null && sameState(last.snapshot, snapshot)) {
         if (last.reason !== "idle" || reason === "idle") return toCheckpoint(last);
         // Now the state before an AI change: kept for good.
         db.run("UPDATE mind_checkpoints SET reason = ?, updated_at = ? WHERE id = ?", [
@@ -184,15 +225,16 @@ export function createCheckpoints(options: CheckpointsOptions) {
       const at = options.now();
       db.transaction(() => {
         db.run(
-          `INSERT INTO mind_checkpoints (id, mind_id, reason, data, snapshot, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [id, mindId, reason, state, Y.encodeSnapshot(snapshot), at, at],
+          `INSERT INTO mind_checkpoints
+             (id, mind_id, reason, data, snapshot, created_at, updated_at, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, mindId, reason, state, Y.encodeSnapshot(snapshot), at, at, file],
         );
         retention.retain("checkpoint", id, citedIn(doc));
         if (reason === "idle") thin(mindId);
       });
       options.changed(mindId);
-      return { id, mindId, reason, createdAt: at };
+      return { id, mindId, reason, createdAt: at, name: null, file };
     } finally {
       doc.destroy();
     }
@@ -209,6 +251,30 @@ export function createCheckpoints(options: CheckpointsOptions) {
 
   return {
     save,
+
+    /** The Note was sent as `file`, as `state` held it: a Checkpoint of it as it went, kept for good. */
+    sent(mindId: string, file: string, state: Uint8Array): Checkpoint {
+      return save(mindId, "export", { file, state });
+    },
+
+    rename(mindInput: unknown, checkpointInput: unknown, nameInput: unknown): RenamedCheckpoint {
+      const mindId = options.requireMind(mindInput);
+      const checkpointId = parseId(checkpointInput, "A Checkpoint");
+      const row = db.get<Row>(
+        `SELECT ${COLUMNS} FROM mind_checkpoints
+         WHERE id = ? AND mind_id = ? AND deleted_at IS NULL`,
+        [checkpointId, mindId],
+      );
+      if (!row) throw new NotFoundError({ key: "error.history.gone" });
+      const name = (typeof nameInput === "string" && nameInput.trim()) || null;
+      db.run("UPDATE mind_checkpoints SET name = ?, updated_at = ? WHERE id = ?", [
+        name,
+        options.now(),
+        checkpointId,
+      ]);
+      options.changed(mindId);
+      return { checkpoint: toCheckpoint({ ...row, name }), was: row.name };
+    },
 
     list(mindInput: unknown): CheckpointList {
       const mindId = options.requireMind(mindInput);
@@ -261,8 +327,9 @@ export function createCheckpoints(options: CheckpointsOptions) {
       const preview = docOf(content.storedState(mindId));
       try {
         const restoreBlocks = (blocks: Y.XmlFragment) => {
-          const restored = old
-            .getXmlFragment(MIND_CONTENT_FIELD)
+          const kept = old.getXmlFragment(MIND_CONTENT_FIELD);
+          nameCitations(kept);
+          const restored = kept
             .toArray()
             .flatMap((node) => (node instanceof Y.XmlHook ? [] : [node.clone()]));
           blocks.delete(0, blocks.length);
@@ -287,7 +354,18 @@ export function createCheckpoints(options: CheckpointsOptions) {
         });
         // One that was being written when the Checkpoint was saved comes back stopped.
         options.settleAnswers(mindId);
-        return { before };
+        const personId = options.personId();
+        const checkedLeftOut = content.peek(mindId, (blocks) => {
+          if (!blocks.doc) return 0;
+          const held = citationSentences(blocks);
+          return signOffsOf(blocks.doc).filter(
+            (record) =>
+              record.target.kind === "citation" &&
+              !held.has(record.target.id) &&
+              isMine(record, personId),
+          ).length;
+        });
+        return { before, checkedLeftOut };
       } finally {
         preview.destroy();
         old.destroy();

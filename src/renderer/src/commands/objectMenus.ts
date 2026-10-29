@@ -135,6 +135,8 @@ registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
+  "citation.signOff",
+  "citation.signOffRemove",
   "citation.remove",
 ]);
 

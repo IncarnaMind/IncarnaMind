@@ -7,6 +7,7 @@ import { markSentence, textOf } from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
+  Citation,
   ClaimCheckAttributes,
   FigureCheckAttributes,
   FigureCheckResult,
@@ -20,6 +21,7 @@ import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
 import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { addSignOff, figureSignOffBasis } from "../../src/shared/signOffs";
 
 const paragraph = (id: string, text: string, attrs: Record<string, string> = {}): NodeJSON => ({
   type: "paragraph",
@@ -33,16 +35,7 @@ function note(...nodes: NodeJSON[]) {
   blocks.push(nodes.map(createElement));
   return blocks;
 }
-const project = (blocks: Y.XmlFragment) =>
-  figureSchedule({
-    mindId: "note",
-    name: "Figures",
-    basis: "exact-basis",
-    blocks,
-    versions: new Map<string, string>(),
-    folderId: null,
-    scope: null,
-  });
+const project = (blocks: Y.XmlFragment) => figureSchedule(scheduleInput(blocks));
 function basis(text: string): ClaimCheckAttributes {
   return {
     id: "check",
@@ -837,3 +830,114 @@ test.each([
     expect(project(blocks).rows.map((row) => row.shown.state)).toEqual([state]);
   },
 );
+
+// protects=a figure the User marked Checked by me shows their mark on its row, and as changed once its sentence's words change, while the mark itself is kept (#1933); fails_when=the row has no mark, still says checked after the edit, or the mark goes; no_claim=a Document's newer version, which signOffs.test covers.
+test("a figure's own check shows on its row, and as changed once its sentence changes", () => {
+  const blocks = note(paragraph("p", "Revenue rose 5% in the year."));
+  const doc = blocks.doc;
+  if (!doc) throw new Error("No note document");
+  const [row] = project(blocks).rows;
+  if (!row) throw new Error("No figure row");
+  addSignOff(doc, {
+    id: "mark",
+    target: { kind: "figure", id: row.id },
+    at: "2026-10-28T09:00:00.000Z",
+    contentHash: figureSignOffBasis(row),
+    deletedAt: null,
+    name: "Ada Lovelace",
+    personId: "person-1",
+  });
+  const mine = (rows: ReturnType<typeof project>["rows"]) => rows[0]?.signOff ?? null;
+
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-1" }).rows),
+  ).toMatchObject({ state: "checked", name: "Ada Lovelace", mine: true });
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-2" }).rows),
+  ).toMatchObject({ state: "checked", mine: false });
+
+  const text = blocks.get(0);
+  if (!(text instanceof Y.XmlElement)) throw new Error("No paragraph");
+  const words = text.get(0);
+  if (!(words instanceof Y.XmlText)) throw new Error("No text");
+  words.insert(0, "Group ");
+  expect(
+    mine(figureSchedule({ ...scheduleInput(blocks), personId: "person-1" }).rows),
+  ).toMatchObject({ state: "changed", target: { kind: "figure", id: row.id } });
+});
+
+// protects=a figure's mark rests on the evidence it was checked against: once a check finds it in another Document, both versions current, the mark shows as changed, while a check that finds it where it was keeps it checked (#1933), in English and Chinese; fails_when=the mark still reads checked on the new evidence, or a same-evidence check changes it; no_claim=a newer version of the same Document, which signOffs.test covers.
+test.each([
+  { language: "en", text: "Revenue was £100.", label: "Revenue" },
+  { language: "zh-CN", text: "营业收入为100万元。", label: "营业收入" },
+])(
+  "a figure's mark changes when its check finds it in another Document ($language)",
+  ({ text, label }) => {
+    const blocks = note(paragraph("p", text));
+    const doc = blocks.doc;
+    const block = blocks.get(0);
+    const occurrence = figuresInMind(blocks)[0];
+    if (!doc || !(block instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+    const source = (documentId: string, contentHash: string): Citation => ({
+      passageId: `${documentId}-passage`,
+      documentId,
+      documentName: `${documentId}.pdf`,
+      contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+      quote: `${label} ${occurrence.reading.chars}`,
+      check: "found",
+      checkReason: null,
+    });
+    const checkedIn = (citation: Citation) => {
+      const parent = basis(textOf(block));
+      markSentence(block, 0, textOf(block).length, {
+        ...parent,
+        figures: [{ ...parent, ...finding(occurrence), source: citation }],
+        remainder: null,
+      });
+    };
+    const versions = new Map([
+      ["document-a", "a1"],
+      ["document-b", "b1"],
+    ]);
+    const mark = () =>
+      figureSchedule({ ...scheduleInput(blocks), versions, personId: "person-1" }).rows[0]?.signOff;
+    checkedIn(source("document-a", "a1"));
+    const [row] = figureSchedule({ ...scheduleInput(blocks), versions }).rows;
+    if (!row) throw new Error("No figure row");
+    expect(row.source?.documentId).toBe("document-a");
+    addSignOff(doc, {
+      id: "mark",
+      target: { kind: "figure", id: row.id },
+      at: "2026-10-28T09:00:00.000Z",
+      contentHash: figureSignOffBasis(row),
+      deletedAt: null,
+      name: "Ada Lovelace",
+      personId: "person-1",
+    });
+    expect(mark()?.state).toBe("checked");
+
+    checkedIn(source("document-a", "a1"));
+    expect(mark()?.state).toBe("checked");
+
+    checkedIn(source("document-b", "b1"));
+    expect(figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.source?.documentId).toBe(
+      "document-b",
+    );
+    expect(mark()?.state).toBe("changed");
+  },
+);
+
+function scheduleInput(blocks: Y.XmlFragment) {
+  return {
+    mindId: "note",
+    name: "Figures",
+    basis: "exact-basis",
+    blocks,
+    versions: new Map<string, string>(),
+    folderId: null,
+    scope: null,
+  };
+}

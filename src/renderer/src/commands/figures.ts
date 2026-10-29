@@ -1,8 +1,8 @@
 import type { FigureScheduleRow } from "../../../core/api";
-import { lineRef, toCheckAgain, toKeep } from "../../../shared/figureSchedule";
+import { lineRef, toCheckAgain, toKeep, toSignOff } from "../../../shared/figureSchedule";
 import { figureScheduleHandle } from "../components/figures/figureScheduleHandle";
 import { figureHandle } from "../editor/figureHandle";
-import type { Command, CommandContext } from "./registry";
+import { type Command, type CommandContext, needsHere } from "./registry";
 
 function current(ctx: CommandContext) {
   const handle = figureHandle.current;
@@ -11,31 +11,48 @@ function current(ctx: CommandContext) {
     : null;
 }
 
-export const figureCommands: readonly Command[] = (
-  [
-    ["open", "figures.inline.open", "open"],
-    ["copyFormula", "figures.inline.copyFormula", "edit"],
-    ["convertToText", "figures.inline.convert", "edit"],
-    ["remove", "figures.inline.delete", "danger"],
-  ] as const
-).map(([action, label, group]) => {
+/** "Checked by me" on a calculated figure (#1933), as a toggle: off, then on. */
+const figureSignOffCommands: Command[] = (["signOff", "signOffRemove"] as const).map((action) => {
   const id = `figure.${action}` as const;
-  const edits = action === "convertToText" || action === "remove";
   return {
     id,
-    label,
-    group,
+    label: "signOff.action",
+    keywords: ["signOff.keywords"],
+    group: "edit",
     reversible: true,
-    ...(action === "remove" ? { destructive: true as const } : {}),
-    when: (ctx: CommandContext) =>
-      ctx.here?.[id] !== undefined ||
-      (current(ctx) !== null && (!edits || current(ctx)?.editable() === true)),
-    run: (ctx: CommandContext) => {
-      if (ctx.here?.[id]) ctx.here[id]?.();
-      else current(ctx)?.[action]();
-    },
+    checked: () => action === "signOffRemove",
+    ...needsHere(id),
   };
 });
+
+export const figureCommands: readonly Command[] = [
+  ...(
+    [
+      ["open", "figures.inline.open", "open"],
+      ["copyFormula", "figures.inline.copyFormula", "edit"],
+      ["convertToText", "figures.inline.convert", "edit"],
+      ["remove", "figures.inline.delete", "danger"],
+    ] as const
+  ).map(([action, label, group]): Command => {
+    const id = `figure.${action}` as const;
+    const edits = action === "convertToText" || action === "remove";
+    return {
+      id,
+      label,
+      group,
+      reversible: true,
+      ...(action === "remove" ? { destructive: true as const } : {}),
+      when: (ctx: CommandContext) =>
+        ctx.here?.[id] !== undefined ||
+        (current(ctx) !== null && (!edits || current(ctx)?.editable() === true)),
+      run: (ctx: CommandContext) => {
+        if (ctx.here?.[id]) ctx.here[id]?.();
+        else current(ctx)?.[action]();
+      },
+    };
+  }),
+  ...figureSignOffCommands,
+];
 
 /** The schedule's figures ⌘K acts on: those selected in it. */
 function chosenFigures(ctx: CommandContext): FigureScheduleRow[] {
@@ -75,5 +92,30 @@ export const figureScheduleCommands: readonly Command[] = [
     when: (ctx) => toKeep(chosenFigures(ctx)).length > 0,
     run: (ctx) =>
       figureScheduleHandle.current?.keep(toKeep(chosenFigures(ctx)).map((row) => row.id)),
+  },
+  {
+    id: "figures.signOffChosen",
+    label: (ctx, t) => {
+      const { rows, off } = toSignOff(chosenFigures(ctx));
+      return rows.length > 1
+        ? t(off ? "signOff.unmarkCount" : "signOff.markCount", { count: rows.length })
+        : t("signOff.action");
+    },
+    keywords: ["signOff.keywords"],
+    group: "edit",
+    reversible: true,
+    appliesTo: ["check"],
+    when: (ctx) => chosenFigures(ctx).length > 0,
+    checked: (ctx) => {
+      const { rows, off } = toSignOff(chosenFigures(ctx));
+      return rows.length === 1 && off;
+    },
+    run: (ctx) => {
+      const { rows, off } = toSignOff(chosenFigures(ctx));
+      figureScheduleHandle.current?.signOff(
+        rows.map((row) => row.id),
+        off,
+      );
+    },
   },
 ];

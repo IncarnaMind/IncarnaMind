@@ -119,6 +119,15 @@ function citation(tides: Document, check: "found" | "not-found" = "found"): JSON
   };
 }
 
+/** The ids of the Mind's Citations, in order. */
+function citationIdsOf(client: MindClient): unknown[] {
+  const ids: unknown[] = [];
+  readMind(client).descendants((node) => {
+    if (node.type.name === "citation") ids.push(node.attrs.id);
+  });
+  return ids;
+}
+
 /** The editor's reading of a paragraph's text (an inline node as U+FFFC), for `EditWithAiInput.text`. */
 function plainOf(client: MindClient, blockId: string): string {
   let found = "";
@@ -332,6 +341,110 @@ describe("Edit with AI", () => {
     expect(after).toEqual([
       expect.objectContaining({ contentHash: "an-older-version", keptOver: tides.contentHash }),
     ]);
+  });
+
+  // protects=a rewrite that moves a marked Citation, or deletes the sentence it is in, keeps the Citation's id: accepted, the moved Citation is the one the mark names; rejected, the Citation stays as it was; and one the accepted deletion took out comes back marked from a version kept before (#1933), in English and Chinese; fails_when=the Citation the rewrite writes, or the restored one, has another id; no_claim=how the model words the rewrite.
+  test.each([
+    {
+      language: "en",
+      before: "Spring tides happen at new moon and at full moon ",
+      moved: "[1] Spring tides come at new and full moon.",
+      without: "Tides vary.",
+    },
+    {
+      language: "zh-CN",
+      before: "大潮出现在新月和满月前后",
+      moved: "[1] 大潮在新月和满月时出现。",
+      without: "潮汐有变化。",
+    },
+  ])(
+    "the assistant's rewrite and deletion keep a marked Citation's id ($language)",
+    async ({ before, moved, without }) => {
+      let reply = moved;
+      const { core, mind, client, tides } = await setUp(editingModel(() => reply));
+      const marked = citation(tides);
+      marked.attrs = { ...marked.attrs, id: "marked-citation" };
+      const note = paragraph(text(before), marked, text("."));
+      const idsNow = () => citationIdsOf(client);
+
+      for (const outcome of ["reject", "accept"] as const) {
+        writeMind(client, [note]);
+        await client.settled();
+        await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+        await resolveChanges(client, outcome);
+        expect(idsNow()).toEqual(["marked-citation"]);
+      }
+
+      writeMind(client, [note]);
+      await client.settled();
+      const kept = await core.saveCheckpoint(mind.id, "accept");
+      reply = without;
+      await core.editWithAi(
+        wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Delete it"),
+      );
+      await resolveChanges(client, "accept");
+      expect(idsNow()).toEqual([]);
+      await core.restoreCheckpoint(mind.id, kept.id);
+      await client.settled();
+      expect(idsNow()).toEqual(["marked-citation"]);
+    },
+  );
+
+  // protects=a rewrite that cites a marked Citation twice writes one Citation that is it and one copy with an id of its own, so the mark stays on one (#1933), in English and Chinese, streamed or not; fails_when=the two share the id, or neither has it; no_claim=where the model puts the markers.
+  test.each([
+    {
+      language: "en",
+      before: "Spring tides happen at new moon and at full moon ",
+      twice: "[1] Spring tides occur at new and full moon [1].",
+    },
+    {
+      language: "zh-CN",
+      before: "大潮出现在新月和满月前后",
+      twice: "[1] 大潮在新月和满月时出现 [1]。",
+    },
+  ])(
+    "a rewrite that cites a marked Citation twice writes it once and a copy ($language)",
+    async ({ before, twice }) => {
+      const { core, mind, client, tides } = await setUp(editingModel(() => twice));
+      const marked = citation(tides);
+      marked.attrs = { ...marked.attrs, id: "marked-citation" };
+      const note = paragraph(text(before), marked, text("."));
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+      await resolveChanges(client, "accept");
+
+      const ids = citationIdsOf(client);
+      expect(ids).toHaveLength(2);
+      expect(ids.filter((id) => id === "marked-citation")).toHaveLength(1);
+      expect(new Set(ids).size).toBe(2);
+      expect(ids.every((id) => typeof id === "string")).toBe(true);
+    },
+  );
+
+  // protects=an older Citation, written before Citations had ids, that the assistant's rewrite moves goes by the id the versions kept before give it, so a mark made on it after the rewrite finds it when one of them is restored (#1933); fails_when=the moved Citation has no id, or the restored one another; no_claim=Citations written since, which have their own.
+  test("an older Citation the assistant's rewrite moves keeps its identity through a restore", async () => {
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "[1] Spring tides come at new and full moon."),
+    );
+    const note = paragraph(
+      text("Spring tides happen at new moon and at full moon "),
+      citation(tides),
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+    const kept = await core.saveCheckpoint(mind.id, "accept");
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    await resolveChanges(client, "accept");
+    const [moved] = citationIdsOf(client);
+    expect(typeof moved).toBe("string");
+
+    await core.restoreCheckpoint(mind.id, kept.id);
+    await client.settled();
+    expect(citationIdsOf(client)).toEqual([moved]);
   });
 
   // protects=following a Citation's new version asks the model to make the sentence agree with the words its Citation now quotes, which the prompt gives as quoted context beside the marker, needs no instruction, keeps the Citation, and the words it replaces go (#99); fails_when=the Citation's words are not in the request, the request needs the caller's words, or the old words stay; no_claim=what a real model writes (tests/live/editWithAi.live.test.ts).

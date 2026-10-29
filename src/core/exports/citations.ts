@@ -142,6 +142,7 @@ export async function styleCitations(
   figures: FigureWriting,
 ): Promise<Block[]> {
   const works: CitedWork[][] = [];
+  const checkedOf = new Map<string, Set<string>>();
   mapInlines(blocks, (content) => {
     for (const cited of citedIn(content)) {
       works.push(
@@ -149,6 +150,13 @@ export async function styleCitations(
           ? figureSourcesOf(cited.figure).map((source) => source.work)
           : cited.citations.map((citation) => citation.work),
       );
+      if ("figure" in cited) continue;
+      for (const { work, footnote } of cited.citations) {
+        if (!work.documentId || !footnote.checked) continue;
+        const lines = checkedOf.get(work.documentId) ?? new Set<string>();
+        for (const line of footnote.checked) lines.add(line);
+        checkedOf.set(work.documentId, lines);
+      }
     }
     return content;
   });
@@ -180,11 +188,16 @@ export async function styleCitations(
       const failed = cluster.citations.flatMap((citation) =>
         citation.footnote.failed ? [citation.footnote] : [],
       );
+      const checked = [
+        ...new Set(cluster.citations.flatMap((citation) => citation.footnote.checked ?? [])),
+      ];
       out.push({
         kind: "cite",
         runs,
         note,
         unverified: cluster.citations.some((citation) => citation.footnote.unverified),
+        // A note style says who checked a source in its note, any other under its reference.
+        ...(note && checked.length > 0 && { checked }),
         of: cluster.citations
           .map((citation) =>
             [
@@ -209,10 +222,17 @@ export async function styleCitations(
     {
       kind: "bibliography",
       heading: style.heading,
-      items: formatted.bibliography.map((entry) => ({
-        label: entry.label,
-        runs: entry.runs,
-      })),
+      items: formatted.bibliography.map((entry) => {
+        const checked =
+          formatted.form === "note" || !entry.documentId
+            ? undefined
+            : checkedOf.get(entry.documentId);
+        return {
+          label: entry.label,
+          runs: entry.runs,
+          ...(checked && { checked: [...checked] }),
+        };
+      }),
       hangingIndent: formatted.hangingIndent,
     },
   ];
@@ -328,6 +348,12 @@ export function listCitations(
   });
 
   const t: Translate = (key, params) => translate(context.language, key, params);
+  const checkedAt = new Map<string, Set<string>>();
+  for (const citation of cited) {
+    if (!citation.footnote.checked) continue;
+    const key = sourceKeyOf(citation.work, context);
+    checkedAt.set(key, new Set([...(checkedAt.get(key) ?? []), ...citation.footnote.checked]));
+  }
   const unverifiedAt = new Map<string, Set<string>>();
   for (const citation of cited) {
     if (!citation.footnote.unverified) continue;
@@ -350,9 +376,11 @@ export function listCitations(
           ),
         };
         const entry = sourceEntry(marked, context.language);
+        const checked = checkedAt.get(source.key);
         return {
           label: [{ text: `[${index + 1}]` }],
           runs: [{ text: places?.has("") ? `${entry} ${unverified}` : entry }],
+          ...(checked && { checked: [...checked] }),
         };
       }),
       hangingIndent: false,

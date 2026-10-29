@@ -475,6 +475,28 @@ export function checkedSentences(
   });
 }
 
+/**
+ * Each Citation's sentence as checks read it, by the Citation's id: what a person's own check of
+ * it rests on (#1933), as the editor reads it.
+ */
+export function citationSentences(blocks: Y.XmlFragment): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const { element } of textBlocks(blocks)) {
+    const citations = layout(element).filter(
+      ({ node }) => node instanceof Y.XmlElement && node.nodeName === CITATION_NODE,
+    );
+    if (citations.length === 0) continue;
+    const text = textOf(element);
+    const spans = sentenceSpansIn(element);
+    for (const { node, start } of citations) {
+      const id = node instanceof Y.XmlElement ? node.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+      const span = spans.find((each) => each.from <= start && start < each.to);
+      if (typeof id === "string" && span) found.set(id, text.slice(span.from, span.to));
+    }
+  }
+  return found;
+}
+
 /** The requests the checks on a Mind's blocks were made with, each once: what each kept unread (#740). */
 export function checkRequests(blocks: Y.XmlFragment): string[] {
   return [

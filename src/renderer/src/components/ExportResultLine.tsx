@@ -54,6 +54,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
   result.failures.length === 0 &&
+  result.sentKept &&
   unmarkedChecks(result.checks, t) === null;
 
 /**
@@ -281,6 +282,11 @@ function ResultBody({
                         ? "export.word.kept.header"
                         : "export.word.kept.footer",
                     )}
+              </ProblemLine>
+            )}
+            {!result.sentKept && (
+              <ProblemLine role="status" testId="export-sent-not-kept">
+                {t("export.sentNotKept")}
               </ProblemLine>
             )}
             {result.failures.map(({ format, reason }) => (
