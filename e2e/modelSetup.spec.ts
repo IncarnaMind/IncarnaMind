@@ -1754,6 +1754,39 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
   }
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the setup card says it is looking for the model app until the probe answers, and never that it is missing (${language})`, async () => {
+    // A server that answers slowly, as a busy computer's does.
+    const server = await ollamaListing(["qwen3.5:4b"], { delayMs: 1500 });
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      examples: true,
+      ollama: server.url,
+    });
+    try {
+      await setWindowSize(app, window, 1100, 900);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const way = card.getByTestId("way-local");
+      const status = way.getByTestId("ollama-status");
+      // The first frame, before anything has been looked at.
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      const before = await way.innerText();
+      expect(before).not.toContain(translate(language, "setup.way.local.install"));
+      expect(before).not.toContain(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // Then the running state once the probe answers, with no action from the User.
+      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 15_000 });
+      await expect(way).toContainText(translate(language, "setup.way.local.running"));
+    } finally {
+      await app.close();
+      server.server.close();
+    }
+  });
+}
+
 test("nothing at all: installing a model on this computer is offered, the example still opens, and Set up later gives the words back", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,

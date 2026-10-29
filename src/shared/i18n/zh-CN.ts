@@ -5436,7 +5436,6 @@ export const zhCN = {
   "answer.add.to": "添加到“{mind}”（{shortcut}）",
   "answer.add.choose": "选择要添加到的笔记",
   "answer.add.named": "添加到“{mind}”",
-  "tip.addAnswer": "把这条写成笔记",
   "tip.close": "关闭提示",
   "mindChanges.minds": "修改过的笔记（{count}）",
   "mindChanges.changed": "在“{mind}”中修改了 {count} 个段落",

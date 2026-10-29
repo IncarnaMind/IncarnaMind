@@ -554,6 +554,19 @@ export function createExamples(options: ExamplesOptions) {
       ]);
       // Unedited: regenerating it with a model of one's own replaces it in place.
       answer.setAttribute("generatedHash", contentHash(answer));
+      // The draft's verdict is written in advance, so its mark is on the page from the first
+      // frame: the Passage that decides it is added once the Documents are read (#2196).
+      const documents = options.documentsIn(folderId);
+      for (const check of set.checks ?? []) {
+        const document = documents.find((each) => each.name === check.evidence.document);
+        markCheck(
+          blocks,
+          check,
+          citationAttributes(check.evidence, document, null),
+          documents,
+          folderId,
+        );
+      }
     });
 
   const create = async (group: ExampleGroup = DEFAULT_GROUP): Promise<Examples> => {
