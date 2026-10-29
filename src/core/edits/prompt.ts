@@ -28,6 +28,7 @@ export const EDIT_INSTRUCTIONS = [
   "- A source is only ever one of the passage's markers. Never write a Document's name as a source, such as [Report, p. 2] or (Report, p. 2).",
   "- Write in the passage's language, unless the task is to translate it.",
   "- Change only what the task asks for. Keep names, numbers and facts as they are.",
+  "- When the task takes out the whole passage, give none of its text and no explanation: only the <why> line, saying it is removed.",
 ].join("\n");
 
 /** For "explain": a few sentences to go under the passage. */

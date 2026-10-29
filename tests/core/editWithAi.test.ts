@@ -707,6 +707,34 @@ describe("Edit with AI", () => {
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
 
+  test.each([
+    "Remove the whole part about hours (full time, Monday to Friday) and leave the rest",
+    "Delete the list item about hours",
+    "删去整个“工作安排”部分（全职、周一至周五、核心工作时间），其他部分保持不变。",
+    "删去这一条关于工时的列表项（全职工作，周一至周五）。",
+  ])(
+    "a part named in a longer request is removed by a reply of no text but why: %s",
+    async (asked) => {
+      const { core, mind, client } = await setUp(
+        editingModel(() => "<why>Removed, as asked.</why>"),
+      );
+      const hours = paragraph(text("Work is full time, Monday to Friday."));
+      const pay = paragraph(text("Pay is monthly."));
+      writeMind(client, [hours, pay]);
+      await client.settled();
+
+      const result = await core.editWithAi(
+        wholeParagraph(client, mind.id, hours.attrs.id, "instruction", asked),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(shownWithChanges(client)).toEqual([
+        "- Work is full time, Monday to Friday.",
+        "Pay is monthly.",
+      ]);
+    },
+  );
+
   test("asked to remove a paragraph, a reply of no text but why removes it; any other empty reply fails with its reason", async () => {
     const { core, mind, client } = await setUp(
       editingModel(({ passage }) =>

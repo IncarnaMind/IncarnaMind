@@ -624,6 +624,55 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     expect(shown[2]).toContain("[-really -]");
   });
 
+  // protects=the model is told which sentences are no longer in the text, so what it says was removed is what was; fails_when=the result names none, or names a sentence that stays; no_claim=how the model words its reply.
+  test("an edit's result names the sentences that are no longer in the text", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+      if (passage !== undefined) {
+        return {
+          text: `${passage.replace("Work is full time. ", "")}\n<why>Removed the hours.</why>`,
+        };
+      }
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: "Remove the part about hours" } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [note("Pay is monthly. Work is full time. The post is senior.")]);
+    await client.settled();
+
+    await ask(core, { text: "Remove the part about the hours", mindId: mind.id });
+
+    const told = lastResult(model);
+    expect(told).toContain(
+      "no longer in the text as they were (taken out or reworded): “Work is full time.”",
+    );
+    expect(told).not.toContain("“Pay is monthly.”");
+  });
+
+  // protects=a section the Mind doesn't have is refused with the Mind's headings, so the model can name one on its next call; fails_when=the refusal gives no headings, or something is changed; no_claim=that a real model then names one.
+  test("a section the Mind doesn't have is refused with the Mind's own headings", async () => {
+    const model = toolModel(
+      { tool: "edit_mind", input: { part: "Hours.", instruction: "Remove it" } },
+      "Done.",
+    );
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      heading(2, "Role"),
+      note("The post is senior."),
+      heading(2, "Working pattern"),
+      note("Full time."),
+    ]);
+    await client.settled();
+    const before = shownWithChanges(client);
+
+    await ask(core, { text: "Remove the part about the hours", mindId: mind.id });
+
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(before);
+    expect(lastResult(model)).toContain("its headings are “Role”, “Working pattern”");
+  });
+
   // protects=a wrong start is refused instead of the request's ordinal overriding the model; fails_when=the paragraph the pattern guessed is edited anyway; no_claim=that a real model chooses a wrong start.
   test("a wrong start does not fall back to the paragraph the request names", async () => {
     const model = toolModel(

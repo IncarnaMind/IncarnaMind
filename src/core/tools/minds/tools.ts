@@ -56,6 +56,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
+import { sentenceSpans } from "../../../shared/sentences";
 import { countFor, countText, mostlyCjk } from "../../../shared/wordCount";
 import {
   createElement,
@@ -568,10 +569,12 @@ function stretchOf(
       if (!paragraph) {
         const count = countText(nameKey(part));
         const short = count.words < MIN_FIRST_WORDS && count.cjk < MIN_FIRST_CJK;
+        const names = headings.slice(0, 10).map((element) => `“${plainText(element)}”`);
+        const known = names.length > 0 ? `; its headings are ${names.join(", ")}` : "";
         return {
           why: short
-            ? `there is no heading “${part}” in it, and to name a paragraph, give more of its first words: at least ${MIN_FIRST_WORDS} words or ${MIN_FIRST_CJK} Chinese characters`
-            : `there is no heading or paragraph “${part}” in it`,
+            ? `there is no heading “${part}” in it, and to name a paragraph, give more of its first words: at least ${MIN_FIRST_WORDS} words or ${MIN_FIRST_CJK} Chinese characters${known}`
+            : `there is no heading or paragraph “${part}” in it${known}`,
           kind: "no-heading",
           hint,
         };
@@ -650,6 +653,44 @@ function lengths(before: string, after: string): string {
   const to = countFor(now, "words");
   if (unit(was) !== unit(now)) return `from ${from} ${unit(was)} to ${to} ${unit(now)}`;
   return `from ${from} to ${to} ${unit(now)}${to >= from ? ", not shorter" : ""}`;
+}
+
+/** A sentence as compared: no paragraph mark, no Citation or footnote marker, spaces made alike. */
+const plainSentence = (sentence: string) =>
+  sentence
+    .replace(/^\s*(?:#{1,6}|[-*•>]|\d+[.)])\s+/u, "")
+    .replace(/\[\^?\d+\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** The most sentences the model is told were taken out, and how much of each. */
+const TAKEN_OUT_SENTENCES = 6;
+const TAKEN_OUT_CHARACTERS = 110;
+
+/**
+ * What a rewrite took out, as the model is told so it reports what happened and not what it
+ * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
+ */
+function takenOut(before: string, after: string): string | null {
+  const sentencesOf = (text: string) =>
+    text
+      .split(/\n+/)
+      .flatMap((line) =>
+        sentenceSpans(line).map((span) => plainSentence(line.slice(span.from, span.to))),
+      )
+      .filter((sentence) => sentence !== "");
+  const kept = new Set(sentencesOf(after));
+  const gone = [...new Set(sentencesOf(before))].filter((sentence) => !kept.has(sentence));
+  if (gone.length === 0) return null;
+  const shown = gone.slice(0, TAKEN_OUT_SENTENCES).map((sentence) => {
+    const cut =
+      sentence.length > TAKEN_OUT_CHARACTERS
+        ? `${sentence.slice(0, TAKEN_OUT_CHARACTERS)}…`
+        : sentence;
+    return `“${cut}”`;
+  });
+  const more = gone.length > shown.length ? ` and ${gone.length - shown.length} more` : "";
+  return `Sentences no longer in the text as they were (taken out or reworded): ${shown.join(", ")}${more}. Report what this shows, and say plainly if part of what the User asked to remove is still there.`;
 }
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
@@ -2177,12 +2218,14 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
         });
       }
       options.changed(toolCallId, change);
+      const gone = length ? takenOut(length.before, length.after) : null;
       const went = length ? ` (${lengths(length.before, length.after)})` : "";
       return [
         revised
           ? revisedText(mind, change, went)
           : editedText(mind, result.request, result.proposals, went),
         ...tableNotes(change, result.unmatchedMarkers),
+        ...(gone ? [gone] : []),
         ...(reason ? [`Why, as the rewrite says: ${reason}`] : []),
         ...droppedSaid(result.droppedCitations),
         ...(result.outOfDate > 0
