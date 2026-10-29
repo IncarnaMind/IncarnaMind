@@ -995,21 +995,22 @@ test.each([
   },
 );
 
-test("a figure called contradicted whose quote is on a page with no text to read stays not checked (#2184)", async () => {
-  const { result } = await checkWith({
-    figures: [target("f1")],
-    units: [{ page: 1, text: "", kind: "page", label: null }],
-    text: reply([
-      {
-        ...item(),
-        verdict: "contradicted",
-        source: { citation: 1, number: "£21", reading: null, unitQuote: null },
-      },
-    ]),
-  });
-  expect(result.figures?.[0]?.source?.check).toBe("cant-check");
-  expect(result.figures?.[0]?.result.verdict).toBe("not-checked");
-});
+test.each([
+  { verdict: "contradicted", route: "recorded with cite", source: { citation: 1, number: "£21" } },
+  { verdict: "unsupported", route: "recorded with cite", source: { citation: 1, number: "£21" } },
+  { verdict: "contradicted", route: "given inline", source: { ...INLINE, number: "£21" } },
+  { verdict: "unsupported", route: "given inline", source: { ...INLINE, number: "£21" } },
+])(
+  "a figure called $verdict whose quote, $route, is on a page with no text to read stays not checked (#2184)",
+  async ({ verdict, source }) => {
+    const { result } = await checkWith({
+      figures: [target("f1")],
+      units: [{ page: 1, text: "", kind: "page", label: null }],
+      text: reply([{ ...item(), verdict, source: { reading: null, unitQuote: null, ...source } }]),
+    });
+    expect(result.figures?.[0]?.result.verdict).toBe("not-checked");
+  },
+);
 
 test("a number that writes its own scale is read whatever unit line comes with it", async () => {
   const body = "2026年第三季度营业收入为人民币4,979.6百万元。";

@@ -433,6 +433,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         },
       };
     let sourceInput: FigureInput | null = null;
+    let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
     let costs: ReadonlySet<string> = new Set();
     // A saved calculation is checked by working it out again from its own inputs: a source or a
@@ -446,8 +447,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       }
     } else if (item.source) {
       const input = readFigureSource(calculations, target, item.source);
-      if (
-        "input" in input &&
+      if ("problem" in input) pageUnread = input.pageUnread === true;
+      else if (
         input.input.citation.check === "found" &&
         (!input.input.unitStatement || input.input.unitStatement.citation.check === "found")
       )
@@ -507,11 +508,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     if (!sourceInput && !calculation) {
       // A figure the model doesn't call Supported, with no source that can be read, is one its
       // quotes don't hold: Unsupported in its own right, and not asked about again (#2184). A
-      // quote on a page with no text to read stays not checked.
+      // quote where the check can't read it, recorded or inline, stays not checked.
       rows.push({
         ...base,
         result:
-          item.verdict !== "supported" && !target.calculated && cited?.check !== "cant-check"
+          item.verdict !== "supported" && !target.calculated && !pageUnread
             ? unbacked(null)
             : unavailable(),
       });
