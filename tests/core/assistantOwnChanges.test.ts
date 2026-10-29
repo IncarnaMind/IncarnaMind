@@ -2,19 +2,15 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { Core } from "../../src/core";
-import { MIND_PROPOSAL_REQUESTS_FIELD, MIND_REVISIONS_FIELD } from "../../src/core";
 import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { waitingProblemOf } from "../../src/renderer/src/changeProblems";
+import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { waitsForUser } from "../../src/shared/askedChanges";
-import {
-  decideProposals,
-  pendingProposals,
-  proposalRequestOf,
-  resolveProposals,
-} from "../../src/shared/proposals";
+import { pendingProposals, proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -1248,58 +1244,54 @@ describe("Text the User turned down twice stays gone", { timeout: 30_000 }, () =
       expect(revision).toMatchObject({ mindId: mind.id, revised: true });
       await page.settled();
       const beforeRejecting = exactly(page);
+      const editor = boundEditor(page);
 
       const reject = async (request: string) => {
-        const undo = new Y.UndoManager(
-          [
-            page.blocks,
-            page.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
-            page.doc.getMap(MIND_REVISIONS_FIELD),
-          ],
-          { trackedOrigins: new Set(["editor"]) },
+        const ids = new Set(
+          pendingProposals(page.blocks)
+            .filter((ref) => ref.request === request)
+            .map((ref) => ref.id),
         );
-        page.doc.transact(
-          () => decideProposals(page.blocks, (ref) => ref.request === request, "reject"),
-          "editor",
-        );
+        resolveInEditor(editor, ids, "reject");
         await page.settled();
-        return undo;
+      };
+      const undo = async () => {
+        editor.commands.undo();
+        await page.settled();
+      };
+      const redo = async () => {
+        editor.commands.redo();
+        await page.settled();
       };
 
       // Reject all on the revising Answer's card: the first Answer's text comes back waiting.
-      let rejectingRevision = await reject(revision?.request ?? "");
+      await reject(revision?.request ?? "");
       expect(pendingProposals(page.blocks).some((ref) => ref.request === firstRequest)).toBe(true);
       expect(shownWithChanges(page)).toContain(`+ ${words.section}`);
       const restored = exactly(page);
-      rejectingRevision.undo();
-      await page.settled();
+      await undo();
       expect(exactly(page)).toEqual(beforeRejecting);
       // Reject all again after the Undo, as the User does: the earlier text comes back again.
-      rejectingRevision = await reject(revision?.request ?? "");
+      await reject(revision?.request ?? "");
       expect(exactly(page)).toEqual(restored);
-      rejectingRevision.undo();
-      await page.settled();
+      await undo();
       expect(exactly(page)).toEqual(beforeRejecting);
-      rejectingRevision.redo();
-      await page.settled();
+      await redo();
       expect(exactly(page)).toEqual(restored);
 
       // Reject all on the first Answer's card: the risks are gone.
-      let rejectingTheText = await reject(firstRequest);
+      await reject(firstRequest);
       expect(pendingProposals(page.blocks)).toEqual([]);
       expect(shownWithChanges(page)).not.toContain(`+ ${words.section}`);
       const gone = exactly(page);
-      rejectingTheText.undo();
-      await page.settled();
+      await undo();
       expect(exactly(page)).toEqual(restored);
       // Reject all again after the Undo: they are gone again.
-      rejectingTheText = await reject(firstRequest);
+      await reject(firstRequest);
       expect(exactly(page)).toEqual(gone);
-      rejectingTheText.undo();
-      await page.settled();
+      await undo();
       expect(exactly(page)).toEqual(restored);
-      rejectingTheText.redo();
-      await page.settled();
+      await redo();
       expect(exactly(page)).toEqual(gone);
 
       // Writing the revising Answer again changes nothing, and brings nothing back.
