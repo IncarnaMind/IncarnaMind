@@ -95,7 +95,8 @@ export function DocumentCheckAction({
       setReading((now) => (now === within ? null : now));
     }
   };
-  const choose = async (within: SearchScope) => {
+  /** `ask`: a read asked again, never started without the User's Read it, however small. */
+  const choose = async (within: SearchScope, ask = false) => {
     close();
     asked.current = within;
     try {
@@ -104,7 +105,7 @@ export function DocumentCheckAction({
         within,
       });
       if (!plan || asked.current !== within) return;
-      if (plan.kind === "ready" && readsAtOnce(plan)) await readPlan(within, plan);
+      if (plan.kind === "ready" && !ask && readsAtOnce(plan)) await readPlan(within, plan);
       else setOffer({ within, plan });
     } catch (error) {
       if (asked.current === within) setFailure(errorMessage(error, t));
@@ -120,8 +121,18 @@ export function DocumentCheckAction({
       return;
     }
     dismissDocumentPicker(claim.check.id);
-    void choose(requested);
+    void choose(requested, true);
   }, [requested, running]);
+  const pending = useRef(requested);
+  pending.current = requested;
+  // A request this card never took up goes with it: opened later, it would read unasked.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only as the card goes.
+  useEffect(
+    () => () => {
+      if (pending.current !== undefined) dismissDocumentPicker(claim.check.id);
+    },
+    [],
+  );
 
   const plan = offer?.plan;
   return (
@@ -154,10 +165,13 @@ export function DocumentCheckAction({
       {offer && plan?.kind === "ready" && (
         <AskBlock
           testId="document-check-ask"
-          question={t(plan.pages === 1 ? "claim.readAsk.one" : "claim.readAsk", {
-            scope: asking?.name ?? "",
-            pages: plan.pages,
-          })}
+          question={[
+            t(plan.pages === 1 ? "claim.readAsk.one" : "claim.readAsk", {
+              scope: asking?.name ?? "",
+              pages: plan.pages,
+            }),
+            ...(plan.parts === null ? [t("claim.readAsk.atLeast")] : []),
+          ].join(language === "zh-CN" ? "" : " ")}
           estimate={
             plan.estimate ? estimateLine(plan.estimate, t, language, { always: true }) : null
           }

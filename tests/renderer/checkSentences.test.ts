@@ -99,10 +99,13 @@ test("Check again on a whole read asks its card to size the read and ask its cos
     },
   } as unknown as ShownClaim;
 
-  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim);
+  const shown: string[] = [];
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, undefined, (id) => shown.push(id));
 
   expect(asked).toHaveLength(0);
   expect(checks.useChecks.getState().pickDocument["whole-read"]).toEqual(chosen);
+  // Use the figure closes no card that has to ask: the card opens for it.
+  expect(shown).toEqual(["whole-read"]);
   checks.dismissDocumentPicker("whole-read");
 
   await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, true);

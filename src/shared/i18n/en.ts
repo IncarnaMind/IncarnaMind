@@ -920,6 +920,8 @@ export const en = {
   "claim.readNotNow": "Not now",
   "claim.readAsk": "Read {pages} pages of “{scope}” to check this sentence?",
   "claim.readAsk.one": "Read 1 page of “{scope}” to check this sentence?",
+  "claim.readAsk.atLeast":
+    "This is the least it costs: the sentence’s parts are found as it reads.",
   "claim.readCannot": "This can’t be read whole. Choose a smaller Document.",
   "claim.readCannot.many": "That’s more than {most} Documents. Choose fewer.",
   "claim.readNothing": "No text to read in this pick.",

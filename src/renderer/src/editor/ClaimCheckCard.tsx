@@ -384,7 +384,7 @@ export function ClaimMark({
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
-                // A whole read asks its cost in this card first.
+                // A whole read is asked again in this card, which stays open for it.
                 if (allDocuments || claim.check.action !== "check-against-document") done();
               }}
               onUseWording={(part) => {
@@ -438,7 +438,8 @@ export function ClaimMark({
               use={offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
-                done(true);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
             />
           </Popover>,

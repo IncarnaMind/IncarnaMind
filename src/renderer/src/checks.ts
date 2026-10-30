@@ -137,7 +137,7 @@ export const setClaimFocus = (place: string, id: string | null) => setFor("focus
 
 export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
 
-/** Asks the claim's card to read `within` again: it sizes the read and asks its cost first. */
+/** Asks the claim's card to read `within` again: it sizes the read and asks before reading. */
 export const requestDocumentRead = (id: string, within: SearchScope) =>
   setFor("pickDocument", id, within);
 
@@ -357,19 +357,23 @@ export function stopCheck(mindId: string): void {
   if (running) void core.cancelCheck(running.requestId);
 }
 
-/** Checks a sentence again, as it was checked, or in every Document. */
+/**
+ * Checks a sentence again, as it was checked, or in every Document. A whole read is asked again
+ * in the sentence's card, which `showCard` opens when it isn't open already.
+ */
 export function checkAgain(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
   claim: ShownClaim,
   allDocuments = claim.check.scope.widened,
+  showCard?: (checkId: string) => void,
 ): Promise<void> {
   const { action } = claim.check;
   const chosen = claim.check.scope.chosen;
   if (action === "check-against-document" && !allDocuments && chosen) {
-    // Its card sizes the read again and asks its cost first, as the first read did.
     requestDocumentRead(claim.check.id, chosen);
+    showCard?.(claim.check.id);
     return Promise.resolve();
   }
   return checkSentences(

@@ -1132,6 +1132,26 @@ describe("A whole read the User replaced", () => {
     expect(await marks(client)).toEqual([]);
   });
 
+  test("a plan is for its own sentence: another sentence, or new words, send nothing", async () => {
+    const { core, client, mind, block, calls, model, a } = await allowed();
+    const other = "Rent is due monthly.";
+    const second = paragraph(text(other));
+    writeMind(client, [block, second]);
+    await client.settled();
+    const plan = await planned(core, mind.id, block, within([a.id]));
+
+    await expect(
+      core.checkSentences({ ...checkInput(mind.id, second, other, within([a.id])), plan, model }),
+    ).rejects.toThrow();
+    writeMind(client, [{ ...block, content: [text(EN.claim.replace("15", "16"))] }, second]);
+    await client.settled();
+    await expect(
+      core.checkSentences({ ...checkInput(mind.id, block, EN.claim, within([a.id])), plan, model }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+    expect(await marks(client)).toEqual([]);
+  });
+
   test("waits for a check already running on the sentence, sending nothing", async () => {
     let release = () => {};
     const paused = new Promise<void>((resolve) => {

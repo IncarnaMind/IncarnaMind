@@ -286,7 +286,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withClaim(figureAt) !== null,
     run() {
       const at = withClaim(figureAt);
-      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim, () => showClaimCard(at));
     },
   },
 ];

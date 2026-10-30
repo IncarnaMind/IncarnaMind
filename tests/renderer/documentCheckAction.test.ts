@@ -277,3 +277,30 @@ test("a read asked again waits while the Note's check runs, then sizes it and as
   expect(container.querySelector('[data-testid="ask-question"]')?.textContent).toContain(":A:12");
   expect(read).not.toHaveBeenCalled();
 });
+
+test("a read asked again asks before reading, however small", async () => {
+  bridge.planDocumentCheck.mockResolvedValue(ready(3, 0.1));
+  checksState.pickDocument = { claim: scope("A") };
+  await render();
+
+  await vi.waitFor(() => expect(bridge.planDocumentCheck).toHaveBeenCalledOnce());
+  await vi.waitFor(() =>
+    expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull(),
+  );
+  expect(read).not.toHaveBeenCalled();
+  await click("document-check-read");
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("A"), plan: "plan-3" });
+});
+
+test("a request the card never took up goes when the card closes", async () => {
+  checksState.running = { mind: { requestId: "earlier", action: "check-against-document" } };
+  checksState.pickDocument = { claim: scope("A") };
+  await render();
+  dismissDocumentPicker.mockClear();
+
+  await act(async () => root.unmount());
+
+  expect(dismissDocumentPicker).toHaveBeenCalledWith("claim");
+  expect(bridge.planDocumentCheck).not.toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+});

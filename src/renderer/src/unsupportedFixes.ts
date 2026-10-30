@@ -325,9 +325,16 @@ function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttr
  * Changes the one number of a sentence that a check's calculated figure
  * disagrees with to the figure, keeping the sentence's Citations, and checks
  * the sentence again (#1247). One step of the note's Undo, which brings the
- * number back with the check it had.
+ * number back with the check it had. A whole read is asked again in the
+ * sentence's card, which `showCard` opens.
  */
-export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: ShownClaim): void {
+export function applyFigure(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  claim: ShownClaim,
+  showCard?: (checkId: string) => void,
+): void {
   if (claim.shown.state !== "supported" && claim.shown.state !== "contradicted") return;
   const calculation = claim.check.calculation;
   const fix = figureFix(calculation, claim.sentence.text);
@@ -349,7 +356,7 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
     () => restoreCheck(editor, claim, earlier),
   );
   const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-  if (again) void checkAgain(editor, mindId, doc, again);
+  if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
 }
 
 export function applyDocumentWording(
