@@ -76,6 +76,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "health.unexamined.one" },
   { page: "data", key: "embeddingProviders.localOnly.label" },
   { page: "data", key: "tagging.automatic.switch" },
+  { page: "data", key: "skills.make.command" },
 ];
 
 const rendered = (quote: DocQuote, language: Language): string =>
