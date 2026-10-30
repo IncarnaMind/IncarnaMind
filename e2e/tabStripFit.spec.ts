@@ -529,6 +529,51 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
+  test(`a tab scrolled into view by a script, beside an open Document, comes to rest whole at every width from 1,180 to 1,440 px (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 760);
+    await setLanguage(window, language);
+    const report = await addReport(window, language);
+    // Names of different widths, so a narrow tab sits beside a wider one.
+    for (const name of [
+      NOTE[language],
+      ...MORE[language],
+      `${nameOf(language, 0)}, ${nameOf(language, 1)}`,
+    ]) {
+      await addMind(window, groupAt(window, 0), name);
+    }
+    await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    const list = listAt(window, 0);
+    const names = await list
+      .getByRole("tab")
+      .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("aria-label") ?? ""));
+    for (let width = 1440; width >= 1180; width -= 20) {
+      await setWindowSize(app, window, width, 760);
+      for (const name of names) {
+        const tab = list.getByRole("tab", { name, exact: true });
+        await tab.scrollIntoViewIfNeeded();
+        // Once it has held its place for six frames, the strip has come to rest.
+        const whole = await tab.evaluate(async (element) => {
+          const view = () => (element.parentElement as HTMLElement).getBoundingClientRect();
+          let last = Math.round(element.getBoundingClientRect().left);
+          for (let still = 0; still < 6; ) {
+            await new Promise((next) => requestAnimationFrame(next));
+            const now = Math.round(element.getBoundingClientRect().left);
+            still = now === last ? still + 1 : 0;
+            last = now;
+          }
+          const at = element.getBoundingClientRect();
+          return at.left >= view().left - 1 && at.right <= view().right + 1;
+        });
+        expect(whole, `"${name}" at ${width} px`).toBe(true);
+      }
+    }
+    await app.close();
+  });
+
   test(`two groups side by side each rest on whole tabs with 3 to 8 tabs (${language})`, async () => {
     test.setTimeout(300_000);
     const { app, window } = await launchApp(dataDir);
