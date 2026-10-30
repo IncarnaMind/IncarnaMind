@@ -86,8 +86,9 @@ function written(window: Page) {
 
 /**
  * Each marker of the Note's first paragraph that starts a line apart from the word before it, as
- * "<width>:<marker>", over a sweep of the paragraph's width; set by a style sheet, so the editor's
- * own elements are never changed.
+ * "<width>:<marker>", over a sweep of the paragraph's width from one too narrow for any line to
+ * hold more than a word and its marker; set by a style sheet, so the editor's own elements are
+ * never changed. Narrower still, the browser breaks inside words to fit.
  */
 function markersOffTheirWords(window: Page) {
   return window.getByTestId("mind-editor").evaluate((dom) => {
@@ -97,7 +98,7 @@ function markersOffTheirWords(window: Page) {
     document.head.append(sheet);
     const inChip = (node: Node) => node.parentElement?.closest(".node-citation") !== null;
     const apart: string[] = [];
-    for (let width = 40; width <= 420; width += 2) {
+    for (let width = 80; width <= 420; width += 2) {
       sheet.textContent = `.ProseMirror p { width: ${width}px; }`;
       const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
       let last: Text | null = null;
@@ -106,7 +107,7 @@ function markersOffTheirWords(window: Page) {
         if (inChip(text)) {
           const chip = text.parentElement?.closest(".node-citation");
           const marker = chip?.querySelector(".citation-marker");
-          if (!last || !marker || chip?.previousElementSibling?.matches(".node-citation")) continue;
+          if (!last || !marker) continue;
           const range = document.createRange();
           range.setStart(last, last.length - 1);
           range.setEnd(last, last.length);

@@ -4173,19 +4173,22 @@
       white-space: normal;
     }
   }
-  .node-citation + .node-citation .citation-marker {
+  /* ProseMirror puts a separator image between two markers side by side. */
+  :is(.node-citation, .node-citation + .ProseMirror-separator) + .node-citation .citation-marker {
     margin-left: 2px;
   }
   /*
    * A marker follows its word with no space, and the browser may still break before any inline
-   * box: a no-break space of no width, drawn only, keeps the first marker on its word's line. It
-   * is in no stored text, copy or export (DESIGN.md, Citations).
+   * box: a no-break space of no width, drawn only, keeps a Note's first marker on its word's line.
+   * It is in no stored text, copy or export (DESIGN.md, Citations); an Answer glues its own.
    */
-  .mind-editor .node-citation::before {
+  .mind-editor:not(.assistant-answer-text) .node-citation::before {
     content: "\202F";
     font-size: 0;
   }
-  .mind-editor .node-citation + .node-citation::before {
+  .mind-editor
+    :is(.node-citation, .node-citation + .ProseMirror-separator)
+    + .node-citation::before {
     content: none;
   }
   /* The Citation's ⋯, out of sight: its menu opens from the marker (see `ObjectMenu`). */
@@ -7451,7 +7454,7 @@
         box-shadow: inset 0 0 0 1.5px var(--color-danger);
       }
     }
-    .node-citation + .node-citation .citation-marker {
+    :is(.node-citation, .node-citation + .ProseMirror-separator) + .node-citation .citation-marker {
       margin-left: 2px;
     }
     /* In a cell, centred on the line: raised, it would make its row taller than the others. */
