@@ -1259,6 +1259,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
                 ? parsed.period
                 : undefined;
             canonicalPlan = { ...plan, facet: { kind: "time", ...(period && { period }) } };
+            // An explicit reading skips the 12-month rule, so the time words themselves must
+            // state the period; otherwise "currently" read as explicit could pass a stale quote.
+            if (
+              parsed.time === "explicit" &&
+              period &&
+              !periodInEvidence(period, [
+                (request.originalClaim ?? request.claim).slice(plan.span.start, plan.span.end),
+              ])
+            )
+              return unavailable("malformed", citations);
             const document = evidence.documentName;
             const t = (key: MessageKey, params: MessageParams) =>
               translate(deps.language(), key, params);

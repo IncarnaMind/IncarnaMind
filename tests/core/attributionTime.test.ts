@@ -281,6 +281,20 @@ test.each([
 );
 
 test.each(["en", "zh-CN"] as const)(
+  "a relative qualifier read as explicit cannot skip the 12-month rule (%s)",
+  async (language) => {
+    const row = CASES.find(
+      (row) => row.language === language && row.expected === "unsupported" && row.period,
+    );
+    if (!row) throw new Error("Missing stale rate fixture");
+    const setup = await setUp(row, { time: "explicit" });
+    const result = await setup.check();
+    expect(result.verdict).not.toBe("supported");
+    expect(timePart(result)).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
   "an explicit later Check re-evaluates the calendar anniversary (%s)",
   async (language) => {
     const row: TimeCase = {
