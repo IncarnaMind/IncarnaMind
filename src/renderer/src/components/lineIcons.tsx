@@ -10,6 +10,7 @@ type IconProps = SVGProps<SVGSVGElement>;
  */
 function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { children: ReactNode }) {
   return (
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative unless the caller supplies an accessible name.
     <svg
       viewBox="0 0 24 24"
       fill="none"
@@ -17,9 +18,11 @@ function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { chil
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
+      aria-hidden={props["aria-label"] || props["aria-labelledby"] ? undefined : true}
+      role={props["aria-label"] || props["aria-labelledby"] ? "img" : undefined}
       {...props}
     >
+      {props["aria-label"] && <title>{props["aria-label"]}</title>}
       {children}
     </svg>
   );
@@ -86,6 +89,15 @@ export function FolderLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
       <path d={FOLDER} />
+    </LineIcon>
+  );
+}
+
+export function LockLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
     </LineIcon>
   );
 }

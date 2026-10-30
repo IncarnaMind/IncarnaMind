@@ -25,6 +25,7 @@ import {
   ChevronDownLineIcon,
   ChevronRightLineIcon,
   FolderLineIcon,
+  LockLineIcon,
   PlusLineIcon,
 } from "./lineIcons";
 import { MindRow } from "./MindRow";
@@ -416,6 +417,17 @@ function FolderGroup({
             <span data-testid="row-text" className="min-w-0 flex-1 truncate">
               {folder.name}
             </span>
+            {folder.keepInside === true && (
+              <span
+                data-testid="folder-wall"
+                role="img"
+                aria-label={t("folder.wall.title")}
+                title={t("folder.wall.title")}
+                className="flex shrink-0"
+              >
+                <LockLineIcon className="size-3.5 text-ink-meta" />
+              </span>
+            )}
             <span
               data-testid="browse-count"
               className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"

@@ -234,10 +234,10 @@ export function ObjectMenu({
       return <div key={`rule-${index}`} className={menuRuleClass} />;
     }
     const { command, enabled } = entry;
+    const checked = command.checked?.(ctx);
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
-    const checked = command.checked?.(ctx);
     return (
       // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
@@ -252,8 +252,12 @@ export function ObjectMenu({
         onClick={() => run(entry)}
         className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
+        {checked !== undefined && (
+          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
+            {checked && <CheckLineIcon className="size-4" />}
+          </span>
+        )}
         <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
-        {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>
     );

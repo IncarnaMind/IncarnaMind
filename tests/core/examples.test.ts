@@ -16,6 +16,7 @@ import {
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
@@ -502,13 +503,14 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     );
     for (const citation of after) {
       expect(
-        (
+        checkedResult(
           await core.recheckCitation({
+            mindId: null,
             documentId: citation.documentId,
             pageFrom: citation.pageFrom,
             pageTo: citation.pageTo,
             quote: citation.quote,
-          })
+          }),
         ).check,
       ).toBe("found");
     }

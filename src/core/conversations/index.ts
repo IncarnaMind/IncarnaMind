@@ -137,6 +137,7 @@ interface MessageRow {
   text: string;
   asked_from_mind_id: string | null;
   scope: string | null;
+  folder_asked_in: string | null;
   provider_id: string | null;
   model_id: string | null;
   forced_skill: string | null;
@@ -483,6 +484,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     askedFrom: askedFromOf(row),
     focus: storedFocus(row.focus),
     scope: storedScope(row.scope),
+    folderAskedIn: row.folder_asked_in ?? undefined,
     model: modelOf(row),
     forcedSkill: row.forced_skill,
     analyse: row.analyse === 1,
@@ -684,6 +686,7 @@ export function createConversations(db: Database, now: () => string) {
       askedFrom?: string | null;
       focus?: MindFocus | null;
       scope?: SearchScope | null;
+      folderAskedIn?: string;
       model: ChatModelChoice | null;
       forcedSkill?: string | null;
       analyse?: boolean;
@@ -696,10 +699,10 @@ export function createConversations(db: Database, now: () => string) {
     const id = randomUUID();
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
-         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, analyse, quotes, status,
+         asked_from_mind_id, focus, scope, folder_asked_in, provider_id, model_id, forced_skill, analyse, quotes, status,
          read_mind_id, read_mind_version, read_partial, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -710,6 +713,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.askedFrom ?? null,
         fields.focus ? JSON.stringify(fields.focus) : null,
         fields.scope ? JSON.stringify(fields.scope) : null,
+        fields.folderAskedIn ?? null,
         fields.model?.providerId ?? null,
         fields.model?.modelId ?? null,
         fields.forcedSkill ?? null,
@@ -924,12 +928,14 @@ export function createConversations(db: Database, now: () => string) {
      * Adds a Question, starting its conversation when it has none, and its Answer, being
      * written with `answerModel` from the Mind it reads (`read`), all in one go. A new
      * conversation is named by the Question and belongs to the Folder of the Mind in
-     * focus, or to none.
+     * focus, or to none. `askedIn` gives the Folder the Question is asked in, "" for none, from
+     * its conversation's Folder; left out, it isn't recorded.
      */
     add(
       input: Omit<QuestionInput, "onScreen" | "commands">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
+      askedIn?: (conversationFolderId: string | null) => string,
     ): AddedTurn {
       const previousConversationUpdatedAt =
         input.conversationId === null
@@ -963,6 +969,7 @@ export function createConversations(db: Database, now: () => string) {
             askedFrom: input.mind?.id ?? null,
             focus: input.focus,
             scope: input.scope,
+            folderAskedIn: askedIn?.(get(conversationId).folderId),
             model: input.model,
             forcedSkill: input.forcedSkill,
             analyse: input.analyse,

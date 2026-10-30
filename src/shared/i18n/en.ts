@@ -344,6 +344,22 @@ export const en = {
   "folder.organize.empty": "The Folder has no Documents to organize.",
   "folder.tagWithAi": "Tag with AI",
   "folder.editDescription": "Edit description…",
+  "folder.keepInside": "Keep this Folder’s work inside it",
+  "folder.keepInside.hint": "Its notes use only its Documents, and other notes don’t search them",
+  "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "folder.wall.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.turnPlace": "This needs to know which note or conversation it’s in.",
+  "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
+  "error.folder.wallMove":
+    "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
+  "error.folder.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.folder.keepInside": "keepInside must be true or false.",
+  "undo.folderWallOn": "“{name}” now keeps its work inside it",
+  "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
+  "folder.wall.title": "This Folder keeps its work inside it",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
   "tag.delete": "Delete",
@@ -361,6 +377,7 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
+  "move.outOfWall": "It is no longer limited to that Folder’s Documents and notes.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",
@@ -939,6 +956,7 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
@@ -1834,6 +1852,7 @@ export const en = {
   "webPages.reason.too-many-redirects": "it redirects too many times",
   "webPages.reason.not-from-search": "the web search didn’t return it",
   "webPages.reason.local-mode": "“Keep everything on this computer” is on",
+  "webPages.reason.kept-inside": "this work stays inside its Folder, which can’t be found now",
   "webPages.localMode":
     "Not fetched: “Keep everything on this computer” is on. It would contact {site}.",
   "webPages.localMode.once": "Fetch this page once",
@@ -2868,6 +2887,9 @@ export const en = {
   "composer.label": "Ask, or say ‘write a note on…’ ({shortcut})",
   "composer.ask": "Ask (Enter)",
   "composer.scope.all": "All Documents",
+  "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
+  "composer.scope.leftOut": "All Documents · {count} Folders left out",
+  "scope.openNote": "Open a note there",
   "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
   "composer.scope.allTitle": "Searches all your Documents. Type @ to limit it",
   "composer.scope.allEmptyFolder":
@@ -3040,6 +3062,7 @@ export const en = {
   "scope.picker.empty": "No Folders, Tags or Documents match",
   "scope.picker.none": "No Documents yet. Add some to choose what to search.",
   "scope.chip.folder": "Folder “{name}”, with its sub-Folders",
+  "scope.chip.wall": "Folder “{name}” keeps its work inside it",
   "scope.chip.tag": "Documents tagged “{name}”",
   "scope.chip.document": "Document “{name}”",
   "scope.chip.deleted.folder": "Deleted Folder",
@@ -3310,6 +3333,8 @@ export const en = {
   "research.ask.library": "Library",
   "research.ask.title.one": "Save 1 web page to a new Folder",
   "research.ask.title.other": "Save {count} web pages to a new Folder",
+  "research.ask.titleInto.one": "Save 1 web page to “{folder}”",
+  "research.ask.titleInto.other": "Save {count} web pages to “{folder}”",
   "research.ask.folder": "Folder",
   "research.ask.folderNew": "{name} (new)",
   "research.ask.pages": "Pages",
@@ -3389,6 +3414,7 @@ export const en = {
   "task.status.notReady": "Its model can’t be used now",
   "task.status.stopped": "Stopped",
   "task.status.failed": "Couldn’t finish",
+  "task.problem.keptInside": "Couldn’t finish: its Folder is gone",
   "task.pause": "Pause",
   "task.resume": "Resume",
   "task.stop": "Stop",
@@ -3485,6 +3511,7 @@ export const en = {
     "The words are in several places, and nothing around them tells which.",
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
   "citation.reason.document-removed": "The Document has been deleted.",
+  "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "The quote is checked when the Answer is finished.",
   "citation.where": "{document}, {location}",
@@ -4446,6 +4473,11 @@ export const en = {
   "commands.setting.exportFormat": "Export format",
   "commands.setting.meetingSystemAudio": "Record the computer’s sound too",
   "commands.setting.model": "Model for Answers",
+  "commands.yours.wall":
+    "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
+  "commands.yours.wall.named":
+    "Whether “{folder}” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+  "commands.yours.openFolderMenu": "Open the Folder’s menu",
   "commands.yours.keys":
     "Keys and sign-ins are yours to change, not mine. They’re in Settings › Models.",
   "commands.yours.privacy":
@@ -6064,6 +6096,7 @@ export const en = {
   "answer.uncitedWrite":
     "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
+  "answer.added.outOfWall": "Added to “{mind}” · copied out of “{folder}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",
   "answer.table.open": "Open as a table",
@@ -6124,6 +6157,8 @@ export const en = {
     "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+  "agents.problem.wallShared":
+    "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.chat-not-ready":

@@ -1135,6 +1135,8 @@ export interface CommandDone {
   window?: { changed: boolean; running?: true };
   /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
   yours?: Yours;
+  /** With `yours` "wall": the Folder whose wall the request is about, which the card names (#1934). */
+  folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
 }
@@ -1836,6 +1838,8 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /** Can't check from this Note: the Document stays inside a walled Folder. */
+  | "kept-inside"
   /** Can't check: the Document was deleted. */
   | "document-removed";
 
@@ -1843,7 +1847,8 @@ export type CitationCheckReason =
  * What to re-check a Citation with against its Document's current version
  * (see `CoreApi.recheckCitation`): its Document, cited Units and quote.
  */
-export interface RecheckCitationInput {
+/** A Citation to look for again in its Document (see `RecheckCitationInput`). */
+export interface CitationToRecheck {
   documentId: string;
   /** The cited Units (pages, slides…), from 1; null for a whole TXT or Markdown file. */
   pageFrom: number | null;
@@ -1855,6 +1860,34 @@ export interface RecheckCitationInput {
    * (`changed`).
    */
   contentHash?: string | null;
+}
+
+/** Where a Question is asked: its Note, else its conversation; null for none. */
+export interface TurnPlace {
+  mindId: string | null;
+  conversationId: string | null;
+}
+
+/**
+ * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
+ * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ */
+export interface CitationKeptInside {
+  /** The walled Folder's name. */
+  keptInside: string;
+}
+
+/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+export type RecheckResult = CitationRecheck | CitationKeptInside;
+
+export interface RecheckCitationInput extends CitationToRecheck {
+  /**
+   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
+   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
+   * walled Folder isn't read again for a Note outside it: the check it was made with stands
+   * (#1934). Never left out.
+   */
+  mindId: string | null;
 }
 
 /**
@@ -3240,6 +3273,8 @@ export type WebPageLookFailure =
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
  *   fetched: the site would have seen the request, and the address can name
  *   a matter. The User can let this one page go (`localModeOnce`).
+ * - "kept-inside": the Answer's work stays inside a walled Folder that can't
+ *   be found now, so the page wasn't saved anywhere (#1934).
  */
 export type WebPageFailureReason =
   | "invalid-address"
@@ -3255,7 +3290,8 @@ export type WebPageFailureReason =
   | "not-public"
   | "too-many-redirects"
   | "not-from-search"
-  | "local-mode";
+  | "local-mode"
+  | "kept-inside";
 
 export interface WebPageFailure {
   reason: WebPageFailureReason;
@@ -5489,6 +5525,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5504,7 +5541,8 @@ export type ClaimCheckFailure =
   | "stopped"
   | "too-many"
   | "consent-revoked"
-  | "local-mode";
+  | "local-mode"
+  | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6477,6 +6515,11 @@ export interface ConversationQuestion {
   focus: MindFocus | null;
   /** Its Search scope; null: none, every Document. */
   scope: SearchScope | null;
+  /**
+   * The Folder it was asked in, which its Folder wall is judged by now (#1934): its Note's, else
+   * its Search scope's one Folder, else its conversation's; "" for none. Left out: not recorded.
+   */
+  folderAskedIn?: string;
   /** The model picked for it; null: the default. */
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */
@@ -9925,10 +9968,22 @@ export interface CoreApi {
   /**
    * Keeps text the User pasted as a Markdown Document, so Answers can cite it.
    * The file is written in the data folder ("Saved text"), never next to the
-   * User's files, and added on its own like any file (no Folder). A name taken
+   * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
+   * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
    * already gets a number. Throws InvalidInputError for text with no words.
    */
-  saveTextAsDocument(input: { name: string; text: string }): Promise<Document>;
+  saveTextAsDocument(
+    input: {
+      name: string;
+      text: string;
+    } & TurnPlace,
+  ): Promise<Document>;
+  /**
+   * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
+   * Note's, else the conversation's when no Note is open; null outside every wall. What the
+   * composer shows and files follows it.
+   */
+  wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
    * Saves a web page as a Document (#261): its readable text, without
    * navigation, ads or scripts, kept as a snapshot that Citations point at
@@ -10245,7 +10300,7 @@ export interface CoreApi {
    * quotes, in that version too. Nothing is stored: the editor writes the
    * result onto the Citation's node.
    */
-  recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
+  recheckCitation(input: RecheckCitationInput): Promise<RecheckResult>;
   /**
    * Cites words the User selected in a Document's viewer (#101), given in the
    * order selected, one part for each Unit: checked against the current
@@ -11637,6 +11692,7 @@ const methods: Record<CoreApiMethod, true> = {
   keepWebPageLook: true,
   fetchWebPageAgain: true,
   saveTextAsDocument: true,
+  wallOfTurn: true,
   listDocuments: true,
   renameDocument: true,
   deleteDocument: true,
