@@ -682,7 +682,15 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
-  // protects=a real unit Documents write beside a rate, a comma, a year or a label states the measure: "540 €/t", "$/t", "(USD per t)", "(t, 2024)", "(metric t)", "Output, t", "in t", "Unit of measure: t", "元/吨", "单位为吨"; fails_when=any of these is Unsupported; no_claim=the value.
+  // protects=a slash after a figure does not turn the start of a word into a unit: 克 in 2026/克林工厂, 米 in 2026/米兰公司; fails_when=an invented unit behind a year and a slash passes; no_claim=the value.
+  test.each([
+    ["产量为54,000吨。", "报表编号2026/克林工厂\n产量54,000", "54,000"],
+    ["路线长54公里。", "报表编号2026/米兰公司\n路线长54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a real unit Documents write beside a rate, a comma, a year or a label states the measure: "540 €/t", "$/t", "(USD per t)", "(t, 2024)", "(metric t)", "Output, t", "in t", "Unit of measure: t", "元/吨", "单位为吨", "单位：克"; fails_when=any of these is Unsupported; no_claim=the value.
   test.each([
     ["The mill's output was 54,000 tonnes.", "Price 540 €/t; output 54,000"],
     ["The mill's output was 54,000 tonnes.", "Price $/t: 540\nOutput 54,000"],
@@ -696,6 +704,7 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["产量为54,000吨。", "价格3,500元/吨；产量54,000"],
     ["产量为54,000吨。", "单位为吨\n产量54,000"],
     ["产量为54,000吨。", "单位是吨\n产量54,000"],
+    ["重量为54克。", "单位：克\n重量\t54"],
     ["产量为54,000吨。", "产量54,000，另有一吨。"],
     ["容量为54升。", "容量54，另有十升。"],
   ])("%s against %j isn't flagged", (claim, cited) => {
@@ -1033,6 +1042,19 @@ describe("A letter or character inside a word through the core (#2225)", {
       await checkIn(
         "产量为54,000吨。",
         { name: "产量.txt", contents: "产量\n克服困难，产量54,000\n" },
+        "zh-CN",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "文档写的是 54,000，不是 54,000吨。" },
+    });
+  });
+
+  test("a slash after a year doesn't make the start of a word a unit", async () => {
+    expect(
+      await checkIn(
+        "产量为54,000吨。",
+        { name: "报表.txt", contents: "报表编号2026/克林工厂\n产量54,000\n" },
         "zh-CN",
       ),
     ).toMatchObject({

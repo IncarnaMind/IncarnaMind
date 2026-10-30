@@ -2391,14 +2391,16 @@ const WHOLE_NAME = `(?!${HAN})`;
 // A Latin symbol stands alone: a letter, an apostrophe or a Han character beside it makes it a word, and a digit after it a product ("27m3").
 const latinSymbol = (symbol: string) => `(?<![\\p{L}'’ʼ])${symbol}(?![\\p{L}\\p{N}])`;
 // NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
-const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?(?:[/⁄][ \\u00a0]?)?`;
+const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
+const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
 const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
 const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
 const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
-// After a slash, a lone numeral or a label, a Han symbol must be the whole name ("元/吨", "一吨", "单位为吨").
+// After a slash, a lone numeral or a label, a Han symbol must be the whole name ("元/吨", "一吨", "单位为吨"); a digit before it leaves it free ("54,000吨的货物").
 const hanSymbol = (symbol: string) =>
   [
     `${HAN_AFTER_FIGURE}${symbol}`,
+    `${HAN_AFTER_RATE}${symbol}${WHOLE_NAME}`,
     `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
     `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
     `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
@@ -2434,9 +2436,10 @@ export function measureOf(unit: FigureUnit): string | null {
 }
 
 /**
- * Whether `text` writes any unit of `measure`: a word ("tonnes"), a symbol right after its figure
- * ("54,000 t", "54,000吨"), in a column heading ("(t)", "YoY%") or on a unit line ("Units: t",
- * "单位：吨"). Converting one unit into another isn't attempted.
+ * Whether `text` writes any unit of `measure`: a word ("tonnes"), a Latin symbol that stands alone
+ * ("54,000 t", "540 €/t", "(t, 2024)"), or, in Chinese, a symbol that names the unit after a figure,
+ * a slash, a lone numeral or a unit line ("54,000吨", "元/吨", "一吨", "单位：吨"). Converting one
+ * unit into another isn't attempted.
  */
 export function writesMeasure(text: string, measure: string): boolean {
   return WRITES[measure]?.test(text.normalize("NFKC")) ?? false;
