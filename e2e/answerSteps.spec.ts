@@ -736,7 +736,7 @@ test("at a 320px assistant the folded line is cut, never wrapped, in English and
   expect(Math.round((await window.getByTestId("assistant").boundingBox())?.width ?? 0)).toBe(320);
   const answer = await ask(window, "When do spring tides happen?");
   const line = answer.getByTestId("answer-steps");
-  const full = `Searched ${LONG_FOLDER} · 1 source`;
+  const full = `Searched “${LONG_FOLDER}” · 1 source`;
   await expect(line).toHaveAttribute("title", full);
   const cut = async () => {
     const box = await line.boundingBox();

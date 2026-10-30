@@ -849,6 +849,63 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
+ * Ollama, with "fake-model", which the app asks where the model runs before
+ * each Question is asked. While held, it answers only once released, as an
+ * Ollama busy loading a model does: the Question waits on it, on its way.
+ * In the cloud, it says the model runs on ollama.com.
+ */
+export async function busyOllama() {
+  const waiting: (() => void)[] = [];
+  let holding = false;
+  let cloud = false;
+  let tags = 0;
+  const server: Server = createServer((request, response) => {
+    request.resume();
+    if (request.url !== "/api/tags") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    tags += 1;
+    const listing = {
+      name: "fake-model",
+      model: "fake-model",
+      // What the app learnt of a model is kept by its digest.
+      digest: cloud ? "in-the-cloud" : "on-this-computer",
+      ...(cloud && { remote_host: "https://ollama.com:443" }),
+    };
+    const answer = () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [listing] }));
+    };
+    if (holding) waiting.push(answer);
+    else answer();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+      for (const answer of waiting.splice(0)) answer();
+    },
+    inTheCloud(on: boolean) {
+      cloud = on;
+    },
+    close() {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+
+/**
  * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
  * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */

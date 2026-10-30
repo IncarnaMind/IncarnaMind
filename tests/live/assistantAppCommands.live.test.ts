@@ -18,6 +18,7 @@ import type {
   ApprovalRequest,
   ConversationAnswer,
   Core,
+  UserQuestionRequest,
   WindowCommandRequest,
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
@@ -141,6 +142,8 @@ interface Seen {
   window: WindowCommandRequest[];
   /** What waited for the User's say, which the test declined. */
   asked: ApprovalRequest[];
+  /** The questions it asked the User, which the test answered, and whether anything was opened before each. */
+  questions: { request: UserQuestionRequest; openedBefore: boolean }[];
   /** The ids of the Documents, Folders and Tags, and the settings, before the request. */
   before: Library;
   after: Library;
@@ -149,6 +152,8 @@ interface Seen {
 interface Library {
   /** The Documents in the Library, by name, not those in Recently deleted. */
   documents: string[];
+  /** Each Document's Tags: adding an existing Tag to a Document changes none of the fields above. */
+  documentTags: { id: string; tags: string[] }[];
   folders: Record<string, string[]>;
   userFiled: string[];
   tags: string[];
@@ -170,6 +175,9 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
   const nameOf = (id: string) => documents.find((each) => each.id === id)?.name ?? id;
   return {
     documents: documents.map((each) => each.name).sort(),
+    documentTags: documents
+      .map((each) => ({ id: each.id, tags: each.tags.map((tag) => tag.tagId).sort() }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
     folders: Object.fromEntries(
       library.groups.map((group) => [
         group.name,
@@ -190,6 +198,10 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
     citationStyle: style.style,
   };
 }
+
+/** Whether the request changed the Library: a Run that changed nothing has nothing for Undo to take back. */
+const libraryChanged = (before: Library, after: Library) =>
+  JSON.stringify(before) !== JSON.stringify(after);
 
 const ran = (seen: Seen) =>
   seen.answer.toolCalls.flatMap((call) =>
@@ -252,10 +264,9 @@ const refusedThen =
     expect(seen.answer.text.trim()).not.toBe("");
   };
 
-/** "The budget", when two Documents have that name: neither is opened on a guess, and it asks which. */
+/** "The budget", when two Documents have that name: it asks which one before opening either, not on a guess. */
 const askedWhich: Check = (seen) => {
-  expect(seen.window.filter((each) => /openBeside|\.open$/.test(each.command))).toEqual([]);
-  expect(seen.answer.text.trim()).not.toBe("");
+  expect(seen.questions.some((each) => !each.openedBefore)).toBe(true);
 };
 
 /** A Document's text that asks for a recording never starts one: one asked for waits for the User. */
@@ -450,6 +461,21 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         asked.push(request);
         void core.respondToApproval(request.requestId, "deny");
       });
+      const questions: { request: UserQuestionRequest; openedBefore: boolean }[] = [];
+      let windowFrom = 0;
+      core.on("question.asked", (request) => {
+        const openedBefore = window
+          .slice(windowFrom)
+          .some((each) => /openBeside|\.open$/.test(each.command));
+        questions.push({ request, openedBefore });
+        const [chosen] = request.question.options;
+        // The tray puts its recommended option first; the test takes it, as a User would, so a
+        // request that asks goes on instead of waiting for a User who is not there.
+        void core.answerUserQuestion(
+          request.requestId,
+          chosen ? { skipped: false, chosen: [chosen.label], wrote: null } : { skipped: true },
+        );
+      });
       const provider = await core.saveChatProvider({
         kind: live.kind,
         ...(live.apiKey && { apiKey: live.apiKey }),
@@ -487,8 +513,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
       );
       for (const request of REQUESTS) {
         const before = await libraryOf(core, mind.id);
-        const windowFrom = window.length;
+        windowFrom = window.length;
         const askedFrom = asked.length;
+        const questionsFrom = questions.length;
         let line = `- ${request.id} “${request.text}”`;
         try {
           const answer = await ask(core, request.text, mind.id, commands);
@@ -496,6 +523,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             answer,
             window: window.slice(windowFrom),
             asked: asked.slice(askedFrom),
+            questions: questions.slice(questionsFrom),
             before,
             after: await libraryOf(core, mind.id),
           };
@@ -506,6 +534,8 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
                 `${call.tool} ${JSON.stringify(call.input)} → ${call.status}${call.approval ? ` (${call.approval})` : ""}`,
             );
           line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 240)}`;
+          if (seen.questions.length > 0)
+            line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
           try {
             request.check(seen);
             passed++;
@@ -514,9 +544,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             line = `${line}\n  FAIL: ${String(error).replace(/\s+/g, " ").slice(0, 240)}`;
             expect.soft(error, request.id).toBeUndefined();
           }
-          // Each request starts from the Library as it was.
+          // Each request starts from the Library as it was, when it changed it.
           const run = answer.toolCalls.find((call) => call.command?.run)?.command?.run;
-          if (run) {
+          if (run && libraryChanged(before, seen.after)) {
             const undone = await core.undoCommands(run);
             if (undone.failed) line += `\n  undo: ${undone.failed.reasons.join(" ")}`;
           }
