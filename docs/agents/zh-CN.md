@@ -68,7 +68,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Reference record | 引用信息 | The "Cite as" panel's title too. Its fields: 类型、标题、作者、日期、期刊（出处）、卷、期、页码、出版者、DOI、网址、语言. |
 | Needs details (a reference record) | 信息待补充 | |
 | Look up (a reference record) | 查询 | "按 DOI 从 Crossref 补全空白字段". |
-| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索. As Kimi, Doubao, Yuanbao and DeepSeek show it. |
+| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索 for the act; the results a card names are 网页搜索结果 (#2240). As Kimi, Doubao, Yuanbao and DeepSeek show it. |
 | Find sources | 查找资料 | "查找资料…". One name for the panel, its menu items and the button on a claim's card, never 查找来源. 资料 matches 资料库 (Library): what is found is added to it. |
 | Source provider | 资料来源 | "资料来源：OpenAlex arXiv PubMed". Not 服务, which is an AI model's company. |
 | Open access | 开放获取 | As CNKI and publishers say it. "仅开放获取", "无开放全文". |
@@ -117,7 +117,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Note's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
-| Check someone else's PDF | 核对别人的 PDF | The + menu and ⌘K command (#1941). The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
+| Check someone else's file | 核对别人的文件 | The + menu and ⌘K command (#1941, #110), for a PDF or a Word file; its ⌘K keywords keep PDF and Word. The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
 | Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |

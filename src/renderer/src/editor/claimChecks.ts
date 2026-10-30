@@ -54,12 +54,18 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "scope",
   "versions",
   "excluded",
+  "readDocuments",
   "recordCites",
   "checkedAt",
   "kept",
   "figures",
   "remainder",
 ];
+
+/** The room a sentence's check mark takes at the end of its sentence when the Mind's margin folds. */
+const INLINE_ROOM = "claim-inline-room";
+/** Between a sentence's last word or Citation marker and its mark. */
+const INLINE_GAP = 4;
 
 /**
  * A sentence's check, on its text. A copied sentence pastes without it: its
@@ -354,6 +360,10 @@ interface ClaimState {
   claims: readonly ShownClaim[];
   /** The marks the User keeps as their own view (#1111), at their places. */
   kept: readonly KeptMark[];
+  /** Whether the Mind's margin has folded and each mark sits in the text (see `setClaimInline`). */
+  inline: boolean;
+  /** Each mark's own width, by its check's id, for the room it takes at its sentence's end. */
+  rooms: ReadonlyMap<string, number>;
   decorations: DecorationSet;
 }
 
@@ -361,6 +371,12 @@ const claimsKey = new PluginKey<ClaimState>("claimChecks");
 
 /** A transaction with this meta compares the checks with new Documents or a new Folder (`setClaimContext`). */
 const CONTEXT = "claimContext";
+/** A transaction with this meta folds the margin's marks into the text, or unfolds them (`setClaimInline`). */
+const INLINE = "claimInline";
+/** A transaction with this meta says how wide each mark is, for the room it takes (`setClaimRooms`). */
+const ROOMS = "claimRooms";
+
+const NO_ROOMS: ReadonlyMap<string, number> = new Map();
 
 const NO_CONTEXT: ClaimContext = { versions: null, folderId: null, scope: null };
 
@@ -406,7 +422,12 @@ export function claimsOf(
   return { claims, kept };
 }
 
-function stateOf(doc: ProseMirrorNode, context: ClaimContext): ClaimState {
+function stateOf(
+  doc: ProseMirrorNode,
+  context: ClaimContext,
+  inline = false,
+  rooms: ReadonlyMap<string, number> = NO_ROOMS,
+): ClaimState {
   const { claims, kept } = claimsOf(doc, context);
   const washes = claims.flatMap(({ shown, from, to, kind }) =>
     shown.state === "unsupported" || shown.state === "contradicted"
@@ -417,7 +438,29 @@ function stateOf(doc: ProseMirrorNode, context: ClaimContext): ClaimState {
         ]
       : [],
   );
-  return { context, claims, kept, decorations: DecorationSet.create(doc, washes) };
+  // A folded Mind draws each mark at its sentence's end, in the text, so the fold's 40px gutter
+  // stays the text's: the sentence's last word or Citation marker keeps the mark's room in its own
+  // box, exactly its own width plus 4px, so the room never makes a line of its own.
+  const roomsOf = inline
+    ? claims.flatMap(({ check, sentence, shown }) =>
+        shown.state === "not-checked"
+          ? []
+          : [
+              Decoration.inline(sentence.to - 1, sentence.to, {
+                class: INLINE_ROOM,
+                style: `padding-right: ${(rooms.get(check.id) ?? 0) + INLINE_GAP}px`,
+              }),
+            ],
+      )
+    : [];
+  return {
+    context,
+    claims,
+    kept,
+    inline,
+    rooms,
+    decorations: DecorationSet.create(doc, [...washes, ...roomsOf]),
+  };
 }
 
 /** How the checks of a Mind's sentences cover its Documents (#764). */
@@ -527,6 +570,19 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));
 }
 
+/** Folds the margin's marks into the text, at their sentences' ends, or unfolds them (`MarginChecks`). */
+export function setClaimInline(view: EditorView, inline: boolean): void {
+  if ((claimsKey.getState(view.state)?.inline ?? false) === inline) return;
+  view.dispatch(view.state.tr.setMeta(INLINE, inline).setMeta("addToHistory", false));
+}
+
+/** Says how wide each mark is, by its check's id, so its sentence keeps exactly that room plus 4px. */
+export function setClaimRooms(view: EditorView, rooms: ReadonlyMap<string, number>): void {
+  const now = claimsKey.getState(view.state)?.rooms ?? NO_ROOMS;
+  if (now.size === rooms.size && [...rooms].every(([id, width]) => now.get(id) === width)) return;
+  view.dispatch(view.state.tr.setMeta(ROOMS, rooms).setMeta("addToHistory", false));
+}
+
 /** Keeps the checks, how they show, and the washes behind sentences found unsupported or contradicted. */
 export const ClaimChecks = Extension.create({
   name: "claimChecks",
@@ -539,9 +595,22 @@ export const ClaimChecks = Extension.create({
           init: (_config, state) => stateOf(state.doc, NO_CONTEXT),
           apply: (tr, claims) => {
             const context = tr.getMeta(CONTEXT) as ClaimContext | undefined;
-            if (context) return stateOf(tr.doc, context);
+            const inline = tr.getMeta(INLINE) as boolean | undefined;
+            const rooms = tr.getMeta(ROOMS) as ReadonlyMap<string, number> | undefined;
+            if (context || rooms || (inline !== undefined && inline !== claims.inline))
+              return stateOf(
+                tr.doc,
+                context ?? claims.context,
+                inline ?? claims.inline,
+                rooms ?? claims.rooms,
+              );
             return tr.docChanged
-              ? stateOf(tr.doc, { ...claims.context, figureContexts: null })
+              ? stateOf(
+                  tr.doc,
+                  { ...claims.context, figureContexts: null },
+                  claims.inline,
+                  claims.rooms,
+                )
               : claims;
           },
         },

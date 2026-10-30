@@ -10,7 +10,10 @@ const NOT_ALLOWED: readonly [string, string][] = [
 
 describe("Chinese strings keep to the glossary", () => {
   test.each(NOT_ALLOWED)("no string says %s; it is %s", (wrong) => {
-    const found = Object.entries(zhCN).filter(([, message]) => message.includes(wrong));
+    // The one name of the results themselves, rather than the act (#2240): the card names them.
+    const found = Object.entries(zhCN).filter(
+      ([key, message]) => key !== "commands.ask.readText.webSearch" && message.includes(wrong),
+    );
     expect(found.map(([key]) => key)).toEqual([]);
   });
 });

@@ -134,15 +134,18 @@ export function ClaimMark({
   style,
   reveal,
   onRevealed,
+  inline = false,
 }: {
   claim: ShownClaim;
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
   label: string;
-  style: CSSProperties;
+  style?: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
+  /** A folded Mind draws it in the text, at its sentence's end (`MarginChecks`). */
+  inline?: boolean;
 }) {
   const t = useT();
   const state = claim.shown.state;
@@ -260,6 +263,8 @@ export function ClaimMark({
     else inTheNote();
   };
 
+  const outlineLayer = button?.parentElement ?? null;
+
   return (
     <>
       <button
@@ -271,7 +276,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
-        className={`margin-check claim-mark ${reveal ? "margin-check--reveal" : ""}`}
+        className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
         title={label}
@@ -304,9 +309,7 @@ export function ClaimMark({
         {!silent && <ClaimMarkIcon state={mark} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
-      {open && button?.parentElement && (
-        <ClaimOutline editor={editor} id={id} layer={button.parentElement} />
-      )}
+      {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
       {open &&
         button &&
         createPortal(
@@ -661,6 +664,13 @@ function ClaimCard({
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
   const documents = useAppStore((store) => store.documents);
+  const wholeRead = (check.readDocuments ?? [])
+    .map((document) => {
+      const name = shownDocumentName(document, documents) || document.documentName;
+      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
+      return places ? `${name} (${places})` : name;
+    })
+    .join(t("claim.readDocuments.separator"));
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;
@@ -943,6 +953,11 @@ function ClaimCard({
             ]}
           />
         </div>
+      )}
+      {wholeRead && (
+        <p data-testid="claim-read-documents" className="citation-card-note">
+          {t("claim.readDocuments", { documents: wholeRead })}
+        </p>
       )}
       {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">

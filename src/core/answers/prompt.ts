@@ -341,8 +341,11 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  * as one from the User's Documents. General knowledge only for a general
  * Question, labelled, and without figures. `cite`: the Answer cites with markers.
  */
-function notCovered(cite: boolean): string {
-  return `If the Documents don't cover the Question, say so plainly. You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
+function notCovered(cite: boolean, reads = false): string {
+  const absence = reads
+    ? "Absence needs read_document where X would be."
+    : "Never claim Document absence.";
+  return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
 
 /**
@@ -367,7 +370,7 @@ const FIGURES_AS_STATED =
 function readingRules(cite: boolean): string {
   const marker = (n: number) => (cite ? `[^${n}]` : "");
   return [
-    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "The Documents don't record a Board approval; the 14 May memo asks for one." / "文档中没有董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
+    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "I didn't find a Board approval in the Documents; the 14 May memo asks for one." / "未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
     `- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)${cite ? " and cite it" : ""}. Then write one sentence naming the older Document, its date and its figure${cite ? ", with a Citation" : ""}; never leave it out: "Report outages over 4 hours (memo, May 2025)${marker(1)}. The older handbook (January 2024) says 6 hours${marker(2)}." / "2025 年 5 月的备忘录要求报告超过 4 小时的停电${marker(1)}。较早的手册（2024 年 1 月）写的是 6 小时${marker(2)}。" Say "probably" (可能) only when neither is dated or newer.`,
   ].join("\n");
 }
@@ -700,7 +703,7 @@ export function documentInstructions(
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
-        notCovered(true),
+        notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
         readingRules(true),

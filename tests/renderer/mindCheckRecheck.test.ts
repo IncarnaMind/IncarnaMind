@@ -17,6 +17,8 @@ const bridge = vi.hoisted(() => ({
   planContradictionCheck: vi.fn<CoreBridge["planContradictionCheck"]>(),
   estimateRun: vi.fn<CoreBridge["estimateRun"]>(),
   checkMind: vi.fn<CoreBridge["checkMind"]>(),
+  holdMindCheck: vi.fn<CoreBridge["holdMindCheck"]>(),
+  cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
 }));
 const opened = vi.hoisted(() => ({
   editor: null as Editor | null,
@@ -69,6 +71,8 @@ beforeEach(async () => {
   bridge.planContradictionCheck.mockResolvedValue({ kind: "no-folder" });
   bridge.estimateRun.mockResolvedValue(estimate);
   bridge.checkMind.mockResolvedValue({ kind: "cancelled" });
+  bridge.holdMindCheck.mockResolvedValue(true);
+  bridge.cancelCheck.mockResolvedValue(undefined);
   opened.doc = new Y.Doc();
   const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
   useMindCheck.setState({ asking: {}, unchanged: {} });

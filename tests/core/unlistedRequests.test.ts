@@ -217,7 +217,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
 
     const checked = fixingModel(
       "Tides says spring tides follow new and full moons [^1].",
-      "Verdict: supported",
+      "Verdict: supported\nAbsence: no",
     );
     const checking = await setUpWithDocuments(checked, [TIDES]);
     expect(
@@ -272,11 +272,19 @@ describe("A model no list names, or one in a flow no list admits it to", {
     await answerEnded(fixing.core, turn.answerId);
 
     const claiming = "I've added the summary to the note.";
+    // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
+    const kinds = ["made", "added", "changed", "removed"] as const;
     const reasked = scriptedModel(
       (call: ModelCall): ScriptedReply => ({
         text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
       }),
-      { generate: (call) => claimCheckReply(call, [{ sentence: claiming, kind: "added" }]) },
+      {
+        generate: (call) =>
+          claimCheckReply(
+            call,
+            kinds.map((kind) => ({ sentence: claiming, kind })),
+          ),
+      },
     );
     const asking = await setUpWithDocuments(reasked, [TIDES]);
     const claimed = await asking.core.askInConversation({
@@ -290,5 +298,19 @@ describe("A model no list names, or one in a flow no list admits it to", {
     expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
     expect(JSON.stringify(requests(reasked))).not.toMatch(/\bMinds?\b/);
     expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
+    // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
+    const again = requests(reasked).find((request) =>
+      JSON.stringify(request).includes("but no Tool did that"),
+    );
+    expect(again).toBeDefined();
+    const said = JSON.stringify(again);
+    for (const phrase of [
+      "made a Note",
+      "added text to a Note",
+      "changed a Note",
+      "removed or replaced text in a Note",
+    ]) {
+      expect(said, phrase).toContain(phrase);
+    }
   });
 });

@@ -172,3 +172,10 @@ A sentence can name several record cites, and each keeps its own result rather t
 - **What an `Id.` or `supra` refers to is worked out, never kept as a link.** It is worked out at check time from the Note's text as it reads then, so checks in the background, at once or in any order read the same. Each keeps only what its reading rests on, as written: when the Note before it reads otherwise, the sentence shows Needs re-check (`referent`), worked out again whenever the check is shown, from each paragraph's cites read once for the whole Note.
 - **The sentence keeps its own result; its glyph shows the worst of it and its cites'.** The array carries per-cite results and suggestions even when the sentence is Supported, and the sentence's own verdict and what a Check sends again stay as they are. But an Unsupported, Not found or Choose cite never sits under a Supported glyph: the margin glyph, the card's heading ("Needs a look · Record cite") and the check badge's counts show the sentence as Unsupported until its cites are. Resolved passages and nearby suggestions participate in evidence retention; unselected candidates do not.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: whole-read evidence for an absence check (2026-10-29, #1443)
+
+An absence sentence can be Supported only after the check reads every scoped Document. Its card names those Documents and the Locations read, and a later change to one invalidates the result.
+
+- **Content schema version 37** adds `readDocuments` to a `claimCheck` mark: each Document read, its content version and the Locations shown. An older version's editor would strip the field, losing the card's Locations and the dependency that requires a re-check, so it opens these Notes read-only. Older content is version 37 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

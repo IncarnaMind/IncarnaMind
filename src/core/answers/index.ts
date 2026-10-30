@@ -318,6 +318,7 @@ import {
   workingCopyNote,
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
+import { readKinds } from "./readKinds";
 import { withoutSearchTalk } from "./searchTalk";
 import type { ChangeStates } from "./toolRecord";
 import type { TurnCheck } from "./turnChecks";
@@ -786,18 +787,26 @@ export interface DocumentsForAnswers
   names(): readonly LiveDocument[];
   /**
    * How many Documents there are to search, and the names of the `limit` most recently added,
-   * newest first; `webPage`: one of them is a saved web page, named by its own title.
+   * newest first; `webPages`: the saved web pages among them, by id, each named by its own title.
    */
   searchableNames(
     documentIds: readonly string[] | null,
     limit: number,
-  ): ListedDocuments & { webPage: boolean };
+  ): ListedDocuments & { webPages: string[] };
   /** The Documents to search, the most text first. */
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
   /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
   searchableHasSheets(documentIds: readonly string[] | null): boolean;
+  passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
+  /** Live Passages covering pages `from` to `to`, or intersecting them when `overlapping`. */
+  passagesCovering(
+    documentId: string,
+    from: number | null,
+    to: number | null,
+    overlapping?: boolean,
+  ): WindowedPassage[];
   /** Words the User selected to ask about, checked where they were selected (`recheckWhereSelected`). */
   recheckWhereSelected(quote: AskedQuote): CitedSelection;
   /** The languages the Documents to search are in, the most common first, with how many are in each. */
@@ -812,6 +821,8 @@ export interface DocumentsForAnswers
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<WindowedPassage[]>;
+  /** A saved web page's address, as it was read; null for a file, or a Document unknown here. */
+  webAddress(documentId: string): string | null;
 }
 
 interface Quoted {
@@ -840,6 +851,10 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
+    passage: (passageId) => documents.passage(passageId),
+    passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+    passagesCovering: (documentId, from, to, overlapping) =>
+      documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
   };
 }
@@ -1789,18 +1804,34 @@ export function createAnswers(options: AnswersOptions) {
       options.conversations.writeToolCalls(answerId, toolCalls);
     };
     let commandTurn: Promise<unknown> = Promise.resolve();
-    /** What the Answer read that the User didn't write, as it read it: its Documents and the live Transcript. */
-    const readText = (): { readText?: ApprovalReadText } => {
-      const documents = [
-        ...new Set(
-          session
-            .passagesRead()
-            .filter((each) => !transcripts.has(each.documentId))
-            .map((each) => each.documentName),
-        ),
-      ];
-      const transcript = transcripts.size > 0;
-      return documents.length > 0 || transcript ? { readText: { documents, transcript } } : {};
+    /**
+     * What the Answer read that the User didn't write, by the kinds the card names (#2240). A web
+     * page is never named by its title here: a page writes its own title, so an injected one could
+     * pass for the User's file on this card; its host is the part it can't write. `titlesRead`: the
+     * saved pages whose titles reached the Run, by id, named by their hosts as a read page is.
+     */
+    const readText = (
+      thirdParty: readonly ThirdPartyReason[],
+      titlesRead: readonly string[],
+    ): { readText?: ApprovalReadText } => {
+      const kinds = readKinds({
+        reads: session.passagesRead(),
+        transcripts,
+        calls: toolCalls,
+        reasons: thirdParty,
+        titlesRead,
+        webAddress: (documentId) => options.documents.webAddress(documentId),
+      });
+      const read =
+        kinds.documents.length > 0 ||
+        kinds.webPages.length > 0 ||
+        kinds.webPageTitles.length > 0 ||
+        kinds.webSearchResults ||
+        kinds.connectors.length > 0 ||
+        kinds.scriptOutput ||
+        kinds.transcript ||
+        kinds.otherText;
+      return read ? { readText: kinds } : {};
     };
     // Whether it asks is the commands' policy's (../tools/commands/policy, #1110).
     const commandGate = (
@@ -1832,9 +1863,9 @@ export function createAnswers(options: AnswersOptions) {
             tool: COMMAND_TOOLS.run,
             ask: asked,
             effects: checked.effects,
-            tainted: tainted || readTitles,
+            tainted: tainted || readTitles.length > 0,
             ...readReasons(thirdParty),
-            ...readText(),
+            ...readText(thirdParty, readTitles),
           },
           card,
         );
@@ -2463,8 +2494,8 @@ export function createAnswers(options: AnswersOptions) {
               focusedMindId: focusedId,
               wallId,
               filing,
-              namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
-                .webPage,
+              titledPages: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
+                .webPages,
               renames: input.assistant.renames,
               answerId,
               runId: randomUUID(),
@@ -2496,6 +2527,12 @@ export function createAnswers(options: AnswersOptions) {
         readingDocuments: () => options.documents.reading(documentIds),
         searchDocuments: (query, signal, searchOptions) =>
           session.tools.searchDocuments(query, signal, searchOptions),
+        readDocument: (request) =>
+          session.tools.readDocument?.(request) ??
+          Promise.resolve({
+            text: "Document reads are unavailable for this Answer.",
+            passageCount: 0,
+          }),
         cite: (records, citeOptions) =>
           calculating
             ? citeRecords(records, citeOptions)
@@ -2886,6 +2923,9 @@ export function createAnswers(options: AnswersOptions) {
           maxOutput: prepared.capabilities.facts.maxOutput,
         }),
         ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
+        ...(prepared.provider.kind === "openrouter" && {
+          forcedToolChoice: prepared.capabilities.facts.forcedToolChoice,
+        }),
         retryQuotes: prepared.retryQuotes,
         cacheKey: place.conversationId ?? place.mindId ?? undefined,
         ...(input.assistant

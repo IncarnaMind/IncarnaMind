@@ -4,7 +4,7 @@ import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
-import type { CheckFigure } from "../../src/core/api";
+import type { ChatProviderKind, CheckFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
@@ -36,7 +36,7 @@ const item = (id = "f1") => ({
   calculation: null,
 });
 const reply = (items: unknown[], remainder: unknown = null) =>
-  `Verdict: supported\nFigures: ${JSON.stringify({ items, remainder })}`;
+  `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items, remainder })}`;
 
 test("a complete same-run reply binds only the exact requested occurrence ids", () => {
   expect(readFigureReply(reply([item()]), figures, claim)).toMatchObject({
@@ -123,7 +123,7 @@ test("a quote copied from a sheet row with its raw tabs is read", () => {
 });
 
 test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
-  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\n", "")}`;
+  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
   expect(readFigureReply(prose, figures, claim)?.items[0]?.id).toBe("f1");
 });
 
@@ -133,7 +133,7 @@ test.each([
   { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
   {
     final: "The quote states the revenue.",
-    aside: [reply([item()]).replace("Verdict: supported\n", "")],
+    aside: [reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
   },
 ])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
   expect(figureReplyText(final, aside)).toBe(final);
@@ -186,6 +186,8 @@ async function checkWith(options: {
   findsNothing?: boolean;
   /** It replies before it records its quotes, and records them only once asked to. */
   citesWhenAsked?: boolean;
+  forcedToolChoice?: boolean;
+  providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
@@ -248,7 +250,7 @@ async function checkWith(options: {
     model,
     provider: {
       id: "test",
-      kind: "anthropic",
+      kind: options.providerKind ?? "anthropic",
       catalogId: null,
       endpoint: null,
       baseUrl: null,
@@ -259,7 +261,12 @@ async function checkWith(options: {
     support: "tools",
     summarizesReasoning: false,
     capabilities: resolveCapabilities({
-      catalog: { tools: true, calculates: true, temperature: true },
+      catalog: {
+        tools: true,
+        calculates: true,
+        temperature: true,
+        forcedToolChoice: options.forcedToolChoice,
+      },
     }),
   };
   const source: CitationSource = {
@@ -301,8 +308,12 @@ async function checkWith(options: {
     documents: {
       searchableCount: () => 1,
       searchableLanguages: () => [],
-      searchableBySize: () => [{ id: source.documentId, name: source.documentName }],
+      searchableBySize: () => [
+        { id: source.documentId, name: source.documentName, size: body.length },
+      ],
+      passagesBetween: () => [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
       savedBySearch: () => false,
+      unitCounts: () => new Map([[source.documentId, 1]]),
       citationSource: (id) => (id === source.passageId ? source : null),
       pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
       documentDate: () => null,
@@ -743,17 +754,44 @@ test("a saved calculation's verdict and evidence both come from working it out a
   expect(row?.result.verdict === "not-checked" ? null : row?.result.evidence?.quote).toBe(body);
 });
 
-test("asked to record a quote its Figures line names, the model's next step must call cite", async () => {
-  const { result, calls } = await checkWith({
+test.each([
+  { kind: "openrouter", forced: false, automatic: true },
+  { kind: "openrouter", forced: undefined, automatic: false },
+  ...(["deepseek", "qwen", "kimi", "glm", "anthropic", "openai", "ollama"] as const).map(
+    (kind) => ({ kind, forced: false, automatic: false }),
+  ),
+] satisfies { kind: ChatProviderKind; forced: boolean | undefined; automatic: boolean }[])(
+  "a correction keeps its existing choice outside OpenRouter ($kind, $forced)",
+  async ({ kind, forced, automatic }) => {
+    const { result, calls } = await checkWith({
+      forcedToolChoice: forced,
+      providerKind: kind,
+      figures: [target("f1", "£20", "Revenue in 2024")],
+      citesWhenAsked: true,
+      text: reply([
+        { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+      ]),
+    });
+    const asked = calls.find((call) => /never recorded/.test(call.prompt));
+    expect(asked?.options.toolChoice).toEqual(
+      automatic ? { type: "auto" } : { type: "tool", toolName: "cite" },
+    );
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  },
+);
+
+test("a model that cannot force Tools still cannot settle a figure without recorded evidence", async () => {
+  const { result } = await checkWith({
+    forcedToolChoice: false,
+    providerKind: "openrouter",
     figures: [target("f1", "£20", "Revenue in 2024")],
     citesWhenAsked: true,
+    quotes: [],
     text: reply([
       { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
     ]),
   });
-  const asked = calls.find((call) => /never recorded/.test(call.prompt));
-  expect(asked?.options.toolChoice).toEqual({ type: "tool", toolName: "cite" });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(result.verdict).toBe("not-checked");
 });
 
 test.each([
@@ -1402,7 +1440,7 @@ test.each([undefined, []])(
       figures,
       claim: "Revenue in 2024 was £20.",
       quotes: ["Revenue in 2024 was £20"],
-      text: "Verdict: supported\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
+      text: "Verdict: supported\nAbsence: no\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
     });
     expect(result.verdict).toBe("supported");
     expect(result).not.toHaveProperty("figures");

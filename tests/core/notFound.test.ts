@@ -115,11 +115,20 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
 
   test("parts named for a topic no Passage is about don't spare the ask, which a model that searched more than once, or not at all, never gets", async () => {
     const reply = "Verdict: unsupported\nThe Documents don't say how often.";
-    expect((await searchAgain(() => 1).check(reply))?.note).toBe(SEARCH_AGAIN);
+    const fits = () => true;
+    const once = searchAgain(() => 1, fits);
+    expect((await once.check(reply))?.note).toBe(SEARCH_AGAIN);
     const offTopic = `${reply}\nTopic: not found\nCovered: tides\nNot covered: how often`;
-    expect((await searchAgain(() => 1).check(offTopic))?.note).toBe(SEARCH_AGAIN);
-    expect(await searchAgain(() => 2).check(reply)).toBeNull();
-    expect(await searchAgain(() => 0).check(reply)).toBeNull();
+    expect((await once.check(offTopic))?.note).toBe(SEARCH_AGAIN);
+    expect(await searchAgain(() => 2, fits).check(reply)).toBeNull();
+    expect(await searchAgain(() => 0, fits).check(reply)).toBeNull();
+  });
+
+  test("an absence is asked to search again only when its scope is too long to read whole", async () => {
+    const absence = "Verdict: unsupported\nAbsence: yes\nThe Documents don't mention one.";
+    const once = () => 1;
+    expect(await searchAgain(once, () => true).check(absence)).toBeNull();
+    expect((await searchAgain(once, () => false).check(absence))?.note).toBe(SEARCH_AGAIN);
   });
 });
 

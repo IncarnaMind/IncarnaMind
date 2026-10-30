@@ -136,7 +136,7 @@ const EMU_PER_PIXEL = 9525;
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[]; footnotes: number } {
+): { data: Uint8Array; commented: FailedSentence[]; checkComments: number; footnotes: number } {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
@@ -202,6 +202,7 @@ export function renderDocx(
   return {
     data,
     commented: review?.commentedSentences() ?? [],
+    checkComments: review?.checkComments() ?? 0,
     footnotes: writer.footnoteCount,
   };
 }

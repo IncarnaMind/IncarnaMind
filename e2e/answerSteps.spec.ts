@@ -184,6 +184,24 @@ const stepsOf = (timeline: Locator) =>
     .getByTestId("answer-step")
     .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-step")));
 
+test("a Document read shows its pages in English and Chinese", async () => {
+  const { app, window } = await start({ local: true });
+  await core(window).mind("Lit review: tides");
+
+  const answer = await ask(window, "Read page 2 of “Tides” and answer when spring tides happen.");
+  const timeline = await openSteps(window, answer);
+  await expect(timeline).toContainText("Read pages 2 of “Tides”");
+  await expect(timeline.getByText("Read pages 2 of “Tides”", { exact: true })).toHaveCount(1);
+  await expect(timeline).toContainText("1 passage found, 1 used");
+  await screenshot(window, "read-document-en-1440");
+
+  await core(window).language("zh-CN");
+  await expect(timeline).toContainText("读取了“Tides”第 2 页");
+  await setWindowSize(app, window, 900, 760);
+  await screenshot(window, "read-document-zh-900");
+  await app.close();
+});
+
 test("while an Answer is written, its line moves from Reading through Thinking or Searching to Writing and Checking; written, it folds to what it searched and its sources", async () => {
   const { app, window } = await start();
   await core(window).mind("Lit review: tides");
