@@ -5,6 +5,7 @@ import type { DocumentCheckPlan, SearchScope } from "../../../core/api";
 import {
   checkSentences,
   dismissDocumentPicker,
+  planDocumentRead,
   setDocumentProgress,
   stopCheck,
   useChecks,
@@ -15,7 +16,6 @@ import { core } from "../core";
 import { estimateLine } from "../cost";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
-import { modelInUseOf } from "../modelInUse";
 import { useScopeName } from "../scopeDocuments";
 import { useTurnWall } from "../turnWall";
 import type { ShownClaim } from "./claimChecks";
@@ -23,19 +23,29 @@ import { AskBlock } from "./MindCheckLine";
 
 type ReadyPlan = Extract<DocumentCheckPlan, { kind: "ready" }>;
 
-const readsAtOnce = ({ estimate }: ReadyPlan) =>
-  estimate?.billing === "per-token" && estimate.cost !== null && estimate.cost.amount <= 0.5;
+// Unknown parts could cost more than the estimate says, so that read always asks.
+const readsAtOnce = ({ estimate, parts }: ReadyPlan) =>
+  parts !== null &&
+  estimate?.billing === "per-token" &&
+  estimate.cost !== null &&
+  estimate.cost.amount <= 0.5;
 
+/**
+ * Check against a Document…, and a whole read asked again (`requestDocumentRead`): each sized
+ * first, with its cost asked when it isn't small. `offer`: the card offers the action itself.
+ */
 export function DocumentCheckAction({
   editor,
   mindId,
   doc,
   claim,
+  offer: offered,
 }: {
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
   claim: ShownClaim;
+  offer: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -47,17 +57,13 @@ export function DocumentCheckAction({
   const [failure, setFailure] = useState<string | null>(null);
   const [reading, setReading] = useState<SearchScope | null>(null);
   const asked = useRef<SearchScope | null>(null);
-  const requested = useChecks((state) => state.pickDocument[claim.check.id] === true);
+  const requested = useChecks((state) => state.pickDocument[claim.check.id]);
   const running = useChecks((state) => state.running[mindId]);
   const progress = useChecks((state) =>
     running ? state.documentProgress[running.requestId] : undefined,
   );
-  const offered = useScopeName(offer?.within ?? null);
+  const asking = useScopeName(offer?.within ?? null);
   const read = useScopeName(reading);
-
-  useEffect(() => {
-    if (requested) setPicking(true);
-  }, [requested]);
   useEffect(() => core.on("documentCheck.progress", setDocumentProgress), []);
   useEffect(
     () => () => {
@@ -93,8 +99,11 @@ export function DocumentCheckAction({
     close();
     asked.current = within;
     try {
-      const plan = await core.planDocumentCheck({ mindId, within, model: modelInUseOf(doc) });
-      if (asked.current !== within) return;
+      const plan = await planDocumentRead(editor, mindId, doc, {
+        ranges: [{ from: claim.from, to: claim.to }],
+        within,
+      });
+      if (!plan || asked.current !== within) return;
       if (plan.kind === "ready" && readsAtOnce(plan)) await readPlan(within, plan);
       else setOffer({ within, plan });
     } catch (error) {
@@ -102,20 +111,34 @@ export function DocumentCheckAction({
     }
   };
 
+  // A read already running in the Note goes on undisturbed: a request waits until it ends.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `choose` reads the latest state.
+  useEffect(() => {
+    if (!requested || running) return;
+    if (requested === true) {
+      setPicking(true);
+      return;
+    }
+    dismissDocumentPicker(claim.check.id);
+    void choose(requested);
+  }, [requested, running]);
+
   const plan = offer?.plan;
   return (
     <>
-      <button
-        ref={setButton}
-        type="button"
-        data-testid="claim-check-document"
-        className="citation-card-action"
-        disabled={reading !== null}
-        onClick={() => setPicking(true)}
-      >
-        {t("claim.checkAgainstDocument")}
-      </button>
-      {picking && button && wall !== undefined && (
+      {offered && (
+        <button
+          ref={setButton}
+          type="button"
+          data-testid="claim-check-document"
+          className="citation-card-action"
+          disabled={reading !== null || running !== undefined}
+          onClick={() => setPicking(true)}
+        >
+          {t("claim.checkAgainstDocument")}
+        </button>
+      )}
+      {picking && button && wall !== undefined && !running && (
         <DocumentOrFolderPicker
           anchor={button}
           wall={wall}
@@ -131,7 +154,10 @@ export function DocumentCheckAction({
       {offer && plan?.kind === "ready" && (
         <AskBlock
           testId="document-check-ask"
-          question={t("claim.readAsk", { scope: offered?.name ?? "", pages: plan.pages })}
+          question={t(plan.pages === 1 ? "claim.readAsk.one" : "claim.readAsk", {
+            scope: asking?.name ?? "",
+            pages: plan.pages,
+          })}
           estimate={
             plan.estimate ? estimateLine(plan.estimate, t, language, { always: true }) : null
           }
@@ -149,13 +175,15 @@ export function DocumentCheckAction({
       )}
       {plan && plan.kind !== "ready" && (
         <p data-testid="document-check-cannot" className="citation-card-note">
-          {t(plan.kind === "nothing-to-read" ? "claim.readNothing" : "claim.readCannot")}
+          {plan.kind === "too-many"
+            ? t("claim.readCannot.many", { most: plan.most })
+            : t(plan.kind === "nothing-to-read" ? "claim.readNothing" : "claim.readCannot")}
         </p>
       )}
       {failure && <ProblemLine testId="document-check-problem">{failure}</ProblemLine>}
       {reading && (
         <p data-testid="document-check-progress" className="citation-card-note">
-          {t("claim.readProgress", {
+          {t(progress?.of === 1 ? "claim.readProgress.one" : "claim.readProgress", {
             scope: read?.name ?? "",
             pages: progress?.pages ?? 0,
             of: progress?.of ?? 0,

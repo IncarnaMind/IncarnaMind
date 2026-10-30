@@ -281,9 +281,9 @@ function parseCheck(input: unknown): ParsedCheck {
     throw new InvalidInputError({ key: "error.check.partChanged" });
   }
   const within = known === "check-against-document" ? parseWithin(input.within) : null;
-  // Any plan but the Note's latest is refused (`planned`), one that isn't an id among them.
-  const plan =
-    !within || input.plan === undefined ? null : typeof input.plan === "string" ? input.plan : "";
+  const plan = typeof input.plan === "string" && input.plan !== "" ? input.plan : null;
+  // A whole read sends a Document's text at a cost the User saw: never without its plan.
+  if (within && plan === null) throw new InvalidInputError({ key: "error.check.readUnplanned" });
   return {
     requestId,
     mindId: parseMindId(input.mindId),
@@ -293,7 +293,7 @@ function parseCheck(input: unknown): ParsedCheck {
     action: known,
     allDocuments: input.allDocuments === true,
     within,
-    plan,
+    plan: within ? plan : null,
     model: parseModel(input.model),
     ...(part && { part }),
   };
@@ -651,6 +651,8 @@ export function createChecks(options: ChecksOptions) {
   }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
+  /** Which of them read a picked Document or Folder whole. */
+  const wholeReads = new Set<string>();
   const recordCiteDocuments = {
     ...options.documents,
     recordChoices: (mindId: string) => content.readSettings(mindId, readRecordCiteChoices),
@@ -981,6 +983,47 @@ export function createChecks(options: ChecksOptions) {
     );
 
   /**
+   * The sentences a whole read of these stretches reads (as `sentenceKey`s, with the part asked
+   * about), and how many of their parts it checks against the pick: a part asked about, else each
+   * not yet Supported or Contradicted, as the part check reads them. Null parts: a sentence with
+   * none yet is sorted as it is read.
+   */
+  function readTarget(
+    mindId: string,
+    stretches: readonly TextStretch[],
+    part: ParsedCheck["part"],
+  ): { sentences: string; parts: number | null } {
+    return content.read(mindId, (blocks) => {
+      const selected = selectedSentences(blocks, stretches);
+      const sentences = selected.ok ? selected.sentences : [];
+      const owner = part ? partOwner(blocks, part) : null;
+      const read = sentences.filter((sentence) => !owner || isSentence(owner.sentence, sentence));
+      let parts: number | null = 0;
+      for (const sentence of read) {
+        const marks = markedSentences(blocks).filter(
+          (each) =>
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        );
+        const prior =
+          marks.length === 1 && marks[0]?.check.text === sentence.text ? marks[0] : null;
+        const open = part
+          ? 1
+          : prior?.check.parts?.filter(
+              (each) =>
+                each.verdict !== "supported" &&
+                each.verdict !== "contradicted" &&
+                !(each.kind === "opinion" && each.verdict === null),
+            ).length;
+        parts = parts === null || open === undefined ? null : parts + open;
+      }
+      return {
+        sentences: JSON.stringify([read.map((each) => sentenceKey(mindId, each)), part ?? null]),
+        parts,
+      };
+    });
+  }
+
+  /**
    * Check against a Document… (./wholeRead). A sentence's mark stays as it was until its read
    * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
    * meanwhile, wins over the result.
@@ -988,9 +1031,11 @@ export function createChecks(options: ChecksOptions) {
   async function readSentences(
     input: ParsedCheck,
     within: SearchScope,
+    planned: () => boolean,
     signal: AbortSignal,
   ): Promise<CheckSentencesResult> {
     const { mindId } = input;
+    const current = () => !signal.aborted && planned();
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
     const found = content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
@@ -1014,7 +1059,8 @@ export function createChecks(options: ChecksOptions) {
     if ("kind" in read) return { kind: "cannot-read", plan: read };
     const ready = await prepare(input.model ?? options.defaultModel(), "document-check");
     if (!ready.ok) return ready.result;
-    if (signal.aborted) return { kind: "cancelled" };
+    // Consent or the model can take a while: a pick replaced meanwhile sends nothing.
+    if (!current()) return { kind: "cancelled" };
     const { prepared } = ready;
     const scope: ClaimCheckScope = {
       folderId: options.mindFolder(mindId),
@@ -1047,15 +1093,15 @@ export function createChecks(options: ChecksOptions) {
 
     let checked = 0;
     for (const { key, marks, queued } of started.sentences) {
-      if (signal.aborted) break;
+      if (!current()) break;
       wholeRead.claim(key, input.requestId);
       try {
-        const reading = wholeRead.reader(input, read, prepared, atomicCheck);
+        const reading = wholeRead.reader(input, read, prepared, atomicCheck, current);
         const result = await withCites(createPartCheck(options, reading.readPart))({
           ...checkRequest(queued, read.scope, prepared, mindId, signal),
           undecidedOnly: true,
         });
-        if (signal.aborted) break;
+        if (!current()) break;
         const at = options.now().toISOString();
         recordJudged(options.recordAiUse, mindId, prepared, result, at);
         const kept = content.edit(mindId, (blocks) => {
@@ -1093,7 +1139,7 @@ export function createChecks(options: ChecksOptions) {
         wholeRead.release(key, input.requestId);
       }
     }
-    if (signal.aborted) return { kind: "cancelled" };
+    if (!current()) return { kind: "cancelled" };
     return {
       kind: "checked",
       sentences: started.sentences.length,
@@ -1316,20 +1362,30 @@ export function createChecks(options: ChecksOptions) {
       if (running.has(parsed.requestId)) {
         throw new InvalidInputError(`The check ${parsed.requestId} is already running.`);
       }
-      if (
-        parsed.within &&
-        parsed.plan !== null &&
-        !wholeRead.planned(parsed.mindId, parsed.plan, parsed.within)
-      ) {
-        throw new InvalidInputError({ key: "error.check.pickReplaced" });
-      }
+      const { within, plan } = parsed;
+      const target =
+        within && plan
+          ? readTarget(
+              parsed.mindId,
+              [{ from: parsed.from, to: parsed.to }, ...parsed.more],
+              parsed.part,
+            ).sentences
+          : null;
+      const planned = () =>
+        within !== null &&
+        plan !== null &&
+        target !== null &&
+        wholeRead.planned(parsed.mindId, plan, within, target);
+      if (within && !planned()) throw new InvalidInputError({ key: "error.check.pickReplaced" });
       const tracked = track(parsed.requestId, parsed.mindId);
+      if (within) wholeReads.add(parsed.requestId);
       try {
-        if (parsed.within) return await readSentences(parsed, parsed.within, tracked.signal);
+        if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
           : await checkSentences(parsed, tracked.signal);
       } finally {
+        wholeReads.delete(parsed.requestId);
         tracked.done();
       }
     },
@@ -1338,7 +1394,18 @@ export function createChecks(options: ChecksOptions) {
       if (!isRecord(input)) throw new InvalidInputError("planDocumentCheck expects an object.");
       const mindId = parseMindId(input.mindId);
       options.requireMind(mindId);
-      return wholeRead.plan(mindId, parseWithin(input.within), parseModel(input.model));
+      const within = parseWithin(input.within);
+      const stretches = [
+        { from: parsePlace(input.from, "from"), to: parsePlace(input.to, "to") },
+        ...parseStretches(input.more),
+      ];
+      const target = readTarget(mindId, stretches, parsePart(input.part));
+      // A newer pick replaces the read of the one before: it stops, and its result never lands.
+      for (const requestId of wholeReads) {
+        const run = running.get(requestId);
+        if (run?.mindId === mindId) run.controller.abort();
+      }
+      return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
     async planContradictionCheck(mindId: unknown): Promise<ContradictionCheckPlan> {

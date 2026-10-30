@@ -17,6 +17,7 @@ import {
   type ClaimCheckAction,
   type ClaimCheckPart,
   type ClaimPartSpan,
+  type DocumentCheckPlan,
   type DocumentCheckProgress,
   type ProviderError,
   type SearchScope,
@@ -26,7 +27,7 @@ import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import { placeInSentence, type ShownClaim } from "./editor/claimChecks";
+import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
@@ -84,8 +85,8 @@ interface ChecksState {
   openClaim: Readonly<Record<string, string>>;
   /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
   focusClaim: Readonly<Record<string, string>>;
-  /** By claim: Check against a Document's picker was requested from ⌘K. */
-  pickDocument: Readonly<Record<string, true>>;
+  /** By claim: Check against a Document's picker was requested (⌘K), or a read of this pick. */
+  pickDocument: Readonly<Record<string, true | SearchScope>>;
   /** By whole-read request: its latest page count. */
   documentProgress: Readonly<Record<string, DocumentCheckProgress>>;
 }
@@ -133,6 +134,44 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+/** Asks the claim's card to read `within` again: it sizes the read and asks its cost first. */
+export const requestDocumentRead = (id: string, within: SearchScope) =>
+  setFor("pickDocument", id, within);
+
+/**
+ * Sizes a whole read of the sentences `ranges` touch, or of one `part`, against `within`: what
+ * its cost question shows, and the plan its read must name. Null when the ranges hold no text.
+ */
+export function planDocumentRead(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  {
+    ranges,
+    within,
+    part,
+  }: {
+    ranges: readonly { from: number; to: number }[];
+    within: SearchScope;
+    part?: { id: string; span: ClaimPartSpan };
+  },
+): Promise<DocumentCheckPlan> | null {
+  const [first, ...more] = ranges.flatMap((range) => {
+    const read = selectionForEdit(editor.state, range);
+    return read ? [read] : [];
+  });
+  if (!first) return null;
+  return core.planDocumentCheck({
+    mindId,
+    from: first.from,
+    to: first.to,
+    ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
+    ...(part && { part }),
+    within,
+    model: modelInUseOf(doc),
+  });
+}
 
 export const dismissDocumentPicker = (id: string) => setFor("pickDocument", id, null);
 
@@ -271,13 +310,16 @@ export async function checkSentences(
 /**
  * Accept all and check: accepts the changes a check left out that are still
  * waiting, then checks the sentences they were in, as they read now. One out
- * of date can't be accepted, so its sentence is left out again.
+ * of date can't be accepted, so its sentence is left out again. A whole read
+ * is asked again in its sentence's card (`showCard`), which sizes it and asks
+ * its cost first.
  */
 export function acceptAndCheck(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
   leftOut: LeftOut,
+  showCard: (checkId: string) => void,
 ): Promise<void> {
   if (editor.isDestroyed) return Promise.resolve();
   const waiting = pendingIn(editor.state)
@@ -290,10 +332,19 @@ export function acceptAndCheck(
     return start !== null && end !== null && start < end ? [{ from: start, to: end }] : [];
   });
   if (ranges.length === 0) return Promise.resolve();
+  if (leftOut.within) {
+    const claim = claimSpans(editor.state.doc).find((each) =>
+      ranges.some((range) => each.sentence.from < range.to && range.from < each.sentence.to),
+    );
+    if (claim) {
+      requestDocumentRead(claim.check.id, leftOut.within);
+      showCard(claim.check.id);
+    }
+    return Promise.resolve();
+  }
   return checkSentences(editor, mindId, doc, leftOut.action, {
     ranges,
     allDocuments: leftOut.allDocuments,
-    within: leftOut.within,
     part: leftOut.part,
   });
 }
@@ -313,17 +364,19 @@ export function checkAgain(
   allDocuments = claim.check.scope.widened,
 ): Promise<void> {
   const { action } = claim.check;
-  const wholeRead = action === "check-against-document" && !allDocuments;
-  const rerun = wholeRead
-    ? "check-against-document"
-    : action === "check-against-document"
-      ? "check-against-documents"
-      : action;
-  return checkSentences(editor, mindId, doc, rerun, {
-    ranges: [{ from: claim.from, to: claim.to }],
-    allDocuments,
-    within: wholeRead ? claim.check.scope.chosen : undefined,
-  });
+  const chosen = claim.check.scope.chosen;
+  if (action === "check-against-document" && !allDocuments && chosen) {
+    // Its card sizes the read again and asks its cost first, as the first read did.
+    requestDocumentRead(claim.check.id, chosen);
+    return Promise.resolve();
+  }
+  return checkSentences(
+    editor,
+    mindId,
+    doc,
+    action === "check-against-document" ? "check-against-documents" : action,
+    { ranges: [{ from: claim.from, to: claim.to }], allDocuments },
+  );
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */

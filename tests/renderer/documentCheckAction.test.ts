@@ -12,13 +12,23 @@ const read = vi.hoisted(() => vi.fn());
 const dismissDocumentPicker = vi.hoisted(() => vi.fn());
 
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
+const checksState = vi.hoisted(() => ({
+  pickDocument: {} as Record<string, unknown>,
+  running: {} as Record<string, unknown>,
+  documentProgress: {},
+}));
 vi.mock("../../src/renderer/src/checks", () => ({
   checkSentences: read,
   dismissDocumentPicker,
+  planDocumentRead: (
+    _editor: unknown,
+    mindId: string,
+    _doc: unknown,
+    { within }: { within: SearchScope },
+  ) => bridge.planDocumentCheck({ mindId, within } as never),
   setDocumentProgress: vi.fn(),
   stopCheck: vi.fn(),
-  useChecks: (selector: (state: unknown) => unknown) =>
-    selector({ pickDocument: {}, running: {}, documentProgress: {} }),
+  useChecks: (selector: (state: unknown) => unknown) => selector(checksState),
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => "en",
@@ -107,9 +117,15 @@ const estimate = (amount: number): RunEstimate => ({
   spentTowardCap: null,
   setAsideTowardCap: null,
 });
-const ready = (pages: number, amount: number, id = `plan-${pages}`): DocumentCheckPlan => ({
+const ready = (
+  pages: number,
+  amount: number,
+  id = `plan-${pages}`,
+  parts: number | null = 1,
+): DocumentCheckPlan => ({
   kind: "ready",
   id,
+  parts,
   documents: [],
   pages,
   readable: pages,
@@ -151,6 +167,7 @@ async function render() {
         mindId: "mind",
         doc: {} as never,
         claim: claim as never,
+        offer: true,
       }),
     );
   });
@@ -158,6 +175,8 @@ async function render() {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  checksState.pickDocument = {};
+  checksState.running = {};
   read.mockResolvedValue(undefined);
   ({ window } = parseHTML("<!doctype html><html><body></body></html>"));
   container = window.document.createElement("div");
@@ -226,5 +245,35 @@ test("dismissing the action invalidates a pending low-estimate plan", async () =
 
   await act(async () => a.resolve(ready(3, 0.4)));
 
+  expect(read).not.toHaveBeenCalled();
+});
+
+test("a read whose parts aren't sorted yet asks its cost, however small", async () => {
+  bridge.planDocumentCheck.mockResolvedValue(ready(3, 0.1, "plan-unsorted", null));
+  await click("claim-check-document");
+  await click("pick-A");
+
+  expect(read).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull();
+  await click("document-check-read");
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("A"), plan: "plan-unsorted" });
+});
+
+test("a read asked again waits while the Note's check runs, then sizes it and asks", async () => {
+  bridge.planDocumentCheck.mockResolvedValue(ready(12, 2));
+  checksState.running = { mind: { requestId: "earlier", action: "check-against-document" } };
+  checksState.pickDocument = { claim: scope("A") };
+  await render();
+
+  expect(bridge.planDocumentCheck).not.toHaveBeenCalled();
+  expect(
+    container.querySelector('[data-testid="claim-check-document"]')?.hasAttribute("disabled"),
+  ).toBe(true);
+
+  checksState.running = {};
+  await render();
+  await vi.waitFor(() => expect(bridge.planDocumentCheck).toHaveBeenCalledOnce());
+  expect(dismissDocumentPicker).toHaveBeenCalledWith("claim");
+  expect(container.querySelector('[data-testid="ask-question"]')?.textContent).toContain(":A:12");
   expect(read).not.toHaveBeenCalled();
 });

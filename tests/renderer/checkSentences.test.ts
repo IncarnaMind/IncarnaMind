@@ -86,6 +86,31 @@ describe("a check asked again", () => {
   });
 });
 
+test("Check again on a whole read asks its card to size the read and ask its cost, reading nothing", async () => {
+  asked.length = 0;
+  const chosen = { folderIds: [], tagIds: [], documentIds: ["lease"] };
+  const claim = {
+    from: 1,
+    to: 2,
+    check: {
+      id: "whole-read",
+      action: "check-against-document",
+      scope: { widened: false, chosen, folderId: null },
+    },
+  } as unknown as ShownClaim;
+
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim);
+
+  expect(asked).toHaveLength(0);
+  expect(checks.useChecks.getState().pickDocument["whole-read"]).toEqual(chosen);
+  checks.dismissDocumentPicker("whole-read");
+
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, true);
+  expect(asked).toHaveLength(1);
+  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: true });
+  expect(asked[0]?.input.within).toBeUndefined();
+});
+
 test("Check anyway sends an explicit part target even when the selection reader expands its sentence", async () => {
   asked.length = 0;
   const part = { id: "mixed", span: { start: 24, end: 52 } };

@@ -381,7 +381,8 @@ export function ClaimMark({
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
-                done();
+                // A whole read asks its cost in this card first.
+                if (allDocuments || claim.check.action !== "check-against-document") done();
               }}
               onUseWording={(part) => {
                 applyDocumentWording(editor, claim, part);
@@ -880,7 +881,9 @@ function ClaimCard({
                     ? t(
                         wholeRead.pages === wholeRead.of
                           ? "claim.readAll.notFound"
-                          : "claim.readSome.notFound",
+                          : wholeRead.of === 1
+                            ? "claim.readSome.notFound.one"
+                            : "claim.readSome.notFound",
                         { scope: lookedIn, pages: wholeRead.pages, of: wholeRead.of },
                       )
                     : looked && looked.more > 0
@@ -1087,8 +1090,14 @@ function ClaimCard({
             {t("claim.searchAll")}
           </button>
         )}
-        {notFound && verified === null && mindId && (
-          <DocumentCheckAction editor={editor} mindId={mindId} doc={doc} claim={claim} />
+        {(notFound || check.action === "check-against-document") && verified === null && mindId && (
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={notFound}
+          />
         )}
         {notFound && verified === null && (
           <button

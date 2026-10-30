@@ -6022,16 +6022,22 @@ export interface CheckSentencesInput {
    */
   within?: SearchScope;
   /**
-   * With `within`: the `planDocumentCheck` it was asked from. Refused, sending nothing, once a
-   * newer plan in the Note has replaced it or it was made for another pick.
+   * With `within`, required: the `planDocumentCheck` it was asked from. Refused, sending nothing,
+   * unless it is still the Note's latest plan and was made for this pick and these sentences; a
+   * newer plan stops a read already running.
    */
   plan?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
 }
 
+/** What `checkSentences` will read whole: its sentences, or one part, and its pick. */
 export interface PlanDocumentCheckInput {
   mindId: string;
+  from: TextPlace;
+  to: TextPlace;
+  more?: TextStretch[];
+  part?: { id: string; span: ClaimPartSpan };
   within: SearchScope;
   model?: ChatModelChoice | null;
 }
@@ -6049,6 +6055,11 @@ export type DocumentCheckPlan =
       kind: "ready";
       /** What a read of this plan names as its `plan`. */
       id: string;
+      /**
+       * The parts the read checks against the pick, each through every window: the estimate's
+       * count. Null when a sentence's parts are sorted only as it is read: then at least one.
+       */
+      parts: number | null;
       documents: DocumentToRead[];
       pages: number;
       readable: number;
@@ -10901,7 +10912,11 @@ export interface CoreApi {
    * unchanged until the read settles, so stopping leaves no partial result.
    */
   checkSentences(input: CheckSentencesInput): Promise<CheckSentencesResult>;
-  /** Sizes Check against a Document… before anything is sent; the read is `checkSentences` with `within`. */
+  /**
+   * Sizes Check against a Document… for its sentences, or one part, before anything is sent; the
+   * read is `checkSentences` with `within` and this plan's `id`. It becomes the Note's latest plan
+   * and stops a whole read already running there.
+   */
   planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;

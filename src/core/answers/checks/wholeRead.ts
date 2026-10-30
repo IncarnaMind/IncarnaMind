@@ -125,7 +125,7 @@ interface Reading {
 
 export function createWholeRead(options: WholeReadOptions) {
   /** The latest plan in each Note, by Note: a read asked from an earlier one sends nothing. */
-  const plans = new Map<string, { id: string; within: SearchScope }>();
+  const plans = new Map<string, { id: string; within: SearchScope; sentences: string }>();
   /** The latest whole read of each sentence, by `sentenceKey`: an earlier one never writes. */
   const owners = new Map<string, string>();
 
@@ -182,6 +182,7 @@ export function createWholeRead(options: WholeReadOptions) {
     read: ToRead,
     model: PreparedChatModel,
     atomic: Atomic,
+    planned: () => boolean,
   ) {
     const windows = windowsOf(read, windowTokens(model));
     const readings: Reading[] = [];
@@ -222,6 +223,15 @@ export function createWholeRead(options: WholeReadOptions) {
       let found: AtomicClaimCheckResult | null = null;
       let last: AtomicClaimCheckResult | null = null;
       for (const window of windows) {
+        if (!planned()) {
+          return dropped({
+            verdict: "not-checked",
+            reason: "stopped",
+            detail: null,
+            versions: [],
+            excluded: [],
+          });
+        }
         const result = await atomic({ ...request, window: window.passages });
         if (request.signal.aborted) return dropped(result);
         for (const id of result.readPassages ?? []) received.add(id);
@@ -258,13 +268,18 @@ export function createWholeRead(options: WholeReadOptions) {
     toRead,
     reader,
 
+    /**
+     * Sizes a read of `sentences` (a key of them, and of the part asked about) whose `parts` each
+     * read every window, and makes it the Note's latest plan.
+     */
     async plan(
       mindId: string,
       within: SearchScope,
       model: ChatModelChoice | null,
+      target: { sentences: string; parts: number | null },
     ): Promise<DocumentCheckPlan> {
       const id = options.newId();
-      plans.set(mindId, { id, within });
+      plans.set(mindId, { id, within, sentences: target.sentences });
       const read = toRead(mindId, within);
       if ("kind" in read) return read;
       const chosen = model ?? options.defaultModel();
@@ -272,20 +287,24 @@ export function createWholeRead(options: WholeReadOptions) {
       const windows = windowsOf(read, windowTokens(window ? { window } : null)).map(
         (each) => each.tokens,
       );
+      const parts = Math.max(1, target.parts ?? 1);
       return {
         kind: "ready",
         id,
+        parts: target.parts,
         documents: read.documents,
         pages: read.pages,
         readable: read.readable,
         tokens: read.tokens,
-        estimate: options.estimate(chosen, windows),
+        estimate: options.estimate(chosen, Array.from({ length: parts }, () => windows).flat()),
       };
     },
 
-    planned(mindId: string, plan: string, within: SearchScope): boolean {
+    planned(mindId: string, plan: string, within: SearchScope, sentences: string): boolean {
       const latest = plans.get(mindId);
-      return latest?.id === plan && sameScope(latest.within, within);
+      return (
+        latest?.id === plan && sameScope(latest.within, within) && latest.sentences === sentences
+      );
     },
 
     claim(sentence: string, requestId: string): void {

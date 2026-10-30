@@ -6,6 +6,7 @@ import type {
   Core,
   CoreAdapters,
   Document,
+  PlanDocumentCheckInput,
   SearchScope,
 } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -79,6 +80,26 @@ function checkInput(
     ...whole(block, claim.length),
     within: picked,
   };
+}
+
+/** A whole read's input, sized first as the card sizes it: its plan, for this sentence and pick. */
+async function readInput(
+  core: Core,
+  mindId: string,
+  block: { attrs: { id: string } },
+  claim: string,
+  picked: SearchScope,
+  requestId: string = crypto.randomUUID(),
+  extra: Pick<PlanDocumentCheckInput, "model" | "part"> = {},
+) {
+  const plan = await core.planDocumentCheck({
+    mindId,
+    ...whole(block, claim.length),
+    within: picked,
+    ...extra,
+  });
+  if (plan.kind !== "ready") throw new Error(`The pick can't be read: ${plan.kind}.`);
+  return { ...checkInput(mindId, block, claim, picked, requestId), plan: plan.id, ...extra };
 }
 
 async function marks(client: MindClient) {
@@ -159,12 +180,13 @@ describe("Check against a Document, read whole", () => {
 
       const planBefore = await core.planDocumentCheck({
         mindId: mind.id,
+        ...whole(block, example.claim.length),
         within: within([lease.id]),
       });
       expect(planBefore).toMatchObject({ kind: "ready", documents: [{ documentId: lease.id }] });
 
       const result = await core.checkSentences(
-        checkInput(mind.id, block, example.claim, within([lease.id])),
+        await readInput(core, mind.id, block, example.claim, within([lease.id])),
       );
 
       expect(result).toMatchObject({ kind: "checked", sentences: 1, checked: 1 });
@@ -202,7 +224,7 @@ describe("Check against a Document, read whole", () => {
     core.on("documentCheck.progress", (event) => progress.push(event.pages));
 
     await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
     );
 
     expect(progress).toHaveLength(2);
@@ -229,7 +251,7 @@ describe("Check against a Document, read whole", () => {
     core.on("documentCheck.progress", (event) => progress.push(event.pages));
 
     await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
     );
 
     expect(calls.filter(isCheckRun).length).toBeGreaterThan(1);
@@ -278,7 +300,7 @@ describe("Check against a Document, read whole", () => {
     );
     const { core, mind, block, documents } = result;
     await core.checkSentences(
-      checkInput(mind.id, block, LONG_CLAIM, within([documents[0]?.id ?? ""])),
+      await readInput(core, mind.id, block, LONG_CLAIM, within([documents[0]?.id ?? ""])),
     );
     const { pages } = await core.readDocumentText(documents[0]?.id ?? "");
     /** The pages every line the Document holds of which reached the model in these requests. */
@@ -329,6 +351,7 @@ describe("Check against a Document, read whole", () => {
     const model = { providerId: provider.id, modelId: "gpt-4-turbo" };
     const plan = await core.planDocumentCheck({
       mindId: mind.id,
+      ...whole(block, EN.claim.length),
       within: within([documents[0]?.id ?? ""]),
       model,
     });
@@ -341,10 +364,11 @@ describe("Check against a Document, read whole", () => {
       if (event.requestId === requestId) reports++;
     });
 
-    await core.checkSentences({
-      ...checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), requestId),
-      model,
-    });
+    await core.checkSentences(
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), requestId, {
+        model,
+      }),
+    );
     await client.settled();
 
     expect(reports - 1).toBeGreaterThan(1);
@@ -382,7 +406,13 @@ describe("Check against a Document, read whole", () => {
     await result.client.settled();
 
     await result.core.checkSentences(
-      checkInput(result.mind.id, block, EN.claim, within([result.documents[0]?.id ?? ""])),
+      await readInput(
+        result.core,
+        result.mind.id,
+        block,
+        EN.claim,
+        within([result.documents[0]?.id ?? ""]),
+      ),
     );
 
     expect(calls.filter(isCheckRun).length).toBeGreaterThan(1);
@@ -429,7 +459,7 @@ describe("Check against a Document, read whole", () => {
     );
 
     await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
     );
 
     expect(await onlyMark(client)).toMatchObject({ state: "not-checked", reason: "malformed" });
@@ -464,11 +494,11 @@ describe("Check against a Document, read whole", () => {
     );
 
     const older = core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
     );
     await vi.waitFor(() => expect(held).toBe(true));
     await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "newer"),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "newer"),
     );
     expect(await onlyMark(client)).toMatchObject({ request: "newer", state: "supported" });
 
@@ -518,7 +548,7 @@ describe("Check against a Document, read whole", () => {
     });
 
     const result = await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), requestId),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), requestId),
     );
 
     expect(result).toEqual({ kind: "cancelled" });
@@ -543,10 +573,11 @@ describe("Check against a Document, read whole", () => {
     if (!saved.service) throw new Error("The test provider has no service.");
     const requested = nextEvent(core, "consent.requested");
 
-    const running = core.checkSentences({
-      ...checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
-      model: { providerId: saved.id, modelId: "claude-haiku-5-5" },
-    });
+    const running = core.checkSentences(
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), undefined, {
+        model: { providerId: saved.id, modelId: "claude-haiku-5-5" },
+      }),
+    );
     const request = await requested;
     expect(request.flow.id).toBe("document-check");
     expect(request.newKinds).toContain("whole-document");
@@ -571,15 +602,20 @@ describe("Check against a Document, read whole", () => {
       contents: `Text ${index}`,
     }));
     const calls: ModelCall[] = [];
-    const { core, mind, documents } = await setup(files, {}, EN.claim, calls);
+    const { core, mind, documents, block } = await setup(files, {}, EN.claim, calls);
     const ids = documents.map((each) => each.id);
+    const sentence = whole(block, EN.claim.length);
 
-    expect(await core.planDocumentCheck({ mindId: mind.id, within: within(ids) })).toEqual({
+    expect(
+      await core.planDocumentCheck({ mindId: mind.id, ...sentence, within: within(ids) }),
+    ).toEqual({
       kind: "too-many",
       documents: 26,
       most: 25,
     });
-    expect(await core.planDocumentCheck({ mindId: mind.id, within: within(["missing"]) })).toEqual({
+    expect(
+      await core.planDocumentCheck({ mindId: mind.id, ...sentence, within: within(["missing"]) }),
+    ).toEqual({
       kind: "nothing-to-read",
     });
     expect(calls).toHaveLength(0);
@@ -660,21 +696,21 @@ describe("Check against a Document across a Folder wall", () => {
       const { core, calls, inside, outside, folder, note } = await walled(example);
       const { mind, client, block } = await note(folder.id);
 
+      const sentence = whole(block, example.claim.length);
       expect(
-        await core.planDocumentCheck({ mindId: mind.id, within: within([outside.id]) }),
+        await core.planDocumentCheck({
+          mindId: mind.id,
+          ...sentence,
+          within: within([outside.id]),
+        }),
       ).toEqual({ kind: "nothing-to-read" });
-      const refused = await core.checkSentences(
-        checkInput(mind.id, block, example.claim, within([outside.id])),
-      );
-      expect(refused).toEqual({ kind: "cannot-read", plan: { kind: "nothing-to-read" } });
       expect(calls).toHaveLength(0);
 
       const both = { folderIds: [folder.id], tagIds: [], documentIds: [outside.id] };
-      expect(await core.planDocumentCheck({ mindId: mind.id, within: both })).toMatchObject({
-        kind: "ready",
-        documents: [{ documentId: inside.id }],
-      });
-      await core.checkSentences(checkInput(mind.id, block, example.claim, both));
+      expect(
+        await core.planDocumentCheck({ mindId: mind.id, ...sentence, within: both }),
+      ).toMatchObject({ kind: "ready", documents: [{ documentId: inside.id }] });
+      await core.checkSentences(await readInput(core, mind.id, block, example.claim, both));
 
       const handed = handedText(calls);
       expect(handed).toContain(example.inside.contents);
@@ -692,18 +728,16 @@ describe("Check against a Document across a Folder wall", () => {
       const { core, calls, inside, outside, folder, note } = await walled(example);
       const { mind, client, block } = await note(null);
 
+      const sentence = whole(block, example.claim.length);
       for (const kept of [within([inside.id]), { ...within([]), folderIds: [folder.id] }]) {
-        expect(await core.planDocumentCheck({ mindId: mind.id, within: kept })).toEqual({
-          kind: "nothing-to-read",
-        });
         expect(
-          await core.checkSentences(checkInput(mind.id, block, example.claim, kept)),
-        ).toMatchObject({ kind: "cannot-read" });
+          await core.planDocumentCheck({ mindId: mind.id, ...sentence, within: kept }),
+        ).toEqual({ kind: "nothing-to-read" });
       }
       expect(calls).toHaveLength(0);
 
       await core.checkSentences(
-        checkInput(mind.id, block, example.claim, within([inside.id, outside.id])),
+        await readInput(core, mind.id, block, example.claim, within([inside.id, outside.id])),
       );
 
       const handed = handedText(calls);
@@ -802,7 +836,9 @@ describe("Check against a Document, part by part", () => {
       expect(before.parts?.map((each) => each.span)).toEqual([found.span, missing.span]);
       const sent = calls.length;
 
-      await core.checkSentences(checkInput(mind.id, block, example.sentence, within([pets.id])));
+      await core.checkSentences(
+        await readInput(core, mind.id, block, example.sentence, within([pets.id])),
+      );
 
       expect(askedAbout(calls.slice(sent))).toEqual([example.missing]);
       const check = await onlyMark(client);
@@ -814,15 +850,47 @@ describe("Check against a Document, part by part", () => {
     },
   );
 
+  test.each(PARTS)(
+    "sizes the read by the parts it will check, so its cost counts each ($language)",
+    async (example) => {
+      const { core, client, mind, block, pets, before, found } = await parted(example);
+      const sentence = whole(block, example.sentence.length);
+      const open = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...sentence,
+        within: within([pets.id]),
+      });
+      const both = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...sentence,
+        part: { id: before.id, span: found.span },
+        within: within([pets.id]),
+      });
+      expect(open).toMatchObject({ kind: "ready", parts: 1 });
+      expect(both).toMatchObject({ kind: "ready", parts: 1 });
+
+      const fresh = paragraph(text(example.sentence));
+      writeMind(client, [fresh]);
+      await client.settled();
+      const unsorted = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...whole(fresh, example.sentence.length),
+        within: within([pets.id]),
+      });
+      expect(unsorted).toMatchObject({ kind: "ready", parts: null });
+    },
+  );
+
   test.each(PARTS)("reads one part when asked about it ($language)", async (example) => {
     const { core, client, mind, block, calls, pets, before, found, missing } =
       await parted(example);
     const sent = calls.length;
 
-    await core.checkSentences({
-      ...checkInput(mind.id, block, example.sentence, within([pets.id])),
-      part: { id: before.id, span: found.span },
-    });
+    await core.checkSentences(
+      await readInput(core, mind.id, block, example.sentence, within([pets.id]), undefined, {
+        part: { id: before.id, span: found.span },
+      }),
+    );
 
     expect(askedAbout(calls.slice(sent))).toEqual([example.found]);
     const check = await onlyMark(client);
@@ -833,14 +901,102 @@ describe("Check against a Document, part by part", () => {
   });
 });
 
+describe("The cost a whole read asks", () => {
+  test("counts every window once for each part it reads", async () => {
+    const sentence = "Rent is due monthly and the tenant may keep a cat.";
+    const rent = "Rent is due monthly";
+    const cat = "the tenant may keep a cat";
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, { [sentenceOf(call)]: { verdict: "unsupported" } });
+      },
+      {
+        generate(call) {
+          if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+          const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
+            number,
+            parts: (said === sentence ? [rent, cat] : [said]).map((words) => ({
+              kind: "fact",
+              text: words,
+            })),
+          }));
+          return { text: JSON.stringify({ sentences }) };
+        },
+      },
+    );
+    const filler = Array.from(
+      { length: 6000 },
+      (_, index) => `Unrelated paragraph ${index} with ordinary words.`,
+    ).join("\n");
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Long.md", contents: filler },
+    ]);
+    const block = paragraph(text(sentence));
+    writeMind(client, [block]);
+    await client.settled();
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("checks", provider.service.id);
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      mode: "all",
+      model: chosen,
+    });
+    const before = await onlyMark(client);
+    const span = before.parts?.[0]?.span;
+    if (!span) throw new Error("The sentence has no parts.");
+    const picked = within([documents[0]?.id ?? ""]);
+    const callsOf = async (part?: { id: string; span: { start: number; end: number } }) => {
+      const plan = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...whole(block, sentence.length),
+        ...(part && { part }),
+        within: picked,
+        model: chosen,
+      });
+      if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+        throw new Error("The read has no per-token estimate.");
+      }
+      return { plan, calls: plan.estimate.calls };
+    };
+    const one = await callsOf({ id: before.id, span });
+    const open = await callsOf();
+
+    expect(one.plan.parts).toBe(1);
+    expect(open.plan.parts).toBe(2);
+    expect(open.calls).toBe(2 * one.calls);
+    const sent = calls.length;
+    await core.checkSentences({
+      ...checkInput(mind.id, block, sentence, picked),
+      plan: open.plan.id,
+      model: chosen,
+    });
+    const read = calls.slice(sent).filter(isCheckRun).length;
+    expect(read).toBeGreaterThan(one.calls);
+    expect(read).toBeLessThanOrEqual(open.calls);
+  });
+});
+
 describe("A whole read the User replaced", () => {
-  async function allowed() {
+  const A_TEXT = `Alpha lease. ${EN.quote}.`;
+  const B_TEXT = `Bravo lease. ${EN.quote}.`;
+
+  async function allowed(allow = true) {
     const calls: ModelCall[] = [];
     const plan = { [EN.claim]: { verdict: "supported" as const, quote: EN.quote } };
     const result = await setup(
       [
-        { name: "A.md", contents: EN.quote },
-        { name: "B.md", contents: `${EN.quote} B` },
+        { name: "A.md", contents: A_TEXT },
+        { name: "B.md", contents: B_TEXT },
       ],
       plan,
       EN.claim,
@@ -852,22 +1008,33 @@ describe("A whole read the User replaced", () => {
       modelId: "claude-haiku-5-5",
     });
     if (!provider.service) throw new Error("The test provider has no service.");
-    await result.core.allowDataFlow("document-check", provider.service.id);
+    if (allow) await result.core.allowDataFlow("document-check", provider.service.id);
     const model = { providerId: provider.id, modelId: "claude-haiku-5-5" };
     const [a, b] = result.documents as [Document, Document];
     return { ...result, calls, model, a, b };
   }
 
-  async function planned(core: Core, mindId: string, picked: SearchScope) {
-    const plan = await core.planDocumentCheck({ mindId, within: picked });
+  async function planned(
+    core: Core,
+    mindId: string,
+    block: { attrs: { id: string } },
+    picked: SearchScope,
+    model?: { providerId: string; modelId: string },
+  ) {
+    const plan = await core.planDocumentCheck({
+      mindId,
+      ...whole(block, EN.claim.length),
+      within: picked,
+      ...(model && { model }),
+    });
     if (plan.kind !== "ready") throw new Error("The pick can't be read.");
     return plan.id;
   }
 
   test("sends nothing for a plan a newer pick replaced, or for another pick", async () => {
     const { core, client, mind, block, calls, model, a, b } = await allowed();
-    const first = await planned(core, mind.id, within([a.id]));
-    const second = await planned(core, mind.id, within([b.id]));
+    const first = await planned(core, mind.id, block, within([a.id]));
+    const second = await planned(core, mind.id, block, within([b.id]));
 
     await expect(
       core.checkSentences({
@@ -895,6 +1062,73 @@ describe("A whole read the User replaced", () => {
       state: "supported",
       scope: { chosen: { documentIds: [b.id] } },
     });
+  });
+
+  test("a pick replaced while its consent is asked sends nothing once consent is given", async () => {
+    const { core, client, mind, block, calls, model, a, b } = await allowed(false);
+    const first = await planned(core, mind.id, block, within([a.id]), model);
+    const requested = nextEvent(core, "consent.requested");
+    const reading = core.checkSentences({
+      ...checkInput(mind.id, block, EN.claim, within([a.id])),
+      plan: first,
+      model,
+    });
+    const request = await requested;
+    await planned(core, mind.id, block, within([b.id]), model);
+    await core.respondToConsent(request.requestId, true);
+
+    expect(await reading).toEqual({ kind: "cancelled" });
+    expect(calls.filter(isCheckRun)).toHaveLength(0);
+    expect(handedText(calls)).not.toContain("Alpha lease");
+    expect(await marks(client)).toEqual([]);
+  });
+
+  test("a newer pick stops a read already running, and nothing more of it is sent", async () => {
+    const filler = Array.from(
+      { length: 6000 },
+      (_, index) => `Unrelated alpha paragraph ${index} with ordinary words.`,
+    ).join("\n");
+    const calls: ModelCall[] = [];
+    const { core, client, mind, block, documents } = await setup(
+      [
+        { name: "A.md", contents: filler },
+        { name: "B.md", contents: B_TEXT },
+      ],
+      { [EN.claim]: { verdict: "unsupported" } },
+      EN.claim,
+      calls,
+    );
+    const [a, b] = documents as [Document, Document];
+    const input = await readInput(core, mind.id, block, EN.claim, within([a.id]));
+    let sentWhenReplaced = -1;
+    core.on("documentCheck.progress", (event) => {
+      if (sentWhenReplaced >= 0 || event.pages === 0) return;
+      sentWhenReplaced = calls.filter(isCheckRun).length;
+      void core.planDocumentCheck({
+        mindId: mind.id,
+        ...whole(block, EN.claim.length),
+        within: within([b.id]),
+      });
+    });
+
+    expect(await core.checkSentences(input)).toEqual({ kind: "cancelled" });
+    expect(sentWhenReplaced).toBeGreaterThan(0);
+    expect(calls.filter(isCheckRun)).toHaveLength(sentWhenReplaced);
+    expect(await marks(client)).toEqual([]);
+  });
+
+  test("a whole read without its plan, or with a forged, empty or replaced one, sends nothing", async () => {
+    const { core, client, mind, block, calls, model, a } = await allowed();
+    const input = { ...checkInput(mind.id, block, EN.claim, within([a.id])), model };
+    const replaced = await planned(core, mind.id, block, within([a.id]));
+    await planned(core, mind.id, block, within([a.id]));
+
+    await expect(core.checkSentences(input)).rejects.toThrow();
+    for (const plan of ["forged", "", replaced]) {
+      await expect(core.checkSentences({ ...input, plan })).rejects.toThrow();
+    }
+    expect(calls).toHaveLength(0);
+    expect(await marks(client)).toEqual([]);
   });
 
   test("waits for a check already running on the sentence, sending nothing", async () => {
@@ -934,7 +1168,9 @@ describe("A whole read the User replaced", () => {
 
     try {
       await expect(
-        core.checkSentences(checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]))),
+        core.checkSentences(
+          await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+        ),
       ).rejects.toThrow();
       expect(calls).toHaveLength(sent);
     } finally {
@@ -968,7 +1204,7 @@ describe("A whole read the User replaced", () => {
       model,
     );
     const reading = core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
     );
     await vi.waitFor(() => expect(held).toBe(true));
     await core.closeMind(mind.id);
@@ -1009,7 +1245,7 @@ describe("A whole read the User replaced", () => {
     );
 
     const older = core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
+      await readInput(core, mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
     );
     await vi.waitFor(() => expect(held).toBe(true));
     await core.checkSentences({

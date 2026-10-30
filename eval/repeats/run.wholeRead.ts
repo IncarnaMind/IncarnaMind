@@ -7,7 +7,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
-import type { ChatModelChoice, Core, DocumentCheckProgress, Money } from "../../src/core";
+import type {
+  ChatModelChoice,
+  CheckSentencesResult,
+  Core,
+  DocumentCheckProgress,
+  Money,
+} from "../../src/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, writeMind } from "../../tests/helpers/minds";
 import { buildPdf } from "../../tests/helpers/pdf";
@@ -126,11 +132,10 @@ test("check against a Document, read whole", async () => {
           const length = sentences[index]?.text.length ?? 0;
           return { from: { blockId, offset: 0 }, to: { blockId, offset: length } };
         };
-        const plan = await core.planDocumentCheck({
-          mindId,
-          within: { folderIds: [], tagIds: [], documentIds: [added.id] },
-          model: choice,
-        });
+        const within = { folderIds: [], tagIds: [], documentIds: [added.id] };
+        const planOf = (index: number) =>
+          core.planDocumentCheck({ mindId, ...placeOf(index), within, model: choice });
+        const plan = await planOf(0);
         log(
           `${model} · ${each.id}: ${document.pages.length} pages, clauses on ${JSON.stringify(document.targetPages)}; ${plan.kind === "ready" ? `${plan.tokens} tokens, about $${plan.estimate?.billing === "per-token" ? (plan.estimate.cost?.amount ?? 0).toFixed(3) : "0"} a read` : plan.kind}`,
         );
@@ -143,17 +148,19 @@ test("check against a Document, read whole", async () => {
           heard.length = 0;
           watch.take();
           const before = await spentOf(core);
+          const planned = how === "read" ? await planOf(index) : null;
           const started = Date.now();
-          const result = await core.checkSentences({
-            requestId: `${mindId}-${how}-${index}-${repeat}`,
-            mindId,
-            ...placeOf(index),
-            action: how === "read" ? "check-against-document" : "check-against-documents",
-            ...(how === "read" && {
-              within: { folderIds: [], tagIds: [], documentIds: [added.id] },
-            }),
-            model: choice,
-          });
+          const result: CheckSentencesResult =
+            planned && planned.kind !== "ready"
+              ? { kind: "cannot-read", plan: planned }
+              : await core.checkSentences({
+                  requestId: `${mindId}-${how}-${index}-${repeat}`,
+                  mindId,
+                  ...placeOf(index),
+                  action: how === "read" ? "check-against-document" : "check-against-documents",
+                  ...(planned && { within, plan: planned.id }),
+                  model: choice,
+                });
           const seconds = (Date.now() - started) / 1000;
           const spent = (await spentOf(core)) - before;
           const check = (await marksOf(core, mindId)).find(

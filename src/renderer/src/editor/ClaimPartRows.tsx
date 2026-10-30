@@ -302,7 +302,11 @@ function PartRow({
                 ? null
                 : read
                   ? t(
-                      read.pages === read.of ? "claim.readAll.notFound" : "claim.readSome.notFound",
+                      read.pages === read.of
+                        ? "claim.readAll.notFound"
+                        : read.of === 1
+                          ? "claim.readSome.notFound.one"
+                          : "claim.readSome.notFound",
                       {
                         scope: lookedIn,
                         pages: read.pages,
