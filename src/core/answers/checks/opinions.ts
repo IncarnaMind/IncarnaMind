@@ -5,7 +5,7 @@ import {
   resolveOpinions,
   writeOpinionSentences,
 } from "../../../shared/opinions";
-import { readVerification, writeVerification } from "../../../shared/verification";
+import { isVerifiedBlock, readVerification, writeVerification } from "../../../shared/verification";
 import { type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../../api";
 import { everySentence, markedSentences, type SelectedSentence, unmarkSentence } from "./sentences";
 
@@ -71,7 +71,7 @@ export function recordOpinions(blocks: Y.XmlFragment, sorted: readonly SortedSen
   const verification = readVerification(settings);
   if (!verification || verification.claims === null) return;
   const claims = current.flatMap((sentence) => {
-    if (!(sentence.blockId in verification.pages)) return [];
+    if (!isVerifiedBlock(doc, verification, sentence.blockId)) return [];
     const found = verification.claims?.find((claim) =>
       sameSentence(sentence, { ...claim, occurrence: claim.occurrence ?? 0 }),
     );
