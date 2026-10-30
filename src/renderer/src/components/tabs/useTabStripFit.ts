@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect } from "react";
+import { type RefObject, useLayoutEffect, useState } from "react";
 import { fitStrip } from "../../tabStripFit";
 
 // The tab list's end padding in styles.css: room for the last tab's foot, and the gap before the "+".
@@ -15,18 +15,26 @@ const WHEEL_QUIET_MS = 140;
  * side that hides tabs (`fitStrip`); a strip being scrolled may show a part of any. A tab that
  * becomes active is brought whole into view, and again when a tab or the strip changes size,
  * until the User scrolls away on purpose.
+ *
+ * A strip too full for its tabs makes room in three steps, each only while the one before isn't
+ * enough, and takes them back in reverse when the room returns (`data-fit` in styles.css):
+ * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends.
+ * Returns how many tabs it hides, so the strip can offer them in a list (#2244).
  */
 export function useTabStripFit(
+  strip: RefObject<HTMLElement | null>,
   list: RefObject<HTMLDivElement | null>,
   spacer: RefObject<HTMLElement | null>,
   shownId: string | null,
   tabIds: string,
-): void {
+): number {
+  const [hidden, setHidden] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tabIds stands for the tabs in the strip.
   useLayoutEffect(() => {
     const element = list.current;
     const spare = spacer.current;
-    if (!element || !spare) return;
+    const band = strip.current;
+    if (!element || !spare || !band) return;
     let following = true;
     let wheelTimer: ReturnType<typeof setTimeout> | undefined;
     let frame: number | undefined;
@@ -65,6 +73,13 @@ export function useTabStripFit(
       element.style.removeProperty("--tab-run-gap");
       delete element.dataset.squeezed;
       element.style.removeProperty("--tab-room");
+      // Each step is taken only while the tabs' own extent, never the strip's `scrollWidth` (the
+      // shown tab's feet reach past it, and always read as overflow), still doesn't fit.
+      band.removeAttribute("data-fit");
+      if (fitFrom(0, -1).run !== null) {
+        band.dataset.fit = "label";
+        if (fitFrom(0, -1).run !== null) band.dataset.fit = "split";
+      }
       // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
       // scroll or on who asked, so every place agrees and the strip comes to rest.
       if (shown >= 0) {
@@ -86,6 +101,11 @@ export function useTabStripFit(
       if (Math.abs(element.scrollLeft - result.scrollLeft) >= 0.5) {
         element.scrollLeft = result.scrollLeft;
       }
+      const hiding = result.run === null ? 0 : tabs.length - (result.last - result.first + 1);
+      // A strip narrowed to its one shown tab hides none of its tabs: only a hidden tab is a step
+      // of its own, with the list that reaches it.
+      if (hiding > 0) band.dataset.fit = "cut";
+      setHidden((current) => (current === hiding ? current : hiding));
       restedAt = element.scrollLeft;
       if (reveal) following = true;
       else if (afterScroll)
@@ -142,7 +162,9 @@ export function useTabStripFit(
     place(true);
     const resized = new ResizeObserver(placeLater);
     resized.observe(spare);
-    if (element.parentElement) resized.observe(element.parentElement);
+    // The list too: the "Show all tabs" button takes room from it as it comes and goes.
+    resized.observe(element);
+    resized.observe(band);
     for (const tab of element.querySelectorAll(':scope > [role="tab"]')) resized.observe(tab);
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("scrollend", onScrollEnd);
@@ -157,5 +179,6 @@ export function useTabStripFit(
       element.removeEventListener("focusin", onKeyboard);
       element.removeEventListener("keydown", onKeyboard);
     };
-  }, [list, spacer, shownId, tabIds]);
+  }, [strip, list, spacer, shownId, tabIds]);
+  return hidden;
 }

@@ -531,6 +531,7 @@ export const en = {
   "tabs.writing": "An Answer is being written",
   "tabs.preview": "{title} · Preview: the next one you open replaces it. Double-click to keep.",
   "tabs.pinned": "{title} · Pinned to the left of this group",
+  "tabs.all": "Show all tabs ({n} hidden)",
   "tabs.split": "Split to the right ({shortcut})",
   "tabs.groupMenu": "More for this group",
   "tabs.tabMenu": "More for {title}",

@@ -21,6 +21,7 @@ import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
 import { ExportMenu } from "./ExportMenu";
+import { ShowAllTabs } from "./ShowAllTabs";
 import { GroupMenu, StripButton } from "./TabMenus";
 import { splitToTheRight } from "./tabActions";
 import { MeetingTabTime, TabIcon, useTabTitle } from "./tabItems";
@@ -50,6 +51,7 @@ export function TabStrip({
   const t = useT();
   const layout = useAppStore((state) => state.layout);
   const createMind = useAppStore((state) => state.createMind);
+  const strip = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const tabs = merged && layout ? layout.groups.flatMap((each) => each.tabs) : group.tabs;
   const shownId = group.activeTabId;
@@ -59,7 +61,7 @@ export function TabStrip({
   const last = merged || index === (layout?.groups.length ?? 1) - 1;
 
   const spacer = useRef<HTMLSpanElement>(null);
-  useTabStripFit(list, spacer, shownId ?? null, tabIds);
+  const hidden = useTabStripFit(strip, list, spacer, shownId ?? null, tabIds);
 
   /** Arrow keys, Home and End move to another tab of the strip and show it, as in any tab list. */
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -101,6 +103,7 @@ export function TabStrip({
 
   return (
     <header
+      ref={strip}
       data-testid="tab-strip"
       data-group-id={group.id}
       data-first-group={index === 0 || undefined}
@@ -144,6 +147,8 @@ export function TabStrip({
       >
         <PlusLineIcon />
       </button>
+      {/* Only while a tab is hidden: it lists every tab, so nothing is out of reach (#2244). */}
+      {hidden > 0 && <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />}
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
       {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}
@@ -339,8 +344,10 @@ function RenameTab({ mindId, title, onDone }: { mindId: string; title: string; o
 }
 
 /**
- * Whether tabs are scrolled out of sight before or after the strip's visible part: the strip
- * fades out on that side (see `.tab-list`). `useTabStripFit` keeps the shown tab clear of it.
+ * Whether a tab reaches past the strip's visible part on either side: the strip fades out there
+ * (see `.tab-list`), which says there is more. The tabs' own edges decide it, not the strip's
+ * `scrollWidth`, which the shown tab's feet and the end padding would read as overflow too.
+ * `useTabStripFit` keeps the shown tab clear of the fade.
  */
 function useOverflow(list: RefObject<HTMLDivElement | null>, tabIds: string) {
   const [overflow, setOverflow] = useState({ before: false, after: false });
@@ -349,8 +356,14 @@ function useOverflow(list: RefObject<HTMLDivElement | null>, tabIds: string) {
     const element = list.current;
     if (!element) return;
     const measure = () => {
-      const before = element.scrollLeft > 1;
-      const after = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      const view = element.getBoundingClientRect();
+      let before = false;
+      let after = false;
+      for (const tab of element.querySelectorAll<HTMLElement>(':scope > [role="tab"]')) {
+        const box = tab.getBoundingClientRect();
+        if (box.left < view.left - 1) before = true;
+        if (box.right > view.right + 1) after = true;
+      }
       setOverflow((current) =>
         current.before === before && current.after === after ? current : { before, after },
       );

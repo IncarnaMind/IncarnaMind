@@ -124,10 +124,17 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         const seen = fade / 2 - slack;
         if (partLeft && text !== undefined && text.right - view.left >= seen) nameBefore = true;
         if (partRight && text !== undefined && view.right - text.left >= seen) nameAfter = true;
-        if (partLeft && text !== undefined)
+        if (partLeft && text) {
           needBefore = Math.max(fade, box.right - text.right + seen);
-        if (partRight && text !== undefined)
+        } else if (partLeft || outLeft) {
+          // A hidden tab's name needs the fade's width at least to read (#2244).
+          needBefore = Math.max(needBefore, fade);
+        }
+        if (partRight && text) {
           needAfter = Math.max(fade, text.left - box.left + seen);
+        } else if (partRight || outRight) {
+          needAfter = Math.max(needAfter, fade);
+        }
         if (inside) {
           whole++;
           // A shown tab counts at its least width: it narrows to make the room (#2244).
@@ -181,6 +188,24 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         if (after > 0 && !nameAfter) problems.push(`${where}: no name shows tabs on the right`);
         if (fadeLeft && shownLeft) problems.push(`${where}: the fade covers the shown tab`);
         if (fadeRight && shownRight) problems.push(`${where}: the fade covers the shown tab`);
+      }
+      // A tab out of view is behind "Show all tabs", whose count says how many, and only while
+      // one is: a strip that fits stays as it was (#2244).
+      const hidden = tabs.length - whole;
+      const all = strip.querySelector<HTMLElement>('[data-testid="show-all-tabs"]');
+      const fit = strip.getAttribute("data-fit");
+      if (hidden > 0) {
+        if (!all) problems.push(`${where}: ${hidden} tab(s) are hidden with no Show all tabs`);
+        else {
+          const said = Number(/\d+/.exec(all.getAttribute("aria-label") ?? "Show all tabs")?.[0]);
+          if (said !== hidden) {
+            problems.push(`${where}: Show all tabs says ${said} hidden, but ${hidden} are`);
+          }
+        }
+        if (fit !== "cut") problems.push(`${where}: tabs hide but the strip didn't cut them`);
+      } else {
+        if (all) problems.push(`${where}: Show all tabs shows with no tab hidden`);
+        if (fit === "cut") problems.push(`${where}: the strip is cut with every tab in view`);
       }
       const onPlus = document.elementFromPoint(add.left + add.width / 2, add.top + add.height / 2);
       if (!onPlus?.closest('[data-testid="new-tab"]')) problems.push(`${where}: the + is covered`);
@@ -276,7 +301,312 @@ const wholeInView = (list: Locator, which: "first" | "last") =>
     return box.left >= view.left - 1 && box.right <= view.right + 1;
   }, which);
 
+/**
+ * A strip's fit: the room it made (null for no step), the tabs it hides, and the controls that
+ * step leaves. A tab out of view is what the cut step answers, and the strip's own extent, not
+ * its `scrollWidth`, decides whether they fit: the shown tab's feet reach past that.
+ */
+function fitOf(window: Page, index = 0) {
+  return window
+    .getByTestId("tab-strip")
+    .nth(index)
+    .evaluate((strip) => {
+      const list = strip.querySelector<HTMLElement>('[data-testid="tab-list"]');
+      if (!list) return null;
+      const view = list.getBoundingClientRect();
+      const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'));
+      let whole = 0;
+      for (const tab of tabs) {
+        const box = tab.getBoundingClientRect();
+        if (box.left >= view.left - 1 && box.right <= view.right + 1) whole++;
+      }
+      const label = strip.querySelector<HTMLElement>('[data-testid="export-mind"] > span');
+      const split = strip.querySelector<HTMLElement>('[data-testid="split-group"]');
+      const all = strip.querySelector<HTMLElement>('[data-testid="show-all-tabs"]');
+      return {
+        step: strip.getAttribute("data-fit"),
+        group: Math.round(strip.getBoundingClientRect().width),
+        tabs: tabs.length,
+        hidden: tabs.length - whole,
+        squeezed: list.hasAttribute("data-squeezed"),
+        label: label?.checkVisibility() ?? null,
+        split: split?.checkVisibility() ?? null,
+        all: all?.getAttribute("aria-label") ?? null,
+      };
+    });
+}
+
+type Fit = NonNullable<Awaited<ReturnType<typeof fitOf>>>;
+
+/**
+ * What is wrong with a strip's step. Each is taken only while the one before it isn't enough, so
+ * a step that hides no tab leaves the next control in place, and only the tab-hiding step makes
+ * one appear (#2244).
+ */
+function wrongStep(fit: Fit): string[] {
+  const problems: string[] = [];
+  const at = `${fit.tabs} tabs in ${fit.group} px, step ${fit.step ?? "none"}`;
+  // A strip narrowed to its one shown tab hides none: the tab gives way and the narrow group's
+  // own rule keeps the buttons to their icons. Nothing is hidden, so there is nothing to list.
+  if (fit.squeezed && fit.hidden === 0) {
+    if (fit.step === "cut") problems.push(`${at}: squeezed with the tab-hiding step`);
+    if (fit.all !== null) problems.push(`${at}: Show all tabs shows with nothing hidden`);
+    return problems;
+  }
+  // Under 420px a group keeps Split in its ⋯ menu and Export to its icon anyway.
+  const wide = fit.group >= 420;
+  if (fit.step === null) {
+    if (fit.hidden > 0) problems.push(`${at}: ${fit.hidden} tab(s) hidden with no step`);
+    if (wide && !fit.label) problems.push(`${at}: Export's label left while the tabs fit`);
+    if (wide && !fit.split) problems.push(`${at}: Split left while the tabs fit`);
+  }
+  if (fit.step === "label") {
+    if (fit.hidden > 0) problems.push(`${at}: ${fit.hidden} tab(s) hidden after the first step`);
+    if (fit.label) problems.push(`${at}: the label step shows Export's label`);
+    if (wide && !fit.split) problems.push(`${at}: Split left before the label was enough`);
+  }
+  if (fit.step === "split") {
+    if (fit.hidden > 0) problems.push(`${at}: ${fit.hidden} tab(s) hidden after two steps`);
+    if (fit.label || fit.split) problems.push(`${at}: a strip button shows after two steps`);
+  }
+  if (fit.step === "cut") {
+    if (fit.hidden === 0) problems.push(`${at}: the strip is cut with every tab in view`);
+    if (fit.label || fit.split)
+      problems.push(`${at}: a strip button shows after the tabs were cut`);
+    if (fit.all === null) problems.push(`${at}: tabs are hidden with no Show all tabs`);
+  }
+  if (fit.hidden === 0 && fit.all !== null)
+    problems.push(`${at}: Show all tabs shows with nothing hidden`);
+  if (fit.hidden > 0 && fit.all === null)
+    problems.push(`${at}: ${fit.hidden} tab(s) hidden with no Show all tabs`);
+  return problems;
+}
+
+/** The steps in order, as a walk through them takes them and gives them back. */
+const STEPS = ["none", "label", "split", "cut"] as const;
+const compress = (walk: readonly string[]) =>
+  walk.filter((step, index) => index === 0 || walk[index - 1] !== step);
+
 for (const language of LANGUAGES) {
+  test(`the strip makes room in three steps, each only while the one before isn't enough, and gives them back as the room returns (${language}) (#2244)`, async () => {
+    test.setTimeout(300_000);
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    const report = await addReport(window, language);
+    await addMind(window, groupAt(window, 0), nameOf(language, 0));
+    await addMind(window, groupAt(window, 0), nameOf(language, 1));
+    await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+
+    // The divider's keys make the Note's group as wide and as narrow as it goes, in 10px steps,
+    // the room the tabs have changing with it.
+    const divider = window.getByTestId("group-divider").first();
+    const widthOf = () =>
+      window
+        .getByTestId("tab-group")
+        .first()
+        .evaluate((group) => group.getBoundingClientRect().width);
+    /** The width the divider takes the Note's group to, and the least and most it can. */
+    const rod = () =>
+      divider.evaluate((element) => ({
+        now: Number(element.getAttribute("aria-valuenow")),
+        min: Number(element.getAttribute("aria-valuemin")),
+        max: Number(element.getAttribute("aria-valuemax")),
+      }));
+    const press = async (
+      key: "ArrowLeft" | "ArrowRight" | "Shift+ArrowLeft" | "Shift+ArrowRight",
+    ) => {
+      // A menu opened on the way takes the focus with it.
+      await divider.focus();
+      const before = await widthOf();
+      await window.keyboard.press(key);
+      await expect.poll(widthOf).not.toBe(before);
+    };
+    await divider.focus();
+    // Widest first, where no step is needed and Export shows its label.
+    while ((await rod()).now < (await rod()).max) await press("Shift+ArrowRight");
+    const widest = (await rod()).now;
+
+    const read = async () => {
+      await expectResting(window, `the strip at ${Math.round(await widthOf())} px`);
+      // The controls follow the strip's own state a render later: it settles, then holds.
+      await expect
+        .poll(
+          async () => {
+            const fit = await fitOf(window, 0);
+            return fit === null ? ["no strip"] : wrongStep(fit);
+          },
+          { message: `the strip's step at ${Math.round(await widthOf())} px` },
+        )
+        .toEqual([]);
+      const found = (await fitOf(window, 0)) as Fit;
+      return found;
+    };
+
+    // As the room goes, the steps are taken in order; as it comes back, in reverse.
+    const down: string[] = [];
+    down.push((await read()).step ?? "none");
+    while ((await rod()).now > (await rod()).min) {
+      await press("ArrowLeft");
+      down.push((await read()).step ?? "none");
+    }
+    // Each step in its turn, never backwards, and each state's own rule holds (wrongStep).
+    expect(compress(down)).toEqual([...STEPS]);
+    const up: string[] = [];
+    while ((await rod()).now < widest) {
+      await press("ArrowRight");
+      const fit = await read();
+      up.push(fit.step ?? "none");
+      // With Split out of the strip, the group's ⋯ menu still offers it.
+      if (fit.split === false && fit.group >= 420) {
+        await window.getByTestId("group-menu").first().click();
+        await expect(window.getByTestId("tab-menu-split").first()).toBeEnabled();
+        await window.keyboard.press("Escape");
+      }
+    }
+    // Given back in reverse, each in its turn: a 10px step may land past a narrow one's width.
+    const back = compress(up);
+    expect(back[0]).toBe("cut");
+    expect(back.at(-1)).toBe("none");
+    expect(back).toEqual([...STEPS].reverse().filter((step) => back.includes(step)));
+
+    // With the split button gone, ⌥⌘\ and ⌘K still split the shown tab to the right.
+    while ((await rod()).now > (await rod()).min) await press("Shift+ArrowLeft");
+    const fit = await read();
+    expect(fit.step).toBe("cut");
+    await window.keyboard.press("ControlOrMeta+Alt+Backslash");
+    await expect(window.getByTestId("tab-group")).toHaveCount(3);
+    // Back to two groups, through the third's own menu.
+    await window.getByTestId("group-menu").last().click();
+    await window.getByTestId("tab-menu-close-group").click();
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(language === "en" ? "> Split to the Right" : "> 向右拆分");
+    const entry = window.getByTestId("palette-item").first();
+    await expect(entry).toContainText(language === "en" ? "Split to the Right" : "向右拆分");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("tab-group")).toHaveCount(3);
+    await app.close();
+  });
+
+  test(`Show all tabs lists every tab of the strip, by keyboard too, and choosing one brings it whole into view (${language}) (#2244)`, async () => {
+    test.setTimeout(300_000);
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    const report = await addReport(window, language);
+    await addMind(window, groupAt(window, 0), nameOf(language, 0));
+    await addMind(window, groupAt(window, 0), nameOf(language, 1));
+    await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+
+    // The Note's group at its least width: the tabs that don't fit are behind "Show all tabs".
+    const divider = window.getByTestId("group-divider").first();
+    const widthOf = () =>
+      window
+        .getByTestId("tab-group")
+        .first()
+        .evaluate((group) => group.getBoundingClientRect().width);
+    await divider.focus();
+    while ((await widthOf()) > 225) {
+      const before = await widthOf();
+      await window.keyboard.press("ArrowLeft");
+      await expect.poll(widthOf).not.toBe(before);
+    }
+    const list = listAt(window, 0);
+    const button = window.getByTestId("show-all-tabs").first();
+    const said = (count: number) =>
+      language === "en"
+        ? `Show all tabs (${count} hidden)`
+        : `显示所有标签页（已隐藏 ${count} 个）`;
+
+    /** How many tabs are not whole in the strip, as the button says. */
+    const hiddenCount = () =>
+      list.evaluate((element) => {
+        const view = element.getBoundingClientRect();
+        return Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).filter((tab) => {
+          const box = tab.getBoundingClientRect();
+          return box.left < view.left - 1 || box.right > view.right + 1;
+        }).length;
+      });
+    let hidden = await hiddenCount();
+    expect(hidden).toBeGreaterThan(0);
+    await expect(button).toHaveAttribute("aria-label", said(hidden));
+    await expect(button).toHaveAttribute("title", said(hidden));
+
+    // The keyboard reaches the button from the shown tab, and Enter opens the list.
+    await shownTab(window).first().focus();
+    await window.keyboard.press("Tab");
+    await expect(window.getByTestId("new-tab").first()).toBeFocused();
+    await window.keyboard.press("Tab");
+    await expect(button).toBeFocused();
+    await window.keyboard.press("Enter");
+    const menu = window.getByTestId("show-all-tabs-menu");
+    await expect(menu).toBeVisible();
+
+    // Every tab of the strip, in its order, the shown one checked, and no close buttons.
+    const names = await list
+      .getByRole("tab")
+      .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("aria-label") ?? ""));
+    const rows = window.getByTestId("show-all-tabs-row");
+    await expect(rows).toHaveCount(names.length);
+    expect(await rows.evaluateAll((each) => each.map((row) => row.textContent))).toEqual(names);
+    const shownAt = await list.evaluate((element) =>
+      Array.from(element.querySelectorAll('[role="tab"]')).findIndex(
+        (tab) => tab.getAttribute("aria-selected") === "true",
+      ),
+    );
+    await expect(rows.nth(shownAt)).toHaveAttribute("aria-checked", "true");
+    await expect(menu.getByTestId("tab-close")).toHaveCount(0);
+    const menuBox = await menu.boundingBox();
+    const buttonBox = await button.boundingBox();
+    if (!menuBox || !buttonBox) throw new Error("The list or its button isn't visible.");
+    expect(menuBox.width).toBeLessThanOrEqual(321);
+    expect(Math.abs(menuBox.x + menuBox.width - (buttonBox.x + buttonBox.width))).toBeLessThan(8);
+
+    // The keys walk the list; Enter on a hidden tab shows it, whole.
+    await window.keyboard.press("Home");
+    await window.keyboard.press("Enter");
+    await expect(list.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => wholeInView(list, "first")).toBe(true);
+    await expectResting(window, "the first tab chosen from the list");
+
+    // More tabs, at 1,440 px in a narrow group and at 900 px where the groups share one strip.
+    let minds = 2;
+    for (const count of [3, 5, 12]) {
+      while (minds < count) {
+        await addMind(window, groupAt(window, 0), nameOf(language, minds));
+        minds++;
+      }
+      for (const width of [1440, 900]) {
+        await setWindowSize(app, window, width, 900);
+        await expectResting(window, `${count} tabs at ${width} px`);
+        hidden = await hiddenCount();
+        if (hidden === 0) {
+          await expect(button).toHaveCount(0);
+          continue;
+        }
+        await expect(button).toHaveAttribute("aria-label", said(hidden));
+        await button.click();
+        await expect(menu).toBeVisible();
+        const every = await window
+          .getByTestId("tab-list")
+          .first()
+          .getByRole("tab")
+          .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("aria-label") ?? ""));
+        await expect(rows).toHaveCount(every.length);
+        expect(await rows.evaluateAll((each) => each.map((row) => row.textContent))).toEqual(every);
+        await window.keyboard.press("Escape");
+        await expect(menu).toBeHidden();
+      }
+    }
+    await app.close();
+  });
+
   test(`the strip rests on whole tabs with 3 to 8 tabs and a PDF beside the Minds, at every window size (${language})`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
