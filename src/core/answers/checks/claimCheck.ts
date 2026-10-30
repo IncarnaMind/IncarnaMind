@@ -699,6 +699,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let reply = "";
     let setAside: readonly string[] = [];
     let askedAbout: string | null = null;
+    let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
     for await (const event of deps.engine.generate({
@@ -745,6 +746,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           (marker) => session.tools.hasRecord?.(marker) ?? false,
           (text) => {
             askedAbout = text;
+            if (readFigureReply(text, request.figures ?? [], request.claim)) askedFigures = text;
           },
         ),
         {
@@ -847,10 +849,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
       const said = readVerdict(verdictText);
+      // A reply asked about its Figures line that gives its verdict again without one keeps the
+      // last line that reads: each figure is still compared with its own quote.
+      const figuresText =
+        readFigureReply(text, request.figures, request.claim) === null
+          ? (askedFigures ?? text)
+          : text;
       const result = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
-        reply: text,
+        reply: figuresText,
         calculations: figures,
         citation: (marker) => session.finalCitation(marker),
         facts,

@@ -70,8 +70,10 @@ interface Reply {
   judgement?: Plan["judgement"];
   /** Asked about its Figures line, it writes that line again with this item, and nothing else. */
   repair?: Record<string, unknown>;
-  /** Asked about its Figures line with no `repair`, the prose it writes; `CANT_REWRITE` when absent. */
+  /** Asked about its Figures line with no `repair`, what it writes instead; `CANT_REWRITE` when absent. */
   prose?: string;
+  /** Its Figures line leaves the remainder out, so a Supported reply is asked for it. */
+  omitsRemainder?: boolean;
   /** It never calls cite, and writes its record into the reply instead, as Claude Haiku 5.5 did. */
   neverCites?: boolean;
 }
@@ -289,7 +291,107 @@ const SHAPES: Record<string, Reply> = {
   },
 };
 
+/** Asked for its remainder, it writes its verdict again with no Figures line. */
+const VERDICT_AGAIN: Record<string, Reply> = {
+  "The Company pays the Employee 950 a month for the flat.": {
+    quotes: [RENT],
+    omitsRemainder: true,
+    lines: [
+      "Verdict: supported",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The flat agreement gives the rent as 950 per month [^1].",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "950", reading: null, unitQuote: null },
+    },
+    prose: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: the Company pays the Employee / the Employee pays the Company, differs",
+      "The flat agreement says the Employee pays the Company the rent, the reverse of the sentence [^1].",
+    ].join("\n"),
+  },
+  "甲方每月向乙方支付一千五百元租金。": {
+    quotes: [RENT_ZH],
+    omitsRemainder: true,
+    lines: [
+      "Verdict: supported",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "协议写明每月租金为人民币一千五百元[^1]。",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "一千五百", reading: null, unitQuote: null },
+    },
+    prose: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: 甲方向乙方支付 / 乙方向甲方支付, differs",
+      "协议写明乙方每月向甲方支付租金，付款方向与该句相反[^1]。",
+    ].join("\n"),
+  },
+  // Its figure is wrong though it calls it supported, twice: the figure's own comparison decides.
+  "The salary is 62,000 per year.": {
+    quotes: [SALARY],
+    omitsRemainder: true,
+    lines: [
+      "Verdict: supported",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement says the salary is 61,500 per year [^1].",
+    ].join("\n"),
+    item: SUPPORTED_SALARY,
+    prose: [
+      "Verdict: supported",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement says the salary is 61,500 per year [^1].",
+    ].join("\n"),
+  },
+  "乙方月工资为人民币两万五千元。": {
+    quotes: [SALARY_ZH],
+    omitsRemainder: true,
+    lines: [
+      "Verdict: supported",
+      "Scope: 乙方, same",
+      "Topic: found",
+      "Roles: none, same",
+      "劳动合同写明乙方月工资为人民币一万八千元[^1]。",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "一万八千", reading: null },
+    },
+    prose: [
+      "Verdict: supported",
+      "Scope: 乙方, same",
+      "Topic: found",
+      "Roles: none, same",
+      "劳动合同写明乙方月工资为人民币一万八千元[^1]。",
+    ].join("\n"),
+  },
+};
+
 const CASES: Record<string, Reply> = {
+  ...VERDICT_AGAIN,
   // The address's "14" isn't in the quote the model recorded, and its remainder copies the
   // whole sentence, number and all.
   "The Employee is the landlord of the flat at 14 Mill Lane and the Company the tenant.": {
@@ -523,7 +625,10 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
         calculation: null,
         ...(asked ? planned.repair : planned.item),
       }));
-      const figures = `Figures: ${JSON.stringify({ items, remainder: planned.remainder ?? null })}`;
+      const line = planned.omitsRemainder
+        ? { items }
+        : { items, remainder: planned.remainder ?? null };
+      const figures = `Figures: ${JSON.stringify(line)}`;
       return { text: asked ? figures : `${planned.lines}\n\n${figures}` };
     },
     {
@@ -802,3 +907,46 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
     expect(checked.evidence).toHaveLength(evidence);
   });
 });
+
+test.each<Shape>([
+  {
+    sentence: "The Company pays the Employee 950 a month for the flat.",
+    state: "contradicted",
+    figures: ["supported"],
+    asks: 1,
+    evidence: 0,
+  },
+  {
+    sentence: "甲方每月向乙方支付一千五百元租金。",
+    state: "contradicted",
+    figures: ["supported"],
+    asks: 1,
+    evidence: 0,
+  },
+  {
+    sentence: "The salary is 62,000 per year.",
+    state: "contradicted",
+    figures: ["contradicted"],
+    asks: 1,
+    evidence: 0,
+  },
+  {
+    sentence: "乙方月工资为人民币两万五千元。",
+    state: "contradicted",
+    figures: ["contradicted"],
+    asks: 1,
+    evidence: 0,
+  },
+])(
+  "asked for its remainder, a reply that gives its verdict again without a Figures line keeps the figures of the reply asked about: $sentence (#2184)",
+  async ({ sentence, state, figures, asks, evidence }) => {
+    const checked = await checkSentence(sentence);
+    expect(checked.check).toMatchObject({
+      state,
+      evidence: { quote: CASES[sentence]?.quotes[0] },
+    });
+    expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
+    expect(checked.asked).toHaveLength(asks);
+    expect(checked.evidence).toHaveLength(evidence);
+  },
+);
