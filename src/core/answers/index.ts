@@ -2515,6 +2515,7 @@ export function createAnswers(options: AnswersOptions) {
               // A window's command that went on, a Check for one, ends after its call: its card
               // says so then, while the Answer is written or after it.
               ended: laterCall,
+              signal: controller.signal,
             })
           : null;
       const asking = asksUser ? askTool(asksUser) : null;

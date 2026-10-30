@@ -1762,6 +1762,77 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
+  // protects=Stop while the first of two calls in a step waits for the User's approval ends the Answer as stopped with nothing left waiting: neither call runs, no approval stays open, and no call's card stays running; fails_when=the second call's check waits for the first forever, a command runs, or a card reads running; no_claim=the approval card's words.
+  test("stopped while the first call waits for approval, nothing runs and nothing is left waiting", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? {
+            calls: [
+              { tool: "run_command", input: { command: "examples.remove" } },
+              { tool: "run_command", input: { command: "mind.check", done: true } },
+            ],
+          }
+        : { text: "Done." },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    const result = await core.askInConversation({
+      text: "Remove the examples and check this Note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!result.asked) throw new Error("Not asked.");
+    core.on("approval.requested", () => {
+      void core.stopConversationAnswer({
+        conversationId: result.conversation.id,
+        answerId: result.answerId,
+      });
+    });
+
+    await answerEnded(core, result.answerId);
+
+    const stored = async () => {
+      const { messages } = await core.getConversation(result.conversation.id);
+      const answer = messages.find((each) => each.id === result.answerId);
+      return answer?.kind === "answer" ? answer : undefined;
+    };
+    await vi.waitFor(async () => expect((await stored())?.status).toBe("stopped"));
+    expect(
+      commandCalls((await stored()) ?? ({ toolCalls: [] } as never)).map((call) => call.status),
+    ).not.toContain("running");
+    expect(asked).toEqual([]);
+    expect(await core.listApprovalRequests()).toEqual([]);
+    core.close();
+  });
+
+  // protects=the core closing while the first of two calls waits for approval ends without waiting on the second, and runs neither; fails_when=closing hangs or a command runs; no_claim=what the next start shows.
+  test("closed while the first call waits for approval, nothing runs", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? {
+            calls: [
+              { tool: "run_command", input: { command: "examples.remove" } },
+              { tool: "run_command", input: { command: "mind.check", done: true } },
+            ],
+          }
+        : { text: "Done." },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    const waiting = new Promise<void>((resolve) => core.on("approval.requested", () => resolve()));
+    const result = await core.askInConversation({
+      text: "Remove the examples and check this Note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!result.asked) throw new Error("Not asked.");
+    await waiting;
+
+    await core.close();
+
+    expect(asked).toEqual([]);
+  });
+
   // protects=every citation style name the command's description gives is one the app knows, and Chicago by its other names and an earlier edition by its number are found too, never another edition in its place; fails_when=a name the description shows is refused, or "Chicago 17" cites in the 18th edition; no_claim=every name a model might use.
   test("every style name the description gives is accepted, and Chicago by its other names", async () => {
     let style = "";

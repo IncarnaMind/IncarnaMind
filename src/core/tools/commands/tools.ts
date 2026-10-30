@@ -119,6 +119,8 @@ export interface CommandToolsOptions {
   failed(toolCallId: string, problem: CommandProblem): void;
   /** How a window's command that started and went on ended, after its call returned. */
   ended(toolCallId: string, end: { done: CommandDone } | { problem: CommandProblem }): void;
+  /** The Answer's: stopped, no call checked after it runs, and none waits for one that won't. */
+  signal: AbortSignal;
 }
 
 const given = (value: unknown): string | undefined =>
@@ -161,6 +163,14 @@ export function commandTools(options: CommandToolsOptions): {
     unrun.get(toolCallId)?.settle();
     unrun.delete(toolCallId);
   };
+  // Stopped, a call waiting for approval is neither run nor dropped: settle every one here.
+  options.signal.addEventListener(
+    "abort",
+    () => {
+      for (const toolCallId of [...unrun.keys()]) settle(toolCallId);
+    },
+    { once: true },
+  );
   const asks = new Map<string, CommandAsk>();
   /** How many things the Answer changed without asking, since the User last allowed more. */
   let changed = 0;
@@ -370,6 +380,7 @@ export function commandTools(options: CommandToolsOptions): {
     tools: [listTool, runTool],
     async check(toolCallId, input, read) {
       await Promise.all([...unrun.values()].map((each) => each.ran));
+      options.signal.throwIfAborted();
       try {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
