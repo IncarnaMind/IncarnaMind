@@ -138,7 +138,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   expect(supportedBox?.x ?? 0).toBeGreaterThan((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
   expect(unsupportedBox?.y ?? 0).toBeGreaterThan(supportedBox?.y ?? 0);
   // The unsupported sentence is washed; the badge's card counts both.
-  await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
+  expect((await line.locator(".claim-wash--unsupported").allInnerTexts()).join("")).toBe(
+    UNSUPPORTED,
+  );
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
     "1 claim needs a look",
   );
@@ -313,11 +315,16 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await expect(contradicted).toBeVisible();
   // A sentence not checked yet has no mark on the page; its card opens from the row.
   await expect(notChecked).toBeHidden();
-  // In a narrow Mind the marks keep to the gutter right of the text.
+  // In a narrow Mind the mark moves into the text, at its sentence's end.
   const lineBox = await line.boundingBox();
   const markBox = await contradicted.boundingBox();
-  expect(markBox?.x ?? 0).toBeGreaterThanOrEqual((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
-  await expect(line.locator(".claim-wash--contradicted")).toHaveText(CONTRADICTED);
+  expect(markBox?.x ?? 0).toBeGreaterThanOrEqual(lineBox?.x ?? 0);
+  expect((markBox?.x ?? 0) + (markBox?.width ?? 0)).toBeLessThanOrEqual(
+    (lineBox?.x ?? 0) + (lineBox?.width ?? 0),
+  );
+  expect((await line.locator(".claim-wash--contradicted").allInnerTexts()).join("")).toBe(
+    CONTRADICTED,
+  );
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
     "1 条说法与文档矛盾",
   );
