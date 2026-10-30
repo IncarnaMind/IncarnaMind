@@ -929,16 +929,58 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
     }
   });
 
-  test("a Folder deleted in the same moment as a Document was not the Folder it was in", async () => {
+  test("a Folder deleted in the same moment as a Document, after it, is still the Folder it was in", async () => {
     const { core, clock } = await start();
     const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
     const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
     await core.assignDocumentGroup(leases.id, archive.id);
     clock.advance(1000);
-    await core.deleteLibraryGroup(archive.id);
     await core.deleteDocuments([leases.id]);
+    await core.deleteLibraryGroup(archive.id);
 
-    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.groupId).toBeNull();
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.groupId).toBe(
+      archive.id,
+    );
+  });
+
+  test("Undo of a Restore dates the deletion only inside the last 30 days", async () => {
+    const { core, clock } = await start();
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    const base = clock.now().getTime();
+    const at = (ms: number) => new Date(ms).toISOString();
+    const deletedAtOf = async () =>
+      (await core.listDeleted()).find((each) => each.id === leases.id)?.deletedAt;
+    await core.deleteDocument(leases.id);
+
+    for (const [given, expected] of [
+      [at(base - 30 * DAY), at(base - 30 * DAY)],
+      [at(base - 30 * DAY - 1), at(base)],
+      [at(base - 30 * DAY + 1), at(base - 30 * DAY + 1)],
+      ["1970-01-01T00:00:00.000Z", at(base)],
+      ["2100-01-01T00:00:00.000Z", at(base)],
+    ] as const) {
+      await core.restore([{ kind: "document", id: leases.id }]);
+      await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt: given }]);
+      expect(await deletedAtOf()).toBe(expected);
+    }
+  });
+
+  test("Undo of a Restore after its 30 days puts the Document back deleted now, so it can come back again", async () => {
+    const { core, clock } = await start();
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    const deletedAt = clock.now().toISOString();
+    await core.deleteDocument(leases.id);
+    clock.advance(30 * DAY - 60_000);
+    await core.restore([{ kind: "document", id: leases.id }]);
+    clock.advance(120_000);
+
+    await core.deleteAgain([{ kind: "document", id: leases.id, deletedAt }]);
+
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.deletedAt).toBe(
+      clock.now().toISOString(),
+    );
+    await core.restore([{ kind: "document", id: leases.id }]);
+    expect((await core.listDocuments()).map((each) => each.id)).toContain(leases.id);
   });
 });
 

@@ -9931,7 +9931,8 @@ export interface CoreApi {
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
-   * was in and its `RECENTLY_DELETED_DAYS` are as they were. Sends the events a delete sends.
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
+   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
    */
   deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
   /**

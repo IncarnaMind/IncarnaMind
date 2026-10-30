@@ -118,6 +118,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  RECENTLY_DELETED_DAYS,
   type ReadyQuestion,
   type RecheckCitationInput,
   type RecheckResult,
@@ -4988,18 +4989,29 @@ export function createCore(adapters: CoreAdapters): Core {
     restore: async (refs, options) => recentlyDeleted.restore(refs, options),
     deleteAgain: async (refs) => {
       const items = parseDeletedAgain(refs);
+      const current = now();
+      const nowMs = Date.parse(current);
+      const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
+      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
+      // deleting it again at `current` keeps it restorable (#2238).
+      const atOf = (item: DeletedAgainRef) => {
+        const time = Date.parse(item.deletedAt);
+        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+      };
       // Documents go back together, as their deletion did (#1349), before what came after them.
       const byTime = new Map<string, string[]>();
-      for (const { kind, id, deletedAt } of items) {
-        if (kind !== "document") continue;
-        byTime.set(deletedAt, [...(byTime.get(deletedAt) ?? []), id]);
+      for (const item of items) {
+        if (item.kind !== "document") continue;
+        const at = atOf(item);
+        byTime.set(at, [...(byTime.get(at) ?? []), item.id]);
       }
       for (const [at, ids] of byTime) removeDocuments(ids, at);
-      for (const { kind, id, deletedAt } of items) {
-        if (kind === "mind") removeMind(id, deletedAt);
-        else if (kind === "conversation") removeConversation(id, deletedAt);
-        else if (kind === "folder") removeFolder(id, deletedAt);
-        else if (kind === "tag") removeTag(id, deletedAt);
+      for (const item of items) {
+        const at = atOf(item);
+        if (item.kind === "mind") removeMind(item.id, at);
+        else if (item.kind === "conversation") removeConversation(item.id, at);
+        else if (item.kind === "folder") removeFolder(item.id, at);
+        else if (item.kind === "tag") removeTag(item.id, at);
       }
     },
     undoCommands: async (run) => commandSteps.undo(run),

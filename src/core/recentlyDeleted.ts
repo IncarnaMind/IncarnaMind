@@ -48,13 +48,14 @@ const earliestRestorable = (now: string) =>
 
 /**
  * The Folder a deleted item was in, from the latest live record of a Folder's deletion that took
- * it out: the item's own row lost that Folder then. The record must be strictly newer than the
- * item's own deletion: one from the same moment or before isn't where it was (#2238).
+ * it out: the item's own row lost that Folder then. The record must not be older than the item's
+ * own deletion; the same moment counts, since deleting several things takes the Documents before
+ * their Folder (#2238).
  */
 function wasIn(kind: DeletedKind, table: string): string {
   return `(SELECT f.folder_id FROM deleted_folder_items f
     WHERE f.item_kind = '${kind}' AND f.item_id = ${table}.id AND f.deleted_at IS NULL
-      AND f.created_at > ${table}.deleted_at
+      AND f.created_at >= ${table}.deleted_at
     ORDER BY f.rowid DESC LIMIT 1)`;
 }
 
