@@ -653,6 +653,184 @@ describe("A unit the Document doesn't state (#1452)", () => {
   });
 });
 
+describe("A one-letter or one-character unit symbol (#2225)", () => {
+  // protects=a Latin symbol stands alone: a letter, an apostrophe, a dot or a hyphen beside it makes it a word ("t" in "don't", "m" in "I'm", "T" in （T恤）, "t" in tea, "g" in e.g., "m" in 9 a.m., "T" in T-shirt, "t" in t-test, "L" in L.P.), and a digit after it makes a product ("m" in 27m3); fails_when="54,000 tonnes" against "We don't ship 54,000 a year." or "54 kilometres" against "27m3" passes; no_claim=whether the figure is right.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "We don't ship 54,000 a year.", "54,000"],
+    ["The route was 54 kilometres.", "I'm sure the route was 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "款式（T恤）\t54,000", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "Units: tea\nOutput\t54,000", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "The output was 54,000 at the kiosk.", "54,000"],
+    ["The route was 54 kilometres.", "We poured 27m3 of gravel; the route is 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "See e.g. the annex. Output 54,000.", "54,000"],
+    ["The route was 54 kilometres.", "Open from 9 a.m.; the route is 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "T-shirt sales 54,000.", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output 54,000 — the t-test is valid", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "Grade A-t steel; output 54,000.", "54,000"],
+    ["The tank held 54 litres.", "Smith L.P. holds a tank of 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "We sold 5 T-shirts; output was 54,000.", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "We ran 2 t-tests; output was 54,000.", "54,000"],
+    ["The tank held 54 litres.", "We fitted 3 L-brackets; the tank holds 54.", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a Han symbol is not the first character of a word after a figure, on a unit line or in a heading: 克 in 克服, 克林工厂, 克等级 and （克林工厂）, 米 in 大米, 米其林 and 一米的, 升 in 升迁 and 升等; fails_when="54,000吨" against "克服困难，产量54,000", "单位：克林工厂" or "（克林工厂）" passes; no_claim=the value.
+  test.each([
+    ["产量为54,000吨。", "克服困难，产量54,000", "54,000"],
+    ["路线长54公里。", "大米\t54", "54"],
+    ["产量为54,000吨。", "单位：克林工厂\n产量\t54,000", "54,000"],
+    ["路线长54公里。", "单位：米其林轮胎\n路线长54", "54"],
+    ["容量为54升。", "单位：升迁记录\n容量\t54", "54"],
+    ["产量为54,000吨。", "（克林工厂）\t54,000", "54,000"],
+    ["路线长54公里。", "统一米的价格，路线长54", "54"],
+    ["产量为54,000吨。", "单位：克等级\n产量54,000", "54,000"],
+    ["容量为54升。", "单位：升等记录\n容量54", "54"],
+    ["产量为54,000吨。", "每克服一个困难，产量54,000", "54,000"],
+    ["容量为54升。", "温度每升高1度，容量54", "54"],
+    ["重量为54克。", "每克拉售价2万元，重量54", "54"],
+    ["容量为54升。", "每升级一次，容量54", "54"],
+    ["重量为54克。", "每克隆一次，重量54", "54"],
+    ["路线长54公里。", "每米其林指南，路线长54", "54"],
+    ["路线长54公里。", "第3单元/米兰站，路线长54", "54"],
+    ["产量为54,000吨。", "第3单元/吨位分析，产量54,000", "54,000"],
+    ["容量为54升。", "多元/升级转型，容量54", "54"],
+    ["产量为54,000吨。", "报价540/吨左，产量54,000", "54,000"],
+    ["容量为54升。", "美元/升级版，容量54", "54"],
+    ["容量为54升。", "价格每升至新高，容量54", "54"],
+    ["路线长54米。", "汤圆/米粉，路线长54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a lone Chinese numeral does not turn a word into a figure's unit: 克 in 统一克服 and 万一克服 and 十克拉, 升 in 统一升级, 桶 in 第一桶金, 米 in 一米阳光; fails_when=any passes; no_claim=the value.
+  test.each([
+    ["产量为54,000吨。", "统一克服困难，产量54,000", "54,000"],
+    ["产量为54,000吨。", "万一克服不了，产量54,000", "54,000"],
+    ["容量为54升。", "系统统一升级，容量54", "54"],
+    ["产量为54,000桶。", "赚到第一桶金，产量54,000", "54,000"],
+    ["重量为54克。", "十克拉钻石，重量54", "54"],
+    ["路线长54公里。", "一米阳光项目，路线长54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a slash after a figure does not turn the start of a word into a unit: 克 in 2026/克林工厂, 米 in 2026/米兰公司; fails_when=an invented unit behind a year and a slash passes; no_claim=the value.
+  test.each([
+    ["产量为54,000吨。", "报表编号2026/克林工厂\n产量54,000", "54,000"],
+    ["路线长54公里。", "报表编号2026/米兰公司\n路线长54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
+  // protects=a real unit Documents write beside a rate, a comma, a year or a label states the measure: "540 €/t", "$/t", "(USD per t)", "(t, 2024)", "(metric t)", "Output, t", "in t", "Unit of measure: t", "元/吨", "单位为吨", "单位：克", "10万t", "60,000t左右", "100万L", "540/吨的货物", "元/吨的货物", "每吨", "（吨）"; fails_when=any of these is Unsupported; no_claim=the value.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "Price 540 €/t; output 54,000"],
+    ["The mill's output was 54,000 tonnes.", "Price $/t: 540\nOutput 54,000"],
+    ["The mill's output was 54,000 tonnes.", "Cost (USD per t)\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output (t, 2024)\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Volume (metric t)\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output, t\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output in t: 54,000"],
+    ["The mill's output was 54,000 tonnes.", "Unit of measure: t\nOutput 54,000"],
+    ["The mill's output was 54,000 tonnes.", "Units: t\nOutput\t54,000"],
+    ["产量为54,000吨。", "价格3,500元/吨；产量54,000"],
+    ["产量为54,000吨。", "单位为吨\n产量54,000"],
+    ["产量为54,000吨。", "单位是吨\n产量54,000"],
+    ["重量为54克。", "单位：克\n重量\t54"],
+    ["产量为54,000吨。", "（吨）\t54,000"],
+    ["产量为54,000吨。", "年产10万t，产量54,000"],
+    ["产量为54,000吨。", "运量达60,000t左右，产量54,000"],
+    ["The mill's output was 54,000 tonnes.", "Capacity 5万t; output 54,000"],
+    ["容量为54,000升。", "储量100万L，容量54,000"],
+    ["产量为54,000吨。", "报价540/吨的货物，产量54,000"],
+    ["产量为54,000吨。", "价格3,500元/吨的货物，产量54,000"],
+    ["产量为54,000吨。", "按每吨3,500元计，产量54,000"],
+    ["产量为54,000吨。", "每吨成本3,500元，产量54,000"],
+    ["产量为54,000吨。", "每吨价格3,500元；产量54,000"],
+    ["容量为54升。", "每升油价8元；容量54"],
+    ["产量为54,000吨。", "价格3,500元/吨和运费，产量54,000"],
+    ["产量为54,000吨。", "成本（元/吨钢）\t54,000"],
+    ["产量为54,000吨。", "3,500美元/吨，产量54,000"],
+    ["产量为54,000吨。", "报价540/吨左右，产量54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output 54,000 t-CO2e; output 54,000."],
+    ["The mill's output was 54,000 tonnes.", "A 54-t crane lifted it; output 54,000."],
+    ["产量为54,000吨。", "540/吨和运费，产量54,000"],
+    ["产量为54,000吨。", "540/吨钢，产量54,000"],
+    ["容量为54升。", "加注50升到油箱，容量54"],
+    ["路线长54米。", "长3米其余为空地，路线长54"],
+    ["重量为54克。", "重500克拉面，重量54"],
+    ["产量为54,000吨。", "吨钢成本540元，产量54,000"],
+    ["容量为54升。", "价格8元/升等，容量54"],
+    ["容量为54升。", "价格8元/升至10元，容量54"],
+    ["路线长54米。", "造价3万元/米其中含税，路线长54"],
+    ["The plate was 5 millimetres thick.", "The plate is 5 mm-thick."],
+    ["产量为54,000吨。", "产量54,000，另有一吨。"],
+    ["容量为54升。", "容量54，另有十升。"],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+
+  // protects=a unit already stated in any other shape stays stated: no space ("54,000t"), a scale word ("5.4万吨"), a fullwidth heading ("（T）"), a rate heading ("(t/yr)", "（吨/年）"), a capital letter, another figure's unit, a space before a Chinese character, or a volume as "27m3"; fails_when=any of these is Unsupported; no_claim=the value.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
+    ["The mill's output was 54,000 tonnes.", "Output （T）\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output (t/yr)\t54,000"],
+    ["产量为54,000吨。", "产量（吨/年）\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output: 54,000. Last year: 42,000 t."],
+    ["The route was 54 kilometres.", "Distance: 54. The return leg was 27 m."],
+    ["产量为54,000吨。", "2025年产量5.4万吨\n2024年产量54,000"],
+    ["产量为54,000吨。", "产量 54,000 吨"],
+    ["产量为54,000吨。", "单位：吨\n产量\t54,000"],
+    ["产量为54,000吨。", "单位：吨（万吨）\n产量\t54,000"],
+    ["产量为54,000吨。", "单位：吨/年\n产量\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "The price was 54,000/t."],
+    ["The mill's output was 54,000 tonnes.", "Cost ($/t)\t54,000"],
+    ["产量为54,000吨。", "成本（¥/吨）\t54,000"],
+    ["路线长54公里。", "今年新增路段54米，路线长54。"],
+    ["The volume was 27 cubic metres.", "We poured 27m3 of gravel."],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+});
+
+describe("A bare dollar beside a unit symbol (#2225, #2226)", () => {
+  // protects=each rule finds its own figure and neither hides the other: a Document that gives the dollar and the unit passes, another figure's unit doesn't hide the bare dollar, a Document that gives only the dollar still finds the unit, and a "$" inside a rate heading states no dollar for the figure while the same heading states the measure; fails_when=either rule makes the other's problem pass; no_claim=which dollar it is, or whether the figure is right.
+  test("the Document gives both the dollar and the unit", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 54,000 tonnes.",
+        read("The fee was $54,000 and the mass was 54,000 t."),
+      ),
+    ).toBeNull();
+  });
+
+  test("another figure's unit does not hide the bare dollar", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 42,000 tonnes.",
+        read("The fee was 54,000 and the mass was 42,000 t."),
+      ),
+    ).toMatchObject({ kind: "currency", amount: "54,000" });
+  });
+
+  test("the Document gives only the dollar", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 54,000 tonnes.",
+        read("The fee was $54,000 and the mass was 54,000."),
+      ),
+    ).toMatchObject({ kind: "unit", amount: "54,000" });
+  });
+
+  test("a rate heading states the measure but not which dollar", () => {
+    expect(unitNotStated("The output was 54,000 tonnes.", read("Cost ($/t)\t54,000"))).toBeNull();
+    expect(
+      unitNotStated("The cost was $54,000 a tonne.", read("Cost ($/t)\t54,000")),
+    ).toMatchObject({ kind: "currency", amount: "54,000" });
+  });
+});
+
 describe("Checking a figure in another currency or unit", { timeout: 30_000 }, () => {
   const LETTER = {
     name: "Offer letter.txt",
@@ -936,4 +1114,60 @@ describe("Checking the cases a review found (#1452)", { timeout: 60_000 }, () =>
       expect(await checkAlone(claim)).toMatchObject({ verdict: "supported" });
     },
   );
+});
+
+describe("A letter or character inside a word through the core (#2225)", {
+  timeout: 30_000,
+}, () => {
+  const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
+  const checkIn = async (
+    claim: string,
+    document: { name: string; contents: string },
+    language: "en" | "zh-CN" = "en",
+  ) => {
+    const setup = await setUpWithDocuments(checkingModel({ [claim]: supported("54,000") }), [
+      document,
+    ]);
+    if (language !== "en") await setup.core.updateSettings({ user: { language } });
+    return setup.core.checkClaim({ claim });
+  };
+
+  // protects=through the core, a letter or one character inside a word states no unit, in English and Chinese, and the reason names the plain number the Document gives; fails_when=Supported, or a reason naming the unit; no_claim=whether the figure is right.
+  test("a letter inside a word doesn't state tonnes", async () => {
+    expect(
+      await checkIn("The mill's output was 54,000 tonnes.", {
+        name: "Mill output.txt",
+        contents: "Mill output\nWe don't ship 54,000 a year.\n",
+      }),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "The Document gives 54,000, not 54,000 tonnes." },
+    });
+  });
+
+  test("a character inside a word doesn't state tonnes", async () => {
+    expect(
+      await checkIn(
+        "产量为54,000吨。",
+        { name: "产量.txt", contents: "产量\n克服困难，产量54,000\n" },
+        "zh-CN",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "文档写的是 54,000，不是 54,000吨。" },
+    });
+  });
+
+  test("a slash after a year doesn't make the start of a word a unit", async () => {
+    expect(
+      await checkIn(
+        "产量为54,000吨。",
+        { name: "报表.txt", contents: "报表编号2026/克林工厂\n产量54,000\n" },
+        "zh-CN",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: "文档写的是 54,000，不是 54,000吨。" },
+    });
+  });
 });
