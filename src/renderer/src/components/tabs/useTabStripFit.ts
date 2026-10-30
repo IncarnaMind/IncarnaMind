@@ -4,14 +4,17 @@ import { fitStrip } from "../../tabStripFit";
 // The tab list's end padding in styles.css: room for the last tab's foot, and the gap before the "+".
 const END_GAP = 10;
 
+// The width of the fade at a side of `.tab-list` that hides tabs, in styles.css.
+const FADE_PX = 32;
+
 // A wheel is a stream of small scrolls with no end event, so the strip settles after this quiet.
 const WHEEL_QUIET_MS = 140;
 
 /**
- * Keeps a group's tab strip resting on whole tabs: scrolled to a tab's left edge and cut after a
- * tab's right edge, so none is clipped at rest (a strip being scrolled may show a part).
- * A tab that becomes active is brought whole into view, and again when a tab or the strip
- * changes size, until the User scrolls away on purpose.
+ * Keeps a group's tab strip resting on whole tabs, with part of a hidden tab's name faded at a
+ * side that hides tabs (`fitStrip`); a strip being scrolled may show a part of any. A tab that
+ * becomes active is brought whole into view, and again when a tab or the strip changes size,
+ * until the User scrolls away on purpose.
  */
 export function useTabStripFit(
   list: RefObject<HTMLDivElement | null>,
@@ -40,10 +43,19 @@ export function useTabStripFit(
       const result = fitStrip({
         tabs: tabs.map((tab) => {
           const at = tab.getBoundingClientRect();
-          return { left: at.left + offset, right: at.right + offset };
+          const name =
+            tab
+              .querySelector('[data-testid="tab-title"], [data-testid="tab-rename"]')
+              ?.getBoundingClientRect() ?? at;
+          return {
+            left: at.left + offset,
+            right: at.right + offset,
+            name: { left: name.left + offset, right: name.right + offset },
+          };
         }),
         room: element.offsetWidth + spare.offsetWidth,
         endGap: END_GAP,
+        fade: FADE_PX,
         scrollLeft: was,
         shown: reveal ? shown : -1,
       });
@@ -82,6 +94,15 @@ export function useTabStripFit(
       if (wheelTimer === undefined) place(false);
     };
 
+    // The shown tab is the strip's keyboard stop: focused, or a key pressed on it (End on the last
+    // tab, which is already shown), it comes whole into view, after any scroll the focus makes.
+    const onKeyboard = (event: Event) => {
+      const tab = (event.target as Element).closest<HTMLElement>('[role="tab"]');
+      if (tab?.dataset.tabId !== shownId) return;
+      following = true;
+      placeLater();
+    };
+
     place(true);
     const resized = new ResizeObserver(placeLater);
     resized.observe(spare);
@@ -89,12 +110,16 @@ export function useTabStripFit(
     for (const tab of element.querySelectorAll(':scope > [role="tab"]')) resized.observe(tab);
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("scrollend", onScrollEnd);
+    element.addEventListener("focusin", onKeyboard);
+    element.addEventListener("keydown", onKeyboard);
     return () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
       clearTimeout(wheelTimer);
       resized.disconnect();
       element.removeEventListener("wheel", onWheel);
       element.removeEventListener("scrollend", onScrollEnd);
+      element.removeEventListener("focusin", onKeyboard);
+      element.removeEventListener("keydown", onKeyboard);
     };
   }, [list, spacer, shownId, tabIds]);
 }

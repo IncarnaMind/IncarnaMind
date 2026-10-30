@@ -9,6 +9,7 @@ import {
   documentIdOf,
   launchApp,
   nameMind,
+  newMind,
   openDocumentAt,
   placeAssistant,
   removeDataFolder,
@@ -72,7 +73,8 @@ test.afterEach(async () => {
 });
 
 /**
- * What is wrong with the strips as they are drawn now: empty when each rests on whole tabs. A
+ * What is wrong with the strips as they are drawn now: empty when each rests on whole tabs, with
+ * part of a hidden tab's name faded at each side that hides tabs, never over the shown tab. A
  * strip the User scrolled away may rest with its shown tab out of sight.
  */
 function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
@@ -92,19 +94,33 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
       let after = 0;
       let shown = 0;
       let shownBox: DOMRect | undefined;
+      let nameBefore = false;
+      let nameAfter = false;
+      const fadeLeft = list.hasAttribute("data-hidden-before");
+      const fadeRight = list.hasAttribute("data-hidden-after");
       const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'));
       for (const tab of tabs) {
         const box = tab.getBoundingClientRect();
         const name = tab.getAttribute("aria-label") ?? "a tab";
+        const title = tab.querySelector<HTMLElement>('[data-testid="tab-title"]');
+        const text = title?.getBoundingClientRect();
         const inside = box.left >= view.left - slack && box.right <= view.right + slack;
-        const hiddenLeft = box.right <= view.left + slack;
-        const hiddenRight = box.left >= view.right - slack;
-        if (hiddenLeft) before++;
-        if (hiddenRight) after++;
-        if (!inside && !hiddenLeft && !hiddenRight) problems.push(`${where}: "${name}" is clipped`);
+        const outLeft = box.right <= view.left + slack;
+        const outRight = box.left >= view.right - slack;
+        const partLeft = !inside && !outLeft && !outRight && box.left < view.left;
+        const partRight = !inside && !outLeft && !outRight && box.right > view.right;
+        if (outLeft || partLeft) before++;
+        if (outRight || partRight) after++;
+        // Part of a hidden tab may show, under the fade at its side: the sign that there are more.
+        if ((partLeft && !fadeLeft) || (partRight && !fadeRight) || (partLeft && partRight)) {
+          problems.push(`${where}: "${name}" is clipped`);
+        }
+        if (partLeft && text !== undefined && text.right > view.left + slack) nameBefore = true;
+        if (partRight && text !== undefined && text.left < view.right - slack) nameAfter = true;
         if (tab.getAttribute("aria-selected") === "true") {
           shown++;
-          shownBox = box;
+          // Scrolled away by the User, the shown tab may be the one partly in view.
+          if (inside) shownBox = box;
           if (requireShown && !inside)
             problems.push(`${where}: the shown tab "${name}" isn't whole`);
         }
@@ -116,9 +132,7 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         );
         if (centre?.closest('[role="tab"]') !== tab)
           problems.push(`${where}: "${name}" is covered`);
-        const title = tab.querySelector<HTMLElement>('[data-testid="tab-title"]');
-        if (title) {
-          const text = title.getBoundingClientRect();
+        if (title && text) {
           const whole = title.scrollWidth <= title.clientWidth;
           const ellipsis = getComputedStyle(title).textOverflow === "ellipsis";
           if (!whole && !ellipsis) problems.push(`${where}: "${name}" is cut mid-word`);
@@ -131,17 +145,17 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         problems.push(`${where}: shows no tab`);
       if (shown > 1) problems.push(`${where}: ${shown} tabs are shown`);
       const shownLeft =
-        shownBox !== undefined && shownBox.right > view.left && shownBox.left < view.left + fade;
+        shownBox !== undefined &&
+        shownBox.right > view.left &&
+        shownBox.left < view.left + fade - slack;
       const shownRight =
-        shownBox !== undefined && shownBox.right > view.right - fade && shownBox.left < view.right;
-      const fadeLeft = list.hasAttribute("data-hidden-before");
-      const fadeRight = list.hasAttribute("data-hidden-after");
-      if (before > 0 && !fadeLeft && !shownLeft) {
-        problems.push(`${where}: tabs hide on the left with no fade`);
-      }
-      if (after > 0 && !fadeRight && !shownRight) {
-        problems.push(`${where}: tabs hide on the right with no fade`);
-      }
+        shownBox !== undefined &&
+        shownBox.right > view.right - fade + slack &&
+        shownBox.left < view.right;
+      if (before > 0 && !fadeLeft) problems.push(`${where}: tabs hide on the left with no fade`);
+      if (after > 0 && !fadeRight) problems.push(`${where}: tabs hide on the right with no fade`);
+      if (before > 0 && !nameBefore) problems.push(`${where}: no name shows tabs on the left`);
+      if (after > 0 && !nameAfter) problems.push(`${where}: no name shows tabs on the right`);
       if (fadeLeft && shownLeft) problems.push(`${where}: the fade covers the shown tab`);
       if (fadeRight && shownRight) problems.push(`${where}: the fade covers the shown tab`);
       const onPlus = document.elementFromPoint(add.left + add.width / 2, add.top + add.height / 2);
@@ -184,6 +198,56 @@ async function addReport(window: Page, language: Language): Promise<string> {
 
 const OPENS_PDF = { quote: "Eastgate peaked at 47.2 degrees on 19 July." };
 
+const NOTE: Record<Language, string> = {
+  en: "Your Documents answer this",
+  "zh-CN": "你的文档回答了这个问题",
+};
+
+/**
+ * What keeps a strip's tabs out of reach: a tab laid out outside the strip's scroll box, or tabs
+ * hidden though they fit beside the strip's buttons. Empty when every tab can be reached.
+ */
+function unreachable(window: Page): Promise<string[]> {
+  return window.evaluate(() => {
+    const problems: string[] = [];
+    const strips = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="tab-strip"]'));
+    strips.forEach((strip, at) => {
+      const list = strip.querySelector<HTMLElement>('[data-testid="tab-list"]');
+      const spare = strip.querySelector<HTMLElement>(".tab-strip-spacer");
+      if (!list || !spare) return;
+      const where = `Strip ${at + 1}`;
+      const view = list.getBoundingClientRect();
+      let hidden = 0;
+      for (const tab of list.querySelectorAll<HTMLElement>('[role="tab"]')) {
+        const box = tab.getBoundingClientRect();
+        const name = tab.getAttribute("aria-label") ?? "a tab";
+        const left = box.left - view.left + list.scrollLeft;
+        const right = box.right - view.left + list.scrollLeft;
+        if (left < -1 || right > list.scrollWidth + 1) {
+          problems.push(`${where}: "${name}" is outside the strip's scroll box`);
+        }
+        if (box.left < view.left - 1 || box.right > view.right + 1) hidden++;
+      }
+      const room = list.offsetWidth + spare.offsetWidth;
+      if (hidden > 0 && list.scrollWidth <= room + 1) {
+        problems.push(`${where}: ${hidden} tab(s) hide though the tabs fit in ${room} px`);
+      }
+    });
+    return problems;
+  });
+}
+
+/** Whether a strip's first or last tab is whole in its view. */
+const wholeInView = (list: Locator, which: "first" | "last") =>
+  list.evaluate((element, end) => {
+    const tabs = Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]'));
+    const tab = end === "first" ? tabs[0] : tabs.at(-1);
+    if (!tab) return false;
+    const view = element.getBoundingClientRect();
+    const box = tab.getBoundingClientRect();
+    return box.left >= view.left - 1 && box.right <= view.right + 1;
+  }, which);
+
 for (const language of LANGUAGES) {
   test(`the strip rests on whole tabs with 3 to 8 tabs and a PDF beside the Minds, at every window size (${language})`, async () => {
     test.setTimeout(240_000);
@@ -207,6 +271,63 @@ for (const language of LANGUAGES) {
         await setWindowSize(app, window, size.width, size.height);
         await expectResting(window, `${target} tabs at ${size.width} × ${size.height}`);
       }
+    }
+    await app.close();
+  });
+
+  test(`a Citation's page opened beside the Note leaves every tab reachable, a hidden one showing it is there, at 1,600, 1,440 and 900 px (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await expect(window.getByTestId("mind-pane")).toBeVisible();
+    const report = await addReport(window, language);
+    await newMind(window);
+    await nameMind(window, NOTE[language]);
+    await expect(window.getByTestId("mind-tab")).toHaveCount(2);
+    await window.getByTestId("ask-pill").click();
+    await expect(window.getByTestId("assistant")).toBeVisible();
+
+    for (const width of [1600, 1440, 900]) {
+      const at = `${width} px`;
+      await setWindowSize(app, window, width, 900);
+      await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+      await expect(window.getByTestId("document-tab")).toHaveCount(1);
+      await expect(shownTab(window).first()).toBeVisible();
+      await expectResting(window, `the page opened beside the Note at ${at}`);
+      await expect.poll(() => unreachable(window), { message: at }).toEqual([]);
+
+      // The wheel reaches the last tab and comes back to the first.
+      const list = listAt(window, 0);
+      const box = await list.boundingBox();
+      if (!box) throw new Error("The strip isn't visible.");
+      await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      await window.mouse.wheel(0, 2000);
+      await expect.poll(() => wholeInView(list, "last"), { message: at }).toBe(true);
+      await expectResting(window, `wheeled to the end at ${at}`, { shownInView: false });
+      await window.mouse.wheel(0, -2000);
+      await expect.poll(() => wholeInView(list, "first"), { message: at }).toBe(true);
+      await expectResting(window, `wheeled to the start at ${at}`, { shownInView: false });
+
+      // So do the keys of the tab list.
+      await list.locator('[role="tab"][aria-selected="true"]').focus();
+      await window.keyboard.press("End");
+      await expect.poll(() => wholeInView(list, "last"), { message: at }).toBe(true);
+      await expect(list.getByRole("tab").last()).toHaveAttribute("aria-selected", "true");
+      await expectResting(window, `End at ${at}`);
+      await window.keyboard.press("Home");
+      await expect.poll(() => wholeInView(list, "first"), { message: at }).toBe(true);
+      await expect(list.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+      await expectResting(window, `Home at ${at}`);
+      await expect.poll(() => unreachable(window), { message: at }).toEqual([]);
+
+      // Back to the Note alone, for the next width.
+      const page = window.getByTestId("document-tab");
+      await page.hover();
+      await page.getByTestId("tab-close").click();
+      await expect(window.getByTestId("document-tab")).toHaveCount(0);
+      await window.getByRole("tab", { name: NOTE[language], exact: true }).click();
+      await expect(shownTab(window)).toHaveAttribute("aria-label", NOTE[language]);
     }
     await app.close();
   });
@@ -348,7 +469,7 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`a tab under the fade at the strip's edge is closed by its ✕, a middle click, its menu and ⌘W (${language})`, async () => {
+  test(`a tab partly shown under the fade at the strip's edge is shown by a click, and closed by its ✕, a middle click, its menu and ⌘W (${language})`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
@@ -361,43 +482,36 @@ for (const language of LANGUAGES) {
     const tabsLeft = (count: number) => expect(window.getByTestId("mind-tab")).toHaveCount(count);
     await expectResting(window, "eight Minds");
 
-    /** The whole tab at the strip's right end, which the fade is over: its name, box and ✕. */
-    const rightEdge = async () => {
-      const found = await list.evaluate((element) => {
+    /** The tab partly in view at one end of the strip, under the fade: its name and visible part. */
+    const atEdge = async (side: "left" | "right") => {
+      const found = await list.evaluate((element, end) => {
         const view = element.getBoundingClientRect();
-        const inside = Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).filter(
-          (tab) => {
-            const box = tab.getBoundingClientRect();
-            return box.left >= view.left - 1 && box.right <= view.right + 1;
+        const tab = Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find(
+          (each) => {
+            const box = each.getBoundingClientRect();
+            return end === "left"
+              ? box.left < view.left - 1 && box.right > view.left + 1
+              : box.right > view.right + 1 && box.left < view.right - 1;
           },
         );
-        const tab = inside.at(-1);
         if (!tab) return null;
         const box = tab.getBoundingClientRect();
+        const left = Math.max(box.left, view.left);
+        const right = Math.min(box.right, view.right);
         return {
           name: tab.getAttribute("aria-label") ?? "",
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
-          underFade: box.right > view.right - 32,
+          left,
+          right,
+          y: box.y + box.height / 2,
         };
-      });
-      if (!found) throw new Error("No tab is whole in the strip.");
+      }, side);
+      if (!found) throw new Error(`No tab is partly in view at the strip's ${side} end.`);
       const tab = window.getByRole("tab", { name: found.name, exact: true });
+      const centre = { x: (found.left + found.right) / 2, y: found.y };
       // A person points at a tab before its ✕ shows.
-      await window.mouse.move(found.x + found.width / 2 - 30, found.y + found.height / 2, {
-        steps: 6,
-      });
-      await window.mouse.move(found.x + found.width / 2, found.y + found.height / 2, { steps: 4 });
-      const close = await tab.getByTestId("tab-close").boundingBox();
-      if (!close) throw new Error("The tab's ✕ isn't visible.");
-      return {
-        ...found,
-        tab,
-        centre: { x: found.x + found.width / 2, y: found.y + found.height / 2 },
-        close: { x: close.x + close.width / 2, y: close.y + close.height / 2 },
-      };
+      await window.mouse.move(centre.x + (side === "left" ? 30 : -30), centre.y, { steps: 6 });
+      await window.mouse.move(centre.x, centre.y, { steps: 4 });
+      return { ...found, tab, centre };
     };
 
     // ⌘W closes the shown tab, which is at the strip's end, with no fade over it.
@@ -407,6 +521,25 @@ for (const language of LANGUAGES) {
     await tabsLeft(7);
     await expectResting(window, "⌘W at the end");
 
+    // The end of the tab before the run shows its ✕ under the pointer, and the ✕ takes the click.
+    const before = await atEdge("left");
+    const close = await before.tab.getByTestId("tab-close").boundingBox();
+    if (!close) throw new Error("The tab's ✕ isn't visible.");
+    const closeAt = { x: close.x + close.width / 2, y: close.y + close.height / 2 };
+    expect(closeAt.x).toBeGreaterThan(before.left);
+    await expect
+      .poll(() =>
+        window.evaluate(
+          ({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.dataset.testid,
+          closeAt,
+        ),
+      )
+      .toBe("tab-close");
+    await window.mouse.click(closeAt.x, closeAt.y);
+    await tabsLeft(6);
+    await expect(before.tab).toHaveCount(0);
+    await expectResting(window, "closed by its ✕ at the edge");
+
     // Ctrl+Tab goes round to the first tab: it is shown, and the fade is on the other end.
     await window.keyboard.press("Control+Tab");
     await expect(shownTab(window)).toHaveAttribute("aria-label", nameOf(language, 0));
@@ -414,34 +547,25 @@ for (const language of LANGUAGES) {
     await expect(list).not.toHaveAttribute("data-hidden-before");
     await expectResting(window, "the first tab shown");
 
-    // The last whole tab is under the fade, and its ✕ takes the click.
-    const first = await rightEdge();
-    expect(first.underFade).toBe(true);
-    await expect
-      .poll(() =>
-        window.evaluate(
-          ({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.dataset.testid,
-          first.close,
-        ),
-      )
-      .toBe("tab-close");
-    await window.mouse.click(first.close.x, first.close.y);
-    await tabsLeft(6);
-    await expect(first.tab).toHaveCount(0);
+    // A click on it shows it, brought whole into view; Home goes back to the first tab.
+    const clicked = await atEdge("right");
+    await window.mouse.click(clicked.centre.x, clicked.centre.y);
+    await expect(shownTab(window)).toHaveAttribute("aria-label", clicked.name);
+    await expectResting(window, "shown by a click at the edge");
+    await shownTab(window).focus();
+    await window.keyboard.press("Home");
     await expect(shownTab(window)).toHaveAttribute("aria-label", nameOf(language, 0));
-    await expectResting(window, "closed by its ✕ under the fade");
+    await expectResting(window, "the first tab shown again");
 
     // A middle click closes the tab at the edge, as in a browser.
-    const second = await rightEdge();
-    expect(second.underFade).toBe(true);
+    const second = await atEdge("right");
     await window.mouse.click(second.centre.x, second.centre.y, { button: "middle" });
     await tabsLeft(5);
     await expect(second.tab).toHaveCount(0);
     await expectResting(window, "closed by a middle click");
 
     // Its menu's Close does too.
-    const third = await rightEdge();
-    expect(third.underFade).toBe(true);
+    const third = await atEdge("right");
     await window.mouse.click(third.centre.x, third.centre.y, { button: "right" });
     const menu = third.tab.getByTestId("tab-actions");
     await expect(menu).toBeVisible();
