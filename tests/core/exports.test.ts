@@ -199,6 +199,46 @@ function docxParts(exported: MindExport) {
 }
 
 describe("exporting a Mind", () => {
+  test("a table of contents is Word's own field, with cached entries and bookmarks, and Word updates it on opening (#1935)", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [
+      { type: "tableOfContents" },
+      heading(1, "Spring tides"),
+      paragraph(text("Spring tides happen at new moon.")),
+      heading(2, "Neap tides"),
+      paragraph(text("Neap tides come at the quarter moons.")),
+    ]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+
+    expect(document).toContain("TOC \\o");
+    expect(document).toContain('<w:fldChar w:fldCharType="begin"');
+    expect(document).toContain('<w:fldChar w:fldCharType="separate"/>');
+    expect(document).toContain('<w:fldChar w:fldCharType="end"/>');
+    expect(document).toContain("Contents");
+    // The cached entries, each a link to its heading's bookmark.
+    expect(document).toContain("Spring tides");
+    expect(document).toContain("Neap tides");
+    expect(document).toContain('w:anchor="_Toc90000001"');
+    expect(document).toContain('w:anchor="_Toc90000002"');
+    expect(document).toContain('<w:bookmarkStart w:id="0" w:name="_Toc90000001"/>');
+    expect(document).toContain('<w:bookmarkStart w:id="1" w:name="_Toc90000002"/>');
+    expect(part(files, "word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+  });
+
+  test("a Note without a table of contents writes no field, and Word is asked to update nothing", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [heading(1, "Spring tides"), paragraph(text("At new moon."))]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+
+    expect(document).not.toContain("TOC \\o");
+    expect(document).not.toContain("w:bookmarkStart");
+    expect(part(files, "word/settings.xml")).not.toContain("w:updateFields");
+  });
+
   test("Markdown preserves checked, unchecked and empty checklist items, nested beside ordinary lists", async () => {
     const { core, mind, client } = await setUp();
     const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({

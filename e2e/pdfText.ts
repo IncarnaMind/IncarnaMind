@@ -1,6 +1,9 @@
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { CJK } from "../src/shared/text";
+
+const require = createRequire(import.meta.url);
 
 /** pdf.js's data files, which reading CJK text needs. */
 function dataUrls() {

@@ -10,7 +10,15 @@
  */
 import type { TableAlign } from "../../shared/markdownTables";
 import type { StyledRun } from "../api";
-import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
+import {
+  type Block,
+  type Footnote,
+  type HeadingEntry,
+  headingEntries,
+  type Inline,
+  type Marks,
+  tableLayout,
+} from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 
@@ -35,10 +43,14 @@ export function renderMarkdown(
   labels: MarkdownLabels,
 ): string {
   const footnotes: Written[] = [];
-  const writer = new MarkdownWriter(labels, (footnote) => {
-    footnotes.push(footnote);
-    return footnotes.length;
-  });
+  const writer = new MarkdownWriter(
+    labels,
+    (footnote) => {
+      footnotes.push(footnote);
+      return footnotes.length;
+    },
+    headingEntries(blocks),
+  );
   const parts: string[] = [];
   if (title) parts.push(`# ${escapeText(title, false)}`);
   const body = writer.blocks(blocks, { table: false });
@@ -86,6 +98,7 @@ class MarkdownWriter {
     private readonly labels: MarkdownLabels,
     /** Numbers a footnote: 1, 2, 3… in the order they are written. */
     private readonly number: (footnote: Written) => number,
+    private readonly headings: readonly HeadingEntry[] = [],
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
@@ -132,6 +145,16 @@ class MarkdownWriter {
         return this.chart(block);
       case "image":
         return image(block.image.src, block.image.alt, context);
+      case "toc": {
+        if (this.headings.length === 0) return "";
+        const lowest = Math.min(...this.headings.map((entry) => entry.level));
+        return [
+          `**${this.labels.contents}**`,
+          ...this.headings.map(
+            (entry) => `${"  ".repeat(entry.level - lowest)}- ${escapeText(entry.text, false)}`,
+          ),
+        ].join("\n");
+      }
       case "bibliography":
         return [
           `## ${escapeText(block.heading, false)}`,

@@ -22,6 +22,8 @@ import {
   type Block,
   type FailedSentence,
   type Footnote,
+  type HeadingEntry,
+  headingEntries,
   type Image,
   type Inline,
   type Marks,
@@ -133,6 +135,24 @@ const BOX = { open: "\u2610", done: "\u2612" } as const;
 const EMU_PER_TWIP = 635;
 const EMU_PER_PIXEL = 9525;
 
+/** Whether the Blocks hold a table of contents, at the top or in a quote, list or table. */
+function containsTableOfContents(blocks: readonly Block[]): boolean {
+  return blocks.some((block) => {
+    switch (block.kind) {
+      case "toc":
+        return true;
+      case "list":
+        return block.items.some(containsTableOfContents);
+      case "quote":
+        return containsTableOfContents(block.content);
+      case "table":
+        return block.rows.some((row) => row.some((cell) => containsTableOfContents(cell.content)));
+      default:
+        return false;
+    }
+  });
+}
+
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
@@ -143,7 +163,15 @@ export function renderDocx(
     ? new Review(options.review, target.ids, options.labels, () => NEW_DOCUMENT_STYLES.comment)
     : null;
   review?.mark(piecesOf(blocks));
-  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review);
+  const headings = headingEntries(blocks);
+  const contents = headings.length > 0 && containsTableOfContents(blocks);
+  const writer = new DocxWriter(
+    options.labels,
+    paper.width - 2 * MARGIN,
+    target,
+    review,
+    contents ? headings : [],
+  );
   const body = writer.body(blocks);
 
   const document = writer.finish(
@@ -182,7 +210,7 @@ export function renderDocx(
         name: "word/styles.xml",
         data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
-      { name: "word/settings.xml", data: SETTINGS },
+      { name: "word/settings.xml", data: settings(contents) },
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),
@@ -376,14 +404,25 @@ export class DocxWriter {
     return this.footnoteTotal;
   }
 
+  /** Each heading's anchor, for a table of contents: a bookmark Word's field can link to. */
+  private readonly anchors = new WeakMap<object, { id: number; name: string }>();
+
   constructor(
     private readonly labels: ExportLabels,
     private readonly textWidth: number,
     private readonly target: DocxTarget,
     /** Changes still waiting, as tracked changes, and comments (#107); none: neither. */
     private readonly review: Review | null = null,
+    /** The Note's headings, when it has a table of contents; none: headings carry no bookmark. */
+    private readonly headings: readonly HeadingEntry[] = [],
   ) {
     this.styles = target.styles;
+    headings.forEach((entry, at) => {
+      this.anchors.set(entry.block, {
+        id: target.ids.take("annotation"),
+        name: `_Toc${String(90000001 + at)}`,
+      });
+    });
   }
 
   /** XML written for content that changes still waiting add or remove: their tracked changes. */
@@ -447,7 +486,9 @@ export class DocxWriter {
           { style: context.style, indent, align: context.align, format: block.format },
           this.inline(block.content, context),
         );
-      case "heading":
+      case "heading": {
+        const anchor = this.anchors.get(block);
+        const text = this.inline(block.content, context);
         return paragraph(
           {
             style: this.styles.heading(block.level),
@@ -455,8 +496,11 @@ export class DocxWriter {
             align: context.align,
             format: block.format,
           },
-          this.inline(block.content, context),
+          anchor
+            ? `<w:bookmarkStart w:id="${anchor.id}" w:name="${anchor.name}"/>${text}<w:bookmarkEnd w:id="${anchor.id}"/>`
+            : text,
         );
+      }
       case "question":
         return paragraph(
           { style: this.styles.question, indent },
@@ -501,9 +545,39 @@ export class DocxWriter {
         return paragraph({ style: context.style, indent }, this.image(block.image, context));
       case "chart":
         return this.chart(block, context);
+      case "toc":
+        return this.contents();
       case "bibliography":
         return this.bibliography(block);
     }
+  }
+
+  /**
+   * Word's own table of contents (#1935): a TOC field whose cached entries are the Note's
+   * headings, each linking to its bookmark, so Word opens with it shown and updates it on a
+   * refresh. The package asks Word to update the fields on opening.
+   */
+  private contents(): string {
+    if (this.headings.length === 0) return "";
+    const entries = this.headings
+      .flatMap((entry) => {
+        const anchor = this.anchors.get(entry.block);
+        if (!anchor) return [];
+        const link = `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`;
+        return [paragraph({ indent: Math.max(0, entry.level - 1) * INDENT }, link)];
+      })
+      .join("");
+    if (entries === "") return "";
+    const begin =
+      '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>' +
+      '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u </w:instrText></w:r>' +
+      '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+    return (
+      paragraph({}, run(this.labels.contents, { bold: true })) +
+      paragraph({}, begin) +
+      entries +
+      paragraph({}, '<w:r><w:fldChar w:fldCharType="end"/></w:r>')
+    );
   }
 
   /** With no picture (a host that can't draw one), the table of its values instead. */
@@ -1209,9 +1283,11 @@ function coreProperties({ title, created }: DocxOptions): string {
   );
 }
 
-const SETTINGS =
+/** The package's settings; a table of contents asks Word to update the fields as it opens. */
+const settings = (updateFields: boolean) =>
   `${XML_DECLARATION}<w:settings xmlns:w="${NS.w}">` +
   '<w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/>' +
+  (updateFields ? '<w:updateFields w:val="true"/>' : "") +
   '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>' +
   '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>' +
   "</w:settings>";

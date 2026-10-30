@@ -54,6 +54,7 @@ import { linkCommands } from "./links";
 import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
 import { newFolderCommands } from "./newFolder";
+import { noteBasicsCommands } from "./noteBasics";
 import {
   answerCommands,
   citationCommands,
@@ -501,6 +502,18 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "mind.replace",
+    label: "editor.replace.label",
+    shortcut: { keys: "CmdOrCtrl+Alt+F" },
+    group: "main",
+    reversible: true,
+    when: () => mindInFront() !== null,
+    run: () => {
+      const mindId = mindInFront();
+      if (mindId) useMindTools.getState().showFind(mindId, { replace: true });
+    },
+  },
+  {
     id: "mind.findNext",
     label: "command.mind.findNext",
     shortcut: { keys: "CmdOrCtrl+G" },
@@ -519,6 +532,7 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...noteBasicsCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

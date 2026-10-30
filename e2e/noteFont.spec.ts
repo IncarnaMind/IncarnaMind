@@ -104,7 +104,8 @@ for (const { language, width } of [
     // A footnote of the User's own, written in its popover; then a table under the first line.
     const first = editor.locator(":scope > p").first();
     await clickEndOf(window, first);
-    await window.keyboard.press("ControlOrMeta+Alt+F");
+    await window.keyboard.type(language === "zh-CN" ? "/脚注" : "/footnote");
+    await window.keyboard.press("Enter");
     const popover = window.getByTestId("footnote-popover");
     await expect(popover.getByTestId("footnote-text")).toBeFocused();
     await window.keyboard.type(words.note);
