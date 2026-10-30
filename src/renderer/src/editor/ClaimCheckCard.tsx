@@ -669,6 +669,13 @@ function ClaimCard({
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
   const documents = useAppStore((store) => store.documents);
+  const wholeRead = (check.readDocuments ?? [])
+    .map((document) => {
+      const name = shownDocumentName(document, documents) || document.documentName;
+      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
+      return places ? `${name} (${places})` : name;
+    })
+    .join(t("claim.readDocuments.separator"));
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;
@@ -679,7 +686,7 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
-  const wholeRead = check.action === "check-against-document" ? check.read : null;
+  const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
@@ -755,7 +762,7 @@ function ClaimCard({
             onCheck={onCheckPart}
             onUseWording={onUseWording}
             scope={check.scope}
-            read={wholeRead ?? undefined}
+            read={pickRead ?? undefined}
             citations={partCitations}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
@@ -880,14 +887,14 @@ function ClaimCard({
               )}
               {nothingFound && (
                 <p data-testid="claim-nothing" className="citation-card-note">
-                  {wholeRead
+                  {pickRead
                     ? t(
-                        wholeRead.pages === wholeRead.of
+                        pickRead.pages === pickRead.of
                           ? "claim.readAll.notFound"
-                          : wholeRead.of === 1
+                          : pickRead.of === 1
                             ? "claim.readSome.notFound.one"
                             : "claim.readSome.notFound",
-                        { scope: lookedIn, pages: wholeRead.pages, of: wholeRead.of },
+                        { scope: lookedIn, pages: pickRead.pages, of: pickRead.of },
                       )
                     : looked && looked.more > 0
                       ? t("claim.unsupported.notFound.more", {
@@ -962,6 +969,11 @@ function ClaimCard({
             ]}
           />
         </div>
+      )}
+      {wholeRead && (
+        <p data-testid="claim-read-documents" className="citation-card-note">
+          {t("claim.readDocuments", { documents: wholeRead })}
+        </p>
       )}
       {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">

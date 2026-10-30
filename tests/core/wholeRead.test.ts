@@ -543,6 +543,8 @@ describe("Check against a Document, read whole", () => {
       previous,
     );
     const requestId = crypto.randomUUID();
+    const before = await onlyMark(client);
+    expect(before).toMatchObject(previous);
     core.on("documentCheck.progress", (event) => {
       if (event.requestId === requestId && event.pages > 0) void core.cancelCheck(requestId);
     });
@@ -552,8 +554,7 @@ describe("Check against a Document, read whole", () => {
     );
 
     expect(result).toEqual({ kind: "cancelled" });
-    const check = await onlyMark(client);
-    expect(check).toEqual(previous);
+    expect(await onlyMark(client)).toEqual(before);
   });
 
   test("whole-read consent is separate from checks and nothing is sent on a decline", async () => {

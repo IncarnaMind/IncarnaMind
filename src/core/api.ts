@@ -250,12 +250,16 @@ export interface CreateMindInput {
  *   text, outcome, resolved Document/version/Location, passage and any
  *   candidates or nearby suggestion. An older editor would drop them, so it
  *   opens these Notes read-only. Existing content needs no conversion.
- * - 37: a check against a Document the User picked, read whole (#1554):
+ * - 37: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ *   read to decide an absence sentence, which an older editor would strip,
+ *   losing both the card's Locations and the dependency that makes a changed
+ *   Document need a re-check. Older content is version 37 content as it is.
+ * - 38: a check against a Document the User picked, read whole (#1554):
  *   "check-against-document" and `read` on its mark, recording exactly how
  *   much was read. An older version would treat it as a search and check it
- *   again. Older content is version 37 content as it is.
+ *   again. Older content is version 38 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 37;
+export const CONTENT_SCHEMA_VERSION = 38;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5567,6 +5571,7 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "absence-read-limit"
   | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */
@@ -5589,6 +5594,14 @@ export interface UnsupportedReason {
    * Citation check found; absent when it quoted none.
    */
   quoted?: CitationAttributes;
+}
+
+/** A Document an absence check read whole, with every Location read. */
+export interface ClaimReadDocument {
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  locations: readonly CitationLocation[];
 }
 
 /** A Document version a check read, which it no longer holds for once the Document changes. */
@@ -5671,6 +5684,8 @@ export interface ClaimCheckPart extends ClaimPartPlan {
   citedCaseUnchecked: boolean;
   citedCaseFound: boolean;
   coverage?: ClaimPartCoverage;
+  /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
+  readDocuments?: readonly ClaimReadDocument[];
 }
 
 export type ClaimPartJudgment = (
@@ -5781,6 +5796,8 @@ export type ClaimJudgment =
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
       recordCites?: RecordCiteResult[];
+      /** Documents read whole to decide an absence sentence, with every Location read. */
+      readDocuments?: readonly ClaimReadDocument[];
     }
   | {
       verdict: "not-checked";
@@ -5792,6 +5809,8 @@ export type ClaimJudgment =
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
       recordCites?: RecordCiteResult[];
+      /** Documents read whole before the outcome, when an absence check needed them. */
+      readDocuments?: readonly ClaimReadDocument[];
     };
 
 export type FigureLocator =
@@ -5978,6 +5997,8 @@ export interface ClaimCheckBasis {
   excluded: LeftOutDocument[];
   /** The individual record cites checked in this sentence, when it has any. */
   recordCites?: RecordCiteResult[];
+  /** Documents read whole to decide an absence sentence, with every Location read. */
+  readDocuments?: readonly ClaimReadDocument[];
   /** When it was checked, or started. ISO 8601, UTC. */
   checkedAt: string;
   /**

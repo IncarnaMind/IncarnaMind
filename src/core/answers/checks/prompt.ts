@@ -64,6 +64,7 @@ const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
+    'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -470,6 +471,8 @@ export function readEvidence(
  */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
+  /** Whether the sentence asserts an absence; left off when the reply gives no one plain answer. */
+  absence?: Exclude<AbsenceAnswer, null>;
   says: string | null;
   covered: string | null;
   uncovered: string | null;
@@ -508,6 +511,7 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
+const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 export const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const EVIDENCE = /^[\s>*_#`'"“”-]*(?:evidence|证据)[\s*_]*[:：][\s*_]*(.*)$/i;
@@ -521,6 +525,7 @@ const FIELDS = [
   SCOPE,
   TOPIC,
   ROLES,
+  ABSENCE,
   CALCULATION,
   EVIDENCE,
   COVERAGE,
@@ -606,6 +611,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       scope,
       topic,
       roles,
+      asserts_absence: asserted,
       calculations,
       evidence,
       coverage,
@@ -615,6 +621,15 @@ function jsonVerdict(reply: string): ReadVerdict | null {
     if (!known) return null;
     return {
       verdict: known,
+      ...answered(
+        absenceOf(
+          typeof asserted === "boolean"
+            ? [asserted ? "yes" : "no"]
+            : typeof asserted === "string"
+              ? [asserted]
+              : [],
+        ),
+      ),
       says: typeof says === "string" ? cleanSays(says) : null,
       covered: typeof covered === "string" ? phraseOf(covered) : null,
       uncovered: typeof uncovered === "string" ? phraseOf(uncovered) : null,
@@ -672,6 +687,34 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
+/** null: the reply gives no one plain answer, so whether the sentence asserts an absence is unknown. */
+export type AbsenceAnswer = "yes" | "no" | null;
+
+const ANSWERS: ReadonlyMap<string, Exclude<AbsenceAnswer, null>> = new Map([
+  ["yes", "yes"],
+  ["是", "yes"],
+  ["no", "no"],
+  ["否", "no"],
+]);
+
+/**
+ * Every Absence field of a reply read as one answer, "yes" or "no" only when each field is that
+ * word alone and they agree. A model that corrects itself ("No. Wait, yes") gives two answers,
+ * and prose gives none: neither is read as one.
+ */
+function absenceOf(values: readonly string[]): AbsenceAnswer {
+  const answers = new Set(
+    values.map(
+      (value) =>
+        ANSWERS.get(value.replace(MARKERS, "").replace(PHRASE_EDGES, "").toLowerCase()) ?? null,
+    ),
+  );
+  const [answer] = answers;
+  return answers.size === 1 && answer !== undefined ? answer : null;
+}
+
+const answered = (absence: AbsenceAnswer) => (absence === null ? {} : { absence });
+
 /** An unsupported verdict's reason is one sentence: a longer one isn't kept. */
 const withShortReason = (read: ReadVerdict | null): ReadVerdict | null =>
   read?.verdict === "unsupported" && (read.says?.length ?? 0) > MAX_REASON
@@ -713,6 +756,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
     return withShortReason({
       verdict,
+      ...answered(absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? []))),
       says: cleanSays(rest || (next ?? "")),
       ...(() => {
         const evidence = EVIDENCE.exec(fields.findLast((line) => EVIDENCE.test(line)) ?? "")?.[1];

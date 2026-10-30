@@ -32,6 +32,7 @@ import {
   readClaimParts,
   readClaimScope,
   readExcludedDocuments,
+  readReadDocuments,
   readUnsupportedReason,
   resultFromParts,
 } from "./claimParts";
@@ -203,6 +204,9 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     scope: readClaimScope(value.scope),
     versions: readCheckedVersions(value.versions),
     excluded: readExcludedDocuments(value.excluded),
+    ...(value.readDocuments !== undefined && {
+      readDocuments: readReadDocuments(value.readDocuments),
+    }),
     ...(recordCites && { recordCites }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
@@ -456,7 +460,10 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
   if (now.versions) {
-    const relied = new Set(restsOn(check).map((each) => each.documentId));
+    const relied = new Set([
+      ...restsOn(check).map((each) => each.documentId),
+      ...(check.readDocuments ?? []).map((each) => each.documentId),
+    ]);
     for (const version of check.versions) {
       const current = now.versions.get(version.documentId);
       // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
@@ -568,7 +575,9 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
   check.action !== "contradiction-watch" &&
   check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
-  (shown.state === "unsupported" || shown.state === "not-checked");
+  (shown.state === "unsupported" ||
+    shown.state === "not-checked" ||
+    (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
 
 /**
  * A sentence as every surface counts it (#1909): a claim no check covers now

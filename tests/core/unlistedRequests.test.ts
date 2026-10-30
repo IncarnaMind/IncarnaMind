@@ -217,7 +217,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
 
     const checked = fixingModel(
       "Tides says spring tides follow new and full moons [^1].",
-      "Verdict: supported",
+      "Verdict: supported\nAbsence: no",
     );
     const checking = await setUpWithDocuments(checked, [TIDES]);
     expect(
