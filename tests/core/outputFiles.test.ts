@@ -617,6 +617,7 @@ describe("Saving next to an original (the call other features use)", () => {
       data,
       folder: join(notYet.linked, "Leases"),
       ownFile: "export",
+      fromFolder: null,
     });
     expect(warn).not.toHaveBeenCalled();
 
@@ -628,6 +629,7 @@ describe("Saving next to an original (the call other features use)", () => {
         data,
         folder: join(blocked.linked, "Leases"),
         ownFile: "export",
+        fromFolder: null,
       }),
     ).toMatchObject({ inDefaultFolder: false });
     expect(warn).toHaveBeenCalledWith("output.defaultFolder", {

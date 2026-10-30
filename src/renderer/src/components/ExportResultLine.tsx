@@ -104,7 +104,7 @@ function ResultBody({
   const t = useT();
   const dismiss = useExports((state) => state.dismiss);
   const [error, setError] = useState<string | null>(null);
-  const held = useHeld(line);
+  const held = useHeld(line, { focusHolds: true });
   const unmarked = result.state === "saved" ? unmarkedChecks(result.checks, t) : null;
   const withFile =
     result.state === "saved"

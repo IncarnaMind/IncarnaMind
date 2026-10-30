@@ -417,7 +417,6 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
             <WorkingInput input={input} documents={documents} onOpen={onOpen} />
           </li>
         ))}
-
       </ul>
     </div>
   );

@@ -310,6 +310,47 @@ test("the Saved line names the folder, goes by itself after ten seconds unless t
   await app.close();
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the Saved line stays while an action has focus after the pointer leaves (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 760);
+    await newMind(window);
+    await nameMind(window, "Tides");
+    await window.getByTestId("mind-editor").click();
+    await window.keyboard.type("Spring tides come twice a month.");
+    await useOutputLocation(window, sources);
+    await bridge(window).language(language);
+    await window.clock.install();
+    await exportFromMenu(window);
+    const result = window.getByTestId("export-result");
+    await expect(result).toHaveAttribute("data-state", "saved");
+    await pointAt(window, result);
+    const open = result.getByTestId("export-open");
+    await open.focus();
+    await window.mouse.move(2, 2);
+    await expect(open).toBeFocused();
+    await window.clock.fastForward("00:30");
+    await bridge(window).language(language === "en" ? "zh-CN" : "en");
+    await expect(result).toBeVisible();
+    await expect(open).toBeFocused();
+    await window.keyboard.press("Tab");
+    await expect(result.getByTestId("export-show")).toBeFocused();
+    await window.clock.fastForward("00:30");
+    await expect(result).toBeVisible();
+    const screenshots = process.env.INCARNAMIND_SCREENSHOTS;
+    if (screenshots) {
+      await window.screenshot({ path: join(screenshots, `saved-focus-held-${language}.png`) });
+    }
+    await window.getByTestId("plus-menu").focus();
+    await window.clock.fastForward("00:09");
+    await expect(result).toBeVisible();
+    await window.clock.fastForward("00:02");
+    await expect(result).toHaveCount(0);
+    await app.close();
+  });
+}
+
 test("in Chinese, at the narrowest window, the first export says it went to 文稿 (文档 off macOS) › IncarnaMind, its long name cut in the middle; if that folder can't be made, the save asks where instead, in plain words, and Esc saves nothing", async () => {
   // A file where the folder would be made.
   await mkdir(join(dataDir, "Documents"), { recursive: true });
