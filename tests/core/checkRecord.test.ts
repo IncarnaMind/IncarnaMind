@@ -18,7 +18,7 @@ import { pendingPart } from "../../src/shared/claimParts";
 import { addSignOff, citationSignOffBasis } from "../../src/shared/signOffs";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
-import { parseCsv } from "../helpers/csv";
+import { parseCsv, recordRows } from "../helpers/csv";
 import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
@@ -302,16 +302,6 @@ async function saveRecord(
   return { name, path: join(out, name), files: readdirSync(out).sort(), saved };
 }
 
-const rowsOf = (csv: string): Row[] => {
-  const table = parseCsv(csv);
-  const at = table.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
-  const [header = [], ...rows] = table.slice(at + 1);
-  const end = rows.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
-  return rows
-    .slice(0, end === -1 ? rows.length : end)
-    .map((each) => Object.fromEntries(header.map((name, i) => [name, each[i] ?? ""])));
-};
-
 const recordCiteRowsOf = (csv: string, heading = "Record cites ("): Row[] => {
   const table = parseCsv(csv);
   const at = table.findIndex((each) => each[0]?.startsWith(heading));
@@ -336,7 +326,7 @@ describe("The check record as CSV", () => {
     expect(saved.name).toBe("Check record – Harbour notes.csv");
     const csv = readFileSync(saved.path, "utf8");
     expect(csv.startsWith("\uFEFF")).toBe(true);
-    const rows = rowsOf(csv);
+    const rows = recordRows(csv);
     const sha256 = createHash("sha256").update(readFileSync(setup.file)).digest("hex");
     const size = statSync(setup.file).size;
     const tidesVersion = {
@@ -487,7 +477,7 @@ describe("The check record as CSV", () => {
     const csv = readFileSync(`${out}/Check record – Empty.csv`, "utf8");
     expect(summaryOf(csv).get("Documents searched")).toBe("None");
     expect(summaryOf(csv).get("Models")).toBe("None");
-    expect(rowsOf(csv)).toEqual([]);
+    expect(recordRows(csv)).toEqual([]);
     expect(parseCsv(csv).some((row) => row[0] === "Kind" && row[1] === "Sentence")).toBe(true);
   });
 
@@ -508,7 +498,7 @@ describe("The check record as CSV", () => {
 
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
 
-    const [row] = rowsOf(csv);
+    const [row] = recordRows(csv);
     expect(row?.Sentence).toBe(
       `'${'=HYPERLINK("http://example.invalid"), said "them", and more.'}`,
     );
@@ -549,7 +539,7 @@ describe("The check record as CSV", () => {
 
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
 
-    expect(rowsOf(csv).map((row) => row.Quote)).toEqual([
+    expect(recordRows(csv).map((row) => row.Quote)).toEqual([
       "The committee will review the case for the existence",
     ]);
   });
@@ -571,11 +561,11 @@ describe("The check record as CSV", () => {
       "Claude Haiku 5.5（Anthropic），1 次句子核对; local-model（在这台电脑上），3 次句子核对",
     );
     expect(summary.get("导出时“所有内容都留在这台电脑上”")).toBe("未开启");
-    const [first] = rowsOf(csv);
-    const citationRow = rowsOf(csv).find((row) => row.类型 === "引用");
+    const [first] = recordRows(csv);
+    const citationRow = recordRows(csv).find((row) => row.类型 === "引用");
     // Not found is its own result, apart from Unsupported, in Chinese too.
     expect(
-      rowsOf(csv)
+      recordRows(csv)
         .filter((row) => row.类型 === "句子")
         .map((row) => row.核对结果),
     ).toEqual(["有依据", "未找到", "未核对", "无依据", "与文档矛盾"]);
@@ -610,7 +600,7 @@ describe("The check record as CSV", () => {
     );
     expect(summary.get("Models")).toBe("local-model (On this computer), 1 sentence check");
     expect(summary.get("Documents searched")).toBe("All Documents");
-    expect(rowsOf(csv)).toHaveLength(1);
+    expect(recordRows(csv)).toHaveLength(1);
 
     const rows = recordCiteRowsOf(csv);
     expect(rows.map((row) => [row["Record cite"], row.Result])).toEqual([
@@ -720,7 +710,7 @@ describe("A person's own check in the check record", () => {
 
     const personOf = async () => {
       const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
-      return rowsOf(csv).find((row) => row.Kind === "Citation")?.["Checked by a person"];
+      return recordRows(csv).find((row) => row.Kind === "Citation")?.["Checked by a person"];
     };
     expect(await personOf()).toBe("Ada Lovelace · 2026-10-16T08:30:00.000Z");
 
@@ -774,7 +764,7 @@ describe("#1933's acceptance: ten Citations, six marked, one edited, then sent",
     const sent = await core.saveMindExport(mind.id, { format: "docx" });
     if (sent.status !== "saved") throw new Error(`Not saved: ${sent.status}`);
 
-    const rows = rowsOf(
+    const rows = recordRows(
       readFileSync((await saveRecord({ core, mind, out }, "csv")).path, "utf8"),
     ).filter((row) => row.Kind === "Citation");
     expect(rows).toHaveLength(10);
@@ -814,14 +804,16 @@ describe("What the check record can't know", () => {
 
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
 
-    expect(rowsOf(csv).map((row) => [row.Model, row.Service])).toEqual([
+    expect(recordRows(csv).map((row) => [row.Model, row.Service])).toEqual([
       ["Claude Haiku 5.5", "Not recorded"],
     ]);
     expect(summaryOf(csv).get("Models")).toBe("Claude Haiku 5.5 (Not recorded), 1 sentence check");
 
     await setup.core.updateSettings({ user: { language: "zh-CN" } });
     const zh = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
-    expect(rowsOf(zh).map((row) => [row.模型, row.服务])).toEqual([["Claude Haiku 5.5", "未记录"]]);
+    expect(recordRows(zh).map((row) => [row.模型, row.服务])).toEqual([
+      ["Claude Haiku 5.5", "未记录"],
+    ]);
   });
 
   test("a check whose mark names no model says so", async () => {
@@ -830,7 +822,7 @@ describe("What the check record can't know", () => {
 
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
 
-    expect(rowsOf(csv).map((row) => [row.Model, row.Service, row["Checked (UTC)"]])).toEqual([
+    expect(recordRows(csv).map((row) => [row.Model, row.Service, row["Checked (UTC)"]])).toEqual([
       ["Not recorded", "", CHECKED],
     ]);
     expect(summaryOf(csv).get("Models")).toBe("Not recorded, 1 sentence check");
@@ -845,7 +837,7 @@ describe("What the check record can't know", () => {
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
     await saveRecord(setup, "pdf");
 
-    const [row] = rowsOf(csv);
+    const [row] = recordRows(csv);
     expect(row).toMatchObject({
       Document: "Tides",
       File: "Document deleted",
@@ -856,7 +848,7 @@ describe("What the check record can't know", () => {
 
     await setup.core.updateSettings({ user: { language: "zh-CN" } });
     const zh = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
-    expect(rowsOf(zh)[0]?.文件).toBe("文档已删除");
+    expect(recordRows(zh)[0]?.文件).toBe("文档已删除");
   });
 
   test("a record cite uses a live name only for the same stable Document id, never another Document with the same content", async () => {
@@ -948,7 +940,7 @@ describe("What the check record can't know", () => {
     const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
     await saveRecord(setup, "pdf");
 
-    expect(rowsOf(csv)[0]?.["Checked (UTC)"]).toBe(CHECKED);
+    expect(recordRows(csv)[0]?.["Checked (UTC)"]).toBe(CHECKED);
     expect(printed[0]?.body).toContain("15 Oct 2026, 14:20 UTC");
   });
 });
@@ -1231,7 +1223,7 @@ test.each(["paragraph", "blockquote"])(
     setProposal(top, { id: "change", request: "request", kind: "insert" });
     await client.settled();
     const citations = async () =>
-      rowsOf(readFileSync((await saveRecord(setup, "csv")).path, "utf8")).filter(
+      recordRows(readFileSync((await saveRecord(setup, "csv")).path, "utf8")).filter(
         (row) => row.Kind === "Citation",
       );
     const visible = await citations();
