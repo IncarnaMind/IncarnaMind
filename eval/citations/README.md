@@ -148,10 +148,10 @@ Question asked of the scripted chat model, and 10 Questions (one of each kind in
 asked of qwen3.5:4b on Ollama at `num_ctx` 8192, all judged by the scripted stand-ins, then scored
 and scanned. Its `RESULTS.md` says at its top that these are not published numbers.
 
-- **The scripted model** (150 Answers, 6 minutes): it searches and cites the first line that shares
-  a word with the Question, so all 147 of its quotes are at their Locations, none of the 119
+- **The scripted model** (150 Answers, 7 minutes): it searches and cites the first line that shares
+  a word with the Question, so all 146 of its quotes are at their Locations, none of the 119
   Questions with reference figures gets them ("Your Documents answer this"), and the two stand-ins
-  disagree on every Citation, which lists all 147 for a person to settle. Every step ran on every
+  disagree on every Citation, which lists all 146 for a person to settle. Every step ran on every
   Question: the Answer, its Citations, the check of its Note, the run file after each one.
 - **qwen3.5:4b** (10 Questions, 4 minutes): the app refused 5 before sending them, since at a
   window of 8,192 tokens the request didn't leave the 2,048 an Answer is kept; the other 5 gave 12
@@ -160,10 +160,15 @@ and scanned. Its `RESULTS.md` says at its top that these are not published numbe
   "Quote not found"), let 4 through, and had nothing to flag for a figure the Answer left out.
   The check of the Notes could check only 2 of the 16 sentences it named, for the same reason
   as the refusals, so 3 of the 5 Notes got no verdict. The published run on Ollama needs the
-  app's own window, not 8,192.
+  app's own window, not 8,192. These two runs come from an earlier commit, before the app kept a
+  Chinese PDF's heading on a line of its own (#2219): they are scored against today's text, and
+  `scores.json` names the five Documents whose text changed.
 - Stopped after 3 of 6 Questions and run again, a run asked only the other 3; run a third time, it
-  asked none. A run on a model with a price and no cap, or a cap below its estimate, refused to
-  start before anything was sent.
+  asked none. Stopped while an Answer's Note was being checked and run again, it kept that Answer,
+  its check marked unfinished, and asked only the Questions after it. A run on a model with a price
+  and no cap, or a cap below its estimate, refused to start before anything was sent; with Claude
+  Haiku 5.5 set and a cap below one request's most, the app refused the Answer's first request
+  before sending it.
 
 ## Publishing
 

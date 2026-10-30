@@ -24,15 +24,15 @@
   },
   "app": {
     "version": "0.1.0-alpha.4",
-    "commit": "4a3bc32ee"
+    "commit": "8c1373b83"
   },
   "host": {
     "platform": "darwin arm64",
     "cpu": "Apple M2 Max (12 cores)",
     "node": "v26.11.1"
   },
-  "startedAt": "2026-10-29T15:20:38.823Z",
-  "updatedAt": "2026-10-29T15:24:10.364Z",
+  "startedAt": "2026-10-30T21:16:14.987Z",
+  "updatedAt": "2026-10-30T21:20:07.846Z",
   "documents": [
     {
       "key": "mamba",
@@ -60,7 +60,7 @@
       "name": "中华人民共和国2023年国民经济和社会发展统计公报",
       "status": "ready",
       "pages": 22,
-      "pagesSha256": "ee71f2895f164853dc9166fff5ffbbdad6a841d7e47f70c45ea73f290c1802a4"
+      "pagesSha256": "69f5d7e223dcef3a76a939fefac81c7c124c0ce8053929bf5ef805406b7be17d"
     },
     {
       "key": "fomc-minutes-1950",
@@ -88,28 +88,28 @@
       "name": "指导案例2号 吴梅诉四川省眉山西城纸业有限公司买卖合同纠纷案",
       "status": "ready",
       "pages": 2,
-      "pagesSha256": "cdae78fe6028afbd63a7b88f3a785a286b2bc6e8a02792f0ad7b305499f5dad6"
+      "pagesSha256": "c2d05f90e86b33ac8c8dd57b2d37a24c8cbf2d79b63bc2506f14088c05e297cf"
     },
     {
       "key": "nbs-communique-2024",
       "name": "中华人民共和国2024年国民经济和社会发展统计公报",
       "status": "ready",
       "pages": 34,
-      "pagesSha256": "f50f096d34bb6e9dc56a6c63535f9ce949674169908f0d9f673aa996194ef880"
+      "pagesSha256": "dab8c8e8c96e5a232d62454a3d7b99c674416ea128874538d39aec750e18b803"
     },
     {
       "key": "nbs-gdp-revision",
       "name": "国家统计局关于修订2023年国内生产总值数据的公告",
       "status": "ready",
       "pages": 1,
-      "pagesSha256": "c468b30f451fda4a2ebf547c0ff64ec22155792f9db6560769bb592d8f503974"
+      "pagesSha256": "563d23984066c21c625aec71685ba120139779bd7b2d876da54f145edb55b93c"
     },
     {
       "key": "cern-soil-elements",
       "name": "1995-2011年CERN土壤环境元素含量数据集",
       "status": "ready",
       "pages": 16,
-      "pagesSha256": "8eeda2eaa234e2d710e2974667dd5ceca5b6aec0b6d4561fbf4afa81357fd5de"
+      "pagesSha256": "4f22460e393729ca934e1c3f293223e88300bbd02c879cb00685bb7832f167c7"
     },
     {
       "key": "treasury-financial-statements-2023",
@@ -125,7 +125,7 @@
       "kind": "table-figure",
       "crossLingual": true,
       "question": "In Table 1 of the CERN soil dataset paper, on what date was the Yucheng station's 2010 surface soil mercury sample taken?",
-      "askedAt": "2026-10-29T15:20:38.823Z",
+      "askedAt": "2026-10-30T21:16:14.987Z",
       "status": "done",
       "error": null,
       "text": "I found no papers.",
@@ -161,7 +161,7 @@
           "outputTokens": 0
         },
         "check": {
-          "requests": 5,
+          "requests": 16,
           "inputTokens": 0,
           "cachedInputTokens": 0,
           "cacheWriteTokens": 0,
@@ -173,8 +173,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.33,
-        "check": 5.102427375
+        "answer": 0.335,
+        "check": 1.9432474170000005
       }
     },
     {
@@ -182,7 +182,7 @@
       "kind": "conflict",
       "crossLingual": true,
       "question": "Two Chinese statistical documents give 2023 gross domestic product. What does each say?",
-      "askedAt": "2026-10-29T15:20:44.257Z",
+      "askedAt": "2026-10-30T21:16:17.269Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1] [^2] [^3].\n\nThat is all.",
@@ -287,8 +287,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.955,
-        "check": 1.915399125
+        "answer": 0.926,
+        "check": 1.7432958330000001
       }
     },
     {
@@ -296,7 +296,7 @@
       "kind": "conflict",
       "crossLingual": true,
       "question": "What did the tertiary sector contribute to China's 2023 GDP, according to the two documents?",
-      "askedAt": "2026-10-29T15:20:47.128Z",
+      "askedAt": "2026-10-30T21:16:19.941Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -371,8 +371,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.611,
-        "check": 3.529307750000002
+        "answer": 0.6,
+        "check": 1.6952986250000013
       }
     },
     {
@@ -380,7 +380,7 @@
       "kind": "conflict",
       "crossLingual": true,
       "question": "What do China's 2023 and 2024 statistical communiqués report as retail sales of consumer goods, and do they describe the same basis?",
-      "askedAt": "2026-10-29T15:20:51.270Z",
+      "askedAt": "2026-10-30T21:16:22.238Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -455,8 +455,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.597,
-        "check": 3.0142852499999973
+        "answer": 0.589,
+        "check": 1.70357575
       }
     },
     {
@@ -464,7 +464,7 @@
       "kind": "superseded",
       "crossLingual": true,
       "question": "On the latest figures, what was China's gross domestic product in 2023?",
-      "askedAt": "2026-10-29T15:20:54.892Z",
+      "askedAt": "2026-10-30T21:16:24.533Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -539,8 +539,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.638,
-        "check": 2.2944610839999986
+        "answer": 0.62,
+        "check": 1.696224542
       }
     },
     {
@@ -548,7 +548,7 @@
       "kind": "superseded",
       "crossLingual": true,
       "question": "On the latest figures, what was the tertiary sector's value added in China in 2023?",
-      "askedAt": "2026-10-29T15:20:57.857Z",
+      "askedAt": "2026-10-30T21:16:26.851Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this.\n\nThat is all.",
@@ -607,8 +607,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 9.75,
-        "check": 1.7556429590000044
+        "answer": 9.427,
+        "check": 1.716764916
       }
     },
     {
@@ -616,7 +616,7 @@
       "kind": "superseded",
       "crossLingual": true,
       "question": "On the latest figures, what share of China's 2023 GDP did the tertiary sector take?",
-      "askedAt": "2026-10-29T15:21:09.365Z",
+      "askedAt": "2026-10-30T21:16:37.999Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -691,8 +691,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.612,
-        "check": 2.21419225
+        "answer": 0.634,
+        "check": 1.7353081670000028
       }
     },
     {
@@ -700,7 +700,7 @@
       "kind": "superseded",
       "crossLingual": true,
       "question": "On the latest figures, what share of China's 2023 GDP did the secondary sector take?",
-      "askedAt": "2026-10-29T15:21:12.192Z",
+      "askedAt": "2026-10-30T21:16:40.372Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -775,8 +775,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.588,
-        "check": 2.5154150410000002
+        "answer": 0.623,
+        "check": 1.7510937499999963
       }
     },
     {
@@ -784,7 +784,7 @@
       "kind": "superseded",
       "crossLingual": true,
       "question": "On the latest figures, what share of China's 2023 GDP did the primary sector take?",
-      "askedAt": "2026-10-29T15:21:15.297Z",
+      "askedAt": "2026-10-30T21:16:42.750Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -859,8 +859,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.607,
-        "check": 1.631716499999995
+        "answer": 0.613,
+        "check": 1.6940254170000044
       }
     },
     {
@@ -868,7 +868,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "In the FY 2023 Statement of Net Cost, which entity reports the largest net cost, and how much is it?",
-      "askedAt": "2026-10-29T15:21:17.536Z",
+      "askedAt": "2026-10-30T21:16:45.059Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -943,8 +943,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.611,
-        "check": 2.4637619169999962
+        "answer": 0.616,
+        "check": 1.7436729999999951
       }
     },
     {
@@ -952,7 +952,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Which fiscal years do these financial statements cover?",
-      "askedAt": "2026-10-29T15:21:20.612Z",
+      "askedAt": "2026-10-30T21:16:47.422Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1027,8 +1027,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.583,
-        "check": 2.561073417
+        "answer": 0.619,
+        "check": 1.733723582999999
       }
     },
     {
@@ -1036,7 +1036,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "What total net position does the balance sheet report at September 30, 2023?",
-      "askedAt": "2026-10-29T15:21:23.757Z",
+      "askedAt": "2026-10-30T21:16:49.777Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1111,8 +1111,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.61,
-        "check": 1.6851385829999999
+        "answer": 0.606,
+        "check": 1.7162320000000035
       }
     },
     {
@@ -1120,7 +1120,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "How do the statements say net cost is computed?",
-      "askedAt": "2026-10-29T15:21:26.054Z",
+      "askedAt": "2026-10-30T21:16:52.102Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this.\n\nThat is all.",
@@ -1179,8 +1179,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 52.481,
-        "check": 2.800942458999998
+        "answer": 52.516,
+        "check": 1.7893889590000036
       }
     },
     {
@@ -1188,7 +1188,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In the FY 2023 Statement of Net Cost, what gross cost does the Department of Health and Human Services report?",
-      "askedAt": "2026-10-29T15:22:21.338Z",
+      "askedAt": "2026-10-30T21:17:46.412Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1263,8 +1263,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.64,
-        "check": 2.442552250000008
+        "answer": 0.66,
+        "check": 1.6970170829999989
       }
     },
     {
@@ -1272,7 +1272,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "What total gross cost does the FY 2023 Statement of Net Cost report?",
-      "askedAt": "2026-10-29T15:22:24.422Z",
+      "askedAt": "2026-10-30T21:17:48.773Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1347,8 +1347,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.67,
-        "check": 2.9250532910000038
+        "answer": 0.596,
+        "check": 1.6514162919999944
       }
     },
     {
@@ -1356,7 +1356,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "What total assets does the balance sheet report at September 30, 2023?",
-      "askedAt": "2026-10-29T15:22:28.018Z",
+      "askedAt": "2026-10-30T21:17:51.023Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1432,7 +1432,7 @@
       },
       "seconds": {
         "answer": 0.601,
-        "check": 1.1577725409999984
+        "check": 1.720726874999993
       }
     },
     {
@@ -1440,7 +1440,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "What does the balance sheet report as federal debt and interest payable at September 30, 2023?",
-      "askedAt": "2026-10-29T15:22:29.778Z",
+      "askedAt": "2026-10-30T21:17:53.348Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1515,8 +1515,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.586,
-        "check": 1.1271590419999993
+        "answer": 0.623,
+        "check": 1.7349311250000028
       }
     },
     {
@@ -1524,7 +1524,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "What total revenue does the FY 2023 Statement of Operations report?",
-      "askedAt": "2026-10-29T15:22:31.491Z",
+      "askedAt": "2026-10-30T21:17:55.712Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1599,8 +1599,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.595,
-        "check": 1.1505981249999895
+        "answer": 0.617,
+        "check": 1.7074263749999954
       }
     },
     {
@@ -1608,7 +1608,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "Subtracting earned revenue from gross cost gives what subtotal, and after the gain or loss from changes in assumptions, what net cost?",
-      "askedAt": "2026-10-29T15:22:33.237Z",
+      "askedAt": "2026-10-30T21:17:58.041Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1683,8 +1683,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.591,
-        "check": 1.1742279580000032
+        "answer": 0.615,
+        "check": 1.6970853340000032
       }
     },
     {
@@ -1692,7 +1692,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "Subtracting total liabilities from total assets at September 30, 2023, what net position results?",
-      "askedAt": "2026-10-29T15:22:35.003Z",
+      "askedAt": "2026-10-30T21:18:00.357Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1767,8 +1767,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.603,
-        "check": 1.1070648340000044
+        "answer": 0.592,
+        "check": 1.6786270829999994
       }
     },
     {
@@ -1776,7 +1776,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "Subtracting total net cost from total revenue for FY 2023, what net operating cost results?",
-      "askedAt": "2026-10-29T15:22:36.714Z",
+      "askedAt": "2026-10-30T21:18:02.637Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1851,8 +1851,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.599,
-        "check": 1.143860750000007
+        "answer": 0.614,
+        "check": 1.7239499579999975
       }
     },
     {
@@ -1860,7 +1860,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "What were total assets at September 30, 2023, and total net cost for FY 2023?",
-      "askedAt": "2026-10-29T15:22:38.511Z",
+      "askedAt": "2026-10-30T21:18:04.981Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -1935,8 +1935,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.597,
-        "check": 1.170518333999993
+        "answer": 0.605,
+        "check": 1.7072004999999917
       }
     },
     {
@@ -1944,7 +1944,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "What net cost does the Department of Health and Human Services report, and what total revenue does the government report for FY 2023?",
-      "askedAt": "2026-10-29T15:22:40.279Z",
+      "askedAt": "2026-10-30T21:18:07.297Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2019,8 +2019,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.61,
-        "check": 1.1598777919999994
+        "answer": 0.614,
+        "check": 1.7087070840000087
       }
     },
     {
@@ -2028,7 +2028,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "What total liabilities does the balance sheet report at September 30, 2023, and what total net cost does the Statement of Operations report?",
-      "askedAt": "2026-10-29T15:22:42.052Z",
+      "askedAt": "2026-10-30T21:18:09.625Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2104,7 +2104,7 @@
       },
       "seconds": {
         "answer": 0.609,
-        "check": 1.170949958000012
+        "check": 1.708017415999988
       }
     },
     {
@@ -2112,7 +2112,7 @@
       "kind": "absent",
       "crossLingual": false,
       "question": "How many federal employees were on the payroll at September 30, 2023?",
-      "askedAt": "2026-10-29T15:22:43.833Z",
+      "askedAt": "2026-10-30T21:18:11.948Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2187,8 +2187,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.585,
-        "check": 1.118481083999999
+        "answer": 0.597,
+        "check": 1.6996534169999942
       }
     },
     {
@@ -2196,7 +2196,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Who wrote the Mamba paper?",
-      "askedAt": "2026-10-29T15:22:45.538Z",
+      "askedAt": "2026-10-30T21:18:14.250Z",
       "status": "done",
       "error": null,
       "text": "I found no papers.",
@@ -2244,8 +2244,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.262,
-        "check": 0.9143102920000092
+        "answer": 0.269,
+        "check": 1.2014809999999998
       }
     },
     {
@@ -2253,7 +2253,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Which dataset did the paper use to train its language models?",
-      "askedAt": "2026-10-29T15:22:46.717Z",
+      "askedAt": "2026-10-30T21:18:15.728Z",
       "status": "done",
       "error": null,
       "text": "I found no papers.",
@@ -2301,8 +2301,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.264,
-        "check": 0.9287181249999849
+        "answer": 0.271,
+        "check": 1.2249939580000064
       }
     },
     {
@@ -2310,7 +2310,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "What context lengths were Mamba, Pythia and RWKV trained with, according to the paper?",
-      "askedAt": "2026-10-29T15:22:47.911Z",
+      "askedAt": "2026-10-30T21:18:17.230Z",
       "status": "done",
       "error": null,
       "text": "I found no papers.",
@@ -2358,8 +2358,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.263,
-        "check": 0.9401458329999878
+        "answer": 0.27,
+        "check": 1.152624542000005
       }
     },
     {
@@ -2367,7 +2367,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Which DNA dataset was used for pretraining, and how many tokens does it hold?",
-      "askedAt": "2026-10-29T15:22:49.117Z",
+      "askedAt": "2026-10-30T21:18:18.658Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2442,8 +2442,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.635,
-        "check": 1.1182226669999946
+        "answer": 0.648,
+        "check": 1.7271695829999953
       }
     },
     {
@@ -2451,7 +2451,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 1, what accuracy does Mamba with an S6 layer reach on selective copying?",
-      "askedAt": "2026-10-29T15:22:50.873Z",
+      "askedAt": "2026-10-30T21:18:21.039Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2526,8 +2526,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.584,
-        "check": 1.1307366249999904
+        "answer": 0.598,
+        "check": 1.6901120829999854
       }
     },
     {
@@ -2535,7 +2535,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 3, what is Mamba-2.8B's average zero-shot score?",
-      "askedAt": "2026-10-29T15:22:52.591Z",
+      "askedAt": "2026-10-30T21:18:23.333Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2610,8 +2610,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.63,
-        "check": 1.1926576669999922
+        "answer": 0.613,
+        "check": 1.6964895829999878
       }
     },
     {
@@ -2619,7 +2619,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 3, what is Mamba-790M's average zero-shot score?",
-      "askedAt": "2026-10-29T15:22:54.416Z",
+      "askedAt": "2026-10-30T21:18:25.649Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2694,8 +2694,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.614,
-        "check": 1.1130340000000143
+        "answer": 0.617,
+        "check": 1.7178611249999958
       }
     },
     {
@@ -2703,7 +2703,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 4, what FID does the 6.1M-parameter Mamba reach on SC09?",
-      "askedAt": "2026-10-29T15:22:56.145Z",
+      "askedAt": "2026-10-30T21:18:27.987Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2778,8 +2778,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.599,
-        "check": 1.1425787079999863
+        "answer": 0.604,
+        "check": 1.6858955409999763
       }
     },
     {
@@ -2787,7 +2787,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 4, what mIS does the 24.3M-parameter Mamba reach on SC09?",
-      "askedAt": "2026-10-29T15:22:57.890Z",
+      "askedAt": "2026-10-30T21:18:30.285Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2862,8 +2862,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.614,
-        "check": 1.1259754170000087
+        "answer": 0.599,
+        "check": 1.688637665999995
       }
     },
     {
@@ -2871,7 +2871,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "How much higher is Mamba-2.8B's average zero-shot score than Pythia-2.8B's?",
-      "askedAt": "2026-10-29T15:22:59.634Z",
+      "askedAt": "2026-10-30T21:18:32.580Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -2888,17 +2888,17 @@
       "citations": [
         {
           "sentence": "Your Documents answer this .",
-          "quote": "architecture design (Mamba) incorporating selective state spaces.",
+          "quote": "of similar size, and Mamba-3B’s quality matches that of Transformers twice its size (e.g. 4 points higher avg. on common",
           "document": "mamba",
           "documentName": "Mamba Linear-Time Sequence Modeling with Selective State Spaces",
           "pageFrom": 2,
           "pageTo": 2,
           "check": "found",
           "checkReason": null,
-          "passageText": "Architecture. We simplify prior deep sequence model architectures by combining the design of prior SSM architectures\n(Dao, Fu, Saab, et al. 2023) with the MLP block of Transformers into a single block, leading to a simple and homogenous\narchitecture design (Mamba) incorporating selective state spaces.\nSelective SSMs, and by extension the Mamba architecture, are fully recurrent models with key properties that make them\nsuitable as the backbone of general foundation models operating on sequences. (i) High quality: selectivity brings strong\nperformance on dense modalities such as language and genomics. (ii) Fast training and inference: computation and memory\nscales linearly in sequence length during training, and unrolling the model autoregressively during inference requires only\nconstant time per step since it does not require a cache of previous elements. (iii) Long context: the quality and efficiency\ntogether yield performance improvements on real data up to sequence length 1M.\nWe empirically validate Mamba’s potential as a general sequence FM backbone, in both pretraining quality and domain-\nspecific task performance, on several types of modalities and settings:\n• Synthetics. On important synthetic tasks such as copying and induction heads that have been proposed as being key to\nlarge language models, Mamba not only solves them easily but can extrapolate solutions indefinitely long (>1M tokens).\n• Audio and Genomics. Mamba out-performs prior state-of-the-art models such as SaShiMi, Hyena, and Transformers\non modeling audio waveforms and DNA sequences, both in pretraining quality and downstream metrics (e.g. reducing\nFID on a challenging speech generation dataset by more than half). In both settings, its performance improves with longer\ncontext up to million-length sequences.\n• Language Modeling. Mamba is the first linear-time sequence model that truly achieves Transformer-quality performance,",
+          "passageText": "• Synthetics. On important synthetic tasks such as copying and induction heads that have been proposed as being key to\nlarge language models, Mamba not only solves them easily but can extrapolate solutions indefinitely long (>1M tokens).\n• Audio and Genomics. Mamba out-performs prior state-of-the-art models such as SaShiMi, Hyena, and Transformers\non modeling audio waveforms and DNA sequences, both in pretraining quality and downstream metrics (e.g. reducing\nFID on a challenging speech generation dataset by more than half). In both settings, its performance improves with longer\ncontext up to million-length sequences.\n• Language Modeling. Mamba is the first linear-time sequence model that truly achieves Transformer-quality performance,\nboth in pretraining perplexity and downstream evaluations. With scaling laws up to 1B parameters, we show that Mamba\nexceeds the performance of a large range of baselines, including very strong modern Transformer training recipes based\non LLaMa (Touvron et al. 2023). Our Mamba language model has 5× generation throughput compared to Transformers\nof similar size, and Mamba-3B’s quality matches that of Transformers twice its size (e.g. 4 points higher avg. on common\nsense reasoning compared to Pythia-3B and even exceeding Pythia-7B).\nModel code and pre-trained checkpoints are open-sourced at https://github.com/state-spaces/mamba.\n2 State Space Models\nStructured state space sequence models (S4) are a recent class of sequence models for deep learning that are broadly related\nto RNNs, and CNNs, and classical state space models. They are inspired by a particular continuous system (1) that maps a\n\nProject\nDiscretize\n𝑥!\nℎ!\"# ℎ!\n𝑦!\n𝐴\n𝐶!𝐵!\nSelection Mechanism\nGPU\nSRAM\nGPU HBM\n∆!\nSelective State Space Model\nwith Hardware-aware State ExpansionFigure 1: (Overview.) Structured SSMs independently map each channel (e.g. 𝐷 = 5) of an input 𝑥 to output 𝑦 through a higher",
           "passagePages": [
             2,
-            2
+            3
           ]
         }
       ],
@@ -2946,8 +2946,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.626,
-        "check": 1.1061192919999885
+        "answer": 0.607,
+        "check": 1.7081193750000092
       }
     },
     {
@@ -2955,7 +2955,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "By how much is the 6.1M-parameter Mamba's FID lower than SaShiMi's in Table 4?",
-      "askedAt": "2026-10-29T15:23:01.367Z",
+      "askedAt": "2026-10-30T21:18:34.898Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3030,8 +3030,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.597,
-        "check": 1.1385465840000253
+        "answer": 0.581,
+        "check": 1.6771666670000123
       }
     },
     {
@@ -3039,7 +3039,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "In Table 1, how many accuracy points does Mamba's S6 layer add over its S4 layer?",
-      "askedAt": "2026-10-29T15:23:03.103Z",
+      "askedAt": "2026-10-30T21:18:37.158Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3114,8 +3114,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.581,
-        "check": 1.1523847499999975
+        "answer": 0.603,
+        "check": 1.6804747919999936
       }
     },
     {
@@ -3123,7 +3123,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "What accuracy does Mamba S6 reach on selective copying, and what is Mamba-2.8B's average zero-shot score?",
-      "askedAt": "2026-10-29T15:23:04.838Z",
+      "askedAt": "2026-10-30T21:18:39.446Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3198,8 +3198,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.594,
-        "check": 1.1313470410000008
+        "answer": 0.592,
+        "check": 1.6706245830000261
       }
     },
     {
@@ -3207,7 +3207,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "What is Mamba-1.4B's average zero-shot score, and what FID does the 6.1M-parameter Mamba reach?",
-      "askedAt": "2026-10-29T15:23:06.565Z",
+      "askedAt": "2026-10-30T21:18:41.711Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3282,8 +3282,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.604,
-        "check": 1.0961394589999982
+        "answer": 0.597,
+        "check": 1.6779744580000115
       }
     },
     {
@@ -3291,7 +3291,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "Which dataset was used for language modeling, and which for DNA pretraining?",
-      "askedAt": "2026-10-29T15:23:08.267Z",
+      "askedAt": "2026-10-30T21:18:43.992Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3366,8 +3366,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.593,
-        "check": 1.2661922910000138
+        "answer": 0.605,
+        "check": 1.6908421659999877
       }
     },
     {
@@ -3375,7 +3375,7 @@
       "kind": "absent",
       "crossLingual": false,
       "question": "How many dollars did it cost to train Mamba-2.8B?",
-      "askedAt": "2026-10-29T15:23:10.128Z",
+      "askedAt": "2026-10-30T21:18:46.295Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3450,8 +3450,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.615,
-        "check": 1.1335050829999964
+        "answer": 0.619,
+        "check": 1.728722167
       }
     },
     {
@@ -3459,7 +3459,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "In 2020, what share of migrants lived in a country wealthier than their own?",
-      "askedAt": "2026-10-29T15:23:11.878Z",
+      "askedAt": "2026-10-30T21:18:48.649Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3534,8 +3534,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.607,
-        "check": 1.1045023340000188
+        "answer": 0.634,
+        "check": 1.7097805830000143
       }
     },
     {
@@ -3543,7 +3543,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "What share of the world's population lives in places highly exposed to climate change, and how many people is that?",
-      "askedAt": "2026-10-29T15:23:13.590Z",
+      "askedAt": "2026-10-30T21:18:51.000Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3618,8 +3618,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.581,
-        "check": 1.0902612500000104
+        "answer": 0.609,
+        "check": 1.7324990000000107
       }
     },
     {
@@ -3627,7 +3627,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Which country does the report expect to grow from 213 million people to 791 million by the end of the century?",
-      "askedAt": "2026-10-29T15:23:15.263Z",
+      "askedAt": "2026-10-30T21:18:53.350Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3702,8 +3702,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.595,
-        "check": 1.0933294170000007
+        "answer": 0.615,
+        "check": 1.7595888749999866
       }
     },
     {
@@ -3711,7 +3711,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "According to Box O.1, how many migrants are there globally, and what share of the world's population is that?",
-      "askedAt": "2026-10-29T15:23:16.954Z",
+      "askedAt": "2026-10-30T21:18:55.734Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3786,8 +3786,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.58,
-        "check": 1.131440082999994
+        "answer": 0.611,
+        "check": 1.6921037080000096
       }
     },
     {
@@ -3795,7 +3795,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "Of the about 184 million migrants, how many are refugees?",
-      "askedAt": "2026-10-29T15:23:18.667Z",
+      "askedAt": "2026-10-30T21:18:58.045Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3870,8 +3870,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.586,
-        "check": 1.126598249999981
+        "answer": 0.607,
+        "check": 1.6699209170000104
       }
     },
     {
@@ -3879,7 +3879,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "How many economic migrants and refugees live in high-income OECD countries, and what share of migrants is that?",
-      "askedAt": "2026-10-29T15:23:20.381Z",
+      "askedAt": "2026-10-30T21:19:00.329Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -3954,8 +3954,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.582,
-        "check": 1.1032974170000234
+        "answer": 0.588,
+        "check": 1.6596525839999958
       }
     },
     {
@@ -3963,7 +3963,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "How many economic migrants and refugees live in low- and middle-income countries, and what share of migrants is that?",
-      "askedAt": "2026-10-29T15:23:22.067Z",
+      "askedAt": "2026-10-30T21:19:02.582Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4038,8 +4038,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.593,
-        "check": 1.1210336670000105
+        "answer": 0.602,
+        "check": 1.7060826670000098
       }
     },
     {
@@ -4047,7 +4047,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "What population does the report project for Italy by 2100, against its 59 million today?",
-      "askedAt": "2026-10-29T15:23:23.782Z",
+      "askedAt": "2026-10-30T21:19:04.901Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4122,8 +4122,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.594,
-        "check": 1.0975133749999804
+        "answer": 0.625,
+        "check": 1.7025827919999719
       }
     },
     {
@@ -4131,7 +4131,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "If there are about 184 million migrants and 37 million refugees among them, how many are economic migrants?",
-      "askedAt": "2026-10-29T15:23:25.475Z",
+      "askedAt": "2026-10-30T21:19:07.235Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4206,8 +4206,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.585,
-        "check": 1.1486754160000128
+        "answer": 0.601,
+        "check": 1.7129144589999923
       }
     },
     {
@@ -4215,7 +4215,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "By how much does the report expect Nigeria's population to grow by the end of the century?",
-      "askedAt": "2026-10-29T15:23:27.212Z",
+      "askedAt": "2026-10-30T21:19:09.557Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4290,8 +4290,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.609,
-        "check": 1.1554302080000052
+        "answer": 0.594,
+        "check": 1.6824374160000006
       }
     },
     {
@@ -4299,7 +4299,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "How many migrants are there globally, and what share of them live in low- and middle-income countries?",
-      "askedAt": "2026-10-29T15:23:28.978Z",
+      "askedAt": "2026-10-30T21:19:11.838Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4374,8 +4374,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.589,
-        "check": 1.1448427500000107
+        "answer": 0.593,
+        "check": 1.6788024589999986
       }
     },
     {
@@ -4383,7 +4383,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "How many of the world's migrants are refugees, and how many economic migrants live in the Gulf Cooperation Council countries?",
-      "askedAt": "2026-10-29T15:23:30.713Z",
+      "askedAt": "2026-10-30T21:19:14.116Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4458,8 +4458,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.584,
-        "check": 1.0920480000000097
+        "answer": 0.595,
+        "check": 1.733073916000023
       }
     },
     {
@@ -4467,7 +4467,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "How many risks, and how many risk themes, does the 2023 National Risk Register cover?",
-      "askedAt": "2026-10-29T15:23:32.391Z",
+      "askedAt": "2026-10-30T21:19:16.452Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4542,8 +4542,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.574,
-        "check": 1.1063859579999988
+        "answer": 0.591,
+        "check": 1.7207003330000152
       }
     },
     {
@@ -4551,7 +4551,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "What assessment period does the register use for non-malicious risks and for malicious risks?",
-      "askedAt": "2026-10-29T15:23:34.076Z",
+      "askedAt": "2026-10-30T21:19:18.773Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4626,8 +4626,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.589,
-        "check": 1.1505558330000203
+        "answer": 0.599,
+        "check": 1.7780335000000196
       }
     },
     {
@@ -4635,7 +4635,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Across how many impact dimensions does the NSRA assess impact?",
-      "askedAt": "2026-10-29T15:23:35.818Z",
+      "askedAt": "2026-10-30T21:19:21.159Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4710,8 +4710,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.598,
-        "check": 1.1046049169999896
+        "answer": 0.618,
+        "check": 1.7492968339999788
       }
     },
     {
@@ -4719,7 +4719,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "On what scale is each impact dimension scored?",
-      "askedAt": "2026-10-29T15:23:37.522Z",
+      "askedAt": "2026-10-30T21:19:23.535Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1] [^2].\n\nThat is all.",
@@ -4809,8 +4809,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.654,
-        "check": 1.1147693750000034
+        "answer": 0.668,
+        "check": 1.7002117089999955
       }
     },
     {
@@ -4818,7 +4818,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 1, what percentage chance does a likelihood score of 3 correspond to?",
-      "askedAt": "2026-10-29T15:23:39.295Z",
+      "askedAt": "2026-10-30T21:19:25.914Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4893,8 +4893,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.601,
-        "check": 1.1048915419999976
+        "answer": 0.628,
+        "check": 1.7234624579999944
       }
     },
     {
@@ -4902,7 +4902,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 1, what percentage chance does the highest likelihood score, 5, represent?",
-      "askedAt": "2026-10-29T15:23:41.002Z",
+      "askedAt": "2026-10-30T21:19:28.273Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -4977,8 +4977,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.587,
-        "check": 1.1219616250000253
+        "answer": 0.606,
+        "check": 1.6876747500000056
       }
     },
     {
@@ -4986,7 +4986,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 1, what range does the PHIA yardstick call \"Highly likely\"?",
-      "askedAt": "2026-10-29T15:23:42.712Z",
+      "askedAt": "2026-10-30T21:19:30.576Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5061,8 +5061,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.591,
-        "check": 1.1802179170000018
+        "answer": 0.601,
+        "check": 1.7254650419999962
       }
     },
     {
@@ -5070,7 +5070,7 @@
       "kind": "table-figure",
       "crossLingual": false,
       "question": "In Table 2, what number of fatalities corresponds to an impact score of 4?",
-      "askedAt": "2026-10-29T15:23:44.487Z",
+      "askedAt": "2026-10-30T21:19:32.912Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5145,8 +5145,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.607,
-        "check": 1.1948123329999798
+        "answer": 0.603,
+        "check": 1.750572291999997
       }
     },
     {
@@ -5154,7 +5154,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "How wide is the PHIA yardstick's \"Almost certain\" band in percentage points?",
-      "askedAt": "2026-10-29T15:23:46.291Z",
+      "askedAt": "2026-10-30T21:19:35.274Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5229,8 +5229,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.586,
-        "check": 1.1901683749999792
+        "answer": 0.602,
+        "check": 1.6827338329999766
       }
     },
     {
@@ -5238,7 +5238,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "How many risks are on the register, and what chance does its highest likelihood score represent?",
-      "askedAt": "2026-10-29T15:23:48.073Z",
+      "askedAt": "2026-10-30T21:19:37.566Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5313,8 +5313,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.596,
-        "check": 1.1133136660000018
+        "answer": 0.579,
+        "check": 1.732549874999997
       }
     },
     {
@@ -5322,7 +5322,7 @@
       "kind": "absent",
       "crossLingual": false,
       "question": "What was the budget of the Cabinet Office's Civil Contingencies Secretariat in 2023?",
-      "askedAt": "2026-10-29T15:23:49.783Z",
+      "askedAt": "2026-10-30T21:19:39.884Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5397,8 +5397,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.602,
-        "check": 1.1553218749999943
+        "answer": 0.613,
+        "check": 1.709121207999997
       }
     },
     {
@@ -5406,7 +5406,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "When and where was the Federal Open Market Committee meeting of June 1950 held?",
-      "askedAt": "2026-10-29T15:23:51.544Z",
+      "askedAt": "2026-10-30T21:19:42.211Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5482,7 +5482,7 @@
       },
       "seconds": {
         "answer": 0.609,
-        "check": 1.1173194580000128
+        "check": 1.6819375839999993
       }
     },
     {
@@ -5490,7 +5490,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Who chaired the Federal Open Market Committee at the June 13, 1950 meeting?",
-      "askedAt": "2026-10-29T15:23:53.274Z",
+      "askedAt": "2026-10-30T21:19:44.506Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5565,8 +5565,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.591,
-        "check": 1.1101346659999982
+        "answer": 0.588,
+        "check": 1.6921118750000024
       }
     },
     {
@@ -5574,7 +5574,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Which earlier meetings' minutes did the Committee approve on June 13, 1950?",
-      "askedAt": "2026-10-29T15:23:54.977Z",
+      "askedAt": "2026-10-30T21:19:46.797Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5649,8 +5649,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.597,
-        "check": 1.1569045409999963
+        "answer": 0.616,
+        "check": 1.7577282500000146
       }
     },
     {
@@ -5658,7 +5658,7 @@
       "kind": "multi-passage",
       "crossLingual": false,
       "question": "When was the June 1950 meeting held, and how much in Government securities had banks and the Federal Reserve Banks moved into nonbank hands, according to the discussion?",
-      "askedAt": "2026-10-29T15:23:56.733Z",
+      "askedAt": "2026-10-30T21:19:49.183Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5733,8 +5733,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.583,
-        "check": 1.122821041999996
+        "answer": 0.613,
+        "check": 1.7343033329999888
       }
     },
     {
@@ -5742,7 +5742,7 @@
       "kind": "absent",
       "crossLingual": false,
       "question": "What federal funds rate target did the Committee set at the June 13, 1950 meeting?",
-      "askedAt": "2026-10-29T15:23:58.443Z",
+      "askedAt": "2026-10-30T21:19:51.540Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5817,8 +5817,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.589,
-        "check": 1.128011541999993
+        "answer": 0.599,
+        "check": 1.7499532499999915
       }
     },
     {
@@ -5826,7 +5826,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "When was Biden v. Nebraska argued and when was it decided?",
-      "askedAt": "2026-10-29T15:24:00.164Z",
+      "askedAt": "2026-10-30T21:19:53.899Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5901,8 +5901,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.587,
-        "check": 1.103553917000012
+        "answer": 0.609,
+        "check": 1.7094142920000013
       }
     },
     {
@@ -5910,7 +5910,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "How much debt principal would the student loan forgiveness program cancel?",
-      "askedAt": "2026-10-29T15:24:01.857Z",
+      "askedAt": "2026-10-30T21:19:56.227Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -5985,8 +5985,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.587,
-        "check": 1.132036625000008
+        "answer": 0.62,
+        "check": 1.7609125000000059
       }
     },
     {
@@ -5994,7 +5994,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "How large were outstanding federal student loans, and how many borrowers held them?",
-      "askedAt": "2026-10-29T15:24:03.577Z",
+      "askedAt": "2026-10-30T21:19:58.619Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -6069,8 +6069,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.587,
-        "check": 1.1241275840000016
+        "answer": 0.599,
+        "check": 1.6646180000000168
       }
     },
     {
@@ -6078,7 +6078,7 @@
       "kind": "single-fact",
       "crossLingual": false,
       "question": "Who delivered the opinion of the Court?",
-      "askedAt": "2026-10-29T15:24:05.290Z",
+      "askedAt": "2026-10-30T21:20:00.888Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -6153,8 +6153,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.583,
-        "check": 1.1004794589999947
+        "answer": 0.594,
+        "check": 1.703416666999983
       }
     },
     {
@@ -6162,7 +6162,7 @@
       "kind": "calculated",
       "crossLingual": false,
       "question": "Dividing $1.6 trillion of outstanding federal student loans by 43 million borrowers, what is the average balance per borrower?",
-      "askedAt": "2026-10-29T15:24:06.975Z",
+      "askedAt": "2026-10-30T21:20:03.193Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -6237,8 +6237,8 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.584,
-        "check": 1.1092850830000243
+        "answer": 0.609,
+        "check": 1.7261240410000027
       }
     },
     {
@@ -6246,7 +6246,7 @@
       "kind": "absent",
       "crossLingual": false,
       "question": "How many borrowers had already applied for the student loan forgiveness program when it was blocked?",
-      "askedAt": "2026-10-29T15:24:08.669Z",
+      "askedAt": "2026-10-30T21:20:05.539Z",
       "status": "done",
       "error": null,
       "text": "Your Documents answer this [^1].\n\nThat is all.",
@@ -6321,11 +6321,12 @@
         "check": null
       },
       "seconds": {
-        "answer": 0.584,
-        "check": 1.109022874999995
+        "answer": 0.603,
+        "check": 1.6993177909999795
       }
     }
   ],
   "retriedUsd": 0,
-  "stopped": null
+  "stopped": null,
+  "inProgress": null
 }

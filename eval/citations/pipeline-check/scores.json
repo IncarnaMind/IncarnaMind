@@ -4,7 +4,18 @@
     "questions": "ab17b69ea42ce560fa1981061932059d84e124b70e08b98fdd34c9ea121d1923",
     "documents": "8942e783979679ca06babaf476867b4aefac6865ab81e7b944d0e29093c9b79e"
   },
-  "problems": [],
+  "problems": [
+    "ollama-qwen3.5-4b.en.json: nbs-communique-2023's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.en.json: guiding-case-2's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.en.json: nbs-communique-2024's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.en.json: nbs-gdp-revision's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.en.json: cern-soil-elements's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.zh.json: nbs-communique-2023's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.zh.json: guiding-case-2's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.zh.json: nbs-communique-2024's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.zh.json: nbs-gdp-revision's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text.",
+    "ollama-qwen3.5-4b.zh.json: cern-soil-elements's text as the run stored it differs from what processing reads now, so its quotes are checked against today's text."
+  ],
   "scores": [
     {
       "file": "ollama-qwen3.5-4b.en.json",
@@ -226,7 +237,7 @@
         "output": 0
       },
       "usd": null,
-      "seconds": 211.30716587800003,
+      "seconds": 232.3958985829999,
       "misses": [
         {
           "questionId": "en-001",
@@ -817,12 +828,12 @@
       "questions": 75,
       "answers": 75,
       "failed": 0,
-      "citations": 75,
-      "quoteFound": 75,
+      "citations": 74,
+      "quoteFound": 74,
       "supported": {
         "supported": 0,
         "judged": 0,
-        "unsettled": 75,
+        "unsettled": 74,
         "unjudged": 0
       },
       "figureRight": {
@@ -849,7 +860,7 @@
         "output": 0
       },
       "usd": null,
-      "seconds": 131.4867166280001,
+      "seconds": 176.44040987699992,
       "misses": [
         {
           "questionId": "zh-001",

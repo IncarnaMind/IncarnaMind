@@ -174,7 +174,7 @@ Each run's misses, and how many the app's check flagged: a Citation's "Quote not
 | ollama/qwen3.5:4b | English | [5 of 75](ollama-qwen3.5-4b.en.json), [2](ollama-qwen3.5-4b.en.json) failed | [8 of 9 (89%)](ollama-qwen3.5-4b.en.json) | [4 of 6 (67%)](ollama-qwen3.5-4b.en.json), [3](ollama-qwen3.5-4b.en.json) to settle | [1 of 2 (50%)](ollama-qwen3.5-4b.en.json) | [2 of 4 (50%)](ollama-qwen3.5-4b.en.json) |
 | ollama/qwen3.5:4b | Chinese | [5 of 75](ollama-qwen3.5-4b.zh.json), [3](ollama-qwen3.5-4b.zh.json) failed | [3 of 3 (100%)](ollama-qwen3.5-4b.zh.json) | [1 of 3 (33%)](ollama-qwen3.5-4b.zh.json) | [1 of 2 (50%)](ollama-qwen3.5-4b.zh.json) | [0 of 3 (0%)](ollama-qwen3.5-4b.zh.json) |
 | scripted | English | [75 of 75](scripted.en.json) | [72 of 72 (100%)](scripted.en.json) | [72](scripted.en.json) to settle | [0 of 58 (0%)](scripted.en.json) | [0 of 58 (0%)](scripted.en.json) |
-| scripted | Chinese | [75 of 75](scripted.zh.json) | [75 of 75 (100%)](scripted.zh.json) | [75](scripted.zh.json) to settle | [0 of 61 (0%)](scripted.zh.json) | [0 of 61 (0%)](scripted.zh.json) |
+| scripted | Chinese | [75 of 75](scripted.zh.json) | [74 of 74 (100%)](scripted.zh.json) | [74](scripted.zh.json) to settle | [0 of 61 (0%)](scripted.zh.json) | [0 of 61 (0%)](scripted.zh.json) |
 
 - **Quote found:** the Citation's quote is at the Location it cites, read again from the Document's text under a looser normalisation than the app's.
 - **Supported:** two model judges, with one fixed prompt, say the cited Passage supports the sentence; a person settles where they disagree.
@@ -204,15 +204,15 @@ Each run's misses, and how many the app's check flagged: a Citation's "Quote not
 |---|---|---|---|---|---|---|---|
 | ollama/qwen3.5:4b | English | [32,429 (0)](ollama-qwen3.5-4b.en.json) | [2,136](ollama-qwen3.5-4b.en.json) | [none (on this computer)](ollama-qwen3.5-4b.en.json) | [2.0 min](ollama-qwen3.5-4b.en.json) | 2026-10-29, commit 218ac9412, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, num_ctx 8192, app 0.1.0-alpha.4 |
 | ollama/qwen3.5:4b | Chinese | [32,243 (0)](ollama-qwen3.5-4b.zh.json) | [1,619](ollama-qwen3.5-4b.zh.json) | [none (on this computer)](ollama-qwen3.5-4b.zh.json) | [1.6 min](ollama-qwen3.5-4b.zh.json) | 2026-10-29, commit 218ac9412, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, num_ctx 8192, app 0.1.0-alpha.4 |
-| scripted | English | [0 (0)](scripted.en.json) | [0](scripted.en.json) | [none (on this computer)](scripted.en.json) | [3.5 min](scripted.en.json) | 2026-10-29, commit 4a3bc32ee, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, app 0.1.0-alpha.4 |
-| scripted | Chinese | [0 (0)](scripted.zh.json) | [0](scripted.zh.json) | [none (on this computer)](scripted.zh.json) | [2.2 min](scripted.zh.json) | 2026-10-29, commit 4a3bc32ee, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, app 0.1.0-alpha.4 |
+| scripted | English | [0 (0)](scripted.en.json) | [0](scripted.en.json) | [none (on this computer)](scripted.en.json) | [3.9 min](scripted.en.json) | 2026-10-30, commit 8c1373b83, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, app 0.1.0-alpha.4 |
+| scripted | Chinese | [0 (0)](scripted.zh.json) | [0](scripted.zh.json) | [none (on this computer)](scripted.zh.json) | [2.9 min](scripted.zh.json) | 2026-10-30, commit 8c1373b83, Apple M2 Max (12 cores), darwin arm64 | on this computer, the Note checked, app 0.1.0-alpha.4 |
 
 ## The judges
 
 - [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json): scripted-numbers and scripted-words; 3 disagreements to settle (`disagreements.json`, settled in `settled.json`).
 - [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json): scripted-numbers and scripted-words.
 - [scripted.en.json](scripted.en.json): scripted-numbers and scripted-words; 72 disagreements to settle (`disagreements.json`, settled in `settled.json`).
-- [scripted.zh.json](scripted.zh.json): scripted-numbers and scripted-words; 75 disagreements to settle (`disagreements.json`, settled in `settled.json`).
+- [scripted.zh.json](scripted.zh.json): scripted-numbers and scripted-words; 74 disagreements to settle (`disagreements.json`, settled in `settled.json`).
 
 ## Rerun
 
