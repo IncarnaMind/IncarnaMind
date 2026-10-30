@@ -13,6 +13,7 @@ import type { LocalModel } from "./types";
 
 export const LOCAL_MODELS: readonly LocalModel[] = [
   {
+    name: "Qwen 3.5 2B",
     tag: "qwen3.5:2b",
     parameters: 1.9,
     download: { gguf: 2.68, mlx: 3.12 },
@@ -22,6 +23,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Qwen 3.5 4B",
     tag: "qwen3.5:4b",
     parameters: 4.2,
     download: { gguf: 3.32, mlx: 3.97 },
@@ -32,6 +34,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     evaluated: "#67, 2026-10-10",
   },
   {
+    name: "Qwen 3.5 9B",
     tag: "qwen3.5:9b",
     parameters: 9,
     download: { gguf: 6.55, mlx: 7.64 },
@@ -41,6 +44,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Gemma 4 12B",
     tag: "gemma4:12b",
     parameters: 11.9,
     download: { gguf: 8.02, mlx: 7.71 },
@@ -50,6 +54,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Gemma 4 26B A4B",
     tag: "gemma4:26b-a4b",
     parameters: 25.2,
     activeParameters: 3.8,
@@ -60,6 +65,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Qwen 3.6 35B A3B",
     tag: "qwen3.6:35b-a3b",
     parameters: 35,
     activeParameters: 3,
@@ -70,6 +76,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Qwen 3.8 27B",
     tag: "qwen3.8:27b",
     parameters: 27.3,
     download: { gguf: 17.74, mlx: 18.17 },
@@ -79,6 +86,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "Gemma 4 31B",
     tag: "gemma4:31b",
     parameters: 30.7,
     download: { gguf: 20.39, mlx: 19.42 },
@@ -88,6 +96,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     licence: "Apache-2.0",
   },
   {
+    name: "GLM 4.7 Flash",
     tag: "glm-4.7-flash",
     parameters: 29.9,
     download: { gguf: 19.02 },

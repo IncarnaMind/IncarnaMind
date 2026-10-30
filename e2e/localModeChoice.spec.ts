@@ -209,8 +209,8 @@ for (const [name, locale] of [
     await expect(setup.getByTestId("setup-ready-title")).toBeVisible();
     const undo = window.getByTestId("undo-line");
     const said = zh
-      ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
-      : "Using qwen3.5:4b · Everything stays on this computer";
+      ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
+      : "Using Qwen 3.5 4B · Everything stays on this computer";
     await expect(undo.getByTestId("undo-message")).toHaveText(said);
     await expect(undo.getByTestId("undo-change-local-mode")).toHaveText(zh ? "更改" : "Change");
     await expect(undo.getByTestId("undo-action")).toHaveText(zh ? "撤销" : "Undo");
@@ -223,8 +223,8 @@ for (const [name, locale] of [
     // Undo took back Local mode alone, and the line after it says so.
     await expect(undo.getByTestId("undo-note")).toHaveText(
       zh
-        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 qwen3.5:4b"
-        : "Turned off “Keep everything on this computer” · Still using qwen3.5:4b",
+        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 Qwen 3.5 4B"
+        : "Turned off “Keep everything on this computer” · Still using Qwen 3.5 4B",
     );
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect.poll(() => localOnly(window)).toBe(true);
@@ -249,8 +249,8 @@ for (const [name, locale] of [
     const undo = window.getByTestId("undo-line");
     await expect(undo.getByTestId("undo-message")).toHaveText(
       zh
-        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
-        : "Using qwen3.5:4b · Everything stays on this computer",
+        ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
+        : "Using Qwen 3.5 4B · Everything stays on this computer",
     );
     await expect(undo).toBeInViewport();
     await expect(undo.getByTestId("undo-change-local-mode")).toBeVisible();
@@ -276,8 +276,8 @@ for (const [name, locale] of [
     const pill = window.getByTestId("undo-pill");
     await expect(pill.getByTestId("undo-message")).toHaveText(
       zh
-        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
-        : "Using qwen3.5:4b · Everything stays on this computer",
+        ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
+        : "Using Qwen 3.5 4B · Everything stays on this computer",
     );
     await expect(pill).toBeInViewport();
 
@@ -293,8 +293,8 @@ for (const [name, locale] of [
     await expect.poll(() => localOnly(window)).toBe(false);
     await expect(pill.getByTestId("undo-note")).toHaveText(
       zh
-        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 qwen3.5:4b"
-        : "Turned off “Keep everything on this computer” · Still using qwen3.5:4b",
+        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 Qwen 3.5 4B"
+        : "Turned off “Keep everything on this computer” · Still using Qwen 3.5 4B",
     );
     await app.close();
   });
@@ -318,8 +318,8 @@ for (const [name, locale] of [
     await expect(undo.getByTestId("undo-note")).toBeVisible();
     await expect(undo.getByTestId("undo-note")).toHaveText(
       zh
-        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 qwen3.5:4b"
-        : "Turned off “Keep everything on this computer” · Still using qwen3.5:4b",
+        ? "已关闭“所有内容都留在这台电脑上” · 仍在使用 Qwen 3.5 4B"
+        : "Turned off “Keep everything on this computer” · Still using Qwen 3.5 4B",
     );
 
     // Redo turns Local mode back on with the card gone: its line is still seen.
@@ -328,8 +328,8 @@ for (const [name, locale] of [
     await expect(undo.getByTestId("undo-message")).toBeVisible();
     await expect(undo.getByTestId("undo-message")).toHaveText(
       zh
-        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
-        : "Using qwen3.5:4b · Everything stays on this computer",
+        ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
+        : "Using Qwen 3.5 4B · Everything stays on this computer",
     );
     await app.close();
   });
@@ -350,8 +350,8 @@ for (const [name, locale] of [
     await expect(undo.getByTestId("undo-message")).toBeVisible();
     await expect(undo.getByTestId("undo-message")).toHaveText(
       zh
-        ? "使用 qwen3.5:4b · 所有内容都留在这台电脑上"
-        : "Using qwen3.5:4b · Everything stays on this computer",
+        ? "使用 Qwen 3.5 4B · 所有内容都留在这台电脑上"
+        : "Using Qwen 3.5 4B · Everything stays on this computer",
     );
     await pointAndClick(window, undo.getByTestId("undo-action"));
     await expect.poll(() => localOnly(window)).toBe(false);

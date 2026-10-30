@@ -103,6 +103,8 @@ export function ViewerHeader({
       : null,
     changedState,
     document?.contentHash,
+    // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
+    null,
   );
   const changed = citedState
     ? changedSourceLines(

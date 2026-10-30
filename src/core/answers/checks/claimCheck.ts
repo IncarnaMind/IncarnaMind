@@ -102,6 +102,10 @@ import { type BoundNumber, unitNotStated } from "./units";
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   engine: AnswerEngine;
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
@@ -307,6 +311,26 @@ function citedSources(
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
     const { scope, signal } = request;
+    const outsideCited = (request.cited ?? []).flatMap((citation) => {
+      const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
+      if (!source || deps.walledDocument(source.documentId) === null) return [];
+      const outside =
+        scope.documentIds === null ||
+        !scope.documentIds.includes(source.documentId) ||
+        scope.excluded.has(source.documentId);
+      return outside ? [{ citation, source }] : [];
+    });
+    if (request.cited && request.cited.length > 0 && outsideCited.length === request.cited.length) {
+      const [kept] = outsideCited;
+      if (!kept) throw new Error("An outside Citation is missing.");
+      return {
+        verdict: "not-checked",
+        reason: "kept-inside",
+        detail: deps.walledFolderName(kept.source.documentId) ?? kept.source.documentName,
+        versions: [],
+        excluded: [],
+      };
+    }
     let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
@@ -472,7 +496,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       claim = request.claim,
       bound?: readonly BoundNumber[],
       worked?: readonly Figure[],
-    ): { why: UnsupportedReason; quote: Citation | null } | null => {
+    ): { why: UnsupportedReason; quote: Citation | null; decides: boolean } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
           scoped
@@ -521,7 +545,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         )
           ? single
           : null;
-      const problem = (why: UnsupportedReason) => ({ why, quote });
+      const problem = (why: UnsupportedReason, decides = false) => ({ why, quote, decides });
+      if (found.kind === "which dollar" || found.kind === "yuan sign") {
+        const document = candidates[0]?.documentName ?? "";
+        const key =
+          found.kind === "which dollar"
+            ? "claim.unsupported.whichDollar"
+            : "claim.unsupported.yuanSign";
+        // The Document doesn't say the currency, so it neither backs nor contradicts one (#2226).
+        const reason = t(key, { document, amount });
+        return problem({ reason, covered: null, uncovered: null, found: true }, true);
+      }
       if (found.kind === "scale") {
         return problem({
           found: true,
@@ -727,22 +761,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (!finished || reply.trim() === "") return notChecked("empty");
       if (readsAsRefusal(reply)) return notChecked("refused");
       if (!looked()) return notChecked("unread");
-      // A saved figure is worked out again from its own inputs, wherever the model searched.
+      // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
-        request.figures
-          .flatMap((figure) =>
-            figure.calculated && !figure.calculated.figure.analysis
-              ? figure.calculated.figure.inputs
-              : [],
-          )
-          .flatMap((input) => [
-            input.citation,
-            ...(input.unitStatement ? [input.unitStatement.citation] : []),
-          ])
-          .flatMap((citation) => {
-            const source = deps.documents.citationSource(citation.passageId);
-            return source ? [[source.passageId, source] as const] : [];
-          }),
+        citedSources(
+          request.figures
+            .flatMap((figure) =>
+              figure.calculated && !figure.calculated.figure.analysis
+                ? figure.calculated.figure.inputs
+                : [],
+            )
+            .flatMap((input) => [
+              input.citation,
+              ...(input.unitStatement ? [input.unitStatement.citation] : []),
+            ]),
+          scope,
+          deps.documents,
+        ).map((source) => [source.passageId, source] as const),
       );
       session.show(
         [...saved.values()].map((source) => ({
@@ -916,7 +950,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       checked.map(({ number }) => number),
     );
     const unit = unitProblem?.why ?? null;
-    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
+    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation || unitProblem?.decides))
       return unsupported(unit, unitProblem?.quote ?? null, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
     // Only a reason or part about that figure alone is settled; a found topic or any independent

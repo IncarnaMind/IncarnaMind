@@ -1,6 +1,7 @@
 import { type ModelSource, modelName } from "../../shared/modelName";
 import { useAnswers } from "./answers";
 import { useT } from "./i18n";
+import { useAppStore } from "./store";
 
 /** What shows a model: its name, and its id for the tooltip where the two differ. */
 export interface ShownModel {
@@ -16,11 +17,18 @@ export interface ShownModel {
  */
 export function useModelNames(): (modelId: string, providerId?: string | null) => ShownModel {
   const groups = useAnswers((state) => state.models);
+  const readiness = useAppStore((state) => state.chatReadiness);
   return (modelId, providerId) => {
     const group = providerId ? groups?.find((each) => each.provider.id === providerId) : undefined;
+    const current =
+      providerId && readiness?.ready === true && readiness.provider.id === providerId
+        ? readiness.provider
+        : undefined;
     const source: ModelSource = group
       ? { kind: group.provider.kind, endpoint: group.provider.endpoint, names: group.names }
-      : { names: groups?.find((each) => each.names[modelId])?.names };
+      : current
+        ? { kind: current.kind, endpoint: current.endpoint }
+        : { names: groups?.find((each) => each.names[modelId])?.names };
     const name = modelName(modelId, source);
     return { name, id: name === modelId ? undefined : modelId };
   };

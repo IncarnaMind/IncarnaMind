@@ -6,8 +6,10 @@
  * to the cell citing it, and the User's column widths come along in characters.
  */
 import { comparisonNameOf } from "../../shared/comparisons";
+import { formatDate } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import type { Language } from "../language";
 import type { ComparisonCellReading, ComparisonReading } from "../mindText";
 import { type Block, type Footnote, footnotesIn, type Inline } from "../mindText";
@@ -26,15 +28,21 @@ export interface ComparisonSheetInput {
   reading: ComparisonReading;
   /** The table's own name, which its sheet is called. */
   title: string;
+  /** The interface's language, which writes the days in the cells' notes. */
+  language: Language;
   /** The language the Mind is written in, which settles how its Answers write numbers. */
   textLanguage: Language;
   t(key: MessageKey, params?: MessageParams): string;
   facts(footnote: Footnote): CitationFacts;
 }
 
-const markNotes = (cell: ComparisonCellReading, t: ComparisonSheetInput["t"]): string[] => [
-  ...(cell.edited ? [t("comparison.cell.edited")] : []),
-  ...(cell.reviewed ? [t("comparison.cell.reviewed")] : []),
+/** Whoever opens the file isn't "you": a mark names the person who made it, and when. */
+const markNotes = (
+  cell: ComparisonCellReading,
+  { t, language }: ComparisonSheetInput,
+): string[] => [
+  ...(cell.edited ? [t("export.excel.edited")] : []),
+  ...(cell.signOffs ?? []).map((now) => checkedByLine(now, (at) => formatDate(at, language), t)),
   ...(cell.kind === "answer" && cell.failure ? [cell.failure] : []),
 ];
 
@@ -138,7 +146,7 @@ export function comparisonBook(input: ComparisonSheetInput): {
     row.cells.forEach((cell, at) => {
       const question = reading.questions[at];
       if (!question) return;
-      const marks = markNotes(cell, t);
+      const marks = markNotes(cell, input);
       if (cell.kind === "empty") {
         if (marks.length > 0) {
           cells.push({
