@@ -388,7 +388,7 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`in a group narrowed to its least width, the strip comes to rest with the Note between hidden tabs in view (${language}) (#2244)`, async () => {
+  test(`in a group narrowed to its least width, the strip comes to rest with the Note between hidden tabs in view, and holds still when the User scrolls away (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
@@ -422,7 +422,10 @@ for (const language of LANGUAGES) {
       .toBe(true);
 
     const list = listAt(window, 0);
-    /** The strip over 20 frames: the same each frame once it rests, and whether the Note is in view. */
+    /**
+     * The strip over 20 frames: the same each frame once it rests, whether the Note is in view, and
+     * where each tab is in the strip's scroll box and how wide.
+     */
     const frames = () =>
       list.evaluate(async (element) => {
         const reads: string[] = [];
@@ -433,25 +436,58 @@ for (const language of LANGUAGES) {
           const shown = element.querySelector('[role="tab"][aria-selected="true"]');
           const box = shown?.getBoundingClientRect();
           if (!box || box.left < view.left - 1 || box.right > view.right + 1) inView = false;
+          const tabs = Array.from(element.querySelectorAll('[role="tab"]')).map((tab) => {
+            const at = tab.getBoundingClientRect();
+            return `${Math.round(at.left - view.left + element.scrollLeft)}+${Math.round(at.width)}`;
+          });
           reads.push(
-            `${Math.round(element.scrollLeft)} ${Math.round(view.width)} ${Math.round(box?.left ?? 0)} ${Math.round(box?.width ?? 0)}`,
+            `${Math.round(element.scrollLeft)} ${Math.round(view.width)} ${tabs.join(" ")}`,
           );
         }
-        return { still: new Set(reads).size === 1, inView };
+        return { still: new Set(reads).size === 1, inView, layout: reads.at(-1) ?? "" };
       });
-    await expect.poll(frames, { message: "the strip comes to rest" }).toEqual({
+    const tabsAt = (layout: string) => layout.split(" ").slice(2).join(" ");
+    /** The scroll and the tabs, leaving out the strip's own width, which a 1px window change may round. */
+    const restingAt = (layout: string) => `${layout.split(" ")[0]} ${tabsAt(layout)}`;
+    await expect.poll(frames, { message: "the strip comes to rest" }).toMatchObject({
       still: true,
       inView: true,
     });
     // And stays at rest: its own scrolls end without moving it again.
     for (let look = 0; look < 3; look++) {
-      expect(await frames()).toEqual({ still: true, inView: true });
+      expect(await frames()).toMatchObject({ still: true, inView: true });
     }
-    await expect(list.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute(
-      "aria-label",
-      NOTE[language],
-    );
+    const shownTabHere = list.locator('[role="tab"][aria-selected="true"]');
+    await expect(shownTabHere).toHaveAttribute("aria-label", NOTE[language]);
     await expect.poll(() => unreachable(window)).toEqual([]);
+    const placed = tabsAt((await frames()).layout);
+
+    // The User wheels away and back: the tabs keep their widths, so nothing shifts under the pointer.
+    const box = await list.boundingBox();
+    if (!box) throw new Error("The strip isn't visible.");
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+    for (const delta of [2000, -2000]) {
+      await window.mouse.wheel(0, delta);
+      await expect
+        .poll(async () => (await frames()).still, { message: `wheeled ${delta}` })
+        .toBe(true);
+      expect(tabsAt((await frames()).layout), `wheeled ${delta}`).toBe(placed);
+    }
+
+    // A 1px change of the window, with no tab revealed, moves nothing.
+    const away = restingAt((await frames()).layout);
+    await setWindowSize(app, window, 1441, 900);
+    await expect.poll(async () => (await frames()).still, { message: "1px wider" }).toBe(true);
+    expect(restingAt((await frames()).layout), "1px wider").toBe(away);
+
+    // Revealed again, the Note comes back whole, as narrow as before.
+    await shownTabHere.focus();
+    await expect
+      .poll(async () => {
+        const read = await frames();
+        return { still: read.still, inView: read.inView, tabs: tabsAt(read.layout) };
+      })
+      .toEqual({ still: true, inView: true, tabs: placed });
     await app.close();
   });
 

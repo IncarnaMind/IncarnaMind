@@ -741,7 +741,7 @@
    * the shown tab gives up the start of its name and keeps the 132px the design gives it.
    */
   .tab-list[data-squeezed] > .tab[aria-selected="true"] {
-    min-width: min(132px, 100%);
+    min-width: min(132px, var(--tab-room));
   }
   /*
    * The content of a tab: inset 4px at the sides and from the bottom on the
