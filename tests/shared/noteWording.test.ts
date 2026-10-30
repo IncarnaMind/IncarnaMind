@@ -38,7 +38,11 @@ const NO_MIND: readonly string[] = [
   "docs/agents/testing.md",
   "docs/code-signing-policy.md",
   "docs/development.md",
+  "docs/how-the-check-works.md",
+  "docs/how-the-check-works.zh-CN.md",
   "docs/releasing.md",
+  "docs/where-your-data-goes.md",
+  "docs/where-your-data-goes.zh-CN.md",
 ];
 
 interface RetiredNote {
