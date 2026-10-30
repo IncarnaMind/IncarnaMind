@@ -7,13 +7,13 @@ import type {
   ClaimCalculation,
   ClaimCheckPart,
   ClaimCheckScope,
-  ClaimPartCoverage,
   ClaimPartSpan,
   WholeRead,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
+import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -39,16 +39,6 @@ import {
   usePersonId,
 } from "./signOffActions";
 import { CitationChip, OpenCitation } from "./UnsupportedCited";
-
-function hasKnownDomain(coverage: ClaimPartCoverage): boolean {
-  return (
-    coverage.complete &&
-    coverage.domainEvidence.some(
-      (citation) =>
-        citation.check === "found" && Boolean(citation.documentId && citation.quote?.trim()),
-    )
-  );
-}
 
 function PartCitation({
   editor,
@@ -141,20 +131,6 @@ function PartCitation({
       )}
     </div>
   );
-}
-
-/** A card's rows: each part, and each member of a quantified part's domain, under its part's words. */
-function cardRows(parts: readonly ClaimCheckPart[]) {
-  return parts.flatMap<{ part: ClaimCheckPart; label: string | null }>((part) => {
-    if (!part.coverage) return [{ part, label: null }];
-    const members = part.coverage.members.map((member) => ({
-      part: { ...part, verdict: member.verdict, evidence: member.evidence, coverage: undefined },
-      label: member.label,
-    }));
-    return hasKnownDomain(part.coverage)
-      ? members
-      : [{ part: { ...part, coverage: undefined }, label: null }, ...members];
-  });
 }
 
 /** Whether a row of the sentence's card can add a Citation of what it found. */

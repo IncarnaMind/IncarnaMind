@@ -29,6 +29,8 @@ import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
+  boundedCheck,
+  boundedCheckParts,
   checkWithParts,
   figuresByPart,
   partWithResult,
@@ -383,35 +385,37 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
     ...(result.recordCites && { recordCites: result.recordCites }),
     checkedAt: at,
   };
-  return result.verdict === "not-checked"
-    ? {
-        ...basis,
-        ...common,
-        state: "not-checked",
-        reason: result.reason,
-        detail: result.detail,
-        evidence: null,
-        says: null,
-        unsupported: null,
-        calculation: null,
-        citedCaseUnchecked: false,
-        citedCaseFound: false,
-        ...(result.parts && { parts: result.parts }),
-      }
-    : {
-        ...basis,
-        ...common,
-        state: result.verdict,
-        reason: null,
-        detail: null,
-        evidence: evidenceOf(result.evidence),
-        says: result.says,
-        unsupported: result.unsupported && withQuoted(result.unsupported),
-        calculation: result.calculation,
-        citedCaseUnchecked: result.citedCaseUnchecked,
-        citedCaseFound: result.citedCaseFound,
-        ...(result.parts && { parts: result.parts }),
-      };
+  return boundedCheck(
+    result.verdict === "not-checked"
+      ? {
+          ...basis,
+          ...common,
+          state: "not-checked",
+          reason: result.reason,
+          detail: result.detail,
+          evidence: null,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          ...(result.parts && { parts: result.parts }),
+        }
+      : {
+          ...basis,
+          ...common,
+          state: result.verdict,
+          reason: null,
+          detail: null,
+          evidence: evidenceOf(result.evidence),
+          says: result.says,
+          unsupported: result.unsupported && withQuoted(result.unsupported),
+          calculation: result.calculation,
+          citedCaseUnchecked: result.citedCaseUnchecked,
+          citedCaseFound: result.citedCaseFound,
+          ...(result.parts && { parts: result.parts }),
+        },
+  );
 }
 
 function withResult(
@@ -439,7 +443,12 @@ function withResult(
     // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
     const { recordCites: _earlier, ...basis } = check;
     return keepRecordCites(
-      checkWithParts({ ...basis, checkedAt: at }, namePartCitations(result.parts, priorParts)),
+      checkWithParts(
+        { ...basis, checkedAt: at },
+        // Bounded before their ids are matched: every receipt's quote is cut the same way wherever
+        // it sits, so one that moves on a re-check keeps the id its sign-off rests on (#2220).
+        namePartCitations(boundedCheckParts(result.parts), priorParts),
+      ),
       result.recordCites,
     );
   }

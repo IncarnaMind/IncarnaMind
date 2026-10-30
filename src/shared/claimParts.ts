@@ -28,6 +28,7 @@ import type {
 import { claimCheckActions } from "../core/api";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
+import { graphemeBoundary } from "./graphemes";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
@@ -214,6 +215,72 @@ function boundary(text: string, at: number): boolean {
   const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
   return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff);
+}
+
+/**
+ * The longest a quote a sentence's check stores is, in characters (#2220): about 30 words of the
+ * Passage that decided it. Past it the quote is cut, and the rest of the words are the Document's,
+ * at the place the receipt names. One rule for every receipt, wherever it sits, so a receipt that
+ * moves on a re-check keeps its id and the sign-off resting on it, and the quote that decides a
+ * part is never cut shorter than any other.
+ */
+export const CHECK_QUOTE_CHARS_AT_MOST = 200;
+
+/**
+ * `quote` cut to at most `chars`, at a word boundary when one is near it and never inside a
+ * character a reader sees as one, with an ellipsis.
+ */
+function cutQuote(quote: string, chars: number): string {
+  if (quote.length <= chars) return quote;
+  const room = chars - 1;
+  const space = Math.max(
+    quote.lastIndexOf(" ", room),
+    quote.lastIndexOf("\t", room),
+    quote.lastIndexOf("\n", room),
+  );
+  const end = graphemeBoundary(quote, space > room - 32 ? space : room);
+  return `${quote.slice(0, end).trimEnd()}…`;
+}
+
+const withQuote = (citation: CitationAttributes): CitationAttributes =>
+  citation.quote === null
+    ? citation
+    : { ...citation, quote: cutQuote(citation.quote, CHECK_QUOTE_CHARS_AT_MOST) };
+
+/**
+ * `parts` as a check stores them: every receipt keeps at most `CHECK_QUOTE_CHARS_AT_MOST`
+ * characters of its quote, and every part, receipt and member is kept, so a card, the check record
+ * and Undo still list them. Idempotent, so a check kept as the User's view is stored as it was.
+ */
+export function boundedCheckParts(parts: readonly ClaimCheckPart[]): ClaimCheckPart[] {
+  return parts.map((part) => ({
+    ...part,
+    evidence: part.evidence.map(withQuote),
+    ...(part.unsupported?.quoted && {
+      unsupported: { ...part.unsupported, quoted: withQuote(part.unsupported.quoted) },
+    }),
+    ...(part.coverage && {
+      coverage: {
+        ...part.coverage,
+        domainEvidence: part.coverage.domainEvidence.map(withQuote),
+        members: part.coverage.members.map((member) => ({
+          ...member,
+          evidence: member.evidence.map(withQuote),
+        })),
+      },
+    }),
+  }));
+}
+
+/** A mark without parts, with its quote bounded as `boundedCheckParts` bounds a part's. */
+export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
+  return {
+    ...check,
+    ...(check.evidence && { evidence: withQuote(check.evidence) }),
+    ...(check.unsupported?.quoted && {
+      unsupported: { ...check.unsupported, quoted: withQuote(check.unsupported.quoted) },
+    }),
+  };
 }
 
 /**
@@ -1157,14 +1224,15 @@ export function checkWithParts(
   check: ClaimCheckAttributes,
   parts: readonly ClaimCheckPart[],
 ): ClaimCheckAttributes {
-  const projected = resultFromParts(parts);
-  const pending = parts.some(
+  const kept = boundedCheckParts(parts);
+  const projected = resultFromParts(kept);
+  const pending = kept.some(
     (part) =>
       part.verdict === "checking" ||
       part.figures?.some((figure) => figure.result.verdict === "checking") ||
       part.remainder?.verdict === "checking",
   );
-  const stored = (pending ? [...parts] : (projected.parts ?? [])).map((part) => ({
+  const stored = (pending ? [...kept] : (projected.parts ?? [])).map((part) => ({
     ...part,
     ...(part.figures && {
       figures: part.figures.map((figure) => ({
@@ -1183,8 +1251,13 @@ export function checkWithParts(
       ? { verdict: "checking", versions: projected.versions, excluded: projected.excluded }
       : projected,
   );
+  // What a figure's own data adds back to a part's receipts is bounded too (#2220).
+  const boundedStored = (stored: ClaimCheckAttributes): ClaimCheckAttributes => ({
+    ...boundedCheck(stored),
+    parts: boundedCheckParts(stored.parts ?? []),
+  });
   const native = stored.flatMap((part) => part.figures ?? []);
-  if (native.length === 0) return { ...parent, parts: stored };
+  if (native.length === 0) return boundedStored({ ...parent, parts: stored });
   const figures = native.map((figure) => {
     const { result: _result, ...finding } = figure;
     return { ...finding, ...storedJudgment({ ...basis, id: figure.id }, figure.result) };
@@ -1205,7 +1278,7 @@ export function checkWithParts(
   );
   const remainderMetadata =
     remainderOwners.length === 1 && remainderOwners[0] ? judgmentMetadata(remainderOwners[0]) : {};
-  return {
+  return boundedStored({
     ...parent,
     parts: stored,
     figures,
@@ -1222,7 +1295,7 @@ export function checkWithParts(
               { ...projected.remainder, ...remainderMetadata },
             ),
     }),
-  };
+  });
 }
 
 export function keepCheckAsView(

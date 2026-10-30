@@ -102,7 +102,7 @@ test("typing @ in the composer limits the search to a Folder: the Answer cites o
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   const searched = answer.getByTestId("answer-steps");
-  await expect(searched).toContainText("Searched Ocean ·");
+  await expect(searched).toContainText("Searched “Ocean” ·");
   await expect(composerChip).toHaveText("Ocean");
   await expect(composerChip).toHaveAttribute("data-id", oceanId);
   await expect(editor.getByTestId("question")).toHaveCount(0);
@@ -188,7 +188,7 @@ test("an in-app folder scopes answers and deleting it never broadens the search"
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     const searched = answer.getByTestId("answer-steps");
-    await expect(searched).toContainText("Searched Ocean research ·");
+    await expect(searched).toContainText("Searched “Ocean research” ·");
     await expect(answer.getByTestId("citation")).toHaveCount(1);
     await expect(answer.getByTestId("citation-chip")).toHaveAttribute(
       "aria-label",
@@ -203,7 +203,7 @@ test("an in-app folder scopes answers and deleting it never broadens the search"
     // A deleted Folder keeps its name where it is named: struck through on the chip, and on
     // the steps of the Answer that searched it.
     await expect(composerChip.locator("s")).toHaveText("Ocean research");
-    await expect(searched).toContainText("Searched Ocean research ·");
+    await expect(searched).toContainText("Searched “Ocean research” ·");
     await openSteps(window, answer);
     await answer.getByTestId("answer-regenerate").click();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
@@ -260,7 +260,7 @@ test("a Mind in a Folder asks within it by default: its chip can be taken out to
     const answers = assistantAnswers(window);
     await expect(answers.first()).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(answers.first().getByTestId("answer-steps")).toContainText(
-      "Searched Ocean research ·",
+      "Searched “Ocean research” ·",
     );
     await expect(answers.first().getByTestId("citation-chip")).toHaveAttribute(
       "aria-label",
@@ -290,7 +290,7 @@ test("a Mind in a Folder asks within it by default: its chip can be taken out to
       1,
     );
     await expect(answers.first().getByTestId("answer-steps")).toContainText(
-      "Searched Ocean research ·",
+      "Searched “Ocean research” ·",
     );
     await expect(second.getByTestId("answer-steps")).toContainText("Searched All Documents ·");
     await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
