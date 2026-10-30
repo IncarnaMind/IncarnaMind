@@ -28,6 +28,7 @@ const WORDS = {
     otherNote: "Client B note",
     outsideNote: "Outside note",
     ownText: "Termination notice: 90 days. Liability cap: $100,000.",
+    ownCap: /(?:100[.,\s]?000|100\s*(?:k|thousand)|one\s+hundred\s+thousand)/i,
     otherText: "Termination notice: 30 days. Liability cap: $25,000.",
     outsideText: "Termination notice: 60 days.",
     claim: "The termination notice is 90 days.",
@@ -49,6 +50,7 @@ const WORDS = {
     otherNote: "客户乙笔记",
     outsideNote: "外部笔记",
     ownText: "终止通知期限：90天。责任上限：100000元。",
+    ownCap: /(?:100[,，.\s]?000|10\s*万|十万)/,
     otherText: "终止通知期限：30天。责任上限：25000元。",
     outsideText: "终止通知期限：60天。",
     claim: "终止通知期限是90天。",
@@ -168,6 +170,8 @@ async function runMatterWall(language: Language, run: number) {
   for (const found of searches) expect(found).not.toContain(other.name);
 
   const outsideStart = searches.length;
+  /** Every Document a search since the outside Note started found: a turn may search twice, in two languages. */
+  const outsideSearched = () => [...new Set(searches.slice(outsideStart).flat())].sort();
   const outsideClient = await connectToMind(core, outsideMind.id);
   writeMind(outsideClient, [
     {
@@ -178,7 +182,7 @@ async function runMatterWall(language: Language, run: number) {
   ]);
   await outsideClient.settled();
   await askQuestion(core, outsideClient, outsideMind.id, words.ask);
-  expect(searches.at(-1)).toEqual([outsideDocument.name]);
+  expect(outsideSearched()).toEqual([outsideDocument.name]);
   const outsideChecked = await core.checkMind({
     requestId: `outside-check-${language}-${run}`,
     mindId: outsideMind.id,
@@ -195,7 +199,7 @@ async function runMatterWall(language: Language, run: number) {
     documentIds: [own.id, other.id, outsideDocument.id],
     questions: [words.compare],
   });
-  expect(searches.at(-1)).toEqual([outsideDocument.name]);
+  expect(outsideSearched()).toEqual([outsideDocument.name]);
   const outsideAnswer = await askAssistant(core, { text: words.assistant, mindId: outsideMind.id });
   expect(
     JSON.stringify({ calls: outsideAnswer.toolCalls, text: outsideAnswer.text }),
@@ -205,14 +209,18 @@ async function runMatterWall(language: Language, run: number) {
     expect(found).not.toContain(other.name);
   }
 
-  // A follow-up from the other side of the wall gets none of the turn before.
+  // A follow-up from the other side of the wall gets none of the turn before, and still answers
+  // from the outside: the outside Note's 90 days or the outside lease's 60.
   const inside = await askAssistant(core, { text: words.ask, mindId: mind.id });
   const followUp = await askAssistant(core, {
     text: words.followUp,
     mindId: outsideMind.id,
     conversationId: inside.conversationId,
   });
-  expect(followUp.text).not.toMatch(/90/);
+  expect(followUp.text).toMatch(/90|60/);
+  expect(followUp.text).not.toMatch(words.ownCap);
+  expect(followUp.text).not.toContain(words.ownFile);
+  expect(followUp.text).not.toContain(words.ownFolder);
   expect(JSON.stringify(followUp.toolCalls)).not.toContain(words.ownText);
 
   // A quote from a walled Document is left out of a Question asked outside.
@@ -235,7 +243,12 @@ async function runMatterWall(language: Language, run: number) {
   expect((await answerEnded(core, quotedAsk.answerId)).event).toBe("finished");
   const { messages } = await core.getConversation(quotedAsk.conversation.id);
   const quotedAnswer = messages.find((message) => message.id === quotedAsk.answerId);
-  expect(quotedAnswer?.text).not.toMatch(/90/);
+  // It still answers from the outside, the Note's 90 or the outside lease's 60; the walled
+  // Document's cap and name do not.
+  expect(quotedAnswer?.text).toMatch(/90|60/);
+  expect(quotedAnswer?.text).not.toMatch(words.ownCap);
+  expect(quotedAnswer?.text).not.toContain(words.ownFile);
+  expect(quotedAnswer?.text).not.toContain(words.ownFolder);
 
   // A command from inside one wall can't reach a Document behind another.
   await askAssistant(core, { text: words.command, mindId: mind.id });
