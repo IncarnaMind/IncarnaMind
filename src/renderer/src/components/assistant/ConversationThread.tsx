@@ -25,7 +25,6 @@ import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
 import { isLive, useMeetings } from "../../meetings";
 import { useModelSetup } from "../../modelSetup";
-import { stepsShownOf } from "../../nudges";
 import { useCitedSource } from "../../openCited";
 import { togglePlanView, useResearch } from "../../research";
 import { type ScopeChip, scopeChips } from "../../scope";
@@ -94,10 +93,11 @@ export function ConversationThread({
   const focusedMindName = focusedMindId
     ? (focusedMind && mindName(focusedMind)) || t("mind.untitled")
     : null;
-  const exampleIds = exampleMindIds({ examples, otherExamples });
   // The example is never a target of Add to note (#1940): a note of the User's own is.
   const addTarget =
-    focusedMindId !== null && !exampleIds.includes(focusedMindId) ? focusedMindName : null;
+    focusedMindId !== null && !exampleMindIds({ examples, otherExamples }).includes(focusedMindId)
+      ? focusedMindName
+      : null;
   const mindEmpty = useReadMindEmpty(focusedMindId);
   const nextScope = useNextScope(focusedMindId);
   // While the Mind's meeting records, the assistant listens to its live transcript (#144). A
@@ -108,28 +108,10 @@ export function ConversationThread({
         meeting.mindId === focusedMindId && isLive(meeting) && meeting.kind === "meeting",
     ),
   );
-  // Until the first Question is asked, the card in the example Note offers the next one, and it
-  // reads no Note: an empty conversation names what it reads, as the line while it waits does
-  // (#2245). Another Note in focus means the composer's Question is next.
-  const ready = useAppStore((state) => state.readyQuestion);
-  const progress = useAppStore((state) => state.settings?.device.gettingStarted);
-  const readyAhead =
-    focusedMindId !== null &&
-    exampleIds.includes(focusedMindId) &&
-    ready !== null &&
-    ready.scope !== null &&
-    progress !== undefined &&
-    stepsShownOf(progress) &&
-    progress.indexed === true &&
-    !(progress.askedOwn || progress.askedReady);
-  const readyScope = useScopeChips(readyAhead && ready !== null ? ready.scope : null);
-  const nextIsReady = readyAhead && readyScope.some((chip) => !chip.deleted);
   const reads =
     listening && focusedMindName
       ? t("assistant.reads.listening", { mind: focusedMindName })
-      : nextIsReady
-        ? readsLine(t, null, readyScope)
-        : readsLine(t, focusedMind ? focusedMindName : null, nextScope);
+      : readsLine(t, focusedMind ? focusedMindName : null, nextScope);
   // A Question on its way, or one the core has and whose Answer is still to come: the line names
   // what that Question reads, not the Note in focus (#2245).
   const askingReads = useConversations((state) => state.askingReads);
@@ -141,6 +123,12 @@ export function ConversationThread({
   const pendingMind = useAppStore((state) =>
     pendingMindId === null ? undefined : state.minds.find((each) => each.id === pendingMindId),
   );
+  // A Note deleted while its Question waits is read no more, so the line says what it searches,
+  // as the Answer's own step will.
+  const pendingMindGone =
+    pendingMindId !== null &&
+    pendingMind === undefined &&
+    (pending === null || pending.askedFrom?.deleted !== false);
   const pendingScope = useScopeChips(pending ? pending.scope : (askingReads?.scope ?? null));
   const [picking, setPicking] = useState<{
     answer: ConversationAnswer;
@@ -295,7 +283,7 @@ export function ConversationThread({
         >
           <LiveLine
             step={
-              pendingMindId === null
+              pendingMindId === null || pendingMindGone
                 ? { kind: "searching" }
                 : {
                     kind: "reading",

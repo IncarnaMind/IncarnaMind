@@ -63,17 +63,17 @@ describe("what an Answer's steps say was searched", () => {
     documentKind: "pdf",
   });
 
-  // protects=the steps name the scope plainly in English and quoted in Chinese, count Documents alone as files, and add further scopes; fails_when=a scope reads otherwise in either language; no_claim=none beyond protects.
+  // protects=the steps quote the scope's name in English and Chinese, count Documents alone as files, and add further scopes; fails_when=a scope reads otherwise in either language; no_claim=none beyond protects.
   test("a Folder by its name, Documents alone as files, All Documents, and further scopes", () => {
-    expect(stepsScope(en, [chip("Thesis")])).toBe("Thesis");
+    expect(stepsScope(en, [chip("Thesis")])).toBe("“Thesis”");
     expect(stepsScope(zh, [chip("论文")])).toBe("“论文”");
     expect(stepsScope(en, [])).toBe("All Documents");
     expect(stepsScope(zh, [])).toBe("全部文档");
-    expect(stepsScope(en, [document("Report")])).toBe("Report");
+    expect(stepsScope(en, [document("Report")])).toBe("“Report”");
     expect(stepsScope(en, [document("A"), document("B"), document("C")])).toBe("3 files");
     expect(stepsScope(zh, [document("A"), document("B"), document("C")])).toBe("所选的 3 个文件");
-    expect(stepsScope(en, [chip("Thesis"), document("Report")], 1)).toBe("Thesis +2");
+    expect(stepsScope(en, [chip("Thesis"), document("Report")], 1)).toBe("“Thesis” +2");
     expect(stepsScope(zh, [chip("Thesis")], 1)).toBe("“Thesis”等 2 项");
-    expect(stepsScope(en, [chip(null, true)])).toBe("Deleted Folder");
+    expect(stepsScope(en, [chip(null, true)])).toBe("“Deleted Folder”");
   });
 });

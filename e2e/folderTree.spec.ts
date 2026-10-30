@@ -149,7 +149,7 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     const answers = assistantAnswers(window);
     await expect(answers.first()).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(answers.first().getByTestId("answer-steps")).toContainText(
-      "Searched Ocean research ·",
+      "Searched “Ocean research” ·",
     );
     await expect(answers.first().getByTestId("citation-chip")).toHaveAttribute(
       "aria-label",
