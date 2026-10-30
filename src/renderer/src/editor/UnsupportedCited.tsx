@@ -1,11 +1,10 @@
-import { type ReactNode, useContext } from "react";
+import type { ReactNode } from "react";
 import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useT } from "../i18n";
-import { openCitedFollowing, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
-import { MindIdContext } from "./mindContext";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check
@@ -103,7 +102,6 @@ export function OpenCitation({
   children: ReactNode;
 }) {
   const t = useT();
-  const mindId = useContext(MindIdContext);
   const { documentId, quote } = attributes;
   return documentId ? (
     <button
@@ -113,10 +111,9 @@ export function OpenCitation({
       title={quote ?? undefined}
       aria-label={label ?? t("claim.openCitation", { number })}
       onClick={() => {
-        void openCitedFollowing(
+        void openCited(
           { ...attributes, documentId },
           { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
-          mindId,
         );
         onOpen();
       }}
