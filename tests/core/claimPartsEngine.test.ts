@@ -943,7 +943,10 @@ describe("structural part and declared-count readers", () => {
   test("a bare array is not a completed calculation", async () => {
     const claim = "The lease lasts 3 years.";
     const { result } = await check(claim, [{ kind: "fact", text: claim }], {
-      [claim]: { quotes: [claim], reply: "Verdict: supported\nAbsence: no\nEvidence: [1]\nCalculation: [1]" },
+      [claim]: {
+        quotes: [claim],
+        reply: "Verdict: supported\nAbsence: no\nEvidence: [1]\nCalculation: [1]",
+      },
     });
     expect(result.verdict).toBe("not-checked");
   });
