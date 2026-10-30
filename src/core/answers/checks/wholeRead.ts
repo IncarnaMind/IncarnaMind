@@ -111,23 +111,30 @@ export function windowTokens(model: Pick<PreparedChatModel, "window"> | null): n
   return window ? Math.min(WINDOW_TOKENS, Math.floor(window.tokens / 4)) : WINDOW_TOKENS;
 }
 
+/**
+ * The read's windows of about `tokens` each. Each window after the first starts with the last
+ * Passage of the one before, so words that run on from one Passage into the next, a clause cut at
+ * a window's edge among them, are whole in at least one window.
+ */
 function windowsOf(
   read: ToRead,
   tokens: number,
 ): { passages: WindowedPassage[]; tokens: number }[] {
   const windows: { passages: WindowedPassage[]; tokens: number }[] = [];
-  let current: WindowedPassage[] = [];
-  let size = 0;
-  for (const { passage, tokens: cost } of read.passages) {
-    if (size > 0 && size + cost > tokens) {
-      windows.push({ passages: current, tokens: size });
-      current = [];
-      size = 0;
+  let current: ToRead["passages"] = [];
+  let carried = 0;
+  const size = () => current.reduce((sum, each) => sum + each.tokens, 0);
+  const close = () =>
+    windows.push({ passages: current.map(({ passage }) => passage), tokens: size() });
+  for (const each of read.passages) {
+    if (current.length > carried && size() + each.tokens > tokens) {
+      close();
+      current = current.slice(-1);
+      carried = 1;
     }
-    current.push(passage);
-    size += cost;
+    current.push(each);
   }
-  if (current.length > 0) windows.push({ passages: current, tokens: size });
+  if (current.length > carried) close();
   return windows;
 }
 

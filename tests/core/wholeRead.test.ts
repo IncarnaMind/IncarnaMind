@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type {
@@ -9,6 +10,9 @@ import type {
   PlanDocumentCheckInput,
   SearchScope,
 } from "../../src/core";
+import { DATABASE_FILE } from "../../src/core/core";
+import { createMeter, type MeteredModel } from "../../src/core/cost/meter";
+import { openDatabase } from "../../src/core/storage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import {
@@ -372,7 +376,8 @@ describe("Check against a Document, read whole", () => {
     await client.settled();
 
     expect(reports - 1).toBeGreaterThan(1);
-    expect(plan.estimate.calls).toBe((reports - 1) * 3);
+    // Three for each window's check, and one for the absence judgement it may need.
+    expect(plan.estimate.calls).toBe((reports - 1) * 4);
   });
 
   test("keeps an earlier on-topic result when a later window finds nothing", async () => {
@@ -1403,9 +1408,192 @@ describe("Check against a Document, on a sentence that says something is absent"
     },
   );
 
-  test.each(ABSENT)("a short pick sends what its estimate says ($language)", async (example) => {
-    const { check, calls, judged, estimate } = await readAbsence(example, 12, null);
-    expect(check.state).toBe("supported");
-    expect(calls.length + judged.length).toBe(estimate);
+  test.each(ABSENT)(
+    "a short pick's estimate counts its absence judgement ($language)",
+    async (example) => {
+      const { check, calls, judged, estimate } = await readAbsence(example, 12, null);
+      expect(check.state).toBe("supported");
+      expect(judged).toHaveLength(1);
+      expect(estimate).toBe(4);
+      expect(calls.length + judged.length).toBeLessThanOrEqual(estimate);
+    },
+  );
+});
+
+const SPLIT = [
+  {
+    language: "en" as const,
+    sentence: "The lease has no break clause.",
+    line: (page: number, line: number) =>
+      `L${String(page).padStart(3, "0")}-${String(line).padStart(2, "0")} has ordinary lease words on rent and repairs.`,
+    first: "Either party may end this lease early",
+    second: "with three months notice to the other.",
+    pad: "~",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "租约中没有提前解约条款。",
+    line: (page: number, line: number) =>
+      `L${String(page).padStart(3, "0")}-${String(line).padStart(2, "0")} 是关于租金和维修的普通租约条款。`,
+    first: "任何一方提前三个月",
+    second: "书面通知即可解除本租约。",
+    pad: "，",
+  },
+];
+
+describe("A whole read's windows, on a sentence that says something is absent", () => {
+  /** A Note's absence sentence read whole by a model whose small window takes several windows. */
+  async function readWindows(
+    example: (typeof SPLIT)[number],
+    pages: readonly (readonly string[])[],
+    judge: (prompt: string, index: number) => string,
+  ) {
+    const judged: string[] = [];
+    const plan = { [example.sentence]: { verdict: "unsupported" as const, absence: true } };
+    const model = scriptedModel((call) => checkReply(call, plan), {
+      generate: (call) => {
+        if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
+        judged.push(call.prompt);
+        return { text: judge(call.prompt, judged.length - 1) };
+      },
+    });
+    const ollamaModels: CoreAdapters["ollamaModels"] = {
+      describe: async () => ({
+        digest: null,
+        capabilities: ["completion", "tools"],
+        contextLength: 12288,
+        parameters: null,
+        support: "tools",
+        chat: true,
+        remote: false,
+        settings: { numCtx: 12288, outputTokens: 1024, keepAlive: "5m", think: false },
+      }),
+      loaded: async () => true,
+      running: async () => true,
+    };
+    const pdf = buildPdf(
+      pages.map((lines) =>
+        example.language === "zh-CN" ? { chineseLines: [...lines] } : { lines: [...lines] },
+      ),
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(
+      model,
+      [{ name: "Lease.pdf", contents: pdf }],
+      { ollamaModels },
+    );
+    await core.updateSettings({ user: { language: example.language } });
+    const block = paragraph(text(example.sentence));
+    writeMind(client, [block]);
+    await client.settled();
+    await core.checkSentences(
+      await readInput(core, mind.id, block, example.sentence, within([documents[0]?.id ?? ""])),
+    );
+    return { check: await onlyMark(client), judged };
+  }
+
+  const pagesOf = (example: (typeof SPLIT)[number], count: number) =>
+    Array.from({ length: count }, (_, page) =>
+      Array.from({ length: 30 }, (_, line) => example.line(page + 1, line + 1)),
+    );
+  const HOLDS = JSON.stringify({ absent: "break clause", absence: "holds" });
+  /** A judgement that finds the clause only when both of its halves are in front of it. */
+  const judgeOf =
+    (example: (typeof SPLIT)[number]) =>
+    (prompt: string): string => {
+      if (!prompt.includes(example.first) || !prompt.includes(example.second)) return HOLDS;
+      const holding = shownPassages(prompt).find((each) => each.text.includes(example.first));
+      return JSON.stringify({
+        absent: "break clause",
+        absence: "contained",
+        citations: [{ marker: 1, passage: holding?.id, quote: example.first }],
+      });
+    };
+  /** Where a judged window's own text ends: the id of its last line. */
+  const lastLine = (prompt: string) => [...prompt.matchAll(/L(\d{3})-(\d{2})/g)].at(-1);
+
+  test.each(SPLIT)(
+    "holds over every window only when each holds it, every page read ($language)",
+    async (example) => {
+      const all = await readWindows(example, pagesOf(example, 24), () => HOLDS);
+      expect(all.judged.length).toBeGreaterThanOrEqual(3);
+      expect(all.check).toMatchObject({ state: "supported", read: { pages: 24, of: 24 } });
+
+      const unjudged = await readWindows(example, pagesOf(example, 24), (_, index) =>
+        index === 1 ? "not a judgement" : HOLDS,
+      );
+      expect(unjudged.check.state).toBe("not-checked");
+
+      // A page with no text to read, as a scanned one may be, leaves the rest unproven.
+      const blank = pagesOf(example, 24);
+      blank[23] = [];
+      const unread = await readWindows(example, blank, () => HOLDS);
+      expect(unread.check).toMatchObject({ state: "not-checked", reason: "absence-read-limit" });
+    },
+  );
+
+  test.each(SPLIT)(
+    "finds a clause cut at each window's edge, and one in the last window ($language)",
+    async (example) => {
+      const judge = judgeOf(example);
+      const found = await readWindows(example, pagesOf(example, 24), () => HOLDS);
+      expect(found.judged.length).toBeGreaterThanOrEqual(3);
+      // Each window after the first opens with the Passage that closed the one before.
+      for (const [index, prompt] of found.judged.entries()) {
+        if (index === 0) continue;
+        const before = shownPassages(found.judged[index - 1] ?? "").at(-1)?.text;
+        expect(shownPassages(prompt)[0]?.text).toBe(before);
+      }
+      const edges = found.judged.slice(0, -1).map((prompt) => {
+        const end = lastLine(prompt);
+        if (!end) throw new Error("A window holds no line.");
+        return { page: Number(end[1]), line: Number(end[2]) };
+      });
+      const cut = (page: number, line: number) => {
+        const pages = pagesOf(example, 24);
+        const next = line === 30 ? { page: page + 1, line: 1 } : { page, line: line + 1 };
+        const put = (at: { page: number; line: number }, words: string) => {
+          const lines = pages[at.page - 1];
+          const was = lines?.[at.line - 1];
+          if (!lines || was === undefined) throw new Error("No such line.");
+          const id = was.slice(0, 8);
+          lines[at.line - 1] = `${id}${words}`.padEnd(was.length, example.pad);
+        };
+        put({ page, line }, example.first);
+        put(next, example.second);
+        return pages;
+      };
+      for (const edge of [...edges, { page: 24, line: 15 }]) {
+        const read = await readWindows(example, cut(edge.page, edge.line), judge);
+        expect(read.check.state).toBe("contradicted");
+        expect(read.check.evidence?.quote).toBe(example.first);
+      }
+    },
+  );
+});
+
+describe("The estimate a whole read's cost question shows", () => {
+  test("counts each window's absence judgement before the $0.50 rule reads it", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), DATABASE_FILE));
+    const meter = createMeter({ db, now: () => new Date(), cap: () => null });
+    const model: MeteredModel = {
+      providerId: "provider",
+      kind: "openai",
+      modelId: "model",
+      flow: "document-check",
+      billing: "per-token",
+      price: { currency: "USD", input: 1, output: 5 },
+      maxOutput: undefined,
+      ollamaCloud: false,
+    };
+    const windows = [48_000, 48_000, 48_000, 48_000];
+
+    const estimate = meter.estimateRead(model, windows);
+
+    if (estimate.billing !== "per-token" || !estimate.cost) throw new Error("No cost.");
+    expect(estimate.calls).toBe(16);
+    // Each judgement reads its window whole once more: without them this read would cost under $0.50.
+    const judgements = windows.reduce((sum, tokens) => sum + (tokens + 400) + 400 * 5, 0) / 1e6;
+    expect(estimate.cost.amount - judgements).toBeLessThanOrEqual(0.5);
+    expect(estimate.cost.amount).toBeGreaterThan(0.5);
   });
 });

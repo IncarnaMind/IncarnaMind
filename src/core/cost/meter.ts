@@ -175,6 +175,10 @@ const SEARCH_INPUT_TOKENS = 30_000;
 const READ_CALLS = 3;
 const READ_OVERHEAD_TOKENS = 6_000;
 const READ_OUTPUT_TOKENS = 600;
+// A part that says something is absent has each window judged once more, whole (#1443): whether a
+// part says so is known only as it is read, so every window counts it.
+const ABSENCE_JUDGE_TOKENS = 400;
+const ABSENCE_OUTPUT_TOKENS = 400;
 
 /** A request's own web searches (#128), by the name the request gives each, with what one costs. */
 function searchesOffered(tools: CallOptions["tools"]): Map<string, Money> {
@@ -777,13 +781,21 @@ export function createMeter(options: {
       const cap = options.cap();
       const { price } = model;
       const cached = price?.cacheRead !== undefined;
-      const calls = windows.length * READ_CALLS;
-      const usage = windows.map((tokens) => ({
-        inputTokens: 2 * tokens + READ_OVERHEAD_TOKENS,
-        cachedInputTokens: cached ? tokens : 0,
-        cacheWriteTokens: tokens,
-        outputTokens: READ_OUTPUT_TOKENS,
-      }));
+      const calls = windows.length * (READ_CALLS + 1);
+      const usage = windows.flatMap((tokens) => [
+        {
+          inputTokens: 2 * tokens + READ_OVERHEAD_TOKENS,
+          cachedInputTokens: cached ? tokens : 0,
+          cacheWriteTokens: tokens,
+          outputTokens: READ_OUTPUT_TOKENS,
+        },
+        {
+          inputTokens: tokens + ABSENCE_JUDGE_TOKENS,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: ABSENCE_OUTPUT_TOKENS,
+        },
+      ]);
       return {
         billing: "per-token",
         calls,
