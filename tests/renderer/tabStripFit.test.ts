@@ -119,6 +119,14 @@ describe("where a strip of tabs comes to rest", () => {
     expect(to - (tabs[1]?.right ?? 0)).toBeGreaterThanOrEqual(FADE);
   });
 
+  test("in a group with room for the shown tab alone, settles where it rests, with that tab in view", () => {
+    // A 220px group: the shown tab, narrowed, fills the room and no name fits beside it.
+    const widths = [166, 104, 166, 166];
+    const shown = restOf(widths, 104 + END_GAP, 1);
+    expect(shown).toMatchObject({ first: 1, last: 1, squeezed: true, scrollLeft: 176 });
+    expect(restOf(widths, 104 + END_GAP, -1, shown.scrollLeft)).toEqual(shown);
+  });
+
   test("shows a tab wider than the room, and no more", () => {
     expect(restOf([300, 300], 200, 1)).toMatchObject({ first: 1, last: 1, run: 200, gap: 0 });
   });
@@ -131,10 +139,11 @@ describe("where a strip of tabs comes to rest", () => {
       [166, 148],
       [201, 205, 201, 166, 166],
       [166, 132, 166],
+      [166, 104, 166, 166],
     ]) {
       const tabs = tabsOf(widths);
       const end = (tabs.at(-1)?.right ?? 0) + END_GAP;
-      for (const room of [180, 220, 250, 256, 333, 375, 499, 555, 700]) {
+      for (const room of [114, 180, 220, 250, 256, 333, 375, 499, 555, 700]) {
         for (let scrollLeft = 0; scrollLeft < 1400; scrollLeft += 97) {
           for (let shown = -1; shown < widths.length; shown++) {
             const result = fitStrip({ tabs, room, endGap: END_GAP, fade: FADE, scrollLeft, shown });
@@ -174,6 +183,16 @@ describe("where a strip of tabs comes to rest", () => {
                 expect(to - inView, message).toBeGreaterThanOrEqual(FADE - 0.5);
               }
             }
+            // Settled again where it rests, as after the scroll it made ends, it stays.
+            const again = fitStrip({
+              tabs,
+              room,
+              endGap: END_GAP,
+              fade: FADE,
+              scrollLeft: result.scrollLeft,
+              shown: -1,
+            });
+            expect(again, `${message}, settled again`).toEqual(result);
             if (shown >= 0) {
               expect(shown, message).toBeGreaterThanOrEqual(result.first);
               expect(shown, message).toBeLessThanOrEqual(result.last);

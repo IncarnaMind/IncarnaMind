@@ -90,10 +90,45 @@ export function fitStrip({
     return last;
   };
 
+  /** Where the strip rests to show tab `first` whole, and the tabs after it that fit. */
+  const restFrom = (first: number): StripFit => {
+    const last = lastFrom(first);
+    const reachesEnd = last === count - 1;
+    const gap = reachesEnd ? 0 : endGap;
+    let before = intoBefore(first);
+    let after = reachesEnd ? 0 : into(tabs[last + 1], "after");
+    const whole = (tabs[last]?.right ?? 0) + (reachesEnd ? endGap : 0) - leftOf(first);
+    const spare = Math.max(0, room - gap - whole);
+    let squeezed = false;
+    if (before + after > spare + EPSILON) {
+      const least = (full: number, side: "before" | "after", beyond: TabSpan | undefined) =>
+        full > 0 ? into(beyond, side, fade / 2) : 0;
+      const leastBefore = least(before, "before", tabs[first - 1]);
+      const leastAfter = least(after, "after", tabs[last + 1]);
+      squeezed = leastBefore + leastAfter > spare + EPSILON;
+      const share = squeezed
+        ? spare / (leastBefore + leastAfter)
+        : (spare - leastBefore - leastAfter) / (before - leastBefore + after - leastAfter);
+      before = squeezed ? leastBefore * share : leastBefore + (before - leastBefore) * share;
+      after = squeezed ? leastAfter * share : leastAfter + (after - leastAfter) * share;
+    }
+    return {
+      run: Math.min(whole + before + after, room - gap),
+      gap,
+      scrollLeft: leftOf(first) - before,
+      first,
+      last,
+      squeezed,
+    };
+  };
+
+  // Nearest by where each start really rests, so a strip settled by this comes back to it.
+  const rests = tabs.map((_, index) => restFrom(index).scrollLeft);
   let first = 0;
   for (let index = 1; index < count; index++) {
-    if (Math.abs(startAt(index) - scrollLeft) < Math.abs(startAt(first) - scrollLeft))
+    if (Math.abs((rests[index] ?? 0) - scrollLeft) < Math.abs((rests[first] ?? 0) - scrollLeft)) {
       first = index;
+    }
   }
   if (shown >= 0 && shown < first) first = shown;
   else if (shown > lastFrom(first)) {
@@ -103,33 +138,5 @@ export function fitStrip({
   if (lastFrom(first) === count - 1) {
     first = tabs.findIndex((_, start) => lastFrom(start) === count - 1);
   }
-
-  const last = lastFrom(first);
-  const reachesEnd = last === count - 1;
-  const gap = reachesEnd ? 0 : endGap;
-  let before = intoBefore(first);
-  let after = reachesEnd ? 0 : into(tabs[last + 1], "after");
-  const whole = (tabs[last]?.right ?? 0) + (reachesEnd ? endGap : 0) - leftOf(first);
-  const spare = Math.max(0, room - gap - whole);
-  let squeezed = false;
-  if (before + after > spare + EPSILON) {
-    const least = (full: number, side: "before" | "after", beyond: TabSpan | undefined) =>
-      full > 0 ? into(beyond, side, fade / 2) : 0;
-    const leastBefore = least(before, "before", tabs[first - 1]);
-    const leastAfter = least(after, "after", tabs[last + 1]);
-    squeezed = leastBefore + leastAfter > spare + EPSILON;
-    const share = squeezed
-      ? spare / (leastBefore + leastAfter)
-      : (spare - leastBefore - leastAfter) / (before - leastBefore + after - leastAfter);
-    before = squeezed ? leastBefore * share : leastBefore + (before - leastBefore) * share;
-    after = squeezed ? leastAfter * share : leastAfter + (after - leastAfter) * share;
-  }
-  return {
-    run: Math.min(whole + before + after, room - gap),
-    gap,
-    scrollLeft: leftOf(first) - before,
-    first,
-    last,
-    squeezed,
-  };
+  return restFrom(first);
 }

@@ -388,6 +388,73 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
+  test(`in a group narrowed to its least width, the strip comes to rest with the Note between hidden tabs in view (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await expect(window.getByTestId("mind-pane")).toBeVisible();
+    const report = await addReport(window, language);
+    await newMind(window);
+    await nameMind(window, NOTE[language]);
+    for (const name of MORE[language].slice(0, 2)) {
+      await newMind(window);
+      await nameMind(window, name);
+    }
+    await window.getByTestId("ask-pill").click();
+    await expect(window.getByTestId("assistant")).toBeVisible();
+    const note = window.getByRole("tab", { name: NOTE[language], exact: true });
+    await note.click();
+    await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+
+    // The divider's keys narrow the Note's group to its least width.
+    const divider = window.getByTestId("group-divider");
+    await divider.focus();
+    await expect
+      .poll(async () => {
+        await window.keyboard.press("Shift+ArrowLeft");
+        return (
+          (await divider.getAttribute("aria-valuenow")) ===
+          (await divider.getAttribute("aria-valuemin"))
+        );
+      })
+      .toBe(true);
+
+    const list = listAt(window, 0);
+    /** The strip over 20 frames: the same each frame once it rests, and whether the Note is in view. */
+    const frames = () =>
+      list.evaluate(async (element) => {
+        const reads: string[] = [];
+        let inView = true;
+        for (let frame = 0; frame < 20; frame++) {
+          await new Promise((next) => requestAnimationFrame(next));
+          const view = element.getBoundingClientRect();
+          const shown = element.querySelector('[role="tab"][aria-selected="true"]');
+          const box = shown?.getBoundingClientRect();
+          if (!box || box.left < view.left - 1 || box.right > view.right + 1) inView = false;
+          reads.push(
+            `${Math.round(element.scrollLeft)} ${Math.round(view.width)} ${Math.round(box?.left ?? 0)} ${Math.round(box?.width ?? 0)}`,
+          );
+        }
+        return { still: new Set(reads).size === 1, inView };
+      });
+    await expect.poll(frames, { message: "the strip comes to rest" }).toEqual({
+      still: true,
+      inView: true,
+    });
+    // And stays at rest: its own scrolls end without moving it again.
+    for (let look = 0; look < 3; look++) {
+      expect(await frames()).toEqual({ still: true, inView: true });
+    }
+    await expect(list.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute(
+      "aria-label",
+      NOTE[language],
+    );
+    await expect.poll(() => unreachable(window)).toEqual([]);
+    await app.close();
+  });
+
   test(`two groups side by side each rest on whole tabs with 3 to 8 tabs (${language})`, async () => {
     test.setTimeout(300_000);
     const { app, window } = await launchApp(dataDir);
