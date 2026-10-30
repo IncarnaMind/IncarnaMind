@@ -9,7 +9,9 @@ import type {
   LibrarySettings,
   LibrarySnapshot,
   TaggingClassifier,
+  TaggingFlow,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -29,9 +31,11 @@ export type {
   TaggingClassifier,
   TaggingCost,
   TaggingDestination,
+  TaggingFlow,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 
 /**
@@ -9804,6 +9808,12 @@ export interface CoreApi {
    */
   getTaggingModels(): Promise<TaggingModels>;
   /**
+   * The current model's destination, automatic tagging by default; classification
+   * reads Organize's text model, scan-images its image reader. The flows say
+   * whether the User allowed the service.
+   */
+  getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
+  /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
    * only their Tags suggested.
@@ -12056,6 +12066,7 @@ const methods: Record<CoreApiMethod, true> = {
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,
   getTaggingModels: true,
+  getTaggingRoute: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,

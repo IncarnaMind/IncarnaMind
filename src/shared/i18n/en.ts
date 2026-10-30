@@ -145,13 +145,6 @@ export const en = {
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
   "library.progressWith.other": "Organizing {count} Documents with {service}…",
-  "library.progressSends.one": "Organizing 1 Document with {service} · sends its name and excerpts",
-  "library.progressSends.other":
-    "Organizing {count} Documents with {service} · sends names and excerpts",
-  "library.progressSends.full.one":
-    "Organizing 1 Document with {service}: its name, outline and short excerpts are sent",
-  "library.progressSends.full.other":
-    "Organizing {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "library.waiting": "{count} Documents can’t be organized yet. Show why",
   "library.count": "{count} Documents",
   "library.count.one": "1 Document",
@@ -1799,14 +1792,27 @@ export const en = {
   "status.tagging.other": "Tagging {count} Documents…",
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
-  "status.taggingSends.one": "Tagging 1 Document with {service} · sends its name and excerpts",
-  "status.taggingSends.other":
-    "Tagging {count} Documents with {service} · sends names and excerpts",
-  "status.taggingSends.full.one":
-    "Tagging 1 Document with {service}: its name, outline and short excerpts are sent",
-  "status.taggingSends.full.other":
-    "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
-  "status.sendsScans": " (page images for scans)",
+  "status.sends":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.onThisComputer":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.onThisComputer":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
+  "status.sends.organize.onThisComputer.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+  "status.sends.organize.text":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.text.onThisComputer":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.scans":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+  "status.sends.scans.onThisComputer":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+  "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
@@ -4097,8 +4103,10 @@ export const en = {
   "export.failed.dataFolder": "IncarnaMind couldn’t open its data folder",
   "export.failed.corrupt": "IncarnaMind’s data is damaged",
   "export.failed.notAllowed": "you haven’t allowed new files in “{folder}”, a Linked folder",
+  "export.notLaidOut": "Couldn’t lay out the PDF, so nothing was saved.",
   "export.changeLocation": "Change output location…",
   "export.allow": "Allow",
+  "export.tryAgain": "Try again",
   "export.doneIn": "Saved “{name}” in {folder}",
   "export.saved.footnotes.one": "1 footnote",
   "export.saved.footnotes.other": "{count} footnotes",
@@ -4336,6 +4344,7 @@ export const en = {
   "error.document.notFound": "There is no such Document.",
   "sheet.noSavedValue": "No saved value",
   "error.checkRecord.noPdf": "This copy of IncarnaMind can’t make PDFs.",
+  "error.pdf.notLaidOut": "Couldn’t lay out the PDF.",
   "error.export.choice": "{name} must be true or false.",
   "error.export.textOnly": "The Documents kept as text must be a list of their ids.",
   "error.export.theirChanges": "theirChanges must be “shown” or “accepted”.",
@@ -4783,6 +4792,7 @@ export const en = {
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
+  "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
