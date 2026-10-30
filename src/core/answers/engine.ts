@@ -120,6 +120,7 @@ import {
   withPassageNotes,
 } from "./prompt";
 import { retryQuotes } from "./quoteRetry";
+import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
@@ -178,6 +179,15 @@ export interface AnswerSearchOptions {
   document?: string;
 }
 
+/** A page range, a Document opening, or the Passages around one already shown. */
+export interface ReadDocumentRequest {
+  document: string;
+  pages?: string;
+  passage?: string;
+  before?: number;
+  after?: number;
+}
+
 /** What a search gives the model. */
 export interface SearchResultForModel {
   /** The Passages, formatted for the model, or a sentence saying there are none. */
@@ -191,6 +201,8 @@ export interface SearchResultForModel {
    * relevant (see ./window). Absent: their order is their relevance.
    */
   ranks?: number[];
+  /** App-computed page coverage of the results that survived fitting; null when it isn't partial. */
+  coverage?(fittedText: string): string | null;
   /**
    * The third-party text among the Passages: "web-page" when one is a saved
    * web page's (#78). Reading it makes the Run third-party. Absent: none.
@@ -228,6 +240,8 @@ export interface AnswerTools {
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel>;
+  /** Reads pages of a Document in the Search scope, when the Answer offers `read_document`. */
+  readDocument?(request: ReadDocumentRequest): Promise<SearchResultForModel>;
   /** Takes Citation records; returns what to tell the model about them. */
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
@@ -437,6 +451,8 @@ export interface AnswerRequest {
   maxOutput?: number;
   /** The model needs the Tools in every request, the last step's too (`ModelFacts.toolsEveryRequest`). */
   toolsEveryRequest?: boolean;
+  /** False when the model refuses a named or required Tool choice. */
+  forcedToolChoice?: boolean;
   /**
    * In structured output, ask the model once more for the quotes the check
    * doesn't find (see ./quoteRetry): a local model, never a cloud one.
@@ -459,6 +475,11 @@ export interface AnswerRequest {
    * then doesn't end the Run as an Answer would; the model goes on to write the reply.
    */
   isReply?(text: string): boolean;
+  /**
+   * Told what the first model call wrote once its Tools have returned, before any further call:
+   * a Run it stops there makes none.
+   */
+  afterFirstStep?(text: string): void;
   /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
@@ -720,7 +741,7 @@ const recordsSchema = {
 } as const;
 
 /** Records from the model's JSON, kept only where they have the right shape. */
-function parseRecords(value: unknown): CitationRecordInput[] {
+export function parseRecords(value: unknown): CitationRecordInput[] {
   // Some models send the array as a JSON string, or one record alone.
   if (typeof value === "string") {
     try {
@@ -1343,6 +1364,17 @@ function searchResultText(
   return note ? `${passages}\n\n${note}` : passages;
 }
 
+function fittedResultText(
+  found: SearchResultForModel,
+  fitted: SearchResultForModel,
+  documents: AnswerTools,
+  languageNote: (() => string | null) | undefined,
+): string {
+  const text = searchResultText(fitted.text, documents, languageNote);
+  const coverage = found.coverage?.(fitted.text);
+  return coverage ? `${text}\n\n${coverage}` : text;
+}
+
 /**
  * The Documents as a Tool provider, for one go of the Tool-calling loop:
  * `search_documents`, which reads the Documents; `cite`, whose records become
@@ -1354,7 +1386,7 @@ export function documentTools(
   documents: AnswerTools,
   hooks: DocumentToolsHooks,
   toolSet: ToolSet = "answer",
-): { search: Tool; cite: Tool; calculate: Tool | null } {
+): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
   return {
@@ -1402,9 +1434,74 @@ export function documentTools(
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        return searchResultText(result.text, documents, hooks.languageNote);
+        return fittedResultText(found, result, documents, hooks.languageNote);
       },
     },
+    read:
+      !checking && documents.readDocument
+        ? {
+            ...own(DOCUMENT_TOOLS.read),
+            description:
+              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it. Use pages as "16" or "15-17", or give a Passage id already shown with optional before/after counts (up to 3). Omit both to read the opening. Read where the answer would be before saying the Document does not state it.',
+            inputSchema: {
+              type: "object",
+              properties: {
+                document: {
+                  type: "string",
+                  description: "The Document to read, named as the instructions list it.",
+                },
+                pages: {
+                  type: "string",
+                  description: 'One page or a page range, such as "16" or "15-17".',
+                },
+                passage: {
+                  type: "string",
+                  description: "A Passage id already shown, to read around.",
+                },
+                before: {
+                  type: "number",
+                  description: "Passages to include before the given Passage, from 0 to 3.",
+                },
+                after: {
+                  type: "number",
+                  description:
+                    "Passages to include after the given Passage or from the opening, from 0 to 3.",
+                },
+              },
+              required: ["document"],
+            },
+            shownInput: ({ document, pages, passage, before, after }) => {
+              const effective = typeof pages === "string" ? readDocumentPages(pages) : null;
+              return {
+                document: String(document ?? ""),
+                ...(typeof pages === "string" &&
+                  pages !== "" && { pages: effective ? formatDocumentPages(effective) : pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
+              };
+            },
+            effects: () => [{ action: "read", scope: { kind: "documents" } }],
+            untrustedResult: true,
+            async call(
+              { document, pages, passage, before, after },
+              { toolCallId, readThirdParty },
+            ) {
+              const found = await documents.readDocument?.({
+                document: String(document ?? ""),
+                ...(typeof pages === "string" && pages !== "" && { pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
+              });
+              if (!found) throw new Error("read_document is unavailable");
+              for (const source of found.thirdParty ?? []) readThirdParty?.(source);
+              const result = hooks.fit(found);
+              hooks.searched(toolCallId, result.passageCount, found.passageIds);
+              return fittedResultText(found, result, documents, hooks.languageNote);
+            },
+          }
+        : null,
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
@@ -1570,6 +1667,7 @@ async function* toolLoop(
         )
       : null;
   const search = documents?.search ?? null;
+  const read = documents?.read ?? null;
   const cite = documents?.cite ?? null;
   const calculate = documents?.calculate ?? null;
   /** `cite` and `calculate` record something for the Answer: they have no Tool-call card. */
@@ -1635,7 +1733,9 @@ async function* toolLoop(
   /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
   const offered = new Map(
     offeredTools([
-      ...(documents ? [documents.search, documents.cite] : []),
+      ...(documents
+        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        : []),
       ...(calculate ? [calculate] : []),
       ...request.tools,
     ]).map((each) => [each.name, each]),
@@ -1685,7 +1785,10 @@ async function* toolLoop(
     window = {
       // What another provider's Tool returns (or the gate gives instead) is cut to the room left.
       fitResult: (text, tool) =>
-        tool === search?.name || tool === cite?.name || tool === calculate?.name
+        tool === search?.name ||
+        tool === read?.name ||
+        tool === cite?.name ||
+        tool === calculate?.name
           ? text
           : account.result(text),
       canCallTools: () => account.canCallTools(),
@@ -1705,6 +1808,7 @@ async function* toolLoop(
   let answered = false;
   /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
   let besideRecords = "";
+  let stepped = false;
   const owesNothing = (text: string) => {
     const left = request.documents.owed?.(text);
     return left === undefined || left.citations.length + left.figures.length === 0;
@@ -1795,7 +1899,7 @@ async function* toolLoop(
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
-    ...(firstTool && { firstTool }),
+    ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
     lastStep: {
       ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
@@ -1816,6 +1920,11 @@ async function* toolLoop(
     // another call would only write it again. Written then cited (#489), it is complete once the
     // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
     endsAfter: (step) => {
+      if (!stepped) {
+        stepped = true;
+        request.afterFirstStep?.(step.text);
+      }
+      if (signal.aborted) return true;
       if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));

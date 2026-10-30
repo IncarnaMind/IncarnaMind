@@ -84,13 +84,17 @@ function targetsOf(
   });
 }
 
-/** Checks a call of a window command: what it acts on, and what its entry says it does. */
+/**
+ * Checks a call of a window command: what it acts on, and what its entry says it does. `into`:
+ * the Suggested Folder each target was checked against, which the window accepts it for alone.
+ */
 export function windowChecked(
   entry: OfferedCommand,
   ids: readonly string[],
   findable: Findable,
   context: WindowRun,
   window: CommandsHost["window"],
+  into?: ReadonlyMap<string, string | null>,
 ): CheckedCommand {
   if (entry.yours) return yoursChecked(entry.id, entry.yours);
   const items = targetsOf(entry, ids, findable);
@@ -117,7 +121,9 @@ export function windowChecked(
           toolCallId: context.toolCallId,
           run: context.runId,
           command: entry.id,
-          targets: items.map(({ kind, id }) => ({ kind, id })),
+          targets: items.map(({ kind, id }) =>
+            into?.has(id) ? { kind, id, into: into.get(id) ?? null } : { kind, id },
+          ),
           mindId: context.mindId,
           clientId,
         },

@@ -9,7 +9,9 @@ import type {
   LibrarySettings,
   LibrarySnapshot,
   TaggingClassifier,
+  TaggingFlow,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -29,9 +31,11 @@ export type {
   TaggingClassifier,
   TaggingCost,
   TaggingDestination,
+  TaggingFlow,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 
 /**
@@ -237,8 +241,21 @@ export interface CreateMindInput {
  *   cells are records of kind "cell" in `MIND_SIGN_OFFS_FIELD`. An older editor
  *   would strip the attributes, so it opens these Notes read-only. Older
  *   content is version 34 content as it is.
+ * - 35: ordered factual and opinion parts inside a sentence's `claimCheck`
+ *   mark, the opinions a check left out (`opinionSentences`) and the parts in
+ *   the verification record (#2002). Older editors strip the part ranges and
+ *   their evidence when saving marked words, so these Notes open read-only
+ *   there. Older content is version 35 content as it is.
+ * - 36: the individual record cites in a sentence's check (#1709): their raw
+ *   text, outcome, resolved Document/version/Location, passage and any
+ *   candidates or nearby suggestion. An older editor would drop them, so it
+ *   opens these Notes read-only. Existing content needs no conversion.
+ * - 37: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ *   read to decide an absence sentence, which an older editor would strip,
+ *   losing both the card's Locations and the dependency that makes a changed
+ *   Document need a re-check. Older content is version 37 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 34;
+export const CONTENT_SCHEMA_VERSION = 37;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2014,7 +2031,14 @@ export const MAX_CITED_PAGES = 2;
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
 export type CitationLocation =
-  | { kind: "page"; from: number; to: number; printed?: { from: string; to: string } }
+  | {
+      kind: "page";
+      from: number;
+      to: number;
+      printed?: { from: string; to: string };
+      /** The printed line on the first printed page and on the last (#1709). */
+      lines?: { from: number; to: number };
+    }
   | { kind: "slide"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "lines"; from: number; to: number }
@@ -5542,10 +5566,12 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "absence-read-limit"
   | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
+  kind?: "forecast-certainty" | "unbacked-cause";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -5563,6 +5589,14 @@ export interface UnsupportedReason {
    * Citation check found; absent when it quoted none.
    */
   quoted?: CitationAttributes;
+}
+
+/** A Document an absence check read whole, with every Location read. */
+export interface ClaimReadDocument {
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  locations: readonly CitationLocation[];
 }
 
 /** A Document version a check read, which it no longer holds for once the Document changes. */
@@ -5603,6 +5637,78 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** UTF-16 offsets into the checked sentence; end is exclusive. */
+export interface ClaimPartSpan {
+  start: number;
+  end: number;
+}
+
+export interface ClaimPartPlan {
+  span: ClaimPartSpan;
+  kind: "fact" | "opinion";
+}
+
+export interface ClaimPartCoverageMember {
+  label: string;
+  verdict: ClaimVerdict | "not-checked";
+  evidence: CitationAttributes[];
+}
+
+export interface ClaimPartCoverage {
+  unit: string;
+  quantifier: "all" | "most";
+  complete: boolean;
+  members: ClaimPartCoverageMember[];
+  domainEvidence: CitationAttributes[];
+}
+
+export interface ClaimCheckPart extends ClaimPartPlan {
+  verdict: ClaimVerdict | "not-checked" | "checking" | null;
+  kept?: true;
+  figures?: ClaimPartFigure[];
+  remainder?: ClaimPartJudgment | null;
+  evidence: CitationAttributes[];
+  decidingEvidence?: number | null;
+  says: string | null;
+  unsupported: UnsupportedReason | null;
+  calculation: ClaimCalculation | null;
+  reason: ClaimCheckFailure | null;
+  detail: string | null;
+  versions: CheckedVersion[];
+  excluded: LeftOutDocument[];
+  citedCaseUnchecked: boolean;
+  citedCaseFound: boolean;
+  coverage?: ClaimPartCoverage;
+  /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
+  readDocuments?: readonly ClaimReadDocument[];
+}
+
+export type ClaimPartJudgment = (
+  | ClaimJudgment
+  | {
+      verdict: "checking";
+      versions: CheckedVersion[];
+      excluded: LeftOutDocument[];
+      kept?: true;
+    }
+) &
+  Partial<
+    Pick<
+      ClaimCheckBasis,
+      "id" | "request" | "action" | "text" | "scope" | "checkedAt" | "providerId" | "modelId"
+    >
+  >;
+
+export type ClaimPartFigure = FigureFinding & { result: ClaimPartJudgment };
+
+export interface OpinionSentence {
+  id: string;
+  blockId: string;
+  text: string;
+  occurrence: number;
+  parts: ClaimCheckPart[];
+}
+
 /** A password-protected PDF Document, and the password to open it with (#763). */
 export interface UnlockDocumentInput {
   documentId: string;
@@ -5614,10 +5720,52 @@ export type UnlockDocumentResult =
   | { kind: "unlocked"; document: Document }
   | { kind: "wrong-password" };
 
+/** One record cite's own result inside a sentence's check (#1709). */
+export interface RecordCiteResult {
+  /**
+   * The cite as written and its UTF-16 span, when it has one, in the sentence as the Note holds it:
+   * each Citation there is one U+FFFC, which the mark's `text` leaves out.
+   */
+  raw: string;
+  from?: number;
+  to?: number;
+  outcome: "supported" | "partly" | "unsupported" | "choose" | "not-found" | "not-checked";
+  /** For "not-checked": why this cite's auxiliary judgement could not be read. */
+  reason?: ClaimCheckFailure;
+  detail?: string | null;
+  documentId?: string;
+  documentName?: string;
+  contentHash?: string;
+  location?: CitationLocation;
+  /** The physical PDF Units the passage and viewer open, when it is one. */
+  pageFrom?: number;
+  pageTo?: number;
+  passage?: string;
+  /** For "partly": the parts the cited Location does and does not cover. */
+  covered?: string;
+  uncovered?: string;
+  /** Documents the User must choose between; never a silent first match. */
+  candidates?: { id: string; name: string }[];
+  /**
+   * For an `Id.` or `supra`: what its reading rests on, as written: the nearest cite before it that
+   * names a place, when it names none itself, then the record cite its chain ends at; empty when it
+   * referred to none. When they read otherwise now, the sentence needs re-check.
+   */
+  via?: string[];
+  nearby?: {
+    location: CitationLocation;
+    pageFrom: number;
+    pageTo: number;
+    passage: string;
+  };
+}
+
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
 export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
+      kept?: true;
+      parts?: ClaimCheckPart[];
       /**
        * For "supported" and "contradicted": the Passage that decides it, as a
        * Citation whose quote the Citation check found; for a figure worked out,
@@ -5642,14 +5790,22 @@ export type ClaimJudgment =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
+      /** Documents read whole to decide an absence sentence, with every Location read. */
+      readDocuments?: readonly ClaimReadDocument[];
     }
   | {
       verdict: "not-checked";
+      kept?: true;
+      parts?: ClaimCheckPart[];
       reason: ClaimCheckFailure;
       /** "failed": the provider's message. */
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
+      /** Documents read whole before the outcome, when an absence check needed them. */
+      readDocuments?: readonly ClaimReadDocument[];
     };
 
 export type FigureLocator =
@@ -5754,6 +5910,20 @@ export interface CitedQuote {
   passageId?: string;
 }
 
+export interface ChooseRecordCiteSourceInput {
+  mindId: string;
+  /** The sentence check whose one record cite is resolved again. */
+  checkId: string;
+  raw: string;
+  from?: number;
+  to?: number;
+  documentId: string;
+}
+
+export interface ChooseRecordCiteSourceResult {
+  cite: RecordCiteResult;
+}
+
 /** What the claim-check function checks (`checkClaim`). */
 export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
@@ -5797,6 +5967,7 @@ export interface ClaimCheckBasis {
   request: string;
   action: ClaimCheckAction;
   state: "checking" | ClaimVerdict | "not-checked";
+  parts?: ClaimCheckPart[];
   /** "not-checked": why. */
   reason: ClaimCheckFailure | null;
   /** "failed": the provider's message. */
@@ -5804,7 +5975,7 @@ export interface ClaimCheckBasis {
   /** The model that checked it; null on a mark made before it was kept. */
   providerId: string | null;
   modelId: string | null;
-  /** The sentence as it was checked: an inline node as U+FFFC, a line break as "\n". */
+  /** The sentence as checked; part ranges index this exact text. */
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
@@ -5819,6 +5990,10 @@ export interface ClaimCheckBasis {
   scope: ClaimCheckScope;
   versions: CheckedVersion[];
   excluded: LeftOutDocument[];
+  /** The individual record cites checked in this sentence, when it has any. */
+  recordCites?: RecordCiteResult[];
+  /** Documents read whole to decide an absence sentence, with every Location read. */
+  readDocuments?: readonly ClaimReadDocument[];
   /** When it was checked, or started. ISO 8601, UTC. */
   checkedAt: string;
   /**
@@ -5839,6 +6014,7 @@ export interface CheckSentencesInput {
   /** Chosen by the caller, so it can stop the request (`cancelCheck`). */
   requestId: string;
   mindId: string;
+  part?: { id: string; span: ClaimPartSpan };
   /** Where the selection starts, and where it ends: each sentence it touches is checked, whole. */
   from: TextPlace;
   to: TextPlace;
@@ -5991,6 +6167,15 @@ export interface CheckMindInput {
   model?: ChatModelChoice | null;
 }
 
+/** A Note kept for one Check from its planning until it runs or is dropped (#2240). */
+export interface HoldMindCheckInput {
+  /** The request that plans and runs the Check; `cancelCheck` drops its hold. */
+  requestId: string;
+  mindId: string;
+  /** The window holding it: the core frees the Note if that window goes before the Check runs. */
+  clientId: string;
+}
+
 /** What `checkMind` would send, before it sends anything, so a cloud model's estimate can show first. */
 export type MindCheckPlan =
   | {
@@ -6118,7 +6303,9 @@ export type VerifyClaimsResult =
    * checked. `stop`: the monthly cap or a plan's limit stopped the run, and the
    * claims after it say so.
    */
-  { kind: "checked"; claims: number; checked: number; stop: RunStop | null } | VerifyRefusal;
+  | { kind: "checked"; claims: number; checked: number; stop: RunStop | null }
+  | { kind: "failed"; error: ProviderError }
+  | VerifyRefusal;
 
 /** What asking a Question (or regenerating its Answer) did. */
 export type AskResult =
@@ -8317,16 +8504,35 @@ interface ApprovalRequestBase extends AnswerPlace {
    */
   thirdParty?: ThirdPartyReason[];
   /**
-   * For a command of the assistant's (#1421): what its Answer read that the User didn't write, as
-   * it read it, its Documents by name, each once, and whether it heard the live Transcript. It
-   * never says which of them asked for the command. Absent: it read none of them.
+   * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
+   * write, by the kinds the card names, in the card's order. It never says which of them asked
+   * for the command. Absent: it read none of them.
    */
   readText?: ApprovalReadText;
 }
 
+/**
+ * What an approval card names the Answer read (#2240). A web page is its host, never its
+ * title: a page writes its own, and could pass for the User's file. A page whose title alone
+ * reached the Answer is its title, by host; a page both title and text reached is a web page.
+ * Other text is every read the kinds here cannot name, so a kind added later is still on the card.
+ */
 export interface ApprovalReadText {
+  /** One entry per Document, by its id: two Documents with one name are two. */
   documents: string[];
+  /** Web pages read, by host, one entry for each page. */
+  webPages: string[];
+  /** Pages whose title alone was seen, by host, one entry for each page. */
+  webPageTitles: string[];
+  /** Web search's results, Find sources' included. */
+  webSearchResults: boolean;
+  /** One entry per Connector whose results the Answer read, by its id. */
+  connectors: string[];
+  /** A Skill script's or an Analysis's output. */
+  scriptOutput: boolean;
   transcript: boolean;
+  /** Some text the kinds here cannot name. */
+  otherText: boolean;
 }
 
 /**
@@ -8481,7 +8687,11 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  targets: { kind: CommandTarget; id: string }[];
+  /**
+   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
+   * the core checked it against (null: none): it is accepted only while it waits for that one.
+   */
+  targets: { kind: CommandTarget; id: string; into?: string | null }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -9645,6 +9855,12 @@ export interface CoreApi {
    */
   getTaggingModels(): Promise<TaggingModels>;
   /**
+   * The current model's destination, automatic tagging by default; classification
+   * reads Organize's text model, scan-images its image reader. The flows say
+   * whether the User allowed the service.
+   */
+  getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
+  /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
    * only their Tags suggested.
@@ -9685,8 +9901,13 @@ export interface CoreApi {
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
    * unknown Document throws and changes nothing. Returns what changed.
+   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
+   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
    */
-  acceptAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
+  acceptAssignments(
+    documentIds: string[],
+    checked?: Record<string, string | null>,
+  ): Promise<AssignmentChange[]>;
   /**
    * Turns down these Documents' Suggested Folders: each is left Not in a
    * Folder, and Organize doesn't suggest that Folder for it again. Documents
@@ -9989,7 +10210,8 @@ export interface CoreApi {
    * The file is written in the data folder ("Saved text"), never next to the
    * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
    * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
-   * already gets a number. Throws InvalidInputError for text with no words.
+   * already gets a number. Throws InvalidInputError for text with no words, and NotFoundError,
+   * saving nothing, once that Note or conversation is deleted.
    */
   saveTextAsDocument(
     input: {
@@ -10000,7 +10222,8 @@ export interface CoreApi {
   /**
    * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
    * Note's, else the conversation's when no Note is open; null outside every wall. What the
-   * composer shows and files follows it.
+   * composer shows and files follows it. Throws NotFoundError once that Note or conversation is
+   * deleted.
    */
   wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
@@ -10677,6 +10900,7 @@ export interface CoreApi {
    * Sends on the "checks" flow, as `checkSentences` does.
    */
   checkClaim(input: CheckClaimInput): Promise<ClaimCheckResult>;
+  chooseRecordCiteSource(input: ChooseRecordCiteSourceInput): Promise<ChooseRecordCiteSourceResult>;
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
@@ -10727,6 +10951,17 @@ export interface CoreApi {
     mode: CheckMindMode,
     allDocuments?: boolean,
   ): Promise<MindCheckPlan>;
+  /**
+   * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it
+   * (#2240), so a second window's Check is refused before it plans and asks. False: another
+   * request keeps it.
+   */
+  holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
+  /**
+   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
+   * again for another window's Check.
+   */
+  forgetCheckWindow(input: { clientId: string }): Promise<void>;
   /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
@@ -11859,12 +12094,15 @@ const methods: Record<CoreApiMethod, true> = {
   checkSentences: true,
   cancelCheck: true,
   checkClaim: true,
+  chooseRecordCiteSource: true,
   verifyDocument: true,
   findClaims: true,
   verifyClaims: true,
   planContradictionCheck: true,
   checkContradictions: true,
   planMindCheck: true,
+  holdMindCheck: true,
+  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
@@ -11922,6 +12160,7 @@ const methods: Record<CoreApiMethod, true> = {
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,
   getTaggingModels: true,
+  getTaggingRoute: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,

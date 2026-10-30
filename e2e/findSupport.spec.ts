@@ -138,7 +138,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   expect(supportedBox?.x ?? 0).toBeGreaterThan((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
   expect(unsupportedBox?.y ?? 0).toBeGreaterThan(supportedBox?.y ?? 0);
   // The unsupported sentence is washed; the badge's card counts both.
-  await expect(line.locator(".claim-wash--unsupported")).toHaveText(UNSUPPORTED);
+  expect((await line.locator(".claim-wash--unsupported").allInnerTexts()).join("")).toBe(
+    UNSUPPORTED,
+  );
   await expect((await checkCard(window)).getByTestId("health-unsupported")).toContainText(
     "1 claim needs a look",
   );
@@ -175,7 +177,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(supported).toBeVisible();
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(citation).toHaveAttribute("data-check", "found");
-  await expect(line).toHaveText(`${SUPPORTED.slice(0, -1)} 1. ${UNSUPPORTED}`);
+  await expect(line).toHaveText(`${SUPPORTED.slice(0, -1)}1. ${UNSUPPORTED}`);
   await expect(marks(window)).toHaveCount(1);
   await expect((await checkCard(window)).getByTestId("health-found")).toContainText(
     "1 Citation found",
@@ -313,11 +315,16 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   await expect(contradicted).toBeVisible();
   // A sentence not checked yet has no mark on the page; its card opens from the row.
   await expect(notChecked).toBeHidden();
-  // In a narrow Mind the marks keep to the gutter right of the text.
+  // In a narrow Mind the mark moves into the text, at its sentence's end.
   const lineBox = await line.boundingBox();
   const markBox = await contradicted.boundingBox();
-  expect(markBox?.x ?? 0).toBeGreaterThanOrEqual((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
-  await expect(line.locator(".claim-wash--contradicted")).toHaveText(CONTRADICTED);
+  expect(markBox?.x ?? 0).toBeGreaterThanOrEqual(lineBox?.x ?? 0);
+  expect((markBox?.x ?? 0) + (markBox?.width ?? 0)).toBeLessThanOrEqual(
+    (lineBox?.x ?? 0) + (lineBox?.width ?? 0),
+  );
+  expect((await line.locator(".claim-wash--contradicted").allInnerTexts()).join("")).toBe(
+    CONTRADICTED,
+  );
   await expect((await checkCard(window)).getByTestId("health-contradicted")).toContainText(
     "1 条说法与文档矛盾",
   );
@@ -665,4 +672,86 @@ test("After the User accepts one change by hand and goes to another tab and back
   await expect(line).toHaveText(`${SUPPORTED} ${PENGUINS_A} ${HARBOURS_A}`);
   await expect(marks(window)).toHaveCount(3);
   await expect(waiting).toHaveCount(0);
+});
+
+async function mindWithAbsence(window: Page, pages: Parameters<typeof buildPdf>[0], claim: string) {
+  await writeFile(join(sources, "Lease.pdf"), buildPdf(pages));
+  await addDocuments(window, [join(sources, "Lease.pdf")]);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type(claim);
+  const line = editor.locator(":scope > p").first();
+  await expect(line).toHaveText(claim);
+  return line;
+}
+
+test("a true absence is Supported after a whole read, and its card lists every page read", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    [
+      { lines: ["Term", "The lease runs for three years."] },
+      { lines: ["Rent", "The tenant pays rent monthly."] },
+    ],
+    "The lease has no break clause.",
+  );
+  await setWindowSize(app, window, 1440, 900);
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="supported"]')));
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+    "Read whole: Lease (p. 1, p. 2)",
+  );
+  await screenshot(window, "absence-supported-en-1440");
+  await app.close();
+});
+
+test("a false absence is Contradicted with the clause found by the whole read", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    [
+      { lines: ["Term", "The lease runs for three years."] },
+      { lines: ["Break clause", "Either party may end this lease with 30 days' notice."] },
+    ],
+    "The lease has no break clause.",
+  );
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
+  const card = window.getByTestId("claim-card");
+  await expect(card).toContainText("Either party may end this lease");
+  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+    "Read whole: Lease (p. 1, p. 2)",
+  );
+  await screenshot(window, "absence-contradicted-en-1440");
+  await app.close();
+});
+
+test("an absence over 40 pages is Not checked, with the plain reason in Chinese", async () => {
+  const { app, window } = await launchWithTides();
+  await useLocalChatModel(window);
+  const line = await mindWithAbsence(
+    window,
+    Array.from({ length: 41 }, (_, index) => ({ lines: [`Page ${index + 1}`, "Rent schedule"] })),
+    "The lease has no break clause.",
+  );
+  await setWindowSize(app, window, 900, 760);
+  await setLanguage(window, "zh-CN");
+
+  await checkAll(window, line, "The lease", "clause.", "check-against-documents");
+
+  await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+  const card = window.getByTestId("claim-card");
+  await expect(card.getByTestId("claim-reason")).toHaveText(
+    "说某样东西不存在的句子，需要通读文档才能核对。",
+  );
+  await screenshot(window, "absence-oversized-zh-900");
+  await app.close();
 });

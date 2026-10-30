@@ -68,7 +68,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Reference record | 引用信息 | The "Cite as" panel's title too. Its fields: 类型、标题、作者、日期、期刊（出处）、卷、期、页码、出版者、DOI、网址、语言. |
 | Needs details (a reference record) | 信息待补充 | |
 | Look up (a reference record) | 查询 | "按 DOI 从 Crossref 补全空白字段". |
-| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索. As Kimi, Doubao, Yuanbao and DeepSeek show it. |
+| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索 for the act; the results a card names are 网页搜索结果 (#2240). As Kimi, Doubao, Yuanbao and DeepSeek show it. |
 | Find sources | 查找资料 | "查找资料…". One name for the panel, its menu items and the button on a claim's card, never 查找来源. 资料 matches 资料库 (Library): what is found is added to it. |
 | Source provider | 资料来源 | "资料来源：OpenAlex arXiv PubMed". Not 服务, which is an AI model's company. |
 | Open access | 开放获取 | As CNKI and publishers say it. "仅开放获取", "无开放全文". |
@@ -99,6 +99,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
+| Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
@@ -106,6 +107,10 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
+| Part (of a sentence) | 处 | A fact or opinion piece of a sentence a check keeps on its own row. Counted with 处, for the rows and the opinions alike: "正在核对这一处…", "另外 3 处", "1 处观点未纳入核对". Not 条, which counts Claims (说法). |
+| Opinion left out | 视为观点，未纳入核对 | A row's result; the line under a check says "{count} 处观点未纳入核对 · 查看". Not 未核对, which is a claim whose check failed. |
+| Check anyway | 仍然核对 | Checks one opinion part alone. |
+| Covers (a quantified part) | 覆盖 {total} 项中的 {covered} 项 | No unit: its measure word would change with the unit, and the rows name each member. Counted with 项, never a fixed 个. |
 | Not examined | 未能判断是否为说法 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否为说法". Not 未核对, which is a claim whose check failed or hasn't run. |
 | Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |

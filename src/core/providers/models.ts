@@ -28,6 +28,7 @@ import { createCopilotChatModel } from "./copilot/requests";
 import { endpointUrl } from "./kinds";
 import { createOllamaChatModel } from "./ollamaChat";
 import { DEFAULT_OLLAMA_SETTINGS, type OllamaModelSettings } from "./ollamaModels";
+import { withOpenRouterRouting } from "./openrouterRouting";
 import { withCacheBreakpoints } from "./promptCache";
 import { withOptionsOver, withoutStorage } from "./responsesStore";
 import type { RequestTransform } from "./signedFetch";
@@ -60,6 +61,8 @@ export interface ChatModelSpec {
    * that asks to check or calculate.
    */
   thinking?: "off" | "summary" | "answer" | "careful";
+  /** Small-call options reported by the server, ahead of the bundled catalog. */
+  thinkingOff?: ProviderOptions;
   apiKey: string | null;
   modelId: string;
   /** "chatgpt", "claude-account" and "copilot": the User's sign-in, which signs (and refreshes) every request. */
@@ -199,7 +202,7 @@ function canSkipThinking(
     return false;
   }
   const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
-  return catalogFacts(set, spec.modelId)?.reasoning !== false;
+  return spec.thinkingOff !== undefined || catalogFacts(set, spec.modelId)?.reasoning !== false;
 }
 
 const namedByRefusal = new Map<string, ProviderOptions>();
@@ -270,7 +273,7 @@ function withThinkingOff(
   return withRememberedForm(
     model,
     `${spec.catalogId ?? spec.kind}\n${spec.modelId}`,
-    () => catalogFacts(set, spec.modelId)?.thinkingOff ?? thinkingOff.options,
+    () => spec.thinkingOff ?? catalogFacts(set, spec.modelId)?.thinkingOff ?? thinkingOff.options,
     (error, sent) => {
       const form = refusedForm(error, thinkingOff.refused);
       return form && form !== sent ? form : undefined;
@@ -327,12 +330,16 @@ function providerModel(spec: ChatModelSpec): ChatLanguageModel {
     case "openrouter":
       // "strict" asks for streamed token usage; the body carries the provider's routing
       // preferences (no providers that keep or train on prompts).
-      return createOpenRouter({
-        apiKey: requireKey(spec),
-        baseURL: hostedUrl(spec),
-        compatibility: "strict",
-        extraBody: catalogProviderOfKind("openrouter")?.request?.body ?? {},
-      })(spec.modelId);
+      return withOpenRouterRouting(
+        createOpenRouter({
+          apiKey: requireKey(spec),
+          baseURL: hostedUrl(spec),
+          compatibility: "strict",
+          extraBody: catalogProviderOfKind("openrouter")?.request?.body ?? {},
+        })(spec.modelId),
+        hostedUrl(spec),
+        globalThis.fetch,
+      );
     case "siliconflow":
     case "openai-compatible": {
       const provider = catalogProviderOf(spec.kind, spec.catalogId);

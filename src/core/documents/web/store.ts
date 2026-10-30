@@ -201,14 +201,21 @@ export function originOf(db: Database, documentId: string): WebPageOrigin | null
   );
 }
 
-export function documentAtAddress(db: Database, address: string): string | null {
+/** The live page saved at `address` most recently, of those `reusable` takes. */
+export function documentAtAddress(
+  db: Database,
+  address: string,
+  reusable: (documentId: string) => boolean = () => true,
+): string | null {
   return (
-    db.get<{ document_id: string }>(
-      `SELECT w.document_id FROM web_pages w JOIN documents d ON d.id = w.document_id
-       WHERE w.address = ? AND w.deleted_at IS NULL AND d.deleted_at IS NULL
-       ORDER BY w.fetched_at DESC LIMIT 1`,
-      [address],
-    )?.document_id ?? null
+    db
+      .all<{ document_id: string }>(
+        `SELECT w.document_id FROM web_pages w JOIN documents d ON d.id = w.document_id
+         WHERE w.address = ? AND w.deleted_at IS NULL AND d.deleted_at IS NULL
+         ORDER BY w.fetched_at DESC`,
+        [address],
+      )
+      .find((row) => reusable(row.document_id))?.document_id ?? null
   );
 }
 

@@ -12,7 +12,14 @@ import type { Expected } from "./checks";
  * China's official reserve assets, whose cells give a difference (#1444), or a leverage covenant
  * folder in English or Chinese (./cedar, #1796).
  */
-export type LibraryName = "papers" | "reports" | "dated" | "reserves" | "cedar" | "cedar-zh";
+export type LibraryName =
+  | "papers"
+  | "reports"
+  | "dated"
+  | "reserves"
+  | "cedar"
+  | "cedar-zh"
+  | "filings";
 
 export interface EverydayCase {
   id: string;
@@ -1704,6 +1711,137 @@ export const CASES: readonly EverydayCase[] = [
     mind: null,
     request: "董事会是哪天开的会？做了什么决定？",
     expected: TEXT_DATES_ZH,
+  },
+  {
+    id: "filing-comparable-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
+    expected: {
+      ...ANSWER,
+      answerWith: /declin\w*[^.!?\n]{0,20}6\.2%/i,
+      answerEvidence: {
+        document: /Northmart Q2 2026 10-Q/,
+        quote: /like-for-like sales declined 6\.2%/i,
+      },
+      noDocumentAbsence: /comparable|同店/,
+      documentAbsenceMetric: "consolidated comparable-sales change",
+    },
+  },
+  {
+    id: "filing-comparable-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
+    expected: {
+      ...ANSWER,
+      answerWith: /下降[^。！？\n]{0,12}6\.2%/,
+      answerEvidence: {
+        document: /北域零售 2026年第二季度季报/,
+        quote: /同店销售额下降 6\.2%/,
+      },
+      noDocumentAbsence: /comparable|同店/,
+      documentAbsenceMetric: "集团同店销售额变化",
+    },
+  },
+  {
+    id: "filing-margin-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "What operating margin did Harbour Hotels report for 2026? Give the percentage and cite the release.",
+    expected: {
+      ...ANSWER,
+      answerWith: /38\.2%/,
+      answerEvidence: {
+        document: /Harbour Hotels 2026 annual release/,
+        quote: /Operating profitability reached 38\.2%/,
+      },
+      noDocumentAbsence: /margin|利润率/,
+      documentAbsenceMetric: "2026 operating margin",
+    },
+  },
+  {
+    id: "filing-margin-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "港湾酒店2026年度业绩公告中的经营利润率是多少？请给出百分比并注明出处。",
+    expected: {
+      ...ANSWER,
+      answerWith: /38\.2%/,
+      answerEvidence: {
+        document: /港湾酒店 2026年度业绩公告/,
+        quote: /经营利润率达到 38\.2%/,
+      },
+      noDocumentAbsence: /margin|利润率/,
+      documentAbsenceMetric: "2026年经营利润率",
+    },
+  },
+  {
+    id: "filing-recast-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request:
+      "In Delta Manufacturing's 2026 8-K, what was the recast second-quarter revenue? Answer with the amount and cite it.",
+    expected: {
+      ...ANSWER,
+      answerWith: /\$423 million/,
+      answerEvidence: {
+        document: /Delta Manufacturing 8-K 2026/,
+        quote: /Restated second-quarter sales: \$423 million/,
+      },
+      noDocumentAbsence: /recast|重述|revenue|销售额/,
+      documentAbsenceMetric: "recast second-quarter revenue",
+    },
+  },
+  {
+    id: "filing-recast-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "三角洲制造2026年8-K中重述的第二季度收入是多少？请给出金额并注明出处。",
+    expected: {
+      ...ANSWER,
+      answerWith: /4\.23 亿元/,
+      answerEvidence: {
+        document: /三角洲制造 8-K 2026/,
+        quote: /重述第二季度销售额：4\.23 亿元/,
+      },
+      noDocumentAbsence: /recast|重述|revenue|销售额/,
+      documentAbsenceMetric: "重述的第二季度收入",
+    },
+  },
+  {
+    id: "filing-absent-en",
+    language: "en",
+    library: "filings",
+    mind: null,
+    request: "What was Northmart's cash conversion cycle in Q2 2026?",
+    expected: {
+      ...NOTHING,
+      searchMiss: true,
+      noDocumentAbsence: /cash conversion/,
+      documentAbsenceMetric: "Q2 2026 cash conversion cycle",
+    },
+  },
+  {
+    id: "filing-absent-zh",
+    language: "zh-CN",
+    library: "filings",
+    mind: null,
+    request: "北域零售2026年第二季度的现金转换周期是多少？",
+    expected: {
+      ...NOTHING,
+      searchMiss: true,
+      noDocumentAbsence: /现金转换周期/,
+      documentAbsenceMetric: "2026年第二季度现金转换周期",
+    },
   },
   {
     id: "reserves-change-zh",

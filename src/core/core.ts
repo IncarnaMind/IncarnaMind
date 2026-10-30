@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
+import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
@@ -126,6 +127,7 @@ import {
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingRoute,
   type Task,
   type TurnPlace,
   type UnlockDocumentInput,
@@ -177,7 +179,7 @@ import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
 import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
-import { createWebPages } from "./documents/web";
+import { createWebPages, wallKey } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
@@ -1481,10 +1483,12 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   /**
    * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
-   * Note's Folder, else the conversation's, judged against today's walls (#1934).
+   * Note's Folder, else the conversation's, judged against today's walls (#1934). Throws
+   * `NotFoundError` once that Note or conversation is deleted: it is behind no wall then, nor
+   * outside every one.
    */
   const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
-    if (mindId !== null) return walledFolder(mindId);
+    if (mindId !== null) return walledFolderId(minds.get(mindId).folderId);
     if (conversationId === null) return null;
     return walledFolderId(conversations.get(conversationId).folderId);
   };
@@ -1627,8 +1631,8 @@ export function createCore(adapters: CoreAdapters): Core {
     readiness: (model) => chat.readiness(model),
     prepare: (model) => chat.prepareModel(model, "web-search", "off"),
     // A page an Answer saves is never loaded whole: that is for the User to ask for, page by page.
-    savePage: (address, fetch) =>
-      webPages.save({ address, keepLook: false }, undefined, fetch, "search"),
+    savePage: (address, fetch, reuse) =>
+      webPages.save({ address, keepLook: false }, undefined, fetch, "search", reuse),
     folderOf: (place) => {
       try {
         if (place.mindId !== null) return minds.get(place.mindId).folderId;
@@ -1639,6 +1643,8 @@ export function createCore(adapters: CoreAdapters): Core {
         throw error;
       }
     },
+    filedWithin: (wallId, asked) => filedWithin(wallId, asked),
+    walledDocument,
     file: (documentId, folderId) => library.assign(documentId, folderId),
     document: (id) => documents.get(id),
     onStatus: (listener) => events.on("document.status", listener),
@@ -1679,6 +1685,21 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         return undefined;
       };
+      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
+      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
+      if (input.command === ACCEPT_SUGGESTIONS) {
+        const suggested = new Map(
+          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
+        );
+        const crossing = input.ids.some((id) => {
+          const into = suggested.get(id) ?? null;
+          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
+        });
+        if (crossing) {
+          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
+          throw new InvalidInputError({ key });
+        }
+      }
       for (const id of input.ids) {
         const wall = wallOf(id);
         if (wall !== undefined && wall !== wallId) refuse();
@@ -1787,13 +1808,17 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+      passagesCovering: (documentId, from, to, overlapping) =>
+        documents.passagesCovering(documentId, from, to, overlapping),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       unread: (documentIds) => findUnreadDocuments(documents.unread(documentIds ?? undefined)),
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
@@ -2415,15 +2440,19 @@ export function createCore(adapters: CoreAdapters): Core {
     evidence,
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
-      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
+      getMany: (documentIds) => documents.getMany(documentIds),
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
+      unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
     },
     engine: answerEngine,
@@ -4392,7 +4421,12 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new NotFoundError({ key: "error.folder.notFound" });
       }
       const since = now();
-      const result = await webPages.save(input);
+      // A save under way for the other side of a wall is never joined: the User's Folder would
+      // take a turn's page across it, or never get its own (#2243).
+      const into = typeof folderId === "string" ? walledFolderId(folderId) : null;
+      const result = await webPages.save(input, undefined, undefined, "user", {
+        key: wallKey(into),
+      });
       if (result.outcome === "saved" && !result.existing && typeof folderId === "string") {
         library.assign(result.document.id, folderId);
       }
@@ -4412,7 +4446,16 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
       }
-      const filed = filedWithin(turnWall(parseTurnPlace(input)), null);
+      const place = parseTurnPlace(input);
+      let wall: string | null;
+      try {
+        wall = turnWall(place);
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+        const key = place.mindId !== null ? "error.paste.noteGone" : "error.paste.conversationGone";
+        throw new NotFoundError({ key });
+      }
+      const filed = filedWithin(wall, null);
       if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");
@@ -4714,6 +4757,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    chooseRecordCiteSource: (input) =>
+      inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
     findClaims: (input) => inFlow("verify", () => checks.findClaims(input)),
     verifyClaims: (input) => inFlow("verify", () => checks.verifyClaims(input)),
@@ -4721,6 +4766,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
+    holdMindCheck: async (input) => checks.holdMindCheck(input),
+    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
@@ -4932,6 +4979,27 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return models;
     },
+    getTaggingRoute: async (flow = "tagging"): Promise<TaggingRoute> => {
+      if (flow !== "tagging" && flow !== "classification" && flow !== "scan-images")
+        throw new InvalidInputError({ key: "error.library.flow" });
+      const classifier =
+        flow === "tagging" ? await tagging.resolve() : organizeModelOf(library.settings());
+      if (!classifier) return { where: "none" };
+      if (flow === "scan-images") {
+        if (decisionModelElsewhere(classifier)) return { where: "none" };
+        if (classifier.kind !== "chat")
+          return classifier.kind === "auto" ||
+            (classifier.kind === "ollama" && classifier.usePageImages)
+            ? { where: "local" }
+            : { where: "none" };
+        const reader = chat.imageModel(classifier.choice);
+        const model = reader && chat.describeModel(reader);
+        if (!model) return { where: "none" };
+        return model.service ? { where: "cloud", service: model.service } : { where: "local" };
+      }
+      const service = tagging.service(classifier);
+      return service ? { where: "cloud", service } : { where: "local" };
+    },
     classifyDocuments: async (ids) => {
       library.classify(ids);
       const classifier = organizeModelOf(library.settings());
@@ -4968,7 +5036,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
       transcripts?.dropPurged();
     },
-    acceptAssignments: async (ids) => library.accept(ids),
+    acceptAssignments: async (ids, checked) => library.accept(ids, checked),
     rejectAssignments: async (ids) => library.reject(ids),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");

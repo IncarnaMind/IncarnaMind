@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ChatProviderKind } from "../../src/core/api";
 import { catalogModel } from "../../src/core/providers/catalog";
 import { catalogProvider, endpointOf } from "../../src/core/providers/catalog/providers";
-import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { type ChatModelSpec, createAiSdkChatModel } from "../../src/core/providers/models";
 import { askAndFinish, citationsIn, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -391,7 +391,12 @@ describe("Small calls skip thinking", () => {
     ...(thinking && { thinking }),
   });
 
-  const bodyOf = async (kind: ChatProviderKind, modelId: string, thinking?: "off") => {
+  const bodyOf = async (
+    kind: ChatProviderKind,
+    modelId: string,
+    thinking?: "off",
+    thinkingOff?: ChatModelSpec["thinkingOff"],
+  ) => {
     const { provider, url } = where({
       kind,
       protocol: "chat",
@@ -408,7 +413,10 @@ describe("Small calls skip thinking", () => {
     });
     const { generateText } = await import("ai");
     await generateText({
-      model: createAiSdkChatModel(spec(kind, modelId, thinking)),
+      model: createAiSdkChatModel({
+        ...spec(kind, modelId, thinking),
+        ...(thinkingOff && { thinkingOff }),
+      }),
       prompt: "Hi",
       maxRetries: 0,
     });
@@ -423,6 +431,7 @@ describe("Small calls skip thinking", () => {
     ["glm", "glm-4.7-flash", "thinking", { type: "disabled" }],
     ["siliconflow", "Qwen/Qwen3-8B", "enable_thinking", false],
     ["openrouter", "openai/gpt-6-luna", "reasoning", { effort: "none" }],
+    ["openrouter", "anthropic/claude-haiku-5.5", "reasoning", { effort: "none" }],
     ["xai", "grok-4.3", "reasoning", { effort: "none" }],
     // On the Organize evaluation, GPT-6 Luna tagged as well with reasoning off.
     ["openai", "gpt-6-luna", "reasoning", { effort: "none" }],
@@ -437,6 +446,33 @@ describe("Small calls skip thinking", () => {
   test("GLM-5.3 can't turn thinking off, so it is not asked to", async () => {
     expect((await bodyOf("glm", "glm-5.3-flash", "off")).thinking).toBeUndefined();
   });
+
+  // protects=mandatory reasoning uses the catalog's lowest accepted effort; fails_when=Sonnet is sent none; no_claim=reasoning quality.
+  test.each([
+    "anthropic/claude-sonnet-5.5",
+    "anthropic/claude-opus-5.5",
+    "anthropic/claude-fable-5.1",
+    "openai/gpt-6.1-sol",
+  ])("OpenRouter mandatory reasoning for %s uses its listed effort", async (id) => {
+    expect(await bodyOf("openrouter", id, "off")).toMatchObject({
+      reasoning: { effort: "low" },
+      provider: { data_collection: "deny", require_parameters: true },
+    });
+  });
+
+  test.each([{ effort: "minimal" }, { effort: "high" }, { enabled: true }])(
+    "OpenRouter uses server small-call options on the wire (%j)",
+    async (reasoning) => {
+      expect(
+        await bodyOf("openrouter", "anthropic/claude-opus-5.5", "off", {
+          openrouter: { reasoning },
+        }),
+      ).toMatchObject({
+        reasoning,
+        provider: { data_collection: "deny", require_parameters: true },
+      });
+    },
+  );
 
   test.each(["gpt-6.1-sol", "gpt-6-astra", "gpt-5", "gpt-5-nano", "gpt-5-2025-08-07"])(
     "OpenAI's %s refuses reasoning effort none, so it is not asked to",

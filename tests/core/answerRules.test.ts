@@ -23,7 +23,7 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
 /** A phrase of each rule, and of each rule's Chinese example. */
 const RULES = [
   "If the Question takes for granted what the Passages don't say",
-  "文档中没有董事会批准的记录",
+  "未在文档中找到董事会批准的记录",
   "give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)",
   "较早的手册（2024 年 1 月）写的是 6 小时",
 ];
@@ -253,11 +253,25 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
   );
 
   test.each(["tools", "structured-output", "none"] as const)(
+    "when answering with %s, absence is about the search unless the relevant pages were read",
+    (mode) => {
+      const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
+
+      expect(text).toContain("I didn't find");
+      if (mode === "tools") {
+        expect(text).toContain("Absence needs read_document where X would be.");
+      } else {
+        expect(text).toContain("Never claim Document absence.");
+      }
+    },
+  );
+
+  test.each(["tools", "structured-output", "none"] as const)(
     "when answering with %s, stop where the Documents stop: own knowledge only for a general Question, labelled, with no figures",
     (mode) => {
       const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
 
-      expect(text).toContain("If the Documents don't cover the Question, say so plainly.");
+      expect(text).toContain("If the Documents don't cover the Question, say \"I didn't find");
       expect(text).toContain("never fill the gap from your own knowledge");
       expect(text).toContain('starts "Not from your Documents:" ("以下内容不是来自你的文档：")');
       expect(text).not.toContain("answer from your own knowledge if you can");

@@ -5,15 +5,17 @@ import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
 import { focusFigure, useFigureFocus } from "../figures";
 import { useT } from "../i18n";
+import { mindFolded } from "../mindColumn";
 import { motionMode, subscribeMotion } from "../motion";
 import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
-import { type ShownClaim, shownClaims } from "./claimChecks";
+import { markOf, type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
+import { OpinionCard } from "./OpinionCard";
 import { scrollMindTo } from "./reviewPick";
 
 const MARK_HEIGHT = 18;
@@ -21,6 +23,42 @@ const MARK_HEIGHT = 18;
 const MARK_GAP = 4;
 /** When an Answer finishes, its checks appear one after another, this far apart. */
 const REVEAL_STEP_MS = 40;
+
+/** A folded Mind's mark, this far after its sentence's last word or Citation marker. */
+const INLINE_GAP = 4;
+
+/** The first line's box at a position, from the editor's DOM. */
+function startOfSentence(editor: Editor, from: number) {
+  const coords = editor.view.coordsAtPos(from, 1);
+  return { top: coords.top, bottom: coords.bottom, right: coords.left };
+}
+
+/** The last character's own box, after which a folded Mind's mark stands (its reserved room follows it). */
+function endOfSentence(editor: Editor, to: number) {
+  // A Citation or another inline node is a composite: its inner box can end inside its own pill,
+  // so the mark measures the node's outer box, less the room the sentence keeps after it.
+  const atom = editor.state.doc.nodeAt(to - 1);
+  if (atom && !atom.isText) {
+    const dom = editor.view.nodeDOM(to - 1);
+    if (dom instanceof Element) {
+      const style = getComputedStyle(dom);
+      const rect = dom.getBoundingClientRect();
+      const right = rect.right - (Number.parseFloat(style.paddingRight) || 0);
+      return { top: rect.top, bottom: rect.bottom, right };
+    }
+  }
+  const start = editor.view.domAtPos(to - 1);
+  const end = editor.view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  const [rect] = [...range.getClientRects()].slice(-1);
+  if (!rect) {
+    const coords = editor.view.coordsAtPos(to, -1);
+    return { top: coords.top, bottom: coords.bottom, right: coords.left };
+  }
+  return { top: rect.top, bottom: rect.bottom, right: rect.right };
+}
 
 interface Mark {
   /** "claim:" and the sentence check's id. */
@@ -30,6 +68,8 @@ interface Mark {
   /** The vertical middle of the sentence's first line, from the top of the column. */
   middle: number;
   top: number;
+  /** The mark's left, from the column's text edge, when the Mind's margin has folded; null in the margin. */
+  left: number | null;
   /** How long its entrance waits, if it is appearing because its check just finished. */
   delay: number | null;
 }
@@ -58,6 +98,7 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.key === other.key &&
       mark.state === other.state &&
       mark.top === other.top &&
+      mark.left === other.left &&
       mark.delay === other.delay &&
       mark.claim.check === other.claim.check &&
       mark.claim.sentence.text === other.claim.sentence.text
@@ -113,10 +154,52 @@ export function MarginChecks({
     };
   }, [editor, mind.id, shownFigure]);
   const [marks, setMarks] = useState<readonly Mark[]>([]);
+  /** Whether the Mind's column has folded its margins, its checks drawn in the text instead. */
+  const [folded, setFolded] = useState(() => {
+    const column = editor.view.dom.closest(".mind-column");
+    return column ? mindFolded(column.getBoundingClientRect().width) : false;
+  });
+  /** Whether the marks are drawn in the text, followed by the measuring effect (it outlives a render). */
+  const foldedNow = useRef(folded);
+  useEffect(() => {
+    foldedNow.current = folded;
+  }, [folded]);
   /** Each mark's state as last drawn: a change from "checking" is its check finishing. */
   const seen = useRef(new Map<string, ClaimMarkState>());
   /** The entrance delays of the marks that appeared that way, by key and state. */
   const reveals = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const column = editor.view.dom.closest(".mind-column");
+    if (!column) return;
+    const measure = () => {
+      const next = mindFolded(column.getBoundingClientRect().width);
+      // Before the transaction below, which measures the marks: they must be placed for this fold.
+      foldedNow.current = next;
+      setFolded(next);
+      if (!editor.isDestroyed) setClaimInline(editor.view, next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [editor]);
+
+  // A folded Mind's mark takes its own width plus 4px after its sentence: the mark is drawn in the
+  // margin layer, so its width is known only once it has rendered.
+  useEffect(() => {
+    if (!folded || !layer.current) return;
+    const widths = new Map<string, number>();
+    for (const mark of marks) {
+      if (mark.state === "not-checked") continue;
+      const element = layer.current.querySelector<HTMLElement>(
+        `[data-claim="${CSS.escape(mark.claim.check.id)}"]`,
+      );
+      const width = Math.ceil(element?.getBoundingClientRect().width ?? 0);
+      if (width > 0) widths.set(mark.claim.check.id, width);
+    }
+    if (!editor.isDestroyed) setClaimRooms(editor.view, widths);
+  }, [folded, marks, editor]);
 
   useEffect(() => {
     let frame = 0;
@@ -139,39 +222,48 @@ export function MarginChecks({
       if (only && !only.querySelector("[data-claim-check]")) return;
       all = false;
       typed = block ? { block, height } : null;
-      const origin = column.getBoundingClientRect().top;
+      const rect = column.getBoundingClientRect();
+      const folded = foldedNow.current;
       const next: Mark[] = [];
       const revealed: Mark[] = [];
       for (const claim of shownClaims(editor.state)) {
-        let coords: { top: number; bottom: number };
+        let coords: { top: number; bottom: number; right: number };
         try {
-          coords = editor.view.coordsAtPos(claim.sentence.from, 1);
+          coords = folded
+            ? endOfSentence(editor, claim.sentence.to)
+            : startOfSentence(editor, claim.sentence.from);
         } catch {
           continue;
         }
-        const state = claim.shown.state;
+        const state = markOf(claim);
         const mark: Mark = {
           key: `claim:${claim.check.id}`,
           state,
           claim,
-          middle: (coords.top + coords.bottom) / 2 - origin,
+          middle: (coords.top + coords.bottom) / 2 - rect.top,
           top: 0,
+          left: folded ? Math.round(coords.right - rect.left + INLINE_GAP) : null,
           delay: null,
         };
         if (seen.current.get(mark.key) === "checking" && state !== "checking") revealed.push(mark);
         seen.current.set(mark.key, state);
         next.push(mark);
       }
-      // Top to bottom; a mark that would overlap the one above goes under it. A sentence not
-      // checked yet has no mark on the page (D276): its button is only its card's anchor, so it
-      // keeps its sentence's line and takes no room in the stack (#1941).
-      next.sort((a, b) => a.middle - b.middle);
-      let bottom = Number.NEGATIVE_INFINITY;
-      for (const mark of next) {
-        mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
-        if (mark.state === "not-checked") continue;
-        mark.top = Math.max(mark.top, bottom + MARK_GAP);
-        bottom = mark.top + MARK_HEIGHT;
+      // In the margin, top to bottom; a mark that would overlap the one above goes under it. A
+      // sentence not checked yet has no mark on the page: its button is only its card's anchor, so
+      // it keeps its sentence's line and takes no room in the stack (#1941). In the text, each
+      // mark stands at its own sentence's end, so none can overlap another.
+      if (!folded) {
+        next.sort((a, b) => a.middle - b.middle);
+        let bottom = Number.NEGATIVE_INFINITY;
+        for (const mark of next) {
+          mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
+          if (mark.state === "not-checked") continue;
+          mark.top = Math.max(mark.top, bottom + MARK_GAP);
+          bottom = mark.top + MARK_HEIGHT;
+        }
+      } else {
+        for (const mark of next) mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
       }
       // Only with motion on: otherwise the marks are there at once, with no cascade to end.
       if (motionMode() === "on") {
@@ -254,8 +346,33 @@ export function MarginChecks({
     [],
   );
 
+  const markElement = (mark: Mark) => (
+    <ClaimMark
+      key={mark.key}
+      claim={mark.claim}
+      editor={editor}
+      mindId={mind.id}
+      doc={mind.doc}
+      label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
+      reveal={mark.delay !== null}
+      style={
+        {
+          top: mark.top,
+          ...(mark.left !== null && { left: mark.left }),
+          "--reveal-delay": `${mark.delay ?? 0}ms`,
+        } as CSSProperties
+      }
+      inline={mark.left !== null}
+      onRevealed={() => {
+        reveals.current.delete(`${mark.key}:${mark.state}`);
+        setMarks((drawn) => drawn.map((each) => (each === mark ? { ...each, delay: null } : each)));
+      }}
+    />
+  );
+
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
+      <OpinionCard editor={editor} mindId={mind.id} doc={mind.doc} />
       {focusedFigure && layerReady && layer.current && (
         <ClaimOutline
           editor={editor}
@@ -263,24 +380,7 @@ export function MarginChecks({
           rangeOf={() => figurePlace(editor.state.doc, focusedFigure)}
         />
       )}
-      {marks.map((mark) => (
-        <ClaimMark
-          key={mark.key}
-          claim={mark.claim}
-          editor={editor}
-          mindId={mind.id}
-          doc={mind.doc}
-          label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
-          reveal={mark.delay !== null}
-          style={{ top: mark.top, "--reveal-delay": `${mark.delay ?? 0}ms` } as CSSProperties}
-          onRevealed={() => {
-            reveals.current.delete(`${mark.key}:${mark.state}`);
-            setMarks((drawn) =>
-              drawn.map((each) => (each === mark ? { ...each, delay: null } : each)),
-            );
-          }}
-        />
-      ))}
+      {marks.map((mark) => markElement(mark))}
     </div>
   );
 }

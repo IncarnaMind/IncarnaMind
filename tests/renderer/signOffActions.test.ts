@@ -16,7 +16,8 @@ import {
   signOffCounts,
   toggleCitationSignOff,
 } from "../../src/renderer/src/editor/signOffActions";
-import { signOffsOf } from "../../src/shared/signOffs";
+import { pendingPart } from "../../src/shared/claimParts";
+import { citationSignOffBasis, type SignOffRecord, signOffsOf } from "../../src/shared/signOffs";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor, headlessEditor } from "../helpers/editor";
 import type { MindClient } from "../helpers/mindClient";
@@ -459,3 +460,181 @@ async function noteWith(words: string, older: boolean) {
   if (!doc) throw new Error("The editor isn't bound to the Note.");
   return { core, mind, client, editor, doc };
 }
+
+describe("Checked by me on Note-owned part receipts", () => {
+  test.each(["Revenue rose 5%, and costs fell.", "收入增长了5%，成本下降了。"])(
+    "independent receipts use current words and one-step Undo without changing the app verdict: %s",
+    async (words) => {
+      const core = startCore(await createTempDataFolder());
+      const mind = await core.createMind({ title: "Results" });
+      const client = await connectToMind(core, mind.id);
+      const receipt: CitationAttributes = {
+        id: "receipt-a",
+        passageId: "p",
+        documentId: "document-1",
+        documentName: "Results",
+        contentHash: "v1",
+        pageFrom: 1,
+        pageTo: 1,
+        location: null,
+        quote: "Revenue rose 5%.",
+        check: "found",
+        checkReason: null,
+      };
+      const middle = Math.floor(words.length / 2);
+      const parts = [
+        [0, middle, "receipt-a"],
+        [middle, words.length, "receipt-b"],
+      ].map(([start, end, id]) => ({
+        ...pendingPart({ span: { start: Number(start), end: Number(end) }, kind: "fact" }),
+        verdict: "supported",
+        evidence: [{ ...receipt, id }],
+      }));
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "p1" },
+          content: [
+            {
+              type: "text",
+              text: words,
+              marks: [
+                {
+                  type: "claimCheck",
+                  attrs: {
+                    id: "check",
+                    request: "request",
+                    action: "check-against-documents",
+                    state: "supported",
+                    text: words,
+                    parts,
+                    scope: { folderId: null, widened: false },
+                    versions: [],
+                    excluded: [],
+                    checkedAt: "2026-10-28T09:00:00.000Z",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      await client.settled();
+      const editor = boundEditor(client);
+      const doc = noteDocOf(editor);
+      if (!doc) throw new Error("No bound Note.");
+      const before = editor.state.doc.toJSON();
+      const counts = () =>
+        signOffCounts(
+          editor.state.doc,
+          signOffsOf(doc),
+          null,
+          new Map([["document-1", "v1"]]),
+          signer.personId,
+        );
+      toggleCitationSignOff(editor, "receipt-a", signer);
+      expect(signOffsOf(doc).map((mark) => mark.target)).toEqual([
+        { kind: "citation", id: "receipt-a" },
+      ]);
+      expect(counts()).toEqual({ checked: 1, changed: 0 });
+      expect(editor.state.doc.toJSON()).toEqual(before);
+      editor.commands.undo();
+      expect(signOffsOf(doc)).toEqual([]);
+      editor.commands.redo();
+      expect(counts()).toEqual({ checked: 1, changed: 0 });
+      toggleCitationSignOff(editor, "receipt-b", signer);
+      expect(counts()).toEqual({ checked: 2, changed: 0 });
+      toggleCitationSignOff(editor, "receipt-a", signer);
+      expect(signOffsOf(doc).map((mark) => mark.target.id)).toEqual(["receipt-b"]);
+      editor.view.dispatch(editor.state.tr.insertText("Updated ", 1));
+      expect(counts()).toEqual({ checked: 0, changed: 1 });
+      toggleCitationSignOff(editor, "receipt-b", signer);
+      expect(counts()).toEqual({ checked: 1, changed: 0 });
+      expect(
+        signOffCounts(
+          editor.state.doc,
+          signOffsOf(doc),
+          null,
+          new Map([["document-1", "v2"]]),
+          signer.personId,
+        ),
+      ).toEqual({ checked: 0, changed: 1 });
+      const records = signOffsOf(doc);
+      editor.setEditable(false);
+      toggleCitationSignOff(editor, "receipt-a", signer);
+      expect(signOffsOf(doc)).toEqual(records);
+      editor.setEditable(true);
+      editor.view.dispatch(editor.state.tr.delete(0, editor.state.doc.content.size));
+      expect(() => toggleCitationSignOff(editor, "receipt-a", signer)).not.toThrow();
+      expect(signOffsOf(doc)).toEqual(records);
+      expect(counts()).toEqual({ checked: 0, changed: 0 });
+    },
+  );
+});
+
+test.each(["Spring tides come at new moon.", "大潮出现在新月时。"])(
+  "an inline Citation and a part receipt with one canonical id count one human mark: %s",
+  (words) => {
+    const receipt: CitationAttributes = {
+      id: "shared-citation",
+      passageId: "p",
+      documentId: "d",
+      documentName: "Tides",
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Tides rise.",
+      check: "found",
+      checkReason: null,
+    };
+    const mark = {
+      type: "claimCheck",
+      attrs: {
+        id: "check",
+        state: "supported",
+        text: words,
+        parts: [
+          {
+            ...pendingPart({ span: { start: 0, end: words.length }, kind: "fact" }),
+            verdict: "supported",
+            evidence: [receipt],
+          },
+        ],
+      },
+    };
+    const doc = getSchema(noteExtensions()).nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            { type: "text", text: words.slice(0, -1), marks: [mark] },
+            { type: CITATION_NODE, attrs: receipt },
+            { type: "text", text: words.slice(-1), marks: [mark] },
+          ],
+        },
+      ],
+    });
+    const records: SignOffRecord[] = [
+      {
+        id: "human",
+        target: { kind: "citation", id: receipt.id ?? "" },
+        at: "2026-10-28T09:00:00.000Z",
+        contentHash: citationSignOffBasis(words, receipt),
+        deletedAt: null,
+        name: signer.name,
+        personId: signer.personId,
+      },
+    ];
+    expect(signOffCounts(doc, records, null, new Map([["d", "v1"]]), signer.personId)).toEqual({
+      checked: 1,
+      changed: 0,
+    });
+    expect(signOffCounts(doc, records, null, new Map([["d", "v2"]]), signer.personId)).toEqual({
+      checked: 0,
+      changed: 1,
+    });
+  },
+);

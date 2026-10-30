@@ -462,6 +462,27 @@ describe("the source pack: after the file is gone, and without the page", () => 
     expect(printed).toEqual([]);
   });
 
+  test("a pack the printer couldn't lay out saves nothing, and says the PDF wasn't laid out", async () => {
+    const { core, mind, client, tides, sources } = await setUp({
+      printer: {
+        print: async () => {
+          throw new Error("The PDF took too long to lay out.");
+        },
+      },
+    });
+    writeMind(client, [paragraph(text("Spring tides"), citation(tides, 2))]);
+    await client.settled();
+    await core.setOutputLocation(sources);
+
+    await expect(core.saveMindExport(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      message: "Couldn’t lay out the PDF.",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
+    expect(readdirSync(sources).filter((name) => name.endsWith(".pdf"))).toEqual([]);
+  });
+
   test("a pack is refused where nothing can print a PDF", async () => {
     const { core, mind, client, tides } = await setUp();
     writeMind(client, [paragraph(text("Tides"), citation(tides, 2))]);
