@@ -133,6 +133,8 @@ export const restoreChecker: Checker = async (input, { core }, place) => {
     const folders = new Map(
       (await core.getLibrary()).groups.map((group) => [group.id, group.name] as const),
     );
+    // A Folder the item was in can itself be waiting in Recently deleted.
+    for (const item of deleted) if (item.kind === "folder") folders.set(item.id, item.name);
     const back = await chosen(items, deleted, folders, asking);
     if (back.length === 0) throw new InvalidInputError({ key: "error.commands.restoreNoneChosen" });
     const refs = back.map(({ kind, id }) => ({ kind, id }));

@@ -83,7 +83,9 @@ const deletedNames = (window: Page) =>
 const undoLine = (window: Page) => window.getByTestId("undo-line");
 const noQuestion = (window: Page) => expect(window.locator("dialog[open]")).toHaveCount(0);
 const rows = (window: Page) => window.getByTestId("deleted-item");
-const row = (window: Page, name: string) => rows(window).filter({ hasText: name });
+// By its own name: where it was can be another row's name (#2238).
+const row = (window: Page, name: string) =>
+  rows(window).filter({ has: window.getByTestId("deleted-name").getByText(name, { exact: true }) });
 
 /** Recently deleted, at the foot of the Library page: its section, opened if it was folded. */
 async function openDeleted(window: Page): Promise<Locator> {
@@ -227,12 +229,8 @@ test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in 
     "Vendor",
     "Shortlist",
   ]);
-  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText(
-    "Not in a Folder",
-  );
-  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText(
-    "Not in a Folder",
-  );
+  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText("Finance");
+  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText("Finance");
   await expect(row(window, "Vendor").getByTestId("deleted-was-in")).toHaveText("Tags");
   await expect(row(window, "Finance").getByTestId("deleted-was-in")).toHaveText("Library");
   await expect(rows(window).getByTestId("deleted-left")).toHaveText(Array(4).fill("30 days"));
