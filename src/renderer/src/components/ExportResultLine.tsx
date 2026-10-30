@@ -151,6 +151,13 @@ function ResultBody({
           void exportAgain(result, async () => (await chooseOutputLocation()) !== null),
       };
     }
+    if (result.state === "not-laid-out") {
+      return {
+        label: t("export.tryAgain"),
+        testId: "export-try-again",
+        onClick: () => void exportAgain(result, async () => true),
+      };
+    }
     if (result.state === "not-allowed") {
       const { linkedFolderId } = result;
       return {
@@ -302,6 +309,10 @@ function ResultBody({
           </ProblemLine>
         ) : result.state === "review" ? (
           <WordExportReview result={result} />
+        ) : result.state === "not-laid-out" ? (
+          <ProblemLine testId="export-problem" action={fix()} className="py-1">
+            {t("export.notLaidOut")}
+          </ProblemLine>
         ) : (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
             {t("export.failed.save", {

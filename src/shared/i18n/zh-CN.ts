@@ -140,12 +140,6 @@ export const zhCN = {
   "library.progress.other": "正在整理 {count} 个文档…",
   "library.progressWith.one": "正在用 {service} 整理 1 个文档…",
   "library.progressWith.other": "正在用 {service} 整理 {count} 个文档…",
-  "library.progressSends.one": "正在用 {service} 整理 1 个文档 · 会发送它的名称和摘录",
-  "library.progressSends.other": "正在用 {service} 整理 {count} 个文档 · 会发送名称和摘录",
-  "library.progressSends.full.one":
-    "正在用 {service} 整理 1 个文档：会发送它的名称、目录和简短摘录",
-  "library.progressSends.full.other":
-    "正在用 {service} 整理 {count} 个文档：会发送每个文档的名称、目录和简短摘录",
   "library.waiting": "{count} 个文档暂时无法整理。查看原因",
   "library.count": "{count} 个文档",
   "library.count.one": "1 个文档",
@@ -1734,15 +1728,28 @@ export const zhCN = {
   "status.scansWaiting.other": "正在识别 {count} 个扫描件，{waiting} 个排队中",
   "status.tagging.one": "正在为 1 个文档打标签…",
   "status.tagging.other": "正在为 {count} 个文档打标签…",
-  "status.taggingWith.one": "正在用 {service} 给 1 个文档打标签…",
-  "status.taggingWith.other": "正在用 {service} 给 {count} 个文档打标签…",
-  "status.taggingSends.one": "正在用 {service} 给 1 个文档打标签 · 会发送它的名称和摘录",
-  "status.taggingSends.other": "正在用 {service} 给 {count} 个文档打标签 · 会发送名称和摘录",
-  "status.taggingSends.full.one":
-    "正在用 {service} 给 1 个文档打标签：会发送它的名称、目录和简短摘录",
-  "status.taggingSends.full.other":
-    "正在用 {service} 给 {count} 个文档打标签：会发送每个文档的名称、目录和简短摘录",
-  "status.sendsScans": "（扫描件会发送页面图片）",
+  "status.taggingWith.one": "正在用 {service} 为 1 个文档打标签…",
+  "status.taggingWith.other": "正在用 {service} 为 {count} 个文档打标签…",
+  "status.sends": "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。",
+  "status.sends.onThisComputer":
+    "标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
+  "status.sends.organize":
+    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。",
+  "status.sends.organize.onThisComputer":
+    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。",
+  "status.sends.organize.scans":
+    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。包括扫描件的页面图片。",
+  "status.sends.organize.onThisComputer.scans":
+    "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。包括扫描件的页面图片。",
+  "status.sends.organize.text":
+    "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 {service}。",
+  "status.sends.organize.text.onThisComputer":
+    "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都留在这台电脑上。",
+  "status.sends.scans":
+    "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 {service}。",
+  "status.sends.scans.onThisComputer":
+    "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都留在这台电脑上。",
+  "status.sends.withScans": "{text}{scans}",
   "status.taggingWaiting": "打标签需要 AI 模型",
   "status.taggingPermission": "打标签需要你允许",
   "status.taggingFailed.one": "1 个文档未能打标签",
@@ -3931,8 +3938,10 @@ export const zhCN = {
   "export.failed.dataFolder": "IncarnaMind 无法打开数据文件夹",
   "export.failed.corrupt": "IncarnaMind 的数据已损坏",
   "export.failed.notAllowed": "你没有允许在关联文件夹“{folder}”中添加文件",
+  "export.notLaidOut": "无法完成 PDF 排版，因此没有保存任何内容。",
   "export.changeLocation": "更改保存位置…",
   "export.allow": "允许",
+  "export.tryAgain": "重试",
   "export.doneIn": "已保存“{name}”到“{folder}”",
   "export.saved.footnotes.one": "1 个脚注",
   "export.saved.footnotes.other": "{count} 个脚注",
@@ -4154,6 +4163,7 @@ export const zhCN = {
   "error.selection.none": "没有选中文字。",
   "error.document.notFound": "找不到这个文档。",
   "error.checkRecord.noPdf": "这个版本的 IncarnaMind 无法生成 PDF。",
+  "error.pdf.notLaidOut": "无法完成 PDF 排版。",
   "error.export.choice": "{name} 只能是 true 或 false。",
   "error.export.textOnly": "保留为文字的文档必须以文档 ID 列表的形式给出。",
   "error.export.theirChanges": "theirChanges 只能是“shown”或“accepted”。",
@@ -4562,6 +4572,7 @@ export const zhCN = {
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.checkedFolders": "推荐的文件夹无效。",
   "error.library.noClassifier": "先选择分类模型。",
+  "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",

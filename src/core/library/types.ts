@@ -104,6 +104,18 @@ export interface TaggingModels {
   saved: { classifier: TaggingClassifier; destination: TaggingDestination } | null;
 }
 
+export type TaggingFlow = "tagging" | "classification" | "scan-images";
+
+/**
+ * Where the flow's model sends now: a service, a model
+ * on this computer, or none it can tag with. The flows say whether the User
+ * allowed it.
+ */
+export type TaggingRoute =
+  | { where: "none" }
+  | { where: "local" }
+  | { where: "cloud"; service: ExternalService };
+
 export interface ClassificationModel {
   id: string;
   images: boolean;
