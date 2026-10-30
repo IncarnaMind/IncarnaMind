@@ -17,34 +17,56 @@ import type {
   RunEstimate,
   SearchScope,
 } from "../../api";
+import type { EstimatedRequest } from "../../cost/meter";
 import type { EvidenceScope } from "../../documents/evidence";
-import type { PageText } from "../../documents/passages";
 import type { WindowedPassage } from "../../documents/search";
 import type { PreparedChatModel } from "../../providers/chat";
-import { type AnswerDocuments, shownText } from "../citations";
+import { type AnswerDocuments, createCitationSession } from "../citations";
 import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
-import { type AtomicClaimCheckResult, type ClaimCheckRequest, runFailureOf } from "./claimCheck";
+import { ABSENCE_OUTPUT_TOKENS, absencePrompt, WHOLE_READ } from "./absence";
+import {
+  type AtomicClaimCheckResult,
+  type CheckStart,
+  type ClaimCheckRequest,
+  CONFIRM_OUTPUT_TOKENS,
+  runFailureOf,
+} from "./claimCheck";
+import { CONFIRM_INSTRUCTIONS, confirmPrompt, STRICT_INSTRUCTIONS } from "./prompt";
 
 export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as const;
 
 const WINDOW_TOKENS = 48_000;
 const CARRIED_TOKENS = 1_000;
+/** What a check Run writes to search, and then to give its verdict. */
+export const SEARCH_OUTPUT_TOKENS = 100;
+export const VERDICT_OUTPUT_TOKENS = 500;
 export const MOST_READ_TOKENS = 500_000;
 export const MOST_READ_DOCUMENTS = 25;
 
+/** What a read is sized by before its model is prepared: no consent is asked, nothing is sent. */
+export type ModelShape = Pick<PreparedChatModel, "window" | "support" | "capabilities">;
+
 export interface WholeReadOptions {
-  documents: {
+  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     live(documentIds: readonly string[]): Document[];
     passages(documentId: string): WindowedPassage[];
-    pageTexts: AnswerDocuments["pageTexts"];
   };
   /** The Documents a pick covers on its Note's side of a Folder wall (#1934). */
   pickedDocuments(within: SearchScope, mindId: string): string[];
   evidenceScope(mindId: string, documentIds: readonly string[]): EvidenceScope;
   defaultModel(): ChatModelChoice | null;
-  window(model: ChatModelChoice | null): Promise<PreparedChatModel["window"] | null>;
-  estimate(model: ChatModelChoice | null, windows: readonly number[]): RunEstimate | null;
+  model(model: ChatModelChoice | null): Promise<ModelShape | null>;
+  /** A check Run's text before its search's Passages (`checkRunStart`), which each of its requests sends. */
+  runStart(
+    check: CheckStart & { scope: EvidenceScope },
+    model: ModelShape,
+  ): { instructions: string; prompt: string; tools: string };
+  estimate(
+    model: ChatModelChoice | null,
+    sent: readonly EstimatedRequest[],
+    mayAlsoSend: readonly EstimatedRequest[],
+  ): RunEstimate | null;
   progress(event: DocumentCheckProgress): void;
   newId(): string;
 }
@@ -76,12 +98,6 @@ function pagesOf(
   while (from < to && !units.get(from)?.includes(opening)) from++;
   if (!units.get(from)?.includes(opening)) from = pageFrom;
   return Array.from({ length: Math.max(1, to - from + 1) }, (_, at) => from + at);
-}
-
-/** The Units a Passage covers, which the model is shown with it. */
-function unitsOf({ pageFrom, pageTo }: WindowedPassage, units: readonly PageText[]): PageText[] {
-  if (pageFrom === null || pageTo === null) return [];
-  return units.filter((unit) => unit.page !== null && unit.page >= pageFrom && unit.page <= pageTo);
 }
 
 /** The pages every supplied Passage of which reached the model. */
@@ -165,6 +181,72 @@ interface Reading {
 }
 
 export function createWholeRead(options: WholeReadOptions) {
+  /** Passages as a check's search shows them, to count what a read sends. */
+  const measuring = () => {
+    const { documents } = options;
+    return createCitationSession(
+      {
+        citationSource: (passageId) => documents.citationSource(passageId),
+        pageTexts: (documentId, contentHash, from, to) =>
+          documents.pageTexts(documentId, contentHash, from, to),
+        documentDate: (documentId) => documents.documentDate(documentId),
+      },
+      { onRecord: () => undefined },
+    );
+  };
+
+  /**
+   * The requests a read of `windows` sends for each of its checks, as their Runs build them: a
+   * search, the verdict with the window's Passages, and the absence judgement that may follow;
+   * and those it sends only when a window's judgement says the thing is there, its two looks at
+   * the quote.
+   */
+  function readRequests(
+    windows: readonly { passages: WindowedPassage[] }[],
+    checks: readonly CheckStart[],
+    scope: EvidenceScope,
+    model: ModelShape,
+  ): { sent: EstimatedRequest[]; mayAlsoSend: EstimatedRequest[] } {
+    const shown = measuring();
+    const sized = windows.map(({ passages }) => ({
+      tokens: estimateTokens(shown.measure(passages)),
+      longest: passages.reduce(
+        (longest, { text }) => (text.length > longest.length ? text : longest),
+        "",
+      ),
+    }));
+    const searches = (model.support ?? "tools") === "tools";
+    const sent: EstimatedRequest[] = [];
+    const mayAlsoSend: EstimatedRequest[] = [];
+    for (const check of checks) {
+      const start = options.runStart({ ...check, scope }, model);
+      const fixed =
+        estimateTokens(start.instructions) +
+        estimateTokens(start.prompt) +
+        estimateTokens(start.tools);
+      const query = estimateTokens(JSON.stringify({ query: check.claim }));
+      const judged = estimateTokens(WHOLE_READ) + estimateTokens(absencePrompt(check.claim, ""));
+      for (const window of sized) {
+        if (searches) sent.push({ inputTokens: fixed, outputTokens: SEARCH_OUTPUT_TOKENS });
+        sent.push({
+          inputTokens: fixed + (searches ? query : 0) + window.tokens,
+          outputTokens: VERDICT_OUTPUT_TOKENS,
+        });
+        sent.push({ inputTokens: judged + window.tokens, outputTokens: ABSENCE_OUTPUT_TOKENS });
+        const looked = estimateTokens(
+          confirmPrompt({ claim: check.claim, quote: window.longest, passage: window.longest }),
+        );
+        for (const instructions of [CONFIRM_INSTRUCTIONS, STRICT_INSTRUCTIONS]) {
+          mayAlsoSend.push({
+            inputTokens: estimateTokens(instructions) + looked,
+            outputTokens: CONFIRM_OUTPUT_TOKENS,
+          });
+        }
+      }
+    }
+    return { sent, mayAlsoSend };
+  }
+
   /** The latest plan in each Note, by Note: a read asked from an earlier one sends nothing. */
   const plans = new Map<string, { id: string; within: SearchScope; sentences: string }>();
   /** The latest whole read of each sentence, by `sentenceKey`: an earlier one never writes. */
@@ -179,6 +261,7 @@ export function createWholeRead(options: WholeReadOptions) {
       return { kind: "too-many", documents: picked.length, most: MOST_READ_DOCUMENTS };
     }
     const scope = options.evidenceScope(mindId, picked);
+    const shown = measuring();
     const documents: DocumentToRead[] = [];
     const passages: ToRead["passages"] = [];
     for (const document of options.documents.live(scope.documentIds ?? picked)) {
@@ -188,7 +271,7 @@ export function createWholeRead(options: WholeReadOptions) {
       const unitText = new Map(units.map((unit) => [unit.page ?? 1, unit.text]));
       const paged = own.map((passage) => ({
         passage,
-        tokens: estimateTokens(shownText(passage.text, unitsOf(passage, units))),
+        tokens: estimateTokens(shown.measure([passage])),
         pages: pagesOf(passage, unitText),
       }));
       const covered = new Set(paged.flatMap((each) => each.pages));
@@ -330,24 +413,23 @@ export function createWholeRead(options: WholeReadOptions) {
 
     /**
      * Sizes a read of `sentences` (a key of them, and of the part asked about) whose `parts` each
-     * read every window, and makes it the Note's latest plan.
+     * read every window, each with its own check (`checks`), and makes it the Note's latest plan.
      */
     async plan(
       mindId: string,
       within: SearchScope,
       model: ChatModelChoice | null,
-      target: { sentences: string; parts: number | null },
+      target: { sentences: string; parts: number | null; checks: readonly CheckStart[] },
     ): Promise<DocumentCheckPlan> {
       const id = options.newId();
       plans.set(mindId, { id, within, sentences: target.sentences });
       const read = toRead(mindId, within);
       if ("kind" in read) return read;
       const chosen = model ?? options.defaultModel();
-      const window = await options.window(chosen);
-      const windows = windowsOf(read, windowTokens(window ? { window } : null)).map(
-        (each) => each.tokens,
-      );
-      const parts = Math.max(1, target.parts ?? 1);
+      const shape = await options.model(chosen);
+      const requests =
+        shape &&
+        readRequests(windowsOf(read, windowTokens(shape)), target.checks, read.scope, shape);
       return {
         kind: "ready",
         id,
@@ -356,7 +438,7 @@ export function createWholeRead(options: WholeReadOptions) {
         pages: read.pages,
         readable: read.readable,
         tokens: read.tokens,
-        estimate: options.estimate(chosen, Array.from({ length: parts }, () => windows).flat()),
+        estimate: requests && options.estimate(chosen, requests.sent, requests.mayAlsoSend),
       };
     },
 

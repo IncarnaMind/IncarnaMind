@@ -259,6 +259,35 @@ test("a read whose parts aren't sorted yet asks its cost, however small", async 
   expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("A"), plan: "plan-unsorted" });
 });
 
+test("a read whose second looks may take it over $0.50 asks its cost; one that stays under reads", async () => {
+  const upTo = (amount: number, most: number): DocumentCheckPlan => {
+    const plan = ready(3, amount, `plan-${most}`);
+    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") return plan;
+    return {
+      ...plan,
+      estimate: {
+        ...plan.estimate,
+        upTo: { calls: 5, tokens: 2000, cost: { amount: most, currency: "USD" } },
+      },
+    };
+  };
+  bridge.planDocumentCheck.mockResolvedValue(upTo(0.4, 0.6));
+  await click("claim-check-document");
+  await click("pick-A");
+
+  expect(read).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull();
+  await click("document-check-read");
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: "plan-0.6" });
+
+  read.mockClear();
+  bridge.planDocumentCheck.mockResolvedValue(upTo(0.4, 0.45));
+  await click("claim-check-document");
+  await click("pick-B");
+  await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: "plan-0.45" });
+});
+
 test("a read asked again waits while the Note's check runs, then sizes it and asks", async () => {
   bridge.planDocumentCheck.mockResolvedValue(ready(12, 2));
   checksState.running = { mind: { requestId: "earlier", action: "check-against-document" } };

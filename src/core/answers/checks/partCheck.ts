@@ -74,6 +74,20 @@ function checkedPart(
   };
 }
 
+/** A part's own check: its words, read in its sentence and that sentence's paragraph. */
+export function partRequest<
+  T extends Pick<ClaimCheckRequest, "claim" | "context" | "originalClaim">,
+>(request: T, span: ClaimPartSpan, figures: readonly CheckFigure[]) {
+  return {
+    ...request,
+    claim: request.claim.slice(span.start, span.end),
+    figures: figures.length ? [...figures] : undefined,
+    projection: undefined,
+    originalClaim: request.originalClaim ?? request.claim,
+    context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+  };
+}
+
 export function createPartCheck(
   deps: ClaimCheckDependencies,
   atomic: (request: ClaimCheckRequest) => Promise<AtomicClaimCheckResult> = createClaimCheck(deps),
@@ -280,15 +294,7 @@ export function createPartCheck(
                 ? null
                 : request.claim.slice(plan.span.start, plan.span.end),
             },
-            () =>
-              atomic({
-                ...request,
-                claim: request.claim.slice(plan.span.start, plan.span.end),
-                figures: figures.length ? figures : undefined,
-                projection: undefined,
-                originalClaim: request.originalClaim ?? request.claim,
-                context: [request.context, request.claim].filter(Boolean).join("\n\n"),
-              }),
+            () => atomic(partRequest(request, plan.span, figures)),
           );
           parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
           if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {

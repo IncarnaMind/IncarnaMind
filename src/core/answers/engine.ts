@@ -1639,6 +1639,34 @@ function presearchMessages(
   ];
 }
 
+/** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
+function offeredWith(
+  documents: ReturnType<typeof documentTools> | null,
+  others: readonly Tool[],
+): Tool[] {
+  const offered = new Map(
+    offeredTools([
+      ...(documents
+        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        : []),
+      ...(documents?.calculate ? [documents.calculate] : []),
+      ...others,
+    ]).map((each) => [each.name, each]),
+  );
+  return [...offered.values()];
+}
+
+const MEASURING: DocumentToolsHooks = {
+  fit: (found) => found,
+  searched: () => undefined,
+  cited: () => undefined,
+};
+
+/** The Tools' definitions each request of a Run on these Documents sends, as its Tool loop offers them. */
+export function documentToolDefinitions(documents: AnswerTools, toolSet: ToolSet): string {
+  return definitions(offeredWith(documentTools(documents, MEASURING, toolSet), []));
+}
+
 /**
  * The Tools' definitions as the window's estimate counts them: by name, each
  * with its description and JSON Schema (written out as the AI SDK's `ToolSet`
@@ -1766,16 +1794,8 @@ async function* toolLoop(
       return result;
     },
   });
-  /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
-  const offered = new Map(
-    offeredTools([
-      ...(documents
-        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
-        : []),
-      ...(calculate ? [calculate] : []),
-      ...request.tools,
-    ]).map((each) => [each.name, each]),
-  );
+  /** The Tools offered, by the name the model calls them. */
+  const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);

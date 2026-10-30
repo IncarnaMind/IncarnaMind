@@ -86,7 +86,8 @@ export interface EstimateLine {
 /**
  * The line before a large run on a model billed per token, shown and never
  * asked: "About $1.40 · 310K tokens · $12.40 of $20.00 used this month"
- * (price first, as DESIGN.md's plan card writes it). A run that would cost a
+ * (price first, as DESIGN.md's plan card writes it), or "About $0.40, up
+ * to $0.55" when what it reads may ask for more requests. A run that would cost a
  * dollar or less shows none unless a monthly cap is set, whose month so far
  * is worth seeing (#1941); so does one no price is known for. Null for a
  * plan or a model on this computer, which show nothing. `always` is for a
@@ -99,9 +100,8 @@ export function estimateLine(
   options: { always?: boolean } = {},
 ): EstimateLine | null {
   if (estimate.billing !== "per-token") return null;
-  if (!options.always && !estimate.cap && !(estimate.cost !== null && estimate.cost.amount > 1)) {
-    return null;
-  }
+  const most = estimate.upTo?.cost ?? estimate.cost;
+  if (!options.always && !estimate.cap && !(most !== null && most.amount > 1)) return null;
   const tokens = t("cost.estimate.tokens", {
     tokens: new Intl.NumberFormat(language, { notation: "compact" }).format(estimate.tokens),
   });
@@ -118,9 +118,12 @@ export function estimateLine(
           ...(aside ? [aside] : []),
         ]
       : [];
-  const run = estimate.cost
-    ? [t("cost.estimate.price", { cost: formatMoney(estimate.cost, language) }), tokens]
-    : [tokens];
+  const cost = estimate.cost && formatMoney(estimate.cost, language);
+  const price =
+    cost && most && estimate.cost && most.amount > estimate.cost.amount
+      ? t("cost.estimate.priceUpTo", { cost, most: formatMoney(most, language) })
+      : cost && t("cost.estimate.price", { cost });
+  const run = price ? [price, tokens] : [tokens];
   const parts = [...run, ...month];
   return { parts, title: joinMeta(parts) };
 }

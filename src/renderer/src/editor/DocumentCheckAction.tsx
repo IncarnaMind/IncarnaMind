@@ -24,11 +24,11 @@ import { AskBlock } from "./MindCheckLine";
 type ReadyPlan = Extract<DocumentCheckPlan, { kind: "ready" }>;
 
 // Unknown parts could cost more than the estimate says, so that read always asks.
-const readsAtOnce = ({ estimate, parts }: ReadyPlan) =>
-  parts !== null &&
-  estimate?.billing === "per-token" &&
-  estimate.cost !== null &&
-  estimate.cost.amount <= 0.5;
+const readsAtOnce = ({ estimate, parts }: ReadyPlan) => {
+  if (parts === null || estimate?.billing !== "per-token") return false;
+  const most = estimate.upTo?.cost ?? estimate.cost;
+  return most !== null && most.amount <= 0.5;
+};
 
 /**
  * Check against a Document…, and a whole read asked again (`requestDocumentRead`): each sized

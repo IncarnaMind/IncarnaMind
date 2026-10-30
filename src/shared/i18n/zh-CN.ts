@@ -3418,6 +3418,7 @@ export const zhCN = {
 
   "cost.and": "{first} 和 {second}",
   "cost.estimate.price": "约 {cost}",
+  "cost.estimate.priceUpTo": "约 {cost}，最多 {most}",
   "cost.estimate.tokens": "{tokens} token",
   "cost.estimate.month": "本月已用 {spent}，上限 {cap}",
   "cost.cap.title": "每月花费上限",

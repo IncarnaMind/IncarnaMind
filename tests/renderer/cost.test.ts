@@ -176,6 +176,32 @@ describe("Cost in words", () => {
       estimateLine({ ...estimate, cost: { amount: 0.4, currency: "USD" } }, t("zh-CN"), "zh-CN")
         ?.parts,
     ).toEqual(["约 $0.40", "31万 token", "本月已用 $12.40，上限 $20.00"]);
+    // A read that may send more than it does names the most it may cost; that most counts toward
+    // showing the line at all.
+    const upTo = {
+      ...estimate,
+      cost: { amount: 0.4, currency: "USD" as const },
+      upTo: { calls: 30, tokens: 340_000, cost: { amount: 1.2, currency: "USD" as const } },
+      cap: null,
+      spentTowardCap: null,
+      setAsideTowardCap: null,
+    };
+    expect(estimateLine(upTo, t("en"), "en")?.parts).toEqual([
+      "About $0.40, up to $1.20",
+      "310K tokens",
+    ]);
+    expect(estimateLine(upTo, t("zh-CN"), "zh-CN")?.parts).toEqual([
+      "约 $0.40，最多 $1.20",
+      "31万 token",
+    ]);
+    expect(
+      estimateLine(
+        { ...upTo, upTo: { ...upTo.upTo, cost: { amount: 0.4, currency: "USD" } } },
+        t("en"),
+        "en",
+        { always: true },
+      )?.parts,
+    ).toEqual(["About $0.40", "310K tokens"]);
     expect(estimateLine({ billing: "plan" }, t("en"), "en")).toBeNull();
     expect(estimateLine({ billing: "free" }, t("en"), "en")).toBeNull();
     // "model calls" never appears in the interface (#1941).

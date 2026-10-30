@@ -38,7 +38,20 @@ interface AbsenceContext {
   fits: boolean;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
+  /** The two looks an ordinary Contradicted gets, at the quote the read says contains the thing. */
+  confirm(evidence: Citation): Promise<Confirmation>;
 }
+
+export type Confirmation =
+  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { failed: ProviderError };
+
+/** The most a whole read's judgement writes. */
+export const ABSENCE_OUTPUT_TOKENS = 400;
+
+/** What a whole read's judgement is asked about: the sentence, then the text it reads. */
+export const absencePrompt = (claim: string, whole: string): string =>
+  `<sentence>\n${claim}\n</sentence>\n\n${whole}`;
 
 interface WholeReading {
   documentId: string;
@@ -159,6 +172,7 @@ export async function checkAbsence({
   fits,
   notChecked,
   failedCheck,
+  confirm,
 }: AbsenceContext): Promise<AtomicClaimCheckResult | null> {
   const { model, signal, window } = request;
   // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
@@ -192,9 +206,9 @@ export async function checkAbsence({
     const { text } = await generateText({
       model: model.model,
       instructions: WHOLE_READ,
-      prompt: `<sentence>\n${request.claim}\n</sentence>\n\n${whole}`,
+      prompt: absencePrompt(request.claim, whole),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 400,
+      maxOutputTokens: ABSENCE_OUTPUT_TOKENS,
       maxRetries: 1,
       abortSignal: signal,
     });
@@ -208,7 +222,10 @@ export async function checkAbsence({
   // that contains the absent thing when it is there. A quote the check's search cited on the way
   // backs nothing here, and a card or Citation that showed it would show an unrelated line.
   const { versions: read, excluded } = facts();
-  const judgment = (verdict: "supported" | "contradicted", evidence: Citation | null) => ({
+  const judgment = (
+    verdict: "supported" | "contradicted" | "unsupported",
+    evidence: Citation | null,
+  ) => ({
     verdict,
     evidence,
     says: null,
@@ -220,7 +237,8 @@ export async function checkAbsence({
     excluded,
   });
   let absence: ClaimJudgment;
-  if (value.absence === "holds") absence = judgment("supported", null);
+  let holds = value.absence === "holds";
+  if (holds) absence = judgment("supported", null);
   else if (value.absence === "contained") {
     const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
     if (citations.length === 0) return notChecked("no-evidence");
@@ -228,7 +246,18 @@ export async function checkAbsence({
     session.check();
     const evidence = session.finalCitation(1);
     if (evidence?.check !== "found") return notChecked("no-evidence");
-    absence = judgment("contradicted", evidence);
+    // Saying the thing is there contradicts the sentence, so it gets an ordinary Contradicted's
+    // two looks: a quote about something else leaves the absence holding, as on a garden clause
+    // given for "no parking" (#1554).
+    const confirmation = await confirm(evidence);
+    if ("failed" in confirmation) return failedCheck(confirmation.failed);
+    if (confirmation.kind === "stopped") return notChecked("stopped");
+    if (confirmation.kind === "malformed") return notChecked("malformed");
+    holds = confirmation.kind === "unrelated";
+    absence =
+      confirmation.kind === "confirmed"
+        ? judgment("contradicted", evidence)
+        : judgment(holds ? "supported" : "unsupported", null);
   } else return notChecked("malformed");
   const figures = request.figures ?? [];
   const absent = typeof value.absent === "string" ? value.absent : null;
@@ -238,7 +267,7 @@ export async function checkAbsence({
   return {
     ...result,
     readPassages: window.map((passage) => passage.passageId),
-    ...(value.absence === "holds" && { absenceHeld: true }),
+    ...(holds && { absenceHeld: true }),
   };
 }
 

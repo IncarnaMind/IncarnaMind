@@ -3561,6 +3561,7 @@ export const en = {
 
   "cost.and": "{first} and {second}",
   "cost.estimate.price": "About {cost}",
+  "cost.estimate.priceUpTo": "About {cost}, up to {most}",
   "cost.estimate.tokens": "{tokens} tokens",
   "cost.estimate.month": "{spent} of {cap} used this month",
   "cost.cap.title": "Monthly spending cap",

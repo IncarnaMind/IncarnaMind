@@ -79,6 +79,8 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
     {
       generate: (call) => {
         requests.push(call.system);
+        // Its two looks at the clause the whole read quotes find it contradicts the sentence.
+        if (call.system.startsWith("Compare a sentence")) return { text: "Judgement: conflict" };
         if (!call.system.startsWith("Read the whole Documents")) {
           return call.system.startsWith("You sort the sentences")
             ? checkGenerate({ [claim]: plan })(call)
@@ -390,6 +392,71 @@ describe("Checking an absence sentence", () => {
       expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
       expect(result.readDocuments).toBeUndefined();
       expect(wholeReads).toHaveLength(0);
+    },
+  );
+
+  test.each([
+    {
+      language: "en" as const,
+      claim: "The lease has no parking.",
+      garden: "The tenant keeps the garden tidy.",
+      parking: "The tenant may park one car in the yard.",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "租约中没有停车位。",
+      garden: "租户应保持花园整洁。",
+      parking: "租户可在院内停放一辆车。",
+    },
+  ])(
+    "a quote the whole read says holds the absent thing but that is about something else doesn't Contradict; the thing itself does ($language)",
+    async (example) => {
+      const read = async (quote: string) => {
+        const looks: string[] = [];
+        const plan = { [example.claim]: { verdict: "unsupported" as const, absence: true } };
+        const model = scriptedModel((call) => checkReply(call, plan), {
+          generate: (call) => {
+            if (call.system.startsWith("Compare a sentence")) {
+              looks.push(call.system);
+              return {
+                text: `Judgement: ${call.prompt.includes(example.parking) ? "conflict" : "neither"}`,
+              };
+            }
+            if (!call.system.startsWith("Read the whole Documents"))
+              return checkGenerate(plan)(call);
+            const passage = shownPassages(call.prompt).find((each) => each.text.includes(quote));
+            return {
+              text: JSON.stringify({
+                absent: "parking",
+                absence: "contained",
+                citations: [{ marker: 1, passage: passage?.id, quote }],
+              }),
+            };
+          },
+        });
+        const lines = [example.garden, ...(quote === example.parking ? [example.parking] : [])];
+        const { core } = await setUpWithDocuments(model, [
+          {
+            name: "Lease.pdf",
+            contents: buildPdf([
+              example.language === "zh-CN" ? { chineseLines: lines } : { lines },
+            ]),
+          },
+        ]);
+        await core.updateSettings({ user: { language: example.language } });
+        return { result: await core.checkClaim({ claim: example.claim }), looks };
+      };
+
+      const garden = await read(example.garden);
+      expect(garden.result).toMatchObject({ verdict: "supported", evidence: null });
+      expect(garden.looks).toHaveLength(1);
+
+      const parking = await read(example.parking);
+      expect(parking.result).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: example.parking, check: "found" },
+      });
+      expect(parking.looks).toHaveLength(2);
     },
   );
 

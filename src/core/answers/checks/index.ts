@@ -30,9 +30,11 @@ import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
   checkWithParts,
+  figuresByPart,
   partWithResult,
   pendingPart,
   resultFromParts,
+  withFigureFacts,
 } from "../../../shared/claimParts";
 import {
   beginFigureCheck,
@@ -76,6 +78,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
+import type { EstimatedRequest } from "../../cost/meter";
 import { depositionMapper } from "../../documents/deposition";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
@@ -101,14 +104,16 @@ import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
   type CheckedCitation,
+  type CheckStart,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
+  checkRunStart,
   createClaimCheck,
   recordJudged,
 } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
-import { createPartCheck } from "./partCheck";
+import { createPartCheck, partRequest } from "./partCheck";
 import {
   judgeResolvedRecordCites,
   notJudgedError,
@@ -132,7 +137,7 @@ import {
 } from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
-import { createWholeRead, DOCUMENT_CHECK_FLOW_SENDS } from "./wholeRead";
+import { createWholeRead, DOCUMENT_CHECK_FLOW_SENDS, type ModelShape } from "./wholeRead";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
 /**
@@ -196,7 +201,7 @@ export interface ChecksOptions
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
     prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
-    contextWindow(choice: ChatModelChoice | undefined): Promise<PreparedChatModel["window"] | null>;
+    modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -217,8 +222,12 @@ export interface ChecksOptions
       /** A live Document's Passages, in reading order. */
       passages(documentId: string): WindowedPassage[];
     };
-  /** The estimate of a whole read in windows of these many tokens each. */
-  estimateRead(model: ChatModelChoice | null, windows: readonly number[]): RunEstimate | null;
+  /** The estimate of a whole read that sends these requests, and may send those too. */
+  estimateRead(
+    model: ChatModelChoice | null,
+    sent: readonly EstimatedRequest[],
+    mayAlsoSend: readonly EstimatedRequest[],
+  ): RunEstimate | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
@@ -991,20 +1000,21 @@ export function createChecks(options: ChecksOptions) {
   /**
    * The sentences a whole read of these stretches reads (as `sentenceKey`s, with the part asked
    * about), and how many of their parts it checks against the pick: a part asked about, else each
-   * not yet Supported or Contradicted, as the part check reads them. Null parts: a sentence with
-   * none yet is sorted as it is read.
+   * not yet Supported or Contradicted, as the part check reads them, with each one's check. Null
+   * parts: a sentence with none yet is sorted as it is read, its check naming its parts first.
    */
   function readTarget(
     mindId: string,
     stretches: readonly TextStretch[],
     part: ParsedCheck["part"],
-  ): { sentences: string; parts: number | null } {
+  ): { sentences: string; parts: number | null; checks: CheckStart[] } {
     return content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
       const sentences = selected.ok ? selected.sentences : [];
       const owner = part ? partOwner(blocks, part) : null;
       const read = sentences.filter((sentence) => !owner || isSentence(owner.sentence, sentence));
       let parts: number | null = 0;
+      const checks: CheckStart[] = [];
       for (const sentence of read) {
         const marks = markedSentences(blocks).filter(
           (each) =>
@@ -1012,19 +1022,34 @@ export function createChecks(options: ChecksOptions) {
         );
         const prior =
           marks.length === 1 && marks[0]?.check.text === sentence.text ? marks[0] : null;
+        const all = owner?.parts ?? prior?.check.parts;
         const open = part
-          ? 1
+          ? owner?.parts.filter(
+              (each) => each.span.start === part.span.start && each.span.end === part.span.end,
+            )
           : prior?.check.parts?.filter(
               (each) =>
                 each.verdict !== "supported" &&
                 each.verdict !== "contradicted" &&
                 !(each.kind === "opinion" && each.verdict === null),
-            ).length;
-        parts = parts === null || open === undefined ? null : parts + open;
+            );
+        parts = parts === null || open === undefined ? null : parts + open.length;
+        const asked = { ...checkText(sentence), cited: citedNow(sentence.cited) };
+        if (!all || !open) {
+          checks.push({ ...asked, findsParts: true });
+          continue;
+        }
+        const figures = asked.figures ?? [];
+        const plans = withFigureFacts(asked.claim, all, figures, asked.projection);
+        const owned = figuresByPart(asked.claim, plans, figures, asked.projection);
+        for (const each of open) {
+          checks.push(partRequest(asked, each.span, owned?.[all.indexOf(each)] ?? []));
+        }
       }
       return {
         sentences: JSON.stringify([read.map((each) => sentenceKey(mindId, each)), part ?? null]),
         parts,
+        checks,
       };
     });
   }
@@ -1342,15 +1367,12 @@ export function createChecks(options: ChecksOptions) {
   });
 
   const wholeRead = createWholeRead({
-    documents: {
-      live: options.documents.live,
-      passages: options.documents.passages,
-      pageTexts: options.documents.pageTexts,
-    },
+    documents: options.documents,
     pickedDocuments: options.pickedDocuments,
     evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),
     defaultModel: options.defaultModel,
-    window: (choice) => chat.contextWindow(choice ?? undefined),
+    model: (choice) => chat.modelShape(choice ?? undefined),
+    runStart: (check, model) => checkRunStart(options, check, model),
     estimate: options.estimateRead,
     progress: options.documentCheckProgress,
     newId: randomUUID,

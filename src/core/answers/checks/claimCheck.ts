@@ -32,6 +32,7 @@ import type {
   CheckedVersion,
   CheckFigure,
   Citation,
+  CitationSupport,
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckPart,
@@ -75,9 +76,10 @@ import {
   type CitationRecordInput,
   type CiteOptions,
   type DocumentLanguage,
+  documentToolDefinitions,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { checkAbsence, fitsWholeRead } from "./absence";
+import { type Confirmation, checkAbsence, fitsWholeRead } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -388,6 +390,77 @@ function citedSources(
   return [...found.values()];
 }
 
+const asPassage = (source: CitationSource): WindowedPassage => ({
+  ...source,
+  seq: 0,
+  position: 0,
+  windowFrom: 0,
+  windowTo: 0,
+});
+
+const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
+  model.support === "tools" && calculates(model.capabilities);
+
+/** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
+export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
+  /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
+  findsParts?: boolean;
+};
+
+/** A check Run's instructions, for the way its model gives Citations, and its prompt. */
+function runStart(request: CheckStart, language: Language, calculating: boolean) {
+  return {
+    instructions: (mode: CitationSupport | "no-documents", passages?: string) =>
+      checkInstructions(
+        mode,
+        language,
+        passages,
+        calculating,
+        (request.figures?.length ?? 0) > 0,
+        request.findsParts === true,
+      ),
+    prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
+  };
+}
+
+/**
+ * What every request of a check Run sends before the Passages its search returns: its
+ * instructions, its prompt and its Tools' definitions, as the Run builds them. A model that can't
+ * call Tools is sent the Passages in its instructions, and no Tools.
+ */
+export function checkRunStart(
+  deps: Pick<ClaimCheckDependencies, "documents" | "language">,
+  request: CheckStart & { scope: EvidenceScope },
+  model: Pick<PreparedChatModel, "support" | "capabilities">,
+): { instructions: string; prompt: string; tools: string } {
+  const calculating = calculatesIn(model);
+  const start = runStart(request, deps.language(), calculating);
+  const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
+  const { documents } = deps;
+  const session = createCitationSession(
+    {
+      citationSource: (passageId) => documents.citationSource(passageId),
+      pageTexts: (documentId, contentHash, from, to) =>
+        documents.pageTexts(documentId, contentHash, from, to),
+      documentDate: (documentId) => documents.documentDate(documentId),
+    },
+    { onRecord: () => undefined },
+  );
+  const mode = model.support ?? "tools";
+  const tools: AnswerTools = {
+    documentCount: 1,
+    documentLanguages: deps.documents.searchableLanguages(request.scope.documentIds),
+    searchDocuments: async () => ({ text: "", passageCount: 0 }),
+    cite: () => "",
+    ...(calculating && { calculate: () => "" }),
+  };
+  return {
+    instructions: start.instructions(mode),
+    prompt: start.prompt(cited.length > 0 ? session.measure(cited.map(asPassage)) : null),
+    tools: mode === "tools" ? documentToolDefinitions(tools, "check") : "",
+  };
+}
+
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
     const { scope, signal } = request;
@@ -470,22 +543,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
     for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
-    const citedShown =
-      citedPassages.length > 0
-        ? session.show(
-            citedPassages.map((source) => ({
-              ...source,
-              seq: 0,
-              position: 0,
-              windowFrom: 0,
-              windowTo: 0,
-            })),
-          )
-        : null;
+    const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
-    const calculating = model.support === "tools" && calculates(model.capabilities);
+    const calculating = calculatesIn(model);
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;
@@ -760,6 +822,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         fits: readsWhole(),
         notChecked,
         failedCheck,
+        confirm: (evidence) => confirmContradiction(request, evidence, session, signal),
       });
     };
 
@@ -835,22 +898,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
+    const start = runStart(
+      { ...request, findsParts: request.findParts !== undefined },
+      deps.language(),
+      calculating,
+    );
     for await (const event of deps.engine.generate({
-      instructions: (mode, options) =>
-        checkInstructions(
-          mode,
-          deps.language(),
-          options?.passages,
-          calculating,
-          (request.figures?.length ?? 0) > 0,
-          request.findParts !== undefined,
-        ),
-      messages: [
-        {
-          role: "user",
-          content: claimPrompt({ ...request, citedShown, language: deps.language() }),
-        },
-      ],
+      instructions: (mode, options) => start.instructions(mode, options?.passages),
+      messages: [{ role: "user", content: start.prompt(citedShown) }],
       question: request.claim,
       model: model.model,
       documents: tools,
@@ -1504,6 +1559,9 @@ async function askForEvidence(
   return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
 }
 
+/** The most a second look at a quote writes. */
+export const CONFIRM_OUTPUT_TOKENS = 300;
+
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
 // another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
 async function compare(
@@ -1532,7 +1590,7 @@ async function compare(
         quantity,
       }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 300,
+      maxOutputTokens: CONFIRM_OUTPUT_TOKENS,
       maxRetries: 1,
       abortSignal: signal,
     });
@@ -1556,10 +1614,7 @@ async function confirmContradiction(
   quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
-): Promise<
-  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
-  | { failed: ProviderError }
-> {
+): Promise<Confirmation> {
   const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
   if (signal.aborted) return { kind: "stopped" };
   if ("failed" in first) return first;
