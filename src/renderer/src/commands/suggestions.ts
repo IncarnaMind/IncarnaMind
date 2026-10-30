@@ -10,6 +10,15 @@ const waitingIn = (ctx: CommandContext): string[] => {
   return idsOf(ctx, "document").filter((id) => waiting.has(id));
 };
 
+/** What an accept the assistant runs accepts, for the Folders and wall the core checked; null for the User's. */
+const checkedIn = (
+  ctx: CommandContext,
+): [string[], Record<string, string | null>, string | null] | null => {
+  if (!ctx.checked) return null;
+  const into = Object.fromEntries(ctx.checked.map((each) => [each.id, each.into ?? null]));
+  return [Object.keys(into), into, ctx.checkedWall ?? null];
+};
+
 export const suggestionCommands: readonly Command[] = [
   {
     id: "document.accept",
@@ -24,7 +33,9 @@ export const suggestionCommands: readonly Command[] = [
     when: (ctx) => waitingIn(ctx).length > 0,
     reversible: true,
     async run(ctx) {
-      return (await acceptSuggestions(waitingIn(ctx))) ?? undefined;
+      const checked = checkedIn(ctx);
+      if (!checked) return (await acceptSuggestions(waitingIn(ctx))) ?? undefined;
+      return (await acceptSuggestions(...checked)) ?? undefined;
     },
   },
   {
@@ -56,9 +67,9 @@ export const suggestionCommands: readonly Command[] = [
       waitingIds().length > 0,
     reversible: true,
     async run(ctx) {
-      if (!ctx.checked) return (await acceptSuggestions(waitingIds())) ?? undefined;
-      const checked = Object.fromEntries(ctx.checked.map((each) => [each.id, each.into ?? null]));
-      return (await acceptSuggestions(Object.keys(checked), checked)) ?? undefined;
+      const checked = checkedIn(ctx);
+      if (!checked) return (await acceptSuggestions(waitingIds())) ?? undefined;
+      return (await acceptSuggestions(...checked)) ?? undefined;
     },
   },
 ];

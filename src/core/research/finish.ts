@@ -144,18 +144,35 @@ function freeName(name: string, taken: readonly string[]): string {
 const idOf = (value: unknown, field: string): string | null =>
   isRecord(value) && typeof value[field] === "string" ? (value[field] as string) : null;
 
-/** The Folder an earlier try made, if it is still there; else a new one, named for the research. */
-function folderFor(options: FinishOptions, task: TaskRun, chosen: string, topic: string) {
+/**
+ * The Folder an earlier try made, if it is still there and outside every wall; else a new one,
+ * named for the research.
+ */
+function folderFor(
+  options: FinishOptions,
+  task: TaskRun,
+  chosen: string,
+  topic: string,
+  wallId: string | null,
+) {
   const earlier = idOf(task.step(FOLDER_RECORD)?.result, "folderId");
   const name = idOf(task.step(FOLDER_RECORD)?.result, "name");
-  if (earlier && name && options.library.folderExists(earlier)) return { id: earlier, name };
+  if (
+    earlier &&
+    name &&
+    options.library.folderExists(earlier) &&
+    options.filedWithin(wallId, earlier)?.folderId === earlier
+  ) {
+    return { id: earlier, name };
+  }
+  const named = freeName(chosen, options.library.folderNames());
   const id = options.library.createFolder(
-    chosen,
+    named,
     options.say("research.folder.description", { topic: cutTitle(topic) }),
   );
   task.started(FOLDER_RECORD);
-  task.settled(FOLDER_RECORD, "completed", { folderId: id, name: chosen });
-  return { id, name: chosen };
+  task.settled(FOLDER_RECORD, "completed", { folderId: id, name: named });
+  return { id, name: named };
 }
 
 /** How a Task pauses at a limit: the monthly cap, or a plan's until it resets. */
@@ -292,7 +309,7 @@ export async function fileSources(
   // The User may have deleted the wall's Folder while they were asked.
   const folder = wall
     ? wallFolder(options, input.wallId)
-    : folderFor(options, task, name, input.topic);
+    : folderFor(options, task, name, input.topic, input.wallId);
   if (!folder) return keptInside(task, SAVE_STEP);
   options.library.file(
     pages.map((page) => page.id),

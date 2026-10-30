@@ -340,8 +340,17 @@ export const en = {
   "folder.keepInside": "Keep this Folder’s work inside it",
   "folder.keepInside.hint": "Its notes use only its Documents, and other notes don’t search them",
   "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "folder.wall.changed":
+    "This Folder’s “Keep this Folder’s work inside it” changed while the Answer was written.",
   "folder.wall.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "folder.wall.pageNotFiled":
+    "A page this Answer read wasn’t filed in a Folder: a Folder’s “Keep this Folder’s work inside it” changed while the Answer was written.",
+  "folder.wall.pageNotFiledGone":
+    "A page this Answer read wasn’t filed in a Folder: the Folder it would go in was deleted while the Answer was written.",
+  "status.savedOutside.one": "1 page saved outside its Folder",
+  "status.savedOutside.other": "{count} pages saved outside their Folder",
+  "documents.savedOutside": "These pages were saved, but not into the Folder you chose: {names}",
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
