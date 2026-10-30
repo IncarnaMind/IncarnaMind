@@ -56,6 +56,7 @@ import type {
   AnalysisVersions,
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
+import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
 import type { FigureFooting } from "../shared/figureFooting";
@@ -2676,6 +2677,12 @@ export interface DocumentPlace {
   /** The Citation this was opened from, if a Citation opened it. */
   citation?: TabCitation;
   /**
+   * The Document as it is now, not the version its Citation quotes (#2159): "Open the
+   * current version" from the cited version's view, which keeps the Citation so the
+   * viewer still says the Document changed, as it did before the version was shown.
+   */
+  currentVersion?: true;
+  /**
    * In a Word file: the paragraph or table to go to, by its place in the main document
    * part ("w:p#12", "w:tbl#3"), as a Mind imported from it records (`WordSource.n`, #736).
    */
@@ -3832,6 +3839,49 @@ export interface DocumentText {
    * `page` being the Unit's number, from 1. Empty if no text is indexed.
    */
   pages: { page: number; text: string; kind: UnitKind; label: UnitLabel | null }[];
+}
+
+/**
+ * The text kept of one version of a Document, and when it was made: the
+ * version a Citation was made from, which the viewer shows after the
+ * Document changed (#2159).
+ */
+export interface DocumentVersionText {
+  documentId: string;
+  contentHash: string;
+  /**
+   * When that version was made: a saved page's fetch of it, else its file's
+   * last change, in ISO 8601 UTC. The view of it says "As cited, {date}".
+   */
+  versionAt: string;
+  /** Its Units, `page` from 1, as `DocumentText.pages`. */
+  pages: DocumentText["pages"];
+}
+
+/** A version of a Document to read the kept text of (see `CoreApi.readVersionText`). */
+export interface ReadVersionTextInput {
+  documentId: string;
+  /** The version cited: the SHA-256 of its file, as a Citation stores it. */
+  contentHash: string;
+  /**
+   * The cited Units, from 1; both null for every Unit kept (a whole TXT or
+   * Markdown file cited before Units).
+   */
+  pageFrom: number | null;
+  pageTo: number | null;
+}
+
+/** A Citation's place, as its saved page is found (#133): where it stood in the version it quotes. */
+export interface ReadCitedPageInput {
+  documentId: string;
+  /** The version cited: the SHA-256 of its file, as a Citation stores it. */
+  contentHash: string;
+  /** The cited Units, from 1; null for a Citation made before Units. */
+  pageFrom: number | null;
+  /** The last cited Unit; null for the same Unit as `pageFrom`. */
+  pageTo: number | null;
+  /** Where in its Document it points, which says what the page shows; null for a Citation made before Locations. */
+  location: CitationLocation | null;
 }
 
 /**
@@ -8720,7 +8770,8 @@ export type WindowCommandResult = WindowCommandEnd | { started: true };
 export const RECENTLY_DELETED_DAYS = 30;
 
 /** What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is an in-app one. */
-export type DeletedKind = "mind" | "conversation" | "document" | "folder" | "tag";
+export const DELETED_KINDS = ["mind", "conversation", "document", "folder", "tag"] as const;
+export type DeletedKind = (typeof DELETED_KINDS)[number];
 
 export interface DeletedRef {
   kind: DeletedKind;
@@ -8732,6 +8783,12 @@ export interface RestoreRef extends DeletedRef {
   links?: TagLinkState[];
 }
 
+/** What Undo of a Restore puts back in Recently deleted: an item, at the time it was deleted before it came back. */
+export interface DeletedAgainRef extends DeletedRef {
+  /** ISO 8601, UTC. */
+  deletedAt: string;
+}
+
 export interface DeletedItem {
   kind: DeletedKind;
   id: string;
@@ -8741,7 +8798,10 @@ export interface DeletedItem {
   deletedAt: string;
   /** A Document's kind; null for the others. */
   documentKind: DocumentKind | null;
-  /** The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and for the others. */
+  /**
+   * The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and
+   * for the others. One deleted after it still counts, until that Folder is deleted permanently.
+   */
   groupId: string | null;
   /** A Document's Linked folder, or null: a file added on its own, and for the others. */
   linkedFolderId: string | null;
@@ -9941,6 +10001,13 @@ export interface CoreApi {
    */
   restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
   /**
+   * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
+   * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
+   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
+   */
+  deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
+  /**
    * Takes back every change the commands of one of the assistant's Runs made (#1110), the last
    * first: `CommandDone.run`. A change that can't be taken back is skipped and the rest are;
    * called again, it tries those left. Throws NotFoundError for a Run of an earlier session.
@@ -10309,6 +10376,21 @@ export interface CoreApi {
    * NotFoundError for an unknown or deleted Document.
    */
   readDocumentText(documentId: string): Promise<DocumentText>;
+  /**
+   * The text kept of one version of a live Document, its Units `pageFrom` to
+   * `pageTo`: the version a Citation was made from, which the viewer shows
+   * after the Document changed (#2159). Null when that version's text isn't
+   * kept. Throws NotFoundError for an unknown or deleted Document.
+   */
+  readVersionText(input: ReadVersionTextInput): Promise<DocumentVersionText | null>;
+  /**
+   * The picture saved of the place a Citation cites, in the version it quotes
+   * (#133): how its Location looked, with the text drawn on it, so the viewer
+   * shows it as cited after the file changed (#2159). Null when none is saved:
+   * the Citation was made before pages were saved, its page couldn't be drawn,
+   * or it waits to be. Throws NotFoundError for an unknown or deleted Document.
+   */
+  readCitedPage(input: ReadCitedPageInput): Promise<DrawnPage | null>;
   /**
    * The scanned pages of a Document's current version, with where their
    * lines are (#397): empty when it has none. Throws NotFoundError for an
@@ -11994,6 +12076,8 @@ const methods: Record<CoreApiMethod, true> = {
   documentPasswordFor: true,
   listDocumentPasswords: true,
   readDocumentText: true,
+  readVersionText: true,
+  readCitedPage: true,
   readScannedText: true,
   readScannedQuote: true,
   readableQuote: true,
@@ -12174,6 +12258,7 @@ const methods: Record<CoreApiMethod, true> = {
   moveToFolder: true,
   restoreAssignment: true,
   restore: true,
+  deleteAgain: true,
   undoCommands: true,
   redoCommands: true,
   listDeleted: true,
