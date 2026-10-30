@@ -225,6 +225,34 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     );
   });
 
+  test('a note typed as an ordinary one ("normal"), in English or Chinese, is a footnote like any, edited and written back with its start tag', async () => {
+    const typed = (xml: string) => xml.replace(/^<w:(footnote|endnote) /, '<w:$1 w:type="normal" ');
+    const { core, mindId, client } = await setUp({
+      body: [
+        paragraph(`${run("The lease ends in 2030.")}${noteMark("footnote", 1)}`),
+        paragraph(`${run("合同自签署之日起生效。")}${noteMark("endnote", 1)}`),
+      ].join(""),
+      footnotes: typed(note("footnote", 1, ["See clause 4."])),
+      endnotes: typed(note("endnote", 1, ["见《民法典》第五百零二条。"])),
+    });
+    expect(
+      footnotesOf(client).map((each) => [plain(each.content), each.attrs?.endnote ?? null]),
+    ).toEqual([
+      ["See clause 4.", null],
+      ["见《民法典》第五百零二条。", true],
+    ]);
+    editFootnote(client, "See clause 4.", (text) => text.replace("4", "9"));
+    editFootnote(client, "见《民法典》第五百零二条。", (text) => text.replace("。", "第一款。"));
+    await client.settled();
+    const { part } = await exported(core, mindId);
+    const typedNote = (xml: string, kind: "footnote" | "endnote") =>
+      new RegExp(`<w:${kind} w:type="normal" w:id="1">[\\s\\S]*?</w:${kind}>`).exec(xml)?.[0] ?? "";
+    expect(typedNote(part("word/footnotes.xml"), "footnote")).toContain("See clause 9.");
+    expect(typedNote(part("word/endnotes.xml"), "endnote")).toContain(
+      "见《民法典》第五百零二条第一款。",
+    );
+  });
+
   test("a note of two paragraphs keeps both, the edit in the second", async () => {
     const { core, mindId, client } = await setUp(brief());
     editFootnote(client, "Clause 4.2.\nRead with clause 9.", (text) =>

@@ -832,7 +832,9 @@ class Reader {
       const notes = new Map<string, XmlElement>();
       for (const note of elements(root)) {
         const id = note.attrs["w:id"];
-        if (note.name !== `w:${kind}` || id === undefined || note.attrs["w:type"]) continue;
+        // "normal" is the type of an ordinary note: the others are the part's separators.
+        const type = note.attrs["w:type"] ?? "normal";
+        if (note.name !== `w:${kind}` || id === undefined || type !== "normal") continue;
         notes.set(id, note);
       }
       noteParts[kind] = { name, text, root, reader, notes, read: new Map() };
