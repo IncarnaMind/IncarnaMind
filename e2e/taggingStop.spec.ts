@@ -675,6 +675,7 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(stopBox.height).toBeGreaterThanOrEqual(28);
 
         const tip = window.getByTestId("status-sends");
+        await expect(label).toHaveAttribute("type", "button");
         await label.hover();
         await expect(tip).toBeVisible();
         await expect(tip).toHaveText(
