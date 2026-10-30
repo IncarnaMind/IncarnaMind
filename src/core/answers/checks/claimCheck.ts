@@ -787,6 +787,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ? askedAbout
           : written;
       if (readsAsRefusal(text)) return notChecked("refused");
+      // A refusal after an ask is the model's last word: the reply asked about can still make the
+      // sentence stricter, never Supported.
+      const declined = text !== written && readsAsRefusal(written);
       if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
@@ -887,6 +890,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // figures is: Claude Haiku 5.5 wrote its record into the reply instead of calling cite in
       // about one contradicted check in seven (#2184).
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
+        if (declined && verdict.verdict === "supported") return unchecked("refused");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
@@ -896,7 +900,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const failure = failureOf(evidence.failed);
         return unchecked(failure.reason, failure.detail);
       };
-      return said && !signal.aborted ? withSentenceVerdict(result, () => sentence(said)) : result;
+      if (signal.aborted) return result;
+      if (said) return withSentenceVerdict(result, () => sentence(said));
+      // Figures that all check out never make a sentence Supported without a verdict to read.
+      return result.verdict === "supported"
+        ? withSentenceVerdict(result, async () => unchecked("malformed"))
+        : result;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");

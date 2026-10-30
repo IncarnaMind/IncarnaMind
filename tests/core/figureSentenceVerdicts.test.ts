@@ -76,6 +76,8 @@ interface Reply {
   omitsRemainder?: boolean;
   /** It never calls cite, and writes its record into the reply instead, as Claude Haiku 5.5 did. */
   neverCites?: boolean;
+  /** It calls cite only once asked about its Figures line, then writes `prose`. */
+  citesWhenAsked?: boolean;
 }
 
 /** What a model asked to rewrite its Figures line about a number its quote lacks wrote back. */
@@ -291,6 +293,62 @@ const SHAPES: Record<string, Reply> = {
   },
 };
 
+/** A reply that can't settle the sentence on its own words: no verdict, or a refusal after an ask. */
+const UNSETTLED: Record<string, Reply> = {
+  // Asked to record the quote its Figures line names, it records it, then refuses.
+  "The salary is 61,500 per year, as the agreement says.": {
+    quotes: [SALARY],
+    citesWhenAsked: true,
+    prose: "I'm sorry, I can't help with that.",
+    lines: [
+      "Verdict: supported",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement says the salary is 61,500 per year [^1].",
+    ].join("\n"),
+    item: SUPPORTED_SALARY,
+  },
+  "乙方的月工资为人民币一万八千元。": {
+    quotes: [SALARY_ZH],
+    citesWhenAsked: true,
+    prose: "抱歉，我无法协助完成此请求。",
+    lines: [
+      "Verdict: supported",
+      "Scope: 乙方, same",
+      "Topic: found",
+      "Roles: none, same",
+      "劳动合同写明乙方月工资为人民币一万八千元[^1]。",
+    ].join("\n"),
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "一万八千", reading: null },
+    },
+  },
+  "The salary is 61,500 per year, as agreed.": {
+    quotes: [SALARY],
+    lines: ["Verdict: unknown", "The agreement says the salary is 61,500 per year [^1]."].join(
+      "\n",
+    ),
+    item: SUPPORTED_SALARY,
+  },
+  // Its Figures line alone.
+  "乙方月工资为人民币一万八千元，已约定。": {
+    quotes: [SALARY_ZH],
+    lines: "",
+    item: {
+      verdict: "supported",
+      scope: "same",
+      topic: "found",
+      roles: "same",
+      source: { citation: 1, number: "一万八千", reading: null },
+    },
+  },
+};
+
 /** Asked for its remainder, it writes its verdict again with no Figures line. */
 const VERDICT_AGAIN: Record<string, Reply> = {
   "The Company pays the Employee 950 a month for the flat.": {
@@ -391,6 +449,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
 };
 
 const CASES: Record<string, Reply> = {
+  ...UNSETTLED,
   ...VERDICT_AGAIN,
   // The address's "14" isn't in the quote the model recorded, and its remainder copies the
   // whole sentence, number and all.
@@ -600,7 +659,9 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
         shown.find((each) => each.text.includes(quote)),
       );
       if (passages.some((passage) => !passage)) return { text: "Verdict: unsupported" };
-      if (!planned.neverCites && !call.results.some((result) => result.tool === "cite"))
+      const asked = ASKS.some((ask) => call.prompt.includes(ask));
+      const cites = planned.citesWhenAsked ? asked : !planned.neverCites;
+      if (cites && !call.results.some((result) => result.tool === "cite"))
         return {
           calls: [
             {
@@ -615,7 +676,6 @@ function replying(calls: ModelCall[], judged: GenerateCall[], evidence: Generate
             },
           ],
         };
-      const asked = ASKS.some((ask) => call.prompt.includes(ask));
       if (asked && !planned.repair) return { text: planned.prose ?? CANT_REWRITE };
       const items = requestedFigures(call).map(({ id }) => ({
         id,
@@ -812,6 +872,9 @@ interface Shape {
   asks: number;
   /** The requests for the deciding quote once the Run has ended, as for a sentence without figures. */
   evidence: number;
+  /** What the card says the Document says, when the case pins it. */
+  says?: string | null;
+  reason?: string;
 }
 
 describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never recorded is asked for, and only a reply with no verdict is a refusal (#2184)", () => {
@@ -822,6 +885,7 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
       figures: ["unsupported"],
       asks: 0,
       evidence: 1,
+      says: "The flat agreement says the Employee pays the Company a rent of 950 per month.",
     },
     {
       sentence: "乙方年工资为人民币一万八千元。",
@@ -850,6 +914,7 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
       figures: ["supported"],
       asks: 0,
       evidence: 0,
+      says: null,
     },
     {
       sentence: "甲方每月向乙方支付人民币一千五百元租金。",
@@ -894,7 +959,7 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
       asks: 0,
       evidence: 0,
     },
-  ])("$sentence", async ({ sentence, state, figures, asks, evidence }) => {
+  ])("$sentence", async ({ sentence, state, figures, asks, evidence, says }) => {
     const checked = await checkSentence(sentence);
     expect(checked.check).toMatchObject({
       state,
@@ -902,6 +967,7 @@ describe("Claude Haiku 5.5's replies: its last verdict counts, a quote it never 
     });
     // The Figures line is the reply's protocol, never what the Document says.
     expect(checked.check?.says ?? "").not.toMatch(/Figures|"items"/);
+    if (says !== undefined) expect(checked.check?.says).toBe(says);
     expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
     expect(checked.asked).toHaveLength(asks);
     expect(checked.evidence).toHaveLength(evidence);
@@ -945,6 +1011,52 @@ test.each<Shape>([
       state,
       evidence: { quote: CASES[sentence]?.quotes[0] },
     });
+    expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
+    expect(checked.asked).toHaveLength(asks);
+    expect(checked.evidence).toHaveLength(evidence);
+  },
+);
+
+test.each<Shape>([
+  {
+    sentence: "The salary is 61,500 per year, as the agreement says.",
+    state: "not-checked",
+    reason: "refused",
+    figures: ["supported"],
+    // Asked once, it calls cite and then refuses: two requests after the ask.
+    asks: 2,
+    evidence: 0,
+  },
+  {
+    sentence: "乙方的月工资为人民币一万八千元。",
+    state: "not-checked",
+    reason: "refused",
+    figures: ["supported"],
+    // Asked once, it calls cite and then refuses: two requests after the ask.
+    asks: 2,
+    evidence: 0,
+  },
+  {
+    sentence: "The salary is 61,500 per year, as agreed.",
+    state: "not-checked",
+    reason: "malformed",
+    figures: ["supported"],
+    asks: 0,
+    evidence: 0,
+  },
+  {
+    sentence: "乙方月工资为人民币一万八千元，已约定。",
+    state: "not-checked",
+    reason: "malformed",
+    figures: ["supported"],
+    asks: 0,
+    evidence: 0,
+  },
+])(
+  "a sentence is never Supported on a reply that refuses after an ask or gives no verdict, and its figures keep their own results: $sentence (#2184)",
+  async ({ sentence, state, reason, figures, asks, evidence }) => {
+    const checked = await checkSentence(sentence);
+    expect(checked.check).toMatchObject({ state, reason });
     expect(checked.check?.figures?.map((figure) => figure.state)).toEqual(figures);
     expect(checked.asked).toHaveLength(asks);
     expect(checked.evidence).toHaveLength(evidence);
