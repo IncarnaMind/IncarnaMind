@@ -100,6 +100,7 @@ export const OVERRIDES: CatalogOverrides = {
     openrouter: {
       // Its OpenRouter listing requires reasoning and names low as the lowest effort (#2248).
       "anthropic/claude-sonnet-5.5": {
+        forcedToolChoice: false,
         thinkingOff: { openrouter: { reasoning: { effort: "low" } } },
       },
     },

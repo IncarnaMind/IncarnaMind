@@ -1,10 +1,10 @@
 /**
  * Web search through the provider of the model an Answer is asked with
  * (#128): Anthropic's, OpenAI's (also the ChatGPT plan's) and OpenRouter's
- * bounded server search (../../shared/webSearch).
+ * once-per-request gateway search (../../shared/webSearch).
  *
- * A search is one request with the provider's tool forced and used once: the
- * provider runs it and returns the pages it found. Only their addresses,
+ * A search is one request with the provider's tool forced and used once, or
+ * OpenRouter's gateway search: the provider returns the pages it found. Only their addresses,
  * titles and dates are kept. What the model writes after is dropped, so an
  * Answer learns nothing from the web but the pages it saves and reads.
  *
@@ -58,22 +58,13 @@ const SEARCH_TOOLS: Partial<
   },
   openai: { id: "openai.web_search", args: {}, fee: { currency: "USD", amount: 0.01 } },
   chatgpt: { id: "openai.web_search", args: {}, fee: { currency: "USD", amount: 0.01 } },
-  openrouter: {
-    id: "openrouter.web_search",
-    args: {
-      parameters: {
-        engine: "exa",
-        max_uses: 1,
-        max_results: MAX_RESULTS,
-        max_total_results: MAX_RESULTS,
-      },
-    },
-    fee: { currency: "USD", amount: 0.007 },
-  },
 };
 
+const OPENROUTER_SEARCH_FEE: Money = { currency: "USD", amount: 0.007 };
+
 /** What one search costs with a provider of this kind; undefined for one with no web search. */
-export const searchFeeOf = (kind: ChatProviderKind): Money | undefined => SEARCH_TOOLS[kind]?.fee;
+export const searchFeeOf = (kind: ChatProviderKind): Money | undefined =>
+  kind === "openrouter" ? OPENROUTER_SEARCH_FEE : SEARCH_TOOLS[kind]?.fee;
 
 /** What one search with a provider's tool costs, by the tool's id; undefined for any other tool. */
 export const searchFee = (toolId: string): Money | undefined =>
@@ -118,7 +109,7 @@ export async function searchWeb(
   signal: AbortSignal,
 ): Promise<WebResult[]> {
   const search = SEARCH_TOOLS[kind];
-  if (!search) throw new Error(`${kind} has no web search of its own.`);
+  if (!search && kind !== "openrouter") throw new Error(`${kind} has no web search of its own.`);
   const found = new Map<string, WebResult>();
   const add = (page: WebResult) => {
     const url = normaliseAddress(page.url);
@@ -132,24 +123,28 @@ export async function searchWeb(
   };
   const result = streamText({
     model,
-    instructions: INSTRUCTIONS,
+    instructions:
+      kind === "openrouter"
+        ? "List every supplied web search result as a Markdown link with its title and exact URL. Do not add other links."
+        : INSTRUCTIONS,
     prompt: query,
-    tools: {
-      [TOOL]: tool({
-        type: "provider",
-        id: search.id,
-        args: search.args,
-        isProviderExecuted: true,
-        inputSchema: jsonSchema({ type: "object" }),
-      }),
-    },
-    toolChoice: kind === "openrouter" ? "auto" : { type: "tool", toolName: TOOL },
+    tools: search
+      ? {
+          [TOOL]: tool({
+            type: "provider",
+            id: search.id,
+            args: search.args,
+            isProviderExecuted: true,
+            inputSchema: jsonSchema({ type: "object" }),
+          }),
+        }
+      : undefined,
+    toolChoice: search ? { type: "tool", toolName: TOOL } : undefined,
     maxOutputTokens: OUTPUT_TOKENS,
-    // OpenRouter executes search without returning a Tool-call part; keep its forced choice on
-    // the wire without the SDK requiring a client-visible call (#2248).
+    // The gateway searches once independently of the model; mandatory-reasoning models refuse forced Tools (#2248).
     providerOptions:
       kind === "openrouter"
-        ? { openrouter: { tool_choice: "required" } }
+        ? { openrouter: { plugins: [{ id: "web", engine: "exa", max_results: MAX_RESULTS }] } }
         : { openai: { maxToolCalls: 1 } },
     abortSignal: signal,
     // Errors arrive as stream parts; don't also log them.

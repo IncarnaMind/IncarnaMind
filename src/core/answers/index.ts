@@ -2886,6 +2886,7 @@ export function createAnswers(options: AnswersOptions) {
           maxOutput: prepared.capabilities.facts.maxOutput,
         }),
         ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
+        forcedToolChoice: prepared.capabilities.facts.forcedToolChoice,
         retryQuotes: prepared.retryQuotes,
         cacheKey: place.conversationId ?? place.mindId ?? undefined,
         ...(input.assistant

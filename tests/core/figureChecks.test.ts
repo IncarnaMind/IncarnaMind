@@ -186,6 +186,7 @@ async function checkWith(options: {
   findsNothing?: boolean;
   /** It replies before it records its quotes, and records them only once asked to. */
   citesWhenAsked?: boolean;
+  forcedToolChoice?: boolean;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
 }) {
   const body =
@@ -257,7 +258,12 @@ async function checkWith(options: {
     support: "tools",
     summarizesReasoning: false,
     capabilities: resolveCapabilities({
-      catalog: { tools: true, calculates: true, temperature: true },
+      catalog: {
+        tools: true,
+        calculates: true,
+        temperature: true,
+        forcedToolChoice: options.forcedToolChoice,
+      },
     }),
   };
   const source: CitationSource = {
@@ -732,18 +738,24 @@ test("a saved calculation's verdict and evidence both come from working it out a
   expect(row?.result.verdict === "not-checked" ? null : row?.result.evidence?.quote).toBe(body);
 });
 
-test("asked to record a quote its Figures line names, the model's next step must call cite", async () => {
-  const { result, calls } = await checkWith({
-    figures: [target("f1", "£20", "Revenue in 2024")],
-    citesWhenAsked: true,
-    text: reply([
-      { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
-    ]),
-  });
-  const asked = calls.find((call) => /never recorded/.test(call.prompt));
-  expect(asked?.options.toolChoice).toEqual({ type: "tool", toolName: "cite" });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
-});
+test.each([undefined, false])(
+  "asked to record a quote, the check respects forced choice support (%s)",
+  async (forcedToolChoice) => {
+    const { result, calls } = await checkWith({
+      forcedToolChoice,
+      figures: [target("f1", "£20", "Revenue in 2024")],
+      citesWhenAsked: true,
+      text: reply([
+        { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+      ]),
+    });
+    const asked = calls.find((call) => /never recorded/.test(call.prompt));
+    expect(asked?.options.toolChoice).toEqual(
+      forcedToolChoice === false ? { type: "auto" } : { type: "tool", toolName: "cite" },
+    );
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  },
+);
 
 test.each([
   { named: "5704", verdict: "supported" },

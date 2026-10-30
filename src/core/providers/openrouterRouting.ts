@@ -16,10 +16,8 @@ export function withOpenRouterRouting(
       specificationVersion: "v4",
       transformParams: async ({ params }) => {
         const choice = params.toolChoice;
-        const wireChoice = params.providerOptions?.openrouter?.tool_choice;
-        const named =
-          choice?.type === "tool" || (isRecord(wireChoice) && wireChoice.type === "function");
-        if (!named && choice?.type !== "required" && wireChoice !== "required") return params;
+        const named = choice?.type === "tool";
+        if (!named && choice?.type !== "required") return params;
         const url = `${baseUrl.replace(/\/$/, "")}/models/${model.modelId.split("/").map(encodeURIComponent).join("/")}/endpoints`;
         let result: unknown;
         try {

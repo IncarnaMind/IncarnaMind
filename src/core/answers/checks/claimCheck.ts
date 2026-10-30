@@ -703,6 +703,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       support: model.support,
       structuredOutput: givesStructuredOutput(model.capabilities),
       takesTemperature: model.capabilities.facts.temperature,
+      forcedToolChoice: model.capabilities.facts.forcedToolChoice,
       window: model.window,
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,

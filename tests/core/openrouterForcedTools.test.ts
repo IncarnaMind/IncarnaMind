@@ -45,6 +45,13 @@ function server(
       if (!isRecord(body)) throw Error("Not a request object");
       sent.push(body);
       const forced = isRecord(body.tool_choice) || body.tool_choice === "required";
+      if (forced && body.model === "anthropic/claude-sonnet-5.5")
+        return Response.json(
+          {
+            error: { code: 400, message: "Forced Tool choices are not supported for this model." },
+          },
+          { status: 400 },
+        );
       if (
         forced &&
         isRecord(body.provider) &&
@@ -67,8 +74,8 @@ function server(
           { status: 404 },
         );
       const nativeSearch =
-        Array.isArray(body.tools) &&
-        body.tools.some((offered) => isRecord(offered) && offered.type === "openrouter:web_search");
+        Array.isArray(body.plugins) &&
+        body.plugins.some((plugin) => isRecord(plugin) && plugin.id === "web");
       const calls =
         forced && !nativeSearch
           ? [
@@ -265,24 +272,24 @@ test("the check's forced first cite goes through the Run engine", async () => {
   });
 });
 
-// protects=OpenRouter search remains forced on the wire and accepts a server result without a client Tool-call part; fails_when=routing or SDK choice validation rejects the result; no_claim=live search quality.
-test("OpenRouter's forced provider search returns its sources without a client Tool call", async () => {
-  const { sent } = server();
-  expect(searchesTheWeb("openrouter")).toBe(true);
-  expect(await searchWeb(makeModel(), "openrouter", "river", new AbortController().signal)).toEqual(
-    [{ url: "https://example.com/river", title: "River", age: null }],
-  );
-  expect(sent[0]).toMatchObject({
-    tool_choice: "required",
-    provider: policy,
-    tools: [
-      {
-        type: "openrouter:web_search",
-        parameters: { engine: "exa", max_uses: 1, max_results: 10, max_total_results: 10 },
-      },
-    ],
-  });
-});
+// protects=OpenRouter searches once even on models refusing forced Tools, preserving strict routing; fails_when=search depends on a model Tool choice or silently downgrades privacy; no_claim=live search quality.
+test.each(["anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna"])(
+  "OpenRouter gateway search returns sources (%s)",
+  async (id) => {
+    const { sent, lookups } = server();
+    expect(searchesTheWeb("openrouter")).toBe(true);
+    expect(
+      await searchWeb(makeModel(id), "openrouter", "river", new AbortController().signal),
+    ).toEqual([{ url: "https://example.com/river", title: "River", age: null }]);
+    expect(sent[0]).toMatchObject({
+      provider: { data_collection: "deny", require_parameters: true },
+      plugins: [{ id: "web", engine: "exa", max_results: 10 }],
+    });
+    expect(sent[0]?.tools).toBeUndefined();
+    expect(sent[0]?.tool_choice).toBeUndefined();
+    expect(lookups).toEqual([]);
+  },
+);
 
 test.each(["auto", "none"] as const)(
   "%s keeps strict routing without an endpoint lookup",

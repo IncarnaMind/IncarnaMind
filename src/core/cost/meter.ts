@@ -44,6 +44,7 @@ import type {
   RunEstimate,
   RunEstimateInput,
 } from "../api";
+import { isRecord } from "../errors";
 import type { Price } from "../providers/catalog/types";
 import { ChatGptPlanError } from "../providers/chatgpt/errors";
 import type { ChatLanguageModel } from "../providers/models";
@@ -334,6 +335,13 @@ export function createMeter(options: {
     const priced = model.billing === "per-token" && price !== undefined;
     const cacheWrites = writesCache(model);
     const offered = searchesOffered(params.tools);
+    const plugins = params.providerOptions?.openrouter?.plugins;
+    const gatewaySearch =
+      model.kind === "openrouter" &&
+      Array.isArray(plugins) &&
+      plugins.some((plugin) => isRecord(plugin) && plugin.id === "web" && plugin.engine === "exa");
+    const gatewayFee = gatewaySearch ? searchFeeOf("openrouter") : undefined;
+    if (gatewayFee) offered.set("web_search", gatewayFee);
     /** What searches with these tools cost, in the price's currency. */
     const feesOf = (tools: Iterable<string>) => {
       if (!priced || !price) return 0;
@@ -402,14 +410,8 @@ export function createMeter(options: {
         ],
       );
     };
-    // A forced OpenRouter server search runs once without a client Tool-call part, even with no results (#2248).
-    const serverSearches = new Set(
-      model.kind === "openrouter" && params.providerOptions?.openrouter?.tool_choice === "required"
-        ? (params.tools ?? [])
-            .filter((tool) => tool.type === "provider" && tool.id === "openrouter.web_search")
-            .map((tool) => tool.name)
-        : [],
-    );
+    // OpenRouter's gateway searches once without a Tool-call part, even with no results (#2248).
+    const serverSearches = new Set(gatewaySearch ? ["web_search"] : []);
     const searches = [...serverSearches];
     /** What a usage report costs, with the searches made so far. */
     const counted = (usage: Usage) =>
