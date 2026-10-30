@@ -28,14 +28,54 @@ export interface FindState {
 /** A character a word is made of, for Whole word: Chinese characters are words of their own. */
 const WORD_CHAR = /[\p{Script=Latin}\p{Nd}_]/u;
 
-const wholeWordAt = (text: string, from: number, to: number): boolean =>
-  (!WORD_CHAR.test(text[from] ?? "") || !WORD_CHAR.test(text[from - 1] ?? "")) &&
-  (!WORD_CHAR.test(text[to - 1] ?? "") || !WORD_CHAR.test(text[to] ?? ""));
-
 const KEY = new PluginKey<FindState>("findInMind");
+
+/** How many matches are drawn at once; the count still names every one. */
+const MOST_DECORATED = 400;
 
 /** Stands between text that has a node between it, so a match never runs across one. */
 const BREAK = "\u0000";
+
+/**
+ * A character's case-insensitive key, one code point for one, so a match's
+ * places stay where the text's are. İ lowercases to i and a combining dot;
+ * its base letter stands for it, as a reader would match it.
+ */
+function fold(char: string): string {
+  const lower = char.toLowerCase();
+  if (lower.length === 1) return lower;
+  const base = lower.normalize("NFD").replace(/\p{M}/gu, "");
+  return [...base][0] ?? char;
+}
+
+interface TextUnit {
+  /** The unit's place in the document; -1 for a break between nodes. */
+  pos: number;
+  char: string;
+  key: string;
+  /** The text node it came from, so a match split by marks keeps its parts apart. */
+  run: number;
+}
+
+/** The block's characters, each with the place it came from. */
+function unitsOf(block: ProseMirrorNode, blockPos: number, matchCase: boolean): TextUnit[] {
+  const units: TextUnit[] = [];
+  let end = -1;
+  let run = 0;
+  block.forEach((child, offset) => {
+    const pos = blockPos + 1 + offset;
+    if (!child.isText || !child.text) return;
+    if (pos !== end) units.push({ pos: -1, char: BREAK, key: BREAK, run: -1 });
+    let at = 0;
+    for (const char of child.text) {
+      units.push({ pos: pos + at, char, key: matchCase ? char : fold(char), run });
+      at += char.length;
+    }
+    run++;
+    end = pos + child.nodeSize;
+  });
+  return units;
+}
 
 /**
  * Every place `query` occurs in the document's text, in order. It matches
@@ -43,86 +83,147 @@ const BREAK = "\u0000";
  * they come, with no idea of words unless Whole word is asked for, so Chinese
  * (which has none) is found like any other text. A node in the text, a
  * Citation among them, breaks a match: a replacement can never cross one.
+ * Letters whose case changes their length, such as İ, are folded one
+ * character at a time, so their block is searched like any other.
  */
 export function findMatches(
   doc: ProseMirrorNode,
   query: string,
   options: FindOptions = {},
 ): FindMatch[] {
-  const wanted = options.matchCase ? query : query.toLowerCase();
-  if (wanted === "") return [];
+  const wanted = [...query];
+  if (wanted.length === 0) return [];
+  const keys = wanted.map((char) => (options.matchCase ? char : fold(char)));
   const matches: FindMatch[] = [];
   doc.descendants((block, blockPos) => {
     if (!block.isTextblock) return true;
-    const pieces: { pos: number; start: number; length: number }[] = [];
-    let text = "";
-    let end = -1;
-    block.forEach((child, offset) => {
-      const pos = blockPos + 1 + offset;
-      if (child.isText && child.text) {
-        if (pos !== end) text += BREAK;
-        pieces.push({ pos, start: text.length, length: child.text.length });
-        text += child.text;
-        end = pos + child.nodeSize;
+    const units = unitsOf(block, blockPos, options.matchCase === true);
+    for (let at = 0; at + keys.length <= units.length; at++) {
+      let found = true;
+      for (let step = 0; step < keys.length; step++) {
+        const unit = units[at + step];
+        if (!unit || unit.pos < 0 || unit.key !== keys[step]) {
+          found = false;
+          break;
+        }
       }
-    });
-    const haystack = options.matchCase ? text : text.toLowerCase();
-    if (haystack.length !== text.length) return true;
-    for (let at = haystack.indexOf(wanted); at !== -1; at = haystack.indexOf(wanted, at + 1)) {
-      const stop = at + wanted.length;
-      if (options.wholeWord && !wholeWordAt(text, at, stop)) continue;
-      const parts = pieces.flatMap((piece) => {
-        const from = Math.max(at, piece.start);
-        const to = Math.min(stop, piece.start + piece.length);
-        return from < to
-          ? [{ from: piece.pos + from - piece.start, to: piece.pos + to - piece.start }]
-          : [];
-      });
-      const first = parts[0];
-      const last = parts.at(-1);
-      if (first && last) matches.push({ from: first.from, to: last.to, parts });
+      if (!found) continue;
+      const first = units[at] as TextUnit;
+      const last = units[at + keys.length - 1] as TextUnit;
+      if (options.wholeWord) {
+        const before = units[at - 1]?.key ?? "";
+        const after = units[at + keys.length]?.key ?? "";
+        if (WORD_CHAR.test(first.key) && WORD_CHAR.test(before)) continue;
+        if (WORD_CHAR.test(last.key) && WORD_CHAR.test(after)) continue;
+      }
+      const parts: { from: number; to: number }[] = [];
+      let part: { from: number; to: number; run: number } | null = null;
+      for (let step = 0; step < keys.length; step++) {
+        const unit = units[at + step] as TextUnit;
+        if (part && unit.run === part.run) {
+          part.to = unit.pos + unit.char.length;
+        } else {
+          if (part) parts.push({ from: part.from, to: part.to });
+          part = { from: unit.pos, to: unit.pos + unit.char.length, run: unit.run };
+        }
+      }
+      if (part) parts.push({ from: part.from, to: part.to });
+      const from = parts[0]?.from;
+      const to = parts.at(-1)?.to;
+      if (from !== undefined && to !== undefined) matches.push({ from, to, parts });
     }
     return true;
   });
   return matches;
 }
 
-/** Whether `[from, to)` holds a Citation or another inline node: a replacement never cuts one. */
-function replaceable(doc: ProseMirrorNode, from: number, to: number): boolean {
-  let safe = true;
-  doc.nodesBetween(from, to, (node) => {
-    if (node.isInline && !node.isText) safe = false;
-    return safe;
-  });
-  return safe;
-}
-
 /**
  * Replaces each match, as one step of the note's Undo, without ever cutting a
  * Citation's marker or another inline node: a match that would (which find
- * never makes) is left as it is. Marks come from the words replaced. Returns
- * how many were replaced.
+ * never makes) is left as it is. Each text block is written once, its marks
+ * kept by position, so the words replaced keep the formatting they started in.
+ * Returns how many were replaced.
  */
 export function replaceMatches(
   editor: Editor,
   matches: readonly FindMatch[],
   replacement: string,
 ): number {
+  if (matches.length === 0) return 0;
   const { state } = editor;
   const tr = state.tr;
-  let replaced = 0;
-  // Last first, so the places before them stay where they are.
-  for (const match of [...matches].reverse()) {
-    if (!replaceable(tr.doc, match.from, match.to)) continue;
-    if (replacement === "") {
-      tr.delete(match.from, match.to);
-    } else {
-      const marks = tr.doc.resolve(match.from).marks();
-      tr.replaceWith(match.from, match.to, state.schema.text(replacement, marks));
+  const blocks: { pos: number; node: ProseMirrorNode; matches: FindMatch[] }[] = [];
+  let at = 0;
+  state.doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    const end = pos + node.nodeSize;
+    const group: FindMatch[] = [];
+    while (at < matches.length && (matches[at] as FindMatch).from < end) {
+      const match = matches[at] as FindMatch;
+      if (match.from >= pos + 1 && match.to <= end - 1) group.push(match);
+      at++;
     }
-    replaced++;
+    if (group.length > 0) {
+      const atoms: { from: number; to: number }[] = [];
+      let childPos = pos + 1;
+      node.forEach((child) => {
+        if (child.isInline && !child.isText)
+          atoms.push({ from: childPos, to: childPos + child.nodeSize });
+        childPos += child.nodeSize;
+      });
+      const safe = group.filter(
+        (match) => !atoms.some((atom) => match.from < atom.to && match.to > atom.from),
+      );
+      if (safe.length > 0) blocks.push({ pos, node, matches: safe });
+    }
+    return false;
+  });
+
+  let replaced = 0;
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    const block = blocks[index];
+    if (!block) continue;
+    const content: ProseMirrorNode[] = [];
+    let childPos = block.pos + 1;
+    let current = 0;
+    block.node.forEach((child) => {
+      const childEnd = childPos + child.nodeSize;
+      if (child.isText && child.text) {
+        let local = 0;
+        while (local < child.text.length) {
+          const absolute = childPos + local;
+          const match = block.matches[current];
+          if (match && absolute >= match.to) {
+            current++;
+            continue;
+          }
+          if (match && absolute >= match.from) {
+            if (absolute === match.from) {
+              if (replacement !== "") content.push(state.schema.text(replacement, child.marks));
+              replaced++;
+            }
+            local = Math.min(child.text.length, match.to - childPos);
+          } else {
+            const stop = match
+              ? Math.min(child.text.length, match.from - childPos)
+              : child.text.length;
+            if (stop > local)
+              content.push(state.schema.text(child.text.slice(local, stop), child.marks));
+            local = stop;
+          }
+        }
+      } else {
+        content.push(child);
+      }
+      childPos = childEnd;
+    });
+    tr.replaceWith(
+      block.pos,
+      block.pos + block.node.nodeSize,
+      block.node.type.create(block.node.attrs, content, block.node.marks),
+    );
   }
-  if (tr.docChanged) editor.view.dispatch(tr);
+  if (replaced > 0 && tr.docChanged) editor.view.dispatch(tr);
   return replaced;
 }
 
@@ -232,9 +333,20 @@ export const FindInMind = Extension.create({
           decorations(editorState) {
             const state = KEY.getState(editorState);
             if (!state || state.matches.length === 0) return DecorationSet.empty;
+            // Replace all can leave 10,000 matches: draw a bounded stretch of them, and the current
+            // one wherever it is, so the editor stays responsive; the count still names them all.
+            const shown: { match: (typeof state.matches)[number]; index: number }[] = [];
+            for (let index = 0; index < state.matches.length && index < MOST_DECORATED; index++) {
+              const match = state.matches[index];
+              if (match) shown.push({ match, index });
+            }
+            if (state.current >= MOST_DECORATED) {
+              const match = state.matches[state.current];
+              if (match) shown.push({ match, index: state.current });
+            }
             return DecorationSet.create(
               editorState.doc,
-              state.matches.flatMap((match, index) =>
+              shown.flatMap(({ match, index }) =>
                 match.parts.map((part) =>
                   Decoration.inline(part.from, part.to, {
                     class:

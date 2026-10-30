@@ -1409,6 +1409,8 @@ export const en = {
   "editor.find.close": "Close",
   "editor.find.matchCase": "Match case",
   "editor.find.wholeWord": "Whole word",
+  "editor.find.wholeWord.cjk":
+    "Chinese text has no word spaces, so Whole word is off for a Chinese query.",
   "editor.find.replaced": "Replaced {count} · Undo",
   "editor.replace.label": "Find and replace in note",
   "editor.replace.placeholder": "Replace with",

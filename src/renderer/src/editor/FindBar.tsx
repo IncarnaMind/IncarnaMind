@@ -65,6 +65,9 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
   const [wholeWord, setWholeWord] = useState(false);
   const [replaced, setReplaced] = useState<number | null>(null);
   const replacing = useRef(false);
+  const readOnly = !editor.isEditable;
+  const cjk = useMemo(() => /\p{Script=Han}/u.test(query), [query]);
+  const wholeWordOn = wholeWord && !cjk;
   const corner = useCorner(editor);
   const requests = useMindTools((state) => state.findRequests);
   const withReplace = useMindTools((state) => state.findReplace);
@@ -90,8 +93,8 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
 
   // Also when the editor is made again (the Mind's document changed), which starts without marks.
   useEffect(() => {
-    if (!editor.isDestroyed) setFindQuery(editor, query, { matchCase, wholeWord });
-  }, [editor, query, matchCase, wholeWord]);
+    if (!editor.isDestroyed) setFindQuery(editor, query, { matchCase, wholeWord: wholeWordOn });
+  }, [editor, query, matchCase, wholeWordOn]);
 
   useEffect(
     () => () => {
@@ -157,6 +160,14 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
 
   // Esc closes the bar from any of its controls, not only its fields.
   const onBarKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z" && replaced !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      editor.commands.undo();
+      setReplaced(null);
+      field.current?.focus();
+      return;
+    }
     if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
@@ -173,19 +184,25 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
   };
 
   function replaceOne() {
-    if (query === "" || count === 0) return;
+    if (readOnly || query === "" || count === 0) return;
     const done = asReplace(() =>
-      replaceCurrentInMind(editor, query, replacement, { matchCase, wholeWord }),
+      replaceCurrentInMind(editor, query, replacement, { matchCase, wholeWord: wholeWordOn }),
     );
-    if (done !== null && done > 0) setReplaced(done);
+    if (done !== null && done > 0) {
+      setReplaced(done);
+      field.current?.focus();
+    }
   }
 
   function replaceAll() {
-    if (query === "") return;
+    if (readOnly || query === "") return;
     const done = asReplace(() =>
-      replaceAllInMind(editor, query, replacement, { matchCase, wholeWord }),
+      replaceAllInMind(editor, query, replacement, { matchCase, wholeWord: wholeWordOn }),
     );
-    if (done > 0) setReplaced(done);
+    if (done > 0) {
+      setReplaced(done);
+      field.current?.focus();
+    }
   }
 
   const status =
@@ -235,10 +252,11 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
         <button
           type="button"
           data-testid="find-whole-word"
-          title={t("editor.find.wholeWord")}
-          aria-label={t("editor.find.wholeWord")}
-          aria-pressed={wholeWord}
-          className={`find-option ${wholeWord ? "find-option--on" : ""}`}
+          title={t(cjk ? "editor.find.wholeWord.cjk" : "editor.find.wholeWord")}
+          aria-label={t(cjk ? "editor.find.wholeWord.cjk" : "editor.find.wholeWord")}
+          aria-pressed={wholeWordOn}
+          disabled={cjk}
+          className={`find-option ${wholeWordOn ? "find-option--on" : ""}`}
           onClick={() => {
             setWholeWord((on) => !on);
             setReplaced(null);
@@ -303,7 +321,8 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
             type="button"
             data-testid="replace-one"
             className="find-action"
-            disabled={count === 0}
+            disabled={count === 0 || readOnly}
+            title={readOnly ? t("mind.readOnly.body") : undefined}
             onClick={replaceOne}
           >
             {t("editor.replace.one")}
@@ -312,12 +331,18 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
             type="button"
             data-testid="replace-all"
             className="find-action"
-            disabled={count === 0}
+            disabled={count === 0 || readOnly}
+            title={readOnly ? t("mind.readOnly.body") : undefined}
             onClick={replaceAll}
           >
             {t("editor.replace.all")}
           </button>
         </div>
+      )}
+      {withReplace && readOnly && (
+        <p data-testid="find-read-only" className="find-read-only">
+          {t("mind.readOnly.body")}
+        </p>
       )}
       {replaced !== null && (
         <button

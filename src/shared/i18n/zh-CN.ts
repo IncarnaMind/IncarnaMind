@@ -1367,6 +1367,7 @@ export const zhCN = {
   "editor.find.close": "关闭",
   "editor.find.matchCase": "区分大小写",
   "editor.find.wholeWord": "全字匹配",
+  "editor.find.wholeWord.cjk": "中文没有词间空格，因此查找中文时不按整词。",
   "editor.find.replaced": "已替换 {count} 处 · 撤销",
   "editor.replace.label": "在笔记中搜索和替换",
   "editor.replace.placeholder": "替换为",

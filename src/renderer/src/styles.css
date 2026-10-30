@@ -6324,6 +6324,12 @@
         color: var(--color-ink);
       }
     }
+    .find-read-only {
+      margin: 0;
+      padding: 2px 8px;
+      font-size: var(--text-meta);
+      color: var(--color-ink-meta);
+    }
   }
   /* A table of contents: the Note's headings, each jumping to its own. */
   .table-of-contents {

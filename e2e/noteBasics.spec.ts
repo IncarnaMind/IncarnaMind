@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type * as Y from "yjs";
-import type { CoreBridge } from "../src/core/api";
+import * as Y from "yjs";
+import { CONTENT_SCHEMA_VERSION, type CoreBridge } from "../src/core/api";
 import {
   blocksUpdate,
   createDataFolder,
@@ -319,4 +319,112 @@ test("Tidy Chinese text sets spaces and full-width punctuation in the whole Note
   await runCommand(window, "mind.tidy", "Tidy Chinese text");
   await expect(paragraph).toHaveText("导出为 Word 文件，你好。");
   await expect(window.getByTestId("undo-line")).toContainText("Tidied 1 place · Undo");
+});
+
+test("find and replace in a Note a newer version wrote: Replace is off, says why in both languages, and nothing changes", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const doc = new Y.Doc();
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute("id", "block-1");
+    paragraph.insert(0, [new Y.XmlText("tide tide")]);
+    doc.getXmlFragment("blocks").push([paragraph]);
+    doc.getMap("settings").set("schemaVersion", CONTENT_SCHEMA_VERSION + 1);
+    const update = Array.from(Y.encodeStateAsUpdate(doc));
+    await window.evaluate(async (bytes) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const mind = await core.createMind({ title: "From the other computer" });
+      await core.applyMindUpdate(mind.id, new Uint8Array(bytes));
+      await core.closeMind(mind.id);
+    }, update);
+    await window
+      .getByTestId("mind-list-item")
+      .filter({ hasText: "From the other computer" })
+      .click();
+    const editor = window.getByTestId("mind-editor");
+    await expect(editor).toContainText("tide tide");
+    await expect(window.getByTestId("mind-notice-read-only")).toContainText("Read-only");
+
+    await editor.click();
+    await window.keyboard.press("ControlOrMeta+Alt+f");
+    const bar = window.getByTestId("find-bar");
+    await expect(bar).toBeVisible();
+    await window.getByTestId("find-field").fill("tide");
+    await window.getByTestId("replace-field").fill("wave");
+    await expect(window.getByTestId("find-count")).toContainText("2");
+    await expect(window.getByTestId("replace-one")).toBeDisabled();
+    await expect(window.getByTestId("replace-all")).toBeDisabled();
+    await expect(window.getByTestId("find-read-only")).toContainText(
+      "A newer IncarnaMind wrote this note",
+    );
+    await expect(editor).toContainText("tide tide");
+    await expect(window.getByTestId("find-replaced")).toHaveCount(0);
+
+    await setLanguage(window, "zh-CN");
+    if ((await bar.count()) === 0) {
+      await editor.click();
+      await window.keyboard.press("ControlOrMeta+Alt+f");
+      await window.getByTestId("find-field").fill("tide");
+    }
+    await expect(window.getByTestId("find-read-only")).toContainText(
+      "较新版本的 IncarnaMind 修改过这篇笔记",
+    );
+    await expect(editor).toContainText("tide tide");
+  } finally {
+    await app.close();
+  }
+});
+
+test("after Replace all the find field keeps the keyboard: ⌘Z takes the replacement back and Esc closes the bar", async () => {
+  const { app, window } = await startMind("en");
+  try {
+    const editor = window.getByTestId("mind-editor");
+    await window.keyboard.type("tide tide");
+    await window.keyboard.press("ControlOrMeta+Alt+f");
+    await window.getByTestId("find-field").fill("tide");
+    await window.getByTestId("replace-field").fill("wave");
+    await window.getByTestId("replace-all").click();
+    await expect(editor).toContainText("wave wave");
+    await expect(window.getByTestId("find-replaced")).toContainText("Replaced 2");
+    await expect(window.getByTestId("find-field")).toBeFocused();
+
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(editor).toContainText("tide tide");
+    await expect(window.getByTestId("find-replaced")).toHaveCount(0);
+
+    await window.getByTestId("replace-all").click();
+    await expect(editor).toContainText("wave wave");
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("find-bar")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Whole word is off for a Chinese query, and the hint says why, in both languages", async () => {
+  const { app, window } = await startMind("en");
+  try {
+    await window.keyboard.press("ControlOrMeta+Alt+f");
+    await window.getByTestId("find-field").fill("潮汐");
+    await expect(window.getByTestId("find-whole-word")).toBeDisabled();
+    await expect(window.getByTestId("find-whole-word")).toHaveAttribute(
+      "title",
+      /Chinese text has no word spaces/,
+    );
+    await setLanguage(window, "zh-CN");
+    if ((await window.getByTestId("find-bar").count()) === 0) {
+      await window.getByTestId("mind-editor").click();
+      await window.keyboard.press("ControlOrMeta+Alt+f");
+    }
+    await window.getByTestId("find-field").fill("潮汐");
+    await expect(window.getByTestId("find-whole-word")).toHaveAttribute(
+      "title",
+      /中文没有词间空格/,
+    );
+    await window.getByTestId("find-field").fill("tide");
+    await expect(window.getByTestId("find-whole-word")).toBeEnabled();
+  } finally {
+    await app.close();
+  }
 });

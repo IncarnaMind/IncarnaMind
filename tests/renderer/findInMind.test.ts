@@ -188,4 +188,64 @@ describe("replace", () => {
     expect(citationsIn(editor.state.doc)).toHaveLength(1);
     expect(editor.state.doc.textContent).toContain("waves");
   });
+
+  test("a case-insensitive find takes letters whose case changes their length, such as İ", () => {
+    const doc = docOf([text("İstanbul and istanbul")]);
+    expect(found(doc, "istanbul")).toEqual(["İstanbul", "istanbul"]);
+
+    const editor = headlessEditor();
+    editor.commands.setContent(doc.toJSON());
+    expect(replaceAllInMind(editor, "istanbul", "Izmir", {})).toBe(2);
+    expect(editor.state.doc.textContent).toBe("Izmir and Izmir");
+  });
+
+  const marked = (value: string, marks: { type: string; attrs?: Record<string, unknown> }[]) => ({
+    type: "text" as const,
+    text: value,
+    marks,
+  });
+  const runsOf = (editor: ReturnType<typeof headlessEditor>) => {
+    const runs: { text: string; marks: string[] }[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.isText)
+        runs.push({ text: node.text ?? "", marks: node.marks.map((m) => m.type.name) });
+    });
+    return runs;
+  };
+  const marksOn = (editor: ReturnType<typeof headlessEditor>, word: string) =>
+    runsOf(editor)
+      .filter((run) => run.text.includes(word))
+      .flatMap((run) => run.marks);
+
+  test("a replacement keeps the mark of the words it starts in, at their start, middle and end", () => {
+    const marks: { type: string; attrs?: Record<string, unknown> }[] = [
+      { type: "bold" },
+      { type: "link", attrs: { href: "https://example.com" } },
+      { type: "claimCheck", attrs: { id: "c1", text: "one tide two" } },
+    ];
+    for (const { type, attrs } of marks) {
+      for (const word of ["one", "tide", "two"]) {
+        const editor = headlessEditor();
+        const mark = { type, ...(attrs && { attrs }) };
+        editor.commands.setContent({
+          type: "doc",
+          content: [paragraph(marked("one tide two", [mark]), text(" after"))],
+        });
+        expect(replaceAllInMind(editor, word, "new", {})).toBe(1);
+        expect(marksOn(editor, "new")).toContain(type);
+        expect(marksOn(editor, "after")).not.toContain(type);
+        expect(editor.state.doc.textContent).toBe("one tide two after".replace(word, "new"));
+      }
+    }
+  });
+
+  test("Replace all writes 10,000 matches a block at a time", () => {
+    const paragraphs = Array.from({ length: 500 }, () =>
+      paragraph(text(Array.from({ length: 20 }, () => "tide").join(" "))),
+    );
+    const editor = headlessEditor();
+    editor.commands.setContent({ type: "doc", content: paragraphs });
+    expect(replaceAllInMind(editor, "tide", "wave", {})).toBe(10_000);
+    expect(editor.state.doc.textContent.match(/wave/g)).toHaveLength(10_000);
+  });
 });
