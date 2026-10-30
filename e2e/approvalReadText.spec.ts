@@ -62,8 +62,9 @@ function turnOf(body: Record<string, unknown>): Turn {
   };
 }
 
-function replyFor(turn: Turn): Reply {
-  if (!turn.results.some((each) => each.tool === "search_documents"))
+/** `titleOnly`: the model never reads a Document, so only the saved page's title reaches the card. */
+function replyFor(turn: Turn, titleOnly: boolean): Reply {
+  if (!titleOnly && !turn.results.some((each) => each.tool === "search_documents"))
     return { call: { name: "search_documents", input: { query: SEARCH } } };
   if (!turn.results.some((each) => each.tool === TIDE))
     return { call: { name: TIDE, input: { place: "Dover" } } };
@@ -113,7 +114,9 @@ function chunks(reply: Reply, model: string): object[] {
 }
 
 /** A local OpenAI-compatible model: no network, no key, test-only. */
-async function startCompletions(): Promise<{ baseUrl: string; close(): Promise<void> }> {
+async function startCompletions(
+  titleOnly = false,
+): Promise<{ baseUrl: string; close(): Promise<void> }> {
   const server = createServer((request, response) => {
     const url = request.url ?? "";
     if (request.method === "GET" && url.endsWith("/models")) {
@@ -134,7 +137,7 @@ async function startCompletions(): Promise<{ baseUrl: string; close(): Promise<v
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
       });
-      response.end(sse(chunks(replyFor(turnOf(parsed)), String(parsed.model))));
+      response.end(sse(chunks(replyFor(turnOf(parsed), titleOnly), String(parsed.model))));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -158,7 +161,15 @@ const REPORT_PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${T
 <p>Management expects the full year to track the plan, with a modest improvement in the margin.</p>
 </article></body></html>`;
 
-async function saveReportPage(window: Page): Promise<void> {
+/** The same page, too long to be given whole with the Question: only its title reaches the Run. */
+const LONG_REPORT_PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${TITLE}</title></head>
+<body><article><h1>Q3 board pack</h1>${Array.from(
+  { length: 200 },
+  () =>
+    "<p>Q3 board pack: revenue grew 4% in the third quarter, the finance team told the board. Operating costs were held flat while the company opened two new offices and hired in the sales team. The board noted that the fourth quarter would carry the cost of the new pricing work and the annual audit.</p>",
+).join("")}</article></body></html>`;
+
+async function saveReportPage(window: Page, html = REPORT_PAGE): Promise<void> {
   const documentId = await window.evaluate(
     async ({ address, html }) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -166,7 +177,7 @@ async function saveReportPage(window: Page): Promise<void> {
       if (saved.outcome !== "saved") throw new Error(`The page wasn't saved: ${saved.outcome}.`);
       return saved.document.id;
     },
-    { address: ADDRESS, html: REPORT_PAGE },
+    { address: ADDRESS, html },
   );
   await expect
     .poll(
@@ -200,15 +211,16 @@ async function shot(window: Page, card: Locator, name: string): Promise<void> {
 }
 
 /**
- * Launches the app on one of the two scenarios and shows the card at 900px: the Answer searches a
- * Document and the page, reads the Connector, then asks to record a meeting.
+ * Launches the app on one of the scenarios and shows the card at 900px: the Answer searches a
+ * Document and the page, reads the Connector, then asks to record a meeting; `titleOnly` skips the
+ * search, so only the saved page's title reaches the card.
  */
 async function cardFor(
   dataDir: string,
   sources: string,
-  { pageOnly }: { pageOnly: boolean },
+  { pageOnly, titleOnly = false }: { pageOnly: boolean; titleOnly?: boolean },
 ): Promise<{ app: ElectronApplication; window: Page; card: Locator; title: string }> {
-  const { baseUrl, close } = await startCompletions();
+  const { baseUrl, close } = await startCompletions(titleOnly);
   const { app, window } = await launchApp(dataDir, {});
   try {
     await acceptPlainTextKeys(window);
@@ -240,12 +252,14 @@ async function cardFor(
       );
       await addDocuments(window, [path]);
     }
-    await saveReportPage(window);
+    await saveReportPage(window, titleOnly ? LONG_REPORT_PAGE : REPORT_PAGE);
     await setWindowSize(app, window, 900, 900);
     await newMind(window);
     const answer = await askAndWait(
       window,
-      "What does the Q3 board pack say? Look the tide up, then start recording a meeting.",
+      titleOnly
+        ? "Look the tide up, then start recording a meeting."
+        : "What does the Q3 board pack say? Look the tide up, then start recording a meeting.",
     );
     const card = answer.getByTestId("approval-card");
     await expect(card).toBeVisible({ timeout: 45_000 });
@@ -317,6 +331,29 @@ test("a page whose title imitates a Document is named by its host, in English an
     await expect(line).not.toContainText(TITLE);
     await expect(line).not.toContainText("其他内容");
     await shot(window, card, "approval-read-text-impersonation-zh");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a page whose title alone was read is named by its title, by host, in English and Chinese (#2240)", async () => {
+  const { app, window, card } = await cardFor(dataDir, sources, {
+    pageOnly: true,
+    titleOnly: true,
+  });
+  try {
+    const line = card.getByTestId("approval-read-text");
+    await expect(line).toContainText("the title of a web page on files.example");
+    await expect(line).toContainText("results from Tides");
+    // The title is named by its page's host, never by the words the page wrote.
+    await expect(line).not.toContainText(TITLE);
+    await shot(window, card, "approval-read-text-title-en");
+
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("files.example 上一个网页的标题");
+    await expect(line).toContainText("Tides 返回的内容");
+    await expect(line).not.toContainText(TITLE);
+    await shot(window, card, "approval-read-text-title-zh");
   } finally {
     await app.close();
   }

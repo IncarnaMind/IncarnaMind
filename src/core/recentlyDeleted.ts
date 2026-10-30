@@ -10,6 +10,7 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import {
+  DELETED_KINDS,
   type DeletedItem,
   type DeletedKind,
   type DeletedRef,
@@ -37,13 +38,26 @@ const TABLES: Readonly<Record<DeletedKind, string>> = {
   tag: "tags",
 };
 
-const KINDS: readonly DeletedKind[] = ["mind", "conversation", "document", "folder", "tag"];
+const KINDS: readonly DeletedKind[] = DELETED_KINDS;
 
 /** A name as `mindName` and `conversationName` give it: the title typed, else the one it gave itself. */
 const OWN_NAME = "CASE WHEN title <> '' THEN title ELSE auto_title END";
 
 const earliestRestorable = (now: string) =>
   new Date(Date.parse(now) - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+/**
+ * The Folder a deleted item was in, from the latest live record of a Folder's deletion that took
+ * it out: the item's own row lost that Folder then. The record must not be older than the item's
+ * own deletion; the same moment counts, since deleting several things takes the Documents before
+ * their Folder (#2238).
+ */
+function wasIn(kind: DeletedKind, table: string): string {
+  return `(SELECT f.folder_id FROM deleted_folder_items f
+    WHERE f.item_kind = '${kind}' AND f.item_id = ${table}.id AND f.deleted_at IS NULL
+      AND f.created_at >= ${table}.deleted_at
+    ORDER BY f.rowid DESC LIMIT 1)`;
+}
 
 function parseRefs(input: unknown, what: string): RestoreRef[] {
   if (!Array.isArray(input)) throw new InvalidInputError(`${what} expects a list of { kind, id }.`);
@@ -255,7 +269,9 @@ export function createRecentlyDeleted(options: {
         ...(["mind", "conversation"] as const).flatMap((kind) =>
           db
             .all<{ id: string; name: string; deleted_at: string; group_id: string | null }>(
-              `SELECT id, ${OWN_NAME} AS name, deleted_at, folder_id AS group_id FROM ${TABLES[kind]}
+              `SELECT id, ${OWN_NAME} AS name, deleted_at,
+                 COALESCE(folder_id, ${wasIn(kind, TABLES[kind])}) AS group_id
+               FROM ${TABLES[kind]}
                WHERE deleted_at >= ? AND purged_at IS NULL`,
               [since],
             )
@@ -271,7 +287,8 @@ export function createRecentlyDeleted(options: {
             linked_folder_id: string | null;
           }>(
             // Not those unlinked with their Linked folder, nor those whose file is in the Library again.
-            `SELECT d.id, d.name, d.kind, d.deleted_at, g.group_id, d.linked_folder_id
+            `SELECT d.id, d.name, d.kind, d.deleted_at,
+               COALESCE(g.group_id, ${wasIn("document", "d")}) AS group_id, d.linked_folder_id
              FROM documents d
              LEFT JOIN document_groups g ON g.document_id = d.id AND g.deleted_at IS NULL
              WHERE d.deleted_at >= ? AND d.purged_at IS NULL

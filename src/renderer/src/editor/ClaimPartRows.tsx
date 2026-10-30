@@ -7,18 +7,18 @@ import type {
   ClaimCalculation,
   ClaimCheckPart,
   ClaimCheckScope,
-  ClaimPartCoverage,
   ClaimPartSpan,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
+import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { useLanguage, useT } from "../i18n";
-import { openCitedFollowing, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
@@ -26,7 +26,7 @@ import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
-import { MindIdContext, SignOffsContext } from "./mindContext";
+import { SignOffsContext } from "./mindContext";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
   citationSignOff,
@@ -38,16 +38,6 @@ import {
   usePersonId,
 } from "./signOffActions";
 import { CitationChip, OpenCitation } from "./UnsupportedCited";
-
-function hasKnownDomain(coverage: ClaimPartCoverage): boolean {
-  return (
-    coverage.complete &&
-    coverage.domainEvidence.some(
-      (citation) =>
-        citation.check === "found" && Boolean(citation.documentId && citation.quote?.trim()),
-    )
-  );
-}
 
 function PartCitation({
   editor,
@@ -69,7 +59,6 @@ function PartCitation({
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
-  const mindId = useContext(MindIdContext);
   const personId = usePersonId();
   const versions = useDocumentVersions();
   const id = typeof citation.id === "string" ? citation.id : null;
@@ -89,10 +78,9 @@ function PartCitation({
   };
   const open = () => {
     if (!citation.documentId) return;
-    void openCitedFollowing(
+    void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
       { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
-      mindId,
     );
     onOpen();
   };
@@ -140,20 +128,6 @@ function PartCitation({
       )}
     </div>
   );
-}
-
-/** A card's rows: each part, and each member of a quantified part's domain, under its part's words. */
-function cardRows(parts: readonly ClaimCheckPart[]) {
-  return parts.flatMap<{ part: ClaimCheckPart; label: string | null }>((part) => {
-    if (!part.coverage) return [{ part, label: null }];
-    const members = part.coverage.members.map((member) => ({
-      part: { ...part, verdict: member.verdict, evidence: member.evidence, coverage: undefined },
-      label: member.label,
-    }));
-    return hasKnownDomain(part.coverage)
-      ? members
-      : [{ part: { ...part, coverage: undefined }, label: null }, ...members];
-  });
 }
 
 /** Whether a row of the sentence's card can add a Citation of what it found. */

@@ -1109,13 +1109,14 @@ export function createLibrary(options: {
     /**
      * Deletes a Folder: its Documents go to Not in a Folder, as the Minds and conversations
      * the caller took out of it did, and all are recorded so that restoring it puts them back.
+     * `at`: when Undo of a Restore deletes it again.
      */
     delete(
       id: unknown,
       taken: { minds?: readonly string[]; conversations?: readonly string[] } = {},
+      at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
-      const at = now();
       const record = (kind: "document" | "mind" | "conversation", itemId: string, suggested = 0) =>
         db.run(
           `INSERT INTO deleted_folder_items

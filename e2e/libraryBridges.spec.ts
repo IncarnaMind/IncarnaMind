@@ -321,7 +321,7 @@ test("a Folder's New note here starts a Mind that searches the Folder, and the Q
     );
     const answer = assistantAnswers(window).first();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer.getByTestId("answer-steps")).toContainText(`Searched ${FOLDER} ·`);
+    await expect(answer.getByTestId("answer-steps")).toContainText(`Searched “${FOLDER}” ·`);
     await expect(editor.getByTestId("question")).toHaveCount(0);
     await expect(editor.getByTestId("answer")).toHaveCount(0);
   } finally {
