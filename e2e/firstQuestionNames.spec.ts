@@ -52,12 +52,13 @@ async function markSteps(window: Page, done: object): Promise<void> {
 }
 
 /** A model on this computer, its probe slow enough to keep the Question on its way on screen. */
-async function slowModel(window: Page): Promise<void> {
+async function slowModel(window: Page) {
   const listing = await ollamaListing(["fake-model"], { delayMs: 15_000 });
   await window.evaluate(async (url) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "ollama", baseUrl: url, modelId: "fake-model" });
   }, listing.url);
+  return listing;
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -68,12 +69,13 @@ for (const language of ["en", "zh-CN"] as const) {
       "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
     );
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    let listing: Awaited<ReturnType<typeof slowModel>> | null = null;
     try {
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await dismissChatSetup(window);
       await expectReadyDocuments(window, 2);
-      await slowModel(window);
+      listing = await slowModel(window);
       await window.getByTestId("add-documents-input").setInputFiles([file]);
       await markSteps(window, { indexed: true });
       const ready = step(window, "question").getByTestId("first-open-ready");
@@ -108,6 +110,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(writing).not.toContainText(language === "en" ? "Draft" : "授信");
     } finally {
       await app.close();
+      listing?.server.close();
     }
   });
 }
@@ -115,6 +118,7 @@ for (const language of ["en", "zh-CN"] as const) {
 for (const language of ["en", "zh-CN"] as const) {
   test(`a Question asked inside a Note names it on both lines (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    let listing: Awaited<ReturnType<typeof slowModel>> | null = null;
     try {
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
@@ -127,7 +131,7 @@ for (const language of ["en", "zh-CN"] as const) {
           ? "The harbour master publishes the tide tables."
           : "港口管理员发布潮汐表。",
       );
-      await slowModel(window);
+      listing = await slowModel(window);
 
       // The empty conversation names the Note it reads, and the Question asked in it names it too.
       await window.keyboard.press("ControlOrMeta+j");
@@ -151,6 +155,7 @@ for (const language of ["en", "zh-CN"] as const) {
       );
     } finally {
       await app.close();
+      listing?.server.close();
     }
   });
 }
