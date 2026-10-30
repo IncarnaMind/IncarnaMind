@@ -114,8 +114,10 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await expect(writing).not.toContainText(language === "en" ? example : "授信");
     } finally {
-      await app.close();
+      // Release the held probe before the app goes, so its last request finishes rather than
+      // being cut off; the server closes once nothing uses it.
       model?.release();
+      await app.close();
       model?.close();
     }
   });
@@ -147,8 +149,10 @@ test("a Note deleted while its Question waits is named no more: the line says wh
     });
     await expect(writing).toHaveText("Searching All Documents…");
   } finally {
-    await app.close();
+    // Release the held probe before the app goes, so its last request finishes rather than being
+    // cut off; the server closes once nothing uses it.
     model?.release();
+    await app.close();
     model?.close();
   }
 });
@@ -192,8 +196,10 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "en" ? `Reading “${note}”…` : `正在读“${note}”…`,
       );
     } finally {
-      await app.close();
+      // Release the held probe before the app goes, so its last request finishes rather than
+      // being cut off; the server closes once nothing uses it.
       model?.release();
+      await app.close();
       model?.close();
     }
   });

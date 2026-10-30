@@ -124,7 +124,7 @@ test("typing @ in the composer limits the search to a Folder: the Answer cites o
   await rename(join(notes, "Ocean"), join(notes, "Sea"));
   await expect(composerChip).toHaveAttribute("data-deleted", "true");
   await expect(composerChip.locator("s")).toHaveText("Deleted Folder");
-  await expect(searched).toContainText("Searched “Deleted Folder” ·");
+  await expect(searched).toContainText("Searched Deleted Folder ·");
   await answer.hover();
   await answer.getByTestId("answer-regenerate").click();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
