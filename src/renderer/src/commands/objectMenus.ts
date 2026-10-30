@@ -98,7 +98,6 @@ registerMenu(
     "mind.openChat",
     "mind.outline",
     "mind.duplicate",
-    "mind.tidy",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",

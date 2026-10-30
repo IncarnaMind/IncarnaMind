@@ -393,8 +393,6 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.checkContradictions",
     "mind.style",
     "—",
-    "mind.tidy",
-    "—",
   ]);
   expect(byRightClick.slice(-2)).toEqual(["—", "mind.delete"]);
   expect(byRightClick.indexOf("tab.rename")).toBeLessThan(byRightClick.indexOf("tab.close"));
