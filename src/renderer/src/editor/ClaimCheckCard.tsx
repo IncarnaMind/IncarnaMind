@@ -3,6 +3,7 @@ import {
   type CSSProperties,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -76,6 +77,7 @@ import { useReadableQuote } from "./citationScan";
 import { claimCardPlace } from "./claimCardPlace";
 import { markOf, type ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { MindIdContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
@@ -315,7 +317,6 @@ export function ClaimMark({
             <ClaimCard
               rootRef={card}
               claim={claim}
-              mindId={mindId}
               heading={heading}
               onSourcePickerChange={sourcePickerChanged}
               verified={verificationOf(doc)?.documentId ?? null}
@@ -399,6 +400,7 @@ export function ClaimMark({
  */
 function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpen(): void }) {
   const t = useT();
+  const mindId = useContext(MindIdContext);
   const documents = useAppStore((store) => store.documents);
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
@@ -441,11 +443,11 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
                 className="claim-card-input"
                 title={input.citation.quote}
                 onClick={() => {
-                  void openCitedFollowing(input.citation, {
-                    check: "found",
-                    withQuote: true,
-                    label: where,
-                  });
+                  void openCitedFollowing(
+                    input.citation,
+                    { check: "found", withQuote: true, label: where },
+                    mindId,
+                  );
                   onOpen();
                 }}
               >
@@ -487,7 +489,6 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
 function ClaimCard({
   rootRef,
   claim,
-  mindId,
   heading,
   onSourcePickerChange,
   verified,
@@ -516,7 +517,6 @@ function ClaimCard({
 }: {
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
-  mindId: string;
   heading: string;
   onSourcePickerChange(open: boolean): void;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
@@ -545,6 +545,7 @@ function ClaimCard({
   onUse(): void;
 }) {
   const t = useT();
+  const mindId = useContext(MindIdContext);
   const language = useLanguage();
   const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
@@ -921,6 +922,7 @@ function ClaimCard({
               void openCitedFollowing(
                 { ...evidence, documentId: evidence.documentId },
                 { check: "found", withQuote: true, label: where },
+                mindId,
               );
               onOpen();
             }}
@@ -1022,13 +1024,15 @@ function ClaimCard({
           </button>
         )}
       </div>
-      <RecordCiteResults
-        mindId={mindId}
-        checkId={check.id}
-        cites={check.recordCites ?? []}
-        onOpen={onOpen}
-        onPickerChange={onSourcePickerChange}
-      />
+      {mindId && (
+        <RecordCiteResults
+          mindId={mindId}
+          checkId={check.id}
+          cites={check.recordCites ?? []}
+          onOpen={onOpen}
+          onPickerChange={onSourcePickerChange}
+        />
+      )}
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

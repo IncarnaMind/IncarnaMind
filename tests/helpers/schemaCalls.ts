@@ -89,6 +89,7 @@ export async function callEverySchema(model: ChatLanguageModel): Promise<AnswerE
         name: "Reports",
         description: "Reports",
         countsOwnFiles: false,
+        keepInside: false,
         createdAt: "",
         updatedAt: "",
       },

@@ -29,9 +29,9 @@ describe("the sidebar's statuses speak plainly (#763, item 25)", () => {
     );
   });
 
-  test("reading a folder counts as the tie-out counts, so it fits the one status line", () => {
+  test("indexing counts the files it has read, so it fits the one status line", () => {
     expect(said.en("linkedFolders.state.indexing", { indexed: 3, files: 120 })).toBe(
-      "Reading 3 of 120",
+      "Indexing 3 of 120",
     );
     expect(said.zh("linkedFolders.state.indexing", { indexed: "3", files: "120" })).toBe(
       "正在读取 3/120 个文件",

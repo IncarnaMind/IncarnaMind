@@ -6,14 +6,15 @@ import { homeEnv } from "../../tests/helpers/home";
 import { launchEnvironment } from "../launchEnvironment";
 
 const root = resolve(__dirname, "../..");
-export const packagedExecutable =
-  process.env.INCARNAMIND_PACKAGED_APP ??
-  join(
-    root,
-    "dist",
-    process.arch === "arm64" ? "mac-arm64" : "mac",
-    "IncarnaMind.app/Contents/MacOS/IncarnaMind",
-  );
+
+/** Where `npm run dist:dir` puts the app's executable on this computer. */
+function builtExecutable(): string {
+  if (process.platform === "win32") return join(root, "dist", "win-unpacked", "IncarnaMind.exe");
+  if (process.platform === "linux") return join(root, "dist", "linux-unpacked", "incarnamind");
+  return join(root, "dist", "mac-arm64", "IncarnaMind.app/Contents/MacOS/IncarnaMind");
+}
+
+export const packagedExecutable = process.env.INCARNAMIND_PACKAGED_APP || builtExecutable();
 const modelCache = process.env.INCARNAMIND_MODEL_CACHE;
 
 export async function launchPackaged(

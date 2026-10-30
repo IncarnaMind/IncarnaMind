@@ -100,6 +100,20 @@ export function recordTime(moment: string, language: Language, t: Translator): s
 }
 
 /**
+ * A person's own check as a file says it beside what they checked (#1933): "Checked by Ada · 28 Oct
+ * 2026" (`date` writes the day), and a mark made before it changed never as checked.
+ */
+export const checkedByLine = (
+  signOff: SignOffNow,
+  date: (moment: string) => string,
+  t: Translator,
+): string =>
+  t(signOff.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
+    name: signOff.name ?? t("checkRecord.notRecorded"),
+    date: date(signOff.at),
+  });
+
+/**
  * A person's own check of an item (#1933), as the record says it: their name, when (`time` writes
  * it) and whether it changed since. Others read the record, so it names the person, never "you".
  */

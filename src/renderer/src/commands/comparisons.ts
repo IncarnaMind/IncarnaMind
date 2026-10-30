@@ -1,5 +1,20 @@
 import { COMPARISON_TABLE_NODE } from "../../../core/api";
-import { comparisonQuestionsOf } from "../../../shared/comparisons";
+import { comparisonCellOf, comparisonQuestionsOf } from "../../../shared/comparisons";
+import {
+  type ComparisonCellHandle,
+  comparisonCellHandles,
+  comparisonCellRef,
+} from "../comparisonCellHandle";
+import { useComparisonCells } from "../comparisonCellState";
+import {
+  comparisonCellLocation,
+  comparisonCellsAllReviewed,
+  comparisonCellsSelected,
+  copyComparisonCells,
+  refillComparisonCells,
+  startComparisonCellEdit,
+  toggleComparisonCellsReviewed,
+} from "../comparisonCells";
 import {
   canInsertColumn,
   comparisonColumnHandles,
@@ -12,7 +27,9 @@ import {
   stepColumn,
 } from "../comparisonColumns";
 import { fittedColumnWidth } from "../comparisonColumnWidth";
+import { refillComparison } from "../comparisonRefill";
 import { openRowDocument, removeRow, stepRow } from "../comparisonRows";
+import { comparisonCellsInTable } from "../comparisonSelection";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { startTableRename } from "../comparisonTableName";
 import {
@@ -75,9 +92,44 @@ function actColumn(
   if (here) run(here);
 }
 
+function cellHere(ctx: CommandContext) {
+  if (ctx.focus?.kind !== "comparisonCell") return null;
+  const handle = comparisonCellHandles.get(ctx.focus.id);
+  if (!handle || handle.editor.isDestroyed || !comparisonCellLocation(handle)) return null;
+  return handle;
+}
+
+function editableCellHere(ctx: CommandContext) {
+  const handle = cellHere(ctx);
+  return handle?.editor.isEditable ? handle : null;
+}
+
+const cellEnabled = (ctx: CommandContext) => (cellHere(ctx) ? true : cellUnavailable);
+const editableCellEnabled = (ctx: CommandContext) =>
+  editableCellHere(ctx) ? true : cellUnavailable;
+const oneCell = (ctx: CommandContext) => {
+  const handle = editableCellHere(ctx);
+  return handle !== null && comparisonCellsSelected(handle).length === 1;
+};
+/** The cells a cell command acts on: from ⌘K the visible selection alone, as ⌘C copies it. */
+const cellsFor = (ctx: CommandContext, handle: ComparisonCellHandle) =>
+  comparisonCellsSelected(handle, ctx.surface !== "palette");
+
+const reviewedEnabled = (ctx: CommandContext) => {
+  const handle = editableCellHere(ctx);
+  if (!handle) return cellUnavailable;
+  return cellsFor(ctx, handle).some((target) => {
+    const location = comparisonCellLocation({ ...handle, ...target });
+    return location && comparisonCellOf(location.cell.attrs).status === "done";
+  })
+    ? true
+    : cellUnavailable;
+};
+
 const unavailable = { reason: "comparison.column.unavailable" } as const;
 const tableUnavailable = { reason: "comparison.table.unavailable" } as const;
 const rowUnavailable = { reason: "comparison.row.unavailable" } as const;
+const cellUnavailable = { reason: "comparison.cell.unavailable" } as const;
 const insertReason = { reason: "comparison.column.maxQuestions" } as const;
 
 /** The table a menu or ⌘K names, with the editor showing it. */
@@ -97,6 +149,8 @@ function rowHere(ctx: CommandContext) {
   if (!here) return null;
   return { handle, here, rows: comparisonRowCount(handle.editor, handle.tableId) };
 }
+
+const tableEnabled = (ctx: CommandContext) => (tableHere(ctx) ? true : tableUnavailable);
 
 const rowMoveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
   const found = rowHere(ctx);
@@ -353,6 +407,27 @@ export const comparisonCommands: readonly Command[] = [
     },
   },
   {
+    id: "comparison.row.refill",
+    label: "comparison.row.refill",
+    group: "main",
+    appliesTo: ["comparisonRow"],
+    reversible: true,
+    enabled: (ctx) => (rowHere(ctx) ? true : rowUnavailable),
+    run: (ctx) => {
+      const found = rowHere(ctx);
+      if (found) {
+        refillComparison(
+          found.handle,
+          "refill",
+          comparisonCellsInTable(found.handle, false).filter(
+            (cell) => cell.documentId === found.here.documentId,
+          ),
+          "row",
+        );
+      }
+    },
+  },
+  {
     id: "comparisonRow.remove",
     label: "comparison.row.remove",
     rowKeys: "Delete",
@@ -369,6 +444,160 @@ export const comparisonCommands: readonly Command[] = [
     run: (ctx) => {
       const found = rowHere(ctx);
       if (found && found.rows > 1) void removeRow(found.handle, found.here.documentId);
+    },
+  },
+  {
+    id: "comparison.table.refillAll",
+    label: "comparison.table.refillAll",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) {
+        refillComparison(here, "refill-all", comparisonCellsInTable(here, false));
+      }
+    },
+  },
+  {
+    id: "comparison.table.refillProblems",
+    label: "comparison.table.refillProblems",
+    group: "main",
+    appliesTo: ["comparisonTable"],
+    reversible: true,
+    enabled: tableEnabled,
+    run: (ctx) => {
+      const here = tableHere(ctx);
+      if (here) {
+        refillComparison(here, "refill-problems", comparisonCellsInTable(here, false));
+      }
+    },
+  },
+  {
+    id: "comparison.column.refill",
+    label: "comparison.column.refill",
+    group: "main",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: editEnabled,
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) =>
+        refillComparison(
+          handle,
+          "refill",
+          comparisonCellsInTable(handle, false).filter((cell) => cell.questionId === question.id),
+          "column",
+        ),
+      ),
+  },
+  {
+    id: "comparison.column.reviewed",
+    label: "comparison.column.reviewed",
+    assistant: { never: "signOff" },
+    checked: (ctx) => {
+      const here = columnHere(ctx);
+      const cells = here
+        ? comparisonCellsInTable(here.handle, false).filter(
+            (cell) => cell.questionId === here.question.id,
+          )
+        : [];
+      return here ? comparisonCellsAllReviewed(here.handle, cells) : false;
+    },
+    group: "main",
+    appliesTo: ["comparisonColumn"],
+    reversible: true,
+    enabled: (ctx) => {
+      const here = columnHere(ctx);
+      if (!here) return unavailable;
+      return comparisonCellsInTable(here.handle, false).some(
+        (cell) =>
+          cell.questionId === here.question.id &&
+          comparisonCellOf(comparisonCellLocation({ ...here.handle, ...cell })?.cell.attrs ?? {})
+            .status === "done",
+      )
+        ? true
+        : unavailable;
+    },
+    run: (ctx) =>
+      actColumn(ctx, ({ handle, question }) =>
+        toggleComparisonCellsReviewed(
+          handle,
+          comparisonCellsInTable(handle, false).filter((cell) => cell.questionId === question.id),
+        ),
+      ),
+  },
+  {
+    id: "comparison.cell.open",
+    label: "comparison.cell.openCard",
+    rowKeys: "Enter",
+    group: "open",
+    appliesTo: ["comparisonCell"],
+    reversible: true,
+    enabled: cellEnabled,
+    run: (ctx) => {
+      const handle = cellHere(ctx);
+      if (handle) useComparisonCells.getState().openCard(comparisonCellRef(handle));
+    },
+  },
+  {
+    id: "comparison.cell.refill",
+    label: "comparison.cell.fillAgain",
+    group: "main",
+    appliesTo: ["comparisonCell"],
+    reversible: true,
+    enabled: editableCellEnabled,
+    run: (ctx) => {
+      const handle = editableCellHere(ctx);
+      if (!handle) return;
+      const selected = cellsFor(ctx, handle);
+      const location = comparisonCellLocation(handle);
+      if (selected.length === 1 && location && comparisonCellOf(location.cell.attrs).edited) {
+        useComparisonCells.getState().openCard(comparisonCellRef(handle), true);
+      } else refillComparisonCells(handle, "refill", ctx.surface !== "palette");
+    },
+  },
+  {
+    id: "comparison.cell.edit",
+    label: "comparison.cell.edit",
+    rowKeys: "F2",
+    group: "edit",
+    appliesTo: ["comparisonCell"],
+    reversible: true,
+    when: oneCell,
+    run: (ctx) => {
+      const handle = editableCellHere(ctx);
+      if (handle) startComparisonCellEdit(handle);
+    },
+  },
+  {
+    id: "comparison.cell.reviewed",
+    label: "comparison.cell.markReviewed",
+    assistant: { never: "signOff" },
+    checked: (ctx) => {
+      const handle = cellHere(ctx);
+      return handle ? comparisonCellsAllReviewed(handle, cellsFor(ctx, handle)) : false;
+    },
+    group: "main",
+    appliesTo: ["comparisonCell"],
+    reversible: true,
+    enabled: reviewedEnabled,
+    run: (ctx) => {
+      const handle = editableCellHere(ctx);
+      if (handle) toggleComparisonCellsReviewed(handle, cellsFor(ctx, handle));
+    },
+  },
+  {
+    id: "comparison.cell.copy",
+    label: "object.copy",
+    rowKeys: "CmdOrCtrl+C",
+    group: "edit",
+    appliesTo: ["comparisonCell"],
+    reversible: true,
+    enabled: cellEnabled,
+    run: async (ctx) => {
+      const handle = cellHere(ctx);
+      if (handle) await copyComparisonCells(handle, ctx.surface !== "palette");
     },
   },
 ];

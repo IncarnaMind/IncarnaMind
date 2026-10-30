@@ -158,7 +158,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       const record = await build(mindId);
       const { language } = record;
       const t = translatorFor(language);
-      const base = t("checkRecord.fileName", { name: safeFileName(record.mind, "Mind") });
+      const base = t("checkRecord.fileName", { name: safeFileName(record.mind, "Note") });
       return [
         {
           format: "pdf",

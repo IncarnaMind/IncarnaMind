@@ -251,7 +251,7 @@ async function rejectMade(row: ChangedMind): Promise<Done | null> {
   return {
     count: rejected.count,
     undo: async () => {
-      await core.restore([{ kind: "mind", id: row.mindId }]);
+      await core.restore([{ kind: "mind", id: row.mindId }], { reopen: true });
       await rejected.undo();
       await openBeside(row.mindId);
     },

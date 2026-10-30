@@ -42,22 +42,26 @@ const STATES: readonly ClaimCheckAttributes["state"][] = [
   "not-checked",
 ];
 
-const FAILURES: readonly ClaimCheckFailure[] = [
-  "refused",
-  "malformed",
-  "empty",
-  "no-evidence",
-  "unread",
-  "rate-limit",
-  "cost-cap",
-  "plan-limit",
-  "out-of-credit",
-  "failed",
-  "stopped",
-  "too-many",
-  "consent-revoked",
-  "local-mode",
-];
+// Every reason, so one added to `ClaimCheckFailure` is read back from a mark, never dropped.
+const FAILURE_REASONS: Record<ClaimCheckFailure, true> = {
+  refused: true,
+  malformed: true,
+  empty: true,
+  "no-evidence": true,
+  unread: true,
+  "rate-limit": true,
+  "cost-cap": true,
+  "plan-limit": true,
+  "out-of-credit": true,
+  failed: true,
+  stopped: true,
+  "too-many": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "kept-inside": true,
+};
+const isFailure = (value: unknown): value is ClaimCheckFailure =>
+  typeof value === "string" && Object.hasOwn(FAILURE_REASONS, value);
 
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 
@@ -158,9 +162,7 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
       {
         raw,
         outcome: outcome as RecordCiteResult["outcome"],
-        ...(FAILURES.find((reason) => reason === each.reason)
-          ? { reason: each.reason as ClaimCheckFailure }
-          : {}),
+        ...(isFailure(each.reason) ? { reason: each.reason } : {}),
         ...(each.detail === null
           ? { detail: null }
           : text(each.detail) !== null
@@ -230,7 +232,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     request: text(value.request) ?? "",
     action,
     state,
-    reason: FAILURES.find((each) => each === value.reason) ?? null,
+    reason: isFailure(value.reason) ? value.reason : null,
     detail: text(value.detail),
     providerId: text(value.providerId),
     modelId: text(value.modelId),

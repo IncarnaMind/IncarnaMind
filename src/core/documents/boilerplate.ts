@@ -58,10 +58,15 @@ function edgeLinesOf(lines: readonly string[], count: number): string[] {
  * peeled from each edge of a page inwards, that repeat (numbers aside) at the
  * edges of enough of the Document's pages. A page made only of such lines
  * keeps them. Documents without pages are returned as they are.
+ *
+ * `starts`, when given, receives for each page it cuts where the kept text
+ * begins in the page's own text, so a caller that holds offsets into it can
+ * move them: a newline's offset is unchanged for a page kept whole.
  */
 export function stripBoilerplate<Page extends PageText>(
   pages: readonly Page[],
   parameters: BoilerplateParameters = BOILERPLATE_PARAMETERS,
+  starts?: number[],
 ): Page[] {
   const { edgeLines, minPages, minShare, maxLineLength } = parameters;
   const copy = () => pages.map((page) => ({ ...page }));
@@ -132,6 +137,7 @@ export function stripBoilerplate<Page extends PageText>(
     // Where what is kept starts in the page's text, so a scanned page's anchors move with it.
     const from = lines.slice(0, start).reduce((sum, line) => sum + line.length + 1, 0);
     const leading = kept.length - kept.trimStart().length;
+    if (starts) starts[index] = from + leading;
     return cutUnit(page, from + leading, from + kept.trimEnd().length);
   });
 }

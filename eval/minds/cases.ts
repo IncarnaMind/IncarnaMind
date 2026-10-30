@@ -419,7 +419,7 @@ export const CASES: readonly MindsCase[] = [
   {
     id: "shorten-three-zh",
     language: "zh-CN",
-    request: "把周报、月报和董事会简报这三个 Mind 里的摘要各缩短成两句话。",
+    request: "把周报、月报和董事会简报这三个笔记里的摘要各缩短成两句话。",
     open: null,
     expected: shortenAll("zh-CN"),
   },
@@ -450,7 +450,7 @@ export const CASES: readonly MindsCase[] = [
   {
     id: "term-three-zh",
     language: "zh-CN",
-    request: "在港口计划、港口预算和港口风险这三个 Mind 里，把“供应商”都改成“供货方”。",
+    request: "在港口计划、港口预算和港口风险这三个笔记里，把“供应商”都改成“供货方”。",
     open: null,
     expected: term("zh-CN"),
   },
@@ -465,7 +465,7 @@ export const CASES: readonly MindsCase[] = [
   {
     id: "term-one-open-zh",
     language: "zh-CN",
-    request: "在港口计划、港口预算和港口风险这三个 Mind 里，把“供应商”都改成“供货方”。",
+    request: "在港口计划、港口预算和港口风险这三个笔记里，把“供应商”都改成“供货方”。",
     open: "港口预算",
     expected: term("zh-CN"),
   },
@@ -473,7 +473,7 @@ export const CASES: readonly MindsCase[] = [
     id: "new-from-two-en",
     language: "en",
     request:
-      "Make a new Mind called Launch brief from my Project plan Mind and my Meeting notes Mind: the milestones from the plan and the decisions from the notes.",
+      "Make a new Note called Launch brief from my Project plan Note and my Meeting notes Note: the milestones from the plan and the decisions from the notes.",
     open: null,
     expected: launchBrief("en"),
   },
@@ -481,7 +481,7 @@ export const CASES: readonly MindsCase[] = [
     id: "new-from-two-zh",
     language: "zh-CN",
     request:
-      "用项目计划和会议纪要这两个 Mind 新建一个叫“发布简报”的 Mind：放进计划里的里程碑和纪要里的决定。",
+      "用项目计划和会议纪要这两个笔记新建一个叫“发布简报”的笔记：放进计划里的里程碑和纪要里的决定。",
     open: null,
     expected: launchBrief("zh-CN"),
   },
@@ -609,14 +609,14 @@ export const CASES: readonly MindsCase[] = [
   {
     id: "missing-mind-en",
     language: "en",
-    request: "Shorten the summary in my Budget forecast Mind.",
+    request: "Shorten the summary in my Budget forecast Note.",
     open: "Project plan",
     expected: { changed: {}, missing: "Budget forecast" },
   },
   {
     id: "missing-mind-zh",
     language: "zh-CN",
-    request: "把我的预算预测 Mind 里的摘要缩短一点。",
+    request: "把我的预算预测笔记里的摘要缩短一点。",
     open: "项目计划",
     expected: { changed: {}, missing: "预算预测" },
   },

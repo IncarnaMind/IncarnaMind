@@ -208,7 +208,7 @@ test("Add folder… shows what linking would take, then the folder's row shows i
   // Indexing: its count and a thin bar on the folder's one 28px row.
   const row = linkedFolderRow(window, "Library");
   await expect(row).toHaveAttribute("data-state", "indexing");
-  await expect(row.getByTestId("folder-status")).toContainText(/Reading \d of 4/);
+  await expect(row.getByTestId("folder-status")).toContainText(/Indexing \d of 4/);
   await expect(row.getByTestId("folder-progress")).toBeVisible();
   expect((await row.boundingBox())?.height).toBeCloseTo(28, 0);
   await screenshot(window.getByTestId("sidebar"), "row-indexing");
@@ -795,7 +795,7 @@ test("an empty Linked folder says so, in its section, which comes with it", asyn
 
   const row = linkedFolderRow(window, "Projects");
   await expect(row).toHaveAttribute("data-state", "empty");
-  await expect(row.getByTestId("folder-status")).toHaveText(/^No supported files/);
+  await expect(row.getByTestId("folder-status")).toHaveText(/^Nothing to read yet/);
   // A row that never unfolds.
   await expect(row.getByTestId("linked-folder-open")).not.toHaveAttribute("aria-expanded");
   await screenshot(window.getByTestId("sidebar"), "row-empty");
