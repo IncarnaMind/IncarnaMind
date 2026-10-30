@@ -1141,6 +1141,45 @@ describe("Blocks added, deleted and moved", () => {
     expect(document).toContain("Body.");
   });
 
+  test("a table of contents links each heading to its own new bookmark, clear of the file's, and asks Word to update the field (#1935)", async () => {
+    const heading = (text: string, bookmark?: string) =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${
+        bookmark
+          ? `<w:bookmarkStart w:id="7" w:name="${bookmark}"/><w:r><w:t>${text}</w:t></w:r><w:bookmarkEnd w:id="7"/>`
+          : `<w:r><w:t>${text}</w:t></w:r>`
+      }</w:p>`;
+    const { core, mindId, client } = await setUp({
+      body: heading("Scope") + heading("Terms", "_Toc90000001") + paragraph("Body."),
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { document, part } = await exported(core, mindId);
+    const anchors = [...document.matchAll(/<w:hyperlink w:anchor="([^"]+)"/g)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(anchors).toHaveLength(2);
+    expect(new Set(anchors).size).toBe(2);
+    expect(anchors).not.toContain("_Toc90000001");
+    for (const anchor of anchors) expect(document).toContain(`w:name="${anchor}"`);
+
+    const headingParagraph = (text: string) =>
+      paragraphsIn(document).find(
+        (each) => each.includes('w:val="Heading1"') && textOf(each) === text,
+      );
+    const bookmarkIn = (xml: string | undefined) =>
+      /<w:bookmarkStart[^>]*w:name="([^"]+)"/.exec(xml ?? "")?.[1];
+    const scope = headingParagraph("Scope");
+    const terms = headingParagraph("Terms");
+    expect(anchors).toContain(bookmarkIn(scope));
+    expect(anchors).toContain(bookmarkIn(terms));
+    expect(bookmarkIn(terms)).not.toBe("_Toc90000001");
+    expect(terms).toContain('w:name="_Toc90000001"');
+    expect(part("word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+    expect(part("word/_rels/document.xml.rels")).toContain("settings.xml");
+    expect(part("[Content_Types].xml")).toContain("/word/settings.xml");
+  });
+
   test("a new paragraph with a Citation goes after the one before it, in its look; the Citation is a footnote", async () => {
     const { core, mindId, client } = await setUp({
       body: paragraph(run("Intro.", { font: "Georgia" })) + paragraph("Outro."),

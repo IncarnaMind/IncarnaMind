@@ -89,6 +89,8 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
+  bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
   target: PatchTarget;
   styles: DocumentStyles;
@@ -685,6 +687,7 @@ export class DocumentPatch {
    * or out of a list, or holding what goes.
    */
   private needsWriting(counterpart: Counterpart, based: Based): boolean {
+    if (this.input.bookmarkOf(counterpart.node)) return true;
     return (
       !samePendings(counterpart.pending, based.counterpart.pending) ||
       this.input.edited(counterpart.node) ||
@@ -790,7 +793,34 @@ export class DocumentPatch {
         text: text.slice(0, 120),
       });
     }
-    return xml;
+    const bookmark = this.input.bookmarkOf(counterpart.node);
+    if (!bookmark) return xml;
+    const open = xml.indexOf(">") + 1;
+    let insertAt = open;
+    const pPrAt = xml.indexOf("<w:pPr");
+    if (pPrAt !== -1 && pPrAt === open) {
+      let depth = 0;
+      let at = pPrAt;
+      while (at < xml.length) {
+        const nextOpen = xml.indexOf("<w:pPr", at + 1);
+        const nextClose = xml.indexOf("</w:pPr>", at + 1);
+        if (nextClose === -1) break;
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          depth++;
+          at = nextOpen + 6;
+        } else {
+          at = nextClose + 8;
+          if (depth === 0) {
+            insertAt = at;
+            break;
+          }
+          depth--;
+        }
+      }
+    }
+    const close = xml.lastIndexOf("</w:p>");
+    if (close === -1) return xml;
+    return `${xml.slice(0, insertAt)}<w:bookmarkStart w:id="${bookmark.id}" w:name="${bookmark.name}"/>${xml.slice(insertAt, close)}<w:bookmarkEnd w:id="${bookmark.id}"/>${xml.slice(close)}`;
   }
 
   /** A paragraph's text as imported, with someone's changes to it in the file. */

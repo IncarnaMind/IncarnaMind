@@ -141,6 +141,13 @@ export function tableOfContentsHeadings(blocks: readonly Block[]): HeadingEntry[
   return headings.length > 0 && containsTableOfContents(blocks) ? headings : [];
 }
 
+/** An entry in a table of contents whose anchor the caller has already named. */
+export interface ContentsEntry {
+  level: number;
+  text: string;
+  name: string;
+}
+
 /** Whether the Blocks hold a table of contents, at the top or in a quote, list or table. */
 function containsTableOfContents(blocks: readonly Block[]): boolean {
   return blocks.some((block) => {
@@ -406,6 +413,8 @@ export class DocxWriter {
 
   /** Each heading's anchor, for a table of contents: a bookmark Word's field can link to. */
   private readonly anchors = new WeakMap<object, { id: number; name: string }>();
+  /** A table of contents whose entries and anchors the caller already chose (a Word file's own). */
+  private readonly preparedContents: readonly ContentsEntry[];
 
   constructor(
     private readonly labels: ExportLabels,
@@ -415,7 +424,9 @@ export class DocxWriter {
     private readonly review: Review | null = null,
     /** The Note's headings, when it has a table of contents; none: headings carry no bookmark. */
     private readonly headings: readonly HeadingEntry[] = [],
+    preparedContents: readonly ContentsEntry[] = [],
   ) {
+    this.preparedContents = preparedContents;
     this.styles = target.styles;
     headings.forEach((entry, at) => {
       this.anchors.set(entry.block, {
@@ -558,16 +569,21 @@ export class DocxWriter {
    * refresh. The package asks Word to update the fields on opening.
    */
   private contents(): string {
-    const entries = this.headings.flatMap((entry) => {
-      const anchor = this.anchors.get(entry.block);
-      if (!anchor) return [];
-      return [
-        {
+    const entries = this.preparedContents.length
+      ? this.preparedContents.map((entry) => ({
           indent: Math.max(0, entry.level - 1) * INDENT,
-          link: `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
-        },
-      ];
-    });
+          link: `<w:hyperlink w:anchor="${entry.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
+        }))
+      : this.headings.flatMap((entry) => {
+          const anchor = this.anchors.get(entry.block);
+          if (!anchor) return [];
+          return [
+            {
+              indent: Math.max(0, entry.level - 1) * INDENT,
+              link: `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
+            },
+          ];
+        });
     if (entries.length === 0) return "";
     // As Word writes it: the field begins in the first entry's paragraph and ends in the last's.
     const begin =
