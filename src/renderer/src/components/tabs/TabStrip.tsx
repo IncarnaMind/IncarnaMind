@@ -147,8 +147,8 @@ export function TabStrip({
       >
         <PlusLineIcon />
       </button>
-      {/* Only while a tab is hidden: it lists every tab, so nothing is out of reach (#2244). */}
-      {hidden > 0 && <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />}
+      {/* Shown only while a tab is hidden (styles.css), so the fit counts its room when it is (#2244). */}
+      <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
       {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}

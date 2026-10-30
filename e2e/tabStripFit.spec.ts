@@ -82,6 +82,23 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
   return window.evaluate((requireShown) => {
     const problems: string[] = [];
     const slack = 1;
+    /**
+     * The box a name's letters fill, cut to the span that shows them: the same measure the strip's
+     * fit takes, so a slice of empty span never counts as a readable name (#2244).
+     */
+    const textOf = (span: HTMLElement | null | undefined) => {
+      if (!span) return undefined;
+      const box = span.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const letters = range.getBoundingClientRect();
+      if (letters.width === 0 && letters.height === 0) return box;
+      const left = Math.max(box.left, letters.left);
+      const right = Math.min(box.right, letters.right);
+      return right >= left
+        ? { left, right, top: box.top, bottom: box.bottom, width: right - left, height: box.height }
+        : box;
+    };
     const strips = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="tab-strip"]'));
     strips.forEach((strip, at) => {
       const list = strip.querySelector<HTMLElement>('[data-testid="tab-list"]');
@@ -109,7 +126,7 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         const box = tab.getBoundingClientRect();
         const name = tab.getAttribute("aria-label") ?? "a tab";
         const title = tab.querySelector<HTMLElement>('[data-testid="tab-title"]');
-        const text = title?.getBoundingClientRect();
+        const text = textOf(title);
         const inside = box.left >= view.left - slack && box.right <= view.right + slack;
         const outLeft = box.right <= view.left + slack;
         const outRight = box.left >= view.right - slack;
@@ -200,10 +217,12 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
       // one is: a strip that fits stays as it was (#2244).
       const hidden = tabs.length - whole;
       const all = strip.querySelector<HTMLElement>('[data-testid="show-all-tabs"]');
+      const showing = all?.checkVisibility() === true;
       const fit = strip.getAttribute("data-fit");
       if (hidden > 0) {
-        if (!all) problems.push(`${where}: ${hidden} tab(s) are hidden with no Show all tabs`);
-        else {
+        if (!all || !showing) {
+          problems.push(`${where}: ${hidden} tab(s) are hidden with no Show all tabs`);
+        } else {
           const said = Number(/\d+/.exec(all.getAttribute("aria-label") ?? "Show all tabs")?.[0]);
           if (said !== hidden) {
             problems.push(`${where}: Show all tabs says ${said} hidden, but ${hidden} are`);
@@ -211,7 +230,7 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         }
         if (fit !== "cut") problems.push(`${where}: tabs hide but the strip didn't cut them`);
       } else {
-        if (all) problems.push(`${where}: Show all tabs shows with no tab hidden`);
+        if (showing) problems.push(`${where}: Show all tabs shows with no tab hidden`);
         if (fit === "cut") problems.push(`${where}: the strip is cut with every tab in view`);
       }
       const onPlus = document.elementFromPoint(add.left + add.width / 2, add.top + add.height / 2);
@@ -338,7 +357,7 @@ function fitOf(window: Page, index = 0) {
         squeezed: list.hasAttribute("data-squeezed"),
         label: label?.checkVisibility() ?? null,
         split: split?.checkVisibility() ?? null,
-        all: all?.getAttribute("aria-label") ?? null,
+        all: all?.checkVisibility() ? (all.getAttribute("aria-label") ?? null) : null,
       };
     });
 }
@@ -559,14 +578,15 @@ for (const language of LANGUAGES) {
     await window.keyboard.press("Tab");
     await expect(button).toBeFocused();
     await window.keyboard.press("Enter");
-    const menu = window.getByTestId("show-all-tabs-menu");
+    const strip = window.getByTestId("tab-strip").first();
+    const menu = strip.getByTestId("show-all-tabs-menu");
     await expect(menu).toBeVisible();
 
     // Every tab of the strip, in its order, the shown one checked, and no close buttons.
     const names = await list
       .getByRole("tab")
       .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("aria-label") ?? ""));
-    const rows = window.getByTestId("show-all-tabs-row");
+    const rows = menu.getByTestId("show-all-tabs-row");
     await expect(rows).toHaveCount(names.length);
     expect(await rows.evaluateAll((each) => each.map((row) => row.textContent))).toEqual(names);
     const shownAt = await list.evaluate((element) =>
@@ -576,16 +596,21 @@ for (const language of LANGUAGES) {
     );
     await expect(rows.nth(shownAt)).toHaveAttribute("aria-checked", "true");
     await expect(menu.getByTestId("tab-close")).toHaveCount(0);
+    // Typing a name's first letters jumps to its row, as in every list on the computer; the
+    // shared menu matches a Chinese name by its pinyin too.
+    await window.keyboard.type(language === "en" ? "Lit" : "cheng");
+    await expect(rows.nth(0)).toBeFocused();
     const menuBox = await menu.boundingBox();
     const buttonBox = await button.boundingBox();
     if (!menuBox || !buttonBox) throw new Error("The list or its button isn't visible.");
     expect(menuBox.width).toBeLessThanOrEqual(321);
     expect(Math.abs(menuBox.x + menuBox.width - (buttonBox.x + buttonBox.width))).toBeLessThan(8);
 
-    // The keys walk the list; Enter on a hidden tab shows it, whole.
+    // The keys walk the list; Enter on a hidden tab shows it, whole, and it takes the keyboard.
     await window.keyboard.press("Home");
     await window.keyboard.press("Enter");
     await expect(list.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+    await expect(list.getByRole("tab").first()).toBeFocused();
     await expect.poll(() => wholeInView(list, "first")).toBe(true);
     await expectResting(window, "the first tab chosen from the list");
 
@@ -601,7 +626,7 @@ for (const language of LANGUAGES) {
         await expectResting(window, `${count} tabs at ${width} px`);
         hidden = await hiddenCount();
         if (hidden === 0) {
-          await expect(button).toHaveCount(0);
+          await expect(button).not.toBeVisible();
           continue;
         }
         await expect(button).toHaveAttribute("aria-label", said(hidden));
@@ -618,6 +643,57 @@ for (const language of LANGUAGES) {
         await expect(menu).toBeHidden();
       }
     }
+    await app.close();
+  });
+
+  test(`the fit is the tabs' own extent, so a shown tab's feet past the strip's edge hide nothing (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await addMind(window, groupAt(window, 0), nameOf(language, 0));
+    await addMind(window, groupAt(window, 0), nameOf(language, 1));
+    const list = listAt(window, 0);
+    await expectResting(window, "two tabs");
+
+    // The shown tab's corner curves reach past the strip's end padding, as they always do: its
+    // scroll box then reads as overflowing while every tab is inside. The fit must not fall for it.
+    await window.evaluate(() => {
+      const style = document.createElement("style");
+      style.id = "tab-feet-past-the-strip";
+      style.textContent =
+        '.tab[aria-selected="true"] .tab-foot[data-side="right"] { right: -24px; }';
+      document.head.append(style);
+    });
+    await setWindowSize(app, window, 1439, 900);
+    await setWindowSize(app, window, 1440, 900);
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollWidth - element.clientWidth), {
+        message: "the feet read as overflow",
+      })
+      .toBeGreaterThan(0);
+    await expectResting(window, "the feet past the strip");
+    await expect(window.getByTestId("tab-strip").first()).not.toHaveAttribute("data-fit");
+    await expect(window.getByTestId("show-all-tabs").first()).not.toBeVisible();
+    await expect
+      .poll(() =>
+        list.getByRole("tab").evaluateAll((tabs) => {
+          const strip = tabs[0]?.parentElement ?? null;
+          if (strip === null) return false;
+          const view = strip.getBoundingClientRect();
+          return tabs.every((tab) => {
+            const box = tab.getBoundingClientRect();
+            return box.left >= view.left - 1 && box.right <= view.right + 1;
+          });
+        }),
+      )
+      .toBe(true);
+
+    await window.evaluate(() => document.getElementById("tab-feet-past-the-strip")?.remove());
+    await setWindowSize(app, window, 1439, 900);
+    await setWindowSize(app, window, 1440, 900);
+    await expectResting(window, "the feet back inside");
     await app.close();
   });
 

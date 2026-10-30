@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { startsWith } from "../matcher";
 import { type Box, enterFrom, exitToward } from "../motion";
 import { isSlidingTo, type Point } from "./submenuSlide";
 import { useFocusReturn } from "./useFocusReturn";
@@ -21,6 +22,8 @@ const BAND_PX = 44;
 const MIN_BESIDE_ROW_PX = 120;
 /** Menu items of every kind: plain, radio and checkbox. */
 const ITEMS = '[role^="menuitem"]';
+/** Letters typed this close together jump to a name; a pause starts a new one. */
+const TYPE_AHEAD_MS = 600;
 
 /** A row crossed on the way to an open submenu takes over once the pointer has rested on it this long. */
 const SLIDE_REST_MS = 300;
@@ -162,6 +165,40 @@ function itemForKey(key: string, all: readonly HTMLElement[]): HTMLElement | und
     default:
       return undefined;
   }
+}
+
+/**
+ * The item whose name starts with the letters typed so far, as in every list on the computer:
+ * letters typed within a pause add up, and the next letter after it starts a new name. A field
+ * the menu holds keeps its own keys.
+ */
+function typedTo(
+  event: KeyboardEvent,
+  menu: HTMLElement | null,
+  typed: { current: { text: string; at: number } },
+): HTMLElement | undefined {
+  const target = event.target;
+  if (
+    event.key.length !== 1 ||
+    event.key === " " ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.nativeEvent.isComposing ||
+    (target instanceof Element &&
+      target.closest('input, textarea, select, [contenteditable="true"]'))
+  ) {
+    return undefined;
+  }
+  const now = performance.now();
+  const text = now - typed.current.at > TYPE_AHEAD_MS ? event.key : typed.current.text + event.key;
+  typed.current = { text, at: now };
+  // The app's one way to jump to a name by its first letters, as the sidebar's tree does: a
+  // Chinese name by its pinyin or initials too.
+  const item = itemsOf(menu).find((each) => startsWith(text, (each.textContent ?? "").trim()));
+  // The first letters of a name are never a stray key: the menu keeps them for the next one.
+  if (item) event.preventDefault();
+  return item;
 }
 
 function openSubmenus(menu: HTMLElement | null): { trigger: HTMLElement; submenu: HTMLElement }[] {
@@ -374,6 +411,9 @@ export function usePopoverMenu({
     return () => observer.disconnect();
   }, [open, first, align]);
 
+  /** The letters typed since the last pause, to jump to an item by its name. */
+  const typed = useRef({ text: "", at: 0 });
+
   const onKeyDown = (event: KeyboardEvent) => {
     touched.current = true;
     if (event.key === "Escape") {
@@ -393,7 +433,8 @@ export function usePopoverMenu({
       if (leaving) menu.current?.hidePopover();
       return;
     }
-    const next = itemForKey(event.key, itemsOf(menu.current));
+    const next =
+      itemForKey(event.key, itemsOf(menu.current)) ?? typedTo(event, menu.current, typed);
     if (!next) return;
     event.preventDefault();
     next.focus();

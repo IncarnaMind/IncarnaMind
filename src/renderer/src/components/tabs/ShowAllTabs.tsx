@@ -1,6 +1,7 @@
 import type { LayoutTab } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { focusTab } from "../../tabFocus";
 import { CheckLineIcon, ChevronDownLineIcon } from "../lineIcons";
 import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -66,6 +67,8 @@ function Row({ tab, active, close }: { tab: LayoutTab; active: boolean; close():
       onClick={() => {
         close();
         void useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
+        // The chosen tab is where the keyboard goes next, as after picking it in the strip.
+        focusTab(tab.id);
       }}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
