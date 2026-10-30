@@ -31,7 +31,6 @@ beforeAll(async () => {
 
 const CITED = {
   documentId: "terms",
-  check: "found",
   contentHash: "v1",
   pageFrom: 2,
   pageTo: 2,
@@ -67,30 +66,60 @@ beforeEach(() => {
 });
 
 describe("Opening a Citation from a step, a chart point or a check card", () => {
+  test("opens the version it was made from, at the place it cites, and asks nothing of the new one", () => {
+    opened.openCited(CITED, HOW);
+    expect(recheckCitation).not.toHaveBeenCalled();
+    expect(openDocument).toHaveBeenCalledOnce();
+    const [location] = openDocument.mock.calls[0] ?? [];
+    expect(location.citation).toMatchObject({
+      contentHash: "v1",
+      pageFrom: 2,
+      pageTo: 2,
+      label: "§ Notice",
+    });
+  });
+});
+
+describe("Open the current version, out of the cited one's view", () => {
   test("opens where the quote is now when its Document changed and the quote moved inside the same Units", async () => {
     recheckCitation.mockResolvedValue(
       recheckOf({
         location: { kind: "section", heading: "Notice", paragraphs: { from: 4, to: 4 } },
       }),
     );
-    await opened.openCitedFollowing(CITED, HOW, null);
+    await opened.openCurrentVersion(CITED, HOW);
     expect(recheckCitation).toHaveBeenCalledOnce();
     expect(openDocument).toHaveBeenCalledOnce();
     const [location] = openDocument.mock.calls[0] ?? [];
-    expect(location).toMatchObject({ documentId: "terms", pageFrom: 2, pageTo: 2 });
+    expect(location).toMatchObject({
+      documentId: "terms",
+      pageFrom: 2,
+      pageTo: 2,
+      currentVersion: true,
+    });
+    // The Citation keeps its version, so the viewer still says the Document changed after it was cited.
+    expect(location.citation.contentHash).toBe("v1");
     expect(location.citation.label.replace(/\s/g, " ")).toBe("§ Notice, ¶ 4");
+    expect(location.citation.location).toMatchObject({ paragraphs: { from: 4, to: 4 } });
   });
 
-  test("opens where it was cited when the quote is still there, and asks nothing of an unchanged Document", async () => {
+  test("opens at the place it was cited when the quote is still there", async () => {
     recheckCitation.mockResolvedValue(recheckOf({}));
-    await opened.openCitedFollowing(CITED, HOW, null);
-    expect(openDocument.mock.calls[0]?.[0]).toMatchObject({ pageFrom: 2, pageTo: 2 });
-    expect(openDocument.mock.calls[0]?.[0].citation.label).toBe("§ Notice");
+    await opened.openCurrentVersion(CITED, HOW);
+    expect(openDocument.mock.calls[0]?.[0]).toMatchObject({
+      pageFrom: 2,
+      pageTo: 2,
+      currentVersion: true,
+    });
+    expect(openDocument.mock.calls[0]?.[0].citation).toMatchObject({
+      label: "§ Notice",
+      contentHash: "v1",
+    });
+  });
 
-    openDocument.mockReset();
-    recheckCitation.mockReset();
+  test("asks nothing of an unchanged Document", async () => {
     store.useAppStore.setState({ documents: [documentAt("v1")] });
-    await opened.openCitedFollowing(CITED, HOW, null);
+    await opened.openCurrentVersion(CITED, HOW);
     expect(recheckCitation).not.toHaveBeenCalled();
     expect(openDocument).toHaveBeenCalledOnce();
   });
@@ -98,7 +127,7 @@ describe("Opening a Citation from a step, a chart point or a check card", () => 
   test("still opens when the new version can't be looked at", async () => {
     recheckCitation.mockRejectedValue(new Error("no text"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await opened.openCitedFollowing(CITED, HOW, null);
+    await opened.openCurrentVersion(CITED, HOW);
     expect(openDocument).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalled();
     logged.mockRestore();

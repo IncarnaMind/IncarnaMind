@@ -2360,32 +2360,83 @@ function besideNumber(text: string, from: number, to: number): boolean {
 /**
  * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
  * "家", "岁") is no measure: what a Document counts is its own business, not a unit it must state.
+ * A symbol is one letter or one character, which a word can hide; the rest are words.
  */
-const MEASURES: Readonly<Record<string, { latin: string; han: string }>> = {
+const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
   mass: {
-    latin: "t|tonnes?|tons?|kt|Mt|kg|kilograms?|g|grams?|mg|lbs?|ounces?|oz|k?tCO2e?|MtCO2e",
-    han: "吨|千克|公斤|克",
+    symbols: "t|g|吨|克",
+    words:
+      "tonnes?|tons?|kt|Mt|kg|kilograms?|grams?|mg|lbs?|ounces?|oz|k?t-?CO2e?|MtCO2e|千克|公斤|吨钢",
   },
   length: {
-    latin:
-      "km|kilomet(?:re|er)s?|m|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?",
-    han: "公里|千米|厘米|毫米|米",
+    symbols: "m|米",
+    words:
+      "km|kilomet(?:re|er)s?|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?|公里|千米|厘米|毫米",
   },
   area: {
-    latin:
-      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha",
-    han: "平方公里|平方米|平米|公顷|亩|㎡",
+    symbols: "亩",
+    words:
+      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha|平方公里|平方米|平米|公顷",
   },
   volume: {
-    latin: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|l|barrels?|bbl",
-    han: "立方米|升|桶",
+    symbols: "l|升|桶",
+    words: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|barrels?|bbl|立方米",
   },
-  power: { latin: "kW|MW|GW|(?:kilo|mega|giga)watts?", han: "千瓦|兆瓦|吉瓦" },
-  energy: { latin: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?", han: "千瓦时|兆瓦时" },
+  power: { symbols: "", words: "kW|MW|GW|(?:kilo|mega|giga)watts?|千瓦|兆瓦|吉瓦" },
+  energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
 };
 
-const measureWords = ({ latin, han }: { latin: string; han: string }) =>
-  new RegExp(`(?<![A-Za-z])(?:${latin})(?![A-Za-z])|${han}`, "i");
+// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).
+const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
+const WHOLE_NAME = `(?!${HAN})`;
+// A rate after a bare figure may go on with a particle ("540/吨的货物", "540/吨左右", "540/吨钢") but not a word ("2026/克林工厂").
+const NAME_END = `(?:(?!${HAN})|(?=的|计|以|左右|、|和|与|及|或|钢))`;
+// The words a symbol begins ("每升高", "每克拉", "美元/升级"), which a free name after 每 or a currency must not run into; a figure's own unit stays free ("50升到油箱", "3米其余").
+const WORD_START: Readonly<Record<string, string>> = {
+  克: "服|隆|制|拉",
+  升: "高|级|值|至(?![0-9])|温|降|迁",
+  米: "其林|兰|饭|粒",
+};
+const wordStart = (symbol: string) => {
+  const words = WORD_START[symbol];
+  return words ? `(?!${words})` : "";
+};
+// A Latin symbol stands alone, or is attached to a figure: a letter, apostrophe, dot or hyphen joins it to a word ("e.g.", "T-shirt"), a digit after it makes a product ("27m3"), and a Han scale or text beside it doesn't ("10万t", "60,000t左右").
+const latinSymbol = (symbol: string) =>
+  [
+    `[0-9百千万亿][ \\u00a0\\-]?${symbol}(?![A-Za-z\\p{N}])(?![.\\-]\\p{L})`,
+    `(?<![\\p{L}'’ʼ.\\-])${symbol}(?![\\p{L}\\p{N}])(?![.\\-]\\p{L})`,
+  ].join("|");
+// NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
+const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
+const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
+// A price's currency before the slash leaves the unit free: "元/吨和运费", "美元/吨"; 元 at the end of 单元 is no currency.
+const PRICE_CURRENCY = `(?:${CURRENCY_TOKEN.source}|(?<![单多公纪])元|(?<![汤团])圆|円)`;
+const HAN_AFTER_CURRENCY = `${PRICE_CURRENCY}\\s*[/⁄][ \\u00a0]?`;
+const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
+const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
+const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
+const HAN_AFTER_EACH = `每[ \\u00a0]?`;
+// After a bare slash, a lone numeral or a label, a Han symbol must end its name there; a digit, 每 or a currency's slash leaves it free unless a word begins there ("54,000吨的货物", "每吨成本", "元/吨和运费").
+const hanSymbol = (symbol: string) =>
+  [
+    `${HAN_AFTER_FIGURE}${symbol}`,
+    `${HAN_AFTER_RATE}${symbol}${NAME_END}`,
+    `${HAN_AFTER_CURRENCY}${symbol}${wordStart(symbol)}`,
+    `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_EACH}${symbol}${wordStart(symbol)}`,
+    `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
+  ].join("|");
+
+const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
+  const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
+  const singles = symbols.split("|").filter(Boolean);
+  const latin = singles.filter((symbol) => /^[A-Za-z]$/.test(symbol)).map(latinSymbol);
+  const han = singles.filter((symbol) => !/^[A-Za-z]$/.test(symbol)).map(hanSymbol);
+  return new RegExp([word, ...latin, ...han].join("|"), "iu");
+};
 
 // The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
 const WRITES: Readonly<Record<string, RegExp>> = {
@@ -2393,7 +2444,7 @@ const WRITES: Readonly<Record<string, RegExp>> = {
   points:
     /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
   ...Object.fromEntries(
-    Object.entries(MEASURES).map(([name, words]) => [name, measureWords(words)]),
+    Object.entries(MEASURES).map(([name, units]) => [name, measureRule(units)]),
   ),
 };
 
@@ -2401,15 +2452,17 @@ const WRITES: Readonly<Record<string, RegExp>> = {
 export function measureOf(unit: FigureUnit): string | null {
   if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
   if (unit.kind !== "other") return null;
-  const found = Object.entries(MEASURES).find(([, { latin, han }]) =>
-    new RegExp(`^(?:${latin}|${han})$`, "i").test(unit.word),
+  const found = Object.entries(MEASURES).find(([, { symbols, words }]) =>
+    new RegExp(`^(?:${[symbols, words].filter(Boolean).join("|")})$`, "i").test(unit.word),
   );
   return found?.[0] ?? null;
 }
 
 /**
- * Whether `text` writes any unit of `measure`: a column heading ("Output (t)", "YoY%"), a unit line
- * ("单位：吨", "单位：百分比") or a word ("tonnes"). Converting one unit into another isn't attempted.
+ * Whether `text` writes any unit of `measure`: a word ("tonnes"), a Latin symbol that stands alone
+ * ("54,000 t", "540 €/t", "(t, 2024)"), or, in Chinese, a symbol that names the unit after a figure,
+ * a slash, a lone numeral or a unit line ("54,000吨", "元/吨", "一吨", "单位：吨"). Converting one
+ * unit into another isn't attempted.
  */
 export function writesMeasure(text: string, measure: string): boolean {
   return WRITES[measure]?.test(text.normalize("NFKC")) ?? false;
