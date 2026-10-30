@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect } from "react";
 import type * as Y from "yjs";
+import type { WindowLayout } from "../../../core/api";
 import type { CommandContext } from "./registry";
 
 /** Something a command acts on that lives in a component, there while the component is. */
@@ -21,6 +22,31 @@ export const citationHandle: Handle<{
 
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */
 export const findHandle: Handle<{ next(): void; previous(): void }> = { current: null };
+
+/** One version a Citation was made from, open in a viewer: what "Open the current version" opens (#2159). */
+export interface CitedVersionAction {
+  openCurrent(): void;
+}
+
+/** The versions Citations were made from, open in viewers (#2159), by tab: they can be open in more than one. */
+export const citedVersionHandles = new Map<string, CitedVersionAction>();
+
+/** The open cited version the User is in, else one a group shows, else the one opened last (#2159). */
+export function citedVersionInUse(
+  layout: Pick<WindowLayout, "groups" | "focusedGroupId"> | null,
+): CitedVersionAction | null {
+  if (!layout) return null;
+  const shown = (group: { activeTabId: string | null } | undefined) =>
+    group?.activeTabId ? (citedVersionHandles.get(group.activeTabId) ?? null) : null;
+  const focused = shown(layout.groups.find((group) => group.id === layout.focusedGroupId));
+  if (focused) return focused;
+  for (const group of layout.groups) {
+    const active = shown(group);
+    if (active) return active;
+  }
+  // A window of one group shows a Document beside the Mind without making its tab the active one.
+  return [...citedVersionHandles.values()].at(-1) ?? null;
+}
 
 export const homeNextHandle: Handle<{ label: string; busy: boolean; run(): Promise<void> }> = {
   current: null,

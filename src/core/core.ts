@@ -4597,6 +4597,14 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.getMany(kept).map((each) => each.id);
     },
     readDocumentText: async (id) => documents.readText(id),
+    readVersionText: async (input) => documents.readVersionText(input),
+    readCitedPage: async (input) => {
+      const id = isRecord(input) ? input.documentId : undefined;
+      if (typeof id === "string" && documents.getMany([id]).length === 0) {
+        throw new NotFoundError({ key: "error.document.notFound" });
+      }
+      return citedPages.image(input);
+    },
     readScannedText: async (id) => documents.readScannedText(id),
     readScannedQuote: async (input) => documents.readScannedQuote(parseQuoted(input)),
     readableQuote: async (input) => documents.readableQuote(parseQuoted(input)),

@@ -43,6 +43,7 @@ import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
 import {
   citationHandle,
+  citedVersionInUse,
   findHandle,
   homeNextHandle,
   readMindHandle,
@@ -254,6 +255,14 @@ const appCommands: readonly Command[] = [
     // While a Citation's card shows (hovered, focused or clicked), or from its menu.
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
+  },
+  {
+    id: "viewer.openCurrentVersion",
+    label: "command.viewer.openCurrentVersion",
+    group: "open",
+    reversible: true,
+    when: () => citedVersionInUse(useAppStore.getState().layout) !== null,
+    run: () => citedVersionInUse(useAppStore.getState().layout)?.openCurrent(),
   },
   // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
   ...(["update", "keepOld"] as const).map(

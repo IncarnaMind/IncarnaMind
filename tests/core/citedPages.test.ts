@@ -367,6 +367,12 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     const [citation] = citationsIn(client, answerId);
     if (!citation) throw new Error("Nothing was cited.");
     const saved = await savedPage(core, citation);
+    // The viewer reads it by the Citation's place, through the bridge (#2159).
+    const { documentId, contentHash, pageFrom, pageTo, location } = citation;
+    if (documentId === null || contentHash === null) throw new Error("The Citation has no place.");
+    expect(
+      await core.readCitedPage({ documentId, contentHash, pageFrom, pageTo, location }),
+    ).toEqual(saved);
 
     await rm(document.path);
     await core.reconcileDocuments();
@@ -374,6 +380,10 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     expect(await core.citedPageImage(citation)).toEqual(saved);
     await core.deleteDocument(document.id);
     expect(await core.citedPageImage(citation)).toEqual(saved);
+    // The window reads a live Document's page only: the source pack still has the deleted one's.
+    await expect(
+      core.readCitedPage({ documentId, contentHash, pageFrom, pageTo, location }),
+    ).rejects.toThrow();
     core.close();
 
     const again = startCore(dataDir);

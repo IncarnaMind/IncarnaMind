@@ -21,7 +21,6 @@ import {
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
-  quoteStanding,
   withShownName,
 } from "../../../shared/citations";
 import {
@@ -231,22 +230,10 @@ export function CitationView({
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId) return;
     recordUsage({ event: "citation_opened", fields: { check: state.check } });
-    // The quote is somewhere else in the new version: open there, so the viewer can wash it.
-    const moved =
-      recheck !== null && recheck !== "failed" && quoteStanding(attributes, recheck) === "moved"
-        ? recheck
-        : null;
+    // The version it was made from, at its own place (#2159); the bar's action opens the current one.
     openCitedPlace(
       { ...attributes, documentId },
-      {
-        check: state.check,
-        withQuote,
-        number,
-        label: moved?.location ? formatLocation(moved.location, t) : where,
-        from: place?.groupId,
-        keep,
-        ...(moved && { place: { pageFrom: moved.pageFrom, pageTo: moved.pageTo } }),
-      },
+      { check: state.check, withQuote, number, label: where, from: place?.groupId, keep },
     );
   };
 
