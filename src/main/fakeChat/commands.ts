@@ -74,6 +74,7 @@ const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
 
@@ -185,6 +186,11 @@ export function commandsReply(
     }));
   }
   if (RECORD.test(question)) return runOnce(prompt, { command: "meeting.record" });
+  if (WALL_OFF.test(question)) {
+    // The card under the reply says the wall is the User's, and opens the Folder's menu.
+    if (lastResult(prompt, "run_command") !== undefined) return { text: "" };
+    return { tool: "run_command", input: { command: "folder.keepInside" } };
+  }
   if (LOCAL_MODE.test(question)) {
     // The card under the reply says where the User changes it: there is nothing to add.
     if (lastResult(prompt, "run_command") !== undefined) return { text: "" };

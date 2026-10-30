@@ -4473,6 +4473,11 @@ export const en = {
   "commands.setting.exportFormat": "Export format",
   "commands.setting.meetingSystemAudio": "Record the computer’s sound too",
   "commands.setting.model": "Model for Answers",
+  "commands.yours.wall":
+    "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
+  "commands.yours.wall.named":
+    "Whether “{folder}” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+  "commands.yours.openFolderMenu": "Open the Folder’s menu",
   "commands.yours.keys":
     "Keys and sign-ins are yours to change, not mine. They’re in Settings › Models.",
   "commands.yours.privacy":

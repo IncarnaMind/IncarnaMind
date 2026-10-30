@@ -1135,6 +1135,8 @@ export interface CommandDone {
   window?: { changed: boolean; running?: true };
   /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
   yours?: Yours;
+  /** With `yours` "wall": the Folder whose wall the request is about, which the card names (#1934). */
+  folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
 }

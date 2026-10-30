@@ -96,6 +96,7 @@ import {
   type CoreApi,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
+  type DeletedItem,
   type Document,
   type DocumentStatus,
   type EmbeddingModelStatus,
@@ -303,12 +304,7 @@ import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
-import {
-  type CommandInput,
-  type CommandsHost,
-  type MarkingSettled,
-  same,
-} from "./tools/commands/run";
+import { type CommandsHost, type MarkingSettled, same } from "./tools/commands/run";
 import { createCommandSteps } from "./tools/commands/steps";
 import { createWebSearch, WEB_SEARCH_SENDS } from "./tools/web";
 import { createPublicFetch } from "./tools/web/fetcher";
@@ -1459,6 +1455,13 @@ export function createCore(adapters: CoreAdapters): Core {
       .folders()
       .filter((folder) => folder.keepInside)
       .flatMap((folder) => behindWall(folder.id));
+  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted walled Folder's own. */
+  const deletedWall = (item: DeletedItem): string | null =>
+    item.kind === "folder"
+      ? library.snapshot().deletedGroups.some((group) => group.id === item.id && group.keepInside)
+        ? item.id
+        : null
+      : walledFolderId(item.groupId);
   const walledFolderName = (documentId: string): string | null =>
     wallOfDocument(documentId)?.name ?? null;
   const folderOfNote = (mindId: string | null): string | null =>
@@ -1649,23 +1652,37 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
-    allows: (input: CommandInput, mindId: string | null, wallOverride?: string | null) => {
+    allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {
         throw new InvalidInputError({ key: "error.folder.wall" });
       };
-      if (input.command.startsWith("mind.")) {
-        for (const id of input.ids) if (walledFolder(id) !== wallId) refuse();
-      } else if (input.command.startsWith("document.")) {
-        const allowed = wallId
-          ? resolveSearchScope(folderScope(wallId), {
-              folderTree: (folderId) => folders.subtree(folderId),
-              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
-              documentIds: (filter) => documents.ids(filter),
-            })
-          : resolveScope({ folderIds: [], tagIds: [], documentIds: input.ids }, mindId);
-        const existing = new Set(documents.ids({}));
-        if (input.ids.some((id) => existing.has(id) && allowed?.includes(id) !== true)) refuse();
+      // Default deny: an id that is one of the kinds the command declares must be on the turn's
+      // side of the wall. One that is none of them names nothing to reach, and the command itself
+      // says it isn't found.
+      const deleted = touches.includes("deleted") ? await commandsHost.core.listDeleted() : [];
+      const wallOf = (id: string): string | null | undefined => {
+        for (const kind of touches) {
+          if (kind === "mind" && mindExists(id)) return walledFolder(id);
+          if (kind === "document" && documents.getMany([id]).length > 0) {
+            return walledDocument(id);
+          }
+          if (kind === "folder" && library.folders().some((folder) => folder.id === id)) {
+            return walledFolderId(id);
+          }
+          if (kind === "tag" && tags.list().some((tag) => tag.id === id)) return null;
+          const item = kind === "deleted" ? deleted.find((each) => each.id === id) : undefined;
+          if (item) return deletedWall(item);
+        }
+        return undefined;
+      };
+      for (const id of input.ids) {
+        const wall = wallOf(id);
+        if (wall !== undefined && wall !== wallId) refuse();
+      }
+      // With no ids it sorts every Document in no Folder: outside work, never a walled turn's.
+      if (input.command === "documents.organize" && input.ids.length === 0 && wallId !== null) {
+        refuse();
       }
       // A move files what it moves, so it goes where `filedWithin` would file it or not at all: a
       // walled turn's only into its wall, never into a Folder the move makes (#1934).
@@ -1816,15 +1833,20 @@ export function createCore(adapters: CoreAdapters): Core {
               documentIds: (filter) => documents.ids(filter),
             })
           : resolveScope(NO_SCOPE, mindId);
+        // Only what is on the turn's side of the wall can be found, named or offered (#1934).
+        const shown = allowed === null ? null : new Set(allowed);
+        const onSide = (wall: string | null) => wall === wallId;
         return {
-          documents:
-            allowed === null ? listed : listed.filter((document) => allowed.includes(document.id)),
-          minds: mindsNow.filter((mind) =>
-            wallId ? mind.folderId === wallId : walledFolder(mind.id) === null,
-          ),
-          library: libraryNow,
-          tags: tagsNow,
-          deleted: deletedNow,
+          documents: shown === null ? listed : listed.filter((document) => shown.has(document.id)),
+          minds: mindsNow.filter((mind) => onSide(walledFolder(mind.id))),
+          library: {
+            groups: libraryNow.groups.filter((group) => onSide(walledFolderId(group.id))),
+            assignments: libraryNow.assignments.filter(
+              (each) => shown === null || shown.has(each.documentId),
+            ),
+          },
+          tags: wallId === null ? tagsNow : [],
+          deleted: deletedNow.filter((item) => onSide(deletedWall(item))),
         };
       },
       steps: commandSteps,

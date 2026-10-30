@@ -4285,6 +4285,11 @@ export const zhCN = {
   "commands.setting.exportFormat": "导出格式",
   "commands.setting.meetingSystemAudio": "同时录制电脑的声音",
   "commands.setting.model": "回答使用的 AI 模型",
+  "commands.yours.wall":
+    "文件夹是否只在本文件夹内工作，由你来改，我不能改。在每个文件夹的 ⋯ 菜单里。",
+  "commands.yours.wall.named":
+    "“{folder}”是否只在本文件夹内工作，由你来改，我不能改。在文件夹的 ⋯ 菜单里。",
+  "commands.yours.openFolderMenu": "打开文件夹菜单",
   "commands.yours.keys": "密钥和登录由你来改，我不能改。在“设置 › 模型”里。",
   "commands.yours.privacy":
     "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。",

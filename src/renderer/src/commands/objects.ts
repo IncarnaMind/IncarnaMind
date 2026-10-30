@@ -1,4 +1,5 @@
 import type { LinkedFolder, TabItem } from "../../../core/api";
+import { WALL_SWITCH } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
@@ -436,7 +437,8 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
-    id: "folder.keepInside",
+    id: WALL_SWITCH,
+    assistant: { never: "wall" },
     label: "folder.keepInside",
     hint: "folder.keepInside.hint",
     purpose: "folder.keepInside.hint",

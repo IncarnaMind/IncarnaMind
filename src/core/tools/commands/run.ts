@@ -34,6 +34,7 @@ import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, NotFoundError } from "../../errors";
 import type { Language } from "../../language";
+import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
 
 /** The core's calls the commands make: the same the window's own clicks make. */
@@ -94,8 +95,16 @@ export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
-  /** Refuses a command that would cross the current Folder wall. */
-  allows?(input: CommandInput, mindId: string | null, wallId?: string | null): void | Promise<void>;
+  /**
+   * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
+   * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
+   */
+  allows?(
+    input: CommandInput,
+    touches: readonly CommandTouch[],
+    mindId: string | null,
+    wallId?: string | null,
+  ): void | Promise<void>;
   /** The Output location, links followed; null while none is chosen. */
   outputFolder(): Promise<string | null>;
   /**
@@ -319,9 +328,17 @@ export const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
  */
 export type CommandFiling = (asked: string | null) => { folderId: string | null } | null;
 
+/**
+ * What a command declares it touches, which the Folder wall holds it to (#1934): a kind of thing it
+ * names by id, the Library it adds to, the app's settings, or the window in front.
+ */
+export type CommandTouch = CommandTarget | "library" | "settings" | "front";
+
 /** What a check knows of where the Answer was asked. */
 export interface CommandPlace {
   filing: CommandFiling;
+  /** The Documents, Notes, Folders, Tags and deleted things on the turn's side of the wall. */
+  findable(): Promise<Findable>;
 }
 
 export type Checker = (

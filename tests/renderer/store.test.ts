@@ -344,6 +344,29 @@ describe("changes the User can take back", () => {
     expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
       "已开启“Research”只在本文件夹内工作",
     );
+
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [{ ...group, keepInside: true }] },
+    });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: false });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: false,
+    });
+    expect(said(top())).toBe("“Research” no longer keeps its work inside it");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已关闭“Research”只在本文件夹内工作",
+    );
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: true });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
     expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
       name: group.name,
       description: group.description,

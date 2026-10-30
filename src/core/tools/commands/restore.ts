@@ -120,8 +120,9 @@ async function chosen(
   return kept;
 }
 
-export const restoreChecker: Checker = async (input, { core }) => {
-  const deleted = await core.listDeleted();
+export const restoreChecker: Checker = async (input, { core }, place) => {
+  // Only what is on the turn's side of a Folder wall is named or offered, namesakes too (#1934).
+  const { deleted } = await place.findable();
   const items = deletedOf(deleted, input.ids);
   const shown: CommandItem[] = items.map((item) => ({
     kind: "deleted",

@@ -14,6 +14,7 @@ import {
   paletteOffers,
   removeDataFolder,
   setLanguage,
+  setSidebarShown,
   setWindowSize,
   sidebarFolder,
   useLocalChatModel,
@@ -291,3 +292,75 @@ test("a walled Conversation with no Note open keeps its composer behind the wall
   );
   await app.close();
 });
+
+const REFUSAL = {
+  en: {
+    folder: "Client A",
+    note: "Client A note",
+    ask: "Stop keeping this folder's work inside it",
+    said: "Whether “Client A” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+    open: "Open the Folder’s menu",
+  },
+  "zh-CN": {
+    folder: "客户甲",
+    note: "客户甲笔记",
+    ask: "让本文件夹不再只在本文件夹内工作",
+    said: "“客户甲”是否只在本文件夹内工作，由你来改，我不能改。在文件夹的 ⋯ 菜单里。",
+    open: "打开文件夹菜单",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the assistant leaves a Folder's wall to the User, and opens its menu (${language})`, async () => {
+    const w = REFUSAL[language];
+    await writeFile(join(sources, `${w.folder} lease.txt`), "Termination notice: 90 days.\n");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 900, 800);
+    await addDocuments(window, [join(sources, `${w.folder} lease.txt`)]);
+    await (await coreOf(window)).evaluate(async (core, name) => {
+      const [document] = await core.listDocuments();
+      const folder = await core.createLibraryGroup({ name, description: "" });
+      if (document) await core.assignDocumentGroup(document.id, folder.id);
+      await core.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
+    }, w.folder);
+    await newMind(window, { title: true });
+    await nameMind(window, w.note);
+    await (await coreOf(window)).evaluate(async (core, names) => {
+      const mind = (await core.listMinds()).find((each) => each.title === names.note);
+      const folder = (await core.getLibrary()).groups.find((each) => each.name === names.folder);
+      if (mind && folder) await core.moveToFolder({ mindIds: [mind.id], folderId: folder.id });
+    }, w);
+    // The sidebar hidden: the button shows it again.
+    await setSidebarShown(window, false);
+    const answer = await askInAssistant(window, w.ask);
+    const line = answer.getByTestId("command-yours");
+    await expect(line).toContainText(w.said);
+    await motionSettled(window);
+    if (SCREENSHOTS)
+      await window.screenshot({ path: join(SCREENSHOTS, `wall-refusal-${language}-900.png`) });
+    const walled = async () =>
+      (await coreOf(window)).evaluate(
+        async (core, name) =>
+          (await core.getLibrary()).groups.find((each) => each.name === name)?.keepInside,
+        w.folder,
+      );
+    expect(await walled()).toBe(true);
+    await expect(line.getByTestId("command-yours-open")).toHaveText(w.open);
+    await line.getByTestId("command-yours-open").click();
+    await expect(window.getByTestId("sidebar-toggle").first()).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    const folder = sidebarFolder(window, w.folder);
+    await expect(folder.getByTestId("folder.keepInside")).toBeVisible();
+    await expect(folder.getByTestId("folder.keepInside")).toHaveAttribute("aria-checked", "true");
+    await motionSettled(window);
+    if (SCREENSHOTS)
+      await window.screenshot({ path: join(SCREENSHOTS, `wall-refusal-menu-${language}-900.png`) });
+    expect(await walled()).toBe(true);
+    await app.close();
+  });
+}
