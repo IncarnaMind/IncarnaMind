@@ -1745,6 +1745,15 @@ export const en = {
     "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
   "status.sends.organize.onThisComputer.scans":
     "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+  "status.sends.organize.text":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.text.onThisComputer":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.scans":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+  "status.sends.scans.onThisComputer":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+  "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
@@ -4713,6 +4722,7 @@ export const en = {
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.noClassifier": "Choose a classification model first.",
+  "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",

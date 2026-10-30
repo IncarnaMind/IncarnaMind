@@ -20,10 +20,27 @@ const SENDS = {
 export const taggingSends = (
   route: FlowRoute,
   t: (key: MessageKey, params?: MessageParams) => string,
-  { folders = false, scans = false }: { folders?: boolean; scans?: boolean } = {},
+  { folders = false, scans = null }: { folders?: boolean; scans?: FlowRoute | null } = {},
 ): string | null => {
   if (route.where === "unknown" || route.where === "none") return null;
-  const sends = folders ? (scans ? SENDS.organizeScans : SENDS.organize) : SENDS.tags;
+  const readingScans = scans?.where === "cloud" || scans?.where === "local";
+  const sameReader =
+    readingScans &&
+    (route.where === "local"
+      ? scans.where === "local"
+      : scans.where === "cloud" && route.service.id === scans.service.id);
+  if (folders && readingScans && !sameReader) {
+    const text =
+      route.where === "cloud"
+        ? t("status.sends.organize.text", { service: route.service.name })
+        : t("status.sends.organize.text.onThisComputer");
+    const images =
+      scans.where === "cloud"
+        ? t("status.sends.scans", { service: scans.service.name })
+        : t("status.sends.scans.onThisComputer");
+    return t("status.sends.withScans", { text, scans: images });
+  }
+  const sends = folders ? (sameReader ? SENDS.organizeScans : SENDS.organize) : SENDS.tags;
   return route.where === "cloud"
     ? t(sends.service, { service: route.service.name })
     : t(sends.computer);

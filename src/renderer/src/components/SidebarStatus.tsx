@@ -30,7 +30,7 @@ import { useSettled } from "../settling";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useTaggingAlert } from "../taggingAlert";
 import { pageImagesSent } from "../taggingDestination";
-import { planLimitLine, taggingProblem } from "../taggingProblem";
+import { planLimitLine, taggingProblem, taggingProblemService } from "../taggingProblem";
 import { failedTagging, retryTagging } from "../taggingRetry";
 import { taggingSends } from "../taggingSends";
 import { placesText, resumeTagging, stoppedDocumentPlaces, taggingPlaces } from "../taggingStop";
@@ -568,6 +568,16 @@ function useStatuses(): Status[] {
     counts.organizeWaitsForPlan ? "classification" : "tagging",
     counts.waitingForPlan > 0,
   );
+  const problemReader = useTaggingService(
+    "scan-images",
+    (organizesNew && counts.keyRefused > 0) ||
+      (counts.organizeWaitsForPlan && counts.waitingForPlan > 0),
+  );
+  const refusedTo = organizesNew
+    ? taggingProblemService(refusedService.route, problemReader.route)
+    : refusedService.route.where === "cloud"
+      ? refusedService.route.service
+      : null;
   const places = useAppStore(
     useShallow((state) =>
       tagging || organizingNow ? taggingPlaces(state.documents, state.library) : [],
@@ -842,18 +852,17 @@ function useStatuses(): Status[] {
       action: {
         label: t("answer.error.checkKey"),
         testId: "tagging-key-refused-check",
-        run: () =>
-          void useKeyRefusals
-            .getState()
-            .checkService(
-              refusedService.route.where === "cloud" ? refusedService.route.service.id : null,
-            ),
+        run: () => void useKeyRefusals.getState().checkService(refusedTo?.id ?? null),
       },
     });
   }
 
   if (counts.waitingForPlan > 0) {
-    const planTo = planService.route.where === "cloud" ? planService.route.service : null;
+    const planTo = counts.organizeWaitsForPlan
+      ? taggingProblemService(planService.route, problemReader.route)
+      : planService.route.where === "cloud"
+        ? planService.route.service
+        : null;
     const line = planLimitLine(planTo, counts.planResetsAt, t, language);
     statuses.push({
       testId: "tagging-paused",
@@ -1042,8 +1051,10 @@ function useStatuses(): Status[] {
         short: text,
         full: text,
         sends: organizingService.known
-          ? (taggingSends(organizingService.route, t, { folders: true, scans: pageImages }) ??
-            undefined)
+          ? (taggingSends(organizingService.route, t, {
+              folders: true,
+              scans: pageImages ? pageReader.route : null,
+            }) ?? undefined)
           : undefined,
         action: stop,
       });

@@ -88,7 +88,7 @@ test("a flow the flows leave out, or one that names another service, isn't known
   expect(serviceOf("tagging", cloud, [elsewhere])).toMatchObject({ known: false });
 });
 
-test("Organize and page images take where they send from their flows", () => {
+test("Organize and page images use the current model, with permission from their flows", () => {
   const organize: RegisteredDataFlow = {
     id: "classification",
     sends: ["groups", "tags", "document-excerpts"],
@@ -101,7 +101,7 @@ test("Organize and page images take where they send from their flows", () => {
       },
     ],
   };
-  expect(serviceOf("classification", null, [organize])).toEqual({
+  expect(serviceOf("classification", cloud, [organize])).toEqual({
     route: cloud,
     known: true,
     allowed: true,
@@ -111,7 +111,7 @@ test("Organize and page images take where they send from their flows", () => {
     sends: ["page-images"],
     services: [],
   };
-  expect(serviceOf("scan-images", null, [pageImages])).toEqual({
+  expect(serviceOf("scan-images", { where: "local" }, [pageImages])).toEqual({
     route: { where: "local" },
     known: true,
     allowed: null,
@@ -119,7 +119,20 @@ test("Organize and page images take where they send from their flows", () => {
 });
 
 test("page images count only when the reader sends them where the User allowed, or on this computer", () => {
-  const cloudAllowed = serviceOf("scan-images", null, [
+  const classification: RegisteredDataFlow = {
+    id: "classification",
+    sends: [],
+    services: [
+      {
+        flow: { id: "classification", service, sends: [] },
+        consent: "accepted",
+        chosen: true,
+        decidedAt: null,
+      },
+    ],
+  };
+  const cloudAllowed = serviceOf("scan-images", cloud, [
+    classification,
     {
       id: "scan-images",
       sends: ["page-images"],
@@ -133,7 +146,8 @@ test("page images count only when the reader sends them where the User allowed, 
       ],
     },
   ]);
-  const cloudDeclined = serviceOf("scan-images", null, [
+  const cloudDeclined = serviceOf("scan-images", cloud, [
+    classification,
     {
       id: "scan-images",
       sends: ["page-images"],
@@ -147,7 +161,7 @@ test("page images count only when the reader sends them where the User allowed, 
       ],
     },
   ]);
-  const local = serviceOf("scan-images", null, [
+  const local = serviceOf("scan-images", { where: "local" }, [
     { id: "scan-images", sends: ["page-images"], services: [] },
   ]);
   expect(pageImagesSent(true, cloudAllowed)).toBe(true);
@@ -156,3 +170,32 @@ test("page images count only when the reader sends them where the User allowed, 
   expect(pageImagesSent(true, unknownService)).toBe(false);
   expect(pageImagesSent(false, cloudAllowed)).toBe(false);
 });
+
+test.each(["tagging", "classification", "scan-images"] as const)(
+  "past consent cannot replace the current %s destination",
+  (flow) => {
+    const old = { id: "https://api.openai.com", name: "OpenAI" };
+    const registered: RegisteredDataFlow = {
+      id: flow,
+      sends: [],
+      services: [old, service].map((recipient) => ({
+        flow: { id: flow, service: recipient, sends: [] },
+        consent: recipient.id === old.id ? "accepted" : "declined",
+        chosen: false,
+        decidedAt: null,
+      })),
+    };
+    expect(serviceOf(flow, cloud, [registered])).toEqual({
+      route: cloud,
+      known: true,
+      allowed: false,
+      ...(flow === "scan-images" && { classificationAllowed: null }),
+    });
+    expect(serviceOf(flow, { where: "local" }, [registered])).toEqual({
+      route: { where: "local" },
+      known: true,
+      allowed: null,
+    });
+    expect(serviceOf(flow, null, [registered])).toEqual(unknownService);
+  },
+);

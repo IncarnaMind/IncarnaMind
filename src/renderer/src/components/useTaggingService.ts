@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DataFlowId, RegisteredDataFlow, TaggingRoute } from "../../../core/api";
+import type { RegisteredDataFlow, TaggingFlow, TaggingRoute } from "../../../core/api";
 import { core } from "../core";
 import { useAppStore } from "../store";
 import { serviceOf, type TaggingService, unknownService } from "../taggingDestination";
@@ -10,34 +10,43 @@ import { serviceOf, type TaggingService, unknownService } from "../taggingDestin
  * the row can name the service before the flows are known; a failed read keeps
  * the last answer, and the flows alone never say a model is on this computer.
  */
-export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingService {
+export function useTaggingService(flow: TaggingFlow, watching: boolean): TaggingService {
   const [service, setService] = useState<TaggingService>(unknownService);
   const route = useRef<TaggingRoute | null>(null);
-  const flows = useRef<RegisteredDataFlow[] | null>(null);
 
   useEffect(() => {
     route.current = null;
-    flows.current = null;
     setService(unknownService);
     if (!watching) return;
     let stopped = false;
-    const settle = () => {
-      if (!stopped)
-        setService(serviceOf(flow, flow === "tagging" ? route.current : null, flows.current));
-    };
-    const load = () => {
-      if (flow === "tagging") {
-        core.getTaggingRoute().then(
-          (next) => {
-            route.current = next;
-            settle();
-          },
-          (error: unknown) => useAppStore.getState().reportError(error),
-        );
+    let generation = 0;
+    const load = (reset = false) => {
+      const reading = ++generation;
+      if (reset) {
+        route.current = null;
+        setService(unknownService);
       }
+      let nextRoute: TaggingRoute | null = null;
+      let nextFlows: RegisteredDataFlow[] | null = null;
+      const settle = () => {
+        if (stopped || reading !== generation || !nextRoute) return;
+        if (nextFlows) {
+          route.current = nextRoute;
+          setService(serviceOf(flow, nextRoute, nextFlows));
+        } else if (JSON.stringify(nextRoute) !== JSON.stringify(route.current)) {
+          setService(serviceOf(flow, nextRoute, null));
+        }
+      };
+      core.getTaggingRoute(flow).then(
+        (next) => {
+          nextRoute = next;
+          settle();
+        },
+        (error: unknown) => useAppStore.getState().reportError(error),
+      );
       core.listRegisteredDataFlows().then(
         (next) => {
-          flows.current = next;
+          nextFlows = next;
           settle();
         },
         (error: unknown) => useAppStore.getState().reportError(error),
@@ -45,10 +54,10 @@ export function useTaggingService(flow: DataFlowId, watching: boolean): TaggingS
     };
     load();
     const stops = [
-      core.on("dataFlows.changed", load),
-      core.on("jev.changed", load),
-      core.on("chatReadiness.changed", load),
-      core.on("library.changed", load),
+      core.on("dataFlows.changed", () => load(true)),
+      core.on("jev.changed", () => load(true)),
+      core.on("chatReadiness.changed", () => load(true)),
+      core.on("library.changed", () => load()),
     ];
     return () => {
       stopped = true;

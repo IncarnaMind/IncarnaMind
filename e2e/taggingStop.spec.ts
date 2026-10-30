@@ -421,31 +421,140 @@ const LINES = {
   },
 } as const;
 
+for (const language of ["en", "zh-CN"] as const) {
+  for (const localText of [false, true]) {
+    test(`Organize discloses separate text and scan destinations (${language}, ${localText ? "local text" : "cloud text"})`, async () => {
+      const { app, window } = await launchApp(dataDir, { fakeChat: true });
+      try {
+        await setWindowSize(app, window, localText ? 1100 : 1440, 900);
+        if (language === "zh-CN") await setLanguage(window, language);
+        const folderId = await createFolder(window, FOLDER);
+        await window.evaluate(async (localText) => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const text = await core.saveChatProvider(
+            localText
+              ? { kind: "ollama", modelId: "local-text" }
+              : { kind: "openai", apiKey: "sk-test", modelId: "o3-mini" },
+          );
+          const images = await core.saveChatProvider({
+            kind: "anthropic",
+            apiKey: "sk-test",
+            modelId: "claude-haiku-5-5",
+          });
+          await core.updateSettings({
+            user: {
+              imageModel: {
+                providerId: images.id,
+                modelId: "claude-haiku-5-5",
+              },
+            },
+          });
+          await core.saveLibrarySettings({
+            classifier: {
+              kind: "chat",
+              choice: {
+                providerId: text.id,
+                modelId: localText ? "local-text" : "o3-mini",
+              },
+            },
+            automatic: true,
+          });
+          await core.allowDataFlow("scan-images", "https://api.anthropic.com");
+        }, localText);
+        const scan = join(sources, "Scanned receipt.pdf");
+        await writeFile(scan, buildPdf([{ image: true }]));
+        await window
+          .getByTestId("add-documents-input")
+          .setInputFiles([
+            ...(await Promise.all(
+              ["Field notes", "Site visit", "Interview", "Survey"].map(slowFile),
+            )),
+            scan,
+          ]);
+        const progress = window.getByTestId("sidebar-status").getByTestId("organization-progress");
+        const label = progress.getByTestId("status-label");
+        const expectedLabel =
+          language === "en"
+            ? localText
+              ? /^Organizing \d+ Documents?…$/
+              : /^Organizing \d+ Documents? with OpenAI…$/
+            : localText
+              ? /^正在整理 \d+ 个文档…$/
+              : /^正在用 OpenAI 整理 \d+ 个文档…$/;
+        await expect(label).toHaveText(expectedLabel);
+        await expect(label).toHaveAttribute("type", "button");
+        await label.click();
+        const textClause =
+          language === "en"
+            ? localText
+              ? "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer."
+              : "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to OpenAI."
+            : localText
+              ? "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都留在这台电脑上。"
+              : "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 OpenAI。";
+        const imageClause =
+          language === "en"
+            ? "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to Anthropic."
+            : "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 Anthropic。";
+        const disclosure = textClause + (language === "en" ? " " : "") + imageClause;
+        await expect(window.getByTestId("status-sends")).toHaveText(disclosure);
+        await motionSettled(window);
+        await screenshot(window, `organize-mixed-${language}-${localText ? "local" : "cloud"}`);
+        if (!localText) {
+          await holdFlowList(app, true);
+          await window.evaluate(
+            async ({ folderId, name }) => {
+              const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+              await core.updateLibraryGroup(folderId, {
+                name,
+                description: "The lawsuit's documents",
+              });
+            },
+            { folderId, name: FOLDER },
+          );
+          await expect(window.getByTestId("error-notice-message").first()).toContainText(
+            "Flow list unavailable",
+          );
+          await expect(window.getByTestId("status-sends")).toHaveText(disclosure);
+          await expect(label).toBeFocused();
+          await releaseFlowList(app);
+        }
+        await progress.getByTestId("tagging-stop").click();
+        await expect(progress).not.toBeVisible();
+      } finally {
+        await app.close();
+      }
+    });
+  }
+}
+
 const FLOW_LIST = channelFor("listRegisteredDataFlows");
 
 /** Holds the flow list's answer, as a core busy enough to be slow would: nothing is said about what is sent until it is let go. */
-async function holdFlowList(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ ipcMain }, channel) => {
-    // Electron keeps invoked handlers here; it has no public way to hold one for a test.
-    const handlers = (
-      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
-    )._invokeHandlers;
-    const answer = handlers.get(channel);
-    if (!answer) throw new Error(`Electron has no ${channel} handler to hold.`);
-    const held = globalThis as unknown as { releaseFlows?: () => void };
-    const waiting: (() => void)[] = [];
-    handlers.set(
-      channel,
-      (...args) =>
-        new Promise((resolve) => {
+async function holdFlowList(app: ElectronApplication, fail = false): Promise<void> {
+  await app.evaluate(
+    ({ ipcMain }, { channel, fail }) => {
+      // Electron keeps invoked handlers here; it has no public way to hold one for a test.
+      const handlers = (
+        ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+      )._invokeHandlers;
+      const answer = handlers.get(channel);
+      if (!answer) throw new Error(`Electron has no ${channel} handler to hold.`);
+      const held = globalThis as unknown as { releaseFlows?: () => void };
+      const waiting: (() => void)[] = [];
+      handlers.set(channel, (...args) => {
+        if (fail) throw new Error("Flow list unavailable");
+        return new Promise((resolve) => {
           waiting.push(() => resolve(answer(...args)));
-        }),
-    );
-    held.releaseFlows = () => {
-      handlers.set(channel, answer);
-      for (const resolve of waiting.splice(0)) resolve();
-    };
-  }, FLOW_LIST);
+        });
+      });
+      held.releaseFlows = () => {
+        handlers.set(channel, answer);
+        for (const resolve of waiting.splice(0)) resolve();
+      };
+    },
+    { channel: FLOW_LIST, fail },
+  );
 }
 
 async function releaseFlowList(app: ElectronApplication): Promise<void> {

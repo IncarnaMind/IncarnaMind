@@ -9,6 +9,7 @@ import type {
   LibrarySettings,
   LibrarySnapshot,
   TaggingClassifier,
+  TaggingFlow,
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
@@ -30,6 +31,7 @@ export type {
   TaggingClassifier,
   TaggingCost,
   TaggingDestination,
+  TaggingFlow,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -9628,11 +9630,11 @@ export interface CoreApi {
    */
   getTaggingModels(): Promise<TaggingModels>;
   /**
-   * Where automatic tagging sends now, before the flows are read: a service, a
-   * model on this computer, or none it can tag with. The flows say whether the
-   * User allowed the service.
+   * The current model's destination, automatic tagging by default; classification
+   * reads Organize's text model, scan-images its image reader. The flows say
+   * whether the User allowed the service.
    */
-  getTaggingRoute(): Promise<TaggingRoute>;
+  getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
   /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and

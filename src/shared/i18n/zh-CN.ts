@@ -1687,6 +1687,15 @@ export const zhCN = {
     "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。包括扫描件的页面图片。",
   "status.sends.organize.onThisComputer.scans":
     "文件夹和标签的名称和描述，以及每个文档的名称、目录和简短摘录，都留在这台电脑上。包括扫描件的页面图片。",
+  "status.sends.organize.text":
+    "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都会发送到 {service}。",
+  "status.sends.organize.text.onThisComputer":
+    "对于有文本的文档，文件夹和标签的名称和描述，以及文档的名称、目录和简短摘录，都留在这台电脑上。",
+  "status.sends.scans":
+    "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都会发送到 {service}。",
+  "status.sends.scans.onThisComputer":
+    "扫描件的页面图片、文档名称和类型，以及文件夹和标签的名称和描述，都留在这台电脑上。",
+  "status.sends.withScans": "{text}{scans}",
   "status.taggingWaiting": "打标签需要 AI 模型",
   "status.taggingPermission": "打标签需要你允许",
   "status.taggingFailed.one": "1 个文档未能打标签",
@@ -4498,6 +4507,7 @@ export const zhCN = {
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
+  "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",
