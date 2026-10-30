@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { markedSentences } from "../../src/core/answers/checks/sentences";
 import { setMindScope } from "../../src/shared/mindScope";
-import { requestedFigures } from "../helpers/checks";
+import { listedSentences, requestedFigures } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -37,7 +37,11 @@ const CASES = [
   },
 ] as const;
 
-async function measure(row: (typeof CASES)[number], mode: Mode) {
+async function measure(
+  row: (typeof CASES)[number],
+  mode: Mode,
+  inventory: "valid" | "overlap" | "rewritten" | "unrepaired" | "conflict" = "valid",
+) {
   const plain = mode === "plain";
   const factual = mode === "factual-supported";
   const fact = plain ? row.plain : factual ? row.factual : row.numeric;
@@ -49,6 +53,13 @@ async function measure(row: (typeof CASES)[number], mode: Mode) {
     ...(!plain ? [{ kind: "fact", text: row.qualifier, facet: { kind: "time" } }] : []),
     { kind: "fact", text: fact },
   ];
+  const malformedPlans = [
+    inventory === "conflict"
+      ? { kind: "time", text: row.qualifier, facet: { kind: "speaker" } }
+      : plans[0],
+    { kind: "fact", text: inventory === "rewritten" ? `${fact} ${row.qualifier}` : claim },
+  ];
+  let sorts = 0;
   const frames: ModelCall[] = [];
   const comparisons: GenerateCall[] = [];
   const model = scriptedModel(
@@ -57,7 +68,7 @@ async function measure(row: (typeof CASES)[number], mode: Mode) {
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
         return {
-          text: `Parts: ${JSON.stringify(plans)}`,
+          text: `Parts: ${JSON.stringify(inventory === "valid" ? plans : malformedPlans)}`,
           calls: [{ tool: "search_documents", input: { query: quotes.join(" ") } }],
         };
       if (!call.results.some((result) => result.tool === "cite")) {
@@ -136,6 +147,20 @@ async function measure(row: (typeof CASES)[number], mode: Mode) {
     },
     {
       generate: (call) => {
+        const sentences = call.system.startsWith("Compare a sentence")
+          ? []
+          : listedSentences(call.prompt);
+        if (sentences.length) {
+          sorts++;
+          return {
+            text: JSON.stringify({
+              sentences: sentences.map(({ number }) => ({
+                number,
+                parts: inventory === "unrepaired" ? malformedPlans : plans,
+              })),
+            }),
+          };
+        }
         comparisons.push(call);
         if (!call.system.startsWith("Compare a sentence"))
           throw new Error("The time-cost test received an unexpected auxiliary request.");
@@ -197,6 +222,7 @@ async function measure(row: (typeof CASES)[number], mode: Mode) {
     comparisons,
     calls: { ...calls, total: calls.streamed + calls.generated },
     expectedNative,
+    sorts,
   };
 }
 
@@ -273,3 +299,46 @@ for (const row of CASES)
       },
     );
   });
+
+for (const row of CASES) {
+  test.each(["overlap", "rewritten"] as const)(
+    `a repaired %s inventory keeps the original Run's checked time row: ${row.language}`,
+    async (inventory) => {
+      const measured = await measure(row, "native-supported", inventory);
+      expect(measured.result.kind).toBe("checked");
+      const temporal = measured.owner.parts?.find((part) => part.facet?.kind === "time");
+      expect(temporal).toMatchObject({
+        verdict: "contradicted",
+        facet: {
+          kind: "time",
+          period: { start: "2026-10-30", end: "2026-10-30", precision: "day" },
+        },
+        evidence: [{ documentId: measured.newer.id, quote: measured.quotes[1], check: "found" }],
+      });
+      expect(measured.owner.state).toBe("contradicted");
+      expect(measured.owner.parts).toHaveLength(2);
+      expect(measured.sorts).toBe(1);
+      expect(measured.comparisons).toHaveLength(2);
+      expect(measured.calls).toEqual({ streamed: 3, generated: 3, total: 6 });
+    },
+  );
+  test(`conflicting wire kinds enter the existing repair without inheriting a verdict: ${row.language}`, async () => {
+    const measured = await measure(row, "native-supported", "conflict");
+    expect(measured.sorts).toBe(1);
+    expect(measured.owner.state).toBe("not-checked");
+    expect(measured.owner.parts?.find((part) => part.facet?.kind === "time")?.verdict).toBe(
+      "not-checked",
+    );
+    expect(measured.calls).toEqual({ streamed: 3, generated: 1, total: 4 });
+  });
+  test(`an unrepaired full inventory never admits a salvaged time row: ${row.language}`, async () => {
+    const measured = await measure(row, "native-supported", "unrepaired");
+    expect(measured.owner.state).toBe("not-checked");
+    expect(
+      measured.owner.parts?.some(
+        (part) => part.verdict === "supported" || part.verdict === "contradicted",
+      ),
+    ).toBe(false);
+    expect(measured.sorts).toBe(2);
+  });
+}

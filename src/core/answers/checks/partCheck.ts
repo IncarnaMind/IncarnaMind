@@ -25,7 +25,7 @@ import {
   createClaimCheck,
   failureOf,
 } from "./claimCheck";
-import { readPartsLine } from "./claims";
+import { readFacetPartsLine, readPartsLine } from "./claims";
 import { claimsAmong } from "./findClaims";
 import { claimsAtOnce } from "./runChecks";
 
@@ -260,7 +260,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
               if (named?.length === 0) return;
               heard.plans = named && withFigures(named);
               if (heard.plans && whole(heard.plans) === null) run.abort();
-              return heard.plans;
+              return heard.plans ?? readFacetPartsLine(text, request.claim);
             },
           }),
         ),

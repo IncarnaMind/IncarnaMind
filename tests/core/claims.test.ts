@@ -8,6 +8,7 @@ import {
   paragraphsOf,
   readClaimDecisions,
   readClaimParts,
+  readFacetPartsLine,
   readPartsLine,
 } from "../../src/core/answers/checks/claims";
 
@@ -192,6 +193,180 @@ describe("The literal parts of numbered JSON input", () => {
           ]),
         ).toEqual(new Map([[37, [{ kind: "fact", span: { start: 0, end: text.length } }]]]));
       }
+    },
+  );
+});
+
+describe("flat Parts wire", () => {
+  test.each([
+    {
+      sentence: "According to Atlas, Nora said rates are currently 5%.",
+      words: ["According to Atlas", "Nora said", "currently", "5%"],
+      ordinary: "5%",
+    },
+    {
+      sentence: "据图谱，诺拉说利率目前为5%。",
+      words: ["据图谱", "诺拉说", "目前", "5%"],
+      ordinary: "为5%",
+    },
+  ])(
+    "flat and nested forms have identical literal plans: $sentence",
+    ({ sentence, words, ordinary }) => {
+      const kinds = ["source", "speaker", "time", "fact"];
+      const flat = words.map((text, index) => ({ kind: kinds[index], text }));
+      const nested = flat.map(({ kind, text }) =>
+        kind === "fact" ? { kind, text } : { kind: "fact", text, facet: { kind } },
+      );
+      const expected = flat.map(({ kind, text }) => ({
+        kind: "fact",
+        span: {
+          start: sentence.indexOf(kind === "fact" ? ordinary : text),
+          end: sentence.indexOf(text) + text.length,
+        },
+        ...(kind !== "fact" && { facet: { kind } }),
+      }));
+      for (const parts of [flat, nested]) {
+        expect(readPartsLine(`Parts: ${JSON.stringify(parts)}`, sentence)).toEqual(expected);
+        expect(
+          readClaimParts(JSON.stringify({ sentences: [{ number: 37, parts }] }), [
+            { number: 37, text: sentence },
+          ]),
+        ).toEqual(new Map([[37, expected]]));
+      }
+    },
+  );
+
+  test.each(["source", "speaker", "time"])(
+    "a matching redundant nested %s facet has the same canonical shape",
+    (kind) => {
+      const sentence = "Atlas";
+      expect(
+        readPartsLine(
+          `Parts: ${JSON.stringify([{ kind, text: sentence, facet: { kind } }])}`,
+          sentence,
+        ),
+      ).toEqual([{ kind: "fact", span: { start: 0, end: sentence.length }, facet: { kind } }]);
+    },
+  );
+
+  test.each([
+    { kind: "source", facet: { kind: "time" } },
+    { kind: "speaker", facet: { kind: "source" } },
+    { kind: "time", facet: { kind: "speaker" } },
+    { kind: "opinion", facet: { kind: "source" } },
+    { kind: "fact", facet: { kind: "opinion" } },
+    { kind: "source", facet: null },
+    {
+      kind: "source",
+      facet: { kind: "source", selectedDocumentId: "11111111-1111-4111-8111-111111111111" },
+    },
+    {
+      kind: "time",
+      facet: { kind: "time", period: { start: "2026-10-30", end: "2026-10-30", precision: "day" } },
+    },
+  ])("conflicting or untrusted planning metadata stays unreadable: %j", (part) => {
+    const sentence = "Atlas";
+    const parts = [{ ...part, text: sentence }];
+    expect(readPartsLine(`Parts: ${JSON.stringify(parts)}`, sentence)).toBeNull();
+    expect(
+      readClaimParts(JSON.stringify({ sentences: [{ number: 37, parts }] }), [
+        { number: 37, text: sentence },
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("independent facets in an unreadable Parts inventory", () => {
+  test.each([
+    {
+      sentence: "According to Atlas, Nora said rates are currently 5%.",
+      words: ["According to Atlas", "Nora said", "currently"],
+    },
+    { sentence: "据图谱，诺拉说利率目前为5%。", words: ["据图谱", "诺拉说", "目前"] },
+  ])(
+    "retains only exact facets without extending their spans: $sentence",
+    ({ sentence, words }) => {
+      const kinds = ["source", "speaker", "time"];
+      const flat = words.map((text, index) => ({ kind: kinds[index], text }));
+      const expected = flat.map(({ kind, text }) => ({
+        kind: "fact",
+        facet: { kind },
+        span: { start: sentence.indexOf(text), end: sentence.indexOf(text) + text.length },
+      }));
+      for (const facets of [
+        flat,
+        flat.map(({ kind, text }) => ({ kind: "fact", text, facet: { kind } })),
+      ]) {
+        const reply = `Parts: ${JSON.stringify([
+          facets[0],
+          { kind: "fact", text: sentence },
+          ...facets.slice(1),
+        ])}`;
+        expect(readPartsLine(reply, sentence)).toBeNull();
+        expect(readFacetPartsLine(reply, sentence)).toEqual(expected);
+      }
+    },
+  );
+
+  test.each([
+    { sentence: "Nora said Nora said rates rose.", words: "Nora said", fact: "rates rose." },
+    { sentence: "诺拉说诺拉说利率上涨。", words: "诺拉说", fact: "利率上涨。" },
+  ])("a repeated facet cannot be located independently: $sentence", ({ sentence, words, fact }) => {
+    const reply = `Parts: ${JSON.stringify([
+      { kind: "fact", text: words },
+      { kind: "speaker", text: words },
+      { kind: "fact", text: fact },
+    ])}`;
+    expect(readPartsLine(reply, sentence)?.[1]?.span).toEqual({
+      start: sentence.lastIndexOf(words),
+      end: sentence.lastIndexOf(words) + words.length,
+    });
+    expect(readFacetPartsLine(reply, sentence)).toBeNull();
+  });
+
+  test.each([
+    [{ kind: "source", text: "Atlas", facet: { kind: "time" } }],
+    [
+      { kind: "source", text: "Atlas" },
+      { kind: "time", text: "Atlas" },
+    ],
+    [
+      { kind: "time", text: "currently" },
+      { kind: "source", text: "Atlas" },
+    ],
+    [{ kind: "source", text: "a rewritten title" }],
+    [{ kind: "source", text: 42 }],
+    [{ kind: "fact", text: "Atlas", facet: { kind: "source", extra: true } }],
+    [
+      { kind: "source", text: "Atlas" },
+      { kind: "fact", text: "currently", facet: null },
+    ],
+  ])("one malformed or overlapping facet refuses the whole subset: %j", (...parts) => {
+    expect(
+      readFacetPartsLine(`Parts: ${JSON.stringify(parts)}`, "Atlas rates are currently 5%."),
+    ).toBeNull();
+  });
+
+  test("the latest unreadable facet line cannot borrow an earlier valid one", () => {
+    expect(
+      readFacetPartsLine(
+        'Parts: [{"kind":"source","text":"Atlas"}]\nParts: [{"kind":"time","text":42}]',
+        "Atlas is currently open.",
+      ),
+    ).toBeNull();
+  });
+
+  test.each(["Nora lives in Oslo.", "诺拉住在奥斯陆。"])(
+    "no facet never invents a checked part: %s",
+    (sentence) => {
+      expect(
+        readFacetPartsLine(
+          `Parts: ${JSON.stringify([{ kind: "fact", text: sentence }])}`,
+          sentence,
+        ),
+      ).toEqual([]);
+      expect(readFacetPartsLine("Parts: []", sentence)).toEqual([]);
+      expect(readFacetPartsLine("No readable Parts line.", sentence)).toBeNull();
     },
   );
 });
