@@ -18,6 +18,7 @@ import { answerTemperature, parseRecords } from "../engine";
 import { replyJson } from "../quoteRetry";
 import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
 import { absenceFigureResults } from "./figureChecks";
+import { readsAsRefusal } from "./prompt";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
@@ -132,7 +133,7 @@ export async function checkAbsence({
     return failedCheck(classifyProviderError(error));
   }
   const value = await replyJson(reply);
-  if (!isRecord(value)) return notChecked("malformed");
+  if (!isRecord(value)) return notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
   const judgment = (verdict: "supported" | "contradicted", evidence: Citation | null) => ({
     verdict,
     evidence,

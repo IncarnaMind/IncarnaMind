@@ -509,7 +509,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     /** Each part's words, in order, and how the check of that part goes. */
     parts: [string, Plan][];
     /** The whole read's reply for the absence part. */
-    read?: Record<string, unknown>;
+    read?: Record<string, unknown> | string;
   }
 
   async function checkedInNote(each: Case, language: "en" | "zh-CN") {
@@ -532,10 +532,13 @@ describe("An absence is one part of its sentence, judged by the whole read alone
             reads.push({ system: call.system, prompt: call.prompt });
             const passage = shownPassages(call.prompt)[0]?.id;
             return {
-              text: JSON.stringify(each.read ?? {}).replaceAll(
-                '"$PASSAGE"',
-                JSON.stringify(passage),
-              ),
+              text:
+                typeof each.read === "string"
+                  ? each.read
+                  : JSON.stringify(each.read ?? {}).replaceAll(
+                      '"$PASSAGE"',
+                      JSON.stringify(passage),
+                    ),
             };
           }
           return checkGenerate(plans)(call);
@@ -836,6 +839,53 @@ describe("An absence is one part of its sentence, judged by the whole read alone
         language,
       );
       expect(check).toMatchObject({ state: "not-checked", reason: "malformed" });
+    },
+  );
+
+  test.each([
+    { language: "en" as const, reply: "I'm sorry, I can't help with that.", reason: "refused" },
+    { language: "zh-CN" as const, reply: "抱歉，无法核对这句话。", reason: "refused" },
+    {
+      language: "en" as const,
+      reply: "The text doesn't seem to mention one.",
+      reason: "malformed",
+    },
+    { language: "zh-CN" as const, reply: "文中似乎没有提到。", reason: "malformed" },
+  ])(
+    "$language: a whole read that declines or gives no answer to read is Not checked ($reason)",
+    async ({ language, reply, reason }) => {
+      const each = LAW[language];
+      const claim = language === "en" ? `${each.absence}.` : `${each.absence}。`;
+      const { check, reads } = await checkedInNote(
+        { claim, document: each.document, parts: [[claim, absent()]], read: reply },
+        language,
+      );
+      expect(reads).toHaveLength(1);
+      expect(check).toMatchObject({ state: "not-checked", reason });
+    },
+  );
+
+  test.each(languages)(
+    "%s: a check that declines stays Not checked, with no whole read",
+    async (language) => {
+      const each = LAW[language];
+      const claim = language === "en" ? `${each.absence}.` : `${each.absence}。`;
+      const { check, reads } = await checkedInNote(
+        {
+          claim,
+          document: each.document,
+          parts: [
+            [
+              claim,
+              { verdict: "unsupported", reply: { text: "I'm sorry, I can't help with that." } },
+            ],
+          ],
+          read: holds(each.absent),
+        },
+        language,
+      );
+      expect(reads).toHaveLength(0);
+      expect(check).toMatchObject({ state: "not-checked", reason: "refused" });
     },
   );
 

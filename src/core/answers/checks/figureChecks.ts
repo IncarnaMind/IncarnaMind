@@ -1,3 +1,4 @@
+import { MARKER } from "../../../shared/answerSentences";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { readFigures } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
@@ -17,7 +18,7 @@ import type {
 import { isRecord } from "../../errors";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
-import { type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -47,7 +48,6 @@ export interface FigureReply {
   remainder?: FigureReplyRemainder | null;
 }
 
-const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const MAX_REPLY_CHARACTERS = 100_000;
 // An item's own words (says, covered, uncovered) may each run to 2,000 characters, so the reply
 // may grow with the figures it answers for: a 500-value chart's shortest reply is over 100,000.
@@ -88,6 +88,14 @@ export function figureReplyText(reply: string, setAside: readonly string[]): str
   return earlier?.split(/\r?\n/).some((line) => FIGURES.test(line))
     ? `${earlier}\n${reply}`
     : reply;
+}
+
+/** The markers the reply's own words carry, in order: its Figures line's are its figures'. */
+export function verdictMarkers(reply: string): number[] {
+  return reply
+    .split(/\r?\n/)
+    .filter((line) => !FIGURES.test(line))
+    .flatMap((line) => [...line.matchAll(MARKER)].map((match) => Number(match[1])));
 }
 
 export function readFigureReply(
@@ -201,8 +209,7 @@ function finding(figure: CheckFigure) {
   };
 }
 
-/** Every requested figure given the one judgment that decides the whole sentence. */
-export function figureResultsOf(
+export function uncheckedFigureResults(
   figures: readonly CheckFigure[],
   result: ClaimJudgment,
 ): ClaimCheckResult {
@@ -251,6 +258,10 @@ export function absenceFigureResults(
   return { ...aggregateFigureResults(figures, null), figures, remainder: null };
 }
 
+/**
+ * A wider word, another party or another topic takes a Supported verdict's support away; for a
+ * contradiction the parties the other way round are what contradicts, and its quote is judged.
+ */
 export function figureJudgment(
   reply: ReadVerdict,
   evidence: Citation | null,
@@ -259,9 +270,8 @@ export function figureJudgment(
 ): ClaimJudgment {
   if (
     reply.verdict === "unsupported" ||
-    reply.scope !== "same" ||
-    reply.roles !== "same" ||
-    reply.topic !== "found"
+    (reply.verdict === "supported" &&
+      (reply.scope === "wider" || reply.roles === "differs" || reply.topic === "not found"))
   )
     return {
       verdict: "unsupported",
@@ -397,7 +407,6 @@ function inSourceFrame(
   };
 }
 
-/** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
 /** Whether a source number equals the figure in any way the figure can be read. */
 export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): boolean {
   return [target.reading, ...target.reading.ambiguous.flatMap((each) => each.readings)].some(
@@ -405,6 +414,7 @@ export function givesItsOwnNumber(target: CheckFigure, input: FigureInput): bool
   );
 }
 
+/** A Figures line's source, read as `calculate` reads an input: its number, or why it can't be read. */
 export function readFigureSource(
   calculations: Pick<CalculationSession, "number">,
   target: CheckFigure,
@@ -428,7 +438,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     ...options.facts(),
   });
   const parsed = readFigureReply(options.reply, requested, options.claim);
-  if (!parsed) return figureResultsOf(requested, unavailable("malformed"));
+  if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
@@ -463,6 +473,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         },
       };
     let sourceInput: FigureInput | null = null;
+    let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
     let costs: ReadonlySet<string> = new Set();
     // A saved calculation is checked by working it out again from its own inputs: a source or a
@@ -476,8 +487,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       }
     } else if (item.source) {
       const input = readFigureSource(calculations, target, item.source);
-      if (
-        "input" in input &&
+      if ("problem" in input) pageUnread = input.pageUnread === true;
+      else if (
         input.input.citation.check === "found" &&
         (!input.input.unitStatement || input.input.unitStatement.citation.check === "found")
       )
@@ -532,15 +543,19 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       ],
     };
     const flags = options.caseFlags(evidence);
+    const unbacked = (quoted: Citation | null) =>
+      figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
     if (!sourceInput && !calculation) {
-      const result =
-        item.verdict === "unsupported" &&
-        !target.calculated &&
-        item.source === null &&
-        item.calculation === null
-          ? figureJudgment(item, null, facts, flags)
-          : unavailable();
-      rows.push({ ...base, result });
+      // A figure the model doesn't call Supported, with no source that can be read, is one its
+      // quotes don't hold: Unsupported in its own right, and not asked about again (#2184). A
+      // quote where the check can't read it, recorded or inline, stays not checked.
+      rows.push({
+        ...base,
+        result:
+          item.verdict !== "supported" && !target.calculated && !pageUnread
+            ? unbacked(null)
+            : unavailable(),
+      });
       continue;
     }
     if (
@@ -549,7 +564,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       item.scope !== "same" ||
       item.roles !== "same"
     ) {
-      rows.push({ ...base, sourceInput, result: figureJudgment(item, evidence, facts, flags) });
+      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
       continue;
     }
     const compared =
@@ -647,6 +662,37 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       : parsed.remainder
         ? await options.remainder(parsed.remainder)
         : undefined;
-  if (options.signal.aborted) return figureResultsOf(requested, unavailable("stopped"));
+  if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+}
+
+const STRICTNESS: Record<ClaimJudgment["verdict"], number> = {
+  contradicted: 0,
+  unsupported: 1,
+  "not-checked": 2,
+  supported: 3,
+};
+
+/**
+ * A sentence's figure-by-figure result, given the check's own verdict on the whole sentence
+ * (`sentence`, asked for only when it can matter). A figure's result can only make that verdict
+ * stricter, never weaker, and Contradicted always wins (#2184): a contradiction no figure shows
+ * rests on the sentence's other words, such as its parties, period or unit, so it takes the
+ * remainder's place, however the model wrote its remainder. A Supported verdict settles nothing
+ * the figures and the remainder don't, so a missing remainder still leaves the sentence not
+ * checked.
+ */
+export async function withSentenceVerdict(
+  result: ClaimCheckResult,
+  sentence: () => Promise<ClaimJudgment>,
+): Promise<ClaimCheckResult> {
+  const { figures, remainder } = result;
+  if (!figures || result.verdict === "contradicted") return result;
+  const judged = await sentence();
+  if (
+    judged.verdict === "supported" ||
+    (remainder && STRICTNESS[remainder.verdict] <= STRICTNESS[judged.verdict])
+  )
+    return result;
+  return { ...aggregateFigureResults(figures, judged), figures, remainder: judged };
 }
