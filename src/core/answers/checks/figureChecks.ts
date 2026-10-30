@@ -201,12 +201,18 @@ function finding(figure: CheckFigure) {
   };
 }
 
-export function uncheckedFigureResults(
+/**
+ * Every requested figure given the one judgment that decides the whole sentence. `remainder` is
+ * null when that judgment also decided the sentence's other words, so no part is left to show
+ * apart; undefined when it decided nothing (Not checked).
+ */
+export function figureResultsOf(
   figures: readonly CheckFigure[],
   result: ClaimJudgment,
+  remainder: null | undefined = undefined,
 ): ClaimCheckResult {
   const rows = figures.map((figure): FigureCheckResult => ({ ...finding(figure), result }));
-  return { ...aggregateFigureResults(rows, undefined), figures: rows, remainder: undefined };
+  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }
 
 export function figureJudgment(
@@ -386,7 +392,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     ...options.facts(),
   });
   const parsed = readFigureReply(options.reply, requested, options.claim);
-  if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
+  if (!parsed) return figureResultsOf(requested, unavailable("malformed"));
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
@@ -605,6 +611,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       : parsed.remainder
         ? await options.remainder(parsed.remainder)
         : undefined;
-  if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
+  if (options.signal.aborted) return figureResultsOf(requested, unavailable("stopped"));
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
 }

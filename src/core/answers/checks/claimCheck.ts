@@ -74,10 +74,10 @@ import {
   checkFigureReply,
   figureJudgment,
   figureReplyText,
+  figureResultsOf,
   givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
-  uncheckedFigureResults,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
@@ -605,8 +605,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       detail: string | null = null,
     ): ClaimCheckResult => {
       const result = unchecked(reason, detail);
-      return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+      return request.figures?.length ? figureResultsOf(request.figures, result) : result;
     };
+    // The whole read judges the whole sentence: its figures and its other words alike.
+    const wholeRead = (result: ClaimJudgment): ClaimCheckResult =>
+      request.figures?.length ? figureResultsOf(request.figures, result, null) : result;
     const failedCheck = (error: ProviderError): ClaimCheckResult => {
       const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
@@ -645,6 +648,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         versions: read,
         facts,
         citedCase,
+        decided: wholeRead,
         notChecked,
         failedCheck,
       });

@@ -472,3 +472,95 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(0);
   });
 });
+
+describe("Checking an absence sentence with a figure in a Note", () => {
+  const cases = [
+    {
+      language: "en" as const,
+      claim: "The company never disclosed the $5 million loan.",
+      quote: "The company disclosed a $5 million loan on 14 May 2026.",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "公司从未披露这笔 500 万元的贷款。",
+      quote: "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。",
+    },
+  ];
+
+  async function checkedInNote(
+    each: (typeof cases)[number],
+    absence: boolean,
+    whole: "supported" | "contradicted",
+  ) {
+    const wholeReads: number[] = [];
+    const plan = { verdict: "supported", absence, quote: each.quote } as const;
+    const model = scriptedModel((call) => checkReply(call, { [each.claim]: plan }), {
+      generate: (call) => {
+        if (call.system.startsWith("Read the whole Documents")) {
+          wholeReads.push(1);
+          if (whole === "supported") return { text: JSON.stringify({ verdict: whole }) };
+          const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
+          return { text: JSON.stringify({ verdict: whole, passage, quote: each.quote }) };
+        }
+        return checkGenerate({ [each.claim]: plan })(call);
+      },
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Disclosures.md", contents: `# Disclosures\n\n${each.quote}\n` },
+    ]);
+    if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: each.claim }] },
+    ]);
+    await client.settled();
+    await core.checkSentences({
+      requestId: randomUUID(),
+      mindId: mind.id,
+      action: "check-against-documents",
+      from: { blockId: "one", offset: 0 },
+      to: { blockId: "one", offset: each.claim.length },
+    });
+    await client.settled();
+    const check = claimSpans(readMind(client))[0]?.check;
+    return { check, wholeReads };
+  }
+
+  test.each(cases)(
+    "$language: the whole read's verdict decides the sentence and each of its figures",
+    async (each) => {
+      const supported = await checkedInNote(each, true, "supported");
+      expect(supported.wholeReads).toHaveLength(1);
+      expect(supported.check).toMatchObject({ state: "supported" });
+      expect(supported.check?.readDocuments).toHaveLength(1);
+      expect(supported.check?.figures?.length).toBeGreaterThan(0);
+      expect(supported.check?.figures?.map((figure) => figure.state)).toEqual(
+        supported.check?.figures?.map(() => "supported"),
+      );
+
+      const contradicted = await checkedInNote(each, true, "contradicted");
+      expect(contradicted.wholeReads).toHaveLength(1);
+      expect(contradicted.check).toMatchObject({
+        state: "contradicted",
+        evidence: { quote: each.quote, check: "found" },
+      });
+      expect(contradicted.check?.figures?.length).toBeGreaterThan(0);
+      expect(contradicted.check?.figures?.map((figure) => figure.state)).toEqual(
+        contradicted.check?.figures?.map(() => "contradicted"),
+      );
+    },
+  );
+
+  test.each(cases)(
+    "$language: without the absence answer, each figure keeps its own result from the search",
+    async (each) => {
+      const { check, wholeReads } = await checkedInNote(each, false, "supported");
+      expect(wholeReads).toHaveLength(0);
+      expect(check).toMatchObject({ state: "supported" });
+      expect(check?.readDocuments ?? []).toEqual([]);
+      expect(check?.figures?.length).toBeGreaterThan(0);
+      for (const figure of check?.figures ?? []) {
+        expect(figure).toMatchObject({ state: "supported", source: { check: "found" } });
+      }
+    },
+  );
+});

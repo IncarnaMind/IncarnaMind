@@ -5,6 +5,7 @@ import type {
   Citation,
   ClaimCheckFailure,
   ClaimCheckResult,
+  ClaimJudgment,
   ClaimReadDocument,
   Document,
   LeftOutDocument,
@@ -26,6 +27,8 @@ interface AbsenceContext {
     citedCaseUnchecked: boolean;
     citedCaseFound: boolean;
   };
+  /** The whole read's verdict as the check's result, given to each requested figure too. */
+  decided(result: ClaimJudgment): ClaimCheckResult;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
 }
@@ -78,6 +81,7 @@ export async function checkAbsence({
   versions,
   facts,
   citedCase,
+  decided,
   notChecked,
   failedCheck,
 }: AbsenceContext): Promise<ClaimCheckResult | null> {
@@ -133,7 +137,7 @@ export async function checkAbsence({
   if (typeof value !== "object" || value === null) return notChecked("malformed");
   const verdict = "verdict" in value ? value.verdict : null;
   if (verdict === "supported") {
-    return {
+    return decided({
       verdict: "supported",
       evidence: null,
       says: null,
@@ -142,7 +146,7 @@ export async function checkAbsence({
       readDocuments,
       ...citedCase(null),
       ...facts(),
-    };
+    });
   }
   if (verdict !== "contradicted") return notChecked("malformed");
   const passage = "passage" in value && typeof value.passage === "string" ? value.passage : "";
@@ -152,7 +156,7 @@ export async function checkAbsence({
   session.check();
   const evidence = session.finalCitation(1);
   if (evidence?.check !== "found") return notChecked("no-evidence");
-  return {
+  return decided({
     verdict: "contradicted",
     evidence,
     says: null,
@@ -161,5 +165,5 @@ export async function checkAbsence({
     readDocuments,
     ...citedCase(evidence),
     ...facts(),
-  };
+  });
 }
