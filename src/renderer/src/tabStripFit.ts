@@ -18,6 +18,11 @@ export interface StripFit {
   /** The tabs it shows whole, by index. */
   first: number;
   last: number;
+  /**
+   * The one tab in view leaves too little room for a readable part of a hidden name at each side
+   * that hides tabs; a shown tab narrowed to its least width makes the room.
+   */
+  squeezed: boolean;
 }
 
 /** Edges measured in fractions of a pixel are the same edge within this. */
@@ -32,8 +37,9 @@ const EPSILON = 0.5;
  * The tabs in view are whole. A side that hides tabs fades out over `fade` pixels, and the strip
  * reaches that far into the name of the hidden tab beyond, so part of a name shows, faded: the
  * sign that there are more (#2244). A cut on a tab's edge would fade only the blank at its ends.
- * Where a tab in view and those faded names don't fit together, the tab is hidden too; only a
- * tab wider than the room on its own takes the names' place.
+ * Where a tab in view and those names don't fit together, the tab is hidden too. With one tab in
+ * view the names may shrink to half the fade, which still reads and keeps the fade off that tab;
+ * below that the strip is `squeezed`.
  */
 export function fitStrip({
   tabs,
@@ -53,15 +59,22 @@ export function fitStrip({
   const count = tabs.length;
   const final = tabs[count - 1];
   if (!final || final.right + endGap <= room + EPSILON) {
-    return { run: null, gap: 0, scrollLeft: 0, first: 0, last: Math.max(0, count - 1) };
+    return {
+      run: null,
+      gap: 0,
+      scrollLeft: 0,
+      first: 0,
+      last: Math.max(0, count - 1),
+      squeezed: false,
+    };
   }
 
-  /** How far the strip reaches past its whole tabs into a hidden one's name. */
-  const into = (beyond: TabSpan | undefined, side: "before" | "after") => {
+  /** How far the strip reaches past its whole tabs into a hidden one's name, by `seen` of it. */
+  const into = (beyond: TabSpan | undefined, side: "before" | "after", seen = fade) => {
     if (!beyond) return 0;
     const blank =
       side === "before" ? beyond.right - beyond.name.right : beyond.name.left - beyond.left;
-    return Math.min(beyond.right - beyond.left, Math.max(0, blank) + fade);
+    return Math.min(beyond.right - beyond.left, Math.max(fade, Math.max(0, blank) + seen));
   };
   /** Where tab `first` starts: its left edge, or the strip's own start for the first tab. */
   const leftOf = (first: number) => (first > 0 ? (tabs[first]?.left ?? 0) : 0);
@@ -98,10 +111,18 @@ export function fitStrip({
   let after = reachesEnd ? 0 : into(tabs[last + 1], "after");
   const whole = (tabs[last]?.right ?? 0) + (reachesEnd ? endGap : 0) - leftOf(first);
   const spare = Math.max(0, room - gap - whole);
+  let squeezed = false;
   if (before + after > spare + EPSILON) {
-    const share = spare / (before + after);
-    before *= share;
-    after *= share;
+    const least = (full: number, side: "before" | "after", beyond: TabSpan | undefined) =>
+      full > 0 ? into(beyond, side, fade / 2) : 0;
+    const leastBefore = least(before, "before", tabs[first - 1]);
+    const leastAfter = least(after, "after", tabs[last + 1]);
+    squeezed = leastBefore + leastAfter > spare + EPSILON;
+    const share = squeezed
+      ? spare / (leastBefore + leastAfter)
+      : (spare - leastBefore - leastAfter) / (before - leastBefore + after - leastAfter);
+    before = squeezed ? leastBefore * share : leastBefore + (before - leastBefore) * share;
+    after = squeezed ? leastAfter * share : leastAfter + (after - leastAfter) * share;
   }
   return {
     run: Math.min(whole + before + after, room - gap),
@@ -109,5 +130,6 @@ export function fitStrip({
     scrollLeft: leftOf(first) - before,
     first,
     last,
+    squeezed,
   };
 }

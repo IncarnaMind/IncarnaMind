@@ -115,8 +115,10 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         if ((partLeft && !fadeLeft) || (partRight && !fadeRight) || (partLeft && partRight)) {
           problems.push(`${where}: "${name}" is clipped`);
         }
-        if (partLeft && text !== undefined && text.right > view.left + slack) nameBefore = true;
-        if (partRight && text !== undefined && text.left < view.right - slack) nameAfter = true;
+        // Half the fade of the name at least, which can be read.
+        const seen = fade / 2 - slack;
+        if (partLeft && text !== undefined && text.right - view.left >= seen) nameBefore = true;
+        if (partRight && text !== undefined && view.right - text.left >= seen) nameAfter = true;
         if (tab.getAttribute("aria-selected") === "true") {
           shown++;
           // Scrolled away by the User, the shown tab may be the one partly in view.
@@ -201,6 +203,10 @@ const OPENS_PDF = { quote: "Eastgate peaked at 47.2 degrees on 19 July." };
 const NOTE: Record<Language, string> = {
   en: "Your Documents answer this",
   "zh-CN": "你的文档回答了这个问题",
+};
+const MORE: Record<Language, string[]> = {
+  en: ["Questions for the site office", "Shift rota for July", "Training notes"],
+  "zh-CN": ["给现场办公室的问题清单", "七月份的值班安排表", "志愿者培训笔记整理"],
 };
 
 /**
@@ -328,6 +334,56 @@ for (const language of LANGUAGES) {
       await expect(window.getByTestId("document-tab")).toHaveCount(0);
       await window.getByRole("tab", { name: NOTE[language], exact: true }).click();
       await expect(shownTab(window)).toHaveAttribute("aria-label", NOTE[language]);
+    }
+    await app.close();
+  });
+
+  test(`with 3 and 5 tabs and the Note between them, a Citation's page beside it leaves a readable name on each side that hides tabs, at 1,440 and 900 px (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await expect(window.getByTestId("mind-pane")).toBeVisible();
+    const report = await addReport(window, language);
+    await newMind(window);
+    await nameMind(window, NOTE[language]);
+    await window.getByTestId("ask-pill").click();
+    await expect(window.getByTestId("assistant")).toBeVisible();
+
+    let added = 0;
+    for (const count of [3, 5]) {
+      while (2 + added < count) {
+        await newMind(window);
+        await nameMind(window, MORE[language][added] ?? `${added}`);
+        added++;
+      }
+      await expect(window.getByTestId("mind-tab")).toHaveCount(count);
+      for (const width of [1440, 900]) {
+        const at = `${count} tabs at ${width} px`;
+        await setWindowSize(app, window, width, 900);
+        const note = window.getByRole("tab", { name: NOTE[language], exact: true });
+        await note.click();
+        await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+        await expect(window.getByTestId("document-tab")).toHaveCount(1);
+        // Below 1,000 px the page comes to the front of the one strip; the Note is shown again.
+        await note.click();
+        const list = listAt(window, 0);
+        await expect(list.locator('[role="tab"][aria-selected="true"]')).toHaveAttribute(
+          "aria-label",
+          NOTE[language],
+        );
+        if (width === 1440) {
+          await expect(list).toHaveAttribute("data-hidden-before", "true");
+          await expect(list).toHaveAttribute("data-hidden-after", "true");
+        }
+        await expectResting(window, `the Note between hidden tabs, ${at}`);
+        await expect.poll(() => unreachable(window), { message: at }).toEqual([]);
+
+        const page = window.getByTestId("document-tab");
+        await page.hover();
+        await page.getByTestId("tab-close").click();
+        await expect(window.getByTestId("document-tab")).toHaveCount(0);
+      }
     }
     await app.close();
   });

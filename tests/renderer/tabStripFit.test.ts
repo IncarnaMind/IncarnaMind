@@ -35,6 +35,7 @@ describe("where a strip of tabs comes to rest", () => {
       scrollLeft: 0,
       first: 0,
       last: 1,
+      squeezed: false,
     });
   });
 
@@ -47,6 +48,7 @@ describe("where a strip of tabs comes to rest", () => {
       scrollLeft: 176 - INTO,
       first: 1,
       last: 1,
+      squeezed: false,
     });
     expect(restOf([166, 148], 256, 0)).toEqual({
       run: 10 + 166 + INTO,
@@ -54,6 +56,7 @@ describe("where a strip of tabs comes to rest", () => {
       scrollLeft: 0,
       first: 0,
       last: 0,
+      squeezed: false,
     });
     // Settled again where it rests, after a scroll that wasn't the User's, it stays.
     expect(restOf([166, 148], 256, -1, shown.scrollLeft)).toEqual(shown);
@@ -66,6 +69,7 @@ describe("where a strip of tabs comes to rest", () => {
       scrollLeft: 176 - INTO,
       first: 1,
       last: 2,
+      squeezed: false,
     });
   });
 
@@ -99,14 +103,20 @@ describe("where a strip of tabs comes to rest", () => {
     expect(restOf(widths, 450, -1, 10_000)).toMatchObject({ first: 3, last: 4, gap: 0 });
   });
 
-  test("lets the hidden names give way to a shown tab that alone nearly fills the room", () => {
-    expect(restOf([166, 148], 180, 1)).toEqual({
-      run: 180,
-      gap: 0,
-      scrollLeft: 176 - 22,
-      first: 1,
-      last: 1,
-    });
+  test("with the shown tab between hidden ones, keeps half the fade of each name, and says when even that doesn't fit (#2244)", () => {
+    // The middle of three tabs, in a group beside a Citation's page, Chinese names.
+    const wide = restOf([201, 205, 201], 256, 1);
+    expect(wide).toMatchObject({ first: 1, last: 1, squeezed: true });
+    // The shown tab narrowed to its least width: both names show, the shown tab clear of the fade.
+    const narrowed = restOf([201, 132, 201], 256, 1);
+    expect(narrowed).toMatchObject({ first: 1, last: 1, squeezed: false, gap: END_GAP });
+    const tabs = tabsOf([201, 132, 201]);
+    const from = narrowed.scrollLeft;
+    const to = from + (narrowed.run ?? 0);
+    expect((tabs[0]?.name.right ?? 0) - from).toBeGreaterThanOrEqual(FADE / 2);
+    expect(to - (tabs[2]?.name.left ?? 0)).toBeGreaterThanOrEqual(FADE / 2);
+    expect((tabs[1]?.left ?? 0) - from).toBeGreaterThanOrEqual(FADE);
+    expect(to - (tabs[1]?.right ?? 0)).toBeGreaterThanOrEqual(FADE);
   });
 
   test("shows a tab wider than the room, and no more", () => {
@@ -119,10 +129,12 @@ describe("where a strip of tabs comes to rest", () => {
       [96, 220, 140, 96, 180, 96, 96, 132],
       [150, 150, 150, 220],
       [166, 148],
+      [201, 205, 201, 166, 166],
+      [166, 132, 166],
     ]) {
       const tabs = tabsOf(widths);
       const end = (tabs.at(-1)?.right ?? 0) + END_GAP;
-      for (const room of [250, 333, 375, 499, 555, 700]) {
+      for (const room of [180, 220, 250, 256, 333, 375, 499, 555, 700]) {
         for (let scrollLeft = 0; scrollLeft < 1400; scrollLeft += 97) {
           for (let shown = -1; shown < widths.length; shown++) {
             const result = fitStrip({ tabs, room, endGap: END_GAP, fade: FADE, scrollLeft, shown });
@@ -133,23 +145,33 @@ describe("where a strip of tabs comes to rest", () => {
             expect(result.run + result.gap, message).toBeLessThanOrEqual(room + 0.5);
             tabs.forEach((tab, index) => {
               const inside = tab.left >= from - 0.5 && tab.right <= to + 0.5;
-              expect(inside, `${message} tab ${index}`).toBe(
-                index >= result.first && index <= result.last,
-              );
+              // A tab wider than the room is shown cut, as much of it as fits.
+              const fits = tab.right - tab.left + 2 * END_GAP <= room;
+              const inRun = index >= result.first && index <= result.last;
+              if (fits || !inRun) expect(inside, `${message} tab ${index}`).toBe(inRun);
               const partly = !inside && tab.right > from + 0.5 && tab.left < to - 0.5;
-              if (partly) {
+              if (partly && fits) {
                 expect([result.first - 1, result.last + 1], `${message} tab ${index}`).toContain(
                   index,
                 );
               }
             });
-            // Room for the widest tab and a name on each side: a side that hides tabs shows one.
-            if (room >= Math.max(...widths) + 2 * INTO + 2 * END_GAP) {
+            // A side that hides tabs shows half the fade of a name at least, and the fade stays
+            // off the tabs in view, unless the strip says it is squeezed, with one tab in view.
+            if (result.squeezed) {
+              expect(result.first, message).toBe(result.last);
+            } else {
               if (from > 0.5) {
-                expect(tabs[result.first - 1]?.name.right ?? 0, message).toBeGreaterThan(from + 1);
+                const name = tabs[result.first - 1]?.name.right ?? 0;
+                expect(name - from, message).toBeGreaterThanOrEqual(FADE / 2 - 0.5);
+                const inView = tabs[result.first]?.left ?? 0;
+                expect(inView - from, message).toBeGreaterThanOrEqual(FADE - 0.5);
               }
               if (to < end - 0.5) {
-                expect(tabs[result.last + 1]?.name.left ?? Infinity, message).toBeLessThan(to - 1);
+                const name = tabs[result.last + 1]?.name.left ?? Infinity;
+                expect(to - name, message).toBeGreaterThanOrEqual(FADE / 2 - 0.5);
+                const inView = tabs[result.last]?.right ?? 0;
+                expect(to - inView, message).toBeGreaterThanOrEqual(FADE - 0.5);
               }
             }
             if (shown >= 0) {

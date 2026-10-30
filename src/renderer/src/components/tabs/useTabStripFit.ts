@@ -35,30 +35,39 @@ export function useTabStripFit(
       const tabs = Array.from(element.querySelectorAll<HTMLElement>(':scope > [role="tab"]'));
       const shown = tabs.findIndex((tab) => tab.dataset.tabId === shownId);
       const was = element.scrollLeft;
+      const measured = () => {
+        const box = element.getBoundingClientRect();
+        const offset = element.scrollLeft - box.left;
+        return fitStrip({
+          tabs: tabs.map((tab) => {
+            const at = tab.getBoundingClientRect();
+            const name =
+              tab
+                .querySelector('[data-testid="tab-title"], [data-testid="tab-rename"]')
+                ?.getBoundingClientRect() ?? at;
+            return {
+              left: at.left + offset,
+              right: at.right + offset,
+              name: { left: name.left + offset, right: name.right + offset },
+            };
+          }),
+          room: element.offsetWidth + spare.offsetWidth,
+          endGap: END_GAP,
+          fade: FADE_PX,
+          scrollLeft: was,
+          shown: reveal ? shown : -1,
+        });
+      };
       // Tabs size to the strip they are in, so they are measured with it free of its cut.
       element.style.removeProperty("--tab-run");
       element.style.removeProperty("--tab-run-gap");
-      const box = element.getBoundingClientRect();
-      const offset = element.scrollLeft - box.left;
-      const result = fitStrip({
-        tabs: tabs.map((tab) => {
-          const at = tab.getBoundingClientRect();
-          const name =
-            tab
-              .querySelector('[data-testid="tab-title"], [data-testid="tab-rename"]')
-              ?.getBoundingClientRect() ?? at;
-          return {
-            left: at.left + offset,
-            right: at.right + offset,
-            name: { left: name.left + offset, right: name.right + offset },
-          };
-        }),
-        room: element.offsetWidth + spare.offsetWidth,
-        endGap: END_GAP,
-        fade: FADE_PX,
-        scrollLeft: was,
-        shown: reveal ? shown : -1,
-      });
+      delete element.dataset.squeezed;
+      let result = measured();
+      if (result.squeezed && shown >= 0 && result.first === shown && result.last === shown) {
+        // Narrowed to its least width (`data-squeezed` in styles.css), the shown tab makes the room.
+        element.dataset.squeezed = "";
+        result = measured();
+      }
       if (result.run !== null) {
         element.style.setProperty("--tab-run", `${result.run}px`);
         element.style.setProperty("--tab-run-gap", `${result.gap}px`);
@@ -97,7 +106,8 @@ export function useTabStripFit(
     // The shown tab is the strip's keyboard stop: focused, or a key pressed on it (End on the last
     // tab, which is already shown), it comes whole into view, after any scroll the focus makes.
     const onKeyboard = (event: Event) => {
-      const tab = (event.target as Element).closest<HTMLElement>('[role="tab"]');
+      if (!(event.target instanceof Element)) return;
+      const tab = event.target.closest<HTMLElement>('[role="tab"]');
       if (tab?.dataset.tabId !== shownId) return;
       following = true;
       placeLater();

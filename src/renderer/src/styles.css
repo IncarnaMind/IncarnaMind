@@ -737,6 +737,13 @@
     }
   }
   /*
+   * Set by useTabStripFit where the shown tab and a part of the names hidden beside it don't fit:
+   * the shown tab gives up the start of its name and keeps the 132px the design gives it.
+   */
+  .tab-list[data-squeezed] > .tab[aria-selected="true"] {
+    min-width: min(132px, 100%);
+  }
+  /*
    * The content of a tab: inset 4px at the sides and from the bottom on the
    * tabs not shown (a 28px shape with radius 8, 2px under the slot's top), the
    * whole tab on the shown one, which keeps the same 4px under its content.
