@@ -1039,6 +1039,59 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     },
   );
 
+  test.each(["ends", "is stopped", "fails"] as const)(
+    "a Check of the Note keeps its hold while an absence's whole read %s, and frees it after",
+    async (exit) => {
+      const claim = "The lease has no break clause.";
+      const plans = { [claim]: absent() };
+      const started = Promise.withResolvers<void>();
+      const gate = Promise.withResolvers<void>();
+      const model = scriptedModel((call) => withParts(call, checkReply(call, plans), [claim]), {
+        generate: (call) =>
+          call.system.startsWith("Read the whole Documents")
+            ? { text: JSON.stringify(HOLDS) }
+            : checkGenerate(plans)(call),
+      });
+      const generate = model.doGenerate.bind(model);
+      model.doGenerate = async (options) => {
+        const system = options.prompt.find((message) => message.role === "system");
+        if (system?.role === "system" && system.content.startsWith("Read the whole Documents")) {
+          started.resolve();
+          await new Promise<void>((resolve, reject) => {
+            options.abortSignal?.addEventListener("abort", () =>
+              reject(new DOMException("Stopped", "AbortError")),
+            );
+            void gate.promise.then(resolve);
+          });
+          if (exit === "fails") throw new Error("The read broke off.");
+        }
+        return generate(options);
+      };
+      const { core, client, mind } = await setUpWithDocuments(model, [LEASE]);
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: claim }] },
+      ]);
+      await client.settled();
+
+      const running = core.checkMind({ requestId: "first", mindId: mind.id, mode: "all" });
+      await started.promise;
+      // A second window can't check the Note while its read runs.
+      expect(
+        await core.holdMindCheck({ requestId: "second", mindId: mind.id, clientId: "other" }),
+      ).toBe(false);
+      expect(await core.checkMind({ requestId: "again", mindId: mind.id, mode: "all" })).toEqual({
+        kind: "running",
+      });
+      if (exit === "is stopped") await core.cancelCheck("first");
+      gate.resolve();
+      await running;
+
+      expect(
+        await core.holdMindCheck({ requestId: "second", mindId: mind.id, clientId: "other" }),
+      ).toBe(true);
+    },
+  );
+
   test("the whole read asks only about the absence", () => {
     expect(WHOLE_READ).toContain(
       "decide only whether they contain what the sentence says is absent",
