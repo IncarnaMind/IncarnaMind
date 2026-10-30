@@ -21,6 +21,7 @@
   "answerText.spec.ts": 33,
   "answers.spec.ts": 34,
   "appliedEdits.spec.ts": 122,
+  "approvalReadText.spec.ts": 12,
   "approvals.spec.ts": 28,
   "askAboutSelection.spec.ts": 103,
   "askedChanges.spec.ts": 123,
