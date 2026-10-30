@@ -141,6 +141,7 @@ async function checkedNote(row: Scenario) {
         "Verdict: supported",
         "Scope: none, same",
         "Topic: found",
+        "Absence: no",
         "Roles: none, same",
         "Calculation: none",
         "Evidence: [1]",

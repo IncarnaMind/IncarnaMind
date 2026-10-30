@@ -73,6 +73,7 @@ test.each([
           `Verdict: ${quote === row.fact ? "supported" : "contradicted"}`,
           "Scope: none, same",
           "Topic: found",
+          "Absence: no",
           "Roles: none, same",
           "Calculation: none",
           "Evidence: [1]",

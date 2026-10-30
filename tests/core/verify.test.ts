@@ -250,7 +250,7 @@ describe("Verify a document", () => {
             ],
           };
         }
-        return { text: "Verdict: supported\nThe memo says so [^1]" };
+        return { text: "Verdict: supported\nAbsence: no\nThe memo says so [^1]" };
       },
       {
         generate: checkGenerate({
@@ -447,7 +447,7 @@ describe("Verify a document", () => {
           const reply = checkReply(call, { [claim]: base });
           if ("calls" in reply) return reply;
           return {
-            text: `Verdict: ${verdict}\nFigures: ${JSON.stringify({
+            text: `Verdict: ${verdict}\nAbsence: no\nFigures: ${JSON.stringify({
               items: requestedFigures(call).map(({ id, shown, reading }) => {
                 const binding = bindings[shown];
                 if (!binding) throw new Error(`No checked row fixture for ${shown}`);

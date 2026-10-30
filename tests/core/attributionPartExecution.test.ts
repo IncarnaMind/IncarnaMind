@@ -152,6 +152,7 @@ async function setUp(row: Scenario, plans: ClaimPartPlan[] = plansFor(row)) {
           "Verdict: supported",
           "Scope: none, same",
           "Topic: found",
+          "Absence: no",
           "Roles: none, same",
           "Calculation: none",
           `Evidence: [${index + 1}]`,

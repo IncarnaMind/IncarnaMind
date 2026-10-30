@@ -36,7 +36,7 @@ const item = (id = "f1") => ({
   calculation: null,
 });
 const reply = (items: unknown[], remainder: unknown = null) =>
-  `Verdict: supported\nFigures: ${JSON.stringify({ items, remainder })}`;
+  `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items, remainder })}`;
 
 test("a complete same-run reply binds only the exact requested occurrence ids", () => {
   expect(readFigureReply(reply([item()]), figures, claim)).toMatchObject({
@@ -123,7 +123,7 @@ test("a quote copied from a sheet row with its raw tabs is read", () => {
 });
 
 test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
-  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\n", "")}`;
+  const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
   expect(readFigureReply(prose, figures, claim)?.items[0]?.id).toBe("f1");
 });
 
@@ -133,7 +133,7 @@ test.each([
   { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
   {
     final: "The quote states the revenue.",
-    aside: [reply([item()]).replace("Verdict: supported\n", "")],
+    aside: [reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
   },
 ])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
   expect(figureReplyText(final, aside)).toBe(final);
@@ -313,8 +313,12 @@ async function checkWith(options: {
       ],
       searchableCount: () => 1,
       searchableLanguages: () => [],
-      searchableBySize: () => [{ id: source.documentId, name: source.documentName }],
+      searchableBySize: () => [
+        { id: source.documentId, name: source.documentName, size: body.length },
+      ],
+      passagesBetween: () => [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
       savedBySearch: () => false,
+      unitCounts: () => new Map([[source.documentId, 1]]),
       citationSource: (id) => (id === source.passageId ? source : null),
       pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
       documentDate: () => null,
@@ -1441,7 +1445,7 @@ test.each([undefined, []])(
       figures,
       claim: "Revenue in 2024 was £20.",
       quotes: ["Revenue in 2024 was £20"],
-      text: "Verdict: supported\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
+      text: "Verdict: supported\nAbsence: no\nScope: same\nTopic: found\nRoles: same\nSays: Revenue in 2024 was £20.\nCalculation: none",
     });
     expect(result.verdict).toBe("supported");
     expect(result).not.toHaveProperty("figures");

@@ -28,6 +28,7 @@ import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { attributionConfirm, attributionPreamble } from "./attribution";
 import { isCell } from "./cells";
+import { fakeAbsence } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -89,6 +90,7 @@ const overloadedOnce = new Set<string>();
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
   attributionConfirm,
+  fakeAbsence,
   fakePlan,
   fakeResearchTags,
   fakeClaims,

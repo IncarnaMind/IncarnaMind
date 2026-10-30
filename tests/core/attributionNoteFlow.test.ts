@@ -90,6 +90,7 @@ describe("Attribution through the public Note check", () => {
               "Verdict: supported",
               "Scope: none, same",
               "Topic: found",
+              "Absence: no",
               "Roles: none, same",
               "Calculation: none",
               "Evidence: [1]",

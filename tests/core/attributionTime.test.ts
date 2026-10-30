@@ -116,6 +116,7 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
         "Verdict: supported",
         "Scope: none, same",
         "Topic: found",
+        "Absence: no",
         "Roles: none, same",
         "Calculation: none",
         `Evidence: ${JSON.stringify(quotes.map((_, at) => at + 1))}`,

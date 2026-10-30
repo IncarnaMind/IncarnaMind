@@ -35,6 +35,12 @@ describe("The record of an Answer's Tool calls", () => {
             resultCount: 8,
           }),
           call({
+            tool: "read_document",
+            source: "documents",
+            input: { document: "Filing", pages: "12–13" },
+            resultCount: 2,
+          }),
+          call({
             tool: "search_documents",
             source: "documents",
             input: { query: "moon" },
@@ -93,6 +99,7 @@ describe("The record of an Answer's Tool calls", () => {
       ),
     ).toEqual([
       "- search_documents “tides”: 8 Passages",
+      "- read_document “Filing” pages 12–13: 2 Passages",
       "- search_documents “moon”: failed",
       "- create_mind: made the Note “Tide notes” and proposed 7 changes, waiting for the User",
       "- create_mind: made the Note “Empty”, empty",

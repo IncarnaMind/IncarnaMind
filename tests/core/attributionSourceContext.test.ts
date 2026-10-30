@@ -178,6 +178,7 @@ describe("a remembered Source prefix across independent assertions", () => {
             `Verdict: ${verdict}`,
             "Scope: none, same",
             "Topic: found",
+            "Absence: no",
             "Roles: none, same",
             "Calculation: none",
             "Evidence: [1]",

@@ -55,6 +55,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "scope",
   "versions",
   "excluded",
+  "readDocuments",
   "recordCites",
   "checkedAt",
   "kept",

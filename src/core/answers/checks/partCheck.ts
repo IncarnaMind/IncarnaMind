@@ -17,6 +17,7 @@ import type {
   ClaimPartSpan,
 } from "../../api";
 import { slots } from "../../runs/stop";
+import { inCheck } from "./checkedText";
 import {
   type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
@@ -101,13 +102,16 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
     )
       plans = [full];
     const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    const sentence = request.originalClaim ?? request.claim;
     const withFigures = (found: readonly ClaimPartPlan[]) =>
       found.length > 0 && found.every((plan) => plan.facet)
         ? found
         : withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
-        claimsAmong(request.model, [request.claim], "own", request.signal),
+        inCheck({ sentence, part: null }, () =>
+          claimsAmong(request.model, [request.claim], "own", request.signal),
+        ),
       );
       if (sorted.kind === "cancelled") return { failed: failed("stopped") };
       if (sorted.kind === "failed") {
@@ -247,17 +251,19 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       const run = new AbortController();
       const heard: { plans?: readonly ClaimPartPlan[] | null } = {};
       const result = await limit.run(() =>
-        atomic({
-          ...request,
-          signal: AbortSignal.any([request.signal, run.signal]),
-          findParts: (text) => {
-            const named = readPartsLine(text, request.claim);
-            if (named?.length === 0) return;
-            heard.plans = named && withFigures(named);
-            if (heard.plans && whole(heard.plans) === null) run.abort();
-            return heard.plans;
-          },
-        }),
+        inCheck({ sentence, part: null }, () =>
+          atomic({
+            ...request,
+            signal: AbortSignal.any([request.signal, run.signal]),
+            findParts: (text) => {
+              const named = readPartsLine(text, request.claim);
+              if (named?.length === 0) return;
+              heard.plans = named && withFigures(named);
+              if (heard.plans && whole(heard.plans) === null) run.abort();
+              return heard.plans;
+            },
+          }),
+        ),
       );
       if (request.signal.aborted) return failed("stopped");
       if (heard.plans === undefined) return resultFromParts([partWithResult(full, result)]);
@@ -328,7 +334,9 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       request.only === undefined &&
       request.figureIds === undefined
     ) {
-      const result = await limit.run(() => atomic({ ...request, parts: plans, sourceContext }));
+      const result = await limit.run(() =>
+        inCheck({ sentence, part: null }, () => atomic({ ...request, parts: plans, sourceContext })),
+      );
       return family(planned, primary, result);
     }
     // What the User didn't ask about leaves its opinions out, as Check this Note does.
@@ -437,23 +445,32 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
                   ),
                 ]
               : figures;
-          const result = await atomic({
-            ...request,
-            claim: index < 0 ? request.claim : request.claim.slice(plan.span.start, plan.span.end),
-            parts:
-              index === first?.index
-                ? planned.filter(
-                    (part) =>
-                      sameClaimPart(part, plan) || facets.some((facet) => facet.plan === part),
-                  )
-                : [plan],
-            sourceContext,
-            findParts: undefined,
-            figures: requestedFigures.length ? requestedFigures : undefined,
-            projection: undefined,
-            originalClaim: request.originalClaim ?? request.claim,
-            context: [request.context, request.claim].filter(Boolean).join("\n\n"),
-          });
+          const result = await inCheck(
+            {
+              sentence,
+              part: isSentence(plan.span)
+                ? null
+                : request.claim.slice(plan.span.start, plan.span.end),
+            },
+            () =>
+              atomic({
+                ...request,
+                claim: index < 0 ? request.claim : request.claim.slice(plan.span.start, plan.span.end),
+                parts:
+                  index === first?.index
+                    ? planned.filter(
+                        (part) =>
+                          sameClaimPart(part, plan) || facets.some((facet) => facet.plan === part),
+                      )
+                    : [plan],
+                sourceContext,
+                findParts: undefined,
+                figures: requestedFigures.length ? requestedFigures : undefined,
+                projection: undefined,
+                originalClaim: request.originalClaim ?? request.claim,
+                context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+              }),
+          );
           if (index >= 0)
             parts[index] = checkedPart(
               plan,

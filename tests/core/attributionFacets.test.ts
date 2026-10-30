@@ -78,6 +78,7 @@ describe.each(["valid", "missing"] as const)("Same-Run attribution: %s facet res
           "Verdict: supported",
           "Scope: none, same",
           "Topic: found",
+          "Absence: no",
           "Roles: none, same",
           "Calculation: none",
           "Evidence: [1]",

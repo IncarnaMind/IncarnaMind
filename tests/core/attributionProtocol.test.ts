@@ -42,6 +42,7 @@ describe("Plain factual assertion request protocol", () => {
           "Verdict: supported",
           "Scope: none, same",
           "Topic: found",
+          "Absence: no",
           "Roles: none, same",
           "Calculation: none",
           "",

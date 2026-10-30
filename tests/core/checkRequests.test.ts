@@ -179,7 +179,7 @@ function quoting(
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  return { text: "Verdict: supported\nThe Document says so. [^1]" };
+  return { text: "Verdict: supported\nAbsence: no\nThe Document says so. [^1]" };
 }
 
 /** A check Run whose first turn names `parts` of its sentence, then checks as `plans` say. */
