@@ -83,8 +83,8 @@ export interface CommandToolsOptions {
   filing: CommandFiling;
   /** The Mind the User is in, which `list_commands` points out. */
   focusedMindId: string | null;
-  /** The Run's instructions name a saved web page, whose title someone else wrote. */
-  namesWebPage: boolean;
+  /** The saved web pages the Run's instructions name, by id: their titles are someone else's. */
+  titledPages: readonly string[];
   /** The renames of the Conversation's earlier Answers, oldest first (`renamesIn`). */
   renames: readonly CommandRename[];
   /** The Answer the calls are part of: the window that asked for it runs the window's commands. */
@@ -131,7 +131,7 @@ export function commandTools(options: CommandToolsOptions): {
     toolCallId: string,
     input: Record<string, unknown>,
     read: boolean,
-  ): Promise<{ checked: CheckedCommand; ask: CommandAsk | null; readTitles: boolean }>;
+  ): Promise<{ checked: CheckedCommand; ask: CommandAsk | null; readTitles: string[] }>;
   /** The User allowed a call `check` asked about: one past the Answer's limit starts its count again. */
   allowed(toolCallId: string): void;
   /** The User didn't allow a call `check` kept: it never runs. */
@@ -144,7 +144,7 @@ export function commandTools(options: CommandToolsOptions): {
   /** Each call's share of `changed`, until it ran: one that fails changed nothing. */
   const counted = new Map<string, number>();
   const renames = [...options.renames];
-  let readTitles = options.namesWebPage;
+  const readTitles = new Set(options.titledPages);
   /** What the model read of the window's commands that ran: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
   /** The window's commands still going on when their calls returned, by call. */
@@ -222,7 +222,7 @@ export function commandTools(options: CommandToolsOptions): {
         return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
       }
       const shown = found.slice(0, MAX_LISTED);
-      if (shown.some((each) => each.webPage)) readTitles = true;
+      for (const each of shown) if (each.webPage) readTitles.add(each.id);
       return [
         `Found ${found.length === 1 ? `1 ${one}` : `${found.length} ${many}`}:`,
         ...shown.map((each) => foundLine(each, options.focusedMindId)),
@@ -335,14 +335,14 @@ export function commandTools(options: CommandToolsOptions): {
           clientId: options.clientId,
           ended: (end) => windowEnded(toolCallId, end),
         });
-        const ask = askOf(command, { changed, renames, read: read || readTitles });
+        const ask = askOf(command, { changed, renames, read: read || readTitles.size > 0 });
         checked.set(toolCallId, command);
         if (ask) asks.set(toolCallId, ask);
         else if (command.changes) {
           changed += command.items.length;
           counted.set(toolCallId, command.items.length);
         }
-        return { checked: command, ask, readTitles };
+        return { checked: command, ask, readTitles: [...readTitles] };
       } catch (error) {
         options.failed(toolCallId, problemOf(String(input.command ?? ""), error));
         throw error;

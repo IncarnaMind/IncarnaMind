@@ -1052,7 +1052,9 @@
    * Citation checks; centred. Nothing in a Block may move its text off that
    * edge: boxes that need padding (code blocks, quotes) reach into the margin
    * instead. Below 784px both margins narrow to 40px at 760px, and under
-   * 760px they fold away (see the container queries at the end).
+   * 760px they fold away, the checks moving into the text, while the text and
+   * the composer keep a 40px gutter on each side (see the container queries at
+   * the end).
    */
   /*
    * What scrolls the Mind: room is kept for a scrollbar where they always show,
@@ -1292,6 +1294,10 @@
       max-width: 100%;
       box-shadow: var(--shadow-popover);
     }
+  }
+  /* The Note's own pane: a pane rule measures this, never the window or the group beside it. */
+  .mind-tab-page {
+    container: note / inline-size;
   }
   .mind-tab-row[data-review="over"] > .mind-tab-page {
     margin-right: min(296px, 100%);
@@ -1545,7 +1551,8 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
-    padding: 0 16px 16px;
+    /* The badge's right edge stands under the check column, never nearer than 16px. */
+    padding: 0 max(16px, calc((100% - 784px) / 2)) 16px 16px;
     pointer-events: none;
 
     &:has(.check-badge, .mind-count)::before {
@@ -1914,7 +1921,7 @@
       margin-left: auto;
     }
   }
-  @container group (width < 400px) {
+  @container note (width < 400px) {
     .check-badge[data-stable] {
       min-width: 0;
     }
@@ -2009,6 +2016,17 @@
 
   /* The editor and the margin column of checks beside it. */
   .mind-editor-frame {
+    /*
+     * What stands beside the text (DESIGN.md, Layout, Mind column): every
+     * distance runs from the text edge or the measure's right edge, never from
+     * the pane's, so one value moves them together at every width.
+     */
+    --edge-gap: 4px;
+    --handle-size: 20px;
+    --question-fold-size: 16px;
+    --question-spark-size: 14px;
+    --check-gap: 8px;
+
     position: relative;
   }
 
@@ -2787,8 +2805,8 @@
 
   /* The Mind editor's content (Tiptap): your writing in Source Serif 4, 17/28. */
   .mind-editor {
-    /* The handle's 20px fill the outer half of the 40px margin; a Question's fold chevron has the inner half. */
-    --handle-gap: 20px;
+    /* The handle's 20px target, its right edge `--edge-gap` before the text (the column's rule). */
+    --handle-gap: var(--edge-gap);
     /*
      * The editor's box reaches over the left margin, past the block handle,
      * while its text keeps the edge: Tiptap hides the handle once the pointer
@@ -2933,7 +2951,8 @@
       }
       ol[data-id] > li > p:first-child::before {
         content: counter(list-item) ".";
-        right: calc(100% - var(--marker-room) + 8px);
+        /* The number sits at the marker room's left edge: a short one leaves more space after it. */
+        left: -24px;
         white-space: nowrap;
       }
       /* Each item's marker in its list's scheme (#1419), drawn by the editor: not text, so not copied or found. */
@@ -3296,11 +3315,12 @@
   .question-fold {
     position: absolute;
     top: 0;
-    left: -20px;
+    /* 16 × 20, ending at the text edge; the Block handle touches its left edge while it shows. */
+    left: calc(-1 * var(--question-fold-size));
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: var(--question-fold-size);
     height: 20px;
     padding: 0;
     border-radius: 6px;
@@ -3324,9 +3344,15 @@
   .question-spark {
     position: absolute;
     top: 3px;
-    left: -37px;
-    width: 14px;
-    height: 14px;
+    /* Centred where the handle shows: the Question's own margin, out to 36px left of the text. */
+    left: calc(
+      -1 *
+      (var(--question-fold-size) + var(--handle-size) / 2) -
+      var(--question-spark-size) /
+      2
+    );
+    width: var(--question-spark-size);
+    height: var(--question-spark-size);
     color: var(--color-ink-meta);
     pointer-events: none;
 
@@ -5163,7 +5189,8 @@
   }
   .margin-check {
     position: absolute;
-    left: 12px;
+    /* The check column: each mark's left edge `--check-gap` after the measure's right edge. */
+    left: var(--check-gap);
     display: flex;
     align-items: center;
     gap: 2px;
@@ -6658,7 +6685,13 @@
     }
   }
 
-  /* A folded Mind (under 760px): both sides keep a 40px gutter, so the text edge holds at 760px's. */
+  /*
+   * A folded Mind (under 760px): both margins fold away and the text and the
+   * composer keep a 40px gutter on each side, so the text edge holds at 760px's
+   * (DESIGN.md, Layout, Mind column). A sentence's check moves into the text at
+   * its sentence's end, where its slot is drawn (`claimChecks.ts`), so the
+   * gutter stays the text's.
+   */
   @container mind (width < 760px) {
     .mind-measure {
       width: auto;
@@ -6667,12 +6700,13 @@
     .mind-editor {
       --editor-gutter: 40px;
     }
+    /* The layer covers the text column, so a mark can stand at its sentence's end in the text. */
     .margin-checks {
-      width: 40px;
+      inset-inline: 0;
+      width: auto;
     }
-    .claim-mark {
-      left: 8px;
-    }
+    /* The room a mark takes after its sentence's last word or Citation marker, so no text runs under it. */
+    /* The room is the mark's own width plus 4px, set on the sentence's last box by `claimChecks.ts`. */
     /* No margin to hang the footnotes' numbers in. */
     .footnote-area-row {
       margin-left: 0;
