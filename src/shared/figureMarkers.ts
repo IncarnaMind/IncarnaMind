@@ -19,7 +19,7 @@ import {
   replaceMarkers,
   withoutSpaceBeforeRemoved,
 } from "./blockJson";
-import { type Figure, type FigureUnit, readFigures } from "./figures";
+import { currencyPrefixStart, type Figure, type FigureUnit, readFigures } from "./figures";
 
 /** A figure marker as the model writes it: "[=1]". */
 export const FIGURE_MARKER = /\[=(\d{1,4})\]/g;
@@ -146,11 +146,20 @@ function place(
   let kept = found?.same ? before.slice(0, found.start) : before;
   let skip = 0;
   const around = wordsAround(figure.shown);
-  if (around?.lead && !found) {
-    const trimmed = kept.trimEnd();
-    const at = trimmed.length - around.lead.length;
-    if (trimmed.endsWith(around.lead) && !partOfWord(trimmed, at, around.lead))
-      kept = trimmed.slice(0, at);
+  if (!found) {
+    const context = { language: figure.show.language };
+    const shown = readFigures(figure.shown, context)[0];
+    if (shown?.unit.kind === "currency" && shown.ambiguous.length === 0) {
+      const at = currencyPrefixStart(kept, shown.unit.code, context);
+      if (at !== null) kept = kept.slice(0, at);
+    }
+    const modifier = shown ? figure.shown.slice(0, shown.start).trim() : null;
+    for (const lead of [around?.lead, modifier]) {
+      if (!lead) continue;
+      const trimmed = kept.trimEnd();
+      const at = trimmed.length - lead.length;
+      if (trimmed.endsWith(lead) && !partOfWord(trimmed, at, lead)) kept = trimmed.slice(0, at);
+    }
   }
   if (around?.unit) {
     const space = /^[ \t]*/.exec(after)?.[0].length ?? 0;

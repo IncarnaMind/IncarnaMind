@@ -1465,6 +1465,12 @@ function cnInteger(run: string): number | null {
   return low === null ? null : high * 1e8 + low;
 }
 
+const halfAt = (s: string, at: number): boolean =>
+  s[at] === "半" &&
+  (!/\p{Script=Han}/u.test(s[at + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, at + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, at + 1) !== null);
+
 /** A Chinese numeral starting at `start`, read with the scale it ends in, or null. */
 function lexChinese(s: string, start: number): Core | null {
   let end = start;
@@ -1476,14 +1482,11 @@ function lexChinese(s: string, start: number): Core | null {
   const digit = CN_DIGITS[run[0] ?? ""];
   const place = run[1] ?? "";
   // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
-  const halfEnds =
-    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
-    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
-    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
-  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
+  if (halfAt(s, end)) {
     const halfSpan = { from: start, to: end + 1 };
-    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
-    if (exponent !== undefined) {
+    const exponent =
+      run.length === 2 && (place === "万" || place === "亿") ? CN_SCALES[place] : undefined;
+    if (digit && exponent !== undefined) {
       return core(
         halfSpan,
         { digits: `${digit}5`, point: 1 },
@@ -1496,10 +1499,12 @@ function lexChinese(s: string, start: number): Core | null {
         },
       );
     }
-    const unit = CN_PLACES[place];
-    if (unit !== undefined && unit >= 100) {
-      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    const unit = CN_PLACES[run.at(-1) ?? ""];
+    const value = cnInteger(run);
+    if (value !== null && unit !== undefined && unit >= 100) {
+      return core(halfSpan, integer(String(value + unit / 2)), { chinese: true, capitals });
     }
+    return null;
   }
   if (point >= 0) {
     const whole = cnInteger(run.slice(0, point));
@@ -1585,6 +1590,7 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
     if (isLatin(before) && !CURRENCY_BEFORE.test(s.slice(Math.max(0, at - 6), at))) return null;
     if ((before === "-" && isLatin(s[at - 2])) || before === "_") return null;
     if ((before === "," || before === "." || before === "'") && isDigit(s[at - 2])) return null;
+    if (/^[1-9]\d{16}[Xx](?![A-Za-z0-9])/.test(s.slice(at))) return [];
     const cores = readLexeme(s, lexArabic(s, at), settled);
     // ".5": a decimal written without its leading zero.
     const first = cores[0];
@@ -1769,6 +1775,21 @@ function readAround(
       let joined = false;
       while (place !== undefined) {
         const at = right;
+        const chinese = isCnDigit(s[right]) ? lexChinese(s, right) : null;
+        if (chinese && !chinese.single) {
+          const lower = decimalValue(chinese.number, chinese.exponent, false);
+          if (
+            lower >= 10 ** place ||
+            (s[chinese.to - 1] === "千" && !matchAt(CN_SCALE_AFTER, s, chinese.to - 1))
+          )
+            break;
+          right = chinese.to;
+          value += lower;
+          joined = true;
+          const nextPlace = CN_PLACES[s[right - 1] ?? ""];
+          place = nextPlace === undefined ? undefined : Math.log10(nextPlace);
+          continue;
+        }
         const digits = take(/\d{1,4}(?![\d.,])/y);
         const lower = digits ? take(CN_SCALE_AFTER) : null;
         const exponent = lower ? CN_SCALES[lower.word] : undefined;
@@ -1782,6 +1803,11 @@ function readAround(
         }
         value += Number(digits.word) * 10 ** exponent;
         place = exponent;
+        joined = true;
+      }
+      if (halfAt(s, right) && place !== undefined) {
+        value += 10 ** place / 2;
+        right++;
         joined = true;
       }
       if (joined) {
@@ -1853,6 +1879,13 @@ function readAround(
   }
   if (draft.currencies.length > 0)
     draft.unit = { kind: "currency", code: draft.currencies[0] as string };
+  if (
+    draft.unit.kind === "plain" &&
+    draft.scaleWord === null &&
+    !found.formatted &&
+    /^(?:1[3-9]\d{9}|[1-9]\d{17})$/.test(s.slice(found.from, found.to))
+  )
+    return null;
   if (take(APPROXIMATE_AFTER)) draft.approximate = true;
   let ledger = takeLedger();
 
@@ -2283,6 +2316,29 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
     at = next;
   }
   return drafts.map((draft) => finish(draft, prepared, text, [...statements, ...header]));
+}
+
+/** The original start of adjacent trailing currency indicators that all name `code`, or null. */
+export function currencyPrefixStart(
+  text: string,
+  code: string,
+  context: FigureContext = {},
+): number | null {
+  const prepared = prepare(text);
+  const settled = settle(context);
+  const adjacent = (from: number, to = text.length) => /^[ \t\u00a0]*$/u.test(text.slice(from, to));
+  let start: number | null = null;
+  let end = 0;
+  for (const match of prepared.s.matchAll(new RegExp(CURRENCY_TOKEN.source, "g"))) {
+    const from = prepared.from[match.index];
+    const to = prepared.to[match.index + match[0].length - 1];
+    if (from === undefined || to === undefined) return null;
+    const codes = currencyCodes(match[0], settled);
+    if (codes.length !== 1 || codes[0] !== code) start = null;
+    else if (start === null || !adjacent(end, from)) start = from;
+    end = to;
+  }
+  return start !== null && adjacent(end) ? start : null;
 }
 
 /** Each way a figure can be read: as written, and each reading of what isn't settled. */

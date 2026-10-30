@@ -1945,6 +1945,267 @@ describe("A ratio among a figure's inputs leaves it shown as its amounts are wri
   });
 });
 
+describe("A larger display scale drops only trailing fractional zeroes (#1861)", () => {
+  test.each([
+    {
+      name: "en-thousand-million-default",
+      language: "en",
+      number: "£310,000 thousand",
+      scale: "million",
+      decimals: null,
+      shown: "£310 million",
+      places: 0,
+      value: 310000000,
+    },
+    {
+      name: "en-thousand-million-requested",
+      language: "en",
+      number: "£310,000 thousand",
+      scale: "million",
+      decimals: 3,
+      shown: "£310 million",
+      places: 0,
+      value: 310000000,
+    },
+    {
+      name: "en-thousand-nonzero",
+      language: "en",
+      number: "£310,120 thousand",
+      scale: "million",
+      decimals: 3,
+      shown: "£310.12 million",
+      places: 2,
+      value: 310120000,
+    },
+    {
+      name: "en-rounded-nonzero",
+      language: "en",
+      number: "£310,123.6 thousand",
+      scale: "million",
+      decimals: 3,
+      shown: "£310.124 million",
+      places: 3,
+      value: 310123600,
+    },
+    {
+      name: "en-million-billion-default",
+      language: "en",
+      number: "£1,200 million",
+      scale: "billion",
+      decimals: null,
+      shown: "£1.2 billion",
+      places: 1,
+      value: 1200000000,
+    },
+    {
+      name: "en-million-billion-requested",
+      language: "en",
+      number: "£1,200 million",
+      scale: "billion",
+      decimals: 5,
+      shown: "£1.2 billion",
+      places: 1,
+      value: 1200000000,
+    },
+    {
+      name: "en-million-billion-nonzero",
+      language: "en",
+      number: "£1,234.567 million",
+      scale: "billion",
+      decimals: 4,
+      shown: "£1.2346 billion",
+      places: 4,
+      value: 1234567000,
+    },
+    {
+      name: "zh-wan-yi-default",
+      language: "zh-CN",
+      number: "31,000万元",
+      scale: "亿",
+      decimals: null,
+      shown: "3.1亿元",
+      places: 1,
+      value: 310000000,
+    },
+    {
+      name: "zh-wan-yi-requested",
+      language: "zh-CN",
+      number: "31,000万元",
+      scale: "亿",
+      decimals: 6,
+      shown: "3.1亿元",
+      places: 1,
+      value: 310000000,
+    },
+    {
+      name: "zh-thousand-million-default",
+      language: "zh-CN",
+      number: "310,000千元",
+      scale: "百万",
+      decimals: null,
+      shown: "310百万元",
+      places: 0,
+      value: 310000000,
+    },
+    {
+      name: "zh-thousand-million-requested",
+      language: "zh-CN",
+      number: "310,000千元",
+      scale: "百万",
+      decimals: 3,
+      shown: "310百万元",
+      places: 0,
+      value: 310000000,
+    },
+    {
+      name: "zh-million-billion-default",
+      language: "zh-CN",
+      number: "1,200百万元",
+      scale: "十亿",
+      decimals: null,
+      shown: "1.2十亿元",
+      places: 1,
+      value: 1200000000,
+    },
+    {
+      name: "zh-million-billion-requested",
+      language: "zh-CN",
+      number: "1,200百万元",
+      scale: "十亿",
+      decimals: 5,
+      shown: "1.2十亿元",
+      places: 1,
+      value: 1200000000,
+    },
+    {
+      name: "en-zh-source-default-scale",
+      language: "en",
+      number: "31,000万元",
+      scale: null,
+      decimals: null,
+      shown: "RMB 310 million",
+      places: 0,
+      value: 310000000,
+    },
+    {
+      name: "zh-en-source-default-scale",
+      language: "zh-CN",
+      number: "£310,000 thousand",
+      scale: null,
+      decimals: null,
+      shown: "3.1亿英镑",
+      places: 1,
+      value: 310000000,
+    },
+    {
+      name: "own-dot-zero",
+      language: "en",
+      number: "£310.0 million",
+      scale: "million",
+      decimals: null,
+      shown: "£310.0 million",
+      places: null,
+      value: 310000000,
+    },
+    {
+      name: "same-scale-thousand",
+      language: "en",
+      number: "£310,000 thousand",
+      scale: null,
+      decimals: null,
+      shown: "£310,000 thousand",
+      places: null,
+      value: 310000000,
+    },
+    {
+      name: "negative-upscaled",
+      language: "en",
+      number: "-£310,000 thousand",
+      scale: "million",
+      decimals: 3,
+      shown: "-£310 million",
+      places: 0,
+      value: -310000000,
+    },
+    {
+      name: "zero-upscaled",
+      language: "en",
+      number: "£0 thousand",
+      scale: "million",
+      decimals: 3,
+      shown: "£0 million",
+      places: 0,
+      value: 0,
+    },
+    {
+      name: "tiny-nonzero",
+      language: "en",
+      number: "£1.00 thousand",
+      scale: "million",
+      decimals: null,
+      shown: "£0.001 million",
+      places: 3,
+      value: 1000,
+    },
+  ] as const)("$name", async (case_) => {
+    const chinese = case_.language === "zh-CN" || /\p{Script=Han}/u.test(case_.number);
+    const quote = chinese
+      ? `营业收入为${case_.number}。`
+      : `The report states that revenue for the company was ${case_.number}.`;
+    const model = calculatingModel({
+      queries: [chinese ? "营业收入" : "Revenue"],
+      steps: [
+        (passages) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  formula: "revenue",
+                  ...(case_.scale !== null && { scale: case_.scale }),
+                  ...(case_.decimals !== null && { decimals: case_.decimals }),
+                  inputs: [
+                    {
+                      name: "revenue",
+                      passage: passageOf(passages, "Display"),
+                      location: "p. 1",
+                      quote,
+                      number: case_.number,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      ],
+      answer: case_.language === "en" ? "Revenue is [=1]." : "营业收入为[=1]。",
+    });
+    const contents = buildPdf([
+      /\p{Script=Han}/u.test(quote) ? { chineseLines: [quote] } : { lines: [quote] },
+    ]);
+    const { core } = await setUpCalculating(model, [{ name: "Display.pdf", contents }]);
+    const { answer } = await askAndRead(
+      core,
+      case_.language === "en" ? "What is the revenue?" : "营业收入是多少？",
+    );
+    expect(answer.figures, JSON.stringify(told(model, "calculate"))).toMatchObject([
+      {
+        value: case_.value,
+        shown: case_.shown,
+        show: { language: case_.language, scale: case_.scale, decimals: case_.places },
+        engine: 1,
+        inputs: [{ number: { chars: case_.number }, citation: { quote, check: "found" } }],
+      },
+    ]);
+    expect(shown(answerBlocks(answer))).toBe(
+      case_.language === "en" ? `Revenue is ${case_.shown}.` : `营业收入为${case_.shown}。`,
+    );
+    expect(calculateCall(answer)?.resultCount).toBe(1);
+  });
+});
+
 describe("The difference of two cited cells is calculated, not given up on (#1444)", {
   timeout: 60_000,
 }, () => {
@@ -2031,7 +2292,7 @@ describe("A number takes the unit its row gives it in a cell of its own (#1798)"
   const ROW = "净负债\t2026年三季度实际\t31000\t万元\t实际，非预测";
 
   // protects=31000 quoted alone from a row whose next cell says 万元 is never read as 31,000 元: the model is asked for the row as unitQuote, and the row gives 3.1亿元; fails_when=the figure comes out 0.00031亿 or the row is refused as stating no unit; no_claim=a unit stated on another row, which still needs its own line.
-  test("31000 beside a 万元 cell asks for its row, and the row gives 3.1000亿元", async () => {
+  test("31000 beside a 万元 cell asks for its row, and the row gives 3.1亿元", async () => {
     const figure = (unitQuote?: string) => ({
       marker: 1,
       label: "净负债（亿元）",
@@ -2072,10 +2333,12 @@ describe("A number takes the unit its row gives it in a cell of its own (#1798)"
     const { answer } = await askAndRead(core, "2026年三季度的净负债是多少亿元？");
     const [asked, recorded] = told(model, "calculate");
     expect(asked).toContain(`31000 has no unit, and 2026年三季度, row 6 says "${ROW}"`);
-    expect(recorded).toContain("Recorded [=1] = 3.1000亿元");
+    expect(recorded).toContain("Recorded [=1] = 3.1亿元");
     expect(answer.figures).toMatchObject([
       {
         value: 310_000_000,
+        shown: "3.1亿元",
+        show: { decimals: 1 },
         inputs: [
           { number: { chars: "31000", value: 310_000_000 }, unitStatement: { scale: 10_000 } },
         ],

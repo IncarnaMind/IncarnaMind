@@ -12,6 +12,7 @@ import {
   withFigures,
   withFigureText,
 } from "../../src/shared/figureMarkers";
+import { currencyPrefixStart } from "../../src/shared/figures";
 import { formulaText } from "../../src/shared/formula";
 
 const figure = (
@@ -177,4 +178,63 @@ describe("a formula as a person reads it", () => {
     expect(formulaText("ROUND(a*5%,2)", () => null)).toBe("ROUND(a × 5%, 2)");
     expect(formulaText("a ++ ) ?", () => null)).toBe("a ++ ) ?");
   });
+});
+
+describe("equivalent currency before a calculated figure", () => {
+  test.each([
+    ["en", "Net debt: GBP [=1] millions", "£310 million", "Net debt: £310 million"],
+    ["en", "Net debt: GBP [=1] million", "£310 million", "Net debt: £310 million"],
+    ["en", "Net debt: £ [=1]", "£310 million", "Net debt: £310 million"],
+    ["en", "Net debt: GBP £ [=1]", "£310 million", "Net debt: £310 million"],
+    ["en", "Net debt: GBP GBP [=1]", "£310 million", "Net debt: £310 million"],
+    ["en", "Net debt: ＧＢＰ [=1]", "£310 million", "Net debt: £310 million"],
+    ["zh-CN", "净负债为GBP [=1]", "3.1亿英镑", "净负债为3.1亿英镑"],
+    ["zh-CN", "净负债为英镑[=1]", "3.1亿英镑", "净负债为3.1亿英镑"],
+    ["en", "USD [=1]", "£310 million", "USD £310 million"],
+    ["en", "NotGBP [=1]", "£310 million", "NotGBP £310 million"],
+    ["en", "about GBP [=1]", "£310 million", "about £310 million"],
+    ["en", "about GBP [=1]", "about £310 million", "about £310 million"],
+    ["en", "Net debt: - GBP [=1]", "£310 million", "Net debt: - £310 million"],
+  ] as const)("%s: %s keeps one coherent currency", (language, input, shown, expected) => {
+    const own = figure(310_000_000, shown, language);
+    expect(withFigureText(input, () => own)).toBe(expected);
+    expect(
+      textOf(
+        withFigures(
+          markdownToBlocks(input),
+          () => own,
+          (each) => each.shown,
+        ),
+      ),
+    ).toBe(expected);
+  });
+
+  test("rich text keeps its marks and code keeps its literal marker", () => {
+    const own = figure(310_000_000, "£310 million");
+    const blocks = withFigures(
+      markdownToBlocks("**GBP [=1]** and `GBP [=1]`"),
+      () => own,
+      (each) => each.shown,
+    );
+    expect(blocks[0]?.content).toMatchObject([
+      { type: "text", text: "£310 million", marks: [{ type: "bold" }] },
+      { type: "text", text: " and " },
+      { type: "text", text: "GBP [=1]", marks: [{ type: "code" }] },
+    ]);
+  });
+});
+
+test("currency prefixes keep raw boundaries and stop at another unit or a line break", () => {
+  expect(currencyPrefixStart("Net: GBP £ ", "GBP")).toBe(5);
+  expect(currencyPrefixStart("USD GBP ", "GBP")).toBe(4);
+  expect(currencyPrefixStart("GBP USD ", "GBP")).toBeNull();
+  expect(currencyPrefixStart("NotGBP ", "GBP")).toBeNull();
+  expect(currencyPrefixStart("GBP\n", "GBP")).toBeNull();
+  expect(currencyPrefixStart("GBP · ", "GBP")).toBeNull();
+  expect(currencyPrefixStart("净负债为英镑", "GBP", { language: "zh-CN" })).toBe(4);
+});
+
+test("a long repeated prefix still writes the amount once", () => {
+  const own = figure(310_000_000, "£310 million");
+  expect(withFigureText(`${"GBP ".repeat(1_000)}[=1]`, () => own)).toBe("£310 million");
 });

@@ -1250,3 +1250,62 @@ describe("A number at the start of a quote (#1969)", () => {
     expect(read("88.0 起（2025年上半年）", { ...ZH, midLine: true })).toEqual([["88.0", 88]]);
   });
 });
+
+describe.each(["en", "zh-CN"])("Chinese quantities in %s text (#2215)", (language) => {
+  test("keeps Arabic and Han places in one amount", () => {
+    const text = "应付2万三千元。";
+    const figures = readFigures(text, { language });
+    expect(figures.map(shape)).toEqual([f("2万三千元", 23000, { unit: "CNY", scale: "万" })]);
+    expect(figures.map(({ start, end }) => [start, end])).toEqual([[2, 7]]);
+  });
+
+  test.each(["13800138000", "110105194912310021", "11010519491231002X"])(
+    "keeps the identifier %s out of amounts, even under a currency header",
+    (identifier) => {
+      expect(readFigures(identifier, { language })).toEqual([]);
+      expect(readFigures(identifier, { language, header: "单位：人民币元" })).toEqual([]);
+    },
+  );
+
+  test.each([
+    ["13,800,138,000元", 13800138000, "CNY"],
+    ["人民币13800138000元", 13800138000, "CNY"],
+    ["13800138000人", 13800138000, "人"],
+  ] as const)("keeps an explicit quantity %s", (text, value, unit) => {
+    expect(readFigures(text, { language }).map(shape)).toEqual([f(text, value, { unit })]);
+  });
+
+  test("keeps a genuine fee beside a phone and an ID with its exact source span", () => {
+    const text = "📄电话13800138000，身份证11010519491231002X，费用人民币2万三千元。";
+    const figures = readFigures(text, { language });
+    expect(figures.map(shape)).toEqual([f("人民币2万三千元", 23000, { unit: "CNY", scale: "万" })]);
+    expect(figures.map(({ start, end }) => [start, end])).toEqual([[40, 48]]);
+    expect(figures.map(({ start, end }) => text.slice(start, end))).toEqual(["人民币2万三千元"]);
+  });
+
+  test.each([
+    ["一万二千半", 12500, undefined],
+    ["1万2千半", 12500, "万"],
+    ["2万三千半", 23500, "万"],
+    ["两万半", 25000, "万"],
+    ["两千半导体", 2000, undefined],
+  ] as const)("keeps the whole amount in %s", (text, value, scale) => {
+    const chars = text.endsWith("半导体") ? text.slice(0, -3) : text;
+    expect(readFigures(text, { language }).map(shape)).toEqual([f(chars, value, { scale })]);
+  });
+
+  test("refuses an unsettled half form rather than dropping its half", () => {
+    expect(readFigures("一万二千五半", { language })).toEqual([]);
+  });
+
+  test.each([
+    ["2万3千元", [f("2万3千元", 23000, { unit: "CNY", scale: "万" })]],
+    ["两万三千元", [f("两万三千元", 23000, { unit: "CNY" })]],
+    ["2万三千五百元", [f("2万三千五百元", 23500, { unit: "CNY", scale: "万" })]],
+    ["2万三千5百元", [f("2万三千5百元", 23500, { unit: "CNY", scale: "万" })]],
+    ["2万，三千元", [f("2万", 20000, { scale: "万" }), f("三千元", 3000, { unit: "CNY" })]],
+    ["2万,三千元", [f("2万", 20000, { scale: "万" }), f("三千元", 3000, { unit: "CNY" })]],
+  ] satisfies Case[])("preserves the amount boundary in %s", (text, expected) => {
+    expect(readFigures(text, { language }).map(shape)).toEqual(expected);
+  });
+});

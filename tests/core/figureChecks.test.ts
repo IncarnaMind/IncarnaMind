@@ -171,6 +171,7 @@ function target(
 
 async function checkWith(options: {
   text: string;
+  language?: "en" | "zh-CN";
   figures?: readonly CheckFigure[];
   claim?: string;
   body?: string;
@@ -274,7 +275,7 @@ async function checkWith(options: {
   };
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
-    language: () => "en",
+    language: () => options.language ?? "en",
     walledDocument: () => null,
     walledFolderName: () => null,
     engine: {
@@ -696,6 +697,100 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
 });
+
+test.each([
+  {
+    language: "en",
+    body: "Revenue was £310000 thousand.",
+    number: "£310000 thousand",
+    scale: "million",
+    compact: "£310 million",
+    padded: "£310.000 million",
+    decimals: 0,
+  },
+  {
+    language: "zh-CN",
+    body: "营业收入为31000万元。",
+    number: "31000万元",
+    scale: "亿",
+    compact: "3.1亿元",
+    padded: "3.1000亿元",
+    decimals: 1,
+  },
+] as const)(
+  "$language: old padded and new compact v1 receipts replay their own stored display",
+  async (case_) => {
+    const claim =
+      case_.language === "en" ? `Revenue was ${case_.compact}.` : `营业收入为${case_.compact}。`;
+    const current = await checkWith({
+      language: case_.language,
+      claim,
+      figures: [target("f1", case_.compact, claim, case_.language)],
+      body: case_.body,
+      calculations: [
+        {
+          marker: 1,
+          formula: "source",
+          stated: case_.compact,
+          relation: "equals",
+          scale: case_.scale,
+          inputs: [{ name: "source", citation: 1, number: case_.number }],
+        },
+      ],
+      text: reply([{ ...item(), source: null, calculation: 1 }]),
+    });
+    const judgment = current.result.figures?.[0]?.result;
+    const figure = judgment && "calculation" in judgment ? judgment.calculation?.figure : null;
+    expect(figure, JSON.stringify(current.result)).toMatchObject({
+      shown: case_.compact,
+      show: { decimals: case_.decimals },
+      value: 310_000_000,
+      engine: 1,
+    });
+    if (!figure) throw new Error("No calculated receipt");
+    for (const stored of [
+      figure,
+      { ...figure, shown: case_.padded, show: { ...figure.show, decimals: null } },
+    ]) {
+      const saved = {
+        ...target("f1", stored.shown, claim, case_.language),
+        calculated: { id: "f1", figure: stored, analysisId: null },
+      };
+      const again = await checkWith({
+        language: case_.language,
+        claim,
+        figures: [saved],
+        body: case_.body,
+        text: reply([{ ...item(), source: null }]),
+      });
+      expect(again.result.figures?.[0]?.result).toMatchObject({
+        verdict: "supported",
+        calculation: { figure: { shown: stored.shown, show: stored.show, engine: 1 } },
+      });
+      expect(
+        again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
+      ).toBe(false);
+      const tampered = {
+        ...saved,
+        calculated: {
+          ...saved.calculated,
+          figure: { ...stored, shown: stored.shown.replace("310", "311").replace("3.1", "3.2") },
+        },
+      };
+      const invalid = await checkWith({
+        language: case_.language,
+        claim,
+        figures: [tampered],
+        body: case_.body,
+        text: reply([{ ...item(), source: null }]),
+      });
+      expect(invalid.result.figures?.[0]?.result).toMatchObject({
+        verdict: "not-checked",
+        reason: "no-evidence",
+      });
+    }
+  },
+);
 
 test("a saved calculation's verdict and evidence both come from working it out again, whatever source the model names", async () => {
   const body = "📊 Revenue was £20. Another figure was £999.";

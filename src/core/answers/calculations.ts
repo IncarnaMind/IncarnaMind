@@ -959,6 +959,35 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     }
     if (!shown.ok) return { problems: [`${lead}: ${shown.message}`] };
 
+    const [displayed, ...extra] = readFigures(shown.shown, { language });
+    if (
+      displayed &&
+      extra.length === 0 &&
+      displayed.ambiguous.length === 0 &&
+      result.scales.length > 0 &&
+      result.scales.every((scale) => displayed.scale > 10 ** scale.exponent)
+    ) {
+      const fraction = displayed.chars.match(/\.(\d+)/)?.[1];
+      const decimals = fraction?.replace(/0+$/, "").length;
+      if (decimals !== undefined && decimals < displayed.decimals) {
+        const compactShow = { ...show, decimals };
+        const compact = showResult(result, compactShow);
+        const [number, ...rest] = compact.ok ? readFigures(compact.shown, { language }) : [];
+        if (
+          compact.ok &&
+          number &&
+          rest.length === 0 &&
+          number.ambiguous.length === 0 &&
+          Object.is(number.value, displayed.value) &&
+          number.scale === displayed.scale &&
+          JSON.stringify(number.unit) === JSON.stringify(displayed.unit)
+        ) {
+          show = compactShow;
+          shown = compact;
+        }
+      }
+    }
+
     const figure: CalculatedFigure = {
       label: given.label,
       formula: given.formula,
