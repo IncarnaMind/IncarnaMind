@@ -1,3 +1,4 @@
+import type { ClaimFacetPeriod } from "../core/api";
 import type { Language } from "../core/language";
 
 /** An ISO 8601 string, a Date, or milliseconds since 1970. */
@@ -46,6 +47,34 @@ export function usesTwelveHour(locale?: string): boolean {
 }
 
 const toDate = (moment: Moment): Date => (moment instanceof Date ? moment : new Date(moment));
+
+export function readCalendarDate(value: unknown): Date | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? date : null;
+}
+
+export function readClaimFacetPeriod(value: unknown): ClaimFacetPeriod | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  if (Object.keys(value).some((key) => !["start", "end", "precision"].includes(key))) return null;
+  if (!("start" in value) || !("end" in value) || !("precision" in value)) return null;
+  const start = readCalendarDate(value.start);
+  const end = readCalendarDate(value.end);
+  if (!start || !end || start > end) return null;
+  const { precision } = value;
+  if (
+    precision !== "day" &&
+    precision !== "month" &&
+    precision !== "quarter" &&
+    precision !== "year"
+  )
+    return null;
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    precision,
+  };
+}
 
 function calendarOf(date: Date, timeZone: string | undefined): string {
   return formatterFor("en-GB", {
@@ -133,6 +162,26 @@ export function formatMonth(moment: Moment, language: Language, options: DateOpt
 /** "2026", "2026年": a date known to the year. */
 export function formatYear(moment: Moment, language: Language, options: DateOptions = {}): string {
   return format(moment, language, options, { year: "numeric" });
+}
+
+export function formatClaimFacetPeriod(
+  period: ClaimFacetPeriod,
+  language: Language,
+  options: DateOptions = {},
+): string {
+  const found = readClaimFacetPeriod(period);
+  if (!found) return "";
+  const calendar = { ...options, timeZone: "UTC" };
+  const { start, end, precision } = found;
+  if (precision === "year" && start.endsWith("-01-01") && end.endsWith("-12-31")) {
+    const from = formatYear(start, language, calendar);
+    const to = formatYear(end, language, calendar);
+    return from === to ? from : `${from}–${to}`;
+  }
+  const show = precision === "month" || precision === "quarter" ? formatMonth : formatDate;
+  const from = show(start, language, calendar);
+  const to = show(end, language, calendar);
+  return from === to ? from : `${from}–${to}`;
 }
 
 /** "15:20", or "3:20 pm" ("下午3:20") when the system asks for a 12-hour clock. */

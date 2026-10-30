@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
+import type { ClaimFacetPeriod } from "../../src/core/api";
 import {
   type DateOptions,
+  formatClaimFacetPeriod,
   formatDate,
   formatDateTime,
   formatDay,
@@ -10,6 +12,8 @@ import {
   formatTime,
   formatWeekdayDate,
   formatYear,
+  readCalendarDate,
+  readClaimFacetPeriod,
   usesTwelveHour,
 } from "../../src/shared/dates";
 
@@ -22,6 +26,89 @@ import {
 const AT = "2026-10-12T15:20:00Z";
 const NOW = new Date("2026-10-13T09:00:00Z");
 const UTC: DateOptions = { timeZone: "UTC", now: NOW, twelveHour: false };
+
+describe("stated facet periods", () => {
+  test.each([
+    { start: "2024-02-29", end: "2024-02-29", precision: "day" },
+    { start: "2026-03-01", end: "2026-03-31", precision: "month" },
+    { start: "2026-01-01", end: "2026-03-31", precision: "quarter" },
+    { start: "2025-01-01", end: "2025-12-31", precision: "year" },
+    { start: "2024-07-01", end: "2025-06-30", precision: "year" },
+  ])("decodes exact calendar boundaries without rewriting $start / $end", (period) => {
+    expect(readClaimFacetPeriod(period)).toEqual(period);
+    expect(readClaimFacetPeriod(period)).not.toBe(period);
+  });
+
+  test.each(
+    [
+      null,
+      [],
+      "2026",
+      {},
+      { start: "2026-03-01", precision: "month" },
+      { start: "2026-03-01", end: "2026-03-31" },
+      { start: "2026-03-01", end: "2026-03-31", precision: "week" },
+      { start: "2026-3-01", end: "2026-03-31", precision: "month" },
+      { start: "2026-02-29", end: "2026-03-31", precision: "day" },
+      { start: "2026-03-31", end: "2026-03-01", precision: "day" },
+      { start: "2026-03-01T00:00:00Z", end: "2026-03-31", precision: "month" },
+      { start: 2026, end: "2026-03-31", precision: "month" },
+      { start: "2026-03-01", end: "2026-13-01", precision: "month" },
+      { start: "2026-03-01", end: "2026-03-31", precision: "month", fileDate: "2026-03-31" },
+    ].map((period) => ({ period })),
+  )("rejects invalid supplied period $period", ({ period }) => {
+    expect(readClaimFacetPeriod(period)).toBeNull();
+  });
+
+  test("calendar dates require an exact ISO day and reject Date normalization", () => {
+    expect(readCalendarDate("2024-02-29")?.toISOString()).toBe("2024-02-29T00:00:00.000Z");
+    for (const invalid of ["2025-02-29", "2026-04-31", "2026-1-01", "2026-01-01Z", null, 0])
+      expect(readCalendarDate(invalid)).toBeNull();
+  });
+
+  const displays: { period: ClaimFacetPeriod; en: string; zh: string }[] = [
+    {
+      period: { start: "2026-03-02", end: "2026-03-02", precision: "day" },
+      en: "2 Mar 2026",
+      zh: "2026年3月2日",
+    },
+    {
+      period: { start: "2026-03-01", end: "2026-03-31", precision: "month" },
+      en: "March 2026",
+      zh: "2026年3月",
+    },
+    {
+      period: { start: "2026-01-01", end: "2026-03-31", precision: "quarter" },
+      en: "January 2026–March 2026",
+      zh: "2026年1月–2026年3月",
+    },
+    {
+      period: { start: "2025-01-01", end: "2025-12-31", precision: "year" },
+      en: "2025",
+      zh: "2025年",
+    },
+    {
+      period: { start: "2024-07-01", end: "2025-06-30", precision: "year" },
+      en: "1 Jul 2024–30 Jun 2025",
+      zh: "2024年7月1日–2025年6月30日",
+    },
+  ];
+  test.each(displays)(
+    "renders $period in both languages without a host-zone date shift",
+    ({ period, en, zh }) => {
+      const options = { ...UTC, timeZone: "America/Los_Angeles" };
+      expect(formatClaimFacetPeriod(period, "en", options)).toBe(en);
+      expect(formatClaimFacetPeriod(period, "zh-CN", options)).toBe(zh);
+      expect(formatClaimFacetPeriod(period, "en")).toBe(en);
+    },
+  );
+
+  test("invalid period output is empty rather than an invented display", () => {
+    const invalid: ClaimFacetPeriod = { start: "2026-02-30", end: "2026-03-01", precision: "day" };
+    expect(formatClaimFacetPeriod(invalid, "en", UTC)).toBe("");
+    expect(formatClaimFacetPeriod(invalid, "zh-CN", UTC)).toBe("");
+  });
+});
 
 describe("the table", () => {
   test("Day, Date, Date and time and Time in English", () => {

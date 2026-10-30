@@ -13,7 +13,7 @@
  * has them, so each claim is a sentence of the Mind.
  */
 
-import { readPartPlans } from "../../../shared/claimParts";
+import { readClaimFacet, readPartPlans } from "../../../shared/claimParts";
 import type { ClaimPartPlan, DocumentText } from "../../api";
 
 /** A paragraph of the document, and the page it is on. */
@@ -107,6 +107,8 @@ export const PART_RULES = [
   "Keep each fact's subject, negation, scope, comparison, certainty and qualification. Keep a causal assertion together with the events and causal link; two separate true events do not establish the cause. Keep conditions with their outcomes, and all/every/always/most, consecutive periods and superlative comparison domains with the assertion they qualify. Do not split these into simpler statements that lose their relationship.",
   'For "Costs rose, so profit fell" or "成本上涨，因此利润下降", keep the causal assertion and both events together as one factual part. Do not return "therefore", "因此", or a pronoun-only cause clause as a separate fact detached from the events it relates. Independent facts without an asserted relationship remain separate parts.',
   "Use the smallest exact original substring that states each part, preserving its original language. Separate independent factual clauses, retaining their literal pronouns; the checker also receives the whole original sentence as context. Connector words and punctuation between parts need not form parts.",
+  'A named Document or speaker attribution, or a relative-time qualifier, has its own factual part with facet:{"kind":"source"}, {"kind":"speaker"} or {"kind":"time"}. Copy only its literal words, such as "According to the annual report", "Zhang said" or "currently"; judge it in the complete original assertion, never as a standalone fragment. Keep an already explicit historical date with its ordinary fact. Do not provide a chosen Document id or a period in this planning line.',
+  'For "Rates are currently 5%", return [{"kind":"fact","text":"currently","facet":{"kind":"time"}},{"kind":"fact","text":"5%"}]. Grammar between these targets stays in their original context. Never overlap facet and ordinary targets, repeat a shared source prefix, or rewrite separated words into a new fragment.',
 ];
 
 const SORT_PARTS = [
@@ -214,12 +216,21 @@ function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[
   let from = 0;
   for (const part of value) {
     if (typeof part !== "object" || part === null) return null;
-    const { kind, text } = part as Record<string, unknown>;
+    const { kind, text, facet: givenFacet } = part as Record<string, unknown>;
     if ((kind !== "fact" && kind !== "opinion") || typeof text !== "string" || text.trim() === "")
       return null;
     const at = sentence.indexOf(text, from);
     if (at < 0) return null;
-    plans.push({ kind, span: { start: at, end: at + text.length } });
+    const facet = givenFacet === undefined ? undefined : readClaimFacet(givenFacet);
+    if (
+      facet === null ||
+      (facet !== undefined &&
+        (kind !== "fact" ||
+          (facet.kind === "source" && facet.selectedDocumentId !== undefined) ||
+          (facet.kind === "time" && facet.period !== undefined)))
+    )
+      return null;
+    plans.push({ kind, span: { start: at, end: at + text.length }, ...(facet && { facet }) });
     from = at + text.length;
   }
   return readPartPlans(withLeftWords(sentence, plans), sentence);
@@ -292,7 +303,7 @@ const saysSomething = (text: string) =>
  * punctuation between parts stay between them.
  */
 function withLeftWords(sentence: string, plans: readonly ClaimPartPlan[]): ClaimPartPlan[] {
-  const parts = plans.map(({ kind, span }) => ({ kind, span: { ...span } }));
+  const parts = plans.map((plan) => ({ ...plan, span: { ...plan.span } }));
   for (let index = 0; index <= parts.length; index++) {
     const before = parts[index - 1];
     const after = parts[index];
@@ -302,9 +313,12 @@ function withLeftWords(sentence: string, plans: readonly ClaimPartPlan[]): Claim
     const left = sentence.slice(start, end);
     if (!saysSomething(left)) continue;
     const tail = /[\p{L}\p{N}](?=[^\p{L}\p{N}]*$)/u.exec(left);
-    const joinsBefore = before?.kind === "fact" || (before !== undefined && after?.kind !== "fact");
+    const joinsBefore =
+      before !== undefined &&
+      !before.facet &&
+      (before.kind === "fact" || after?.kind !== "fact" || after.facet !== undefined);
     if (joinsBefore && before) before.span.end = start + (tail ? tail.index + tail[0].length : 0);
-    else if (after) after.span.start = start + left.search(/[\p{L}\p{N}]/u);
+    else if (after && !after.facet) after.span.start = start + left.search(/[\p{L}\p{N}]/u);
   }
   return parts;
 }

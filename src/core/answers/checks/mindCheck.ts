@@ -29,7 +29,7 @@ import {
   claimCheckShown,
   restsOn,
 } from "../../../shared/claimChecks";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { readPartPlans, withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -574,7 +574,7 @@ export function createMindCheck(options: MindCheckOptions) {
         const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
         const parts =
           sorted.get(mindId)?.get(sentence.text) ??
-          previousParts?.map(({ span, kind }) => ({ span, kind }));
+          (previousParts ? (readPartPlans(previousParts, sentence.text) ?? undefined) : undefined);
         const within = scopeFor(claim);
         const mark: ClaimCheckAttributes = {
           id: randomUUID(),

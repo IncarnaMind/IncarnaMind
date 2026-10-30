@@ -27,7 +27,7 @@ describe("Plain factual assertion request protocol", () => {
       const searched = call.results.find((result) => result.tool === "search_documents");
       if (!searched) {
         return {
-          text: `Parts: ${JSON.stringify([{ fact: row.claim }])}`,
+          text: `Parts: ${JSON.stringify([{ kind: "fact", text: row.claim }])}`,
           calls: [{ tool: "search_documents", input: { query: row.claim } }],
         };
       }
@@ -71,6 +71,7 @@ describe("Plain factual assertion request protocol", () => {
       verdict: "supported",
       evidence: { documentId: document.id, quote: row.quote, check: "found" },
       versions: [{ documentId: document.id, contentHash: document.contentHash }],
+      parts: [{ kind: "fact", span: { start: 0, end: row.claim.length }, verdict: "supported" }],
     });
     const streams = model.doStreamCalls.length - streamedBefore;
     const generates = model.doGenerateCalls.length - generatedBefore;

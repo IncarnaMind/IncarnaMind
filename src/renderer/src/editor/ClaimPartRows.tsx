@@ -13,6 +13,7 @@ import type {
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
+import { formatClaimFacetPeriod } from "../../../shared/dates";
 import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -246,6 +247,8 @@ function PartRow({
   part,
   onCheck,
   onUseWording,
+  onChooseSource,
+  onChangePeriod,
   onOpen,
   working,
   lookedIn,
@@ -261,6 +264,8 @@ function PartRow({
   part: ClaimCheckPart;
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
+  onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   lookedIn: string;
   checking: boolean;
@@ -270,6 +275,7 @@ function PartRow({
   citations?: PartCitations;
 }) {
   const t = useT();
+  const language = useLanguage();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
   );
@@ -283,6 +289,32 @@ function PartRow({
       : undefined;
   const heldAt = held ? citationLocation(held) : null;
   const state = stale ? "needs-recheck" : part.verdict;
+  const literal = text.slice(part.span.start, part.span.end);
+  const label =
+    part.facet?.kind === "time"
+      ? t("claim.time.when", { time: literal })
+      : part.facet
+        ? literal
+        : (words ?? literal);
+  const period =
+    part.facet?.kind === "time" && part.facet.period
+      ? formatClaimFacetPeriod(part.facet.period, language)
+      : "";
+  const receipt = part.evidence[part.decidingEvidence ?? 0];
+  const document = receipt ? shownDocumentName(receipt, documents) : null;
+  const asOf =
+    !stale && !checking && part.verdict === "supported" && period && document
+      ? t("claim.time.supported", { period, document })
+      : null;
+  const chooseSource =
+    !stale &&
+    !checking &&
+    part.facet?.kind === "source" &&
+    (part.verdict === "unsupported" ||
+      (part.verdict === "supported" && part.facet.selectedDocumentId !== undefined)) &&
+    onChooseSource;
+  const changePeriod =
+    !stale && !checking && part.verdict === "unsupported" && period && onChangePeriod;
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
   const reason =
@@ -309,11 +341,12 @@ function PartRow({
       className={`claim-part citation-card--${stale ? "checking" : part.verdict === "supported" ? "found" : part.verdict === "contradicted" ? "contradicted" : part.verdict === "unsupported" ? "unsupported" : "cant-check"}`}
       data-testid="claim-part"
       data-kind={part.kind}
+      data-facet={part.facet?.kind}
       tabIndex={-1}
       data-verdict={state ?? "opinion"}
       {...menu.rowProps}
     >
-      <p className="claim-part-words">{words ?? text.slice(part.span.start, part.span.end)}</p>
+      <p className="claim-part-words">{label}</p>
       <p className="claim-part-result">
         {state !== null && <ClaimMarkIcon state={state} className="citation-badge-icon" />}
         <span>
@@ -334,9 +367,9 @@ function PartRow({
           </button>
         )}
       </p>
-      {reason && (
+      {(reason || asOf) && (
         <p className="citation-card-note" data-testid="claim-part-reason">
-          {reason}
+          {reason ?? asOf}
         </p>
       )}
       {part.citedCaseUnchecked && part.verdict === "unsupported" && (
@@ -381,6 +414,26 @@ function PartRow({
       ))}
       {part.calculation && working?.(part.calculation)}
       {citations && <PartCiting citing={citing} citations={citations} onOpen={onOpen} />}
+      {chooseSource && (
+        <button
+          type="button"
+          data-testid="claim-part-choose-source"
+          className="citation-card-action"
+          onClick={(event) => chooseSource(part, event.currentTarget)}
+        >
+          {t("claim.source.choose")}
+        </button>
+      )}
+      {changePeriod && (
+        <button
+          type="button"
+          data-testid="claim-part-change-period"
+          className="citation-card-action"
+          onClick={() => changePeriod(part)}
+        >
+          {t("claim.time.changeTo", { period })}
+        </button>
+      )}
       {wording && (
         <button
           type="button"
@@ -425,6 +478,8 @@ export function ClaimPartRows({
   parts,
   onCheck,
   onUseWording,
+  onChooseSource,
+  onChangePeriod,
   onOpen,
   working,
   scope,
@@ -438,6 +493,8 @@ export function ClaimPartRows({
   parts: readonly ClaimCheckPart[];
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
+  onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   scope?: ClaimCheckScope;
   checking?: boolean;
@@ -522,6 +579,8 @@ export function ClaimPartRows({
             part={part}
             onCheck={onCheck}
             onUseWording={onUseWording}
+            onChooseSource={onChooseSource}
+            onChangePeriod={onChangePeriod}
             onOpen={onOpen}
             working={working}
             lookedIn={lookedIn}

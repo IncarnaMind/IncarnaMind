@@ -744,10 +744,11 @@ export function createEdits(options: EditsOptions) {
     mindId: string,
     from: TextPlace,
     to: TextPlace,
+    action: EditAction,
   ): { ok: true; draft: Draft } | Extract<ReadResult, { ok: false }> {
     const base = content.state(mindId);
     const fork = docOf(base);
-    const read = readSelection(fork.getXmlFragment(MIND_CONTENT_FIELD), from, to);
+    const read = readSelection(fork.getXmlFragment(MIND_CONTENT_FIELD), from, to, action);
     if (!read.ok) {
       fork.destroy();
       return read;
@@ -756,7 +757,7 @@ export function createEdits(options: EditsOptions) {
   }
 
   async function edit(input: ParsedInput, signal: AbortSignal): Promise<EditWithAiResult> {
-    const read = readForEdit(input.mindId, input.from, input.to);
+    const read = readForEdit(input.mindId, input.from, input.to, input.action);
     if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
     const { draft } = read;
     try {
@@ -789,7 +790,7 @@ export function createEdits(options: EditsOptions) {
       const region = takeBack(fork, blocks, input.proposalId);
       if (!region) return { kind: "changed" };
       const { from, to } = region;
-      const read = readSelection(blocks, from, to);
+      const read = readSelection(blocks, from, to, made.action);
       if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
       /** The change goes: there is no change to make now. */
       const withdraw = () => {
@@ -843,7 +844,7 @@ export function createEdits(options: EditsOptions) {
             offset: layout(end.element).reduce((sum, child) => sum + child.size, 0),
           }
         : input.to;
-      const read = readSelection(blocks, input.from, to);
+      const read = readSelection(blocks, input.from, to, askOf(input).action);
       const bounds = boundsOf(blocks, own);
       if (!read.ok || !bounds) return nothing({ kind: "changed" });
       const { selection } = read;
@@ -966,7 +967,7 @@ export function createEdits(options: EditsOptions) {
         reason: null,
         revised: null,
       });
-      const read = readForEdit(input.mindId, input.from, input.to);
+      const read = readForEdit(input.mindId, input.from, input.to, askOf(input).action);
       if (!read.ok) {
         if (read.reason !== "has-proposals") return nothing({ kind: "changed" });
         const waiting = content.read(input.mindId, (mind) =>

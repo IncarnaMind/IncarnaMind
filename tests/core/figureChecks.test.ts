@@ -274,6 +274,7 @@ async function checkWith(options: {
   };
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
+    now: () => new Date("2026-10-29T12:00:00.000Z"),
     language: () => "en",
     walledDocument: () => null,
     walledFolderName: () => null,
@@ -297,6 +298,7 @@ async function checkWith(options: {
       },
     },
     documents: {
+      names: () => [{ id: source.documentId, name: source.documentName, contentHash: source.contentHash }],
       searchableCount: () => 1,
       searchableLanguages: () => [],
       searchableBySize: () => [{ id: source.documentId, name: source.documentName }],

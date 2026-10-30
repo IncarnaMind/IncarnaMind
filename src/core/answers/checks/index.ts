@@ -32,7 +32,9 @@ import {
   checkWithParts,
   partWithResult,
   pendingPart,
+  readPartPlans,
   resultFromParts,
+  sameClaimPart,
 } from "../../../shared/claimParts";
 import {
   beginFigureCheck,
@@ -464,12 +466,7 @@ function partsKeptInside(
 ): ClaimCheckPart[] | null {
   let kept = false;
   const next = parts.map((part) => {
-    const prior = before.find(
-      (each) =>
-        each.kind === part.kind &&
-        each.span.start === part.span.start &&
-        each.span.end === part.span.end,
-    );
+    const prior = before.find((each) => sameClaimPart(each, part));
     if (
       !prior ||
       prior.verdict === null ||
@@ -794,7 +791,7 @@ export function createChecks(options: ChecksOptions) {
           owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
         const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
         const previous = owner?.parts ?? prior?.parts;
-        const plans = previous?.map(({ span, kind }) => ({ span, kind }));
+        const plans = previous ? (readPartPlans(previous, sentence.text) ?? undefined) : undefined;
         const parts =
           owner?.parts.map(
             (part): ClaimCheckPart =>

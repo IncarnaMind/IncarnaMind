@@ -5,6 +5,7 @@ import type {
   ClaimCheckAttributes,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimFacet,
   ClaimPartPlan,
   FigureCheckResult,
 } from "../../src/core/api";
@@ -13,8 +14,10 @@ import {
   checkWithParts,
   coverageCount,
   figuresByPart,
+  keepCheckAsView,
   partWithResult,
   pendingPart,
+  readClaimFacet,
   readClaimParts,
   readPartPlans,
   resultFromParts,
@@ -79,6 +82,162 @@ const mark = (parts?: ClaimCheckPart[]): ClaimCheckAttributes => ({
   excluded: [],
   checkedAt: "2026-10-28T00:00:00.000Z",
   ...(parts && { parts }),
+});
+
+describe("claim facet storage", () => {
+  const chosen = "18a74318-d908-4f5c-8fca-1dcaeafdf250";
+  const facets: ClaimFacet[] = [
+    { kind: "source" },
+    { kind: "source", selectedDocumentId: chosen },
+    { kind: "speaker" },
+    { kind: "time" },
+    {
+      kind: "time",
+      period: { start: "2024-07-01", end: "2025-06-30", precision: "year" },
+    },
+  ];
+
+  test.each(["According to Report, revenue rose.", "据报告，收入增长。"])(
+    "the raw plan and persisted part retain a chosen source: %s",
+    (sentence) => {
+      const facet: ClaimFacet = {
+        kind: "source",
+        selectedDocumentId: "18a74318-d908-4f5c-8fca-1dcaeafdf250",
+      };
+      const expected: ClaimPartPlan = {
+        kind: "fact",
+        span: { start: 0, end: sentence.length },
+        facet,
+      };
+      expect(readPartPlans([expected], sentence)).toEqual([expected]);
+      const stored = { ...part(), ...expected };
+      expect(readClaimParts(JSON.parse(JSON.stringify([stored])), sentence)).toEqual([stored]);
+    },
+  );
+
+  test.each(["Rates are currently 5%.", "利率目前为5%。"])(
+    "a malformed persisted time facet never becomes an ordinary Supported fact: %s",
+    (sentence) => {
+      const stored = {
+        ...part(),
+        span: { start: 0, end: sentence.length },
+        facet: {
+          kind: "time",
+          period: { start: "2026-02-30", end: "2026-03-01", precision: "day" },
+        },
+      };
+      expect(readClaimParts([stored], sentence)).toBeNull();
+      expect(readClaimCheck({ ...mark(), text: sentence, parts: [stored] })).toMatchObject({
+        state: "not-checked",
+        reason: "malformed",
+      });
+    },
+  );
+
+  test.each(facets)("factories and the canonical writer retain %j", (facet) => {
+    const offered: ClaimPartPlan = { ...plan, facet };
+    expect(readClaimFacet(facet)).toEqual(facet);
+    expect(readPartPlans([offered], "Revenue rose.")).toEqual([offered]);
+    const pending = pendingPart(offered);
+    expect(pending.facet).toEqual(facet);
+    expect(pending.facet).not.toBe(facet);
+    if (facet.kind === "time" && pending.facet?.kind === "time" && facet.period)
+      expect(pending.facet.period).not.toBe(facet.period);
+    expect(pending.span).not.toBe(offered.span);
+    const checked = partWithResult(offered, result("unsupported"));
+    const written = checkWithParts(mark(), [checked]);
+    expect(written.parts?.[0]?.facet).toEqual(facet);
+    expect(readClaimCheck(JSON.parse(JSON.stringify(written)))).toEqual(written);
+    expect(checkWithParts(written, written.parts ?? [])).toEqual(written);
+    const kept = keepCheckAsView(written);
+    expect(kept.parts?.[0]).toMatchObject({ facet, kept: true });
+    expect(readClaimCheck(JSON.parse(JSON.stringify(kept)))).toEqual(kept);
+    if (facet.kind === "source") expect(restsOn(written)).toEqual([]);
+  });
+
+  test.each(
+    [
+      null,
+      [],
+      "source",
+      {},
+      { kind: "other" },
+      { kind: "source", selectedDocumentId: "document" },
+      { kind: "source", selectedDocumentId: null },
+      { kind: "source", selectedDocumentId: chosen.replaceAll("-", "") },
+      { kind: "source", period: { start: "2025-01-01", end: "2025-12-31", precision: "year" } },
+      { kind: "speaker", selectedDocumentId: chosen },
+      { kind: "time", selectedDocumentId: chosen },
+      { kind: "time", period: null },
+      { kind: "time", period: { start: "2026-03-01", end: "2026-02-01", precision: "month" } },
+      { kind: "time", period: { start: "2026-01-01", end: "2026-12-31", precision: "week" } },
+    ].map((facet) => ({ facet })),
+  )("rejects malformed or cross-kind facet metadata $facet", ({ facet }) => {
+    expect(readClaimFacet(facet)).toBeNull();
+    expect(readPartPlans([{ ...plan, facet }], "Revenue rose.")).toBeNull();
+    expect(readClaimParts([{ ...part(), facet }], "Revenue rose.")).toBeNull();
+    expect(readClaimCheck({ ...mark(), parts: [{ ...part(), facet }] })).toMatchObject({
+      state: "not-checked",
+      reason: "malformed",
+    });
+  });
+
+  test("opinion facets fail closed even when passed to a result factory", () => {
+    const offered: ClaimPartPlan = { ...plan, kind: "opinion", facet: { kind: "speaker" } };
+    expect(readPartPlans([offered], "Revenue rose.")).toBeNull();
+    expect(pendingPart(offered)).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+    expect(partWithResult(offered, result())).toMatchObject({
+      verdict: "not-checked",
+      reason: "malformed",
+    });
+  });
+
+  test("a facet cannot use the nested native-fact exception to overlap an opinion", () => {
+    expect(
+      readPartPlans(
+        [
+          { kind: "opinion", span: { start: 0, end: 12 } },
+          { kind: "fact", span: { start: 3, end: 8 }, facet: { kind: "speaker" } },
+        ],
+        "Revenue rose.",
+      ),
+    ).toBeNull();
+  });
+
+  test("a rejected choice cannot become a Supported ordinary fact through the factory", () => {
+    expect(
+      partWithResult({ ...plan, facet: { kind: "source", selectedDocumentId: "bad" } }, result()),
+    ).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+    expect(
+      resultFromParts([{ ...part(), facet: { kind: "source", selectedDocumentId: "bad" } }]),
+    ).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+  });
+
+  test("a crossing native occurrence cannot erase a literal facet", () => {
+    const sentence = "Report10 revenue rose.";
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: 7 }, facet: { kind: "source" } },
+      { kind: "fact", span: { start: 7, end: sentence.length } },
+    ];
+    const reading = readFigures("10", { language: "en" })[0];
+    if (!reading) throw new Error("Missing fixture reading");
+    const figure: CheckFigure = {
+      id: "native-ten",
+      reading,
+      calculated: null,
+      locator: {
+        kind: "text",
+        from: { blockId: "block", offset: 6 },
+        to: { blockId: "block", offset: 8 },
+      },
+    };
+    const projection = projectInlineText([
+      { kind: "text", text: sentence, from: 0, to: sentence.length },
+    ]);
+    const retained = withFigureFacts(sentence, plans, [figure], projection);
+    expect(retained).toEqual(plans);
+    expect(figuresByPart(sentence, retained, [figure], projection)).toBeNull();
+  });
 });
 
 describe("ordered claim part codec", () => {
@@ -908,6 +1067,54 @@ describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。
       pendingPart(omitted),
     ];
     const owner = (parts = checked()) => checkWithParts({ ...mark(), text: sentence }, parts);
+
+    test("a no-evidence source facet survives native projection, Keep and reload", () => {
+      const prefix = sentence.startsWith("Revenue") ? "According to Report, " : "据报告，";
+      const text = prefix + sentence;
+      const facetPlan: ClaimPartPlan = {
+        kind: "fact",
+        span: { start: 0, end: prefix.length },
+        facet: { kind: "source", selectedDocumentId: "18a74318-d908-4f5c-8fca-1dcaeafdf250" },
+      };
+      const shifted = plans.map((plan) => ({
+        ...plan,
+        span: { start: plan.span.start + prefix.length, end: plan.span.end + prefix.length },
+      }));
+      const figures = [a, b].map((figure) => {
+        if (figure.locator.kind !== "text") throw new Error("Missing text fixture locator");
+        return {
+          ...figure,
+          locator: {
+            ...figure.locator,
+            from: { ...figure.locator.from, offset: figure.locator.from.offset + prefix.length },
+            to: { ...figure.locator.to, offset: figure.locator.to.offset + prefix.length },
+          },
+        };
+      });
+      const mapped = projectInlineText([{ kind: "text", text, from: 0, to: text.length }]);
+      expect(
+        figuresByPart(text, [facetPlan, ...shifted], figures, mapped)?.map((row) =>
+          row.map(({ id }) => id),
+        ),
+      ).toEqual([[], ["first"], ["second"], []]);
+      const rows = [
+        partWithResult(facetPlan, result("unsupported")),
+        ...checked().map((part) => ({
+          ...part,
+          span: { start: part.span.start + prefix.length, end: part.span.end + prefix.length },
+          ...(part.figures && {
+            figures: figures.filter((figure) => part.figures?.some(({ id }) => figure.id === id)),
+          }),
+        })),
+      ];
+      const written = checkWithParts({ ...mark(), text }, rows);
+      expect(written.parts?.[0]).toMatchObject({ facet: facetPlan.facet, evidence: [] });
+      expect(written.figures?.map(({ id }) => id)).toEqual(["first", "second"]);
+      expect(readClaimCheck(JSON.parse(JSON.stringify(written)))).toEqual(written);
+      const kept = keepCheckAsView(written);
+      expect(kept.parts?.[0]).toMatchObject({ facet: facetPlan.facet, evidence: [] });
+      expect(readClaimCheck(JSON.parse(JSON.stringify(kept)))).toEqual(kept);
+    });
 
     test("partitions repeated values by exact occurrence and round trips canonical native results", () => {
       expect(

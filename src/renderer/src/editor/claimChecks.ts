@@ -287,6 +287,7 @@ export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes
       check.parts.some(
         (part) =>
           part.kind === "opinion" ||
+          part.facet ||
           part.coverage ||
           part.evidence.length > 1 ||
           part.unsupported?.kind,

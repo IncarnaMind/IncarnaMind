@@ -12,6 +12,7 @@ import type {
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimCheckScope,
+  ClaimFacet,
   ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartFigure,
@@ -26,6 +27,7 @@ import type {
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { readClaimFacetPeriod } from "./dates";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
@@ -190,6 +192,43 @@ function boundary(text: string, at: number): boolean {
   return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff);
 }
 
+export function readClaimFacet(value: unknown): ClaimFacet | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "source") {
+    if (Object.keys(value).some((key) => key !== "kind" && key !== "selectedDocumentId"))
+      return null;
+    const id = value.selectedDocumentId;
+    if (id === undefined) return { kind: "source" };
+    if (
+      typeof id !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    )
+      return null;
+    return { kind: "source", selectedDocumentId: id };
+  }
+  if (value.kind === "speaker") return Object.keys(value).length === 1 ? { kind: "speaker" } : null;
+  if (value.kind === "time") {
+    if (Object.keys(value).some((key) => key !== "kind" && key !== "period")) return null;
+    if (value.period === undefined) return { kind: "time" };
+    const period = readClaimFacetPeriod(value.period);
+    return period ? { kind: "time", period } : null;
+  }
+  return null;
+}
+
+export function sameClaimPart(a: ClaimPartPlan, b: ClaimPartPlan): boolean {
+  if (
+    a.kind !== b.kind ||
+    a.span.start !== b.span.start ||
+    a.span.end !== b.span.end ||
+    a.facet?.kind !== b.facet?.kind
+  )
+    return false;
+  if (a.facet?.kind === "source" && b.facet?.kind === "source")
+    return a.facet.selectedDocumentId === b.facet.selectedDocumentId;
+  return true;
+}
+
 /**
  * The parts of `sentence`, in order and apart, but for a fact inside the opinion before it: a
  * number the writer's view surrounds (`withFigureFacts`). Null when they aren't parts of it.
@@ -215,15 +254,18 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
     )
       return null;
     if (each.kind !== "fact" && each.kind !== "opinion") return null;
+    const facet = each.facet === undefined ? undefined : readClaimFacet(each.facet);
+    if (facet === null || (facet !== undefined && each.kind !== "fact")) return null;
     const nested =
       start < end &&
       each.kind === "fact" &&
+      facet === undefined &&
       opinion !== null &&
       start >= inner &&
       to <= opinion.end &&
       to - start < opinion.end - opinion.start;
     if (start < end && !nested) return null;
-    parts.push({ span: { start, end: to }, kind: each.kind });
+    parts.push({ span: { start, end: to }, kind: each.kind, ...(facet && { facet }) });
     if (nested) {
       inner = to;
       continue;
@@ -314,6 +356,7 @@ export function withFigureFacts(
     const touched = parts.filter((part) => overlaps(part.span, span));
     if (touched.some((part) => part.kind === "fact" && within(span, part.span))) continue;
     const facts = touched.filter((part) => part.kind === "fact");
+    if (facts.some((part) => part.facet !== undefined)) return plans;
     const fact: ClaimPartPlan = {
       kind: "fact",
       span: {
@@ -585,15 +628,18 @@ export function readClaimParts(
 }
 
 export function pendingPart(plan: ClaimPartPlan): ClaimCheckPart {
+  const facet = plan.facet === undefined ? undefined : readClaimFacet(plan.facet);
+  const malformed = facet === null || (facet !== undefined && plan.kind !== "fact");
   return {
     span: { ...plan.span },
     kind: plan.kind,
-    verdict: plan.kind === "fact" ? "checking" : null,
+    ...(!malformed && facet && { facet }),
+    verdict: malformed ? "not-checked" : plan.kind === "fact" ? "checking" : null,
     evidence: [],
     says: null,
     unsupported: null,
     calculation: null,
-    reason: null,
+    reason: malformed ? "malformed" : null,
     detail: null,
     versions: [],
     excluded: [],
@@ -608,6 +654,8 @@ export function partWithResult(
   evidence?: readonly CitationAttributes[],
   coverage?: ClaimPartCoverage,
 ): ClaimCheckPart {
+  const part = pendingPart(plan);
+  if (part.reason === "malformed") return part;
   if (result.figures?.length) {
     const aggregate = aggregateFigureResults(result.figures, result.remainder);
     result = {
@@ -633,7 +681,7 @@ export function partWithResult(
     ...(evidence ?? []),
     ...(result.figures
       ? partCitations({
-          ...pendingPart(plan),
+          ...part,
           figures: result.figures,
           ...(result.remainder !== undefined && { remainder: result.remainder }),
         })
@@ -661,7 +709,7 @@ export function partWithResult(
   }
   const kept = [...receipt.values()];
   return {
-    ...pendingPart(plan),
+    ...part,
     verdict: result.verdict,
     ...(result.kept && { kept: true }),
     ...(result.figures && { figures: result.figures }),
@@ -803,6 +851,8 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
         },
       }),
     };
+    if (part.facet !== undefined && (part.kind !== "fact" || readClaimFacet(part.facet) === null))
+      return { part: notCheckedPart(canonical, "malformed"), evidence: [] };
     if (
       part.decidingEvidence !== undefined &&
       part.decidingEvidence !== null &&

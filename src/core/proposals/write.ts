@@ -31,6 +31,8 @@
  */
 import * as Y from "yjs";
 import { INLINE_CODE_MARK } from "../../shared/aiText";
+import { partCitations } from "../../shared/claimParts";
+import { inlineRange } from "../../shared/inlineText";
 import { looksLikeTable, rowCells, type TableAlign, tableStart } from "../../shared/markdownTables";
 import { citesSource, linkSources, type NamedSource } from "../../shared/namedSources";
 import {
@@ -44,12 +46,14 @@ import {
 } from "../../shared/proposals";
 import { citationElementId } from "../../shared/signOffs";
 import { createElement, formattingOf, type NodeJSON } from "../answers/blocks";
+import { checkedSentences, citationSentences, sentenceOf } from "../answers/checks/sentences";
 import { emphasisOf, escapeEmphasis, type Look, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockKind,
   CHART_NODE,
   CITATION_NODE,
+  type EditAction,
   FOOTNOTE_NODE,
   GENERATED_MARK,
   type LeftOutPart,
@@ -309,7 +313,12 @@ const keyOf = {
  * isn't in the Mind (it changed), the text holds Proposals still waiting, or
  * an Answer being written holds it.
  */
-export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): ReadResult {
+export function readSelection(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  action?: EditAction,
+): ReadResult {
   const all = textBlocks(blocks);
   const first = all.findIndex(
     ({ element }) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === from.blockId,
@@ -322,6 +331,22 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   if (chosen.some((each) => each.busy)) return { ok: false, reason: "busy" };
   if (chosen.some(({ element }) => inProposal(element)))
     return { ok: false, reason: "has-proposals" };
+
+  const receipts =
+    action === "follow-citation" || action === "cut-unsupported" ? citationSentences(blocks) : null;
+  const owners = receipts ? checkedSentences(blocks) : [];
+  const inlineIds = new Set(
+    chosen.flatMap(({ element }, index) =>
+      layout(element).flatMap(({ node, start }) =>
+        node instanceof Y.XmlElement &&
+        node.nodeName === CITATION_NODE &&
+        start >= (index === 0 ? from.offset : 0) &&
+        start < (index === chosen.length - 1 ? to.offset : sizeOf(element))
+          ? [node.getAttribute(BLOCK_ID_ATTRIBUTE) ?? citationElementId(node)]
+          : [],
+      ),
+    ),
+  );
 
   const citations: Attributes[] = [];
   const citedElements: Y.XmlElement[] = [];
@@ -374,7 +399,53 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       .map((token) => token.text ?? token.shown ?? "")
       .join("")
       .trim();
-    const modelText = withEmphasis(tokens).trim();
+    const markers = new Map<number, string>();
+    for (const owner of owners) {
+      if (owner.element !== element || !owner.partsComplete) continue;
+      const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+      if (typeof blockId !== "string") continue;
+      const current = sentenceOf(element, blockId, owner, new Map());
+      if (current.text !== owner.check.text || !current.projection) continue;
+      for (const part of owner.check.parts ?? []) {
+        const range = inlineRange(current.projection, part.span.start, part.span.end);
+        if (!range || range.from < start || range.to > end) continue;
+        for (const receipt of partCitations(part)) {
+          const id = "id" in receipt ? receipt.id : null;
+          if (typeof id !== "string") continue;
+          const entry = receipts?.get(id);
+          if (
+            !entry ||
+            entry.element !== element ||
+            inlineIds.has(id) ||
+            citations.some((citation) => citation[BLOCK_ID_ATTRIBUTE] === id)
+          )
+            continue;
+          citations.push({ ...entry.citation, [BLOCK_ID_ATTRIBUTE]: id });
+          markers.set(range.to, `${markers.get(range.to) ?? ""} [${citations.length}]`);
+        }
+      }
+    }
+    const modelTokens = tokens.flatMap<Pick<OldToken, "text" | "shown" | "attributes">>((token) => {
+      const ends = [...markers.keys()]
+        .filter((at) => token.from < at && at <= token.to)
+        .sort((a, b) => a - b);
+      if (ends.length === 0) return [token];
+      const pieces: Pick<OldToken, "text" | "shown" | "attributes">[] = [];
+      let at = token.from;
+      for (const end of ends) {
+        pieces.push(
+          token.text === undefined
+            ? token
+            : { ...token, text: token.text.slice(at - token.from, end - token.from) },
+          { shown: markers.get(end) },
+        );
+        at = end;
+      }
+      if (token.text !== undefined && at < token.to)
+        pieces.push({ ...token, text: token.text.slice(at - token.from) });
+      return pieces;
+    });
+    const modelText = withEmphasis(modelTokens).trim();
     const kind = start === 0 ? kindOf(element) : "paragraph";
     segments.push({
       element,
@@ -1043,8 +1114,8 @@ function settleCitedIds(selection: Selection, blocks: Y.XmlFragment, newId: () =
         written.set(cites, [...(written.get(cites) ?? []), node]);
     }
   }
-  for (const [index, original] of selection.citedElements.entries()) {
-    const id = selection.citations[index]?.[BLOCK_ID_ATTRIBUTE];
+  for (const original of selection.citedElements) {
+    const id = original.getAttribute(BLOCK_ID_ATTRIBUTE) ?? citationElementId(original);
     if (typeof id !== "string") continue;
     const moved = takenOut(original);
     for (const [at, copy] of (written.get(id) ?? []).entries()) {

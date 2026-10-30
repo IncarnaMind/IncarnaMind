@@ -5,7 +5,13 @@
  * one sentence on what the Document says, carrying the marker.
  */
 import type { Reading } from "../../../shared/figures";
-import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
+import type {
+  CheckFigure,
+  CitationSupport,
+  ClaimPartPlan,
+  ClaimVerdict,
+  UnsupportedReason,
+} from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
@@ -135,6 +141,12 @@ const PARTS_FIRST = [
   "",
 ];
 
+const FACET_REPLY = [
+  'For each factual facet in Parts, append one Facets: JSON line: {"items":[{"text":"its exact literal words","kind":"source","sourceName":"the named title copied from those words","occurrence":1,"verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"evidence":[1]}]}. Include every requested facet once, including unsupported ones, using its one-based occurrence in the full original assertion. Only a source row has sourceName; speaker/time rows omit it. Ordinary Verdict/Figures results judge the governing factual assertion; these facet results separately judge its attribution or time in that same original context, using quotes recorded in this Run. Do not run another check or invent a Citation.',
+  "A source facet checks the named Document, never merely the same fact in another Document. A speaker facet checks the named person and their words; an anonymous speaker label establishes no named person. Wrong or ambiguous attribution is unsupported, not contradicted. Keep an explicitly reversed surrounding context with the original factual judgment.",
+  'For time facets additionally give time:"present", "this-year", "last-year" or "explicit", according to the original words, and period:{"start":"YYYY-MM-DD","end":"YYYY-MM-DD","precision":"day|month|quarter|year"} only when that facet\'s own checked quote states it. Bounds are inclusive calendar dates. Never use a file date or another row\'s period. Missing stated period is unsupported. A present-time statement needs a begun period still open or ended within twelve calendar months of the Check date, with no newer scoped Document giving another value. Search for an applicable newer statement in the same Run and cite it; do not assume absence without looking. This/last year means the Check calendar year/previous year, and a fiscal year counts as the year it ends.',
+].join("\n");
+
 /**
  * The instructions of a check Run, for a way of citing; `passages`: what the
  * one search found, for a model without Tools; `calculate`: the model is
@@ -148,11 +160,13 @@ export function checkInstructions(
   calculate = false,
   figures = false,
   findsParts = false,
+  facets = false,
 ): string {
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
     reply(language, mode === "tools" && calculate && !figures) +
-    (figures ? `\n\n${FIGURE_INSTRUCTIONS}` : "");
+    (figures ? `\n\n${FIGURE_INSTRUCTIONS}` : "") +
+    (facets || findsParts ? `\n\n${FACET_REPLY}` : "");
   switch (mode) {
     case "tools":
       return [
@@ -198,16 +212,57 @@ export function checkInstructions(
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
+  originalClaim?: string;
+  parts?: readonly ClaimPartPlan[];
+  sourceDocuments?: readonly { id: string; name: string }[];
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
   /** The Passages those Citations quote, as the search Tool shows Passages. */
   citedShown?: string | null;
   language: Language;
   figures?: readonly CheckFigure[];
+  checkedAt?: string;
 }): string {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
+  const original = input.originalClaim ?? input.claim;
+  const facets = (input.parts ?? []).flatMap((part) => {
+    if (!part.facet) return [];
+    const text = original.slice(part.span.start, part.span.end);
+    if (text === "") return [];
+    let occurrence = 0;
+    let from = 0;
+    for (;;) {
+      const at = original.indexOf(text, from);
+      if (at < 0 || at > part.span.start) break;
+      occurrence++;
+      from = at + 1;
+    }
+    const selectedDocumentId =
+      part.facet.kind === "source" ? part.facet.selectedDocumentId : undefined;
+    const selected = input.sourceDocuments?.find((document) => document.id === selectedDocumentId);
+    return [
+      {
+        text,
+        kind: part.facet.kind,
+        occurrence,
+        ...(selected && { document: selected.id, documentName: selected.name }),
+      },
+    ];
+  });
   return [
+    ...(input.checkedAt ? [`Check date (UTC): ${input.checkedAt}`, ""] : []),
+    ...(original !== input.claim
+      ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
+      : []),
+    ...(facets.length > 0
+      ? [
+          "Judge these exact facet targets in that complete assertion, in this same Run:",
+          JSON.stringify(facets),
+          "A source target's document token is the User's chosen Document. Use that exact token as search_documents' document when present; never substitute another same-name Document.",
+          "",
+        ]
+      : []),
     ...(context && context !== input.claim.trim()
       ? [
           "The paragraph it is in, for what its words refer to:",
@@ -480,6 +535,7 @@ const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
 const FIELDS = [
   PARTS_LINE,
+  /^Facets:/i,
   COVERED,
   NOT_COVERED,
   SCOPE,

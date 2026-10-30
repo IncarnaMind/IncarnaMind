@@ -133,6 +133,8 @@ export function ClaimMark({
   style,
   reveal,
   onRevealed,
+  onChooseSource,
+  onChangePeriod,
 }: {
   claim: ShownClaim;
   editor: Editor;
@@ -142,6 +144,8 @@ export function ClaimMark({
   style: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
+  onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangePeriod?(part: ClaimCheckPart): void;
 }) {
   const t = useT();
   const state = claim.shown.state;
@@ -373,6 +377,15 @@ export function ClaimMark({
                 applyDocumentWording(editor, claim, part);
                 done(true);
               }}
+              onChooseSource={onChooseSource}
+              onChangePeriod={
+                onChangePeriod
+                  ? (part) => {
+                      onChangePeriod(part);
+                      done(true);
+                    }
+                  : undefined
+              }
               onCheckPart={(span) => {
                 const opinion = opinionChecks(editor, doc).find(
                   (each) =>
@@ -543,6 +556,8 @@ function ClaimCard({
   onCheckAgain,
   onCheckPart,
   onUseWording,
+  onChooseSource,
+  onChangePeriod,
   onOpen,
   onFix,
   onFindSources,
@@ -575,6 +590,8 @@ function ClaimCard({
   onCheckAgain(allDocuments?: boolean): void;
   onCheckPart(span: ClaimPartSpan): void;
   onUseWording(part: ClaimCheckPart): void;
+  onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   onFix(): void;
   onFindSources(): void;
@@ -730,6 +747,8 @@ function ClaimCard({
             checking={checking}
             onCheck={onCheckPart}
             onUseWording={onUseWording}
+            onChooseSource={onChooseSource}
+            onChangePeriod={onChangePeriod}
             scope={check.scope}
             citations={partCitations}
             onOpen={onOpen}

@@ -4,6 +4,7 @@ import {
   pendingPart,
   readPartPlans,
   resultFromParts,
+  sameClaimPart,
   withFigureFacts,
 } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
@@ -101,7 +102,9 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       plans = [full];
     const limit = request.slots ?? slots(claimsAtOnce(request.model));
     const withFigures = (found: readonly ClaimPartPlan[]) =>
-      withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
+      found.length > 0 && found.every((plan) => plan.facet)
+        ? found
+        : withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
         claimsAmong(request.model, [request.claim], "own", request.signal),
@@ -123,11 +126,112 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
     const isSentence = ({ start, end }: ClaimPartSpan) =>
       /^[\s\p{P}]*$/u.test(request.claim.slice(0, start) + request.claim.slice(end));
     const whole = (found: readonly ClaimPartPlan[]): ClaimPartPlan | null => {
-      const [only, ...more] = found;
+      const [only, ...more] = found.filter((part) => part.facet === undefined);
       if (more.length > 0) return null;
-      if (!only) return opinionsChecked ? { ...full, kind: "opinion" } : null;
+      if (!only) return found.length === 0 && opinionsChecked ? { ...full, kind: "opinion" } : null;
       if (only.kind === "opinion" && !opinionsChecked) return null;
+      if (only.kind === "fact" && found.some((part) => part.facet !== undefined)) return only;
       return isSentence(only.span) ? only : null;
+    };
+    const unavailable = (
+      plan: ClaimPartPlan,
+      result: AtomicClaimCheckResult,
+      reason: ClaimCheckFailure = "malformed",
+    ) =>
+      partWithResult(plan, {
+        verdict: "not-checked",
+        reason: result.verdict === "not-checked" ? result.reason : reason,
+        detail: result.verdict === "not-checked" ? result.detail : null,
+        versions: result.versions,
+        excluded: result.excluded,
+      });
+    const facetResult = (
+      plan: ClaimPartPlan,
+      result: AtomicClaimCheckResult,
+      figures: readonly CheckFigure[] = [],
+      previous?: ClaimCheckPart,
+    ): ClaimCheckPart => {
+      const found = result.facetParts?.find(
+        (part) =>
+          part.kind === plan.kind &&
+          sameSpan(part.span, plan.span) &&
+          part.facet?.kind === plan.facet?.kind,
+      );
+      if (result.verdict === "not-checked") return unavailable(found ?? plan, result);
+      const semantic = found ?? unavailable(plan, result);
+      const native = result.figures?.filter((figure) =>
+        figures.some((own) => own.id === figure.id),
+      );
+      if (!native?.length) return semantic;
+      const judgment = resultFromParts([semantic]);
+      return checkedPart(
+        semantic,
+        { ...judgment, figures: native, remainder: judgment },
+        previous,
+        figures,
+        request.figureIds,
+      );
+    };
+    const remainderInFacet = (result: AtomicClaimCheckResult, found: readonly ClaimPartPlan[]) => {
+      const text = result.remainderText;
+      if (!text) return false;
+      const start = request.claim.indexOf(text);
+      return (
+        start >= 0 &&
+        request.claim.indexOf(text, start + 1) < 0 &&
+        found.some(
+          (plan) => plan.facet && plan.span.start <= start && plan.span.end >= start + text.length,
+        )
+      );
+    };
+    const ordinaryResult = (
+      result: AtomicClaimCheckResult,
+      figures: readonly CheckFigure[],
+      found: readonly ClaimPartPlan[],
+    ): AtomicClaimCheckResult => {
+      if (!result.figures || !found.some((plan) => plan.facet)) return result;
+      if (result.verdict === "not-checked")
+        return {
+          verdict: result.verdict,
+          reason: result.reason,
+          detail: result.detail,
+          versions: result.versions,
+          excluded: result.excluded,
+        };
+      const native = result.figures.filter((figure) => figures.some((own) => own.id === figure.id));
+      const remainder = remainderInFacet(result, found) ? null : result.remainder;
+      if (native.length > 0) return { ...result, figures: native, remainder };
+      return (
+        remainder ?? {
+          verdict: "not-checked",
+          reason: "unread",
+          detail: null,
+          versions: result.versions,
+          excluded: result.excluded,
+        }
+      );
+    };
+    const family = (
+      found: readonly ClaimPartPlan[],
+      primary: ClaimPartPlan,
+      result: AtomicClaimCheckResult,
+    ) => {
+      const rows = found.length === 0 ? [primary] : found;
+      const owned = figuresByPart(request.claim, rows, request.figures ?? [], request.projection);
+      if (!owned) return failed("malformed");
+      return resultFromParts(
+        rows.map((plan, index) =>
+          plan.facet
+            ? facetResult(plan, result, owned[index])
+            : checkedPart(
+                plan,
+                ordinaryResult(result, owned[index] ?? [], rows),
+                undefined,
+                owned[index] ?? [],
+                undefined,
+              ),
+        ),
+      );
     };
     if (
       plans === undefined &&
@@ -151,6 +255,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
             if (named?.length === 0) return;
             heard.plans = named && withFigures(named);
             if (heard.plans && whole(heard.plans) === null) run.abort();
+            return heard.plans;
           },
         }),
       );
@@ -163,10 +268,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         found = sorted.plans;
       }
       const plan = whole(found);
-      if (plan && !run.signal.aborted)
-        return resultFromParts([
-          partWithResult(plan, result, result.checkedEvidence, result.coverage),
-        ]);
+      if (plan && !run.signal.aborted) return family(found, plan, result);
       plans = found;
     }
     if (plans === undefined) {
@@ -175,35 +277,80 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       plans = sorted.plans;
     }
     if (plans.length === 0 && opinionsChecked) plans = [{ ...full, kind: "opinion" }];
-    plans = withFigures(plans);
+    plans = withFigures(
+      plans.map((plan) => {
+        if (plan.facet?.kind !== "source" || plan.facet.selectedDocumentId !== undefined)
+          return plan;
+        const previous = request.previous?.find(
+          (part) =>
+            part.kind === plan.kind &&
+            sameSpan(part.span, plan.span) &&
+            part.facet?.kind === "source",
+        );
+        return previous?.facet?.kind === "source" && previous.facet.selectedDocumentId !== undefined
+          ? {
+              ...plan,
+              facet: { ...plan.facet, selectedDocumentId: previous.facet.selectedDocumentId },
+            }
+          : plan;
+      }),
+    );
+    if (plans.length > 0 && plans.every((plan) => plan.facet)) {
+      const offered = plans;
+      const previous =
+        request.previous?.filter(
+          (part) => !offered.some((plan) => sameSpan(plan.span, part.span)),
+        ) ?? [];
+      const restored = previous.some((part) => !part.facet)
+        ? readPartPlans(
+            [...plans, ...previous].sort((a, b) => a.span.start - b.span.start),
+            request.claim,
+          )
+        : null;
+      if (!restored) {
+        const failure = failed("malformed");
+        return resultFromParts(plans.map((plan) => unavailable(plan, failure)));
+      }
+      plans = restored;
+    }
+    const planned = plans;
+    const primary = whole(planned);
+    if (
+      primary &&
+      planned.some((plan) => plan.facet !== undefined) &&
+      request.only === undefined &&
+      request.figureIds === undefined
+    ) {
+      const result = await limit.run(() => atomic({ ...request, parts: plans }));
+      return family(planned, primary, result);
+    }
     // What the User didn't ask about leaves its opinions out, as Check this Note does.
-    if (request.opinionsLeftOut && !plans.some((part) => part.kind === "fact"))
+    if (request.opinionsLeftOut && !planned.some((part) => part.kind === "fact"))
       return {
         verdict: "not-checked",
         reason: "empty",
         detail: null,
         versions: [],
         excluded: [],
-        parts: plans.map(pendingPart),
+        parts: planned.map(pendingPart),
       };
-    const forcedOpinion = opinionsChecked && plans.every((part) => part.kind === "opinion");
-    if (request.only && !plans.some((part) => sameSpan(part.span, request.only ?? full.span)))
+    const forcedOpinion = opinionsChecked && planned.every((part) => part.kind === "opinion");
+    if (request.only && !planned.some((part) => sameSpan(part.span, request.only ?? full.span)))
       return failed("malformed");
-    const owned = figuresByPart(request.claim, plans, request.figures ?? [], request.projection);
+    const owned = figuresByPart(request.claim, planned, request.figures ?? [], request.projection);
     if (!owned) return failed("malformed");
     if (request.figureIds?.some((id) => !request.figures?.some((figure) => figure.id === id)))
       return failed("malformed");
     const parts: (ClaimCheckPart | null)[] = [];
+    const facets: { index: number; plan: ClaimPartPlan }[] = [];
     const checks: {
       index: number;
       plan: ClaimPartPlan;
       figures: CheckFigure[];
       previous: ClaimCheckPart | undefined;
     }[] = [];
-    for (const [index, plan] of plans.entries()) {
-      const previous = request.previous?.find(
-        (part) => part.kind === plan.kind && sameSpan(part.span, plan.span),
-      );
+    for (const [index, plan] of planned.entries()) {
+      const previous = request.previous?.find((part) => sameClaimPart(part, plan));
       const allFigures = owned[index] ?? [];
       const figures = request.figureIds
         ? allFigures.filter((figure) => request.figureIds?.includes(figure.id))
@@ -239,33 +386,75 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         continue;
       }
       parts.push(null);
-      checks.push({ index, plan, figures, previous });
+      if (plan.facet) facets.push({ index, plan });
+      else checks.push({ index, plan, figures, previous });
     }
     // Parts are checked at once, within the run's limit; a failure that stops the run leaves the
     // parts not started yet not checked, for its reason.
+    if (checks.length === 0 && facets.length > 0)
+      checks.push({ index: -1, plan: full, figures: [], previous: undefined });
+    const first = checks[0];
+    const writeFacets = (result: AtomicClaimCheckResult) => {
+      for (const { index, plan } of facets)
+        parts[index] = facetResult(
+          plan,
+          result,
+          owned[index],
+          request.previous?.find((part) => sameClaimPart(part, plan)),
+        );
+    };
     let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
     await Promise.all(
       checks.map(({ index, plan, figures, previous }) =>
         limit.run(async () => {
           if (request.signal.aborted) stopped ??= { reason: "stopped", detail: null };
           if (stopped) {
-            parts[index] = partWithResult(plan, {
+            const result: ClaimCheckResult = {
               verdict: "not-checked",
               ...stopped,
               versions: [],
               excluded: [],
-            });
+            };
+            if (index >= 0) parts[index] = partWithResult(plan, result);
+            if (index === first?.index) writeFacets(result);
             return;
           }
+          const requestedFigures =
+            index === first?.index
+              ? [
+                  ...figures,
+                  ...facets.flatMap((facet) =>
+                    (owned[facet.index] ?? []).filter(
+                      (figure) => !request.figureIds || request.figureIds.includes(figure.id),
+                    ),
+                  ),
+                ]
+              : figures;
           const result = await atomic({
             ...request,
-            claim: request.claim.slice(plan.span.start, plan.span.end),
-            figures: figures.length ? figures : undefined,
+            claim: index < 0 ? request.claim : request.claim.slice(plan.span.start, plan.span.end),
+            parts:
+              index === first?.index
+                ? planned.filter(
+                    (part) =>
+                      sameClaimPart(part, plan) || facets.some((facet) => facet.plan === part),
+                  )
+                : [plan],
+            findParts: undefined,
+            figures: requestedFigures.length ? requestedFigures : undefined,
             projection: undefined,
             originalClaim: request.originalClaim ?? request.claim,
             context: [request.context, request.claim].filter(Boolean).join("\n\n"),
           });
-          parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
+          if (index >= 0)
+            parts[index] = checkedPart(
+              plan,
+              ordinaryResult(result, owned[index] ?? [], planned),
+              previous,
+              owned[index] ?? [],
+              request.figureIds,
+            );
+          if (index === first?.index) writeFacets(result);
           if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {
             stopped ??= { reason: result.reason, detail: result.detail };
           }

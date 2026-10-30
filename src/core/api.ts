@@ -5615,9 +5615,22 @@ export interface ClaimPartSpan {
   end: number;
 }
 
+/** Inclusive ISO 8601 calendar dates stated by the part's checked evidence. */
+export interface ClaimFacetPeriod {
+  start: string;
+  end: string;
+  precision: "day" | "month" | "quarter" | "year";
+}
+
+export type ClaimFacet =
+  | { kind: "source"; selectedDocumentId?: string }
+  | { kind: "speaker" }
+  | { kind: "time"; period?: ClaimFacetPeriod };
+
 export interface ClaimPartPlan {
   span: ClaimPartSpan;
   kind: "fact" | "opinion";
+  facet?: ClaimFacet;
 }
 
 export interface ClaimPartCoverageMember {
