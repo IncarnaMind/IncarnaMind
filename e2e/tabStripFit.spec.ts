@@ -125,14 +125,15 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         const seen = fade / 2 - slack;
         if (partLeft && text !== undefined && text.right - view.left >= seen) nameBefore = true;
         if (partRight && text !== undefined && view.right - text.left >= seen) nameAfter = true;
-        if (partLeft && text) {
-          needBefore = Math.max(fade, box.right - text.right + seen);
+        // The room a readable piece of the hidden tab's name needs: the fade's width at least,
+        // and the tab's own chrome before the name (#2244).
+        if ((partLeft || outLeft) && text) {
+          needBefore = Math.max(needBefore, fade, box.right - text.right + seen);
         } else if (partLeft || outLeft) {
-          // A hidden tab's name needs the fade's width at least to read (#2244).
           needBefore = Math.max(needBefore, fade);
         }
-        if (partRight && text) {
-          needAfter = Math.max(fade, text.left - box.left + seen);
+        if ((partRight || outRight) && text) {
+          needAfter = Math.max(needAfter, fade, text.left - box.left + seen);
         } else if (partRight || outRight) {
           needAfter = Math.max(needAfter, fade);
         }
@@ -347,6 +348,10 @@ type Fit = NonNullable<Awaited<ReturnType<typeof fitOf>>>;
 function wrongStep(fit: Fit): string[] {
   const problems: string[] = [];
   const at = `${fit.tabs} tabs in ${fit.group} px, step ${fit.step ?? "none"}`;
+  // Under 420px a group keeps Split in its ⋯ menu and Export to its icon whatever the step.
+  const wide = fit.group >= 420;
+  if (!wide && fit.label) problems.push(`${at}: a narrow group shows Export's label`);
+  if (!wide && fit.split) problems.push(`${at}: a narrow group shows Split`);
   // A strip narrowed to its one shown tab hides none: the tab gives way and the narrow group's
   // own rule keeps the buttons to their icons. Nothing is hidden, so there is nothing to list.
   if (fit.squeezed && fit.hidden === 0) {
@@ -354,8 +359,6 @@ function wrongStep(fit: Fit): string[] {
     if (fit.all !== null) problems.push(`${at}: Show all tabs shows with nothing hidden`);
     return problems;
   }
-  // Under 420px a group keeps Split in its ⋯ menu and Export to its icon anyway.
-  const wide = fit.group >= 420;
   if (fit.step === null) {
     if (fit.hidden > 0) problems.push(`${at}: ${fit.hidden} tab(s) hidden with no step`);
     if (wide && !fit.label) problems.push(`${at}: Export's label left while the tabs fit`);
@@ -891,20 +894,27 @@ for (const language of LANGUAGES) {
       for (const name of names) {
         const tab = list.getByRole("tab", { name, exact: true });
         await tab.scrollIntoViewIfNeeded();
-        // Once it has held its place for six frames, the strip has come to rest.
-        const whole = await tab.evaluate(async (element) => {
-          const view = () => (element.parentElement as HTMLElement).getBoundingClientRect();
-          let last = Math.round(element.getBoundingClientRect().left);
-          for (let still = 0; still < 6; ) {
-            await new Promise((next) => requestAnimationFrame(next));
-            const now = Math.round(element.getBoundingClientRect().left);
-            still = now === last ? still + 1 : 0;
-            last = now;
-          }
-          const at = element.getBoundingClientRect();
-          return at.left >= view().left - 1 && at.right <= view().right + 1;
-        });
-        expect(whole, `"${name}" at ${width} px`).toBe(true);
+        // The strip comes to rest, then holds: its scroll and width stop changing for six frames,
+        // and the tab it brought into view is whole.
+        await expect
+          .poll(
+            () =>
+              tab.evaluate(async (element) => {
+                const strip = element.parentElement as HTMLElement;
+                let last = "";
+                for (let still = 0; still < 6; ) {
+                  await new Promise((next) => requestAnimationFrame(next));
+                  const now = `${Math.round(strip.scrollLeft)}|${Math.round(strip.getBoundingClientRect().width)}`;
+                  still = now === last ? still + 1 : 0;
+                  last = now;
+                }
+                const view = strip.getBoundingClientRect();
+                const at = element.getBoundingClientRect();
+                return at.left >= view.left - 1 && at.right <= view.right + 1;
+              }),
+            { message: `"${name}" at ${width} px` },
+          )
+          .toBe(true);
       }
     }
     await app.close();
