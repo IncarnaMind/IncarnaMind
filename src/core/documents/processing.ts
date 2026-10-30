@@ -20,7 +20,7 @@ import {
   readReference,
   webPageReference,
 } from "../referenceRecords/read";
-import { stripBoilerplate } from "./boilerplate";
+import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
 import { creationDate, pdfDate, w3cDate } from "./creationDate";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
@@ -57,9 +57,10 @@ import { unreadMessage } from "./unreadMessage";
  * 14: #1818 (PDF form fields are included in the pages' text). 15:
  * #2042 (a Document's name is in a keyword index of its own, not in each
  * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
- * beside CJK text or full-width punctuation is joined).
+ * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
+ * page ended itself, such as a heading, keeps its break).
  */
-export const PROCESSING_VERSION = 16;
+export const PROCESSING_VERSION = 17;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -77,10 +78,11 @@ export const PROCESSING_VERSION = 16;
  * Units as they were; version 14 only PDFs', whose pages include form fields.
  * Version 15 changed no Passage or Unit, only the keyword index (see
  * `NAME_INDEX_CURRENT_SINCE`). Version 16 only PDFs', whose wrapped CJK lines
- * are joined while other text and embeddings stay as they are.
+ * are joined while other text and embeddings stay as they are. Version 17 only
+ * PDFs', whose breaks the page ended itself (a heading's, say) stay.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 16,
+  pdf: 17,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -97,9 +99,10 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * version would build: since version 6, the index reads traditional
  * characters as simplified ones (see ./keywords). Such a Document processed
  * by an older version, and current for its kind, is processed again at
- * startup. One without Han characters has nothing to fold: its version is
- * set to this one without its file being read, so its text is looked
- * through only once.
+ * startup. One without Han characters has nothing to fold and is never
+ * queued by this rule: its version stays where its last read put it (see
+ * `record` in ./index), and each start looks through its name and text once
+ * to find out.
  */
 export const HAN_CURRENT_SINCE = 6;
 
@@ -564,14 +567,20 @@ async function processBytes(
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     // The running headers go while a page's lines are the ones extraction joined as they
     // always were; the wider join comes after, where it reaches the model.
-    const stripped = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    const starts: number[] = [];
+    const stripped =
+      kind === "pdf"
+        ? stripBoilerplate(extracted.units, BOILERPLATE_PARAMETERS, starts)
+        : extracted.units;
     // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
     // layout, and joining two of them would merge a table's rows (and move its anchors).
     const pages =
       kind === "pdf"
-        ? stripped.map((unit) =>
-            unit.label?.scan ? unit : { ...unit, text: joinCjkLineWraps(unit.text) },
-          )
+        ? stripped.map((unit, index) => {
+            if (unit.label?.scan) return unit;
+            const kept = unit.page === null ? undefined : extracted.keptBreaks?.get(unit.page);
+            return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
+          })
         : stripped;
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
@@ -603,3 +612,12 @@ async function processBytes(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** The page's kept newlines after the text before them was cut off: the ones cut away are gone. */
+function moved(
+  kept: ReadonlySet<number> | undefined,
+  cut: number,
+): ReadonlySet<number> | undefined {
+  if (kept === undefined || cut === 0) return kept;
+  return new Set([...kept].map((at) => at - cut).filter((at) => at >= 0));
+}

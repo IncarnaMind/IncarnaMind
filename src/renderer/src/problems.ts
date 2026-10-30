@@ -186,14 +186,3 @@ export function failedAnswerLine(
     problem: answerProblem(kind, provider, route !== null || !!signInRoute, where),
   };
 }
-
-/**
- * Why a file couldn't be written, in a few words, for "Couldn't save: …".
- * Null when the system's own words are all there is.
- */
-export function saveFailureReason(message: string): MessageKey | null {
-  if (/\b(EACCES|EPERM|EROFS)\b/.test(message)) return "export.failed.readOnly";
-  if (/\b(ENOSPC|EDQUOT)\b/.test(message)) return "export.failed.full";
-  if (/\bENOENT\b/.test(message)) return "export.failed.gone";
-  return null;
-}

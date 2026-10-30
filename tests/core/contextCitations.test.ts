@@ -26,6 +26,13 @@ describe("The Citations a Question context shows, by id (#1800)", () => {
     expect(ids.idOf({ quote: "No Document." })).toBeNull();
   });
 
+  test("a scope can leave an old Citation out of the ids a model may reuse", () => {
+    const ids = createContextCitations((documentId) => documentId === "d1");
+    expect(ids.idOf(cited)).toBe("C1");
+    expect(ids.idOf({ ...cited, documentId: "d2" })).toBeNull();
+    expect(ids.size()).toBe(1);
+  });
+
   // protects=an id this Answer issued is found as the model may write it (as read, full-width, round, alone), and nothing else: not an id it never issued, another case, words around it, or code; fails_when=an issued id stays in the text, or ordinary text is rewritten; no_claim=none beyond protects.
   test("only ids issued, in their issued form, are found as the model writes them", () => {
     const issued = (id: string) => ["C1", "C2", "C3", "C4", "C5", "C6", "C7"].includes(id);

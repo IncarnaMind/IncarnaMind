@@ -229,6 +229,9 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
     );
     expect(system).toMatch(/The User has added 1 Document /);
+    expect(system).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // Short: it is sent with every Question.
     expect(system.length).toBeLessThan(5000);
   });

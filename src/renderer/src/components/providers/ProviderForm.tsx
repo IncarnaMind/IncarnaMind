@@ -25,7 +25,6 @@ import type { Endpoint, Role } from "../../../../core/providers/catalog/types";
 import { serviceForUrl } from "../../../../core/providers/service";
 import { checkApiKey } from "../../../../shared/apiKey";
 import type { MessageKey } from "../../../../shared/i18n";
-import { gap } from "../../../../shared/i18n/join";
 import { modelName } from "../../../../shared/modelName";
 import { core } from "../../core";
 import { dayOf } from "../../dates";
@@ -49,6 +48,7 @@ import {
 import { KeyHelp } from "./KeyHelp";
 import { KeyCheckLine, useKeyCheck } from "./keyCheck";
 import { LocalServerLine, useLocalServer } from "./LocalServerLine";
+import { ProviderDataUseLine } from "./ProviderDataUseNotice";
 import { SendsLine } from "./SendsLine";
 import {
   defaultRegion,
@@ -905,28 +905,10 @@ export function KeyNotCheckedLine({ provider }: { provider: string }) {
  * Choosing it is the consent for all of that (ADR-0022).
  */
 export function ProviderSendsLine({ provider, dataUse }: { provider: string; dataUse?: DataUse }) {
-  const t = useT();
-  const language = useLanguage();
-  const words = language === "zh-CN" ? "zh" : "en";
-  const summary = dataUse && t("providers.form.dataUse", { summary: dataUse.summary[words] });
-  const link = `${t("providers.form.dataUseLink")} ↗`;
-  const href = (words === "zh" && dataUse?.zhUrl) || dataUse?.url;
   return (
     <div className="flex flex-col">
       <SendsLine provider={provider} />
-      {summary && (
-        <p data-testid="provider-data-use" className={`${hintClass} mt-0`}>
-          {summary}
-          {href && (
-            <>
-              {gap(language, summary, link)}
-              <a href={href} target="_blank" rel="noreferrer" className="underline">
-                {link}
-              </a>
-            </>
-          )}
-        </p>
-      )}
+      {dataUse && <ProviderDataUseLine dataUse={dataUse} />}
     </div>
   );
 }

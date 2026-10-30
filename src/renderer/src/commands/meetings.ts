@@ -96,6 +96,7 @@ const whileAudioKept = (ctx: CommandContext) => {
 export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.record",
+    recording: "starts",
     label: "meetings.record",
     keywords: ["meetings.record.keywords"],
     group: "main",
@@ -105,6 +106,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "memo.record",
+    recording: "starts",
     label: "memos.record",
     keywords: ["memos.record.keywords"],
     group: "main",
@@ -114,6 +116,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.pauseResume",
+    recording: "starts",
     label: (_ctx, t) =>
       t(liveMeeting()?.status === "paused" ? "meetings.command.resume" : "meetings.command.pause"),
     shortcut: { keys: "CmdOrCtrl+Shift+P" },
@@ -131,6 +134,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.microphone",
+    recording: "starts",
     label: (_ctx, t) =>
       t(liveMeeting()?.microphonePausedAtMs != null ? "meetings.mic.resume" : "meetings.mic.pause"),
     group: "main",
@@ -198,6 +202,7 @@ export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.stop",
     label: "meetings.command.stop",
+    recording: "ends",
     group: "main",
     // Nothing recorded is lost, but a stopped Meeting can't be picked up again.
     reversible: { confirm: "meetings.command.stopConfirm" },
@@ -227,6 +232,7 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.deleteAudio",
+    assistant: { never: "permanent" },
     label: "meetings.command.deleteAudio",
     group: "danger",
     destructive: true,

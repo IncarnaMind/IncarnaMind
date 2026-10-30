@@ -11,8 +11,13 @@ import {
   createChannelTextRecognizer,
   type TextRecognizerResponse,
 } from "../core/documents/scan/channel";
-import { startEngineProcess } from "./engineProcess";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import scanReaderProcessPath from "./scanReaderProcess?modulePath";
+
+export const TEXT_RECOGNITION_PROCESS: EngineProcess = {
+  modulePath: scanReaderProcessPath,
+  serviceName: "IncarnaMind text recognition",
+};
 
 export interface UtilityProcessTextRecognizerOptions {
   /**
@@ -29,7 +34,7 @@ export function createUtilityProcessTextRecognizer(
     ? ["--fake", ...(options.fake.script ? [options.fake.script] : [])]
     : [];
   return createChannelTextRecognizer(() => {
-    const child = startEngineProcess(scanReaderProcessPath, args, "IncarnaMind text recognition");
+    const child = startEngineProcess(TEXT_RECOGNITION_PROCESS, args);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>

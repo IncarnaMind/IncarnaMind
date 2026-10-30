@@ -28,9 +28,11 @@ import {
   startColumnEdit,
   stepColumn,
 } from "../comparisonColumns";
+import { comparisonCellsInTable } from "../comparisonSelection";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ResizeRod } from "../components/ResizeRod";
 import { useT } from "../i18n";
+import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 
 /** Where a heading dropped, among the columns the table shows: before that one, or after the last. */
 export type ColumnDrop = "before" | "after" | null;
@@ -285,6 +287,16 @@ export function ComparisonColumnHeading({
               label={t("comparison.column.more", { label })}
               tabIndex={-1}
               className="comparison-question-menu"
+              foot={
+                <ComparisonRefillEstimate
+                  handle={handle}
+                  mode="refill"
+                  scope="column"
+                  requested={comparisonCellsInTable(handle, false).filter(
+                    (cell) => cell.questionId === question.id,
+                  )}
+                />
+              }
             />
           )}
         </>

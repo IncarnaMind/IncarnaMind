@@ -57,6 +57,7 @@ async function exampleOverFakes() {
   const documents = new Map<string, Document[]>();
   const cited = new Map<string, string | null>();
   let language: Language = "en";
+  let listingFails = false;
   let shown: Examples | undefined;
   const reports: { folder: string; shownFolder: string | null | undefined }[] = [];
 
@@ -97,10 +98,12 @@ async function exampleOverFakes() {
     linkFolder: async (path) => {
       const id = randomUUID();
       folders.add(id);
-      documents.set(id, [
-        documentOf(id, "Northwind Retail · Q3 2026 results"),
-        documentOf(id, "Northwind Retail · Senior facilities agreement (excerpt)"),
-      ]);
+      // The names the ready Question cites, in the language just asked for.
+      const quotes = EXAMPLE_SETS.credit[language].ready?.quotes ?? [];
+      documents.set(
+        id,
+        quotes.map((quote) => documentOf(id, quote.document)),
+      );
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
@@ -120,7 +123,10 @@ async function exampleOverFakes() {
       throw new Error("not used");
     },
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
-    documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
+    documentsIn: (linkedFolderId) => {
+      if (listingFails) throw new Error("The folders couldn't be listed.");
+      return documents.get(linkedFolderId) ?? [];
+    },
     mindFolder: () => null,
     now: () => "2026-10-16T09:00:00.000Z",
     checksRelyOn: () => false,
@@ -137,6 +143,9 @@ async function exampleOverFakes() {
   return {
     examples,
     reports,
+    failListing: () => {
+      listingFails = true;
+    },
     cite: (documentIds: readonly string[], mindId: string | null = null) => {
       for (const id of documentIds) cited.set(id, mindId);
     },
@@ -171,13 +180,13 @@ test("an example whose Documents a Conversation Citation uses keeps its language
   cite(documents);
 
   await switchTo("zh-CN");
-  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
 
   // Once the Citation is gone, the next change of language swaps the example as usual.
   uncite();
   await switchTo("en");
   await switchTo("zh-CN");
-  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 });
 
 // protects=an untouched example is swapped while only its own Mind's Citations quote its Documents, and kept while a Citation in another Mind does; fails_when=the example's own Mind is not left out, so its Answer's Citations keep it from following the language, or a Citation in another Mind is not counted; no_claim=what the Citation's card shows.
@@ -190,10 +199,18 @@ test("an example's own Mind doesn't keep it from following the language, another
   cite(documents, mindId);
 
   await switchTo("zh-CN");
-  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
 
   uncite();
   cite(examples.documentsOf(mindId) ?? [], randomUUID());
   await switchTo("en");
-  expect(examples.exampleReady()).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+});
+
+// protects=a listing that fails ends in a reason, not in no Question at all; fails_when=readyState swallows the failure and reads as absent.
+test("a listing that fails says so rather than reading as no example", async () => {
+  const { examples, failListing } = await exampleOverFakes();
+  await examples.create();
+  failListing();
+  expect(() => examples.readyState()).toThrow("The folders couldn't be listed.");
 });

@@ -1000,6 +1000,11 @@ export interface CoreAdapters {
    */
   contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
   /**
+   * How long asking the example's ready Question waits for its Documents to be read before it
+   * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.
+   */
+  exampleReadyWaitMs?: number;
+  /**
    * The Connectors directory's entries, in its JSON form, in place of the
    * list that ships with the app; tests point an entry at a local stand-in.
    */

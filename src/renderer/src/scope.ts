@@ -8,7 +8,13 @@ import type {
   Tag,
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
-import { holdsText, SCOPE_KINDS, type ScopeKind, scopeIds } from "../../shared/searchScope";
+import {
+  folderScope,
+  holdsText,
+  SCOPE_KINDS,
+  type ScopeKind,
+  scopeIds,
+} from "../../shared/searchScope";
 import { buildFolderTree, flattenFolderTree } from "./folders";
 import { matchName, queryWords } from "./matcher";
 
@@ -44,6 +50,8 @@ export interface ScopeChoice {
   /** A Folder's parent Folders' names, outermost first: where it is. Empty otherwise. */
   path: string[];
   sourceLocation?: boolean;
+  /** The Folder wall this item belongs to, if any. */
+  walled?: string | null;
   /** A Document's kind, for its icon. */
   documentKind: DocumentKind | null;
 }
@@ -78,7 +86,10 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const liveIds = new Set(live.map((document) => document.id));
   for (const group of library.groups ?? []) {
     const filed = (library.assignments ?? []).filter(
-      (each) => each.groupId === group.id && liveIds.has(each.documentId),
+      (each) =>
+        each.groupId === group.id &&
+        liveIds.has(each.documentId) &&
+        (!group.keepInside || each.source === "user"),
     );
     counts.set(group.id, filed.length);
   }
@@ -112,6 +123,13 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
 /** Every Folder, Tag and Document, in the sidebar's order: Folders as a tree, depth first. */
 function everything(library: ScopeLibrary): ScopeChoice[] {
   const counts = scopeCounts(library);
+  const walls = new Map(
+    (library.groups ?? []).filter((group) => group.keepInside).map((group) => [group.id, group.id]),
+  );
+  const documentWall = (documentId: string) =>
+    (library.assignments ?? []).find(
+      (each) => each.documentId === documentId && walls.has(each.groupId ?? ""),
+    )?.groupId ?? null;
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
   const parents = new Map(library.folders.map((folder) => [folder.id, folder.parentId]));
   const pathOf = (folder: Folder) => {
@@ -134,6 +152,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         path: [],
         documentKind: null,
         count: counts.get(group.id) ?? 0,
+        walled: group.keepInside ? group.id : null,
       }),
     ),
     ...flattenFolderTree(buildFolderTree(library.folders)).map(
@@ -164,6 +183,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         name: document.name,
         path: [],
         documentKind: document.kind,
+        walled: documentWall(document.id),
       }),
     ),
   ];
@@ -248,3 +268,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
     }),
   ];
 }
+
+/** What the composer searches: its wall's Folder alone behind a wall (`useTurnWall`), else `otherwise`. */
+export const scopeWithin = (wall: string | null, otherwise: SearchScope): SearchScope =>
+  wall === null ? otherwise : folderScope(wall);

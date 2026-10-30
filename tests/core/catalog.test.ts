@@ -299,6 +299,10 @@ describe("The provider catalog", () => {
         ).toBe(true);
       }
     }
+    for (const model of LOCAL_MODELS) {
+      expect(model.name.trim(), model.tag).not.toBe("");
+      expect(model.name, model.tag).not.toBe(model.tag);
+    }
     // Only a model the evaluation measured counts as tested; the one-click model is one.
     expect(LOCAL_MODELS.filter((model) => model.evaluated).map((model) => model.tag)).toEqual([
       RECOMMENDED_OLLAMA_MODEL,
@@ -469,8 +473,8 @@ describe("The providers of #178", () => {
   });
 
   test("every provider's data-use line fits one line at 900px beside its link, states no price or plan, and a hosted provider links its own page", () => {
-    // The narrowest 900px screen is first run's key form, 524px wide, in 12px type: the line,
-    // "Data use ↗" and in Chinese "数据使用：" before it must fit in one line of it.
+    // The narrowest 900px screen is first run's key form, 524px wide, in 12px type: the line
+    // and its "Data use ↗" link must fit in one line of it.
     const MOST_ENGLISH_CHARACTERS = 90;
     const MOST_CHINESE_UNITS = 30;
     const wide = /[\u2e80-\u9fff\uff00-\uffef]/u;

@@ -738,11 +738,6 @@ const EN_SCALE_AFTER =
 
 const CURRENCY_ISO_CODES =
   "USD|CNY|RMB|Rmb|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR|KRW|NZD|MOP|BRL|RUB|SEK|NOK|DKK|ZAR|MXN|THB|MYR|IDR|PHP|VND|TRY|SAR|AED";
-const CURRENCY_TOKEN = new RegExp(
-  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|人民币|美元|港币|港元|欧元|日元|英镑)`,
-);
-/** Currency signs before a number, and codes and names before it, with a space allowed. */
-const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 const CURRENCY_CODES: Readonly<Record<string, string>> = {
   US$: "USD",
@@ -811,6 +806,17 @@ const CURRENCY_CODES: Readonly<Record<string, string>> = {
   "United States dollars": "USD",
   "Swiss francs": "CHF",
 };
+
+// Every Chinese name the table gives a currency, longest first: "新台币54,000元" is in TWD (#1452).
+const HAN_CURRENCIES = Object.keys(CURRENCY_CODES)
+  .filter((word) => /^\p{Script=Han}{2,}$/u.test(word))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+const CURRENCY_TOKEN = new RegExp(
+  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
+);
+/** Currency signs before a number, and codes and names before it, with a space allowed. */
+const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 // Contracts write "in Pounds Sterling" and "ALL AMOUNTS ARE IN US DOLLARS".
 const NAMED_CODES = new Map(
@@ -911,14 +917,14 @@ const CN_MEASURES =
   );
 /** Counting words: a figure's unit after a numeral of two characters or more ("十二家"), not after one. */
 const CN_COUNTS =
-  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋".split(
+  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋 单元 室 层 楼 章".split(
     " ",
   );
 const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
 const EN_UNIT_AFTER =
-  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F)(?![A-Za-z0-9])/y;
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 
 /** Written before a figure that is approximate or a bound; outside its characters. */
 const APPROXIMATE_BEFORE =
@@ -1005,15 +1011,15 @@ interface Statement extends Span {
   unit: FigureUnit;
 }
 
-const CN_UNIT_WORDS = "新加坡元|新台币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|元";
+const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
     "dg",
   ),
-  /币种[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)/dg,
+  new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
-    `[(（](?<before>人民币|RMB|美元|USD|港元|港币|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
+    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
     "dg",
   ),
   new RegExp(
@@ -1058,7 +1064,9 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       const groups = match.groups ?? {};
       const at = match.indices?.groups ?? {};
       const scale = groups.scale ?? null;
-      const words = groups.unit ?? groups.before ?? groups.cur ?? null;
+      // "单位：港币千元" is in Hong Kong dollars: 元 only names the yuan when nothing comes before it.
+      const generic = groups.unit !== undefined && /^[元圆]$/.test(groups.unit) && groups.before;
+      const words = (generic ? groups.before : groups.unit) ?? groups.before ?? groups.cur ?? null;
       let unit: FigureUnit = { kind: "plain" };
       if (match[0].includes("%") || /per ?cent/i.test(match[0])) unit = { kind: "percent" };
       else if (words) {
@@ -1456,6 +1464,34 @@ function lexChinese(s: string, start: number): Core | null {
   const point = run.indexOf("点");
   const span = { from: start, to: end };
   const capitals = CAPITALS.test(run);
+  const digit = CN_DIGITS[run[0] ?? ""];
+  const place = run[1] ?? "";
+  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
+  const halfEnds =
+    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
+  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
+    const halfSpan = { from: start, to: end + 1 };
+    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
+    if (exponent !== undefined) {
+      return core(
+        halfSpan,
+        { digits: `${digit}5`, point: 1 },
+        {
+          chinese: true,
+          capitals,
+          exponent,
+          scaleWord: place,
+          scaleAt: { from: end - 1, to: end },
+        },
+      );
+    }
+    const unit = CN_PLACES[place];
+    if (unit !== undefined && unit >= 100) {
+      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    }
+  }
   if (point >= 0) {
     const whole = cnInteger(run.slice(0, point));
     const after = run.slice(point + 1);
@@ -1715,6 +1751,34 @@ function readAround(
       draft.scaleWord = scale.word;
       draft.scaleAt = scale.at;
       draft.exponent = scaleExponent(scale.word);
+      // "2万5千", "2亿5000万": the lower places go on with the same amount, at its scale.
+      let place =
+        found.number.point === found.number.digits.length && !found.otherReading
+          ? CN_SCALES[scale.word]
+          : undefined;
+      let value = decimalValue(found.number, draft.exponent, false);
+      let joined = false;
+      while (place !== undefined) {
+        const at = right;
+        const digits = take(/\d{1,4}(?![\d.,])/y);
+        const lower = digits ? take(CN_SCALE_AFTER) : null;
+        const exponent = lower ? CN_SCALES[lower.word] : undefined;
+        if (
+          !digits ||
+          exponent === undefined ||
+          Number(digits.word) * 10 ** exponent >= 10 ** place
+        ) {
+          right = at;
+          break;
+        }
+        value += Number(digits.word) * 10 ** exponent;
+        place = exponent;
+        joined = true;
+      }
+      if (joined) {
+        const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
+        draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
+      }
     }
   }
   const currencyAfter =
@@ -1723,10 +1787,14 @@ function readAround(
       : null;
   if (currencyAfter) {
     const codes = currencyCodes(currencyAfter.word.replace(/(.)人民币$/, "$1"), settled);
+    // "新台币54,000元" is in TWD: 元 after one named currency is that currency's unit.
+    const unitOfNamed = /^[元圆]$/.test(currencyAfter.word) && draft.currencies.length === 1;
     // "¥3,500元": the word after settles the sign before.
-    if (draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code)))
-      draft.currencies = codes;
-    else draft.currencies = [...new Set([...draft.currencies, ...codes])];
+    if (!unitOfNamed) {
+      const settles =
+        draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code));
+      draft.currencies = settles ? codes : [...new Set([...draft.currencies, ...codes])];
+    }
     draft.currencyAt ??= currencyAfter.at;
     if (found.capitals) {
       const jiao = take(/([壹贰叁肆伍陆柒捌玖])角/y);
@@ -2019,6 +2087,8 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
   if (draft.unit.kind !== "plain" && draft.unit.kind !== "currency") return [];
   const readings: Reading[] = [];
   for (const statement of statements) {
+    // A numeral in words writes the whole amount: "一万二" under "单位：万元" is still 12,000 (#2189).
+    if (draft.core.chinese && statement.exponent !== 0) continue;
     let unit: FigureUnit = draft.unit;
     let unitExponent = 0;
     if (statement.unit.kind === "percent") {
@@ -2273,6 +2343,64 @@ function besideNumber(text: string, from: number, to: number): boolean {
 }
 
 /**
+ * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
+ * "家", "岁") is no measure: what a Document counts is its own business, not a unit it must state.
+ */
+const MEASURES: Readonly<Record<string, { latin: string; han: string }>> = {
+  mass: {
+    latin: "t|tonnes?|tons?|kt|Mt|kg|kilograms?|g|grams?|mg|lbs?|ounces?|oz|k?tCO2e?|MtCO2e",
+    han: "吨|千克|公斤|克",
+  },
+  length: {
+    latin:
+      "km|kilomet(?:re|er)s?|m|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?",
+    han: "公里|千米|厘米|毫米|米",
+  },
+  area: {
+    latin:
+      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha",
+    han: "平方公里|平方米|平米|公顷|亩|㎡",
+  },
+  volume: {
+    latin: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|l|barrels?|bbl",
+    han: "立方米|升|桶",
+  },
+  power: { latin: "kW|MW|GW|(?:kilo|mega|giga)watts?", han: "千瓦|兆瓦|吉瓦" },
+  energy: { latin: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?", han: "千瓦时|兆瓦时" },
+};
+
+const measureWords = ({ latin, han }: { latin: string; han: string }) =>
+  new RegExp(`(?<![A-Za-z])(?:${latin})(?![A-Za-z])|${han}`, "i");
+
+// The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
+const WRITES: Readonly<Record<string, RegExp>> = {
+  percent: /[%‰]|(?<![A-Za-z])(?:per[ \n]?cent|percent|pcts?)(?![A-Za-z])|百分之|百分比/i,
+  points:
+    /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
+  ...Object.fromEntries(
+    Object.entries(MEASURES).map(([name, words]) => [name, measureWords(words)]),
+  ),
+};
+
+/** What `unit` measures: "percent", "points", or a standard unit's kind ("mass", "area"); null for a count. */
+export function measureOf(unit: FigureUnit): string | null {
+  if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
+  if (unit.kind !== "other") return null;
+  const found = Object.entries(MEASURES).find(([, { latin, han }]) =>
+    new RegExp(`^(?:${latin}|${han})$`, "i").test(unit.word),
+  );
+  return found?.[0] ?? null;
+}
+
+/**
+ * Whether `text` writes any unit of `measure`: a column heading ("Output (t)", "YoY%"), a unit line
+ * ("单位：吨", "单位：百分比") or a word ("tonnes"). Converting one unit into another isn't attempted.
+ */
+export function writesMeasure(text: string, measure: string): boolean {
+  return WRITES[measure]?.test(text) ?? false;
+}
+
+/**
  * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
  * in a unit it states ("单位：元", "Salary (£)", "in £'000", "All figures are in £") and on
  * `figures`, its figures as read. With no figures given (null), the currency on its figures counts
@@ -2280,10 +2408,12 @@ function besideNumber(text: string, from: number, to: number): boolean {
  * plain "54,000".
  */
 export function namedCurrencies(
-  text: string,
+  written: string,
   context: FigureContext,
   figures: readonly Figure[] | null,
 ): Set<string> {
+  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does.
+  const text = written.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   const settled = settle(context);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {

@@ -173,27 +173,27 @@ export const CASES: readonly ReportCase[] = [
     language: "en",
     claims: SIX,
     request:
-      "Turn this Mind into a concise report draft in your Answer, with Title, Summary, Evidence, and Limits sections, at most 140 words. Preserve the source Citations on retained factual claims and the limitation that these two Documents do not establish a unified evaluation across later domains. Do not add outside sources, use Connectors, or modify the current Mind until I add the Answer myself.",
+      "Turn this Note into a concise report draft in your Answer, with Title, Summary, Evidence, and Limits sections, at most 140 words. Preserve the source Citations on retained factual claims and the limitation that these two Documents do not establish a unified evaluation across later domains. Do not add outside sources, use Connectors, or modify the current Note until I add the Answer myself.",
   },
   {
     id: "six-zh",
     language: "zh-CN",
     claims: SIX,
     request:
-      "把这个 Mind 整理成一份简洁的报告草稿，写在你的回答里，包含标题、摘要、证据和局限四个部分，不超过 300 字。保留已有事实陈述上的来源引用，以及“这两份文档并没有建立跨后续领域的统一评估”这一局限。不要添加外部来源，不要使用连接器，在我自己添加回答之前不要修改当前 Mind。",
+      "把这个笔记整理成一份简洁的报告草稿，写在你的回答里，包含标题、摘要、证据和局限四个部分，不超过 300 字。保留已有事实陈述上的来源引用，以及“这两份文档并没有建立跨后续领域的统一评估”这一局限。不要添加外部来源，不要使用连接器，在我自己添加回答之前不要修改当前笔记。",
   },
   {
     id: "twenty-en",
     language: "en",
     claims: TWENTY,
     request:
-      "Turn this Mind into a report draft in your Answer, with Title, Summary, Evidence and Limits sections. Keep every finding with its source Citation, and the limitation that these two Documents do not establish a unified evaluation across later domains. Do not add outside sources or modify the current Mind.",
+      "Turn this Note into a report draft in your Answer, with Title, Summary, Evidence and Limits sections. Keep every finding with its source Citation, and the limitation that these two Documents do not establish a unified evaluation across later domains. Do not add outside sources or modify the current Note.",
   },
   {
     id: "six-en-mind",
     language: "en",
     claims: SIX,
     request:
-      "Write this Mind up as a short report in a new Mind, keeping the source Citations on its findings and the limitation. Don't add outside sources.",
+      "Write this Note up as a short report in a new Note, keeping the source Citations on its findings and the limitation. Don't add outside sources.",
   },
 ];

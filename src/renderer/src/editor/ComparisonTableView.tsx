@@ -76,6 +76,13 @@ function cellCounts(node: ReactNodeViewProps["node"], hidden: ReadonlySet<string
 const typingFocused = (): boolean => {
   const active = document.activeElement;
   if (!typesText(active)) return false;
+  if (
+    active instanceof HTMLElement &&
+    active.closest('[data-testid="comparison-cell"]') &&
+    !active.closest("input,textarea")
+  ) {
+    return false;
+  }
   // A field inside the note takes Escape; the note's own editor is what the table collapses over.
   return !(active instanceof HTMLElement && active.matches('[data-testid="mind-editor"]'));
 };

@@ -19,7 +19,7 @@ const SQLITE_READONLY = 8;
 const SQLITE_IOERR = 10;
 const SQLITE_FULL = 13;
 
-export function saveFailureReason(failure: unknown): SaveFailureReason {
+export function unsavedReason(failure: unknown): SaveFailureReason {
   const code =
     isRecord(failure) && typeof failure.errcode === "number" ? failure.errcode & 0xff : null;
   const text = failure instanceof Error ? failure.message : String(failure);
@@ -59,7 +59,7 @@ export function createUnsavedChanges({
       count: minds.reduce((sum, [, each]) => sum + each.count, 0),
       // A deleted Mind's changes count, but no copy of it is offered: Restore brings it back.
       mindIds: minds.flatMap(([mindId, each]) => (each.deleted ? [] : [mindId])),
-      reason: saveFailureReason(last.failure),
+      reason: unsavedReason(last.failure),
       detail: last.failure instanceof Error ? last.failure.message : String(last.failure),
     };
   };

@@ -8,13 +8,15 @@
 import { type UtilityProcess, utilityProcess } from "electron";
 import { engineEnvironment } from "./engineEnvironment";
 
-export function startEngineProcess(
-  modulePath: string,
-  args: string[],
-  serviceName: string,
-): UtilityProcess {
-  return utilityProcess.fork(modulePath, args, {
-    serviceName,
+/** An engine process: the module it runs, and the name the system lists it under. */
+export interface EngineProcess {
+  modulePath: string;
+  serviceName: string;
+}
+
+export function startEngineProcess(engine: EngineProcess, args: string[]): UtilityProcess {
+  return utilityProcess.fork(engine.modulePath, args, {
+    serviceName: engine.serviceName,
     stdio: "inherit",
     env: engineEnvironment(),
   });
