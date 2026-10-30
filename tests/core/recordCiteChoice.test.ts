@@ -563,9 +563,11 @@ describe("record-cite choices through the core", () => {
     );
     await setup.client.settled();
     await chooseSecond(setup);
-    expect((await storedCheck(setup.client)).versions).toEqual([
-      { documentId: setup.second.id, contentHash: setup.second.contentHash },
-    ]);
+    // The sentence's parts keep the versions their own evidence read; the choice adds its source's.
+    expect((await storedCheck(setup.client)).versions).toContainEqual({
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+    });
 
     await setup.core.deleteDocument(setup.second.id);
     const stale = await storedCheck(setup.client);

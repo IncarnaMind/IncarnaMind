@@ -860,7 +860,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       '- [=10] share: "2–3%" is a range; give reading: 1 for 2%, 2 for 3%.',
       '- [=11]: formula: unexpected ")" at character 8.',
       "- [=12]: the formula uses rev2026, which isn't one of its inputs (a).",
-      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, ROUND, RRI, SQRT.",
+      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT.",
       "- [=14]: losses is 0, so the formula divides by zero.",
     ]);
     expect(second).toBe(

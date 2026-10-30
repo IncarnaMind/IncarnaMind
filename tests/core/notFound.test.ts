@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { SEARCH_AGAIN, searchAgain } from "../../src/core/answers/checks/searchAgain";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { saysNotFound } from "../../src/shared/claimChecks";
+import { readClaimCheck, saysNotFound } from "../../src/shared/claimChecks";
 import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
@@ -15,6 +15,10 @@ const TIDES = {
     "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.",
   ].join("\n"),
 };
+const TIDES_ZH = {
+  name: "潮汐.md",
+  contents: "# 潮汐\n\n潮汐中的大潮出现在新月和满月，太阳和月球共同产生引力。",
+};
 
 const SENTENCE = "The biggest tides come twice a lunar month.";
 const FOUND: Plan = {
@@ -24,16 +28,16 @@ const FOUND: Plan = {
 };
 
 /** Checks SENTENCE, alone in a Mind beside Tides, with a model that checks as `plan` says. */
-async function check(plan: Plan) {
+async function check(plan: Plan, sentence = SENTENCE, document = TIDES) {
   const calls: ModelCall[] = [];
   const { core, client, mind } = await setUpWithDocuments(
-    checkingModel({ [SENTENCE]: plan }, calls),
-    [TIDES],
+    checkingModel({ [sentence]: plan }, calls),
+    [document],
   );
   const block = {
     type: "paragraph",
     attrs: { id: "block-1" },
-    content: [{ type: "text", text: SENTENCE }],
+    content: [{ type: "text", text: sentence }],
   };
   writeMind(client, [block]);
   await client.settled();
@@ -42,7 +46,7 @@ async function check(plan: Plan) {
     mindId: mind.id,
     action: "find-support",
     from: { blockId: "block-1", offset: 0 },
-    to: { blockId: "block-1", offset: SENTENCE.length },
+    to: { blockId: "block-1", offset: sentence.length },
   });
   await client.settled();
   const runs = calls.filter(isCheckRun);
@@ -178,16 +182,46 @@ describe("Not found only when nothing in the scope was about the sentence (#1608
     },
   );
 
-  test("a contradiction whose reply says no Passage is about the sentence is Not found", async () => {
-    const checked = await check({
-      verdict: "contradicted",
+  test.each([
+    {
+      language: "English",
+      sentence: SENTENCE,
+      says: "Tides says nothing of how often tides come.",
+      document: TIDES,
       quote: FOUND.quote,
-      says: "Topic: not found\nTides says nothing of how often tides come.",
-      judgement: "neither",
-    });
+    },
+    {
+      language: "Chinese",
+      sentence: "最大的潮汐每个朔望月出现两次。",
+      says: "文档没有写潮汐出现的频率。",
+      document: TIDES_ZH,
+      quote: "大潮出现在新月和满月",
+    },
+  ])(
+    "a $language contradiction whose reply says no Passage is about the sentence is Not found",
+    async ({ sentence, says, document, quote }) => {
+      const checked = await check(
+        {
+          verdict: "contradicted",
+          quote,
+          says: `Topic: not found\n${says}`,
+          judgement: "neither",
+        },
+        sentence,
+        document,
+      );
 
-    expect(checked.check?.state).toBe("unsupported");
-    expect(checked.check?.unsupported?.found).toBeUndefined();
-    expect(checked.notFound).toBe(true);
-  });
+      expect(
+        checked.check?.state,
+        JSON.stringify({ reason: checked.check?.reason, detail: checked.check?.detail }),
+      ).toBe("unsupported");
+      expect(checked.check?.unsupported?.found).toBeUndefined();
+      expect(checked.check?.evidence).toBeNull();
+      expect(checked.check?.parts?.[0]?.evidence).toEqual([
+        expect.objectContaining({ check: "found", quote }),
+      ]);
+      expect(readClaimCheck(checked.check)).toEqual(checked.check);
+      expect(checked.notFound).toBe(true);
+    },
+  );
 });

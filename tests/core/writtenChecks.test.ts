@@ -70,7 +70,7 @@ const partly = (covered: string, uncovered: string) => ({
 /** A check's reply for a cut its Citations support once the unsupported part is out. */
 const supported: Plan = { verdict: "supported", quote: MOON, says: MOON };
 
-const PLANS: Record<string, Plan> = {
+const RAW_PLANS: Record<string, Plan> = {
   [asChecked(OVERSTATED)]: {
     reply: {
       text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
@@ -128,6 +128,10 @@ const PLANS: Record<string, Plan> = {
   [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
 };
+
+const PLANS: Record<string, Plan> = Object.fromEntries(
+  Object.entries(RAW_PLANS).map(([text, plan]) => [text.replaceAll(INLINE_NODE, ""), plan]),
+);
 
 const CUT = /<task action="cut-unsupported">/;
 
@@ -220,7 +224,7 @@ function writingModel(
 const englishEvidence =
   (claim: string) =>
   (call: ModelCall): ScriptedReply | null => {
-    if (sentenceOf(call) !== claim) return null;
+    if (sentenceOf(call) !== claim.replaceAll(INLINE_NODE, "")) return null;
     const searches = call.results.filter((result) => result.tool === "search_documents");
     if (searches.length === 0)
       return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
@@ -426,7 +430,10 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
       expect(lastResult(model)).not.toContain("was taken out");
     },
@@ -509,7 +516,10 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
       // The rule refused it, not the check of the cut.
       expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(1);
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
@@ -540,8 +550,15 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
-      expect(calls.some((call) => isCheckRun(call) && sentenceOf(call) === checked)).toBe(true);
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
+      expect(
+        calls.some(
+          (call) => isCheckRun(call) && sentenceOf(call) === checked.replaceAll(INLINE_NODE, ""),
+        ),
+      ).toBe(true);
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
       expect(lastResult(model)).not.toContain("was taken out");
     },
@@ -600,7 +617,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(mark?.check).toMatchObject({
       state: "unsupported",
       action: "check-against-documents",
-      text: asChecked(UNBACKED),
+      text: asChecked(UNBACKED).replaceAll(INLINE_NODE, ""),
       unsupported: { reason: "No Passage compares the strength of the tides." },
     });
     expect(calls.some((call) => CUT.test(call.prompt))).toBe(false);

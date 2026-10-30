@@ -8,6 +8,7 @@ import {
   figureCheckShown,
   saysNotFound,
 } from "../shared/claimChecks";
+import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
 import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
@@ -62,12 +63,28 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   personId?: string | null;
 }
 
+/**
+ * A result worked out again from its parts or figures, keeping the sentence's record cites and
+ * the versions they read: they are read apart from both (#1709).
+ */
+function keepingRecordCites(checked: ClaimCheckResult, worked: ClaimCheckResult): ClaimCheckResult {
+  if (!checked.recordCites) return worked;
+  const versions = new Map(
+    [...worked.versions, ...checked.versions].map((version) => [
+      `${version.documentId}\n${version.contentHash}`,
+      version,
+    ]),
+  );
+  return { ...worked, recordCites: checked.recordCites, versions: [...versions.values()] };
+}
+
 export function augmentFigureFooting(
   blocks: Y.XmlFragment,
   result: ClaimCheckResult,
   documents: SourceDocuments,
   now?: Omit<ClaimCheckNow, "text">,
 ): ClaimCheckResult {
+  if (result.parts) result = keepingRecordCites(result, resultFromParts(result.parts));
   if (!result.figures?.length) return result;
   const occurrences = figuresInMind(blocks);
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
@@ -117,22 +134,25 @@ export function augmentFigureFooting(
     }
     return { ...figure, footing, sourceFooting };
   });
-  const aggregate = aggregateFigureResults(figures, result.remainder);
-  // A sentence's record cites are read apart from its figures (#1709): they and the versions
-  // they read stay as the check gave them.
-  const versions = new Map(
-    [...aggregate.versions, ...result.versions].map((version) => [
-      `${version.documentId}\n${version.contentHash}`,
-      version,
-    ]),
-  );
-  return {
-    ...aggregate,
-    ...(result.recordCites && { recordCites: result.recordCites }),
-    versions: [...versions.values()],
+  if (result.parts) {
+    const updated = new Map(figures.map((figure) => [figure.id, figure]));
+    return keepingRecordCites(
+      result,
+      resultFromParts(
+        result.parts.map((part) => ({
+          ...part,
+          ...(part.figures && {
+            figures: part.figures.map((figure) => updated.get(figure.id) ?? figure),
+          }),
+        })),
+      ),
+    );
+  }
+  return keepingRecordCites(result, {
+    ...aggregateFigureResults(figures, result.remainder),
     figures,
     remainder: result.remainder,
-  };
+  });
 }
 
 function sourceFigure(input: FigureInput, units: readonly UnitText[]): Figure | null {

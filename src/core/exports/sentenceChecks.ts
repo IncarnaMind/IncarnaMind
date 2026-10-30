@@ -1,7 +1,12 @@
 import type * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
-import { checkedSentences, figuresNow, recordCiteNote } from "../answers/checks/sentences";
+import {
+  checkedSentences,
+  figuresNow,
+  noteTextOfMarked,
+  recordCiteNote,
+} from "../answers/checks/sentences";
 import type { CitationAttributes, RecordCiteResult, SearchScope } from "../api";
 import type { FailedSentence, RecordCiteComment } from "../mindText";
 
@@ -66,6 +71,7 @@ export function failedSentences(
       folderId: context.folderId,
       scope: context.scope,
       note: note(marked.place),
+      ...noteTextOfMarked(marked),
     });
     if (shown.state === "contradicted") {
       const { calculation } = check;

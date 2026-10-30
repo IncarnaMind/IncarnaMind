@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
-import { markSentence, textOf } from "../../src/core/answers/checks/sentences";
+import { markSentence, textOf, wordsOf } from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
@@ -18,6 +18,7 @@ import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
 import { augmentFigureFooting, figureSchedule } from "../../src/core/figureSchedule";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { partWithResult, resultFromParts } from "../../src/shared/claimParts";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
 import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -351,6 +352,20 @@ test("a matching source total names an omitted source row only from a checked ex
     },
   ]);
   expect(result.verdict).toBe("unsupported");
+  const owned = augmentFigureFooting(
+    blocks,
+    resultFromParts([
+      partWithResult(
+        { kind: "fact", span: { start: 0, end: 2 } },
+        { ...aggregateFigureResults(results, null), figures: results, remainder: null },
+      ),
+    ]),
+    source.documents,
+  );
+  expect(owned.verdict).toBe("unsupported");
+  expect(owned.parts?.[0]?.figures?.at(-1)?.footing).toEqual(total?.footing);
+  expect(owned.parts?.[0]?.figures?.at(-1)?.sourceFooting).toEqual(total?.sourceFooting);
+  expect(resultFromParts(owned.parts ?? [])).toEqual(owned);
 });
 
 test("a sentence's record cites and the versions they read stay through the footing", () => {
@@ -420,7 +435,7 @@ function markOccurrence(
 ) {
   if (occurrence.locator.kind !== "text") throw new Error("Not a text occurrence");
   const element = findBlock(blocks, occurrence.locator.from.blockId);
-  const parent = { ...basis(textOf(element)), id: `check-${String(element.getAttribute("id"))}` };
+  const parent = { ...basis(wordsOf(element)), id: `check-${String(element.getAttribute("id"))}` };
   const child = { ...parent, ...finding(occurrence), ...overrides };
   markSentence(element, 0, textOf(element).length, {
     ...parent,

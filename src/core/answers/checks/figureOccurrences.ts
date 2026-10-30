@@ -298,7 +298,16 @@ export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
       const text = textOf(element);
       found.push(
         ...inSentence(
-          { element, blockId, from: 0, to: text.length, text, context: text, cited: [] },
+          {
+            element,
+            blockId,
+            occurrence: 0,
+            from: 0,
+            to: text.length,
+            text,
+            context: text,
+            cited: [],
+          },
           grids,
           note,
         ),

@@ -5,11 +5,9 @@
  * that have changed since needs a re-check.
  */
 import {
-  type CalculatedFigure,
   type CheckedVersion,
   type Citation,
   type CitationAttributes,
-  type ClaimCalculation,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
@@ -17,18 +15,29 @@ import {
   type ClaimCheckScope,
   type ClaimVerdict,
   claimCheckActions,
-  type EvidenceExclusion,
   type FigureCheckAttributes,
-  type LeftOutDocument,
   type RecordCiteResult,
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
+import {
+  CLAIM_CHECK_FAILURES,
+  checkWithParts,
+  keepCheckAsView,
+  partCitations,
+  readCheckedVersions,
+  readClaimCalculation,
+  readClaimParts,
+  readClaimScope,
+  readExcludedDocuments,
+  readUnsupportedReason,
+  resultFromParts,
+} from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
 import { parseLocation } from "./locations";
-import { folderScope, hasSearchScope, sameScope, storedSearchScope } from "./searchScope";
+import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
@@ -42,93 +51,10 @@ const STATES: readonly ClaimCheckAttributes["state"][] = [
   "not-checked",
 ];
 
-// Every reason, so one added to `ClaimCheckFailure` is read back from a mark, never dropped.
-const FAILURE_REASONS: Record<ClaimCheckFailure, true> = {
-  refused: true,
-  malformed: true,
-  empty: true,
-  "no-evidence": true,
-  unread: true,
-  "rate-limit": true,
-  "cost-cap": true,
-  "plan-limit": true,
-  "out-of-credit": true,
-  failed: true,
-  stopped: true,
-  "too-many": true,
-  "consent-revoked": true,
-  "local-mode": true,
-  "kept-inside": true,
-};
-const isFailure = (value: unknown): value is ClaimCheckFailure =>
-  typeof value === "string" && Object.hasOwn(FAILURE_REASONS, value);
-
-const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
-
-function versionsOf(value: unknown): CheckedVersion[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((each) => {
-    if (!isRecord(each)) return [];
-    const documentId = text(each.documentId);
-    const contentHash = text(each.contentHash);
-    return documentId && contentHash ? [{ documentId, contentHash }] : [];
-  });
-}
-
-function excludedOf(value: unknown): LeftOutDocument[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((each) => {
-    if (!isRecord(each)) return [];
-    const documentId = text(each.documentId);
-    const reason = EXCLUSIONS.find((known) => known === each.reason);
-    return documentId && reason
-      ? [{ documentId, documentName: text(each.documentName) ?? "", reason }]
-      : [];
-  });
-}
-
-/** A figure worked out that decided a check (#707), as its mark keeps it. */
-function calculationOf(value: unknown): ClaimCalculation | null {
-  if (!isRecord(value) || !isRecord(value.figure)) return null;
-  const stated = text(value.stated);
-  const { figure } = value;
-  if (stated === null || !Array.isArray(figure.inputs) || typeof figure.shown !== "string")
-    return null;
-  return {
-    figure: figure as unknown as CalculatedFigure,
-    stated,
-    agrees: value.agrees === true,
-    ...((value.relation === "at most" || value.relation === "at least") && {
-      relation: value.relation,
-    }),
-  };
-}
-
-function unsupportedOf(value: unknown): UnsupportedReason | null {
-  if (!isRecord(value)) return null;
-  return {
-    reason: text(value.reason),
-    covered: text(value.covered),
-    uncovered: text(value.uncovered),
-    ...(value.found === true && { found: true }),
-    ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
-  };
-}
-
-function scopeOf(value: unknown): ClaimCheckScope {
-  if (!isRecord(value)) return { folderId: null, widened: false };
-  const chosen = storedSearchScope(value.chosen);
-  return {
-    folderId: text(value.folderId),
-    widened: value.widened === true,
-    ...(chosen && hasSearchScope(chosen) && { chosen }),
-  };
-}
 
 /** Where a check looked: the Mind's chosen scope, else its Folder; null for every Document. */
 export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
@@ -162,7 +88,9 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
       {
         raw,
         outcome: outcome as RecordCiteResult["outcome"],
-        ...(isFailure(each.reason) ? { reason: each.reason } : {}),
+        ...(CLAIM_CHECK_FAILURES.find((reason) => reason === each.reason)
+          ? { reason: each.reason as ClaimCheckFailure }
+          : {}),
         ...(each.detail === null
           ? { detail: null }
           : text(each.detail) !== null
@@ -218,6 +146,23 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
   });
 }
 
+/**
+ * A check worked out from its parts, with its record cites and the versions they read: no part
+ * holds them, since they are read apart from the sentence's parts (#1709).
+ */
+export function keepRecordCites<Check extends { versions: CheckedVersion[] }>(
+  check: Check,
+  recordCites: readonly RecordCiteResult[] | undefined,
+): Check {
+  if (!recordCites) return check;
+  const versions = new Map(check.versions.map((version) => [version.documentId, version]));
+  for (const cite of recordCites) {
+    if (cite.documentId && cite.contentHash && !versions.has(cite.documentId))
+      versions.set(cite.documentId, { documentId: cite.documentId, contentHash: cite.contentHash });
+  }
+  return { ...check, recordCites: [...recordCites], versions: [...versions.values()] };
+}
+
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
 function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!isRecord(value)) return null;
@@ -227,34 +172,81 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
   const recordCites = recordCitesOf(value.recordCites);
-  return {
+  const check: ClaimCheckAttributes = {
     id,
     request: text(value.request) ?? "",
     action,
     state,
-    reason: isFailure(value.reason) ? value.reason : null,
+    reason: CLAIM_CHECK_FAILURES.find((each) => each === value.reason) ?? null,
     detail: text(value.detail),
     providerId: text(value.providerId),
     modelId: text(value.modelId),
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
     says: text(value.says),
-    unsupported: unsupportedOf(value.unsupported),
-    calculation: calculationOf(value.calculation),
+    unsupported: readUnsupportedReason(value.unsupported),
+    calculation: readClaimCalculation(value.calculation),
     citedCaseUnchecked: value.citedCaseUnchecked === true,
     citedCaseFound: value.citedCaseFound === true,
-    scope: scopeOf(value.scope),
-    versions: versionsOf(value.versions),
-    excluded: excludedOf(value.excluded),
+    scope: readClaimScope(value.scope),
+    versions: readCheckedVersions(value.versions),
+    excluded: readExcludedDocuments(value.excluded),
     ...(recordCites && { recordCites }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };
+  if (value.parts !== undefined && value.parts !== null) {
+    const parts = readClaimParts(value.parts, check.text, check.state);
+    check.parts = parts ?? [];
+    if (parts === null) {
+      check.state = "not-checked";
+      check.reason = "malformed";
+      check.detail = null;
+    } else if (check.state !== "checking") {
+      const result = resultFromParts(parts);
+      check.parts = result.parts ?? [];
+      check.state = result.verdict;
+      check.versions = keepRecordCites(
+        { ...check, versions: result.versions },
+        recordCites,
+      ).versions;
+      check.excluded = result.excluded;
+      if (result.verdict === "not-checked") {
+        check.reason = result.reason;
+        check.detail = result.detail;
+      } else {
+        check.reason = null;
+        check.detail = null;
+        check.evidence = result.evidence;
+        check.says = result.says;
+        check.unsupported = result.unsupported;
+        check.calculation = result.calculation;
+        check.citedCaseUnchecked = result.citedCaseUnchecked;
+        check.citedCaseFound = result.citedCaseFound;
+      }
+    }
+    if (check.state === "not-checked") {
+      check.evidence = null;
+      check.says = null;
+      check.unsupported = null;
+      check.calculation = null;
+      check.citedCaseUnchecked = false;
+      check.citedCaseFound = false;
+    }
+  }
+  return check;
 }
 
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   const basis = readCheckBasis(value);
   if (!basis || !isRecord(value)) return null;
+  if (basis.parts) {
+    const { recordCites, ...check } = basis;
+    return keepRecordCites(
+      check.kept ? keepCheckAsView(check) : checkWithParts(check, check.parts ?? []),
+      recordCites,
+    );
+  }
   const figures: FigureCheckAttributes[] = [];
   if (value.figures != null) {
     if (!Array.isArray(value.figures)) return null;
@@ -316,13 +308,15 @@ export interface ClaimCheckNow {
   scope: SearchScope | null;
   /** The Note the sentence is in, for what its `Id.` and `supra` refer back to now; unknown when absent. */
   note?: RecordCiteNote;
+  /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
+  noteText?(): string;
 }
 
 /** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
 function referentsMoved(check: ClaimCheckBasis, now: ClaimCheckNow): boolean {
   const checked = (check.recordCites ?? []).flatMap((cite) => (cite.via ? [cite.via] : []));
   if (!now.note || checked.length === 0) return false;
-  const current = shortFormsThrough(now.text, now.note);
+  const current = shortFormsThrough(now.noteText?.() ?? now.text, now.note);
   return (
     current.length !== checked.length ||
     checked.some(
@@ -418,6 +412,7 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
           })
         : null,
     ]),
+    ...(check.parts?.flatMap(partCitations) ?? []),
     ...(check.figures ?? []).flatMap((figure) => [
       ...restsOn(figure),
       figure.source ?? null,
@@ -438,7 +433,11 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
 function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
-  if (comparableSentence(now.text) !== comparableSentence(check.text)) {
+  if (
+    check.parts !== undefined
+      ? now.text !== check.text
+      : comparableSentence(now.text) !== comparableSentence(check.text)
+  ) {
     return { state: "needs-recheck", why: "edited" };
   }
   if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };

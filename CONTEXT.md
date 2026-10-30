@@ -271,6 +271,14 @@ _Avoid_: wrong, conflict, false
 A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
 _Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
 
+**Part**:
+One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion is a fact inside that opinion, which stays one part. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.
+_Avoid_: chunk, clause, segment
+
+**Opinion left out**:
+The writer's own view in a sentence, which a check doesn't judge: a whole sentence that is one has no Mark, and a mixed sentence's opinion part keeps its row. The check's line counts each once: "3 opinions left out · Show" (3 处观点未纳入核对 · 查看), and Check anyway (仍然核对) checks that part alone. Never "Not checked", which is a claim whose check failed.
+_Avoid_: skipped, not checked, ignored
+
 **Needs re-check**:
 A check result whose sentence, evidence or scope has changed since it was made, so it is no longer known to hold.
 _Avoid_: stale, outdated, expired
