@@ -12,6 +12,7 @@ import {
   newMind,
   openDocumentAt,
   placeAssistant,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -459,10 +460,15 @@ for (const language of LANGUAGES) {
       await press("ArrowRight");
       const fit = await read();
       up.push(fit.step ?? "none");
-      // With Split out of the strip, the group's ⋯ menu still offers it.
+      // With Split out of the strip, the group's ⋯ menu and the tab's own menu still offer it.
       if (fit.split === false && fit.group >= 420) {
         await window.getByTestId("group-menu").first().click();
         await expect(window.getByTestId("tab-menu-split").first()).toBeEnabled();
+        await window.keyboard.press("Escape");
+        await pointAndClick(window, shownTab(window).first(), { button: "right" });
+        await expect(
+          shownTab(window).first().getByTestId("tab-actions").getByTestId("tab.split"),
+        ).toBeEnabled();
         await window.keyboard.press("Escape");
       }
     }
