@@ -14,6 +14,7 @@ import { textBlockEdited } from "./citationNumbers";
 import { type ShownClaim, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
+import { OpinionCard } from "./OpinionCard";
 import { scrollMindTo } from "./reviewPick";
 
 const MARK_HEIGHT = 18;
@@ -256,6 +257,7 @@ export function MarginChecks({
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
+      <OpinionCard editor={editor} mindId={mind.id} doc={mind.doc} />
       {focusedFigure && layerReady && layer.current && (
         <ClaimOutline
           editor={editor}

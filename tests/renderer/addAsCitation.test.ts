@@ -38,7 +38,7 @@ const attributes = (over: Partial<CitationAttributes>): CitationAttributes => ({
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
-function editorHolding(cited: Partial<CitationAttributes> | null) {
+function editorHolding(cited: Partial<CitationAttributes> | null, sentence = SENTENCE) {
   let state = EditorState.create({
     doc: schema.nodeFromJSON({
       type: "doc",
@@ -46,7 +46,7 @@ function editorHolding(cited: Partial<CitationAttributes> | null) {
         {
           type: "paragraph",
           content: [
-            text(SENTENCE),
+            text(sentence),
             ...(cited ? [{ type: CITATION_NODE, attrs: attributes(cited) }] : []),
           ],
         },
@@ -77,12 +77,12 @@ const countCitations = (state: EditorState) => {
   return count;
 };
 
-const claimFound = (evidence: Partial<CitationAttributes>): ShownClaim =>
+const claimFound = (evidence: Partial<CitationAttributes>, sentence = SENTENCE): ShownClaim =>
   ({
     check: { id: "check-1", state: "supported", evidence: attributes(evidence), calculation: null },
     from: 1,
-    to: 1 + SENTENCE.length,
-    sentence: { from: 1, to: 1 + SENTENCE.length + 1, text: SENTENCE },
+    to: 1 + sentence.length,
+    sentence: { from: 1, to: 1 + sentence.length + 1, text: sentence },
     shown: { state: "supported" },
   }) as unknown as ShownClaim;
 
@@ -106,6 +106,18 @@ describe("Add as Citation", () => {
     const { editor } = editorHolding(null);
     expect(addAsCitation(editor, claimFound({ quote: LINE }))).toBe(true);
     expect(countCitations(editor.state)).toBe(1);
+  });
+
+  // protects=an added Citation follows the sentence's last word with no space, in English and Chinese alike, before its closing punctuation (DESIGN.md, Citations; #2002); fails_when=a space goes before the marker, which would let a line break between the word and it; no_claim=how the chip is drawn.
+  test.each([
+    [SENTENCE, "Staff may work from home two days a week[1]."],
+    ["员工每周可以居家办公两天。", "员工每周可以居家办公两天[1]。"],
+  ])("puts the Citation right after the last word, with no space: %s", (sentence, written) => {
+    const { editor } = editorHolding(null, sentence);
+    const claim = claimFound({ quote: LINE }, sentence);
+    const ends = { ...claim, sentence: { ...claim.sentence, to: 1 + sentence.length } };
+    expect(addAsCitation(editor, ends)).toBe(true);
+    expect(editor.state.doc.textBetween(0, editor.state.doc.content.size, "", "[1]")).toBe(written);
   });
 
   test("adds nothing when the sentence's Citation doesn't hold and would be replaced", () => {

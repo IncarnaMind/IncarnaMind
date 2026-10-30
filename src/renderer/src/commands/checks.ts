@@ -10,13 +10,16 @@ import {
 } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { startMindCheck } from "../mindCheck";
 import {
+  applyDocumentWording,
   applyFigure,
   contradictedAt,
   cutSentence,
   cutUnsupported,
+  documentWordingAt,
   figureAt,
   findSourcesAt,
   fixesFree,
@@ -101,7 +104,32 @@ function withCuttable() {
   return at && verificationOf(at.doc) === null ? at : null;
 }
 
+function withOpinion() {
+  const note = noteHandle.current;
+  if (!note || note.editor.isDestroyed || !fixesFree(note.mindId)) return null;
+  const opinion = opinionAt(note.editor, note.doc);
+  return opinion ? { ...note, opinion } : null;
+}
+
 export const checkCommands: readonly Command[] = [
+  {
+    id: "check.anyway",
+    label: "claim.checkAnyway",
+    group: "main",
+    reversible: true,
+    when: (ctx) =>
+      ctx.here?.["check.anyway"] !== undefined ||
+      (ctx.focus?.kind !== "check" && withOpinion() !== null),
+    run(ctx) {
+      const here = ctx.here?.["check.anyway"];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withOpinion();
+      if (at) checkOpinion(at.editor, at.mindId, at.doc, at.opinion, at.place);
+    },
+  },
   {
     id: "check.showCard",
     label: "claim.showCard",
@@ -109,10 +137,45 @@ export const checkCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+Shift+K" },
     // It changes nothing: it shows what a check found, for a keyboard User to act on.
     reversible: true,
-    when: () => withClaimAtCaret() !== null,
+    when: () => withClaimAtCaret() !== null || withOpinion() !== null,
     run() {
       const at = withClaimAtCaret();
       if (at) showClaimCard(at);
+      else {
+        const left = withOpinion();
+        if (!left) return;
+        setCheckCardOpen(left.place, false);
+        setOpenClaim(left.place, left.opinion.id);
+        setClaimFocus(left.place, left.opinion.id);
+      }
+    },
+  },
+  {
+    id: "check.useDocumentWording",
+    label: "claim.useDocumentWording",
+    group: "main",
+    reversible: true,
+    when: (ctx) => {
+      if (ctx.here?.["check.useDocumentWording"]) return true;
+      const note = noteHandle.current;
+      return (
+        ctx.focus?.kind !== "check" &&
+        note !== null &&
+        !note.editor.isDestroyed &&
+        fixesFree(note.mindId) &&
+        documentWordingAt(note.editor) !== null
+      );
+    },
+    run(ctx) {
+      const here = ctx.here?.["check.useDocumentWording"];
+      if (here) {
+        here();
+        return;
+      }
+      const note = noteHandle.current;
+      if (!note || note.editor.isDestroyed) return;
+      const at = documentWordingAt(note.editor);
+      if (at) applyDocumentWording(note.editor, at.claim, at.part);
     },
   },
   checkAgainstDocuments,
