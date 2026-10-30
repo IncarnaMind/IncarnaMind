@@ -28,6 +28,7 @@ import type {
 import { claimCheckActions } from "../core/api";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
+import { graphemeBoundary } from "./graphemes";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
@@ -225,17 +226,19 @@ function boundary(text: string, at: number): boolean {
  */
 export const CHECK_QUOTE_CHARS_AT_MOST = 200;
 
-/** `quote` cut to at most `chars`, at a word boundary when one is near it, with an ellipsis. */
+/**
+ * `quote` cut to at most `chars`, at a word boundary when one is near it and never inside a
+ * character a reader sees as one, with an ellipsis.
+ */
 function cutQuote(quote: string, chars: number): string {
   if (quote.length <= chars) return quote;
-  let end = chars - 1;
-  if (!boundary(quote, end)) end -= 1;
+  const room = chars - 1;
   const space = Math.max(
-    quote.lastIndexOf(" ", end),
-    quote.lastIndexOf("\t", end),
-    quote.lastIndexOf("\n", end),
+    quote.lastIndexOf(" ", room),
+    quote.lastIndexOf("\t", room),
+    quote.lastIndexOf("\n", room),
   );
-  if (space > end - 32) end = space;
+  const end = graphemeBoundary(quote, space > room - 32 ? space : room);
   return `${quote.slice(0, end).trimEnd()}…`;
 }
 

@@ -13,6 +13,7 @@ import * as Y from "yjs";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { SENTENCE_RESULT_LABELS } from "../../src/shared/claimChecks";
 import {
+  boundedCheck,
   boundedCheckParts,
   CHECK_QUOTE_CHARS_AT_MOST,
   checkWithParts,
@@ -66,11 +67,12 @@ const cases = [
   {
     language: "zh-CN",
     sentence: "九处依据支撑这段总结，每一处各有五条引文，并列出十三个月的数量。",
-    // An astral character at the bound, so a cut that splits it would show.
+    // A joined emoji starts at index 198, so the cut at 199 falls inside it: the cut must move
+    // back to 198, and the CJK run ends exactly there.
     quote:
-      toLength("前三季度成本上升百分之十二，员工人数保持不变。", 199) +
-      "𠀀" +
-      toLength("收入与成本的变化在各地一致。", CHARACTERS - 200),
+      toLength("前三季度成本上升百分之十二，员工人数保持不变。", 198) +
+      "👨‍👩‍👧" +
+      toLength("收入与成本的变化在各地一致。", CHARACTERS - 206),
     deciding: toLength("第三季度报告详细描述了各地区的情况。", 149) + CHINESE_MARKER,
     marker: CHINESE_MARKER,
   },
@@ -131,6 +133,19 @@ for (const example of cases)
           expect(receipt.quote).toBeTruthy();
           expect(receipt.quote?.isWellFormed()).toBe(true);
           expect(receipt.quote?.length).toBeLessThanOrEqual(QUOTE_BOUND);
+          if (receipt.quote?.endsWith("…")) {
+            const kept = receipt.quote.slice(0, -1);
+            expect(example.quote.startsWith(kept)).toBe(true);
+            if (example.language === "en") {
+              // Cut after a whole word: the next character is the space it stopped at.
+              expect(example.quote[kept.length]).toBe(" ");
+            } else {
+              // Cut back over the whole emoji, at the end of the CJK run before it.
+              expect(kept.length).toBe(198);
+              expect(example.quote.startsWith("👨", kept.length)).toBe(true);
+              expect(/[\p{Script=Han}，。、；：！？]$/u.test(kept)).toBe(true);
+            }
+          }
         }
       }
       const coverage = check.parts[0]?.coverage;
@@ -181,6 +196,31 @@ for (const example of cases)
       undo.destroy();
     }, 60_000);
   });
+
+test("a mark without parts keeps its quote bounded at a word boundary", () => {
+  const sentence = "Costs rose in the third quarter.";
+  const documentId = randomUUID();
+  const quote = toLength(
+    "Costs rose in the third quarter while headcount stayed flat. ",
+    CHARACTERS,
+  );
+  const bounded = boundedCheck({
+    ...checkBasis(sentence, documentId),
+    evidence: receipt(documentId, 1, { quote }),
+    unsupported: {
+      reason: "The report says something else.",
+      covered: "costs",
+      uncovered: "headcount",
+      quoted: receipt(documentId, 2, { quote }),
+    },
+  });
+  const kept = bounded.evidence?.quote?.slice(0, -1) ?? "";
+  expect(bounded.evidence?.quote?.endsWith("…")).toBe(true);
+  expect(kept.length).toBeLessThanOrEqual(QUOTE_BOUND);
+  expect(quote.startsWith(kept)).toBe(true);
+  expect(quote[kept.length]).toBe(" ");
+  expect(bounded.unsupported?.quoted?.quote).toBe(bounded.evidence?.quote);
+});
 
 test("a receipt that moves on a re-check keeps its id and the sign-off on it", () => {
   const sentence = "Costs rose and headcount stayed flat.";
