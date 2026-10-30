@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
 import { type CalculatedFigure, CITATION_NODE, type Document } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { pendingPart } from "../../src/shared/claimParts";
 import { formatDate } from "../../src/shared/dates";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
@@ -469,7 +470,7 @@ test.each(["en", "zh-CN"] as const)(
         at,
         contentHash: changed
           ? "checked-before-it-changed"
-          : citationSignOffBasis(sentences.get(id) ?? "", {
+          : citationSignOffBasis(sentences.get(id)?.sentence ?? "", {
               documentId: document.id,
               contentHash: document.contentHash,
               quote,
@@ -550,3 +551,93 @@ test("a sent version History couldn't keep is said with the saved file", async (
   expect(sent).toMatchObject({ status: "saved", sentKept: false });
   expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([]);
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a part Citation keeps its independent human record through reload, word changes and restore (${language})`, async () => {
+    const out = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    await core.setOutputLocation(out);
+    const mind = await core.createMind({ title: "Part receipts" });
+    const client = await connectToMind(core, mind.id);
+    const words = language === "en" ? "Revenue rose." : "收入增长。";
+    const receipt = {
+      id: "part-citation",
+      passageId: "p",
+      documentId: "source",
+      documentName: "Results",
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Revenue rose.",
+      check: "found",
+      checkReason: null,
+    };
+    const attrs = {
+      id: "check",
+      request: "request",
+      action: "check-against-documents",
+      state: "supported",
+      text: words,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-28T09:00:00.000Z",
+      parts: [
+        {
+          ...pendingPart({ span: { start: 0, end: words.length }, kind: "fact" }),
+          verdict: "supported",
+          evidence: [receipt],
+        },
+      ],
+    };
+    const write = (text: string) =>
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "p1" },
+          content: [{ type: "text", text, marks: [{ type: "claimCheck", attrs }] }],
+        },
+      ]);
+    write(words);
+    addSignOff(client.doc, {
+      id: "human",
+      target: { kind: "citation", id: receipt.id },
+      at: "2026-10-28T09:00:00.000Z",
+      contentHash: citationSignOffBasis(words, receipt),
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    await client.settled();
+    const kept = await core.saveCheckpoint(mind.id, "accept");
+    const csv = async () => {
+      const saved = await core.saveCheckRecord(mind.id);
+      if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+      return readFileSync(join(out, saved.file.name.replace(/\.(pdf|csv)$/, ".csv")), "utf8");
+    };
+    const initial = await csv();
+    expect(
+      parseCsv(initial).filter((row) => row.some((cell) => cell.startsWith("Ada · "))),
+    ).toHaveLength(1);
+    expect(initial).not.toContain(translate(language, "checkRecord.notInNote"));
+    const reopened = await connectToMind(core, mind.id);
+    expect(citationSentences(reopened.blocks).has(receipt.id)).toBe(true);
+    write(`Updated ${words}`);
+    await client.settled();
+    expect(await csv()).toContain(
+      translate(language, "checkRecord.person.changed", {
+        name: "Ada",
+        time: "2026-10-28T09:00:00.000Z",
+      }),
+    );
+    writeMind(client, [note("Removed.")]);
+    await client.settled();
+    expect(await csv()).toContain(translate(language, "checkRecord.notInNote"));
+    expect((await core.restoreCheckpoint(mind.id, kept.id)).checkedLeftOut).toBe(0);
+    await client.settled();
+    expect(citationSentences(client.blocks).has(receipt.id)).toBe(true);
+    expect(await csv()).not.toContain(translate(language, "checkRecord.notInNote"));
+  });
+}

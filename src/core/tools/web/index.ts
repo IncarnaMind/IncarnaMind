@@ -17,6 +17,7 @@ import type {
   ExternalService,
   WebPageResult,
 } from "../../api";
+import { type PageReuse, wallKey } from "../../documents/web";
 import { WebPageError } from "../../documents/web/errors";
 import type { PageFetch } from "../../documents/web/fetch";
 import { NotFoundError } from "../../errors";
@@ -34,10 +35,17 @@ export interface WebSearchOptions {
   readiness(model: ChatModelChoice): Promise<ChatReadiness>;
   /** The model, for the "web-search" flow, once the User has allowed it. */
   prepare(model: ChatModelChoice): Promise<PreparedChatModel>;
-  /** Saves a page through #261's path with `fetch`; the caller files it. */
-  savePage(address: string, fetch: PageFetch): Promise<WebPageResult>;
+  /**
+   * Saves a page through #261's path with `fetch`, giving back one saved already only as `reuse`
+   * allows; the caller files it.
+   */
+  savePage(address: string, fetch: PageFetch, reuse: PageReuse): Promise<WebPageResult>;
   /** The Folder of the Mind or conversation a Question was asked in; null for none. */
   folderOf(place: AnswerPlace): string | null;
+  /** See `AnswersOptions.filedWithin`. */
+  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
+  /** The walled Folder a Document is behind; null for none. */
+  walledDocument(documentId: string): string | null;
   /** Files a new Document in a Folder. */
   file(documentId: string, folderId: string): void;
   /** A live Document; throws `NotFoundError` once it is gone. */
@@ -101,8 +109,8 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
       return searchWeb(prepared.model, prepared.provider.kind, query, signal);
     },
 
-    async save(address, place, signal, filing): Promise<SavedPage> {
-      const filed = filing(options.folderOf(place));
+    async save(address, place, signal, wallId): Promise<SavedPage> {
+      const filed = options.filedWithin(wallId, options.folderOf(place));
       if (filed === null) return { outcome: "failed", reason: "kept-inside" };
       // Before a page saved already is used as it is: web search reads only the public internet.
       try {
@@ -111,7 +119,12 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
         if (error instanceof WebPageError) return { outcome: "failed", reason: error.reason };
         throw error;
       }
-      const result = await options.savePage(address, fetcher.fetch);
+      // A page saved on the other side of a wall is read again, never reused: its Citation would
+      // name a Folder this turn can't see (#2243).
+      const result = await options.savePage(address, fetcher.fetch, {
+        key: wallKey(wallId),
+        reusable: (documentId) => options.walledDocument(documentId) === wallId,
+      });
       if (result.outcome === "failed") return { outcome: "failed", reason: result.failure.reason };
       const { document } = result;
       if (!result.existing && filed.folderId !== null) options.file(document.id, filed.folderId);

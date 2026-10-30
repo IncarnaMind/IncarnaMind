@@ -1092,7 +1092,7 @@ describe("The estimate before a check run (#973)", () => {
 
     const estimate = await core.estimateRun({ items: 10, each: "check" });
 
-    expect(estimate).toMatchObject({ calls: 24, tokens: 24 * 5_100 });
+    expect(estimate).toMatchObject({ calls: 35, tokens: 35 * 5_100 });
   });
 });
 

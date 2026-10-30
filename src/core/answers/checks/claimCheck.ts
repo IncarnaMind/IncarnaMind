@@ -26,6 +26,7 @@ import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
+import type { InlineTextProjection } from "../../../shared/inlineText";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -33,8 +34,12 @@ import type {
   Citation,
   ClaimCalculation,
   ClaimCheckFailure,
+  ClaimCheckPart,
   ClaimCheckResult,
   ClaimJudgment,
+  ClaimPartCoverage,
+  ClaimPartPlan,
+  ClaimPartSpan,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -45,10 +50,12 @@ import type {
 } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
+import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import type { Slots } from "../../runs/stop";
 import {
   answerLanguage,
   type CalculationSession,
@@ -62,6 +69,7 @@ import {
   type AnswerEngine,
   type AnswerTools,
   answerTemperature,
+  type CitationRecordInput,
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
@@ -128,6 +136,10 @@ export interface CheckedCitation {
 
 export interface ClaimCheckRequest {
   claim: string;
+  projection?: InlineTextProjection;
+  figureIds?: readonly string[];
+  // A legal prefix can govern later literal parts without being repeated in them (#2002).
+  originalClaim?: string;
   figures?: readonly CheckFigure[];
   context?: string;
   cited?: readonly CheckedCitation[];
@@ -138,10 +150,25 @@ export interface ClaimCheckRequest {
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;
+  parts?: readonly ClaimPartPlan[];
+  only?: ClaimPartSpan;
+  previous?: readonly ClaimCheckPart[];
+  /** The run's limit on model checks at once, which its claims' parts share. */
+  slots?: Slots;
+  /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
+  opinionsLeftOut?: boolean;
+  /**
+   * The Run's first turn names the sentence's parts: told what that turn wrote before any further
+   * request, or what the Run wrote when it calls no Tool.
+   */
+  findParts?: (heard: string) => void;
 }
 
 /** Why a provider's failure left a claim not checked. */
-function failureOf(error: ProviderError): { reason: ClaimCheckFailure; detail: string | null } {
+export function failureOf(error: ProviderError): {
+  reason: ClaimCheckFailure;
+  detail: string | null;
+} {
   switch (error.kind) {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
@@ -194,6 +221,10 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
+export type AtomicClaimCheckResult = ClaimCheckResult & {
+  checkedEvidence?: readonly Citation[];
+  coverage?: ClaimPartCoverage;
+};
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
 
@@ -330,7 +361,7 @@ function citedSources(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return async function checkClaim(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
+  return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
     const { scope, signal } = request;
     const outsideCited = (request.cited ?? []).flatMap((citation) => {
       const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
@@ -355,7 +386,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let searches = 0;
     const read = new Map<string, string>();
     const excluded = new Map<string, LeftOutDocument>();
-    const decisions = caseCitations(request.claim);
+    const decisions = caseCitations(request.originalClaim ?? request.claim);
     const workings = new Map<string, PassageSearchResult[]>();
     const scoped: AnswerDocuments = {
       searchableCount: () => deps.documents.searchableCount(scope.documentIds),
@@ -456,6 +487,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           stated.clear();
         },
         calculate(given: readonly unknown[], options?: CiteOptions) {
+          // An empty list works nothing out: Claude Haiku 5.5 sends one beside a plain cite, and the
+          // quote alone decides such a sentence (#2002).
+          if (given.length === 0) return figures.calculate(given, options);
           attempts++;
           if (calculationFailures >= 2)
             return "The calculation and its repair were refused. Finish the check and say the arithmetic could not be checked.";
@@ -480,11 +514,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               });
           }
           const result = figures.calculate(givenList(given), options);
-          invalidInput = given.length === 0 || named.size !== given.length;
+          const unbound = [...named].find(([marker, number]) => {
+            if (!recorded.has(marker)) return false;
+            const citation = figures.figure(marker)?.inputs[0]?.citation;
+            return !statedFigure(
+              request.claim,
+              number.number,
+              citation ? figureContext(citation) : {},
+            );
+          });
+          invalidInput = named.size !== given.length || unbound !== undefined;
           if (invalidInput) {
             stated.clear();
             calculationFailures++;
-            return result;
+            return unbound
+              ? `Nothing was recorded for this sentence: stated ${JSON.stringify(unbound[1].number)} is not a readable quantity in the sentence. Copy the exact quantity characters from the sentence in its original language. ${calculationFailures >= 2 ? "The calculation and its repair were refused; finish the check and say the arithmetic could not be checked." : "Repair this input once with calculate."}`
+              : result;
           }
           for (const [marker, number] of named) {
             if (recorded.has(marker)) {
@@ -517,7 +562,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       claim = request.claim,
       bound?: readonly BoundNumber[],
       worked?: readonly Figure[],
-    ): { why: UnsupportedReason; quote: Citation | null } | null => {
+    ): { why: UnsupportedReason; quote: Citation | null; decides: boolean } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
           scoped
@@ -566,7 +611,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         )
           ? single
           : null;
-      const problem = (why: UnsupportedReason) => ({ why, quote });
+      const problem = (why: UnsupportedReason, decides = false) => ({ why, quote, decides });
+      if (found.kind === "which dollar" || found.kind === "yuan sign") {
+        const document = candidates[0]?.documentName ?? "";
+        const key =
+          found.kind === "which dollar"
+            ? "claim.unsupported.whichDollar"
+            : "claim.unsupported.yuanSign";
+        // The Document doesn't say the currency, so it neither backs nor contradicts one (#2226).
+        const reason = t(key, { document, amount });
+        return problem({ reason, covered: null, uncovered: null, found: true }, true);
+      }
       if (found.kind === "scale") {
         return problem({
           found: true,
@@ -586,7 +641,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         uncovered: t("claim.unsupported.currency.uncovered", { currency: found.currency }),
       });
     };
+    let retainedEvidence: Citation[] = [];
+    let namedEvidence: Citation[] = [];
+    let retainedCoverage: ClaimPartCoverage | undefined;
     const facts = () => ({
+      ...(retainedEvidence.length > 0 && { checkedEvidence: retainedEvidence }),
+      ...(retainedCoverage && { coverage: retainedCoverage }),
       versions: [...read].map(
         ([documentId, contentHash]): CheckedVersion => ({ documentId, contentHash }),
       ),
@@ -648,7 +708,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       session.check();
       const checked = calculated(request.claim, figures, stated, figureContext);
       const citations = [
-        ...foundCitations(session.finalCitation, null),
+        ...foundCitations(session.finalCitation, null, verdict.evidence ?? undefined),
         ...checked.flatMap(({ calculation }) =>
           calculation.figure.inputs.map((input) => input.citation),
         ),
@@ -697,6 +757,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     };
 
     let reply = "";
+    let heard = "";
+    let parted = false;
+    const hear = (text: string) => {
+      if (parted || !request.findParts) return;
+      parted = true;
+      request.findParts(text);
+    };
     let setAside: readonly string[] = [];
     let askedAbout: string | null = null;
     let askedFigures: string | null = null;
@@ -710,6 +777,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           options?.passages,
           calculating,
           (request.figures?.length ?? 0) > 0,
+          request.findParts !== undefined,
         ),
       messages: [
         {
@@ -730,6 +798,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
       isReply: (text) => readVerdict(text) !== null,
+      ...(request.findParts && { afterFirstStep: hear }),
       // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
       // in six of a whole Mind.
       turnChecks: [
@@ -766,12 +835,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ],
       signal,
     })) {
-      if (event.type === "text-delta") reply += event.text;
-      else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
+      if (event.type === "text-delta") {
+        reply += event.text;
+        heard += event.text;
+      } else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
       else if (event.type === "text-set-aside") setAside = event.texts;
       else if (event.type === "failed") failed = event.error;
       else if (event.type === "finished") finished = true;
     }
+    if (!failed) hear(heard);
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
@@ -818,6 +890,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
+      if (invalidInput || pending.size > 0) return notChecked("no-evidence");
       const judged = async (
         said: ReadVerdict,
         words: string,
@@ -910,6 +983,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
     const checked = calculated(request.claim, figures, stated, figureContext);
+    retainedEvidence = uniqueCitations(
+      checked.flatMap(({ calculation }) =>
+        calculation.figure.inputs.flatMap((input) => [
+          input.citation,
+          ...(input.unitStatement ? [input.unitStatement.citation] : []),
+        ]),
+      ),
+    );
     const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
     // A figure that disagrees contradicts the sentence. One that agrees settles only that
     // number: the model's verdict still stands on the rest of the sentence.
@@ -933,11 +1014,72 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const withVerdict = refused
       ? undefined
       : setAside.findLast((text) => readVerdict(text) !== null);
-    const verdict =
+    let verdict =
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
+    session.check();
+    if (verdict.evidence === null || verdict.coverage === null) return notChecked("malformed");
+    const namedMarkers = [
+      ...(verdict.evidence ?? []),
+      ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
+      ...(verdict.coverage?.domainEvidence ?? []),
+    ];
+    const rejectedMarkers = new Set(
+      session.summary().rejectedRecords.map((record) => record.marker),
+    );
+    const missing = [
+      ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
+    ];
+    if (
+      missing.length > 0 &&
+      !namedMarkers.some((marker) => {
+        const citation = session.finalCitation(marker);
+        return (citation !== null || rejectedMarkers.has(marker)) && citation?.check !== "found";
+      })
+    ) {
+      const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
+      if (isFailed(recovered)) failed = recovered.failed;
+    }
+    const namedCitations = namedMarkers.map((marker) => session.finalCitation(marker));
+    namedEvidence = uniqueCitations([
+      ...(verdict.evidence === undefined ? foundCitations(session.finalCitation, null) : []),
+      ...namedCitations.filter((citation): citation is Citation => citation?.check === "found"),
+    ]);
+    retainedEvidence = uniqueCitations([...retainedEvidence, ...namedEvidence]);
+    if (signal.aborted) return notChecked("stopped");
+    if (failed) return failedCheck(failed);
+    if (namedCitations.some((citation) => citation?.check !== "found"))
+      return notChecked("no-evidence");
+    if (verdict.coverage) {
+      const coverage = verdict.coverage;
+      const citations = (markers: readonly number[]) =>
+        uniqueCitations(
+          markers.flatMap((marker) => {
+            const citation = session.finalCitation(marker);
+            return citation?.check === "found" ? [citation] : [];
+          }),
+        );
+      retainedCoverage = {
+        unit: coverage.unit,
+        quantifier: coverage.quantifier,
+        complete: coverage.complete,
+        members: coverage.members.map((member) => ({
+          ...member,
+          evidence: citations(member.evidence),
+        })),
+        domainEvidence: citations(coverage.domainEvidence),
+      };
+      const backed = coverage.members.filter((member) => member.verdict === "supported").length;
+      const enough =
+        coverage.quantifier === "most"
+          ? backed > coverage.members.length / 2
+          : backed === coverage.members.length;
+      if ((!coverage.complete || !enough) && verdict.verdict === "supported") {
+        verdict = { ...verdict, verdict: "unsupported", says: null };
+      }
+    }
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked
@@ -970,8 +1112,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // workings saying it take the card instead, so their check asks for no quote.
       const quoted =
         nearest ||
-        !why.covered ||
-        !why.uncovered ||
+        (!why.kind && (!why.covered || !why.uncovered)) ||
         (request.cited?.length ?? 0) > 0 ||
         opinions.missing ||
         workingsSayingIt().length > 0
@@ -983,6 +1124,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               // Only the card's quote rests on it: the verdict stands without.
               notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
       if (signal.aborted) return notChecked("stopped");
+      retainedEvidence = uniqueCitations([
+        ...retainedEvidence,
+        ...(quoted ? [quoted] : []),
+        ...(nearest ? [nearest] : []),
+      ]);
       const left = facts();
       return {
         verdict: "unsupported",
@@ -996,6 +1142,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
     };
     session.check();
+    if (verdict.reasonKind) {
+      return unsupported(
+        {
+          kind: verdict.reasonKind,
+          reason: translate(
+            deps.language(),
+            verdict.reasonKind === "forecast-certainty" ? "claim.forecast" : "claim.unbackedCause",
+          ),
+          covered: verdict.covered,
+          uncovered: verdict.uncovered,
+          found: true,
+        },
+        namedEvidence[0] ?? null,
+        null,
+      );
+    }
     if (verdict.verdict === "unsupported" && !byCalculation) {
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
@@ -1008,18 +1170,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ...((verdict.topic === "found" || parts) && { found: true }),
       });
     }
-    const cited =
-      decidingCitation(session.finalCitation) ??
-      (await askForEvidence(request, verdict, session, signal));
+    const cited = namedEvidence[0] ?? (await askForEvidence(request, verdict, session, signal));
     const evidence = cited ?? worked?.evidence ?? null;
     const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(evidence)) return failedCheck(evidence.failed);
     if (!evidence) return notChecked("no-evidence");
+    retainedEvidence = uniqueCitations([...retainedEvidence, evidence]);
+    const deciding = retainedEvidence;
     const unitProblem = unstatedUnit(
       [
         evidence,
-        ...foundCitations(session.finalCitation, evidence),
+        ...retainedEvidence,
         ...checked.flatMap(({ calculation }) =>
           calculation.figure.inputs.map((input) => input.citation),
         ),
@@ -1029,7 +1191,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       checked.map(({ number }) => number),
     );
     const unit = unitProblem?.why ?? null;
-    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
+    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation || unitProblem?.decides))
       return unsupported(unit, unitProblem?.quote ?? null, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
     // Only a reason or part about that figure alone is settled; a found topic or any independent
@@ -1068,7 +1230,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     // The reply's own parts, else the model is asked for them once: a part too long to be a
     // phrase left Claude Sonnet 5.5's "Employees…" Supported (#1647).
-    const parts = async (quoted: Citation) =>
+    const parts = async (quoted: Citation | readonly Citation[]) =>
       verdict.covered && verdict.uncovered
         ? { covered: verdict.covered, uncovered: verdict.uncovered }
         : await partOf(request, quoted, session, signal, deps.language());
@@ -1079,7 +1241,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // field of its own, so the verdict doesn't rest on the model weighing it.
     const differs = verdict.roles === "differs";
     if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
-      const part = await parts(evidence);
+      const part = await parts(deciding);
       if (signal.aborted) return notChecked("stopped");
       if (isFailed(part)) return failedCheck(part.failed);
       // The Passage the check cited states the term's own value, so no nearest line is asked about.
@@ -1104,14 +1266,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
         if (byCalculation) return byCalculation;
         if (verdict.topic === "not found") return unsupported();
-        const part = await parts(evidence);
+        const part = await parts(deciding);
         if (signal.aborted) return notChecked("stopped");
         if (isFailed(part)) return failedCheck(part.failed);
         if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
-      const confirmation = await confirmContradiction(request, evidence, session, signal);
+      const confirmation = await confirmContradiction(request, deciding, session, signal);
       if ("failed" in confirmation) return failedCheck(confirmation.failed);
       if (confirmation.kind === "stopped") return notChecked("stopped");
       // The Passage is about something else: what is nearest may still say something different.
@@ -1204,6 +1366,7 @@ async function askForEvidence(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   covered: string | null = null,
+  markers: readonly number[] = [],
 ): Promise<Citation | null | Failed> {
   const passages = session.shownPassages();
   if (passages.length === 0) return null;
@@ -1213,9 +1376,9 @@ async function askForEvidence(
     ({ text: reply } = await generateText({
       model: model.model,
       instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
-      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages }),
+      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 600,
+      maxOutputTokens: Math.min(4000, 600 * Math.max(1, markers.length)),
       maxRetries: 1,
       abortSignal: signal,
     }));
@@ -1224,12 +1387,37 @@ async function askForEvidence(
       console.error(`A check's evidence couldn't be asked for again: ${messageOf(error)}`);
     return { failed: classifyProviderError(error) };
   }
-  const record = readEvidence(reply);
-  if (!record) return null;
-  session.tools.cite([{ marker: EVIDENCE_MARKER, ...record }], { structured: true });
+  const records: CitationRecordInput[] = [];
+  if (markers.length === 0) {
+    const record = readEvidence(reply);
+    if (!record) return null;
+    records.push({ marker: EVIDENCE_MARKER, ...record });
+  } else {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1));
+    } catch {
+      return null;
+    }
+    if (
+      !isRecord(parsed) ||
+      !Array.isArray(parsed.citations) ||
+      parsed.citations.length !== markers.length
+    )
+      return null;
+    const missing = new Set(markers);
+    for (const given of parsed.citations) {
+      if (!isRecord(given) || typeof given.marker !== "number" || !missing.delete(given.marker))
+        return null;
+      const record = readEvidence(JSON.stringify(given));
+      if (!record) return null;
+      records.push({ marker: given.marker, ...record });
+    }
+  }
+  session.tools.cite(records, { structured: true });
   session.check();
-  const citation = session.finalCitation(EVIDENCE_MARKER);
-  return citation?.check === "found" ? citation : null;
+  const citations = records.map((record) => session.finalCitation(record.marker));
+  return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
 }
 
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
@@ -1281,7 +1469,7 @@ const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : 
 
 async function confirmContradiction(
   request: ClaimCheckRequest,
-  quoted: Citation,
+  quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
 ): Promise<
@@ -1303,7 +1491,7 @@ async function confirmContradiction(
 
 async function partOf(
   request: ClaimCheckRequest,
-  quoted: Citation,
+  quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
   language: Language,
@@ -1410,20 +1598,16 @@ const EVIDENCE_MARKER = 99;
 function foundCitations(
   finalCitation: (marker: number) => Citation | null,
   deciding: Citation | null,
+  markers: readonly number[] = [1, 2, 3, 4],
 ): Citation[] {
   const found: Citation[] = [];
-  for (let marker = 1; marker <= 4; marker++) {
+  for (const marker of markers) {
     const citation = finalCitation(marker);
     if (citation?.check !== "found") continue;
-    if (
-      deciding &&
-      citation.documentId === deciding.documentId &&
-      citation.quote === deciding.quote
-    )
-      continue;
+    if (deciding && citationKey(citation) === citationKey(deciding)) continue;
     found.push(citation);
   }
-  return found;
+  return uniqueCitations(found);
 }
 
 /** The Citation that decides a claim: marker 1's, or the first other marker's, whose quote the check found. */
@@ -1434,3 +1618,18 @@ function decidingCitation(finalCitation: (marker: number) => Citation | null): C
   }
   return null;
 }
+
+const citationKey = (citation: Citation) =>
+  JSON.stringify([
+    citation.documentId,
+    citation.contentHash,
+    citation.passageId,
+    citation.pageFrom,
+    citation.pageTo,
+    citation.location,
+    citation.quote,
+  ]);
+
+const uniqueCitations = (citations: readonly Citation[]): Citation[] => [
+  ...new Map(citations.map((citation) => [citationKey(citation), citation])).values(),
+];

@@ -69,6 +69,9 @@ export type Yours = (typeof YOURS)[number];
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;
 
+/** To review's Accept all: it names no ids, filing every waiting suggestion (#2243). */
+export const ACCEPT_SUGGESTIONS = "library.acceptSuggestions" satisfies CommandId;
+
 /**
  * What a command does to a recording (#1421): "starts" can turn on the microphone or the
  * computer's sound, so the assistant always asks first; "ends" only stops one, which can't send

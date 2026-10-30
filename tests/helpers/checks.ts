@@ -2,8 +2,11 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
-
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { listedSentences } from "./claimSentences";
+
+export { listedSentences } from "./claimSentences";
+
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
 import { readFigures } from "../../src/shared/figures";
@@ -116,16 +119,11 @@ export const sentenceOf = (call: ModelCall) => {
   return SENTENCE.exec(text)?.[1] ?? "";
 };
 
-/** The numbers of the listed sentences ("[3] …") that have a plan. */
-/** Each listed sentence's decision: a claim when there is a plan for it. */
-function plannedDecisions(prompt: string, plans: Record<string, Plan>): Record<string, string> {
-  return Object.fromEntries(
-    prompt.split("\n").flatMap((line) => {
-      const listed = /^\[(\d+)\] (.*)$/.exec(line);
-      if (listed?.[1] === undefined || listed[2] === undefined) return [];
-      return [[listed[1], listed[2] in plans ? "claim" : "no"]];
-    }),
-  );
+function plannedParts(prompt: string, plans: Record<string, Plan>) {
+  return listedSentences(prompt).map(({ number, text }) => ({
+    number,
+    parts: text in plans ? [{ kind: "fact", text }] : [],
+  }));
 }
 
 /** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
@@ -179,14 +177,14 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id }) => ({
+      const items = figures.map(({ id, reading }) => ({
         id,
         verdict: "unsupported",
         scope: "same",
         topic: "not found",
         roles: "same",
         says: null,
-        reading: null,
+        reading,
         relation: "equals",
         source: null,
         calculation: null,
@@ -250,7 +248,7 @@ export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
     if (call.system.startsWith("You sort the sentences")) {
-      return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
+      return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
       return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };

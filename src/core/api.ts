@@ -237,8 +237,13 @@ export interface CreateMindInput {
  *   cells are records of kind "cell" in `MIND_SIGN_OFFS_FIELD`. An older editor
  *   would strip the attributes, so it opens these Notes read-only. Older
  *   content is version 34 content as it is.
+ * - 35: ordered factual and opinion parts inside a sentence's `claimCheck`
+ *   mark, the opinions a check left out (`opinionSentences`) and the parts in
+ *   the verification record (#2002). Older editors strip the part ranges and
+ *   their evidence when saving marked words, so these Notes open read-only
+ *   there. Older content is version 35 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 34;
+export const CONTENT_SCHEMA_VERSION = 35;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5546,6 +5551,7 @@ export type ClaimCheckFailure =
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
+  kind?: "forecast-certainty" | "unbacked-cause";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -5603,6 +5609,76 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** UTF-16 offsets into the checked sentence; end is exclusive. */
+export interface ClaimPartSpan {
+  start: number;
+  end: number;
+}
+
+export interface ClaimPartPlan {
+  span: ClaimPartSpan;
+  kind: "fact" | "opinion";
+}
+
+export interface ClaimPartCoverageMember {
+  label: string;
+  verdict: ClaimVerdict | "not-checked";
+  evidence: CitationAttributes[];
+}
+
+export interface ClaimPartCoverage {
+  unit: string;
+  quantifier: "all" | "most";
+  complete: boolean;
+  members: ClaimPartCoverageMember[];
+  domainEvidence: CitationAttributes[];
+}
+
+export interface ClaimCheckPart extends ClaimPartPlan {
+  verdict: ClaimVerdict | "not-checked" | "checking" | null;
+  kept?: true;
+  figures?: ClaimPartFigure[];
+  remainder?: ClaimPartJudgment | null;
+  evidence: CitationAttributes[];
+  decidingEvidence?: number | null;
+  says: string | null;
+  unsupported: UnsupportedReason | null;
+  calculation: ClaimCalculation | null;
+  reason: ClaimCheckFailure | null;
+  detail: string | null;
+  versions: CheckedVersion[];
+  excluded: LeftOutDocument[];
+  citedCaseUnchecked: boolean;
+  citedCaseFound: boolean;
+  coverage?: ClaimPartCoverage;
+}
+
+export type ClaimPartJudgment = (
+  | ClaimJudgment
+  | {
+      verdict: "checking";
+      versions: CheckedVersion[];
+      excluded: LeftOutDocument[];
+      kept?: true;
+    }
+) &
+  Partial<
+    Pick<
+      ClaimCheckBasis,
+      "id" | "request" | "action" | "text" | "scope" | "checkedAt" | "providerId" | "modelId"
+    >
+  >;
+
+export type ClaimPartFigure = FigureFinding & { result: ClaimPartJudgment };
+
+export interface OpinionSentence {
+  id: string;
+  blockId: string;
+  text: string;
+  occurrence: number;
+  parts: ClaimCheckPart[];
+}
+
 /** A password-protected PDF Document, and the password to open it with (#763). */
 export interface UnlockDocumentInput {
   documentId: string;
@@ -5618,6 +5694,8 @@ export type UnlockDocumentResult =
 export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
+      kept?: true;
+      parts?: ClaimCheckPart[];
       /**
        * For "supported" and "contradicted": the Passage that decides it, as a
        * Citation whose quote the Citation check found; for a figure worked out,
@@ -5645,6 +5723,8 @@ export type ClaimJudgment =
     }
   | {
       verdict: "not-checked";
+      kept?: true;
+      parts?: ClaimCheckPart[];
       reason: ClaimCheckFailure;
       /** "failed": the provider's message. */
       detail: string | null;
@@ -5797,6 +5877,7 @@ export interface ClaimCheckBasis {
   request: string;
   action: ClaimCheckAction;
   state: "checking" | ClaimVerdict | "not-checked";
+  parts?: ClaimCheckPart[];
   /** "not-checked": why. */
   reason: ClaimCheckFailure | null;
   /** "failed": the provider's message. */
@@ -5804,7 +5885,7 @@ export interface ClaimCheckBasis {
   /** The model that checked it; null on a mark made before it was kept. */
   providerId: string | null;
   modelId: string | null;
-  /** The sentence as it was checked: an inline node as U+FFFC, a line break as "\n". */
+  /** The sentence as checked; part ranges index this exact text. */
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
@@ -5839,6 +5920,7 @@ export interface CheckSentencesInput {
   /** Chosen by the caller, so it can stop the request (`cancelCheck`). */
   requestId: string;
   mindId: string;
+  part?: { id: string; span: ClaimPartSpan };
   /** Where the selection starts, and where it ends: each sentence it touches is checked, whole. */
   from: TextPlace;
   to: TextPlace;
@@ -6113,7 +6195,9 @@ export type VerifyClaimsResult =
    * checked. `stop`: the monthly cap or a plan's limit stopped the run, and the
    * claims after it say so.
    */
-  { kind: "checked"; claims: number; checked: number; stop: RunStop | null } | VerifyRefusal;
+  | { kind: "checked"; claims: number; checked: number; stop: RunStop | null }
+  | { kind: "failed"; error: ProviderError }
+  | VerifyRefusal;
 
 /** What asking a Question (or regenerating its Answer) did. */
 export type AskResult =
@@ -8476,7 +8560,11 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  targets: { kind: CommandTarget; id: string }[];
+  /**
+   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
+   * the core checked it against (null: none): it is accepted only while it waits for that one.
+   */
+  targets: { kind: CommandTarget; id: string; into?: string | null }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -9666,8 +9754,13 @@ export interface CoreApi {
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
    * unknown Document throws and changes nothing. Returns what changed.
+   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
+   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
    */
-  acceptAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
+  acceptAssignments(
+    documentIds: string[],
+    checked?: Record<string, string | null>,
+  ): Promise<AssignmentChange[]>;
   /**
    * Turns down these Documents' Suggested Folders: each is left Not in a
    * Folder, and Organize doesn't suggest that Folder for it again. Documents
@@ -9970,7 +10063,8 @@ export interface CoreApi {
    * The file is written in the data folder ("Saved text"), never next to the
    * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
    * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
-   * already gets a number. Throws InvalidInputError for text with no words.
+   * already gets a number. Throws InvalidInputError for text with no words, and NotFoundError,
+   * saving nothing, once that Note or conversation is deleted.
    */
   saveTextAsDocument(
     input: {
@@ -9981,7 +10075,8 @@ export interface CoreApi {
   /**
    * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
    * Note's, else the conversation's when no Note is open; null outside every wall. What the
-   * composer shows and files follows it.
+   * composer shows and files follows it. Throws NotFoundError once that Note or conversation is
+   * deleted.
    */
   wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**

@@ -356,6 +356,15 @@ export const en = {
     "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
   "error.folder.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.paste.conversationGone":
+    "The pasted text wasn’t saved: this conversation has been deleted.",
+  "error.paste.noteGone": "The pasted text wasn’t saved: this note has been deleted.",
+  "error.folder.wallAccept":
+    "Not accepted: some suggestions would file Documents into a Folder that keeps its work inside it, and the assistant can’t do that from outside it. You can still accept them yourself in To review.",
+  "error.folder.suggestionMoved":
+    "Not accepted: a suggested Folder changed after the assistant checked it, so nothing was accepted. You can accept them yourself in To review.",
+  "error.folder.wallAcceptInside":
+    "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
   "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
@@ -859,6 +868,7 @@ export const en = {
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
   "claim.addAsCitation": "Add as Citation",
+  "claim.addAllAsCitations": "Add all as Citations",
   "claim.alreadyCited": "Already cited",
   "claim.alreadyCited.open": "Already cited: open citation {number}",
   "claim.widenCitation": "Widen the Citation",
@@ -895,6 +905,8 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
+  "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.openCitation": "Open citation {number}",
   "claim.cutUnsupported": "Cut the unsupported part",
   "claim.keepAsView": "Keep as my view",
@@ -931,6 +943,20 @@ export const en = {
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
   "claim.searchWeb": "Search the web",
+  "error.check.partChecking": "This sentence is being checked. Wait for it to finish.",
+  "error.check.partChanged": "Those words have changed. Check the sentence again.",
+  "claim.usedDocumentWording": "Changed to what the Document says",
+  "claim.useDocumentWording": "Use the Document’s wording",
+  "opinions.one": "1 opinion left out",
+  "opinions.count": "{count} opinions left out",
+  "opinions.show": "Show",
+  "claim.opinion": "Left out as an opinion",
+  "claim.checkAnyway": "Check anyway",
+  "claim.part.checking": "Checking this part…",
+  "claim.parts.more": "{count} more",
+  "claim.parts.coverage": "Covers {covered} of the {total} {unit}",
+  "claim.unbackedCause": "The Documents state both, but not that one caused the other.",
+  "claim.forecast": "The Document forecasts this but doesn’t say it will happen",
   "claim.more": "More for this check",
   "claim.webSearchOff": "Turn on web search to look this up.",
   "claim.webSearchOff.action": "Open Settings",
@@ -4384,6 +4410,7 @@ export const en = {
   "error.commands.noFolderName": "The command needs the Folder’s name.",
   "error.commands.noTag": "The command needs the Tag’s name.",
   "error.commands.noFolderPath": "The command needs the folder to add files from.",
+  "error.commands.nothingWaiting": "Nothing is waiting in To review.",
   "error.commands.noIds": "The command needs the Documents or notes it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
   "error.commands.exampleDocument":
@@ -4715,6 +4742,7 @@ export const en = {
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
+  "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":
