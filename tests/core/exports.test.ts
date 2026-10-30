@@ -225,6 +225,20 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<w:bookmarkStart w:id="0" w:name="_Toc90000001"/>');
     expect(document).toContain('<w:bookmarkStart w:id="1" w:name="_Toc90000002"/>');
     expect(part(files, "word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+
+    // The other exports draw it from the same headings.
+    const markdown = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    );
+    expect(markdown).toContain("**Contents**");
+    expect(markdown).toContain("- Spring tides");
+    expect(markdown).toContain("  - Neap tides");
+    const html = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "html" })).data,
+    );
+    expect(html).toContain('class="toc"');
+    expect(html).toContain("Spring tides");
+    expect(html).toContain("Neap tides");
   });
 
   test("a Note without a table of contents writes no field, and Word is asked to update nothing", async () => {
