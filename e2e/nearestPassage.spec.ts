@@ -111,6 +111,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect
       .poll(() => window.evaluate(() => globalThis.getSelection()?.toString() ?? ""))
       .toContain("Harbours publish forecasts");
+    // Fix leaves the sentence selected and its menu over the next mark: close it first.
+    await expect(window.getByTestId("selection-menu")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("selection-menu")).toHaveCount(0);
 
     // An unrelated sentence keeps today's wording.
     await pointAndClick(window, marks.nth(1));
