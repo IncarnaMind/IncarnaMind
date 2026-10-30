@@ -453,6 +453,44 @@ const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes => {
   return withResult({ ...settled, parts }, resultFromParts(parts), check.checkedAt);
 };
 
+/**
+ * `parts`, each keeping the result it had when its check again stayed inside a wall, or came back
+ * Unsupported only because its deciding Passage is behind another wall (#1934); null when none did.
+ */
+function partsKeptInside(
+  parts: readonly ClaimCheckPart[],
+  before: readonly ClaimCheckPart[],
+  behindAnotherWall: (citation: CitationAttributes | undefined) => boolean,
+): ClaimCheckPart[] | null {
+  let kept = false;
+  const next = parts.map((part) => {
+    const prior = before.find(
+      (each) =>
+        each.kind === part.kind &&
+        each.span.start === part.span.start &&
+        each.span.end === part.span.end,
+    );
+    if (
+      !prior ||
+      prior.verdict === null ||
+      prior.verdict === "checking" ||
+      prior.verdict === "not-checked"
+    )
+      return part;
+    const deciding =
+      prior.decidingEvidence === null ? undefined : prior.evidence[prior.decidingEvidence ?? 0];
+    if (
+      (part.verdict === "not-checked" && part.reason === "kept-inside") ||
+      (part.verdict === "unsupported" && behindAnotherWall(deciding))
+    ) {
+      kept = true;
+      return prior;
+    }
+    return part;
+  });
+  return kept ? next : null;
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
 
@@ -467,8 +505,10 @@ export function createChecks(options: ChecksOptions) {
     previous: ClaimCheckAttributes | null = null,
   ): ClaimCheckAttributes {
     const before = previous ?? check;
-    const evidence = before.evidence;
-    const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
+    const behindAnotherWall = (citation: CitationAttributes | null | undefined) => {
+      const wall = citation?.documentId ? options.walledDocument(citation.documentId) : null;
+      return wall !== null && wall !== options.walledFolder(mindId);
+    };
     if (
       result.verdict === "not-checked" &&
       result.reason === "kept-inside" &&
@@ -481,11 +521,15 @@ export function createChecks(options: ChecksOptions) {
       result.verdict === "unsupported" &&
       before.state !== "checking" &&
       before.state !== "not-checked" &&
-      evidenceWall !== null &&
-      evidenceWall !== options.walledFolder(mindId)
+      behindAnotherWall(before.evidence)
     ) {
       return before;
     }
+    const keptParts =
+      result.parts &&
+      before.parts &&
+      partsKeptInside(result.parts, before.parts, behindAnotherWall);
+    if (keptParts) result = resultFromParts(keptParts);
     return withResult(
       check,
       {
