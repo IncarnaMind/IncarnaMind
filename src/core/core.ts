@@ -1815,6 +1815,7 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
@@ -4686,6 +4687,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
+    holdMindCheck: async (input) => checks.holdMindCheck(input),
+    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),

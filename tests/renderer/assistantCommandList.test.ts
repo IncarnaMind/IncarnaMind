@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { DEFAULT_ASSISTANT, type Mind, type WindowLayout } from "../../src/core/api";
 import type { Command } from "../../src/renderer/src/commands/registry";
 import {
   COMMAND_TARGETS,
@@ -23,9 +24,29 @@ let registry: Registry;
 let window: Window;
 let catalogue: Catalogue;
 
+/** The Note a command acts on, as the store keeps it. */
+const dealNotes: Mind = {
+  id: "note",
+  title: "Deal notes",
+  autoTitle: "",
+  kind: "mind",
+  createdAt: "2026-10-02T14:20:00.000Z",
+  updatedAt: "2026-10-02T14:20:00.000Z",
+  folderId: null,
+};
+
+/** The core's answers a test gives, by method; every other call answers nothing. */
+const answers = new Map<string, (input: unknown) => unknown>();
+
 beforeAll(async () => {
   // The commands reach the store, which reads the bridge the preload exposes.
-  const bridge = new Proxy({}, { get: () => () => () => undefined });
+  const bridge = new Proxy(
+    {},
+    {
+      get: (_target, name) =>
+        typeof name === "string" && answers.has(name) ? answers.get(name) : () => () => undefined,
+    },
+  );
   (globalThis as unknown as { window: unknown }).window = {
     incarnamind: bridge,
     incarnamindFiles: bridge,
@@ -35,6 +56,8 @@ beforeAll(async () => {
   window = await import("../../src/renderer/src/assistantWindow");
   catalogue = await import("../../src/core/tools/commands/catalogue");
 });
+
+afterEach(() => answers.clear());
 
 /** What each command's own conditions were, put back after a test stubs them. */
 const stubbed: {
@@ -154,20 +177,39 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         groups: [
           {
             id: "left",
-            tabs: [{ id: "t1", item: { kind: "mind", mindId: "note" } }],
+            tabs: [
+              {
+                id: "t1",
+                item: { kind: "mind", mindId: "note" },
+                preview: false,
+                pinned: false,
+                place: null,
+                opened: 0,
+              },
+            ],
             activeTabId: "t1",
             width: 1,
           },
           {
             id: "right",
-            tabs: [{ id: "t2", item: { kind: "document", documentId: "one" } }],
+            tabs: [
+              {
+                id: "t2",
+                item: { kind: "document", documentId: "one" },
+                preview: false,
+                pinned: false,
+                place: null,
+                opened: 0,
+              },
+            ],
             activeTabId: "t2",
             width: 1,
           },
         ],
         focusedGroupId: "right",
         reopenable: 0,
-      } as never,
+        assistant: DEFAULT_ASSISTANT,
+      } satisfies WindowLayout,
     });
     try {
       expect(window.offeredCommands(null).map((each) => each.id)).not.toContain("mind.check");
@@ -241,8 +283,10 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     check.run = run;
     const minds = useAppStore.getState().minds;
     const running = useChecks.getState().running;
-    useAppStore.setState({ minds: [{ id: "note", title: "Deal notes" } as never] });
-    useChecks.setState({ running: { ...running, note: {} as never } });
+    useAppStore.setState({ minds: [dealNotes] });
+    useChecks.setState({
+      running: { ...running, note: { requestId: "one", action: "whole-mind" } },
+    });
     try {
       const { started, ended } = window.startForAssistant({
         requestId: "request",
@@ -263,6 +307,94 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     } finally {
       useAppStore.setState({ minds });
       useChecks.setState({ running });
+    }
+  });
+
+  // protects=a second window's Check while another window runs or plans one starts none, and its card says it is already checking that Note by name, never Done, in both languages; fails_when=the card reads Done, or starts a run; no_claim=the Check itself.
+  test("a second window's Check says it is already checking, never Done, in both languages", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useChecks } = await import("../../src/renderer/src/checks");
+    const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    const { commandCallText } = await import("../../src/renderer/src/commandFacts");
+    const { translate } = await import("../../src/shared/i18n");
+    const minds = useAppStore.getState().minds;
+    const openMind = useAppStore.getState().openMind;
+    useAppStore.setState({
+      minds: [dealNotes],
+      openMind: () => {},
+    });
+    useChecks.setState({ running: {} });
+    useMindCheck.setState({ asking: {}, unchanged: {} });
+    // Another window keeps the Note, planning its Check.
+    answers.set("holdMindCheck", async () => false);
+    try {
+      const { started, ended } = window.startForAssistant({
+        requestId: "request",
+        answerId: "answer",
+        toolCallId: "call",
+        run: "run",
+        mindId: "note",
+        clientId: "window",
+        command: "mind.check",
+        targets: [],
+      });
+      expect(started).toBe(true);
+      const { result } = await ended;
+      expect(result).toEqual({
+        ran: false,
+        why: expect.any(String),
+        wording: { key: "commands.window.alreadyChecking", values: { name: "Deal notes" } },
+      });
+
+      const failed = {
+        id: "call",
+        tool: "run_command",
+        source: "commands",
+        input: {},
+        status: "failed",
+        commandProblem: {
+          command: "mind.check",
+          message: "",
+          wording: result.ran ? null : result.wording,
+        },
+      } as unknown as Parameters<typeof commandCallText>[1];
+      expect(commandCallText((key, params) => translate("en", key, params), failed)).toBe(
+        "Already checking “Deal notes”",
+      );
+      expect(commandCallText((key, params) => translate("zh-CN", key, params), failed)).toBe(
+        "正在核对“Deal notes”",
+      );
+
+      // The Note is free to plan, and the core refuses the run itself: the card still says already.
+      answers.set("holdMindCheck", async () => true);
+      answers.set("planMindCheck", async () => ({
+        kind: "ready",
+        sentences: 1,
+        findsClaims: false,
+        inFolder: false,
+        model: null,
+      }));
+      answers.set("planContradictionCheck", async () => ({ kind: "no-folder" }));
+      answers.set("checkMind", async () => ({ kind: "running" }));
+      const second = window.startForAssistant({
+        requestId: "request-2",
+        answerId: "answer",
+        toolCallId: "call-2",
+        run: "run-2",
+        mindId: "note",
+        clientId: "window",
+        command: "mind.check",
+        targets: [],
+      });
+      expect(second.started).toBe(true);
+      const refused = (await second.ended).result;
+      expect(refused).toEqual({
+        ran: false,
+        why: expect.any(String),
+        wording: { key: "commands.window.alreadyChecking", values: { name: "Deal notes" } },
+      });
+    } finally {
+      useAppStore.setState({ minds, openMind });
     }
   });
 
