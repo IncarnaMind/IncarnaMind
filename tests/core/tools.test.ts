@@ -118,6 +118,7 @@ describe("The Tools a Run offers", () => {
       "edit_mind",
       "find_sources",
       "list_commands",
+      "read_document",
       "read_mind",
       "read_skill_file",
       "read_web_page",
@@ -256,15 +257,19 @@ describe("Each Tool declares its Effects: what a call with its input can do", ()
     const documents: AnswerTools = {
       documentCount: 1,
       searchDocuments: async () => ({ text: "", passageCount: 0 }),
+      readDocument: async () => ({ text: "", passageCount: 0 }),
       cite: () => "Recorded.",
     };
-    const { search, cite } = documentTools(documents, {
+    const { search, read, cite } = documentTools(documents, {
       fit: (found) => found,
       searched: () => undefined,
       cited: () => undefined,
     });
 
     expect(search.effects({ query: "high water" })).toEqual([
+      { action: "read", scope: { kind: "documents" } },
+    ]);
+    expect(read?.effects({ document: "Filing", pages: "2" })).toEqual([
       { action: "read", scope: { kind: "documents" } },
     ]);
     expect(cite.effects({ citations: [] })).toEqual([]);

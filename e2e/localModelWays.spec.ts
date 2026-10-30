@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { modelName } from "../src/shared/modelName";
 import {
   assistantAnswers,
   createDataFolder,
@@ -168,6 +169,7 @@ for (const language of LANGUAGES) {
     await newMind(window);
     await window.getByTestId("mind-editor").click();
     const recommended = await bridge(window).recommendedModel();
+    const shownModel = modelName(recommended, { kind: "ollama" });
 
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type("What is IncarnaMind?");
@@ -183,7 +185,11 @@ for (const language of LANGUAGES) {
       await expect(window.getByTestId("settings")).toBeHidden();
       await expect(dialog.getByTestId("local-model-status")).toHaveText(words.notDetected);
       await expect(dialog.getByTestId("local-model-recommended")).toHaveText(
-        words.recommended(recommended),
+        words.recommended(shownModel),
+      );
+      await expect(dialog.getByTestId("local-model-recommended")).toHaveAttribute(
+        "title",
+        recommended,
       );
       await expect(dialog.getByTestId("ollama-get")).toHaveText(words.get);
       await expect(dialog.getByTestId("ollama-check-again")).toBeVisible();
@@ -203,7 +209,8 @@ for (const language of LANGUAGES) {
     await pointAndClick(window, dialog.getByTestId("ollama-check-again"));
     await expect(dialog.getByTestId("local-model-status")).toHaveText(words.detected);
     const use = dialog.getByTestId("ollama-use");
-    await expect(use).toHaveText(words.use(recommended));
+    await expect(use).toHaveText(words.use(shownModel));
+    await expect(use).toHaveAttribute("title", recommended);
     await screenshot(dialog, `local-model-use-${language}`);
     await pointAndClick(window, use);
 
@@ -217,6 +224,9 @@ for (const language of LANGUAGES) {
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
       timeout: 15_000,
     });
+    const assistant = window.getByTestId("assistant");
+    await expect(assistant).toContainText(shownModel);
+    await expect(assistant).not.toContainText(recommended);
     await app.close();
   });
 

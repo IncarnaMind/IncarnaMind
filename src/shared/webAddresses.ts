@@ -45,3 +45,18 @@ export function typedAddresses(text: string): { line: string; address: string | 
     .filter(Boolean)
     .map((line) => ({ line, address: normaliseAddress(line) }));
 }
+
+/**
+ * The host an address names, without "www.": what a web page is called where it must not be
+ * believed by its own title, as on an approval card (#2240). Null for anything that isn't an
+ * http or https address with a host, so a caller leaves it out rather than show the address.
+ */
+export function webHostOf(address: string): string | null {
+  try {
+    const url = new URL(address);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.hostname.replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}

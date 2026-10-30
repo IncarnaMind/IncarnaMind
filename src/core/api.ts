@@ -9,7 +9,9 @@ import type {
   LibrarySettings,
   LibrarySnapshot,
   TaggingClassifier,
+  TaggingFlow,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 import type { UiUsageEvent } from "./usageEvents";
 
@@ -29,9 +31,11 @@ export type {
   TaggingClassifier,
   TaggingCost,
   TaggingDestination,
+  TaggingFlow,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
+  TaggingRoute,
 } from "./library/types";
 
 /**
@@ -53,7 +57,7 @@ import type {
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { ClaimCheckShown } from "../shared/claimChecks";
-import type { AppCommandId, AssistantCommandId } from "../shared/commands";
+import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -232,11 +236,25 @@ export interface CreateMindInput {
  *   writes the table back without it when it changes it, so it opens these
  *   Notes read-only. Older content is version 33 content as it is, its table
  *   called "Comparison table" until the User names it.
- * - 34: a comparison cell records a hand edit, its reviewed projection and the
- *   refill pass allowed to write it (#1836). An older editor would strip these
- *   attributes, so it opens these Notes read-only. Older content is version 34
- *   content as it is.
- * - 35: a Word file's footnotes and endnotes are the Note's own footnotes
+ * - 34: a comparison cell records a hand edit (`edited`) and the refill pass
+ *   allowed to write it (`fillId`, #1836); people's "Checked by me" marks on
+ *   cells are records of kind "cell" in `MIND_SIGN_OFFS_FIELD`. An older editor
+ *   would strip the attributes, so it opens these Notes read-only. Older
+ *   content is version 34 content as it is.
+ * - 35: ordered factual and opinion parts inside a sentence's `claimCheck`
+ *   mark, the opinions a check left out (`opinionSentences`) and the parts in
+ *   the verification record (#2002). Older editors strip the part ranges and
+ *   their evidence when saving marked words, so these Notes open read-only
+ *   there. Older content is version 35 content as it is.
+ * - 36: the individual record cites in a sentence's check (#1709): their raw
+ *   text, outcome, resolved Document/version/Location, passage and any
+ *   candidates or nearby suggestion. An older editor would drop them, so it
+ *   opens these Notes read-only. Existing content needs no conversion.
+ * - 37: `readDocuments` on a `claimCheck` mark (#1443): the whole Documents
+ *   read to decide an absence sentence, which an older editor would strip,
+ *   losing both the card's Locations and the dependency that makes a changed
+ *   Document need a re-check. Older content is version 37 content as it is.
+ * - 38: a Word file's footnotes and endnotes are the Note's own footnotes
  *   (#746): `FOOTNOTE_NODE` gains `source` and `endnote`, and its text may hold
  *   what the import keeps as is (`WORD_ATOM_NODE`); page breaks are
  *   `PAGE_BREAK_NODE`, in every Note; a column break is an atom of its own
@@ -245,7 +263,7 @@ export interface CreateMindInput {
  *   read-only notes and breaks until it is opened, when they are converted
  *   from its kept package (`convertWordParts`).
  */
-export const CONTENT_SCHEMA_VERSION = 35;
+export const CONTENT_SCHEMA_VERSION = 38;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1093,12 +1111,14 @@ export interface UserQuestionRequest extends AnswerPlace {
   question: UserQuestion;
 }
 
-/** What the assistant finds and runs commands on (#1110). */
-export type CommandTarget = "document" | "mind";
+export type { CommandTarget, OfferedCommand, Yours };
 
-/** What `list_commands` found (#1110): how many, and what matched them, each as given. */
+/**
+ * What `list_commands` found (#1110): how many, and what matched them, each as given; for
+ * "window", how many of the window's commands act on the window in front (#1421).
+ */
 export interface CommandsFound {
-  kind: CommandTarget;
+  kind: CommandTarget | "window";
   count: number;
   by: { name?: string; tag?: string; folder?: string };
 }
@@ -1120,7 +1140,7 @@ export interface ExportMarking {
 
 /** What a call of `run_command` did (#1110), from what its command returned. */
 export interface CommandDone {
-  command: AssistantCommandId;
+  command: CommandId;
   /** The Run it was part of: one Undo takes back every change of the Run (`undoCommands`). */
   run: string;
   items: CommandItem[];
@@ -1132,6 +1152,18 @@ export interface CommandDone {
   inOutputLocation?: boolean;
   /** For a Word file: how its marking of the text IncarnaMind wrote was settled. */
   marking?: ExportMarking;
+  /**
+   * Run by the window that asked, as ⌘K runs it (#1421); `changed`: it changed something the
+   * window's Undo takes back, which then goes with the Run's other changes. `running`: it started
+   * and goes on in the window, a Check for one; this call is updated when it ends.
+   */
+  window?: { changed: boolean; running?: true };
+  /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
+  yours?: Yours;
+  /** With `yours` "wall": the Folder whose wall the request is about, which the card names (#1934). */
+  folder?: { id: string; name: string };
+  /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
+  setting?: { name: string; from: string; to: string };
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */
@@ -1863,6 +1895,8 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /** Can't check from this Note: the Document stays inside a walled Folder. */
+  | "kept-inside"
   /** Can't check: the Document was deleted. */
   | "document-removed";
 
@@ -1870,7 +1904,8 @@ export type CitationCheckReason =
  * What to re-check a Citation with against its Document's current version
  * (see `CoreApi.recheckCitation`): its Document, cited Units and quote.
  */
-export interface RecheckCitationInput {
+/** A Citation to look for again in its Document (see `RecheckCitationInput`). */
+export interface CitationToRecheck {
   documentId: string;
   /** The cited Units (pages, slides…), from 1; null for a whole TXT or Markdown file. */
   pageFrom: number | null;
@@ -1882,6 +1917,34 @@ export interface RecheckCitationInput {
    * (`changed`).
    */
   contentHash?: string | null;
+}
+
+/** Where a Question is asked: its Note, else its conversation; null for none. */
+export interface TurnPlace {
+  mindId: string | null;
+  conversationId: string | null;
+}
+
+/**
+ * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
+ * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ */
+export interface CitationKeptInside {
+  /** The walled Folder's name. */
+  keptInside: string;
+}
+
+/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+export type RecheckResult = CitationRecheck | CitationKeptInside;
+
+export interface RecheckCitationInput extends CitationToRecheck {
+  /**
+   * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
+   * assistant, the Document's viewer), which is read as browsing is. A Document kept inside a
+   * walled Folder isn't read again for a Note outside it: the check it was made with stands
+   * (#1934). Never left out.
+   */
+  mindId: string | null;
 }
 
 /**
@@ -2008,7 +2071,14 @@ export const MAX_CITED_PAGES = 2;
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
 export type CitationLocation =
-  | { kind: "page"; from: number; to: number; printed?: { from: string; to: string } }
+  | {
+      kind: "page";
+      from: number;
+      to: number;
+      printed?: { from: string; to: string };
+      /** The printed line on the first printed page and on the last (#1709). */
+      lines?: { from: number; to: number };
+    }
   | { kind: "slide"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "lines"; from: number; to: number }
@@ -3267,6 +3337,8 @@ export type WebPageLookFailure =
  * - "local-mode": "Keep everything on this computer" is on, so nothing was
  *   fetched: the site would have seen the request, and the address can name
  *   a matter. The User can let this one page go (`localModeOnce`).
+ * - "kept-inside": the Answer's work stays inside a walled Folder that can't
+ *   be found now, so the page wasn't saved anywhere (#1934).
  */
 export type WebPageFailureReason =
   | "invalid-address"
@@ -3282,7 +3354,8 @@ export type WebPageFailureReason =
   | "not-public"
   | "too-many-redirects"
   | "not-from-search"
-  | "local-mode";
+  | "local-mode"
+  | "kept-inside";
 
 export interface WebPageFailure {
   reason: WebPageFailureReason;
@@ -3955,6 +4028,22 @@ export interface ReadyQuestion {
    * asked with a model. Null for the example's, whose Answer is written in advance.
    */
   scope: SearchScope | null;
+  /**
+   * The Document still being read before the Answer can be written, named; null when asking it
+   * answers now. Asking waits for it, saying so, rather than doing nothing (#2218).
+   */
+  waitingFor: string | null;
+}
+
+/**
+ * What asking the example's ready Question did: the conversation its Question and Answer are in.
+ * `stopped`: Stop came while it waited for the example's Documents to be read, so its Answer says
+ * "Stopped" and has no text.
+ */
+export interface ExampleReadyAsked {
+  conversationId: string;
+  answerId: string;
+  stopped: boolean;
 }
 
 /**
@@ -4432,6 +4521,8 @@ export interface ExternalService {
   id: string;
   /** What the User sees, e.g. "OpenAI" or "api.deepseek.com". */
   name: string;
+  /** The catalog entry for this service when another API shares the provider, such as reranking. */
+  catalogId?: string;
 }
 
 export interface ChatProvider {
@@ -4651,6 +4742,12 @@ export interface CompareDocumentsInput {
 export interface ComparisonTableRef {
   mindId: string;
   tableId: string;
+}
+
+/** What to stop of a table's fill: all of it, or one refill pass alone, as its Undo asks. */
+export interface ComparisonStopRequest extends ComparisonTableRef {
+  /** The refill pass to take back; the rest of the table's fill goes on. Absent: the whole fill. */
+  pass?: string;
 }
 
 /**
@@ -5492,6 +5589,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5507,10 +5605,13 @@ export type ClaimCheckFailure =
   | "stopped"
   | "too-many"
   | "consent-revoked"
-  | "local-mode";
+  | "local-mode"
+  | "absence-read-limit"
+  | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
+  kind?: "forecast-certainty" | "unbacked-cause";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -5528,6 +5629,14 @@ export interface UnsupportedReason {
    * Citation check found; absent when it quoted none.
    */
   quoted?: CitationAttributes;
+}
+
+/** A Document an absence check read whole, with every Location read. */
+export interface ClaimReadDocument {
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  locations: readonly CitationLocation[];
 }
 
 /** A Document version a check read, which it no longer holds for once the Document changes. */
@@ -5568,6 +5677,78 @@ export interface ClaimCalculation {
   agrees: boolean;
 }
 
+/** UTF-16 offsets into the checked sentence; end is exclusive. */
+export interface ClaimPartSpan {
+  start: number;
+  end: number;
+}
+
+export interface ClaimPartPlan {
+  span: ClaimPartSpan;
+  kind: "fact" | "opinion";
+}
+
+export interface ClaimPartCoverageMember {
+  label: string;
+  verdict: ClaimVerdict | "not-checked";
+  evidence: CitationAttributes[];
+}
+
+export interface ClaimPartCoverage {
+  unit: string;
+  quantifier: "all" | "most";
+  complete: boolean;
+  members: ClaimPartCoverageMember[];
+  domainEvidence: CitationAttributes[];
+}
+
+export interface ClaimCheckPart extends ClaimPartPlan {
+  verdict: ClaimVerdict | "not-checked" | "checking" | null;
+  kept?: true;
+  figures?: ClaimPartFigure[];
+  remainder?: ClaimPartJudgment | null;
+  evidence: CitationAttributes[];
+  decidingEvidence?: number | null;
+  says: string | null;
+  unsupported: UnsupportedReason | null;
+  calculation: ClaimCalculation | null;
+  reason: ClaimCheckFailure | null;
+  detail: string | null;
+  versions: CheckedVersion[];
+  excluded: LeftOutDocument[];
+  citedCaseUnchecked: boolean;
+  citedCaseFound: boolean;
+  coverage?: ClaimPartCoverage;
+  /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
+  readDocuments?: readonly ClaimReadDocument[];
+}
+
+export type ClaimPartJudgment = (
+  | ClaimJudgment
+  | {
+      verdict: "checking";
+      versions: CheckedVersion[];
+      excluded: LeftOutDocument[];
+      kept?: true;
+    }
+) &
+  Partial<
+    Pick<
+      ClaimCheckBasis,
+      "id" | "request" | "action" | "text" | "scope" | "checkedAt" | "providerId" | "modelId"
+    >
+  >;
+
+export type ClaimPartFigure = FigureFinding & { result: ClaimPartJudgment };
+
+export interface OpinionSentence {
+  id: string;
+  blockId: string;
+  text: string;
+  occurrence: number;
+  parts: ClaimCheckPart[];
+}
+
 /** A password-protected PDF Document, and the password to open it with (#763). */
 export interface UnlockDocumentInput {
   documentId: string;
@@ -5579,10 +5760,52 @@ export type UnlockDocumentResult =
   | { kind: "unlocked"; document: Document }
   | { kind: "wrong-password" };
 
+/** One record cite's own result inside a sentence's check (#1709). */
+export interface RecordCiteResult {
+  /**
+   * The cite as written and its UTF-16 span, when it has one, in the sentence as the Note holds it:
+   * each Citation there is one U+FFFC, which the mark's `text` leaves out.
+   */
+  raw: string;
+  from?: number;
+  to?: number;
+  outcome: "supported" | "partly" | "unsupported" | "choose" | "not-found" | "not-checked";
+  /** For "not-checked": why this cite's auxiliary judgement could not be read. */
+  reason?: ClaimCheckFailure;
+  detail?: string | null;
+  documentId?: string;
+  documentName?: string;
+  contentHash?: string;
+  location?: CitationLocation;
+  /** The physical PDF Units the passage and viewer open, when it is one. */
+  pageFrom?: number;
+  pageTo?: number;
+  passage?: string;
+  /** For "partly": the parts the cited Location does and does not cover. */
+  covered?: string;
+  uncovered?: string;
+  /** Documents the User must choose between; never a silent first match. */
+  candidates?: { id: string; name: string }[];
+  /**
+   * For an `Id.` or `supra`: what its reading rests on, as written: the nearest cite before it that
+   * names a place, when it names none itself, then the record cite its chain ends at; empty when it
+   * referred to none. When they read otherwise now, the sentence needs re-check.
+   */
+  via?: string[];
+  nearby?: {
+    location: CitationLocation;
+    pageFrom: number;
+    pageTo: number;
+    passage: string;
+  };
+}
+
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
 export type ClaimJudgment =
   | {
       verdict: ClaimVerdict;
+      kept?: true;
+      parts?: ClaimCheckPart[];
       /**
        * For "supported" and "contradicted": the Passage that decides it, as a
        * Citation whose quote the Citation check found; for a figure worked out,
@@ -5607,14 +5830,22 @@ export type ClaimJudgment =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
+      /** Documents read whole to decide an absence sentence, with every Location read. */
+      readDocuments?: readonly ClaimReadDocument[];
     }
   | {
       verdict: "not-checked";
+      kept?: true;
+      parts?: ClaimCheckPart[];
       reason: ClaimCheckFailure;
       /** "failed": the provider's message. */
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
+      /** Documents read whole before the outcome, when an absence check needed them. */
+      readDocuments?: readonly ClaimReadDocument[];
     };
 
 export type FigureLocator =
@@ -5719,6 +5950,20 @@ export interface CitedQuote {
   passageId?: string;
 }
 
+export interface ChooseRecordCiteSourceInput {
+  mindId: string;
+  /** The sentence check whose one record cite is resolved again. */
+  checkId: string;
+  raw: string;
+  from?: number;
+  to?: number;
+  documentId: string;
+}
+
+export interface ChooseRecordCiteSourceResult {
+  cite: RecordCiteResult;
+}
+
 /** What the claim-check function checks (`checkClaim`). */
 export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
@@ -5762,6 +6007,7 @@ export interface ClaimCheckBasis {
   request: string;
   action: ClaimCheckAction;
   state: "checking" | ClaimVerdict | "not-checked";
+  parts?: ClaimCheckPart[];
   /** "not-checked": why. */
   reason: ClaimCheckFailure | null;
   /** "failed": the provider's message. */
@@ -5769,7 +6015,7 @@ export interface ClaimCheckBasis {
   /** The model that checked it; null on a mark made before it was kept. */
   providerId: string | null;
   modelId: string | null;
-  /** The sentence as it was checked: an inline node as U+FFFC, a line break as "\n". */
+  /** The sentence as checked; part ranges index this exact text. */
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */
   evidence: CitationAttributes | null;
@@ -5784,6 +6030,10 @@ export interface ClaimCheckBasis {
   scope: ClaimCheckScope;
   versions: CheckedVersion[];
   excluded: LeftOutDocument[];
+  /** The individual record cites checked in this sentence, when it has any. */
+  recordCites?: RecordCiteResult[];
+  /** Documents read whole to decide an absence sentence, with every Location read. */
+  readDocuments?: readonly ClaimReadDocument[];
   /** When it was checked, or started. ISO 8601, UTC. */
   checkedAt: string;
   /**
@@ -5804,6 +6054,7 @@ export interface CheckSentencesInput {
   /** Chosen by the caller, so it can stop the request (`cancelCheck`). */
   requestId: string;
   mindId: string;
+  part?: { id: string; span: ClaimPartSpan };
   /** Where the selection starts, and where it ends: each sentence it touches is checked, whole. */
   from: TextPlace;
   to: TextPlace;
@@ -5956,6 +6207,15 @@ export interface CheckMindInput {
   model?: ChatModelChoice | null;
 }
 
+/** A Note kept for one Check from its planning until it runs or is dropped (#2240). */
+export interface HoldMindCheckInput {
+  /** The request that plans and runs the Check; `cancelCheck` drops its hold. */
+  requestId: string;
+  mindId: string;
+  /** The window holding it: the core frees the Note if that window goes before the Check runs. */
+  clientId: string;
+}
+
 /** What `checkMind` would send, before it sends anything, so a cloud model's estimate can show first. */
 export type MindCheckPlan =
   | {
@@ -5997,6 +6257,8 @@ export type CheckMindResult =
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
+  /** A Check of this Note is running already, asked from this window or another: none started. */
+  | { kind: "running" }
   | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
 
 /**
@@ -6019,11 +6281,14 @@ export interface MindCheckRun {
   unexamined: string[];
 }
 
-/** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */
+/**
+ * A document someone else wrote, to verify claim by claim (#97): the window offers PDFs and Word
+ * files (#110).
+ */
 export interface VerifyDocumentInput {
-  /** The file's absolute path: any file the Library reads. */
+  /** The file's absolute path: a PDF, a Word file, or any other file the Library reads. */
   path: string;
-  /** The Folder the Mind goes in, and the PDF too if it is new to the Library; none, or null, for none. */
+  /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
 }
 
@@ -6032,7 +6297,9 @@ export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
   /** No Mind was made: the file can't be read, or holds no text (a scan nothing could read). */
-  | { ok: false; reason: "unreadable" | "no-text" };
+  | { ok: false; reason: "unreadable" | "no-text" }
+  /** No Mind was made: a Word file that can't be imported, for the reason Word import gives. */
+  | { ok: false; reason: "word"; refusal: WordRefusalReason };
 
 /** Finding, or checking, the claims of a Mind made by `verifyDocument`. */
 export interface VerifyClaimsInput {
@@ -6076,7 +6343,9 @@ export type VerifyClaimsResult =
    * checked. `stop`: the monthly cap or a plan's limit stopped the run, and the
    * claims after it say so.
    */
-  { kind: "checked"; claims: number; checked: number; stop: RunStop | null } | VerifyRefusal;
+  | { kind: "checked"; claims: number; checked: number; stop: RunStop | null }
+  | { kind: "failed"; error: ProviderError }
+  | VerifyRefusal;
 
 /** What asking a Question (or regenerating its Answer) did. */
 export type AskResult =
@@ -6478,6 +6747,11 @@ export interface ConversationQuestion {
   focus: MindFocus | null;
   /** Its Search scope; null: none, every Document. */
   scope: SearchScope | null;
+  /**
+   * The Folder it was asked in, which its Folder wall is judged by now (#1934): its Note's, else
+   * its Search scope's one Folder, else its conversation's; "" for none. Left out: not recorded.
+   */
+  folderAskedIn?: string;
   /** The model picked for it; null: the default. */
   model: ChatModelChoice | null;
   /** The Skill forced on it, by name; null: none. */
@@ -6591,6 +6865,13 @@ export interface AskInConversationInput {
   forcedSkill?: string | null;
   /** "Analyse data…" was chosen (#447): its Answer may run an Analysis whatever its Search scope holds. */
   analyse?: boolean;
+  /**
+   * The commands of the asking window's list the assistant may run there, as ⌘K offers them now
+   * (#1421). None or null, or no `clientId`: only the core's own.
+   */
+  commands?: OfferedCommand[] | null;
+  /** The asking window, which runs those commands: its id for as long as it is open. */
+  clientId?: string | null;
 }
 
 /** An Answer in a conversation, for regenerating or stopping it. */
@@ -6609,6 +6890,10 @@ export interface ConversationAnswerInput {
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
    */
   model?: ChatModelChoice;
+  /** Regenerating: the window's commands, as `AskInConversationInput.commands`. */
+  commands?: OfferedCommand[] | null;
+  /** Regenerating: the asking window, as `AskInConversationInput.clientId`. */
+  clientId?: string | null;
 }
 
 /** What asking in a conversation (or regenerating an Answer there) did. */
@@ -7186,6 +7471,11 @@ export interface SecretStorageStatus {
 export type OllamaStatus =
   | {
       running: false;
+      /**
+       * Nothing can be said: the probe didn't answer within its time. It may well run, slowly;
+       * only a refused address means it doesn't.
+       */
+      unknown?: true;
       baseUrl: string;
       /** Whether `openOllama` can open its app: false too where this computer can't tell. */
       installed: boolean;
@@ -8150,7 +8440,7 @@ export type ApprovalSubject =
       tool: string;
     }
   | { kind: "skill-script"; skillId: string }
-  | { kind: "command"; command: AssistantCommandId };
+  | { kind: "command"; command: CommandId };
 
 export type ApprovalSubjectKind = ApprovalSubject["kind"];
 
@@ -8253,6 +8543,36 @@ interface ApprovalRequestBase extends AnswerPlace {
    * call asks, and the card says why. Absent when there is none.
    */
   thirdParty?: ThirdPartyReason[];
+  /**
+   * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
+   * write, by the kinds the card names, in the card's order. It never says which of them asked
+   * for the command. Absent: it read none of them.
+   */
+  readText?: ApprovalReadText;
+}
+
+/**
+ * What an approval card names the Answer read (#2240). A web page is its host, never its
+ * title: a page writes its own, and could pass for the User's file. A page whose title alone
+ * reached the Answer is its title, by host; a page both title and text reached is a web page.
+ * Other text is every read the kinds here cannot name, so a kind added later is still on the card.
+ */
+export interface ApprovalReadText {
+  /** One entry per Document, by its id: two Documents with one name are two. */
+  documents: string[];
+  /** Web pages read, by host, one entry for each page. */
+  webPages: string[];
+  /** Pages whose title alone was seen, by host, one entry for each page. */
+  webPageTitles: string[];
+  /** Web search's results, Find sources' included. */
+  webSearchResults: boolean;
+  /** One entry per Connector whose results the Answer read, by its id. */
+  connectors: string[];
+  /** A Skill script's or an Analysis's output. */
+  scriptOutput: boolean;
+  transcript: boolean;
+  /** Some text the kinds here cannot name. */
+  otherText: boolean;
 }
 
 /**
@@ -8329,14 +8649,16 @@ export const COMMAND_AT_ONCE = 20;
 /**
  * What a command the assistant runs for the User would do, as its approval shows it (#1110):
  * save a Mind as a file in a folder other than the Output location; read a folder's files
- * (`files`, by name, nothing outside it) and add them to the Library; or change things inside
- * IncarnaMind that need the User's say (`reason`). `items` are the first of them, each by the
- * name the User knew it by, with `renamed` when the Conversation's commands renamed it.
+ * (`files`, by name, nothing outside it) and add them to the Library; change things inside
+ * IncarnaMind that need the User's say (`reason`); run a command of the window's that can't be
+ * taken back ("final", #1421); start a recording or turn the microphone on ("listen"); or make a
+ * folder the Output location, where files are then saved without asking ("output", #1421). `items` are the first of them, each by the name the User knew
+ * it by, with `renamed` when the Conversation's commands renamed it.
  */
 export type CommandAsk =
   | {
       kind: "change";
-      command: AppCommandId;
+      command: CommandId;
       reason: CommandAskReason;
       count: number;
       items: CommandItem[];
@@ -8354,7 +8676,14 @@ export type CommandAsk =
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
     }
-  | { kind: "add"; folder: string; files: string[] };
+  | { kind: "add"; folder: string; files: string[] }
+  | { kind: "final"; command: CommandId; items: CommandItem[] }
+  | { kind: "listen"; command: CommandId }
+  | {
+      kind: "output";
+      /** Absolute, links followed. */
+      folder: string;
+    };
 
 /** A Folder or Tag the commands of a Run made, left in place by their Undo: the User filed things in it since. */
 export interface CommandKept {
@@ -8385,6 +8714,41 @@ export interface CommandApprovalRequest extends ApprovalRequestBase {
   tool: "run_command";
   ask: CommandAsk;
 }
+
+/**
+ * A command of the window's list the assistant runs (#1421), sent to the window whose Question
+ * asked for it: that window runs it as ⌘K does, on `targets` (none: the window in front), and
+ * answers with `answerWindowCommand`.
+ */
+export interface WindowCommandRequest {
+  requestId: string;
+  answerId: string;
+  toolCallId: string;
+  /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
+  run: string;
+  command: CommandId;
+  /**
+   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
+   * the core checked it against (null: none): it is accepted only while it waits for that one.
+   */
+  targets: { kind: CommandTarget; id: string; into?: string | null }[];
+  /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
+  mindId: string | null;
+  /** The window whose Question it is, which alone runs it. */
+  clientId: string;
+}
+
+/** How a window command ended: run (`changed`: its Undo takes something back), or not. */
+export type WindowCommandEnd =
+  | { ran: true; changed: boolean }
+  | { ran: false; why: string; wording: ErrorWording | null };
+
+/**
+ * What the window says of a command it was asked to run: that it started, as soon as it has, and
+ * then how it ended; or only how it ended, when it couldn't start. Why it didn't run is in English
+ * for the model and in the interface's words (`wording`) where the window has them.
+ */
+export type WindowCommandResult = WindowCommandEnd | { started: true };
 
 // ---------------------------------------------------------------------------
 // Recently deleted (CONTEXT.md)
@@ -8575,7 +8939,8 @@ export interface ExportMindOptions {
    * Word only: a Citation whose check failed (its quote wasn't found, or its
    * claim is unsupported or contradicted), and a sentence checked
    * Contradicted, Unsupported or Needs re-check, gets a comment by
-   * IncarnaMind saying so. Absent: off.
+   * IncarnaMind saying so. Absent: off. A Mind made by Verify from someone
+   * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
   /**
@@ -8627,6 +8992,10 @@ export interface MindExportPreview {
   citationPlace: CitationPlace | null;
   /** Whether a Word file marks the text IncarnaMind wrote (#107), for the Saved line (#1945); null for a format that can't mark it. */
   markAiText: boolean | null;
+  /** The Mind was made by Verify from someone else's file (#110): its Word file is named after the original, and its comments are its own choice. */
+  othersFile: boolean;
+  /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
+  othersComments: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -8638,6 +9007,8 @@ export interface SentenceChecksExported {
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */
   commented: boolean;
+  /** The comments on what needs a look the file holds, on these sentences and on Citations; 0 unless `commented`. */
+  comments: number;
 }
 
 /** What a Mind's web page to share would hold, for the sheet to show before it is made. */
@@ -8698,6 +9069,8 @@ export type SavedMindExport =
        * couldn't, which the result line says. True for the other formats.
        */
       sentKept: boolean;
+      /** Written again beside the file of this name, which the User had changed (#110). */
+      changedFile?: string;
     } & Omit<MindExportPreview, "fileName" | "fromWord" | "theirChanges"> &
       Pick<
         MindExport,
@@ -8716,6 +9089,11 @@ export type SavedMindExport =
    */
   | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
+
+/** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
+export type RewrittenMindExport =
+  | (Extract<SavedMindExport, { status: "saved" }> & { step: string })
+  | Exclude<SavedMindExport, { status: "saved" }>;
 
 /** What saving an export did: a Skill's zip (`saveSkillExport`), and the base of a Mind's. */
 export type SavedExport =
@@ -9517,6 +9895,12 @@ export interface CoreApi {
    */
   getTaggingModels(): Promise<TaggingModels>;
   /**
+   * The current model's destination, automatic tagging by default; classification
+   * reads Organize's text model, scan-images its image reader. The flows say
+   * whether the User allowed the service.
+   */
+  getTaggingRoute(flow?: TaggingFlow): Promise<TaggingRoute>;
+  /**
    * Queues selected documents, or all. Organize suggests a Folder for each
    * (a Suggested Folder) and its Tags; manual assignments are preserved, and
    * only their Tags suggested.
@@ -9557,8 +9941,13 @@ export interface CoreApi {
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
    * unknown Document throws and changes nothing. Returns what changed.
+   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
+   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
    */
-  acceptAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
+  acceptAssignments(
+    documentIds: string[],
+    checked?: Record<string, string | null>,
+  ): Promise<AssignmentChange[]>;
   /**
    * Turns down these Documents' Suggested Folders: each is left Not in a
    * Folder, and Organize doesn't suggest that Folder for it again. Documents
@@ -9718,9 +10107,14 @@ export interface CoreApi {
   /**
    * Asks the example's ready Question, whose Answer is written in advance and needs no model, in
    * a new conversation: whatever the User's own Documents are, as in a library that has some
-   * before the example is made. Throws while it isn't made or its Documents aren't all read.
+   * before the example is made. Waits while its Documents are still being read, then writes the
+   * Answer; Stop in the meantime (`stopExampleReadyQuestion`) writes the Question with a stopped
+   * Answer. Throws once the example isn't made, a Document it cites can't be read, or the read
+   * hasn't finished in time.
    */
-  askExampleReadyQuestion(): Promise<{ conversationId: string; answerId: string }>;
+  askExampleReadyQuestion(): Promise<ExampleReadyAsked>;
+  /** Stops a waiting `askExampleReadyQuestion`: its Question is kept, and its Answer says Stopped. */
+  stopExampleReadyQuestion(): Promise<void>;
   /**
    * Writes an Answer of a conversation again, in place, for its Question as it was asked,
    * reading the Mind it was asked from as that Mind is now.
@@ -9854,10 +10248,24 @@ export interface CoreApi {
   /**
    * Keeps text the User pasted as a Markdown Document, so Answers can cite it.
    * The file is written in the data folder ("Saved text"), never next to the
-   * User's files, and added on its own like any file (no Folder). A name taken
-   * already gets a number. Throws InvalidInputError for text with no words.
+   * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
+   * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
+   * already gets a number. Throws InvalidInputError for text with no words, and NotFoundError,
+   * saving nothing, once that Note or conversation is deleted.
    */
-  saveTextAsDocument(input: { name: string; text: string }): Promise<Document>;
+  saveTextAsDocument(
+    input: {
+      name: string;
+      text: string;
+    } & TurnPlace,
+  ): Promise<Document>;
+  /**
+   * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
+   * Note's, else the conversation's when no Note is open; null outside every wall. What the
+   * composer shows and files follows it. Throws NotFoundError once that Note or conversation is
+   * deleted.
+   */
+  wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
    * Saves a web page as a Document (#261): its readable text, without
    * navigation, ads or scripts, kept as a snapshot that Citations point at
@@ -10174,7 +10582,7 @@ export interface CoreApi {
    * quotes, in that version too. Nothing is stored: the editor writes the
    * result onto the Citation's node.
    */
-  recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
+  recheckCitation(input: RecheckCitationInput): Promise<RecheckResult>;
   /**
    * Cites words the User selected in a Document's viewer (#101), given in the
    * order selected, one part for each Unit: checked against the current
@@ -10400,8 +10808,11 @@ export interface CoreApi {
    * The core also drops a window that misses one wait, after that wait.
    */
   forgetComparisonWindow(input: ComparisonWindow): Promise<void>;
-  /** Stops filling a comparison table: cells being written stay as they were. */
-  stopComparisonTable(input: ComparisonTableRef): Promise<void>;
+  /**
+   * Stops filling a comparison table: cells being written stay as they were. With a `pass`,
+   * stops that refill alone: its cells are asked no more and write nothing.
+   */
+  stopComparisonTable(input: ComparisonStopRequest): Promise<void>;
   /** The comparison tables whose cells are being filled now. */
   listFillingComparisons(): Promise<ComparisonTableRef[]>;
 
@@ -10529,11 +10940,15 @@ export interface CoreApi {
    * Sends on the "checks" flow, as `checkSentences` does.
    */
   checkClaim(input: CheckClaimInput): Promise<ClaimCheckResult>;
+  chooseRecordCiteSource(input: ChooseRecordCiteSourceInput): Promise<ChooseRecordCiteSourceResult>;
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
-   * text, a paragraph to a Block, each Block's page recorded. Its text is the
-   * document being checked: third-party (#78), and never its own evidence.
+   * text, a paragraph to a Block, each Block's page recorded. A Word file
+   * (#110) is imported as a Mind instead, as `importWordFile` imports
+   * someone else's, kept to export back into, and resolves once every Block
+   * is in it. Its text is the document being checked: third-party (#78), and
+   * never its own evidence.
    */
   verifyDocument(input: VerifyDocumentInput): Promise<VerifyDocumentResult>;
   /**
@@ -10576,6 +10991,17 @@ export interface CoreApi {
     mode: CheckMindMode,
     allDocuments?: boolean,
   ): Promise<MindCheckPlan>;
+  /**
+   * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it
+   * (#2240), so a second window's Check is refused before it plans and asks. False: another
+   * request keeps it.
+   */
+  holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
+  /**
+   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
+   * again for another window's Check.
+   */
+  forgetCheckWindow(input: { clientId: string }): Promise<void>;
   /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
@@ -10947,6 +11373,17 @@ export interface CoreApi {
    */
   answerUserQuestion(requestId: string, answer: UserAnswer): Promise<void>;
   /**
+   * Says that a command the assistant asked the window to run started, then how it ended (#1421).
+   * False: the core no longer waits for it (its Answer stopped before it started, or the window
+   * didn't say it started in time), so it counts as not done.
+   */
+  answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
+  /**
+   * The window is gone, closed or reloaded (#1421): the commands it was asked to run and hasn't
+   * answered weren't done.
+   */
+  forgetCommandWindow(input: { clientId: string }): Promise<void>;
+  /**
    * Answers an approval request. Answering one that's no longer waiting (decided
    * in another window, or its Answer stopped) does nothing. "always-allow" of a
    * Skill script ("always run") is refused unless `options.riskAccepted`: the
@@ -11065,6 +11502,37 @@ export interface CoreApi {
    * next free name, asking where new files go the first time.
    */
   saveMindExport(mindId: string, options: ExportMindOptions): Promise<SavedMindExport>;
+  /**
+   * Writes a Mind's export again into the file this Mind's `saveMindExport` saved at `path`
+   * since the app opened, in place, as it would be written now: for a choice changed under its
+   * Saved line, so no second copy sits beside the first (#110). `checkComments`, for someone
+   * else's file, writes with that choice and keeps it for the Note once the file holds it. A file
+   * the User changed since is left as it is, and the export is saved beside it instead
+   * (`changedFile`). What it replaces is kept for `restoreMindExport`, under the `step` it
+   * returns. Throws InvalidInputError for a file another Note exported or this session didn't
+   * save, and a plain-words problem naming a file that was moved, deleted or can't be changed.
+   */
+  rewriteMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    path: string,
+    checkComments?: boolean,
+  ): Promise<RewrittenMindExport>;
+  /**
+   * Undoes the `rewriteMindExport` that returned `step` for `path` (#110): the file's bytes as
+   * they were, or, for a file saved beside one the User had changed, no file; and the Note's
+   * comment choice as it was. Only the newest step of `path`, and never over a file changed since
+   * it was written. Refused, it throws a plain-words problem and leaves the file, the choice and
+   * the step as they were, so it can be tried again.
+   */
+  restoreMindExport(path: string, step: string): Promise<void>;
+  /**
+   * For a Mind made by Verify from someone else's file (#110): whether its Word export gets
+   * comments on what needs a look. Off until the User turns it on, for this Note only, as its
+   * comments quote the User's Documents in a file that goes back to its author. Throws
+   * InvalidInputError for a Mind that verifies nothing.
+   */
+  setCheckComments(mindId: string, on: boolean): Promise<void>;
   /**
    * Saves a record of what was checked in a Mind (#738) into the Output location, as
    * `saveMindExport` does, as a PDF and a CSV side by side under one name: each checked sentence
@@ -11433,6 +11901,8 @@ export interface CoreEvents {
   "question.asked": UserQuestionRequest;
   /** A question was answered, here or in another window, or withdrawn (null) as its Answer stopped. */
   "question.answered": { requestId: string; answer: UserAnswer | null };
+  /** The assistant runs a command of the window's list (#1421): the window that asked runs it. */
+  "command.windowRun": WindowCommandRequest;
   /**
    * The Answer event stream. The core writes each Answer into its Mind's Yjs
    * document as it streams (its text, Citations and Tool calls), so every
@@ -11519,6 +11989,7 @@ const methods: Record<CoreApiMethod, true> = {
   renameCheckpoint: true,
   askInConversation: true,
   askExampleReadyQuestion: true,
+  stopExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
@@ -11549,6 +12020,7 @@ const methods: Record<CoreApiMethod, true> = {
   keepWebPageLook: true,
   fetchWebPageAgain: true,
   saveTextAsDocument: true,
+  wallOfTurn: true,
   listDocuments: true,
   renameDocument: true,
   deleteDocument: true,
@@ -11662,12 +12134,15 @@ const methods: Record<CoreApiMethod, true> = {
   checkSentences: true,
   cancelCheck: true,
   checkClaim: true,
+  chooseRecordCiteSource: true,
   verifyDocument: true,
   findClaims: true,
   verifyClaims: true,
   planContradictionCheck: true,
   checkContradictions: true,
   planMindCheck: true,
+  holdMindCheck: true,
+  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
@@ -11725,6 +12200,7 @@ const methods: Record<CoreApiMethod, true> = {
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,
   getTaggingModels: true,
+  getTaggingRoute: true,
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,
@@ -11785,6 +12261,8 @@ const methods: Record<CoreApiMethod, true> = {
   respondToApproval: true,
   listUserQuestions: true,
   answerUserQuestion: true,
+  answerWindowCommand: true,
+  forgetCommandWindow: true,
   listSkills: true,
   previewSkillImport: true,
   importSkill: true,
@@ -11805,6 +12283,9 @@ const methods: Record<CoreApiMethod, true> = {
   previewSharePage: true,
   setSharePageTextOnly: true,
   saveMindExport: true,
+  rewriteMindExport: true,
+  restoreMindExport: true,
+  setCheckComments: true,
   saveCheckRecord: true,
   saveComparisonExport: true,
   formatCitations: true,

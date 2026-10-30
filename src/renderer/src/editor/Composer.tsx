@@ -15,6 +15,7 @@ import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
   filingFolder,
+  folderScope,
   hasSearchScope,
   mindSearchScope,
   type ScopeKind,
@@ -44,11 +45,12 @@ import {
   useAnswerBeingWritten,
   useConversations,
   useHasMessage,
+  useOpenConversation,
 } from "../conversations";
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
-import { errorMessage } from "../errors";
+import { describeError, errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
@@ -63,13 +65,15 @@ import {
   useWebMissing,
   useWebReach,
 } from "../research";
-import type { ScopeChoice } from "../scope";
+import { type ScopeChoice, scopeWithin } from "../scope";
 import { useFolderHoldsDocuments } from "../scopeDocuments";
 import { skillDescription } from "../skills";
 import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
+import { useTurnWall } from "../turnWall";
+import { scopeOutsideWalls } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -157,12 +161,27 @@ export function Composer({
     (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
   );
   const folderHolds = useFolderHoldsDocuments(folderId);
+  const conversationId = useOpenConversation()?.id ?? null;
+  const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
+  const walled = typeof wallId === "string";
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
   );
+  const leftOutCount = useAppStore(
+    (state) => state.library?.groups.filter((group) => group.keepInside).length ?? 0,
+  );
+  const allLabel =
+    leftOutCount === 0
+      ? t("composer.scope.all")
+      : t(leftOutCount === 1 ? "composer.scope.leftOut.one" : "composer.scope.leftOut", {
+          count: leftOutCount,
+        });
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = mindSearchScope(scopeDraft.scope, folderId, folderHolds);
+  const scope = scopeWithin(
+    wallId ?? null,
+    mindSearchScope(scopeDraft.scope, folderId, folderHolds),
+  );
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -206,9 +225,9 @@ export function Composer({
   /** How many lines the text takes, for Expand. */
   const [lines, setLines] = useState(1);
   const [expanded, setExpanded] = useState(false);
-  /** The pasted text being read (View), and whether one couldn't be saved. */
+  /** The pasted text being read (View), and why one couldn't be saved. */
   const [viewing, setViewing] = useState<Paste | null>(null);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const pasteLabel = usePasteLabel();
   const [picking, setPicking] = useState<Picking | null>(null);
   const [option, setOption] = useState(-1);
@@ -250,10 +269,17 @@ export function Composer({
     } else {
       composer.update(key, change);
     }
-    if (change.scope !== undefined) setScope(change.scope);
+    if (change.scope !== undefined && !walled) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
-  const updateScope = (next: SearchScope) => update({ scope: chosenScope(next, folderId) });
+  const withinWall = (next: SearchScope) => {
+    if (typeof wallId === "string") return folderScope(wallId);
+    return chosenScope(
+      scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
+      folderId,
+    );
+  };
+  const updateScope = (next: SearchScope) => update({ scope: withinWall(next) });
 
   // Single-line text sits beside the controls; once it would run past one line, it takes the
   // full width and they move to a row under it. Decided from the width one line has beside the
@@ -373,7 +399,7 @@ export function Composer({
       ? scope
       : { ...scope, [SCOPE_LISTS[choice.kind]]: [...ids, choice.id] };
     update({
-      scope: chosenScope(next, folderId),
+      scope: withinWall(next),
       ...(picking && { text: withoutTyped(picking) }),
     });
     setPicking(null);
@@ -430,7 +456,7 @@ export function Composer({
   // Back to the wide scope it narrowed, never straight to the whole Library: All Documents is a
   // second, deliberate step in the "@" picker.
   const goBack = () => {
-    update({ scope: before });
+    update({ scope: before === null ? before : withinWall(before) });
     field.current?.focus();
   };
   const backLabel =
@@ -468,8 +494,9 @@ export function Composer({
     const pasted = event.clipboardData.getData("text/plain");
     if (!isLongPaste(pasted)) return;
     event.preventDefault();
-    setSaveFailed(false);
-    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted }] });
+    setSaveProblem(null);
+    const place = { mindId: source?.mindId ?? mindId, conversationId };
+    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted, place }] });
   };
 
   const withoutPaste = (paste: Paste) => draft.pastes.filter((each) => each.id !== paste.id);
@@ -483,27 +510,41 @@ export function Composer({
     element?.focus();
   };
 
-  /** Keeps the paste as a Document and adds it to the Search scope, so Answers can cite it. */
+  /**
+   * Keeps the paste as a Document, filed where it was pasted, and adds it to the Search scope while
+   * the composer is still there, so Answers can cite it.
+   */
   const savePaste = async (paste: Paste) => {
-    setSaveFailed(false);
+    setSaveProblem(null);
     const first = paste.text.split("\n").find((line) => line.trim() !== "") ?? "";
     try {
       const saved = await core.saveTextAsDocument({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
+        ...paste.place,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);
+      const pastes = now.pastes.filter((each) => each.id !== paste.id);
+      // A Note decides the place when one is open; with none, the conversation does.
+      const here =
+        paste.place.mindId === (source?.mindId ?? mindId) &&
+        (paste.place.mindId !== null || paste.place.conversationId === conversationId);
       const nowScope = mindSearchScope(composer.draft(scopeKey).scope, folderId, folderHolds);
       const ids = scopeIds(nowScope, "document");
-      update({
-        pastes: now.pastes.filter((each) => each.id !== paste.id),
-        scope: ids.includes(saved.id)
-          ? composer.draft(scopeKey).scope
-          : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
-      });
-    } catch {
-      setSaveFailed(true);
+      if (!here) update({ pastes });
+      else
+        update({
+          pastes,
+          scope: ids.includes(saved.id)
+            ? composer.draft(scopeKey).scope
+            : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
+        });
+    } catch (error) {
+      // The core words why it refused, as for a deleted conversation; a disk error gets the general line.
+      const { wording } = describeError(error);
+      if (!wording) console.error("A pasted text couldn't be saved as a Document.", error);
+      setSaveProblem(wording ? t(wording.key, wording.values) : t("composer.paste.saveFailed"));
     }
     field.current?.focus();
   };
@@ -779,13 +820,13 @@ export function Composer({
           {tellProblem}
         </ProblemLine>
       )}
-      {saveFailed && (
+      {saveProblem && (
         <ProblemLine
           testId="composer-paste-save-failed"
           className="composer-problem"
-          action={{ label: t("composer.paste.close"), onClick: () => setSaveFailed(false) }}
+          action={{ label: t("composer.paste.close"), onClick: () => setSaveProblem(null) }}
         >
-          {t("composer.paste.saveFailed")}
+          {saveProblem}
         </ProblemLine>
       )}
       {viewing && (
@@ -981,14 +1022,25 @@ export function Composer({
             onChosen={() => field.current?.focus()}
             opensOnRequest
           />
-          {hasSearchScope(scope) ? (
+          {wallId === undefined ? (
+            // Holds the chip's room while the core works out the wall, so nothing moves when it
+            // comes; it shows no scope (#2243).
+            <span
+              data-testid="composer-scope-waiting"
+              aria-hidden="true"
+              className="composer-chip composer-scope-waiting"
+            >
+              <SearchIcon className="composer-chip-icon" />
+              <span className="truncate">{allLabel}</span>
+            </span>
+          ) : hasSearchScope(scope) ? (
             <ScopeChips
               scope={scope}
               ownFolderId={folderId}
               onRemove={removeFromScope}
               {...(scopeDraft.scope !== null &&
                 hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
-              onChange={openScopePicker}
+              onChange={walled ? undefined : openScopePicker}
               shown={CHIPS_SHOWN}
               className="composer-scope"
               testId="composer-scope"
@@ -998,20 +1050,24 @@ export function Composer({
               type="button"
               data-testid="composer-scope-all"
               aria-label={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allLabel")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allLabel")
               }
               title={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allTitle")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allTitle")
               }
               onClick={openScopePicker}
               className="composer-chip composer-scope-all"
             >
               <SearchIcon className="composer-chip-icon" />
-              <span className="truncate">{t("composer.scope.all")}</span>
+              <span className="truncate">{allLabel}</span>
             </button>
           )}
           {answering && !editing ? (
@@ -1072,6 +1128,18 @@ export function Composer({
               ref={list}
               id={listId}
               scope={scope}
+              ownFolderId={folderId}
+              onOpenNote={(id) => {
+                setPicking(null);
+                const group = useAppStore.getState().library?.groups.find((each) => each.id === id);
+                if (!group) return;
+                void useAppStore.getState().startMindFrom({
+                  kind: "folder",
+                  scope: folderScope(id),
+                  count: 0,
+                  title: group.name,
+                });
+              }}
               query={picking.query}
               onChoose={chooseScope}
               onSelect={setOption}

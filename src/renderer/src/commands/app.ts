@@ -1,6 +1,7 @@
 import type { BlockOrigin } from "../../../core/api";
 import { MENU_COMMANDS } from "../../../shared/commands";
 import { signInAgain } from "../chatGptSignIn";
+import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
@@ -14,7 +15,7 @@ import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
+import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
@@ -139,6 +140,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "word.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "wordImport.command",
     group: "main",
     reversible: true,
@@ -146,6 +149,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "verify.document",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "verify.command",
     purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
@@ -202,6 +207,7 @@ const appCommands: readonly Command[] = [
   ...paletteCommands,
   {
     id: "chatgpt.continue",
+    assistant: { never: "keys" },
     label: "chatgpt.continue",
     group: "main",
     reversible: true,
@@ -213,6 +219,7 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "claude.signIn",
+    assistant: { never: "keys" },
     label: "claudePlan.signIn",
     group: "main",
     reversible: true,
@@ -327,9 +334,15 @@ const appCommands: readonly Command[] = [
     // It changes no words: its marks go with Check again, or when the sentence is edited.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    enabled: (ctx) => {
+      const mindId = mindShown(ctx);
+      return mindId && useChecks.getState().running[mindId]
+        ? { reason: "mindCheck.alreadyChecking" }
+        : true;
+    },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheck(mindId);
+      if (mindId) return checkFromAssistant(mindId);
     },
   },
   {
@@ -341,7 +354,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startMindCheck(mindId, "all");
+      if (mindId) return checkFromAssistant(mindId, true);
     },
   },
   {
@@ -388,6 +401,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "references.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "references.import.menu",
     group: "file",
     // The import is taken back with Undo.
@@ -401,6 +416,7 @@ const appCommands: readonly Command[] = [
   {
     // Suggest as I write (#282): on asks for consent first, as the switch in Settings does.
     id: "suggestions.toggle",
+    assistant: { never: "privacy" },
     label: (_ctx, t) =>
       t(
         useAppStore.getState().settings?.user.suggestWhileWriting

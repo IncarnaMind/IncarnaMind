@@ -172,6 +172,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     expect(found.map((result) => result.documentId)).toContain(chinese.id);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: chinese.id,
         pageFrom: 1,
         pageTo: 1,
@@ -180,6 +181,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     ).toMatchObject({ check: "found" });
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: korean.id,
         pageFrom: 1,
         pageTo: 1,
@@ -189,6 +191,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     // The old pipeline joined a Hangul-Hangul line and the new one does too: a quote across it stays.
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: korean.id,
         pageFrom: 1,
         pageTo: 1,

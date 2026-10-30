@@ -3,14 +3,11 @@ import type { ChatProviderKind, ProviderErrorKind } from "../../src/core/api";
 import { billingUrlOf, catalogProvider } from "../../src/core/providers/catalog/providers";
 import { SIGN_IN_ROUTES } from "../../src/core/providers/signInRoutes";
 import { readinessKey } from "../../src/renderer/src/components/providers/shared";
-import {
-  ANSWER_PROBLEMS,
-  answerProblem,
-  failedAnswerLine,
-  saveFailureReason,
-} from "../../src/renderer/src/problems";
+import { ANSWER_PROBLEMS, answerProblem, failedAnswerLine } from "../../src/renderer/src/problems";
 import { settingsPages } from "../../src/renderer/src/settingsPages";
 import { type MessageKey, translate } from "../../src/shared/i18n";
+import { en } from "../../src/shared/i18n/en";
+import { saveFailureReason } from "../../src/shared/systemReasons";
 
 const KINDS: ProviderErrorKind[] = [
   "auth",
@@ -332,25 +329,105 @@ describe("a failed Answer's problem line", () => {
 });
 
 describe("why a file couldn't be saved", () => {
-  const key = (message: string): MessageKey | null => saveFailureReason(message);
+  const key = (message: string): MessageKey | null => saveFailureReason(message)?.key ?? null;
 
-  test("a folder that can't be written to is read-only", () => {
-    expect(key("EACCES: permission denied, open '/Library/x.docx'")).toBe("export.failed.readOnly");
-    expect(key("EROFS: read-only file system, open '/Volumes/x/a.docx'")).toBe(
-      "export.failed.readOnly",
-    );
-    expect(key("EPERM: operation not permitted, open '/x/a.docx'")).toBe("export.failed.readOnly");
+  test.each([
+    ["EACCES: permission denied, open '/Library/x.docx'", "export.failed.readOnly"],
+    ["EROFS: read-only file system, open '/Volumes/x/a.docx'", "export.failed.readOnly"],
+    ["EPERM: operation not permitted, open '/x/a.docx'", "export.failed.readOnly"],
+    ["attempt to write a readonly database", "export.failed.dataNotWritable"],
+    ["ENOSPC: no space left on device, write", "export.failed.full"],
+    ["EDQUOT: disk quota exceeded", "export.failed.full"],
+    ["database or disk is full", "export.failed.full"],
+    ["EIO: i/o error, write", "export.failed.diskError"],
+    ["disk I/O error", "export.failed.diskError"],
+    ["database is locked", "export.failed.busy"],
+    ["database is busy", "export.failed.busy"],
+    ["EBUSY: resource busy or locked, open '/x/EACCES.docx'", "export.failed.fileBusy"],
+    ["EBUSY: resource busy or locked, open '/x/EIO.docx'", "export.failed.fileBusy"],
+    ["EBUSY: resource busy or locked, open '/x/database is locked.docx'", "export.failed.fileBusy"],
+    ["ENOENT: no such file or directory, open '/gone/a.docx'", "export.failed.gone"],
+    ["ENOTDIR: not a directory, open '/Tides.docx/a'", "export.failed.gone"],
+    ["ENAMETOOLONG: name too long, open '/x/a.docx'", "export.failed.nameTooLong"],
+    ["EEXIST: file already exists, open '/x/a.docx'", "export.failed.exists"],
+    ["EISDIR: illegal operation on a directory, open '/x/a.docx'", "export.failed.isFolder"],
+    ["EMFILE: too many open files, open '/x/a.docx'", "export.failed.tooManyFiles"],
+    ["ENFILE: file table overflow, open '/x/a.docx'", "export.failed.tooManyFiles"],
+    ["EXDEV: cross-device link not permitted, rename '/a/b.docx'", "export.failed.otherDevice"],
+    ["EFBIG: file too large, write", "export.failed.tooBig"],
+    ["SQLITE_CANTOPEN: unable to open database file", "export.failed.dataFolder"],
+    ["database disk image is malformed", "export.failed.corrupt"],
+  ] as const)("%s says why in plain words", (message, reason) => {
+    expect(key(message)).toBe(reason);
+    expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
   });
 
-  test("a full disk and a folder that's gone are told apart", () => {
-    expect(key("ENOSPC: no space left on device, write")).toBe("export.failed.full");
-    expect(key("ENOENT: no such file or directory, open '/gone/a.docx'")).toBe(
-      "export.failed.gone",
+  test("a file another program holds open is named, so the User knows which one to close", () => {
+    const named = (message: string) => saveFailureReason(message)?.values?.file;
+    expect(named("EBUSY: resource busy or locked, open 'C:\\Users\\x\\Tides.docx'")).toBe(
+      "Tides.docx",
     );
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/Tides.docx'")).toBe("Tides.docx");
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/My Notes/Tides 2.docx'")).toBe(
+      "Tides 2.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open '/导出/潮汐.docx'")).toBe("潮汐.docx");
+    expect(named("EBUSY: resource busy or locked, open '/x/EACCES.docx'")).toBe("EACCES.docx");
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/My\\Notes.docx'")).toBe(
+      "My\\Notes.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open '/exports/Sam's draft.docx'")).toBe(
+      "Sam's draft.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open 'C:\\Exports\\O'Brien.docx'")).toBe(
+      "O'Brien.docx",
+    );
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Tides.docx'",
+      ),
+    ).toBe("Tides.docx");
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Sam's draft.docx'",
+      ),
+    ).toBe("Sam's draft.docx");
+    expect(named("EBUSY: resource busy or locked, open '/x/database is locked.docx'")).toBe(
+      "database is locked.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open '/x/Plan -> \"v2\".docx'")).toBe(
+      'Plan -> "v2".docx',
+    );
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Plan -> \"v2\".docx'",
+      ),
+    ).toBe('Plan -> "v2".docx');
+    expect(saveFailureReason("EBUSY: resource busy or locked")).toEqual({
+      key: "export.failed.fileBusyUnnamed",
+    });
   });
 
   test("anything else is left to the system's own words", () => {
     expect(key("Something else happened.")).toBeNull();
+  });
+
+  test("the reasons each say why in Chinese too", () => {
+    const reasons = (Object.keys(en) as MessageKey[]).filter((name) =>
+      name.startsWith("export.failed."),
+    );
+    for (const reason of reasons) {
+      expect(translate("zh-CN", reason), reason).toMatch(/[\p{Script=Han}]/u);
+    }
+  });
+
+  test("the sentences a notice says read in Chinese too", () => {
+    const sentences = (Object.keys(en) as MessageKey[]).filter((name) =>
+      name.startsWith("error.system."),
+    );
+    for (const sentence of sentences) {
+      expect(translate("zh-CN", sentence), sentence).toMatch(/[\p{Script=Han}]/u);
+    }
   });
 
   test('the reasons read after "Couldn\'t save:" in both languages', () => {

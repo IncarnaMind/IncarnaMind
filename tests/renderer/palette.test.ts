@@ -218,10 +218,10 @@ describe("⌘K's actions", () => {
         ?.items.find((item) => item.key === key);
 
     expect(itemOf("command:verify.document", "en")).toMatchObject({
-      purpose: "Check the claims in a PDF someone else wrote",
+      purpose: "Check the claims in a file someone else wrote",
     });
     expect(itemOf("command:verify.document", "zh-CN")).toMatchObject({
-      purpose: "核对别人写的 PDF 里的说法",
+      purpose: "核对别人所写文件中的说法",
     });
     const [list] = palette.actionGroup(
       [],

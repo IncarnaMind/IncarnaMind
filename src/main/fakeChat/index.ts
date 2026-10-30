@@ -27,6 +27,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
+import { fakeAbsence } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -87,6 +88,7 @@ const overloadedOnce = new Set<string>();
  * doesn't return null answers it.
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
+  fakeAbsence,
   fakePlan,
   fakeResearchTags,
   fakeClaims,

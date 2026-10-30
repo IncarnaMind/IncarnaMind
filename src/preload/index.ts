@@ -109,7 +109,7 @@ const files: FilesBridge = {
   pickDocumentsOrFolder: () => ipcRenderer.invoke(FILES_CHANNELS.pickDocumentsOrFolder),
   pickReferenceFile: () => ipcRenderer.invoke(FILES_CHANNELS.pickReferenceFile),
   pickWordFile: () => ipcRenderer.invoke(FILES_CHANNELS.pickWordFile),
-  pickPdfFile: () => ipcRenderer.invoke(FILES_CHANNELS.pickPdfFile),
+  pickFileToVerify: () => ipcRenderer.invoke(FILES_CHANNELS.pickFileToVerify),
   showLinkedFolder: (linkedFolderId) =>
     ipcRenderer.invoke(FILES_CHANNELS.showLinkedFolder, linkedFolderId),
   runsWithoutSandbox: () => ipcRenderer.invoke(FILES_CHANNELS.runsWithoutSandbox),

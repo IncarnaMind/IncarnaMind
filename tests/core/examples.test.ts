@@ -16,6 +16,7 @@ import {
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
@@ -134,6 +135,25 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     expect(doc.child(0).textContent).toBe("Draft: credit committee paper");
     expect(doc.child(6).textContent).toBe("Is Northwind inside its leverage covenant?");
 
+    // Its draft's verdict is written in advance, so its mark is on the page from the first
+    // frame, before its Documents are read (#2196); what the check cites is added once they are.
+    expect(checksOf(doc)).toEqual([
+      expect.objectContaining({
+        text: "Gross margin fell to 36.8% in Q3, mostly in online.",
+        check: expect.objectContaining({
+          state: "contradicted",
+          says: "The Q3 results say gross margin was 38.6%, not 36.8%.",
+          evidence: expect.objectContaining({
+            documentName: "Northwind Retail · Q3 2026 results",
+            quote:
+              "Group gross margin was 38.6%, down from 40.3% a year earlier, with online the main drag.",
+          }),
+        }),
+      }),
+    ]);
+
+    const markId = checksOf(doc)[0]?.check.id;
+
     // Once both Documents are read, both Citations are checked: found, on the pages they quote.
     await vi.waitFor(
       async () => {
@@ -155,7 +175,9 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       pageFrom: 1,
     });
 
-    // The draft's wrong figure is marked contradicted, quoting the results where the check found it.
+    // The draft's wrong figure is marked contradicted, quoting the results where the check found it;
+    // it keeps the identity the early mark had, so a card already open stays open.
+    expect(checksOf(read)[0]?.check.id).toBe(markId);
     expect(checksOf(read)).toEqual([
       {
         text: "Gross margin fell to 36.8% in Q3, mostly in online.",
@@ -182,7 +204,11 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const { core } = await startWithExamples();
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
-    expect((await core.readyQuestion())?.question).toBe("What leverage does the agreement allow?");
+    await vi.waitFor(async () =>
+      expect((await core.readyQuestion())?.question).toBe(
+        "What leverage does the agreement allow?",
+      ),
+    );
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
     core.on("answer.finished", answerEvents);
@@ -268,7 +294,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const core = startCore(await createTempDataFolder());
     expect(await core.readyQuestion()).toBeNull();
     await expect(core.askExampleReadyQuestion()).rejects.toThrow(
-      "The example’s Documents are still being read. Try again in a moment.",
+      "The example isn’t there any more. Add a file of your own to ask about it.",
     );
     expect(await core.listConversations()).toEqual([]);
   });
@@ -477,13 +503,14 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     );
     for (const citation of after) {
       expect(
-        (
+        checkedResult(
           await core.recheckCitation({
+            mindId: null,
             documentId: citation.documentId,
             pageFrom: citation.pageFrom,
             pageTo: citation.pageTo,
             quote: citation.quote,
-          })
+          }),
         ).check,
       ).toBe("found");
     }

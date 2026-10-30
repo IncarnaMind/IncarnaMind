@@ -433,6 +433,19 @@ function numberCoverList(pages: readonly HTMLElement[]): void {
   }
 }
 
+/**
+ * Settles once a picture has loaded, so it is measured at its size, or has failed to, and prints
+ * as its alt text. Not `decode()`: that waits for a frame, and this page, never shown, draws none
+ * (#1455).
+ */
+function loaded(image: HTMLImageElement): Promise<void> {
+  if (image.complete) return Promise.resolve();
+  return new Promise((resolve) => {
+    image.addEventListener("load", () => resolve(), { once: true });
+    image.addEventListener("error", () => resolve(), { once: true });
+  });
+}
+
 /** Lays the document out in pages; resolves with how many, once it is ready to print. */
 async function print(printed: PrintDocument): Promise<number> {
   const paper = PAPER[printed.paper];
@@ -457,7 +470,7 @@ async function print(printed: PrintDocument): Promise<number> {
   source.getBoundingClientRect();
   notes.getBoundingClientRect();
   await document.fonts.ready;
-  await Promise.all([...document.images].map((image) => image.decode().catch(() => undefined)));
+  await Promise.all([...document.images].map(loaded));
   for (const frame of source.querySelectorAll<HTMLElement>(".pack-frame")) spreadBadges(frame);
   notes.remove();
 

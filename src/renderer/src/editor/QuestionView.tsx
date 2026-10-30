@@ -6,6 +6,7 @@ import {
 } from "@tiptap/react";
 import { BLOCK_ID_ATTRIBUTE, type SkillAvailability } from "../../../core/api";
 import {
+  folderScope,
   hasSearchScope,
   SCOPE_ATTRIBUTES,
   type ScopeKind,
@@ -60,7 +61,16 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
     updateAttributes({ forcedSkill: null });
     if (questionId) useAnswers.getState().dismiss(questionId);
   };
-  const scope = searchScopeOf(node.attrs);
+  const folderId = useAppStore(
+    (state) => state.minds.find((mind) => mind.id === mindId)?.folderId ?? null,
+  );
+  const walled = useAppStore(
+    (state) =>
+      folderId !== null &&
+      state.library?.groups.some((group) => group.id === folderId && group.keepInside === true) ===
+        true,
+  );
+  const scope = walled && folderId !== null ? folderScope(folderId) : searchScopeOf(node.attrs);
   const removeFromScope = (kind: ScopeKind, id: string) => {
     const left = scopeIds(scope, kind).filter((each) => each !== id);
     updateAttributes({ [SCOPE_ATTRIBUTES[kind]]: left.length > 0 ? left : null });
@@ -114,6 +124,7 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
           {hasSearchScope(scope) && (
             <ScopeChips
               scope={scope}
+              ownFolderId={folderId}
               onRemove={removeFromScope}
               shown={CHIPS_SHOWN}
               className="question-scope"

@@ -355,6 +355,7 @@ export async function launchApp(
     mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await paintNoFrameInPrintPage(app);
   mainProcessIds.set(app, await app.evaluate(() => process.pid));
   await assertPackagedMain(app);
   const window = await app.firstWindow();
@@ -367,6 +368,19 @@ export async function launchApp(
     });
   }
   return { app, window };
+}
+
+/**
+ * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
+ * that waits for one settles. Playwright's focus emulation, which it turns on in every page it
+ * attaches to, has Chromium paint a page that isn't shown, and hid a print that never ended (#1455).
+ */
+async function paintNoFrameInPrintPage(app: ElectronApplication): Promise<void> {
+  await app.context().addInitScript(() => {
+    if (!location.pathname.endsWith("/print.html")) return;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    globalThis.requestAnimationFrame = () => 0;
+  });
 }
 
 /**
@@ -832,6 +846,63 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   return { server, url: `http://127.0.0.1:${port}` };
+}
+
+/**
+ * Ollama, with "fake-model", which the app asks where the model runs before
+ * each Question is asked. While held, it answers only once released, as an
+ * Ollama busy loading a model does: the Question waits on it, on its way.
+ * In the cloud, it says the model runs on ollama.com.
+ */
+export async function busyOllama() {
+  const waiting: (() => void)[] = [];
+  let holding = false;
+  let cloud = false;
+  let tags = 0;
+  const server: Server = createServer((request, response) => {
+    request.resume();
+    if (request.url !== "/api/tags") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    tags += 1;
+    const listing = {
+      name: "fake-model",
+      model: "fake-model",
+      // What the app learnt of a model is kept by its digest.
+      digest: cloud ? "in-the-cloud" : "on-this-computer",
+      ...(cloud && { remote_host: "https://ollama.com:443" }),
+    };
+    const answer = () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [listing] }));
+    };
+    if (holding) waiting.push(answer);
+    else answer();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+      for (const answer of waiting.splice(0)) answer();
+    },
+    inTheCloud(on: boolean) {
+      cloud = on;
+    },
+    close() {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
 }
 
 /**
@@ -1419,6 +1490,18 @@ export async function openDocumentAt(window: Page, location: DocumentLocation): 
 }
 
 /**
+ * Opens the Block menu Shift+F10 opens for this Block, without moving the caret, through the
+ * test hook: a spec can hold the caret in one list while the command names another Block.
+ */
+export async function openBlockMenuFor(window: Page, blockId: string): Promise<void> {
+  await window.evaluate((id) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.openBlockMenu(id);
+  }, blockId);
+}
+
+/**
  * The next Skill import in Settings gets this path instead of the system's
  * open dialog, which a test can't drive, through the test hook.
  */
@@ -1466,6 +1549,43 @@ export async function setWindowSize(
   height: number,
 ): Promise<void> {
   await resizeContent(app, window, width, height);
+}
+
+/** Sizes the window until the Note's own pane — its page, beside a viewer in a split — is `width` wide. */
+export async function sizeNote(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const page = window.locator(".mind-tab-page");
+  // A split needs the window's two groups apart, which ends under 1,000px.
+  let windowWidth = Math.max(width + 700, 1100);
+  for (let tries = 0; tries < 8; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await page.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 3) return;
+    windowWidth = Math.max(1000, windowWidth + Math.round(width - have));
+  }
+}
+
+/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
+export async function sizeMind(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const column = window.locator(".mind-column");
+  // Past 1,000px the sidebar stops taking room, so a window under it can't make a column this narrow.
+  let windowWidth = Math.max(width + 600, 1000);
+  for (let tries = 0; tries < 4; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await column.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 1) return;
+    windowWidth += Math.round(width - have);
+  }
+  await expect
+    .poll(async () => Math.abs(((await column.boundingBox())?.width ?? 0) - width))
+    .toBeLessThanOrEqual(1);
 }
 
 const SIZE_WAIT_MS = 30_000;
@@ -2040,10 +2160,37 @@ export async function pointAndClick(
     modifiers?: readonly ("ControlOrMeta" | "Shift")[];
   } = {},
 ): Promise<void> {
+  // A scroll into view can settle a frame or two later (a tab strip rests on whole tabs, which
+  // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
   // A list that redraws as the click begins swaps the element for an equal one: look again.
+  let scrolled = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
-    await target.scrollIntoViewIfNeeded();
+    if (!scrolled) {
+      await target.scrollIntoViewIfNeeded();
+      scrolled = true;
+    }
+    const held = await target.evaluate(async (element) => {
+      const at = element.getBoundingClientRect();
+      const off = at.right <= 0 || at.bottom <= 0 || at.left >= innerWidth || at.top >= innerHeight;
+      if (off) return "off";
+      const read = () => {
+        const at = element.getBoundingClientRect();
+        return `${Math.round(at.left)} ${Math.round(at.top)} ${Math.round(at.width)} ${Math.round(at.height)}`;
+      };
+      const first = read();
+      for (let frame = 0; frame < 3; frame++) {
+        await new Promise((next) => requestAnimationFrame(next));
+        if (read() !== first) return false;
+      }
+      return true;
+    });
+    if (held === "off") {
+      // Drawn again somewhere out of the window: the next look brings it back.
+      scrolled = false;
+      throw new Error("The element is out of the window.");
+    }
+    if (!held) throw new Error("The element is still moving.");
     box = await target.boundingBox();
     if (!box) throw new Error("The element isn't visible.");
   }).toPass();

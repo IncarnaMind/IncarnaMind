@@ -44,6 +44,7 @@ import type {
   RunEstimate,
   RunEstimateInput,
 } from "../api";
+import { isRecord } from "../errors";
 import type { Price } from "../providers/catalog/types";
 import { ChatGptPlanError } from "../providers/chatgpt/errors";
 import type { ChatLanguageModel } from "../providers/models";
@@ -107,12 +108,15 @@ const ITEM_COSTS: Record<NonNullable<RunEstimateInput["each"]>, ItemCost> = {
   /**
    * A sentence checked: it searches, cites and gives its verdict, with its
    * run's one call naming the claims shared out. Measured on a memo checked
-   * with Claude Haiku 5.5 (tests/fixtures/cost/recorded-checks.json). Its own
-   * recorded calls, not Answers', which carry more of the Documents: those made
-   * one estimate seven times its run's cost (#973).
+   * with Claude Haiku 5.5 (tests/fixtures/cost/recorded-checks.json): 40 calls
+   * for 17 claims, before a sentence's facts were checked one by one. Checking
+   * them so took 380 check requests where 259 did before, on the same model
+   * and the same 72 sentences (#2002). Its own recorded calls, not Answers',
+   * which carry more of the Documents: those made one estimate seven times its
+   * run's cost (#973).
    */
   check: {
-    calls: 2.35,
+    calls: (40 / 17) * (380 / 259),
     call: {
       inputTokens: 8_260,
       cachedInputTokens: 2_903,
@@ -334,6 +338,13 @@ export function createMeter(options: {
     const priced = model.billing === "per-token" && price !== undefined;
     const cacheWrites = writesCache(model);
     const offered = searchesOffered(params.tools);
+    const plugins = params.providerOptions?.openrouter?.plugins;
+    const gatewaySearch =
+      model.kind === "openrouter" &&
+      Array.isArray(plugins) &&
+      plugins.some((plugin) => isRecord(plugin) && plugin.id === "web" && plugin.engine === "exa");
+    const gatewayFee = gatewaySearch ? searchFeeOf("openrouter") : undefined;
+    if (gatewayFee) offered.set("web_search", gatewayFee);
     /** What searches with these tools cost, in the price's currency. */
     const feesOf = (tools: Iterable<string>) => {
       if (!priced || !price) return 0;
@@ -402,8 +413,9 @@ export function createMeter(options: {
         ],
       );
     };
-    /** The web searches the reply made, by their tool's name. */
-    const searches: string[] = [];
+    // OpenRouter's gateway searches once without a Tool-call part, even with no results (#2248).
+    const serverSearches = new Set(gatewaySearch ? ["web_search"] : []);
+    const searches = [...serverSearches];
     /** What a usage report costs, with the searches made so far. */
     const counted = (usage: Usage) =>
       tokenUsageOf({
@@ -451,7 +463,7 @@ export function createMeter(options: {
       /** Hears a part of the reply: a web search the provider made is billed. */
       heard(part: object) {
         const search = searchMade(offered, part);
-        if (search) searches.push(search);
+        if (search && !serverSearches.has(search)) searches.push(search);
         const usage = "usage" in part ? (part.usage as Usage | undefined) : undefined;
         if (usage && !("finishReason" in part)) record(usage);
       },

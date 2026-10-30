@@ -15,12 +15,16 @@ const EXAMPLES = resolve(__dirname, "../../resources/examples");
 const exampleQuestion = (language: Language) =>
   EXAMPLE_SETS.credit[language].ready?.question as string;
 
-/** A core whose example is made, and a folder to write the User's own files in. */
+/** A core whose example is made and read, and a folder to write the User's own files in. */
 async function start(): Promise<{ core: Core; sources: string }> {
   const dataDir = await createTempDataFolder();
   const sources = await createTempDataFolder();
   const core = startCore(dataDir, { paths: { dataDir, examples: EXAMPLES } });
   await core.createExamples();
+  // Its Documents are listed, read, and the core knows it: the example's Question waits for nothing.
+  await vi.waitFor(async () => expect((await core.readyQuestion())?.waitingFor).toBeNull(), {
+    timeout: 30_000,
+  });
   return { core, sources };
 }
 
@@ -28,7 +32,11 @@ const BRIEF = "# Project brief\n\nThe project brief sets out the harbour plan.\n
 
 test("no Document of the User's own: the example's Question", async () => {
   const { core } = await start();
-  expect(await core.readyQuestion()).toEqual({ question: exampleQuestion("en"), scope: null });
+  expect(await core.readyQuestion()).toEqual({
+    question: exampleQuestion("en"),
+    scope: null,
+    waitingFor: null,
+  });
 });
 
 test("a file of their own still being read: no Question, and not the example's", async () => {
@@ -48,6 +56,7 @@ test("one Document of their own read: the Question is about it, named, and asks 
   expect(await core.readyQuestion()).toEqual({
     question: "What does ‘Project brief’ say?",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
+    waitingFor: null,
   });
 });
 
@@ -60,6 +69,7 @@ test("two Documents of their own: the one added last, the file just added", asyn
   expect(await core.readyQuestion()).toEqual({
     question: "What does ‘Project brief’ say?",
     scope: { folderIds: [], tagIds: [], documentIds: [latest?.id] },
+    waitingFor: null,
   });
 });
 
@@ -107,6 +117,7 @@ test("a Chinese Document with the English interface: the Question in English, na
   expect(await core.readyQuestion()).toEqual({
     question: "What does ‘项目简报’ say?",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
+    waitingFor: null,
   });
 });
 
@@ -119,5 +130,6 @@ test("an English Document with the Chinese interface: the Question in Chinese, n
   expect(await core.readyQuestion()).toEqual({
     question: "“Project brief”讲了什么？",
     scope: { folderIds: [], tagIds: [], documentIds: [brief?.id] },
+    waitingFor: null,
   });
 });

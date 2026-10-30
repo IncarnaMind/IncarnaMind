@@ -17,7 +17,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startModelServer } from "../helpers/embedding";
 import { mockRerankingModels } from "../helpers/embeddingProviders";
 
-const COHERE = { id: "https://api.cohere.com", name: "Cohere" };
+const COHERE = { id: "https://api.cohere.com", name: "Cohere", catalogId: "cohere" };
 const VOYAGE = { id: "https://api.voyageai.com", name: "Voyage AI" };
 const COHERE_KEY = "cohere-test-key";
 const DECIDED_AT = "2026-09-01T09:00:00.000Z";
