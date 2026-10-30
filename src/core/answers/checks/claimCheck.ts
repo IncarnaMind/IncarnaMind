@@ -72,6 +72,7 @@ import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   checkFigureReply,
+  type FigureCheckOptions,
   figureJudgment,
   figureReplyText,
   figureResultsOf,
@@ -607,9 +608,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const result = unchecked(reason, detail);
       return request.figures?.length ? figureResultsOf(request.figures, result) : result;
     };
-    // The whole read judges the whole sentence: its figures and its other words alike.
-    const wholeRead = (result: ClaimJudgment): ClaimCheckResult =>
-      request.figures?.length ? figureResultsOf(request.figures, result, null) : result;
     const failedCheck = (error: ProviderError): ClaimCheckResult => {
       const { reason, detail } = failureOf(error);
       return notChecked(reason, detail);
@@ -648,11 +646,58 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         versions: read,
         facts,
         citedCase,
-        decided: wholeRead,
+        figureRows: async (reply) =>
+          (await checkFigureReply(figureOptions(reply, { confirms: false }))).figures ?? [],
         notChecked,
         failedCheck,
       });
     };
+
+    /**
+     * How a Figures line is read: the check's own reply's, or the whole read's, which runs no
+     * calculation of its own and asks for no confirmation beyond itself (`confirms`).
+     */
+    const figureOptions = (
+      reply: string,
+      { confirms }: { confirms: boolean },
+    ): FigureCheckOptions => ({
+      requested: request.figures ?? [],
+      claim: request.claim,
+      reply,
+      calculations: figures,
+      citation: (marker) => session.finalCitation(marker),
+      facts,
+      caseFlags: citedCase,
+      costs: (marker) => (confirms ? stated.get(marker)?.costs : undefined) ?? new Set(),
+      unitReason: (figure, citations, bound) => unstatedUnit(citations, figure, bound)?.why ?? null,
+      signal,
+      async remainder(remainder) {
+        const evidence =
+          remainder.citation === null ? null : session.finalCitation(remainder.citation);
+        const result = figureJudgment(remainder, evidence, facts(), citedCase(evidence));
+        if (!confirms || result.verdict !== "contradicted" || !evidence) return result;
+        const confirmation = await confirmContradiction(
+          { ...request, claim: remainder.text, figures: undefined },
+          evidence,
+          session,
+          signal,
+        );
+        if ("failed" in confirmation) {
+          const failure = failureOf(confirmation.failed);
+          return unchecked(failure.reason, failure.detail);
+        }
+        if (confirmation.kind === "stopped") return unchecked("stopped");
+        if (confirmation.kind === "malformed") return unchecked("malformed");
+        if (confirmation.kind !== "confirmed")
+          return figureJudgment(
+            { ...remainder, verdict: "unsupported" },
+            evidence,
+            facts(),
+            citedCase(evidence),
+          );
+        return result;
+      },
+    });
 
     const figureContext = (citation: Citation) =>
       documentFigureContext(
@@ -816,45 +861,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         })),
       );
       session.check();
-      const figureResult = await checkFigureReply({
-        requested: request.figures,
-        claim: request.claim,
-        reply: figureReplyText(reply, setAside),
-        calculations: figures,
-        citation: (marker) => session.finalCitation(marker),
-        facts,
-        caseFlags: citedCase,
-        costs: (marker) => stated.get(marker)?.costs ?? new Set(),
-        unitReason: (figure, citations, bound) =>
-          unstatedUnit(citations, figure, bound)?.why ?? null,
-        signal,
-        async remainder(remainder) {
-          const evidence =
-            remainder.citation === null ? null : session.finalCitation(remainder.citation);
-          const result = figureJudgment(remainder, evidence, facts(), citedCase(evidence));
-          if (result.verdict !== "contradicted" || !evidence) return result;
-          const confirmation = await confirmContradiction(
-            { ...request, claim: remainder.text, figures: undefined },
-            evidence,
-            session,
-            signal,
-          );
-          if ("failed" in confirmation) {
-            const failure = failureOf(confirmation.failed);
-            return unchecked(failure.reason, failure.detail);
-          }
-          if (confirmation.kind === "stopped") return unchecked("stopped");
-          if (confirmation.kind === "malformed") return unchecked("malformed");
-          if (confirmation.kind !== "confirmed")
-            return figureJudgment(
-              { ...remainder, verdict: "unsupported" },
-              evidence,
-              facts(),
-              citedCase(evidence),
-            );
-          return result;
-        },
-      });
+      const figureResult = await checkFigureReply(
+        figureOptions(figureReplyText(reply, setAside), { confirms: true }),
+      );
       const absence = await absenceFor(
         readVerdict(figureReplyText(reply, setAside))?.absence ?? null,
         figureResult.verdict,

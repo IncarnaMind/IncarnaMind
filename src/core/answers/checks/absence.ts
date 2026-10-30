@@ -8,14 +8,18 @@ import type {
   ClaimJudgment,
   ClaimReadDocument,
   Document,
+  FigureCheckResult,
   LeftOutDocument,
   ProviderError,
 } from "../../api";
+import { isRecord } from "../../errors";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
-import { answerTemperature } from "../engine";
+import { answerTemperature, parseRecords } from "../engine";
 import { replyJson } from "../quoteRetry";
 import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
+import { wholeReadResults } from "./figureChecks";
+import { FIGURES_SHAPE, figuresSection } from "./prompt";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
@@ -27,8 +31,8 @@ interface AbsenceContext {
     citedCaseUnchecked: boolean;
     citedCaseFound: boolean;
   };
-  /** The whole read's verdict as the check's result, given to each requested figure too. */
-  decided(result: ClaimJudgment): ClaimCheckResult;
+  /** Each requested figure's row from a Figures line, read as the check reads its own reply's. */
+  figureRows(reply: string): Promise<FigureCheckResult[]>;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
 }
@@ -81,7 +85,7 @@ export async function checkAbsence({
   versions,
   facts,
   citedCase,
-  decided,
+  figureRows,
   notChecked,
   failedCheck,
 }: AbsenceContext): Promise<ClaimCheckResult | null> {
@@ -117,15 +121,19 @@ export async function checkAbsence({
     });
   }
   const whole = reading.map(({ passages }) => session.show(passages)).join("\n\n");
+  const figures = request.figures ?? [];
   let reply: string;
   try {
     const { text } = await generateText({
       model: model.model,
-      instructions:
-        'Read the whole Documents and decide whether the sentence\'s absence holds. Reply with one JSON object: {"verdict":"supported"} only when the whole text does not contain the thing the sentence says is absent; otherwise {"verdict":"contradicted","passage":"P1","quote":"the exact words that contain it"}. A Passage outside the whole text is never evidence.',
-      prompt: `<sentence>\n${request.claim}\n</sentence>\n\n${whole}`,
+      instructions: wholeReadInstructions(figures.length > 0),
+      prompt: [
+        `<sentence>\n${request.claim}\n</sentence>`,
+        ...(figures.length > 0 ? [figuresSection(figures)] : []),
+        whole,
+      ].join("\n\n"),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 400,
+      maxOutputTokens: 400 + 150 * figures.length,
       maxRetries: 1,
       abortSignal: signal,
     });
@@ -133,37 +141,65 @@ export async function checkAbsence({
   } catch (error) {
     return failedCheck(classifyProviderError(error));
   }
-  const value = await replyJson(reply);
-  if (typeof value !== "object" || value === null) return notChecked("malformed");
-  const verdict = "verdict" in value ? value.verdict : null;
-  if (verdict === "supported") {
-    return decided({
-      verdict: "supported",
-      evidence: null,
-      says: null,
-      unsupported: null,
-      calculation: null,
-      readDocuments,
-      ...citedCase(null),
-      ...facts(),
-    });
+  const [judged, ...figureLines] = reply.split(/\r?\n(?=\s*Figures:)/i);
+  const value = await replyJson(judged ?? "");
+  if (!isRecord(value)) return notChecked("malformed");
+  const verdict = value.verdict;
+  if (verdict !== "supported" && verdict !== "contradicted" && verdict !== "unsupported")
+    return notChecked("malformed");
+  const citations = parseRecords(value.citations ?? []);
+  if (citations.length > 0) {
+    const recorded = session.tools.cite(citations);
+    if (!recorded.startsWith("Recorded")) return notChecked("no-evidence");
+    session.check();
   }
-  if (verdict !== "contradicted") return notChecked("malformed");
-  const passage = "passage" in value && typeof value.passage === "string" ? value.passage : "";
-  const quote = "quote" in value && typeof value.quote === "string" ? value.quote : "";
-  const recorded = session.tools.cite([{ marker: 1, passage, quote }]);
-  if (!recorded.startsWith("Recorded [^1]")) return notChecked("no-evidence");
-  session.check();
-  const evidence = session.finalCitation(1);
-  if (evidence?.check !== "found") return notChecked("no-evidence");
-  return decided({
-    verdict: "contradicted",
-    evidence,
-    says: null,
-    unsupported: null,
-    calculation: null,
-    readDocuments,
-    ...citedCase(evidence),
-    ...facts(),
-  });
+  const evidence = citations.length > 0 ? session.finalCitation(1) : null;
+  if (evidence && evidence.check !== "found") return notChecked("no-evidence");
+  if (verdict === "contradicted" && !evidence) return notChecked("no-evidence");
+  const judgment: ClaimJudgment =
+    verdict === "unsupported"
+      ? {
+          verdict,
+          evidence: null,
+          says: null,
+          unsupported: { reason: null, covered: null, uncovered: null },
+          calculation: null,
+          readDocuments,
+          ...citedCase(null),
+          ...facts(),
+        }
+      : {
+          verdict,
+          evidence,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          readDocuments,
+          ...citedCase(evidence),
+          ...facts(),
+        };
+  if (figures.length === 0) return judgment;
+  const rows = await figureRows(figureLines.join("\n"));
+  const absent = typeof value.absent === "string" ? value.absent : null;
+  return wholeReadResults(request.claim, figures, rows, judgment, absent);
+}
+
+/**
+ * The whole read judges the whole sentence, not only its absence: a read that asked only whether
+ * the absent thing is there approved whatever else the sentence said (#1443).
+ */
+export function wholeReadInstructions(figures: boolean): string {
+  return [
+    "Read the whole Documents and judge the whole sentence against them: what it says is absent, and everything else it says.",
+    'Reply with one JSON object on one line: {"verdict":"supported","absent":"the sentence\'s own words for what it says is absent","citations":[{"marker":1,"passage":"P1","quote":"the exact words"}]}.',
+    "- supported: the whole text does not contain what the sentence says is absent, and states everything else it says;",
+    "- contradicted: the text contains what the sentence says is absent, or gives another value for anything else it says; citation 1 quotes the words that show it;",
+    "- unsupported: otherwise.",
+    "Copy each quote exactly from one Passage, as one unbroken stretch. A Passage outside the whole text is never evidence.",
+    ...(figures
+      ? [
+          `Then one last line: Figures: and one JSON object shaped ${FIGURES_SHAPE}, giving every requested id once. A figure inside what the sentence says is absent takes the verdict above, with source null. Any other figure names the citation and the number as its quote writes it; calculation is null; remainder is null.`,
+        ]
+      : []),
+  ].join("\n");
 }

@@ -734,7 +734,7 @@ const recordsSchema = {
 } as const;
 
 /** Records from the model's JSON, kept only where they have the right shape. */
-function parseRecords(value: unknown): CitationRecordInput[] {
+export function parseRecords(value: unknown): CitationRecordInput[] {
   // Some models send the array as a JSON string, or one record alone.
   if (typeof value === "string") {
     try {

@@ -201,18 +201,47 @@ function finding(figure: CheckFigure) {
   };
 }
 
-/**
- * Every requested figure given the one judgment that decides the whole sentence. `remainder` is
- * null when that judgment also decided the sentence's other words, so no part is left to show
- * apart; undefined when it decided nothing (Not checked).
- */
+/** Every requested figure given the one judgment that decides the whole sentence. */
 export function figureResultsOf(
   figures: readonly CheckFigure[],
   result: ClaimJudgment,
-  remainder: null | undefined = undefined,
 ): ClaimCheckResult {
   const rows = figures.map((figure): FigureCheckResult => ({ ...finding(figure), result }));
-  return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+  return { ...aggregateFigureResults(rows, undefined), figures: rows, remainder: undefined };
+}
+
+/**
+ * A whole read's result for a sentence with figures. A figure inside what the sentence says is
+ * absent (`absent`, the read's copy of those words) is decided with the absence: it takes the
+ * read's judgment. Every other figure keeps its own row from the read's Figures line. The
+ * read's judgment of the whole sentence stands beside them, so the sentence is never Supported
+ * when any part is not; its words aren't shown again as a part of their own.
+ */
+export function wholeReadResults(
+  claim: string,
+  requested: readonly CheckFigure[],
+  rows: readonly FigureCheckResult[],
+  judgment: ClaimJudgment,
+  absent: string | null,
+): ClaimCheckResult {
+  const count = (text: string, part: string) => text.split(part).length - 1;
+  const inAbsent = (figure: CheckFigure) =>
+    absent !== null &&
+    absent.trim() !== "" &&
+    claim.includes(absent) &&
+    count(absent, figure.reading.chars) > 0 &&
+    count(absent, figure.reading.chars) === count(claim, figure.reading.chars);
+  const figures = requested.map((figure): FigureCheckResult => {
+    const row = rows.find((each) => each.id === figure.id);
+    return inAbsent(figure) || !row ? { ...finding(figure), result: judgment } : row;
+  });
+  const sentence = aggregateFigureResults(figures, judgment);
+  return {
+    ...sentence,
+    ...(judgment.readDocuments && { readDocuments: judgment.readDocuments }),
+    figures,
+    remainder: null,
+  };
 }
 
 export function figureJudgment(

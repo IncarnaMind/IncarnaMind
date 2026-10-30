@@ -108,9 +108,13 @@ const calculationInstructions = (figures: boolean) =>
     "- A figure stated directly in a Passage needs no calculation, even when the quote is identical to the sentence. The Passage itself is evidence; it need not cite a second source.",
   ].join("\n");
 
+/** One Figures line's JSON, as every reply that judges a sentence's figures gives it. */
+export const FIGURES_SHAPE =
+  '{"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}';
+
 const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
-  'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
+  `Its shape is ${FIGURES_SHAPE}.`,
   "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same or differs; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
   "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider or roles differs when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
   'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
@@ -177,6 +181,33 @@ export function checkInstructions(
   }
 }
 
+/** The figures a check asks about, as a reply judging them names them. */
+export function figuresSection(figures: readonly CheckFigure[]): string {
+  return [
+    "Exact requested occurrences; their ids and locations distinguish repeated equal values:",
+    `<figures>\n${JSON.stringify(
+      figures.map(({ id, locator, reading, calculated, context, label }) => ({
+        id,
+        locator,
+        shown: reading.chars,
+        unit: reading.unit,
+        ...(reading.ambiguous.length > 0 && {
+          ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+            kind,
+            readings: readings.map((each, index) => ({
+              reading: index + 1,
+              means: readingWords(each),
+            })),
+          })),
+        }),
+        ...(context && { context }),
+        ...(label && { label }),
+        ...(calculated && { saved: calculated.figure }),
+      })),
+    )}\n</figures>`,
+  ].join("\n");
+}
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -207,32 +238,7 @@ export function claimPrompt(input: {
       : []),
     "The sentence to check:",
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
-    ...((input.figures?.length ?? 0) > 0
-      ? [
-          "",
-          "Exact requested occurrences; their ids and locations distinguish repeated equal values:",
-          `<figures>\n${JSON.stringify(
-            input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
-              id,
-              locator,
-              shown: reading.chars,
-              unit: reading.unit,
-              ...(reading.ambiguous.length > 0 && {
-                ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
-                  kind,
-                  readings: readings.map((each, index) => ({
-                    reading: index + 1,
-                    means: readingWords(each),
-                  })),
-                })),
-              }),
-              ...(context && { context }),
-              ...(label && { label }),
-              ...(calculated && { saved: calculated.figure }),
-            })),
-          )}\n</figures>`,
-        ]
-      : []),
+    ...((input.figures?.length ?? 0) > 0 ? ["", figuresSection(input.figures ?? [])] : []),
     "",
     `Write your sentence in ${LANGUAGE_NAMES[input.language]}.`,
   ].join("\n");

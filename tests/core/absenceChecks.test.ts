@@ -5,8 +5,8 @@ import { describe, expect, test } from "vitest";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
-import { checkGenerate, checkReply } from "../helpers/checks";
-import { setUpWithDocuments } from "../helpers/citations";
+import { checkGenerate, checkReply, requestedFigures } from "../helpers/checks";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -23,7 +23,9 @@ function absenceModel(verdict: "supported" | "contradicted", wholeReads: number[
           wholeReads.push(1);
           if (verdict === "supported") return { text: JSON.stringify({ verdict }) };
           const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
-          return { text: JSON.stringify({ verdict, passage, quote: CLAUSE }) };
+          return {
+            text: JSON.stringify({ verdict, citations: [{ marker: 1, passage, quote: CLAUSE }] }),
+          };
         }
         return checkGenerate({ [CLAIM]: { verdict: "supported", absence: true } })(call);
       },
@@ -61,7 +63,12 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
         }
         wholeReads.push(1);
         const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
-        return { text: JSON.stringify({ verdict: "contradicted", passage, quote: CLAUSE }) };
+        return {
+          text: JSON.stringify({
+            verdict: "contradicted",
+            citations: [{ marker: 1, passage, quote: CLAUSE }],
+          }),
+        };
       },
     },
   );
@@ -259,7 +266,10 @@ describe("Checking an absence sentence", () => {
           if (call.system.startsWith("Read the whole Documents")) {
             wholeReads.push(1);
             return {
-              text: JSON.stringify({ verdict: "contradicted", passage: "P999", quote: CLAUSE }),
+              text: JSON.stringify({
+                verdict: "contradicted",
+                citations: [{ marker: 1, passage: "P999", quote: CLAUSE }],
+              }),
             };
           }
           return checkGenerate({ [CLAIM]: { verdict: "supported", absence: true } })(call);
@@ -473,46 +483,86 @@ describe("Checking an absence sentence", () => {
   });
 });
 
-describe("Checking an absence sentence with a figure in a Note", () => {
-  const cases = [
-    {
-      language: "en" as const,
-      claim: "The company never disclosed the $5 million loan.",
-      quote: "The company disclosed a $5 million loan on 14 May 2026.",
-    },
-    {
-      language: "zh-CN" as const,
-      claim: "公司从未披露这笔 500 万元的贷款。",
-      quote: "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。",
-    },
-  ];
+describe("The whole read of an absence sentence judges the whole sentence", () => {
+  interface Read {
+    verdict: "supported" | "contradicted" | "unsupported";
+    absent: string;
+    quotes: string[];
+    /** A figure's verdict and the number its quote writes, by the figure as the sentence shows it. */
+    figures?: Record<string, { verdict: string; number?: string }>;
+  }
+  interface Case {
+    claim: string;
+    document: string;
+    read: Read;
+  }
 
-  async function checkedInNote(
-    each: (typeof cases)[number],
-    absence: boolean,
-    whole: "supported" | "contradicted",
-  ) {
-    const wholeReads: number[] = [];
-    const plan = { verdict: "supported", absence, quote: each.quote } as const;
-    const model = scriptedModel((call) => checkReply(call, { [each.claim]: plan }), {
-      generate: (call) => {
-        if (call.system.startsWith("Read the whole Documents")) {
-          wholeReads.push(1);
-          if (whole === "supported") return { text: JSON.stringify({ verdict: whole }) };
-          const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
-          return { text: JSON.stringify({ verdict: whole, passage, quote: each.quote }) };
-        }
-        return checkGenerate({ [each.claim]: plan })(call);
-      },
+  /** A whole read that answers as a faithful judge of the whole sentence would. */
+  function wholeRead(call: { prompt: string }, read: Read): string {
+    const passages = shownPassages(call.prompt);
+    const citations = read.quotes.map((quote, index) => ({
+      marker: index + 1,
+      passage: passages.find((each) => each.text.includes(quote))?.id,
+      quote,
+    }));
+    const judged = JSON.stringify({ verdict: read.verdict, absent: read.absent, citations });
+    const asked = requestedFigures(call as Parameters<typeof requestedFigures>[0]);
+    if (asked.length === 0) return judged;
+    const items = asked.map(({ id, shown }) => {
+      const own = read.figures?.[shown];
+      const inAbsent = read.absent.includes(shown);
+      const marker = read.quotes.findIndex((quote) => quote.includes(own?.number ?? shown)) + 1;
+      const number = own?.number ?? (marker > 0 && !inAbsent ? shown : null);
+      return {
+        id,
+        verdict: own?.verdict ?? (inAbsent ? read.verdict : number ? "supported" : "unsupported"),
+        scope: "same",
+        topic: "found",
+        roles: "same",
+        says: null,
+        reading: null,
+        relation: "equals",
+        source:
+          number && marker > 0
+            ? { citation: marker, number, reading: null, unitQuote: null }
+            : null,
+        calculation: null,
+      };
     });
+    return `${judged}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
+  }
+
+  async function checkedInNote(each: Case, language: "en" | "zh-CN", absence = true) {
+    const reads: { system: string; prompt: string }[] = [];
+    const requests: string[] = [];
+    const plan = absence
+      ? ({ verdict: "unsupported", absence: true } as const)
+      : ({ verdict: "supported", absence: false, quote: each.read.quotes[0] } as const);
+    const model = scriptedModel(
+      (call) => {
+        requests.push(call.system);
+        return checkReply(call, { [each.claim]: plan });
+      },
+      {
+        generate: (call) => {
+          requests.push(call.system);
+          if (call.system.startsWith("Read the whole Documents")) {
+            reads.push({ system: call.system, prompt: call.prompt });
+            return { text: wholeRead(call, each.read) };
+          }
+          return checkGenerate({ [each.claim]: plan })(call);
+        },
+      },
+    );
     const { core, client, mind } = await setUpWithDocuments(model, [
-      { name: "Disclosures.md", contents: `# Disclosures\n\n${each.quote}\n` },
+      { name: "Filing.md", contents: `# Filing\n\n${each.document}\n` },
     ]);
-    if (each.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+    if (language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
     writeMind(client, [
       { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: each.claim }] },
     ]);
     await client.settled();
+    requests.length = 0;
     await core.checkSentences({
       requestId: randomUUID(),
       mindId: mind.id,
@@ -522,45 +572,189 @@ describe("Checking an absence sentence with a figure in a Note", () => {
     });
     await client.settled();
     const check = claimSpans(readMind(client))[0]?.check;
-    return { check, wholeReads };
+    const figure = (shown: string) => check?.figures?.find((each) => each.reading.chars === shown);
+    return { check, figure, reads, requests };
   }
 
-  test.each(cases)(
-    "$language: the whole read's verdict decides the sentence and each of its figures",
-    async (each) => {
-      const supported = await checkedInNote(each, true, "supported");
-      expect(supported.wholeReads).toHaveLength(1);
-      expect(supported.check).toMatchObject({ state: "supported" });
-      expect(supported.check?.readDocuments).toHaveLength(1);
-      expect(supported.check?.figures?.length).toBeGreaterThan(0);
-      expect(supported.check?.figures?.map((figure) => figure.state)).toEqual(
-        supported.check?.figures?.map(() => "supported"),
-      );
+  const LOAN = { en: "the $5 million loan", "zh-CN": "这笔 500 万元的贷款" };
+  const MILLIONS = { en: "$5 million", "zh-CN": "500 万元" };
+  const REVENUE = { en: "Revenue rose 8% in 2025.", "zh-CN": "2025 年收入增长了 8%。" };
+  const languages = ["en", "zh-CN"] as const;
 
-      const contradicted = await checkedInNote(each, true, "contradicted");
-      expect(contradicted.wholeReads).toHaveLength(1);
-      expect(contradicted.check).toMatchObject({
-        state: "contradicted",
-        evidence: { quote: each.quote, check: "found" },
-      });
-      expect(contradicted.check?.figures?.length).toBeGreaterThan(0);
-      expect(contradicted.check?.figures?.map((figure) => figure.state)).toEqual(
-        contradicted.check?.figures?.map(() => "contradicted"),
+  test.each(languages)(
+    "%s: a wrong figure beside a true absence is never Supported (Contradicted with the Document's figure)",
+    async (language) => {
+      const claim =
+        language === "en"
+          ? "The company never disclosed the $5 million loan, and revenue rose 12% in 2025."
+          : "公司从未披露这笔 500 万元的贷款，且 2025 年收入增长了 12%。";
+      const { check, figure, reads } = await checkedInNote(
+        {
+          claim,
+          document: REVENUE[language],
+          read: {
+            verdict: "contradicted",
+            absent: LOAN[language],
+            quotes: [REVENUE[language]],
+            figures: { "12%": { verdict: "contradicted", number: "8%" } },
+          },
+        },
+        language,
       );
+      expect(reads).toHaveLength(1);
+      expect(check?.state).toBe("contradicted");
+      expect(figure("12%")?.state).toBe("contradicted");
+      expect(figure("12%")?.source).toMatchObject({ check: "found" });
+      expect(figure(MILLIONS[language])?.state).not.toBe("supported");
     },
   );
 
-  test.each(cases)(
-    "$language: without the absence answer, each figure keeps its own result from the search",
-    async (each) => {
-      const { check, wholeReads } = await checkedInNote(each, false, "supported");
-      expect(wholeReads).toHaveLength(0);
+  test.each(languages)(
+    "%s: another fact the sentence states wrongly beside its absence is Contradicted",
+    async (language) => {
+      const each =
+        language === "en"
+          ? {
+              claim: "The lease has no break clause and is governed by French law.",
+              document: "This lease is governed by English law.",
+              absent: "break clause",
+            }
+          : {
+              claim: "租约没有提前解约条款，并受法国法律管辖。",
+              document: "本租约受英国法律管辖。",
+              absent: "提前解约条款",
+            };
+      const { check, reads } = await checkedInNote(
+        {
+          claim: each.claim,
+          document: each.document,
+          read: { verdict: "contradicted", absent: each.absent, quotes: [each.document] },
+        },
+        language,
+      );
+      expect(reads).toHaveLength(1);
+      expect(check).toMatchObject({
+        state: "contradicted",
+        evidence: { quote: each.document, check: "found" },
+      });
+    },
+  );
+
+  test.each(languages)(
+    "%s: a true absence with a right figure is Supported, the figure with its own source",
+    async (language) => {
+      const claim =
+        language === "en"
+          ? "The company never disclosed the $5 million loan, and revenue rose 8% in 2025."
+          : "公司从未披露这笔 500 万元的贷款，且 2025 年收入增长了 8%。";
+      const { check, figure, reads, requests } = await checkedInNote(
+        {
+          claim,
+          document: REVENUE[language],
+          read: { verdict: "supported", absent: LOAN[language], quotes: [REVENUE[language]] },
+        },
+        language,
+      );
+      expect(reads).toHaveLength(1);
+      expect(check?.state).toBe("supported");
+      expect(check?.readDocuments).toHaveLength(1);
+      expect(figure("8%")).toMatchObject({ state: "supported", source: { check: "found" } });
+      expect(figure(MILLIONS[language])?.state).toBe("supported");
+      // The check's own search, cite and verdict, then the one whole read.
+      expect(requests.filter((system) => !system.startsWith("You sort"))).toHaveLength(4);
+    },
+  );
+
+  test.each(languages)(
+    "%s: a true absence with a figure inside it is Supported, and so is the figure",
+    async (language) => {
+      const claim =
+        language === "en"
+          ? "The company never disclosed the $5 million loan."
+          : "公司从未披露这笔 500 万元的贷款。";
+      const { check, figure } = await checkedInNote(
+        {
+          claim,
+          document: REVENUE[language],
+          read: { verdict: "supported", absent: LOAN[language], quotes: [] },
+        },
+        language,
+      );
+      expect(check?.state).toBe("supported");
+      expect(figure(MILLIONS[language])?.state).toBe("supported");
+    },
+  );
+
+  test.each(languages)(
+    "%s: a false absence with a figure is Contradicted, quoting what the Document holds",
+    async (language) => {
+      const claim =
+        language === "en"
+          ? "The company never disclosed the $5 million loan."
+          : "公司从未披露这笔 500 万元的贷款。";
+      const document =
+        language === "en"
+          ? "The company disclosed a $5 million loan on 14 May 2026."
+          : "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。";
+      const { check, figure } = await checkedInNote(
+        {
+          claim,
+          document,
+          read: { verdict: "contradicted", absent: LOAN[language], quotes: [document] },
+        },
+        language,
+      );
+      expect(check).toMatchObject({ state: "contradicted", evidence: { quote: document } });
+      expect(figure(MILLIONS[language])?.state).toBe("contradicted");
+    },
+  );
+
+  test.each(languages)(
+    "%s: without the absence answer, each figure keeps its own result from the search",
+    async (language) => {
+      const claim =
+        language === "en"
+          ? "The company disclosed the $5 million loan."
+          : "公司披露了这笔 500 万元的贷款。";
+      const document =
+        language === "en"
+          ? "The company disclosed a $5 million loan on 14 May 2026."
+          : "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。";
+      const { check, figure, reads, requests } = await checkedInNote(
+        {
+          claim,
+          document,
+          read: { verdict: "supported", absent: "", quotes: [document] },
+        },
+        language,
+        false,
+      );
+      expect(reads).toHaveLength(0);
       expect(check).toMatchObject({ state: "supported" });
       expect(check?.readDocuments ?? []).toEqual([]);
-      expect(check?.figures?.length).toBeGreaterThan(0);
-      for (const figure of check?.figures ?? []) {
-        expect(figure).toMatchObject({ state: "supported", source: { check: "found" } });
-      }
+      expect(figure(MILLIONS[language])).toMatchObject({
+        state: "supported",
+        source: { check: "found" },
+      });
+      expect(requests.filter((system) => !system.startsWith("You sort"))).toHaveLength(3);
     },
   );
+
+  test("the whole read is asked about the whole sentence, with its requested figures", async () => {
+    const claim = "The company never disclosed the $5 million loan, and revenue rose 8% in 2025.";
+    const { reads } = await checkedInNote(
+      {
+        claim,
+        document: REVENUE.en,
+        read: { verdict: "supported", absent: LOAN.en, quotes: [REVENUE.en] },
+      },
+      "en",
+    );
+    expect(reads[0]?.system).toContain("judge the whole sentence");
+    expect(reads[0]?.system).toContain("everything else it says");
+    expect(reads[0]?.system).toContain("Figures:");
+    expect(reads[0]?.prompt).toContain(`<sentence>\n${claim}\n</sentence>`);
+    expect(reads[0]?.prompt).toContain("<figures>");
+    expect(reads[0]?.prompt).toContain(REVENUE.en);
+  });
 });

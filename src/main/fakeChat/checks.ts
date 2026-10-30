@@ -79,14 +79,38 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   if (!prompt.includes("<sentence>") || !ABSENCE_WORDS.test(prompt)) {
     return null;
   }
-  if (prompt.includes("Break clause")) {
-    return JSON.stringify({
-      verdict: "contradicted",
-      passage: /id="([^"]+)"/.exec(prompt)?.[1],
-      quote: "Either party may end this lease with 30 days' notice.",
-    });
-  }
-  return JSON.stringify({ verdict: "supported" });
+  const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(prompt)?.[1] ?? "";
+  const contradicted = prompt.includes("Break clause");
+  const verdict = contradicted ? "contradicted" : "supported";
+  const judged = JSON.stringify({
+    verdict,
+    // The whole sentence stands for what it says is absent: its figures go with the absence.
+    absent: sentence,
+    citations: contradicted
+      ? [
+          {
+            marker: 1,
+            passage: /id="([^"]+)"/.exec(prompt)?.[1],
+            quote: "Either party may end this lease with 30 days' notice.",
+          },
+        ]
+      : [],
+  });
+  const asked = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(prompt)?.[1];
+  if (!asked) return judged;
+  const items = (JSON.parse(asked) as AskedFigure[]).map(({ id }) => ({
+    id,
+    verdict,
+    scope: "same",
+    topic: "found",
+    roles: "same",
+    says: null,
+    reading: null,
+    relation: "equals",
+    source: null,
+    calculation: null,
+  }));
+  return `${judged}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
 }
 
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
