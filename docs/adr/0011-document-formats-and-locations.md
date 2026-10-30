@@ -231,6 +231,17 @@ The amendment for #261 said a web page loads nothing it embeds. A chart, a table
 - **In an imported file,** a paragraph holding such a sentence is written again, with its runs as they were, so the comment can start and end inside it; one with none stays byte for byte.
 - **The line after saving counts them** from the same reading: by result, as comments, with the changes waiting that the file holds as tracked changes. A format that can't carry comments, and Word with the option off, say that the sentences went out unmarked, and offer Export as Word instead (or Export options…).
 
+## Amendment: comments on what needs a look, and a Word file verified (2026-10-29, #110)
+
+- **The option is "Comment on what needs a look"** (为需要留意的说法添加批注), since "failed" isn't one of the check results' words. It covers every reason a sentence or a Citation needs a look (Contradicted, Unsupported, Not found, Quote not found, Needs re-check), and its hint lists them. It stays on by default for the User's own Notes, whose export already carries those Citations.
+- **Someone else's file has its own switch, off by default and kept with that Note alone:** a Note made by Verify goes back to the other side, and its comments would quote the User's Documents and name them. Turning it on for one opposing draft leaves the next file from someone else off. Turned on, the hint says so ("Comments quote your Documents and name them", 批注会引用你的文档原文并写出文档名). Off while a claim needs a look, the line after saving says "· Check comments off · Change" (未添加核对批注 · 更改), and Change asks "Comment on what needs a look? Comments quote your Documents and name them." (为需要留意的说法添加批注？批注会引用你的文档原文并写出文档名。).
+- **Change writes the same file again,** never a second copy beside it that could be sent instead, and Undo puts its bytes and the Note's choice back, each Undo only its own Change's; one the file refuses (locked, or moved away) stays to be tried again: "Added 2 check comments to “{name}” · Undo" (已在“{name}”中添加 2 条核对批注 · 撤销), "Removed the check comments from “{name}” · Undo" (已从“{name}”中移除核对批注 · 撤销).
+- **Someone else's file is exported under the original's name** ("Harbour report.docx" in the Output location), as it goes back to its author; the original is never touched, and another file of that name already there makes it take the next free name, as any export does.
+- **A table row checked as one claim** (#1368) gets one comment over the whole row, not only the cell its check is marked on.
+- **The line after saving counts the comments, not the results:** "· 2 check comments" (2 条核对批注; one, "1 check comment", 1 条核对批注) whenever the file holds any, a sentence's or a Citation's, as its last part before Change. A file that holds none says nothing of them.
+- **A Contradicted comment names its evidence,** as an Unsupported one does: what the Document says, then the Passage and its Document and Location, "(“…”, Tides, p. 1)".
+- **A Word file someone else wrote can be verified:** it comes in as a Mind imported from it (#104), its original a Document left out of its own checks, and its claims' comments go back into that file.
+
 ## Amendment: record cites, printed deposition lines and per-cite comments (2026-10-29, #1709)
 
 A record cite is checked against the exact place it names, not a whole-Document search. The grammar lives in one module (`src/core/recordCites/parser.ts`): deposition pages and lines, exhibits, docket entries, Bates numbers, legal paragraphs and recording times, plus `Id.` and `supra`.

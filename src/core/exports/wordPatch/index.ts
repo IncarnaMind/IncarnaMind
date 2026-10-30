@@ -93,6 +93,8 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
+  /** The comments on what needs a look the file holds (`Review.checkComments`). */
+  checkComments: number;
   /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
   footnotes: number;
 }
@@ -241,8 +243,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
         order.push(each);
       } else if (counterpart.kind === "table" && counterpart.key !== null) {
         for (const row of counterpart.node.content ?? []) {
-          for (const cell of row.content ?? [])
-            visit(counterpartsOf(cell.content ?? [], currentKey, reading));
+          const cells = (row.content ?? []).flatMap((cell) =>
+            counterpartsOf(cell.content ?? [], currentKey, reading),
+          );
+          visit(cells);
+          spreadRowSentence(cells.flatMap((each) => tokens.get(each.node) ?? []));
         }
       } else if (counterpart.kind === "other" || counterpart.kind === "table") {
         const element = yOf.get(counterpart.node);
@@ -332,8 +337,16 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     data,
     report,
     commented: review.commentedSentences(),
+    checkComments: review.checkComments(),
     footnotes: docxWriter.footnoteCount,
   };
+}
+
+/** A row checked as one claim: every token of its cells carries its check, so its comment covers the row. */
+function spreadRowSentence(row: Token[]): void {
+  const sentence = row.find((each) => each.sentence?.row)?.sentence;
+  if (!sentence) return;
+  for (const each of row) each.sentence ??= sentence;
 }
 
 const signatureLoss: WordExportLoss = {
