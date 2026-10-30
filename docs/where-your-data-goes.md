@@ -17,7 +17,7 @@ IncarnaMind reads, searches and indexes your files here. It has no account or se
 | Meeting transcription | All of a Meeting's audio while it records, microphone and computer sound | Soniox (your key) or OpenAI realtime (your key) | Only with a cloud route; it can't be chosen in local mode |
 | An AI agent you connected | What it reads: Passages and Notes in your shared folders, and Answers it asks for | The agent, then its own AI model | When it calls; paused in local mode |
 
-On the same chat flow: `Make this a Skill` (up to 40,000 characters from the Note's end), a named Note (about 12,000 tokens), a command (the names, dates, Folders and Tags it found), and a model without Tools (the Question rewritten and translated for quick tasks).
+On the same chat flow: `Make this a Skill` (up to 40,000 characters from the Note's end), a named Note (up to about 12,000 tokens), a command (the names, dates, Folders and Tags it found), and a model without Tools (the Question rewritten and translated to the quick-tasks model).
 
 ## Nothing of yours goes without a choice
 
