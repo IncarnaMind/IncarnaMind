@@ -20,7 +20,7 @@
  * the reply: a window's command it marked done, or what is the User's alone. Asked once more to
  * say a refusal, it says nothing again, so the reply is the refusal's own line (#2252).
  */
-import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastResult, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
 interface Found {
   id: string;
@@ -78,7 +78,7 @@ const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
 const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
-const EMPTY_REPLY = /^Your reply is empty\./;
+const EMPTY_REPLY = /\bYour reply is empty\./;
 
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
@@ -94,7 +94,12 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
-  if (EMPTY_REPLY.test(question) && lastResult(prompt, "run_command") !== undefined) {
+  // The ask can come with the last step's own note after it, in a message of its own.
+  const asked = prompt.filter((message) => message.role === "user").slice(-2);
+  if (
+    asked.some((message) => EMPTY_REPLY.test(userText(message))) &&
+    lastResult(prompt, "run_command") !== undefined
+  ) {
     return { text: "" };
   }
   const made = FOLDER_AND_MOVE.exec(question);

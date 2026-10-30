@@ -1,10 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type { ApprovalReadText, CommandDone } from "../../src/core/api";
+import type { AnswerToolCall, ApprovalReadText, CommandDone } from "../../src/core/api";
 import {
   commandCallText,
   doneText,
   readTextLine,
+  refusalsOf,
+  repliesOnlyRefusals,
   runText,
+  saidInReply,
   undoable,
 } from "../../src/renderer/src/commandFacts";
 import { commands } from "../../src/renderer/src/commands/registry";
@@ -367,5 +370,48 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     });
     expect(doneText(en, motion)).toBe("Changed “Motion” to “Reduced”");
     expect(undoable([motion])).toBe(true);
+  });
+});
+
+describe("A refusal the reply says is said once (#2252)", () => {
+  const refusal = (yours: CommandDone["yours"], folder?: CommandDone["folder"]) =>
+    ({
+      id: `call-${yours}`,
+      tool: "run_command",
+      source: "commands",
+      input: { command: "settings.change" },
+      status: "done",
+      command: done({ command: "settings.change", yours, ...(folder && { folder }) }),
+    }) as unknown as AnswerToolCall;
+  const opened = {
+    id: "call-open",
+    tool: "run_command",
+    source: "commands",
+    input: { command: "document.openBeside" },
+    status: "done",
+    command: done({ command: "document.openBeside", window: { changed: false } }),
+  } as unknown as AnswerToolCall;
+  const privacy = en("commands.yours.privacy");
+  const spending = zh("commands.yours.spending");
+
+  // protects=the reply the core writes for a refusal, in either language, is known as said, so the card shows only its button; and a reply that is only refusals has nothing to keep as a note, while one with more words does; fails_when=the card would repeat the sentence, or "Write as a note" shows under a reply that only refuses; no_claim=a model's own wording of a refusal.
+  test("the reply's own refusal sentence, in either language, is known as said", () => {
+    const toolCalls = [refusal("privacy"), refusal("spending"), refusal("privacy"), opened];
+    expect(refusalsOf({ toolCalls }).map((each) => each.what)).toEqual(["privacy", "spending"]);
+    expect(saidInReply(privacy, "privacy", undefined)).toBe(true);
+    expect(saidInReply(zh("commands.yours.privacy"), "privacy", undefined)).toBe(true);
+    expect(saidInReply("I can't change that.", "privacy", undefined)).toBe(false);
+    expect(repliesOnlyRefusals({ text: `${privacy} ${spending}`, toolCalls })).toBe(true);
+    expect(repliesOnlyRefusals({ text: `${spending}${privacy}`, toolCalls })).toBe(true);
+    expect(repliesOnlyRefusals({ text: `${privacy} I opened the lease.`, toolCalls })).toBe(false);
+    expect(repliesOnlyRefusals({ text: "Opened it.", toolCalls: [opened] })).toBe(false);
+  });
+
+  // protects=a Folder's wall refusal names its Folder in the reply as on the card; fails_when=the named sentence isn't known as said; no_claim=the Folder menu.
+  test("a wall's refusal is known by its Folder's name", () => {
+    const folder = { id: "f1", name: "Deals" };
+    const said = en("commands.yours.wall.named", { folder: "Deals" });
+    expect(saidInReply(said, "wall", folder)).toBe(true);
+    expect(repliesOnlyRefusals({ text: said, toolCalls: [refusal("wall", folder)] })).toBe(true);
   });
 });

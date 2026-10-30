@@ -52,7 +52,7 @@ import {
 } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
-import { yoursWordsOf } from "../../shared/commands";
+import { yoursLine } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
@@ -2779,6 +2779,7 @@ export function createAnswers(options: AnswersOptions) {
               missing.length > 0 ? `that ${named}, and that the change wasn't made` : "";
             return {
               claims: [],
+              writeOnly: true,
               note: refused
                 ? `Your reply is empty. Say in the User's language ${notThere ? `${notThere}; ` : ""}that what run_command said is the User's to do wasn't done, and where they do it; then what the other calls did.`
                 : `Your reply is empty. Say in the User's language ${notThere}. Don't say that you changed anything.`,
@@ -2947,11 +2948,11 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              // A command that only acted on the window ends the turn: its card is the reply
-              // (#1421). One that is the User's alone is said in the reply too (#2252).
+              // A command that only acted on the window, or that is the User's alone, ends the
+              // turn: its card is the reply (#1421).
               mayEndBlank: () =>
                 changedAMind() ||
-                [...commandsDone.values()].some((done) => done.window !== undefined),
+                [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
                 const language = answerLanguage(context.question);
                 const missing = endedAfterRefusal() ? missingMindNames() : [];
@@ -2971,9 +2972,7 @@ export function createAnswers(options: AnswersOptions) {
                         ]
                       : []),
                   ...refusedCommands().map(({ yours, folder }) =>
-                    translate(language, yoursWordsOf(yours, folder).said, {
-                      folder: folder?.name ?? "",
-                    }),
+                    yoursLine(language, yours, folder),
                   ),
                 ];
                 return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");

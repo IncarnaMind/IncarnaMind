@@ -9,7 +9,14 @@ import type {
   CommandsFound,
   ConversationAnswer,
 } from "../../core/api";
-import { type CommandId, isCommandId, yoursWordsOf } from "../../shared/commands";
+import { LANGUAGES } from "../../core/language";
+import {
+  type CommandId,
+  isCommandId,
+  type Yours,
+  yoursLine,
+  yoursWordsOf,
+} from "../../shared/commands";
 import { isMessageKey, type MessageKey, type MessageParams } from "../../shared/i18n";
 import { commands, labelOf } from "./commands/registry";
 import { folderName } from "./linkedFolders";
@@ -56,6 +63,40 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "documents.organize": "commands.running.organize",
   "deleted.restore": "commands.running.restore",
 };
+
+/** What an Answer asked for that is the User's alone, each once, in the order asked. */
+export function refusalsOf(
+  answer: Pick<ConversationAnswer, "toolCalls">,
+): { what: Yours; folder: CommandDone["folder"] }[] {
+  return [
+    ...new Map(
+      answer.toolCalls.flatMap((call) => {
+        const done = call.command;
+        return done?.yours
+          ? [[`${done.yours} ${done.folder?.id ?? ""}`, { what: done.yours, folder: done.folder }]]
+          : [];
+      }),
+    ).values(),
+  ];
+}
+
+/**
+ * Whether the reply already says this refusal's sentence, in either language, as the core writes
+ * it when the model says nothing (#2252): the card then shows only its button.
+ */
+export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
+  LANGUAGES.some((language) => text.includes(yoursLine(language, what, folder)));
+
+/** Whether the reply is only its refusals' sentences: nothing in it to keep in a note. */
+export function repliesOnlyRefusals(
+  answer: Pick<ConversationAnswer, "text" | "toolCalls">,
+): boolean {
+  const lines = refusalsOf(answer).flatMap(({ what, folder }) =>
+    LANGUAGES.map((language) => yoursLine(language, what, folder)),
+  );
+  if (lines.length === 0) return false;
+  return lines.reduce((rest, line) => rest.split(line).join(""), answer.text).trim() === "";
+}
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
 const WHOLE_LINES = new Set<MessageKey>([

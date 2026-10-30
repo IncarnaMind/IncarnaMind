@@ -31,7 +31,7 @@ import {
   coreCommandsOn,
   isCoreCommand,
 } from "./catalogue";
-import { type Findable, type FindInput, type Found, find, foundLine, foundOf } from "./find";
+import { type Findable, type FindInput, find, foundLine, foundOf } from "./find";
 import { askOf, type CommandRename, renamesOf } from "./policy";
 import {
   type CheckedCommand,
@@ -55,17 +55,23 @@ const windowLine = (entry: OfferedCommand) =>
 
 const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
 
+const yoursFor = (kind: CommandTarget, offered: readonly OfferedCommand[]): string | null => {
+  const yours = offered.filter((entry) => entry.yours !== null && entry.on?.includes(kind));
+  return yours.length > 0 ? `the User's alone: ${yours.map(yoursLine).join("; ")}` : null;
+};
+
 /**
  * The core's commands for a kind, then the window's that act on it and that the core doesn't run,
  * then those of the User's alone, which say where the User does it (#2252).
  */
 function commandsFor(kind: CommandTarget, offered: readonly OfferedCommand[]): string {
-  const acting = offered.filter((entry) => entry.on?.includes(kind) && !isCoreCommand(entry.id));
-  const windows = acting.filter((entry) => entry.yours === null);
-  const yours = acting.filter((entry) => entry.yours !== null);
+  const windows = offered.filter(
+    (entry) => entry.yours === null && entry.on?.includes(kind) && !isCoreCommand(entry.id),
+  );
+  const yours = yoursFor(kind, offered);
   return [
     [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; "),
-    ...(yours.length > 0 ? [`the User's alone: ${yours.map(yoursLine).join("; ")}`] : []),
+    ...(yours ? [yours] : []),
   ].join("; ");
 }
 
@@ -184,19 +190,6 @@ export function commandTools(options: CommandToolsOptions): {
     (entry) => entry.on === null && entry.yours === null && !isCoreCommand(entry.id),
   );
   const yoursCommands = options.offered.filter((entry) => entry.yours !== null);
-  const listed = (query: FindInput, found: readonly Found[]) => {
-    const [one, many] = nouns[query.kind];
-    const shown = found.slice(0, MAX_LISTED);
-    for (const each of shown) if (each.webPage) readTitles.add(each.id);
-    return [
-      `Found ${found.length === 1 ? `1 ${one}` : `${found.length} ${many}`}:`,
-      ...shown.map((each) => foundLine(each, options.focusedMindId)),
-      ...(found.length > shown.length
-        ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
-        : []),
-      `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
-    ].join("\n");
-  };
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
@@ -248,15 +241,30 @@ export function commandTools(options: CommandToolsOptions): {
               (each) => each.deletedKind === query.kind,
             );
       if (deleted.length > 0) {
-        const inDeleted: FindInput = { kind: "deleted", name: query.name };
-        options.found(toolCallId, foundOf(inDeleted, deleted.length));
-        return `No ${one} matches outside Recently deleted.\n${listed(inDeleted, deleted)}`;
+        options.found(toolCallId, foundOf({ kind: "deleted", name: query.name }, deleted.length));
+        // Not restore's to offer here: "open the memo" must not bring it back unasked.
+        const yours = yoursFor("deleted", options.offered);
+        return [
+          `No ${one} matches outside Recently deleted, which holds:`,
+          ...deleted.slice(0, MAX_LISTED).map((each) => foundLine(each, options.focusedMindId)),
+          `Say it is in Recently deleted and change nothing, unless the request is to bring it back (deleted.restore)${yours ? ` or is ${yours}` : ""}.`,
+        ].join("\n");
       }
       options.found(toolCallId, foundOf(query, found.length));
       if (found.length === 0) {
         return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
       }
-      return listed(query, found);
+      const [, many] = nouns[query.kind];
+      const shown = found.slice(0, MAX_LISTED);
+      for (const each of shown) if (each.webPage) readTitles.add(each.id);
+      return [
+        `Found ${found.length === 1 ? `1 ${one}` : `${found.length} ${many}`}:`,
+        ...shown.map((each) => foundLine(each, options.focusedMindId)),
+        ...(found.length > shown.length
+          ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
+          : []),
+        `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
+      ].join("\n");
     },
   };
 
@@ -267,7 +275,7 @@ export function commandTools(options: CommandToolsOptions): {
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
       `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, starting a recording or turning the microphone on, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
       YOURS_RULE,
-      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed unless a call was the User's alone: say that. Otherwise say only what each call returned.",
+      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
     inputSchema: {
       type: "object",

@@ -293,6 +293,31 @@ const noCommand: Check = (seen) => {
   expect(seen.window).toEqual([]);
 };
 
+/** Neither Check nor Organize: a request to write or to look at the text is the reply's. */
+const neitherCheckNorOrganize: Check = (seen) => {
+  expect(windowRan(seen, "mind.check", "mind.checkEverySentence")).toBe(false);
+  expect(ran(seen).some((done) => done.command === "documents.organize")).toBe(false);
+};
+
+/** Opening or renaming something that is in Recently deleted never brings it back unasked. */
+const notRestored =
+  (name: string): Check =>
+  (seen) => {
+    expect(ran(seen).some((done) => done.command === "deleted.restore")).toBe(false);
+    expect(seen.after.documents).not.toContain(name);
+  };
+
+const renamed =
+  (to: string): Check =>
+  ({ after }) =>
+    expect(after.documents).toContain(to);
+
+/** Each window command of a request runs once: asked again to say a refusal, it isn't run again. */
+const ranOnce = (seen: Seen) => {
+  const runs = seen.window.map((each) => `${each.command} ${JSON.stringify(each.targets)}`);
+  expect(runs).toEqual([...new Set(runs)]);
+};
+
 const both =
   (...checks: Check[]): Check =>
   (seen) => {
@@ -432,6 +457,40 @@ const REQUESTS: { id: string; text: string; check: Check }[] = [
   { id: "style-en-3", text: "Format the references here the Chicago way", check: style(/chicago/) },
   { id: "style-zh-2", text: "这篇笔记的引用换成芝加哥格式", check: style(/chicago/) },
   { id: "style-zh-3", text: "引用格式改成 Chicago", check: style(/chicago/) },
+  {
+    id: "refusal-rename-en",
+    text: "Turn on Local mode and rename Lease Harbour Street to Harbour 2026",
+    check: refusedThen("privacy", renamed("Harbour 2026")),
+  },
+  {
+    id: "refusal-rename-zh",
+    text: "先打开本地模式，再把 Lease Mill Lane 改名为 Mill Lane 2026",
+    check: refusedThen("privacy", renamed("Mill Lane 2026")),
+  },
+  { id: "open-deleted-en", text: "Open the Q3 memo", check: notRestored("Q3 memo") },
+  {
+    id: "rename-deleted-en",
+    text: "Rename the Q3 memo to Q3 close",
+    check: notRestored("Q3 memo"),
+  },
+  {
+    id: "write-note-en",
+    text: "Write a summary note of what my rent documents say",
+    check: neitherCheckNorOrganize,
+  },
+  {
+    id: "short-note-en",
+    text: "Put together a short note on the rent terms",
+    check: neitherCheckNorOrganize,
+  },
+  { id: "write-note-zh", text: "把租金相关的内容汇总成一篇笔记", check: neitherCheckNorOrganize },
+  { id: "spelling-en", text: "Check the spelling in this note", check: neitherCheckNorOrganize },
+  { id: "grammar-zh", text: "帮我检查一下这段的语法", check: neitherCheckNorOrganize },
+  {
+    id: "question-rent-en",
+    text: "What does this note say about rent?",
+    check: neitherCheckNorOrganize,
+  },
 ];
 
 async function ask(core: Core, text: string, mindId: string, commands: OfferedCommand[]) {
@@ -557,6 +616,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 240)}`;
           try {
             request.check(seen);
+            ranOnce(seen);
             passed++;
             line = `${line}\n  pass`;
           } catch (error) {

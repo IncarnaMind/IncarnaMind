@@ -1446,9 +1446,41 @@ describe("A refusal is said, and the commands a request names are within reach (
       const requests = answerRequests(model);
       expect(requests).toHaveLength(4);
       expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Your reply is empty");
+      expect(requests.at(-1)?.toolChoice).toEqual({ type: "none" });
       expect(answer.text).toBe(reply === "" ? said : reply);
       core.close();
     }
+  });
+
+  // protects=asked once more to say a refusal, the model can only write: a call it makes then is refused, so the window command it already ran isn't run again, and the reply is still the refusal's line; fails_when=the Document opens twice, or the Answer ends blank; no_claim=a real model's reply.
+  test("asked to say the refusal, a call the model makes runs nothing again", async () => {
+    const model = scriptedModel((call) => {
+      const made = call.results.filter((each) => /^(?:list_commands|run_command)$/.test(each.tool));
+      const steps: Step[] = [
+        run("settings.change", { setting: "localMode", value: "on" }, false),
+        find("Harbour Street"),
+        run("document.openBeside", { done: true }),
+      ];
+      const step = steps[made.length];
+      if (step) return { calls: [step(call.results)] };
+      const opened = call.results.find((each) => each.tool === "list_commands")?.text ?? "";
+      const [id = ""] = [...opened.matchAll(/^- (\S+): /gm)].map((match) => match[1] ?? "");
+      return {
+        calls: [{ tool: "run_command", input: { command: "document.openBeside", ids: [id] } }],
+      };
+    });
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+
+    const answer = await askAssistant(core, {
+      text: "Go local-only and put the Harbour Street lease beside my note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(asked.map((each) => each.command)).toEqual(["document.openBeside"]);
+    expect(answer.text).toBe(translate("en", "commands.yours.privacy"));
+    core.close();
   });
 
   // protects="delete it for good" for what is already in Recently deleted, asked for as a Document by its name, finds it there with the delete-for-good command listed as the User's alone, so the refusal runs and is said, and nothing is deleted for good; fails_when=list_commands says no Document matches, the command isn't listed for it, or the item leaves Recently deleted; no_claim=a real model's choice of kind.
@@ -1489,6 +1521,39 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
+  // protects="open the Q3 commentary" when it is in Recently deleted finds it there but offers no command that brings it back, says to change nothing unless the request is to, and an open on its id runs nothing; fails_when=restore is listed as a command for it, the window is asked, or it leaves Recently deleted; no_claim=a real model's choice.
+  test.each(["Open the Q3 commentary", "把 Q3 commentary 打开"])(
+    "“%s” with it deleted: found, not restored",
+    async (text) => {
+      const model = callingThen(
+        "It is in Recently deleted.",
+        find("Q3 commentary"),
+        run("document.open", { done: true }),
+      );
+      const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+      const q3 = documents.find((each) => each.name.startsWith("Q3"));
+      if (!q3) throw new Error("No Q3 commentary.");
+      await core.deleteDocuments([q3.id]);
+      const asked = windowOf(core, () => ({ ran: true, changed: false }));
+      const offered = [...OFFERED, entry("document.open", "Open", { on: ["document"] })];
+
+      await askAssistant(core, { text, mindId: mind.id, commands: offered, clientId: WINDOW });
+
+      const listed =
+        model.doStreamCalls[1]?.prompt
+          .flatMap((message) => (message.role === "tool" ? message.content : []))
+          .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
+          .join("\n") ?? "";
+      expect(listed).toContain("“Q3 commentary” (document, deleted");
+      expect(listed).toContain("change nothing, unless the request is to bring it back");
+      expect(listed).not.toContain("Commands for");
+      expect(asked).toEqual([]);
+      expect((await core.listDocuments()).map((each) => each.id)).not.toContain(q3.id);
+      expect((await core.listDeleted()).map((each) => each.name)).toContain("Q3 commentary");
+      core.close();
+    },
+  );
+
   // protects=every citation style name the command's description gives is one the app knows, and Chicago by its other names and an earlier edition by its number are found too, never another edition in its place; fails_when=a name the description shows is refused, or "Chicago 17" cites in the 18th edition; no_claim=every name a model might use.
   test("every style name the description gives is accepted, and Chicago by its other names", async () => {
     let style = "";
@@ -1524,6 +1589,15 @@ describe("A refusal is said, and the commands a request names are within reach (
     for (const [name, id] of [
       ["Chicago Manual of Style", "chicago-notes"],
       ["芝加哥", "chicago-notes"],
+      ["CMOS", "chicago-notes"],
+      ["Chicago notes", "chicago-notes"],
+      ["Chicago notes and bibliography", "chicago-notes"],
+      ["Chicago author-date", "chicago-author-date"],
+      ["芝加哥 著者-出版年", "chicago-author-date"],
+      ["Chicago 18", "chicago-notes"],
+      ["Chicago 18th edition", "chicago-notes"],
+      ["Chicago author-date 18", "chicago-author-date"],
+      ["Chicago author-date 17", "chicago-author-date-17th-edition"],
       ["Chicago 17", "chicago-notes-bibliography-17th-edition"],
       ["Chicago 17th edition", "chicago-notes-bibliography-17th-edition"],
       ["APA 7th edition", "apa"],
@@ -1534,7 +1608,7 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
-  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind, so neither is hidden from the model; fails_when=the instructions don't name mind.check or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
+  // protects=a request to check the Note in front or to put Documents on a subject together is offered the window's Check by its id in the instructions and Organize beside create_mind, with the instruction that putting them together is Organize's, not a new Note; fails_when=the instructions don't name mind.check or say so of Organize, or run_command doesn't offer documents.organize; no_claim=which a real model chooses, which the live requests measure.
   test.each([
     "Go through this note and verify it",
     "能不能把这篇笔记里的内容对一下资料",
@@ -1552,6 +1626,7 @@ describe("A refusal is said, and the commands a request names are within reach (
       tool.type === "function" ? [[tool.name, tool.description ?? ""] as const] : [],
     );
     expect(system).toContain("Checking the Note in front is the window's Check, mind.check");
+    expect(system).toContain("is Organize's, not a new Note: run documents.organize");
     expect(tools.find(([name]) => name === "run_command")?.[1]).toContain("documents.organize (");
     expect(tools.map(([name]) => name)).toEqual(
       expect.arrayContaining(["create_mind", "list_commands"]),

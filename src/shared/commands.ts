@@ -1,4 +1,5 @@
-import type { MessageKey } from "./i18n";
+import type { Language } from "../core/language";
+import { type MessageKey, translate } from "./i18n";
 
 /** What a command acts on, then what it does: "mind.new", "document.moveTo". */
 export type CommandId = `${string}.${string}`;
@@ -90,6 +91,16 @@ export const yoursWordsOf = (
   what === "wall" && folder
     ? { said: "commands.yours.wall.named", open: "commands.yours.openFolderMenu" }
     : YOURS_WORDS[what];
+
+/**
+ * A refusal's sentence in `language`: the card's, and the reply's when the model writes none, so
+ * the card leaves it out then and shows only its button (#2252).
+ */
+export const yoursLine = (
+  language: Language,
+  what: Yours,
+  folder?: { name: string } | null,
+): string => translate(language, yoursWordsOf(what, folder).said, { folder: folder?.name ?? "" });
 
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;

@@ -1831,6 +1831,8 @@ async function* toolLoop(
   let again: readonly RunMessage[] | null = null;
   /** The Tool the ask said to call: the asked-again Run's first step calls it. */
   let mustCall: string | null = null;
+  /** The ask lets the model only write: the asked-again Run is one step, which calls no Tool. */
+  let writeOnly = false;
   /** Model calls made so far: asked once more, the model gets what is left of `maxSteps`. */
   let steps = 0;
   const nudges = createNudges(maxSteps, () => steps);
@@ -1880,13 +1882,16 @@ async function* toolLoop(
   async function* runs(): AsyncGenerator<RunEvent> {
     let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
     let calls: string | null = null;
+    let stepsLeft = maxSteps;
     for (;;) {
-      yield* engine.run(runRequest(history, maxSteps - steps, calls));
+      yield* engine.run(runRequest(history, stepsLeft, calls));
       if (!again) return;
       history = [...history, ...again];
       again = null;
       calls = mustCall;
       mustCall = null;
+      stepsLeft = writeOnly ? 1 : maxSteps - steps;
+      writeOnly = false;
     }
   }
   const runRequest = (
@@ -2121,6 +2126,7 @@ async function* toolLoop(
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           mustCall = settled.requires ?? null;
+          writeOnly = settled.writeOnly === true;
           break;
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
