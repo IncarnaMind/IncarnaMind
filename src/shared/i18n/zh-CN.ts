@@ -4549,6 +4549,8 @@ export const zhCN = {
   "error.provider.urlScheme": "API 地址必须以 http:// 或 https:// 开头。",
   "error.provider.urlExtras": "API 地址不能包含用户名、密码、查询参数或片段。密钥请填在密钥栏。",
   "error.provider.ollamaNotRunning": "Ollama 没有在这台电脑上运行。",
+  "error.provider.openrouterCapabilities":
+    "OpenRouter 未能确认有服务支持本次请求的工具和回复格式。请重试或选择其他 AI 模型。",
   "error.provider.ollamaCantOpen": "无法从这里打开 Ollama。请到 ollama.com 下载。",
   "error.provider.ollamaCloud": "{model} 在 ollama.com 上运行，不在本机。请选择本地模型。",
   "error.provider.rerankLocalMode": "云端模型不可用：已开启“所有内容都留在这台电脑上”。",
