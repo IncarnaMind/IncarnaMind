@@ -212,13 +212,25 @@ describe("same-Run facet reply binding", () => {
     },
   );
 
+  test("retains a time row whose quote states no period", () => {
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: 2 }, facet: { kind: "time" } },
+    ];
+    const parsed = readAttributionReply(
+      reply([source("目前", { kind: "time", time: "present", period: null })]),
+      "目前5%",
+      plans,
+    );
+    expect(parsed[0]).toMatchObject({ verdict: "supported", evidence: [1], time: "present" });
+    expect(parsed[0]).not.toHaveProperty("period");
+  });
+
   test.each([
     undefined,
-    null,
     {},
     { start: "2026-02-30", end: "2026-03-31", precision: "month" },
     { start: "2026-01-01", end: "2025-12-31", precision: "year" },
-  ])("retains the time row without an unusable period %j", (period) => {
+  ])("drops a time row whose period is missing or unreadable %j", (period) => {
     const plans: ClaimPartPlan[] = [
       { kind: "fact", span: { start: 0, end: 2 }, facet: { kind: "time" } },
     ];
@@ -227,8 +239,7 @@ describe("same-Run facet reply binding", () => {
       "目前5%",
       plans,
     );
-    expect(parsed[0]).toMatchObject({ verdict: "supported", evidence: [1], time: "present" });
-    expect(parsed[0]).not.toHaveProperty("period");
+    expect(parsed).toEqual([null]);
   });
 
   test.each([undefined, null, "now", 1])(

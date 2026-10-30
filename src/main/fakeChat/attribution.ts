@@ -281,7 +281,7 @@ export function attributionReply(prompt: Prompt): Reply | null {
       ...(items.length ? [`Figures: ${JSON.stringify({ items, remainder: null })}`] : []),
       ...(kind
         ? [
-            `Facets: ${JSON.stringify({ items: [{ kind, text: words, occurrence: 1, verdict: "supported", scope: "same", topic: "found", roles: "same", says: quote, evidence: kind === "source" && sentence === row.source ? citations.map((citation) => citation.marker) : [1], ...(kind === "source" && { sourceName: name }), ...(kind === "time" && { time: "present", ...(period && { period }) }), ...(kind === "speaker" && { claimedSpeaker: found.language === "en" ? "Zhang" : "张三", actualSpeaker: "Speaker 2", actualSpeakerNamed: false, speakerOrigin: "cue" }) }] })}`,
+            `Facets: ${JSON.stringify({ items: [{ kind, text: words, occurrence: 1, verdict: "supported", scope: "same", topic: "found", roles: "same", says: quote, evidence: kind === "source" && sentence === row.source ? citations.map((citation) => citation.marker) : [1], ...(kind === "source" && { sourceName: name }), ...(kind === "time" && { time: "present", period: period ?? null }), ...(kind === "speaker" && { claimedSpeaker: found.language === "en" ? "Zhang" : "张三", actualSpeaker: "Speaker 2", actualSpeakerNamed: false, speakerOrigin: "cue" }) }] })}`,
           ]
         : []),
     ].join("\n"),

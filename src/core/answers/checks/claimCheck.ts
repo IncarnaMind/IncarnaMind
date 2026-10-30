@@ -938,7 +938,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
                 deps.walledDocument(document.id) === deps.walledFolder(request.cacheKey ?? null),
             )
           : [],
-      ...(Number.isFinite(checkedAt.getTime()) && { checkedAt: checkedAt.toISOString() }),
     });
     for await (const event of deps.engine.generate({
       instructions: (mode, options) =>

@@ -147,6 +147,7 @@ export function readAttributionReply(
     const time = item.kind === "time" ? timeOf(item.time) : undefined;
     if (item.kind === "time" && time === undefined) continue;
     const period = time === undefined ? null : readClaimFacetPeriod(item.period);
+    if (time !== undefined && item.period !== null && period === null) continue;
     const { verdict, scope, topic, roles, says, evidence } = item;
     const parsed = readVerdict(JSON.stringify({ verdict, scope, topic, roles, says, evidence }));
     if (!parsed?.evidence) continue;

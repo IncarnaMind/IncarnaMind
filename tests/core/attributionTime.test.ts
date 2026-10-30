@@ -83,7 +83,7 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
   const claim =
     options.claim ??
     (row.language === "en" ? "The base rate is currently 5%." : "基准利率目前为5%。");
-  const declared = Object.hasOwn(options, "period") ? options.period : row.period;
+  const declared = Object.hasOwn(options, "period") ? options.period : (row.period ?? null);
   const quotes = [row.quote, ...(options.neighbor ? [options.neighbor.quote] : [])];
   const wire = [
     { kind: "fact", text: qualifier, facet: { kind: "time" } },
@@ -172,7 +172,10 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
       ["search_documents"],
       ["search_documents", "cite"],
     ]);
-    for (const frame of frames.slice(frameStart)) expect(frame.prompt).toContain(claim);
+    for (const frame of frames.slice(frameStart)) {
+      expect(frame.prompt).toContain(claim);
+      expect(`${frame.system}\n${frame.prompt}`).not.toContain(clock.now().toISOString());
+    }
     expect(frames.at(-1)?.results.find(({ tool }) => tool === "cite")?.text).toContain(
       "Recorded [^1]",
     );
@@ -247,20 +250,33 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
-test.each(["en", "zh-CN"] as const)(
-  "invalid model dates do not survive as canonical period (%s)",
-  async (language) => {
+test.each([
+  { language: "en", reply: "missing", period: undefined },
+  { language: "zh-CN", reply: "missing", period: undefined },
+  {
+    language: "en",
+    reply: "unreadable",
+    period: { start: "2026-02-30", end: "2026-03-31", precision: "month" },
+  },
+  {
+    language: "zh-CN",
+    reply: "unreadable",
+    period: { start: "2026-02-30", end: "2026-03-31", precision: "month" },
+  },
+] as const)(
+  "a $reply period is Not checked, never decided from a date ($language)",
+  async ({ language, period }) => {
     const row = CASES.find((row) => row.language === language && row.expected === "supported");
     if (!row) throw new Error("Missing recent rate fixture");
-    const setup = await setUp(row, {
-      period: { start: "2026-02-30", end: "2026-03-31", precision: "month" },
-    });
+    const setup = await setUp(row, { period });
     const result = await setup.check();
-    expect(result.verdict).toBe("unsupported");
-    expect(timePart(result).facet).toEqual({ kind: "time" });
-    expect(timePart(result).unsupported?.reason).toBe(
-      translate(language, "claim.time.noPeriod", { document: setup.document.name }),
-    );
+    expect(result.verdict).not.toBe("supported");
+    expect(timePart(result)).toMatchObject({
+      verdict: "not-checked",
+      reason: "malformed",
+      facet: { kind: "time" },
+    });
+    expect(result.parts?.find((part) => !part.facet)?.verdict).toBe("supported");
   },
 );
 
