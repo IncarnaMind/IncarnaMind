@@ -558,25 +558,32 @@ export class DocxWriter {
    * refresh. The package asks Word to update the fields on opening.
    */
   private contents(): string {
-    if (this.headings.length === 0) return "";
-    const entries = this.headings
-      .flatMap((entry) => {
-        const anchor = this.anchors.get(entry.block);
-        if (!anchor) return [];
-        const link = `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`;
-        return [paragraph({ indent: Math.max(0, entry.level - 1) * INDENT }, link)];
-      })
-      .join("");
-    if (entries === "") return "";
+    const entries = this.headings.flatMap((entry) => {
+      const anchor = this.anchors.get(entry.block);
+      if (!anchor) return [];
+      return [
+        {
+          indent: Math.max(0, entry.level - 1) * INDENT,
+          link: `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
+        },
+      ];
+    });
+    if (entries.length === 0) return "";
+    // As Word writes it: the field begins in the first entry's paragraph and ends in the last's.
     const begin =
       '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>' +
       '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u </w:instrText></w:r>' +
       '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+    const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
     return (
       paragraph({}, run(this.labels.contents, { bold: true })) +
-      paragraph({}, begin) +
-      entries +
-      paragraph({}, '<w:r><w:fldChar w:fldCharType="end"/></w:r>')
+      entries
+        .map((entry, at) => {
+          const open = at === 0 ? begin : "";
+          const close = at === entries.length - 1 ? end : "";
+          return paragraph({ indent: entry.indent }, open + entry.link + close);
+        })
+        .join("")
     );
   }
 
