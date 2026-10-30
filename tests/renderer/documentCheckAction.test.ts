@@ -26,6 +26,7 @@ vi.mock("../../src/renderer/src/i18n", () => ({
     `${key}:${params?.scope ?? ""}:${params?.pages ?? ""}`,
 }));
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: () => null }));
+vi.mock("../../src/renderer/src/turnWall", () => ({ useTurnWall: () => null }));
 vi.mock("../../src/renderer/src/scopeDocuments", () => ({
   useScopeName: (scope: SearchScope | null) => ({
     name: scope?.documentIds[0] ?? "",
@@ -106,8 +107,9 @@ const estimate = (amount: number): RunEstimate => ({
   spentTowardCap: null,
   setAsideTowardCap: null,
 });
-const ready = (pages: number, amount: number): DocumentCheckPlan => ({
+const ready = (pages: number, amount: number, id = `plan-${pages}`): DocumentCheckPlan => ({
   kind: "ready",
+  id,
   documents: [],
   pages,
   readable: pages,
@@ -194,7 +196,7 @@ test("a replaced selection cannot supply the confirmation or its scope", async (
   );
   await click("document-check-read");
   expect(read).toHaveBeenCalledOnce();
-  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("B") });
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("B"), plan: "plan-12" });
 });
 
 test("only the latest low-estimate selection can auto-read", async () => {
@@ -211,7 +213,7 @@ test("only the latest low-estimate selection can auto-read", async () => {
   await act(async () => a.resolve(ready(99, 0.4)));
 
   expect(read).toHaveBeenCalledOnce();
-  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("B") });
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("B"), plan: "plan-3" });
   expect(container.querySelector('[data-testid="document-check-ask"]')).toBeNull();
 });
 

@@ -167,11 +167,14 @@ export async function checkSentences(
     ranges,
     allDocuments = false,
     within,
+    plan,
     part,
   }: {
     ranges?: readonly { from: number; to: number }[];
     allDocuments?: boolean;
     within?: SearchScope;
+    /** With `within`: the `planDocumentCheck` the User confirmed, so a replaced pick sends nothing. */
+    plan?: string;
     part?: { id: string; span: ClaimPartSpan };
   } = {},
 ): Promise<void> {
@@ -205,6 +208,7 @@ export async function checkSentences(
       action,
       allDocuments,
       ...(within && { within }),
+      ...(within && plan && { plan }),
       ...(part && { part }),
       model: modelInUseOf(doc),
     });
@@ -217,6 +221,7 @@ export async function checkSentences(
           ranges: stretches.map((each) => each.range),
           allDocuments,
           within,
+          plan,
           part,
         }),
     };

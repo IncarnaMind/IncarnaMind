@@ -5,8 +5,9 @@ import {
   type DocumentOrFolderChoice,
   documentOrFolderChoices,
   documentOrFolderScope,
+  keptFrom,
 } from "./documentOrFolder";
-import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
+import { DocumentLineIcon, FolderLineIcon, LockLineIcon } from "./lineIcons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 export type { DocumentOrFolderChoice } from "./documentOrFolder";
@@ -18,9 +19,13 @@ export interface DocumentOrFolderPickerLabels {
   noMatch: string;
 }
 
-/** One Document or Folder, found by its English or Chinese name, to use as a Search scope. */
+/**
+ * One Document or Folder, found by its English or Chinese name, to use as a Search scope: only
+ * those on the Note's side of a Folder wall.
+ */
 export function DocumentOrFolderPicker({
   anchor,
+  wall,
   labels,
   onChoose,
   onClose,
@@ -28,6 +33,8 @@ export function DocumentOrFolderPicker({
 }: {
   /** What it opens beside; it takes the focus back once closed. Null: closed. */
   anchor: HTMLElement | null;
+  /** The walled Folder the Note is in; null outside every wall. */
+  wall: string | null;
   labels: DocumentOrFolderPickerLabels;
   onChoose(scope: SearchScope): void;
   onClose(): void;
@@ -44,12 +51,19 @@ export function DocumentOrFolderPicker({
 
   const matching = (query: string): PickerSection<DocumentOrFolderChoice>[] => {
     const optionOf = (choice: DocumentOrFolderChoice): PickerOption<DocumentOrFolderChoice> => {
+      const kept = keptFrom(library, choice, wall);
       const disabledReason =
-        choice.kind === "folder" && choice.count === 0
-          ? t("scope.picker.empty.hint")
-          : choice.kind === "document" && byId.get(choice.id)?.status === "no-text"
-            ? t("documents.statusShort.noText")
-            : undefined;
+        kept === "outside"
+          ? t("folder.wall.refusal")
+          : kept
+            ? choice.kind === "folder"
+              ? t("scope.chip.wall", { name: kept.inside })
+              : t("citation.reason.kept-inside", { folder: kept.inside })
+            : choice.kind === "folder" && choice.count === 0
+              ? t("scope.picker.empty.hint")
+              : choice.kind === "document" && byId.get(choice.id)?.status === "no-text"
+                ? t("documents.statusShort.noText")
+                : undefined;
       const place = [...(choice.sourceLocation ? [t("library.sources")] : []), ...choice.path].join(
         " / ",
       );
@@ -60,15 +74,16 @@ export function DocumentOrFolderPicker({
         detail: detail || undefined,
         disabledReason,
         data: { "data-scope-kind": choice.kind, "data-scope-id": choice.id },
-        icon:
-          choice.kind === "folder" ? (
-            <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
-          ) : (
-            <DocumentLineIcon
-              kind={choice.documentKind ?? "text"}
-              className="size-4 shrink-0 text-ink-meta"
-            />
-          ),
+        icon: kept ? (
+          <LockLineIcon className="size-4 shrink-0 text-ink-meta" />
+        ) : choice.kind === "folder" ? (
+          <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
+        ) : (
+          <DocumentLineIcon
+            kind={choice.documentKind ?? "text"}
+            className="size-4 shrink-0 text-ink-meta"
+          />
+        ),
       };
     };
     const choices = documentOrFolderChoices(library, query);

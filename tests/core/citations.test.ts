@@ -1202,4 +1202,14 @@ describe("Searching across languages without Tools", { timeout: 30_000 }, () => 
     };
     expect(mergeSearches([none, none])).toBe(none);
   });
+
+  test("merged searches keep which Passage each is, so a whole read counts what it was given", () => {
+    const shown = (id: string) =>
+      `<passage id="${id}" document="Tides" pages="1">\nText ${id}\n</passage>`;
+    const merged = mergeSearches([
+      { text: [shown("P1"), shown("P2")].join("\n\n"), passageCount: 2, passageIds: ["a", "b"] },
+      { text: [shown("P2"), shown("P3")].join("\n\n"), passageCount: 2, passageIds: ["b", "c"] },
+    ]);
+    expect(merged.passageIds).toEqual(["a", "b", "c"]);
+  });
 });

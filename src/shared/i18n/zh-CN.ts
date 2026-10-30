@@ -4653,6 +4653,7 @@ export const zhCN = {
   "error.privacy.usageDataLocalMode": "使用数据保持关闭：已开启“所有内容都留在这台电脑上”。",
   "error.check.claimTooLong": "这条说法太长，无法核对：最多 {max} 个字符。",
   "error.check.noDocumentPicked": "请选择要对照核对的文档或文件夹。",
+  "error.check.pickReplaced": "未读取任何内容：你之后选择了其他文档或文件夹。",
   "error.check.localMode": "未核对：已开启“所有内容都留在这台电脑上”。",
   "error.check.declined": "你已拒绝向这个模型的服务发送这条说法，因此没有发送任何内容。",
   "error.recordCite.choiceInvalid": "所选文档的信息不完整，请重新选择。",

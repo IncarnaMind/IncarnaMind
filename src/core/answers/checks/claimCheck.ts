@@ -163,6 +163,8 @@ export interface ClaimCheckRequest {
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
+  /** Parts already Supported or Contradicted keep their results: a whole read looks for the rest (#1554). */
+  undecidedOnly?: boolean;
   /** The run's limit on model checks at once, which its claims' parts share. */
   slots?: Slots;
   /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
@@ -234,6 +236,8 @@ const SEARCH_FIRST =
 export type AtomicClaimCheckResult = ClaimCheckResult & {
   checkedEvidence?: readonly Citation[];
   coverage?: ClaimPartCoverage;
+  /** In a whole-read window: the Passages that reached the model in the request it answered. */
+  readPassages?: readonly string[];
 };
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";

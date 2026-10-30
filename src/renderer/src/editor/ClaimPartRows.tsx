@@ -9,6 +9,7 @@ import type {
   ClaimCheckScope,
   ClaimPartCoverage,
   ClaimPartSpan,
+  WholeRead,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
@@ -249,6 +250,7 @@ function PartRow({
   onOpen,
   working,
   lookedIn,
+  read,
   checking,
   stale,
   citing,
@@ -263,6 +265,7 @@ function PartRow({
   onUseWording?(part: ClaimCheckPart): void;
   onOpen(): void;
   lookedIn: string;
+  read?: WholeRead;
   checking: boolean;
   stale: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
@@ -295,9 +298,18 @@ function PartRow({
           : part.unsupported?.kind === "unbacked-cause"
             ? t("claim.unbackedCause")
             : (part.unsupported?.reason ??
-              (part.verdict === "unsupported"
-                ? t("claim.unsupported.notFound", { scope: lookedIn })
-                : null));
+              (part.verdict !== "unsupported"
+                ? null
+                : read
+                  ? t(
+                      read.pages === read.of ? "claim.readAll.notFound" : "claim.readSome.notFound",
+                      {
+                        scope: lookedIn,
+                        pages: read.pages,
+                        of: read.of,
+                      },
+                    )
+                  : t("claim.unsupported.notFound", { scope: lookedIn })));
   const wording =
     !stale &&
     !checking &&
@@ -428,6 +440,7 @@ export function ClaimPartRows({
   onOpen,
   working,
   scope,
+  read,
   checking = false,
   stale = false,
   citations,
@@ -440,6 +453,8 @@ export function ClaimPartRows({
   onUseWording?(part: ClaimCheckPart): void;
   onOpen(): void;
   scope?: ClaimCheckScope;
+  /** After Check against a Document… (#1554): how much of the pick was read. */
+  read?: WholeRead;
   checking?: boolean;
   stale?: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
@@ -525,6 +540,7 @@ export function ClaimPartRows({
             onOpen={onOpen}
             working={working}
             lookedIn={lookedIn}
+            read={read}
             checking={checking}
             stale={stale}
             citing={citing[index] ?? []}

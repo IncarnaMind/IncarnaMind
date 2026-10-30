@@ -4880,6 +4880,7 @@ export const en = {
     "Usage data stays off: “Keep everything on this computer” is on.",
   "error.check.claimTooLong": "The claim is too long to check: at most {max} characters.",
   "error.check.noDocumentPicked": "Choose a Document or Folder to check against.",
+  "error.check.pickReplaced": "Nothing was read: you chose another Document or Folder since.",
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",

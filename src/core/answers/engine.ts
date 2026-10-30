@@ -914,22 +914,32 @@ const PASSAGE_BLOCK = /<passage id="([^"]+)"[^>]*>[\s\S]*?<\/passage>/g;
  * the best of each. With no Passages in any, the first's text.
  */
 export function mergeSearches(results: readonly SearchResultForModel[]): SearchResultForModel {
-  const passages: { id: string; text: string; rank: number }[] = [];
+  const passages: { id: string; text: string; rank: number; passageId?: string }[] = [];
   results.forEach((result, which) => {
     [...result.text.matchAll(PASSAGE_BLOCK)].forEach((match, index) => {
       const rank = (result.ranks?.[index] ?? index) * results.length + which;
       const seen = passages.find((passage) => passage.id === match[1]);
       if (seen) seen.rank = Math.min(seen.rank, rank);
-      else passages.push({ id: match[1] as string, text: match[0], rank });
+      else {
+        const passageId = result.passageIds?.[index];
+        passages.push({
+          id: match[1] as string,
+          text: match[0],
+          rank,
+          ...(passageId && { passageId }),
+        });
+      }
     });
   });
   const [first] = results;
   if (passages.length === 0 || !first) return first ?? { text: "", passageCount: 0 };
   if (results.length === 1) return first;
+  const passageIds = passages.flatMap(({ passageId }) => (passageId ? [passageId] : []));
   return {
     text: passages.map((passage) => passage.text).join("\n\n"),
     passageCount: passages.length,
     ranks: passages.map((passage) => passage.rank),
+    ...(passageIds.length === passages.length && { passageIds }),
   };
 }
 
@@ -990,9 +1000,15 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
 
   return {
     async *generate(asked) {
+      // A request the model refuses as too long goes again with fewer Passages: only the Passages
+      // of the attempt it takes were read (#1554).
+      const accepted = asked.fitted;
+      let attemptRead: string[] = [];
       // Only an ordinary Answer is offered the Tools the request brings (see `ToolSet`).
-      const request: AnswerRequest =
-        asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked;
+      const request: AnswerRequest = {
+        ...(asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked),
+        ...(accepted && { fitted: (passageIds) => attemptRead.push(...passageIds) }),
+      };
       const failed = (error: unknown): AnswerEngineEvent => ({
         type: "failed",
         error: classifyProviderError(error),
@@ -1038,6 +1054,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       async function* fitted(make: () => TemperedAttempt): FittedAttempt {
         for (let tries = 0; ; tries++) {
           let overflow: Overflow | null = null;
+          attemptRead = [];
           for await (const event of make()) {
             if (event.type === "overflow") {
               overflow = event;
@@ -1045,6 +1062,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             }
             yield event;
           }
+          if (!overflow && attemptRead.length > 0) accepted?.(attemptRead);
           // Only a request sized to a window can overflow.
           if (!overflow || !budget || signal.aborted) return;
           if (tries === 0 && overflow.promptTokens) {

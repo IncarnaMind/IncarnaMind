@@ -957,6 +957,11 @@ export function createChat(options: {
       const row = chosen && rowById(chosen.providerId);
       if (!chosen || !row || !isKnownRow(row)) return null;
       if (row.kind !== "ollama") {
+        // As `prepareModel` does: a local preset's list says how large its models' windows are.
+        const provider = await toProvider(row, chosen.modelId);
+        if (!provider.service && isPreset(catalogProvider(provider.catalogId))) {
+          await listedModels(row, provider);
+        }
         return cloudWindow(capabilitiesOf(row, chosen.modelId)) ?? null;
       }
       const profile = await profileFor(row.kind, row.base_url, chosen.modelId);

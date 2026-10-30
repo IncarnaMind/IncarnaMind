@@ -1,12 +1,29 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
-import type { ClaimCheckAttributes, CoreAdapters, Document, SearchScope } from "../../src/core";
+import type {
+  ClaimCheckAttributes,
+  ClaimPartPlan,
+  Core,
+  CoreAdapters,
+  Document,
+  SearchScope,
+} from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readClaimCheck } from "../../src/shared/claimChecks";
-import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { type SourceFile, setUpWithDocuments } from "../helpers/citations";
-import { nextEvent } from "../helpers/core";
+import { createTempDataFolder, nextEvent } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import type { MindClient } from "../helpers/mindClient";
+import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -104,8 +121,9 @@ describe("Check against a Document, read whole", () => {
         (call) => {
           calls.push(call);
           const handedLease = JSON.stringify(call.options.prompt).includes(leaseQuote);
+          // The sentence's figure is a part of its own, found in the lease too.
           return checkReply(call, {
-            [example.claim]: handedLease
+            [sentenceOf(call)]: handedLease
               ? { verdict: "supported", quote: leaseQuote }
               : { verdict: "unsupported" },
           });
@@ -219,50 +237,73 @@ describe("Check against a Document, read whole", () => {
     expect(progress.at(-1)).toBe(check.read?.of);
   });
 
-  test("counts a page only when every supplied Passage on it reached the model", async () => {
-    const document = buildPdf(
-      Array.from({ length: 12 }, (_, page) => ({
-        lines: Array.from(
-          { length: 30 },
-          (_, line) => `Page ${page + 1} line ${line + 1} has ordinary lease words for this check.`,
-        ),
-      })),
+  const LONG_CLAIM = "The lease allows pets.";
+  const longLines = (page: number) =>
+    Array.from(
+      { length: 30 },
+      (_, line) => `Page ${page} line ${line + 1} has ordinary lease words for this check.`,
     );
-    const calls: ModelCall[] = [];
-    const quote = "Page 1 line 5 has ordinary lease words for this check.";
-    const plan = { [EN.claim]: { verdict: "supported" as const, quote } };
+  const LONG_PLAN = { [LONG_CLAIM]: { verdict: "supported" as const, quote: longLines(1)[4] } };
+
+  /** A 12-page lease read by a model whose window holds fewer Passages than each read's window. */
+  async function readLong(model?: ReturnType<typeof checkingModel>, calls: ModelCall[] = []) {
+    const document = buildPdf(
+      Array.from({ length: 12 }, (_, page) => ({ lines: longLines(page + 1) })),
+    );
     const ollamaModels: CoreAdapters["ollamaModels"] = {
       describe: async () => ({
         digest: null,
         capabilities: ["completion", "tools"],
-        contextLength: 10240,
+        contextLength: 12288,
         parameters: null,
         support: "tools",
         chat: true,
         remote: false,
-        settings: { numCtx: 10240, outputTokens: 1024, keepAlive: "5m", think: false },
+        settings: { numCtx: 12288, outputTokens: 1024, keepAlive: "5m", think: false },
       }),
       loaded: async () => true,
       running: async () => true,
     };
-    const { core, client, mind, block, documents } = await setup(
+    const result = await setup(
       [{ name: "Lease-long.pdf", contents: document }],
-      plan,
-      EN.claim,
+      LONG_PLAN,
+      LONG_CLAIM,
       calls,
       undefined,
-      undefined,
+      model,
       { ollamaModels },
     );
-
+    const { core, mind, block, documents } = result;
     await core.checkSentences(
-      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+      checkInput(mind.id, block, LONG_CLAIM, within([documents[0]?.id ?? ""])),
     );
+    const { pages } = await core.readDocumentText(documents[0]?.id ?? "");
+    /** The pages every line the Document holds of which reached the model in these requests. */
+    const completeIn = (sent: readonly ModelCall[]) => {
+      const handed = sent
+        .filter(isCheckRun)
+        .flatMap((call) => call.results.map((each) => each.text))
+        .join("\n");
+      return pages.filter(({ text: words }) =>
+        words
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .every((line) => handed.includes(line)),
+      ).length;
+    };
+    return { ...result, check: await onlyMark(result.client), completeIn };
+  }
 
-    expect(JSON.stringify(calls.filter(isCheckRun))).not.toContain("Page 12 line 30");
-    const check = await onlyMark(client);
+  test("counts a page only when every supplied Passage on it reached the model", async () => {
+    const calls: ModelCall[] = [];
+    const { check, completeIn } = await readLong(undefined, calls);
+
+    const complete = completeIn(calls);
+    expect(complete).toBeGreaterThan(0);
+    expect(complete).toBeLessThan(12);
     expect(check.state).toBe("supported");
-    expect(check.read).toEqual({ pages: 7, of: 12 });
+    expect(check.read).toEqual({ pages: complete, of: 12 });
   });
 
   test("plans with the same model-specific windows as the read", async () => {
@@ -552,5 +593,393 @@ describe("Check against a Document, read whole", () => {
     const older = readClaimCheck({ id: "older", action: "future-action", state: "unsupported" });
     expect(older).toMatchObject({ action: "find-support" });
     expect(older?.read).toBeUndefined();
+  });
+});
+
+const handedText = (calls: readonly ModelCall[]) =>
+  calls
+    .filter(isCheckRun)
+    .flatMap((call) => call.results.map((result) => result.text))
+    .join("\n");
+
+const WALLED = [
+  {
+    language: "en" as const,
+    claim: "Termination needs 90 days' notice.",
+    inside: { name: "Client A lease.txt", contents: "Termination needs 90 days' notice." },
+    outside: { name: "Other lease.txt", contents: "Termination needs 90 days' notice too." },
+    folder: "Client A",
+  },
+  {
+    language: "zh-CN" as const,
+    claim: "解约需提前90天通知。",
+    inside: { name: "甲方租约.txt", contents: "解约需提前90天通知。" },
+    outside: { name: "其他租约.txt", contents: "解约也需提前90天通知。" },
+    folder: "甲方",
+  },
+];
+
+describe("Check against a Document across a Folder wall", () => {
+  async function walled(example: (typeof WALLED)[number]) {
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, { [sentenceOf(call)]: { verdict: "unsupported" } });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const result = await setUpWithDocuments(model, [example.inside, example.outside]);
+    const { core } = result;
+    await core.updateSettings({ user: { language: example.language } });
+    const [inside, outside] = result.documents as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: example.folder, description: "" });
+    await core.assignDocumentGroup(inside.id, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: folder.name,
+      description: folder.description,
+      keepInside: true,
+    });
+    const note = async (folderId: string | null) => {
+      const mind = await core.createMind({ title: "Lease", ...(folderId && { folderId }) });
+      const client = await connectToMind(core, mind.id);
+      const block = paragraph(text(example.claim));
+      writeMind(client, [block]);
+      await client.settled();
+      return { mind, client, block };
+    };
+    return { ...result, calls, inside, outside, folder, note };
+  }
+
+  test.each(WALLED)(
+    "from inside a wall, picks and reads only what is behind it ($language)",
+    async (example) => {
+      const { core, calls, inside, outside, folder, note } = await walled(example);
+      const { mind, client, block } = await note(folder.id);
+
+      expect(
+        await core.planDocumentCheck({ mindId: mind.id, within: within([outside.id]) }),
+      ).toEqual({ kind: "nothing-to-read" });
+      const refused = await core.checkSentences(
+        checkInput(mind.id, block, example.claim, within([outside.id])),
+      );
+      expect(refused).toEqual({ kind: "cannot-read", plan: { kind: "nothing-to-read" } });
+      expect(calls).toHaveLength(0);
+
+      const both = { folderIds: [folder.id], tagIds: [], documentIds: [outside.id] };
+      expect(await core.planDocumentCheck({ mindId: mind.id, within: both })).toMatchObject({
+        kind: "ready",
+        documents: [{ documentId: inside.id }],
+      });
+      await core.checkSentences(checkInput(mind.id, block, example.claim, both));
+
+      const handed = handedText(calls);
+      expect(handed).toContain(example.inside.contents);
+      expect(handed).not.toContain(example.outside.contents);
+      expect(await onlyMark(client)).toMatchObject({
+        action: "check-against-document",
+        versions: [{ documentId: inside.id }],
+      });
+    },
+  );
+
+  test.each(WALLED)(
+    "from outside a wall, never picks or reads what it keeps inside ($language)",
+    async (example) => {
+      const { core, calls, inside, outside, folder, note } = await walled(example);
+      const { mind, client, block } = await note(null);
+
+      for (const kept of [within([inside.id]), { ...within([]), folderIds: [folder.id] }]) {
+        expect(await core.planDocumentCheck({ mindId: mind.id, within: kept })).toEqual({
+          kind: "nothing-to-read",
+        });
+        expect(
+          await core.checkSentences(checkInput(mind.id, block, example.claim, kept)),
+        ).toMatchObject({ kind: "cannot-read" });
+      }
+      expect(calls).toHaveLength(0);
+
+      await core.checkSentences(
+        checkInput(mind.id, block, example.claim, within([inside.id, outside.id])),
+      );
+
+      const handed = handedText(calls);
+      expect(handed).toContain(example.outside.contents);
+      expect(handed).not.toContain(example.inside.contents);
+      expect(await onlyMark(client)).toMatchObject({ versions: [{ documentId: outside.id }] });
+    },
+  );
+});
+
+const PARTS = [
+  {
+    language: "en" as const,
+    sentence: "Rent is due monthly and the tenant may keep a cat.",
+    found: "Rent is due monthly",
+    missing: "the tenant may keep a cat",
+    rent: { name: "Rent.md", contents: "Rent is due monthly." },
+    pets: { name: "Pets.md", contents: "The tenant may keep a cat." },
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "租金按月支付，租户可以养一只猫。",
+    found: "租金按月支付",
+    missing: "租户可以养一只猫",
+    rent: { name: "租金.md", contents: "租金按月支付。" },
+    pets: { name: "宠物.md", contents: "租户可以养一只猫。" },
+  },
+];
+
+describe("Check against a Document, part by part", () => {
+  async function parted(example: (typeof PARTS)[number]) {
+    const part = (words: string): ClaimPartPlan => {
+      const start = example.sentence.indexOf(words);
+      return { kind: "fact", span: { start, end: start + words.length } };
+    };
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        const said = sentenceOf(call);
+        const handed = JSON.stringify(call.results);
+        const source = said === example.found ? example.rent : example.pets;
+        return checkReply(call, {
+          [said]: handed.includes(source.contents)
+            ? { verdict: "supported", quote: source.contents }
+            : { verdict: "unsupported" },
+        });
+      },
+      {
+        generate(call) {
+          if (!call.system.startsWith("You sort the sentences")) return checkGenerate({})(call);
+          const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
+            number,
+            parts: (said === example.sentence ? [example.found, example.missing] : [said]).map(
+              (words) => ({ kind: "fact", text: words }),
+            ),
+          }));
+          return { text: JSON.stringify({ sentences }) };
+        },
+      },
+    );
+    const result = await setUpWithDocuments(model, [example.rent]);
+    const { core, client, mind } = result;
+    await core.updateSettings({ user: { language: example.language } });
+    const block = paragraph(text(example.sentence));
+    writeMind(client, [block]);
+    await client.settled();
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+    const sources = await createTempDataFolder();
+    const [pets] = (await addAndProcess(core, [
+      await writeSourceFile(sources, example.pets.name, example.pets.contents),
+    ])) as [Document];
+    const before = await onlyMark(client);
+    return {
+      ...result,
+      calls,
+      block,
+      pets,
+      before,
+      found: part(example.found),
+      missing: part(example.missing),
+    };
+  }
+
+  const verdicts = (check: ClaimCheckAttributes) => check.parts?.map((each) => each.verdict);
+  const askedAbout = (calls: readonly ModelCall[]) => [
+    ...new Set(calls.filter(isCheckRun).map(sentenceOf)),
+  ];
+
+  test.each(PARTS)(
+    "reads only the parts not found, and keeps the others' Citations ($language)",
+    async (example) => {
+      const { core, client, mind, block, calls, pets, before, found, missing } =
+        await parted(example);
+      expect(verdicts(before)).toEqual(["supported", "unsupported"]);
+      expect(before.parts?.map((each) => each.span)).toEqual([found.span, missing.span]);
+      const sent = calls.length;
+
+      await core.checkSentences(checkInput(mind.id, block, example.sentence, within([pets.id])));
+
+      expect(askedAbout(calls.slice(sent))).toEqual([example.missing]);
+      const check = await onlyMark(client);
+      expect(check).toMatchObject({ action: "check-against-document", state: "supported" });
+      expect(verdicts(check)).toEqual(["supported", "supported"]);
+      expect(check.parts?.[0]?.evidence).toEqual(before.parts?.[0]?.evidence);
+      expect(check.parts?.[1]?.evidence[0]).toMatchObject({ documentId: pets.id });
+      expect(check.read?.pages).toBe(check.read?.of);
+    },
+  );
+
+  test.each(PARTS)("reads one part when asked about it ($language)", async (example) => {
+    const { core, client, mind, block, calls, pets, before, found, missing } =
+      await parted(example);
+    const sent = calls.length;
+
+    await core.checkSentences({
+      ...checkInput(mind.id, block, example.sentence, within([pets.id])),
+      part: { id: before.id, span: found.span },
+    });
+
+    expect(askedAbout(calls.slice(sent))).toEqual([example.found]);
+    const check = await onlyMark(client);
+    // The Rent Document isn't in the pick, so the part read against it alone isn't found there.
+    expect(verdicts(check)).toEqual(["unsupported", "unsupported"]);
+    expect(check.parts?.[1]).toEqual(before.parts?.[1]);
+    expect(check.parts?.map((each) => each.span)).toEqual([found.span, missing.span]);
+  });
+});
+
+describe("A whole read the User replaced", () => {
+  async function allowed() {
+    const calls: ModelCall[] = [];
+    const plan = { [EN.claim]: { verdict: "supported" as const, quote: EN.quote } };
+    const result = await setup(
+      [
+        { name: "A.md", contents: EN.quote },
+        { name: "B.md", contents: `${EN.quote} B` },
+      ],
+      plan,
+      EN.claim,
+      calls,
+    );
+    const provider = await result.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await result.core.allowDataFlow("document-check", provider.service.id);
+    const model = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    const [a, b] = result.documents as [Document, Document];
+    return { ...result, calls, model, a, b };
+  }
+
+  async function planned(core: Core, mindId: string, picked: SearchScope) {
+    const plan = await core.planDocumentCheck({ mindId, within: picked });
+    if (plan.kind !== "ready") throw new Error("The pick can't be read.");
+    return plan.id;
+  }
+
+  test("sends nothing for a plan a newer pick replaced, or for another pick", async () => {
+    const { core, client, mind, block, calls, model, a, b } = await allowed();
+    const first = await planned(core, mind.id, within([a.id]));
+    const second = await planned(core, mind.id, within([b.id]));
+
+    await expect(
+      core.checkSentences({
+        ...checkInput(mind.id, block, EN.claim, within([a.id])),
+        plan: first,
+        model,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      core.checkSentences({
+        ...checkInput(mind.id, block, EN.claim, within([a.id])),
+        plan: second,
+        model,
+      }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+    expect(await marks(client)).toEqual([]);
+
+    await core.checkSentences({
+      ...checkInput(mind.id, block, EN.claim, within([b.id])),
+      plan: second,
+      model,
+    });
+    expect(await onlyMark(client)).toMatchObject({
+      state: "supported",
+      scope: { chosen: { documentIds: [b.id] } },
+    });
+  });
+
+  test("waits for a check already running on the sentence, sending nothing", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let held = false;
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (isCheckRun(call) && !held && call.results.some((result) => result.tool === "cite")) {
+          held = true;
+          return { text: "Verdict: supported", pause: { after: 0, until: paused } };
+        }
+        return checkReply(call, { [EN.claim]: { verdict: "supported", quote: EN.quote } });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: EN.quote }],
+      {},
+      EN.claim,
+      [],
+      undefined,
+      model,
+    );
+    const ordinary = core.checkSentences({
+      requestId: "ordinary",
+      mindId: mind.id,
+      action: "check-against-documents",
+      ...whole(block, EN.claim.length),
+    });
+    await vi.waitFor(() => expect(held).toBe(true));
+    const sent = calls.length;
+
+    try {
+      await expect(
+        core.checkSentences(checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]))),
+      ).rejects.toThrow();
+      expect(calls).toHaveLength(sent);
+    } finally {
+      release();
+    }
+    await ordinary;
+  });
+
+  test("a slower read cannot replace a newer ordinary check", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let held = false;
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && !held && call.results.some((result) => result.tool === "cite")) {
+          held = true;
+          return { text: "Verdict: unsupported", pause: { after: 0, until: paused } };
+        }
+        return checkReply(call, { [EN.claim]: { verdict: "supported", quote: EN.quote } });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: EN.quote }],
+      {},
+      EN.claim,
+      [],
+      undefined,
+      model,
+    );
+
+    const older = core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""]), "older"),
+    );
+    await vi.waitFor(() => expect(held).toBe(true));
+    await core.checkSentences({
+      requestId: "ordinary",
+      mindId: mind.id,
+      action: "check-against-documents",
+      ...whole(block, EN.claim.length),
+    });
+    expect(await onlyMark(client)).toMatchObject({ request: "ordinary", state: "supported" });
+
+    release();
+    await older;
+
+    expect(await onlyMark(client)).toMatchObject({ request: "ordinary", state: "supported" });
   });
 });

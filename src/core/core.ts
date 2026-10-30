@@ -1427,6 +1427,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
+  /**
+   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
+   * inside a wall only those behind it, from outside never one a wall keeps inside.
+   */
+  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
+    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
+    const picked = resolveSearchScope(scope, {
+      folderTree: (folderId) => folders.subtree(folderId),
+      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      documentIds: (filter) => documents.ids(filter),
+    });
+    return (picked ?? []).filter((id) => searched.has(id));
+  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
@@ -2401,6 +2414,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledDocument,
     walledFolderName,
     searchedScope,
+    pickedDocuments,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),

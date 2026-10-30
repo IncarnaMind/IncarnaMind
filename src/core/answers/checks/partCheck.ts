@@ -73,8 +73,10 @@ function checkedPart(
   };
 }
 
-export function createPartCheck(deps: ClaimCheckDependencies) {
-  const atomic = createClaimCheck(deps);
+export function createPartCheck(
+  deps: ClaimCheckDependencies,
+  atomic: (request: ClaimCheckRequest) => Promise<AtomicClaimCheckResult> = createClaimCheck(deps),
+) {
   return async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
     const full: ClaimPartPlan = { kind: "fact", span: { start: 0, end: request.claim.length } };
     const failed = (reason: ClaimCheckFailure, detail: string | null = null): ClaimCheckResult => {
@@ -211,6 +213,14 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       const selected =
         (request.only !== undefined && sameSpan(plan.span, request.only)) ||
         (request.figureIds !== undefined && figures.length > 0);
+      if (
+        request.undecidedOnly &&
+        !selected &&
+        (previous?.verdict === "supported" || previous?.verdict === "contradicted")
+      ) {
+        parts.push(previous);
+        continue;
+      }
       if (
         (request.only && !selected) ||
         (request.figureIds && !figures.some((figure) => request.figureIds?.includes(figure.id)))

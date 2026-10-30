@@ -5776,8 +5776,6 @@ export type ClaimJudgment =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
-      /** For an explicit whole read: the Passages that actually fitted into model requests. */
-      readPassages?: readonly string[];
       recordCites?: RecordCiteResult[];
     }
   | {
@@ -5789,8 +5787,6 @@ export type ClaimJudgment =
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
-      /** For an explicit whole read: the Passages that actually fitted into model requests. */
-      readPassages?: readonly string[];
       recordCites?: RecordCiteResult[];
     };
 
@@ -6015,8 +6011,17 @@ export interface CheckSentencesInput {
   action: ClaimCheckAction;
   /** Search every Document, not the Mind's Folder ("Search all Documents"). */
   allDocuments?: boolean;
-  /** "check-against-document": the Document or Folder to read whole (`planDocumentCheck`). */
+  /**
+   * "check-against-document": the Document or Folder to read whole, on the Note's side of any
+   * Folder wall. With `part`, only that part is read; without, each part not yet Supported or
+   * Contradicted is.
+   */
   within?: SearchScope;
+  /**
+   * With `within`: the `planDocumentCheck` it was asked from. Refused, sending nothing, once a
+   * newer plan in the Note has replaced it or it was made for another pick.
+   */
+  plan?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
 }
@@ -6038,6 +6043,8 @@ export interface DocumentToRead {
 export type DocumentCheckPlan =
   | {
       kind: "ready";
+      /** What a read of this plan names as its `plan`. */
+      id: string;
       documents: DocumentToRead[];
       pages: number;
       readable: number;

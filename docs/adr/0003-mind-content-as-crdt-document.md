@@ -173,9 +173,11 @@ A sentence can name several record cites, and each keeps its own result rather t
 - **The sentence keeps its own result; its glyph shows the worst of it and its cites'.** The array carries per-cite results and suggestions even when the sentence is Supported, and the sentence's own verdict and what a Check sends again stay as they are. But an Unsupported, Not found or Choose cite never sits under a Supported glyph: the margin glyph, the card's heading ("Needs a look · Record cite") and the check badge's counts show the sentence as Unsupported until its cites are. Resolved passages and nearby suggestions participate in evidence retention; unselected candidates do not.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
 
-## Amendment: a check reads a chosen Document or Folder whole (2026-10-27, #1554)
+## Amendment: a check reads a chosen Document or Folder whole (2026-10-30, #1554)
 
 A not-found sentence can be checked against the whole text of one Document or Folder the User picks, rather than only the Passages ranked search supplies. The mark records the exact coverage so a partial read never claims that nothing exists in the unread part.
 
-- **Content schema version 37** adds the `check-against-document` action and `read: { pages, of }` to the `claimCheck` mark. `pages` counts only completely read pages, and `of` is the picked scope's total. An older version's editor would treat the mark as an ordinary check and drop its coverage, so it opens these Minds read-only. Older content is version 37 content as it is.
+- **Content schema version 37** adds the `check-against-document` action and `read: { pages, of }` to the `claimCheck` mark. `pages` counts only pages every Passage of which reached the model in a request it answered, and `of` is the picked scope's total. An older version's editor would treat the mark as an ordinary check and drop its coverage, so it opens these Notes read-only. Older content is version 37 content as it is.
+- **Part by part.** The read writes the sentence's one mark with its `parts` (#2002): a part already Supported or Contradicted keeps its result and Citations, and each other part is read against the pick. Asked about one part, it reads only that one. `read` is the coverage of the parts the result rests on.
+- **The mark stays until the read ends.** Unlike an ordinary check, no "checking" mark is written first, so Stop or a crash leaves the previous mark. The result is written only if the sentence's mark is still the one the read started from and no newer read of it began; a sentence already being checked is refused.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.

@@ -751,6 +751,7 @@ function ClaimCard({
             onCheck={onCheckPart}
             onUseWording={onUseWording}
             scope={check.scope}
+            read={wholeRead ?? undefined}
             citations={partCitations}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
