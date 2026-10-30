@@ -2366,7 +2366,7 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
   mass: {
     symbols: "t|g|吨|克",
     words:
-      "tonnes?|tons?|kt|Mt|kg|kilograms?|grams?|mg|lbs?|ounces?|oz|k?t-?CO2e?|MtCO2e|千克|公斤",
+      "tonnes?|tons?|kt|Mt|kg|kilograms?|grams?|mg|lbs?|ounces?|oz|k?t-?CO2e?|MtCO2e|千克|公斤|吨钢",
   },
   length: {
     symbols: "m|米",
@@ -2391,15 +2391,15 @@ const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
 const WHOLE_NAME = `(?!${HAN})`;
 // A rate after a bare figure may go on with a particle ("540/吨的货物", "540/吨左右", "540/吨钢") but not a word ("2026/克林工厂").
 const NAME_END = `(?:(?!${HAN})|(?=的|计|以|左右|、|和|与|及|或|钢))`;
-// The words a symbol begins ("每升高", "每克拉"), which a free name must not run into.
+// The words a symbol begins ("每升高", "每克拉", "美元/升级"), which a free name after 每 or a currency must not run into; a figure's own unit stays free ("50升到油箱", "3米其余").
 const WORD_START: Readonly<Record<string, string>> = {
-  克: "服隆制拉",
-  升: "高级值至到温降迁等",
-  米: "其兰饭粒",
+  克: "服|隆|制|拉",
+  升: "高|级|值|至|温|降|迁",
+  米: "其林|兰|饭|粒",
 };
 const wordStart = (symbol: string) => {
   const words = WORD_START[symbol];
-  return words ? `(?![${words}])` : "";
+  return words ? `(?!${words})` : "";
 };
 // A Latin symbol stands alone, or is attached to a figure: a letter, apostrophe, dot or hyphen joins it to a word ("e.g.", "T-shirt"), a digit after it makes a product ("27m3"), and a Han scale or text beside it doesn't ("10万t", "60,000t左右").
 const latinSymbol = (symbol: string) =>
@@ -2411,7 +2411,7 @@ const latinSymbol = (symbol: string) =>
 const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
 const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
 // A price's currency before the slash leaves the unit free: "元/吨和运费", "美元/吨"; 元 at the end of 单元 is no currency.
-const PRICE_CURRENCY = `(?:${CURRENCY_TOKEN.source}|(?<![单多公纪])元|圆|円)`;
+const PRICE_CURRENCY = `(?:${CURRENCY_TOKEN.source}|(?<![单多公纪])元|(?<![汤团])圆|円)`;
 const HAN_AFTER_CURRENCY = `${PRICE_CURRENCY}\\s*[/⁄][ \\u00a0]?`;
 const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
 const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
@@ -2420,7 +2420,7 @@ const HAN_AFTER_EACH = `每[ \\u00a0]?`;
 // After a bare slash, a lone numeral or a label, a Han symbol must end its name there; a digit, 每 or a currency's slash leaves it free unless a word begins there ("54,000吨的货物", "每吨成本", "元/吨和运费").
 const hanSymbol = (symbol: string) =>
   [
-    `${HAN_AFTER_FIGURE}${symbol}${wordStart(symbol)}`,
+    `${HAN_AFTER_FIGURE}${symbol}`,
     `${HAN_AFTER_RATE}${symbol}${NAME_END}`,
     `${HAN_AFTER_CURRENCY}${symbol}${wordStart(symbol)}`,
     `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
