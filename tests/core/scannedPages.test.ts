@@ -16,7 +16,13 @@ import { SCAN_CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { openDatabase } from "../../src/core/storage";
-import { askAndFinish, citingModel, onlyCitation, setUpWithDocuments } from "../helpers/citations";
+import {
+  askAndFinish,
+  checkedResult,
+  citingModel,
+  onlyCitation,
+  setUpWithDocuments,
+} from "../helpers/citations";
 import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -591,13 +597,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(JSON.parse(units[0]?.label ?? "{}").scan.reader).toBe("PP-OCRv4 mobile/1");
     expect(units[1]?.text).toContain("northern estuarine");
     expect(JSON.parse(units[1]?.label ?? "{}").scan.reader).toBe(READER);
-    const recheck = await restarted.recheckCitation({
-      mindId: null,
-      documentId: document.id,
-      quote,
-      pageFrom: 1,
-      pageTo: 1,
-    });
+    const recheck = checkedResult(
+      await restarted.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote,
+        pageFrom: 1,
+        pageTo: 1,
+      }),
+    );
     expect(recheck.check).toBe("found");
   });
 

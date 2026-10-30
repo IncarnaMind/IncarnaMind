@@ -248,7 +248,8 @@ function ChangeLine({
   // their span, so a wrapped line never leaves "· Undo" alone: Chinese can break after any
   // character, and an inline-block may start a line of its own.
   return (
-    <div ref={line} className={`${changeLineClass(inPill)} break-words`}>
+    // Chinese wraps between words, at the quotes around a name, not inside a word (`break-keep`).
+    <div ref={line} className={`${changeLineClass(inPill)} break-words break-keep`}>
       <span data-testid="undo-message" title={shown === whole ? undefined : whole}>
         {shown}
       </span>

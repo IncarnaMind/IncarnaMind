@@ -91,7 +91,6 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
-  type CitationRecheck,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -117,6 +116,7 @@ import {
   type ProviderError,
   type ReadyQuestion,
   type RecheckCitationInput,
+  type RecheckResult,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
@@ -2384,20 +2384,12 @@ export function createCore(adapters: CoreAdapters): Core {
    * Folder that Note is outside isn't read from there, so the check it was made with stands, as
    * for a Citation made before the wall (#1934).
    */
-  const recheckIn = (input: RecheckCitationInput): CitationRecheck => {
+  const recheckIn = (input: RecheckCitationInput): RecheckResult => {
     const wall = walledDocument(input.documentId);
     if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
       return recheckCitation(documents, input);
     }
-    return {
-      check: "not-found",
-      checkReason: "kept-inside",
-      contentHash: null,
-      passageId: null,
-      pageFrom: input.pageFrom,
-      pageTo: input.pageTo,
-      location: null,
-    };
+    return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({

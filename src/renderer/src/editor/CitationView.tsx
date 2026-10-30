@@ -40,7 +40,7 @@ import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
-import { useAnswerBeingWritten, useOpenConversation } from "../conversations";
+import { useAnswerBeingWritten } from "../conversations";
 import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
@@ -55,7 +55,7 @@ import {
   unpinCitation,
 } from "../pinnedCitation";
 import { recordUsage, useAppStore } from "../store";
-import { keptInsideName } from "../walls";
+import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
 import { CitationQuotedWords } from "./CitationQuotedWords";
 import {
@@ -151,29 +151,21 @@ export function CitationView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
-  const conversation = useOpenConversation();
-  const keptInside = useAppStore((state) =>
-    keptInsideName(
-      state.library,
-      attributes.documentId,
-      // In a Note, its own Folder decides, even when it is in none; in the assistant, the conversation's.
-      mindId !== null
-        ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)
-        : (conversation?.folderId ?? null),
-    ),
-  );
+  const keptInside = useKeptInside(attributes.documentId);
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
-  const recheck = useCitationRecheck(
+  const looked = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
     mindId,
   );
+  // Kept inside a wall, nothing of the new version was read: the card says Kept inside and its last result.
+  const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;

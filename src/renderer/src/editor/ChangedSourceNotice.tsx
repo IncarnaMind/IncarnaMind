@@ -4,6 +4,7 @@ import { changedSourceLines, citationState } from "../../../shared/citations";
 import { useCitationRecheck } from "../citationVersion";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
+import { useKeptInside } from "../turnWall";
 import type { NumberedCitation } from "./citationNumbers";
 import { MindIdContext } from "./mindContext";
 import { CitationChip } from "./UnsupportedCited";
@@ -26,7 +27,8 @@ export function ChangedSourceNotice({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
-  const state = citationState(attributes, documents, kept);
+  const keptInside = useKeptInside(attributes.documentId);
+  const state = citationState(attributes, documents, kept, keptInside);
   const live = documents?.find((each) => each.id === state.documentId);
   const recheck = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
@@ -42,6 +44,18 @@ export function ChangedSourceNotice({
     language,
     t,
   );
+  // Its Document changed, but behind a wall this Note is outside: nothing of it was read, so the
+  // card says only where it is kept, beside the result it was made with.
+  if (keptInside !== null && citationState(attributes, documents, kept).changedAfterCited) {
+    return (
+      <div data-testid="citation-changed-notice" className="citation-card-note">
+        {chip}
+        <p data-testid="citation-kept-inside">
+          {t("citation.reason.kept-inside", { folder: keptInside })}
+        </p>
+      </div>
+    );
+  }
   if (!note) return null;
   return (
     <div data-testid="citation-changed-notice" className="citation-card-note">

@@ -35,11 +35,11 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   type ChatModelChoice,
-  type CitationRecheck,
   PROPOSAL_ATTRIBUTE,
   type ProposalAttribute,
   type ProposalRequest,
   type RecheckCitationInput,
+  type RecheckResult,
   type RecordAiUseInput,
   type SearchScope,
 } from "./api";
@@ -51,7 +51,7 @@ export interface NoteAddingOptions {
   content: MindContent;
   /** Throws unless the Mind exists and can be written to; returns its id. */
   requireMind(mindId: unknown): string;
-  recheck(input: RecheckCitationInput): CitationRecheck;
+  recheck(input: RecheckCitationInput): RecheckResult;
   /** The Search scope the Question of the Answer Blocks came from was asked with; null for none. */
   /** The Search scope the Answer at `origin` was asked with, as the Mind `mindId` may keep it. */
   askedScope(origin: BlockOrigin, mindId: string): SearchScope | null;

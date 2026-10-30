@@ -24,6 +24,8 @@ async function citationOf(document: Document, cue: Cue, page: number | null, min
     pageTo: page,
     quote: cue.text,
   });
+  // A Transcript is filed with its Meeting's Note, so never behind another wall from it.
+  if ("keptInside" in found) throw new Error(translateNow("transcript.addToNote.failed"));
   const citation: CitationAttributes = {
     passageId: found.passageId,
     documentId: document.id,

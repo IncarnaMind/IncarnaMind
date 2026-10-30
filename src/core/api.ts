@@ -1854,6 +1854,18 @@ export interface TurnPlace {
   conversationId: string | null;
 }
 
+/**
+ * A Citation looked for again for a Note outside the walled Folder that keeps its Document (#1934):
+ * nothing was read, so nothing is known of the new version, and the result it was made with stands.
+ */
+export interface CitationKeptInside {
+  /** The walled Folder's name. */
+  keptInside: string;
+}
+
+/** What looking for a Citation again for a Note came to: checked, or kept inside a wall. */
+export type RecheckResult = CitationRecheck | CitationKeptInside;
+
 export interface RecheckCitationInput extends CitationToRecheck {
   /**
    * The Note the Citation is in, or going into; null for one shown in no Note (an Answer in the
@@ -10210,7 +10222,7 @@ export interface CoreApi {
    * quotes, in that version too. Nothing is stored: the editor writes the
    * result onto the Citation's node.
    */
-  recheckCitation(input: RecheckCitationInput): Promise<CitationRecheck>;
+  recheckCitation(input: RecheckCitationInput): Promise<RecheckResult>;
   /**
    * Cites words the User selected in a Document's viewer (#101), given in the
    * order selected, one part for each Unit: checked against the current

@@ -124,7 +124,8 @@ export async function openCitedFollowing(
       console.error("A moved quote couldn't be looked for in its Document's new version.", failure);
       return null;
     });
-  if (recheck === null || quoteStanding(citation, recheck) !== "moved") {
+  // Kept inside a wall the Note is outside, nothing of the new version is known: it opens as cited.
+  if (recheck === null || "keptInside" in recheck || quoteStanding(citation, recheck) !== "moved") {
     return openCited(citation, how);
   }
   const location = recheck.location ?? citationLocation(citation);

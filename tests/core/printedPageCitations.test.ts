@@ -19,6 +19,7 @@ import {
   type Translate,
   unitLocation,
 } from "../../src/shared/locations";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -48,13 +49,15 @@ async function addReport(core: Core, name: string, bytes: Uint8Array): Promise<D
 
 /** The Location the check gives a quote from `page` of the report. */
 async function locationOf(core: Core, document: Document, page: number) {
-  const result = await core.recheckCitation({
-    mindId: null,
-    documentId: document.id,
-    quote: sentence(page),
-    pageFrom: page,
-    pageTo: page,
-  });
+  const result = checkedResult(
+    await core.recheckCitation({
+      mindId: null,
+      documentId: document.id,
+      quote: sentence(page),
+      pageFrom: page,
+      pageTo: page,
+    }),
+  );
   return { check: result.check, location: result.location, pageFrom: result.pageFrom };
 }
 
@@ -130,13 +133,15 @@ describe("A Citation of a PDF with no labels, whose footers print numbers one lo
     const core = startCore(await createTempDataFolder());
     const document = await addReport(core, "Annual Report.pdf", report(footers));
 
-    const result = await core.recheckCitation({
-      mindId: null,
-      documentId: document.id,
-      quote: `${sentence(3)} ${sentence(4)}`,
-      pageFrom: 3,
-      pageTo: 4,
-    });
+    const result = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: `${sentence(3)} ${sentence(4)}`,
+        pageFrom: 3,
+        pageTo: 4,
+      }),
+    );
 
     expect(result.location).toEqual({
       kind: "page",

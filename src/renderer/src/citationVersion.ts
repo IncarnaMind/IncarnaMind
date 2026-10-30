@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CitationAttributes, CitationRecheck } from "../../core/api";
+import type { CitationAttributes, RecheckResult } from "../../core/api";
 import { core } from "./core";
 
 /**
@@ -17,13 +17,13 @@ export function useCitationRecheck(
   currentVersion: string | null | undefined,
   /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
   mindId: string | null,
-): CitationRecheck | "failed" | null {
+): RecheckResult | "failed" | null {
   const documentId = citation?.documentId ?? null;
   const quote = citation?.quote ?? "";
   const pageFrom = citation?.pageFrom ?? null;
   const pageTo = citation?.pageTo ?? null;
   const version = citation?.contentHash ?? null;
-  const [recheck, setRecheck] = useState<CitationRecheck | "failed" | null>(null);
+  const [recheck, setRecheck] = useState<RecheckResult | "failed" | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: checked again when the Document changes again.
   useEffect(() => {
     setRecheck(null);

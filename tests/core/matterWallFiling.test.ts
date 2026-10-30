@@ -323,11 +323,8 @@ describe("a Citation checked again names the Note it is for", () => {
     });
     // In no Note (an Answer, the Document's viewer) it is read as browsing is, never as outside.
     expect(await s.core.recheckCitation(lease(s, null))).toMatchObject({ check: "found" });
-    // From a Note outside the wall, the check it was made with stands.
-    expect(await s.core.recheckCitation(lease(s, s.noteX.id))).toMatchObject({
-      contentHash: null,
-      checkReason: "kept-inside",
-    });
+    // From a Note outside the wall, nothing is read: the answer is "kept inside", never a check.
+    expect(await s.core.recheckCitation(lease(s, s.noteX.id))).toEqual({ keptInside: "Client A" });
   });
 
   test("a re-check that leaves the Note out is refused", async () => {

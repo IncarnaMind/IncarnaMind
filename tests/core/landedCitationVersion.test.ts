@@ -11,7 +11,7 @@ import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citationState, needsRecheck, newVersionCitation } from "../../src/shared/citations";
 import { recheckCitations } from "../../src/shared/noteBlocks";
-import { citingModel, setUpWithDocuments } from "../helpers/citations";
+import { checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { queryDatabase, startCore } from "../helpers/core";
 import { sha256, waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -174,14 +174,16 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
       expect(landed).toMatchObject({ contentHash: sha256(V1), check: "found", checkReason: null });
       const state = citationState(landed ?? {}, await core.listDocuments());
       expect(state.changedAfterCited).toBe(true);
-      const recheck = await core.recheckCitation({
-        mindId: null,
-        documentId: document.id,
-        quote: OLD,
-        pageFrom: 2,
-        pageTo: 2,
-        contentHash: landed?.contentHash ?? null,
-      });
+      const recheck = checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote: OLD,
+          pageFrom: 2,
+          pageTo: 2,
+          contentHash: landed?.contentHash ?? null,
+        }),
+      );
       expect(recheck).toMatchObject({
         check: "not-found",
         contentHash: sha256(V2),
@@ -233,7 +235,9 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
 
     expect(landed).toMatchObject({ contentHash: sha256(V1), check: "found" });
     const input = { documentId: document.id, quote: OLD, pageFrom: 2, pageTo: 2 };
-    const gone = await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) });
+    const gone = checkedResult(
+      await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) }),
+    );
     expect(gone).toMatchObject({ check: "not-found", contentHash: sha256(V3), changed: null });
     const state = citationState(landed ?? {}, await core.listDocuments());
     expect(needsRecheck(state, landed ?? {}, gone)).toBe(true);
@@ -250,7 +254,9 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
     );
     expect(again).toMatchObject({ contentHash: sha256(V1), keptOver: sha256(V3) });
     await change(core, document, V2);
-    const back = await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) });
+    const back = checkedResult(
+      await core.recheckCitation({ mindId: null, ...input, contentHash: sha256(V1) }),
+    );
     expect(needsRecheck(state, pinned, back)).toBe(true);
   });
 
@@ -297,14 +303,16 @@ describe("A Citation keeps the version it quotes where its Answer lands", {
     const [landed] = await LANDINGS["the open Mind"](core, answer);
 
     expect(kept(landed ?? {})).toEqual(kept(answer.citations[0] ?? {}));
-    const recheck = await core.recheckCitation({
-      mindId: null,
-      documentId: document.id,
-      quote: before,
-      pageFrom: landed?.pageFrom ?? null,
-      pageTo: landed?.pageTo ?? null,
-      contentHash: landed?.contentHash ?? null,
-    });
+    const recheck = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: before,
+        pageFrom: landed?.pageFrom ?? null,
+        pageTo: landed?.pageTo ?? null,
+        contentHash: landed?.contentHash ?? null,
+      }),
+    );
     expect(recheck.changed?.parts).toEqual([
       { kind: "same", text: "供应商的通知期为" },
       { kind: "removed", text: "六十（60）" },
