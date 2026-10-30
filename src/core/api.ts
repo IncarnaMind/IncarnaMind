@@ -6266,11 +6266,14 @@ export interface MindCheckRun {
   unexamined: string[];
 }
 
-/** A document someone else wrote, to verify claim by claim (#97): the window offers PDFs. */
+/**
+ * A document someone else wrote, to verify claim by claim (#97): the window offers PDFs and Word
+ * files (#110).
+ */
 export interface VerifyDocumentInput {
-  /** The file's absolute path: any file the Library reads. */
+  /** The file's absolute path: a PDF, a Word file, or any other file the Library reads. */
   path: string;
-  /** The Folder the Mind goes in, and the PDF too if it is new to the Library; none, or null, for none. */
+  /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
 }
 
@@ -6279,7 +6282,9 @@ export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
   /** No Mind was made: the file can't be read, or holds no text (a scan nothing could read). */
-  | { ok: false; reason: "unreadable" | "no-text" };
+  | { ok: false; reason: "unreadable" | "no-text" }
+  /** No Mind was made: a Word file that can't be imported, for the reason Word import gives. */
+  | { ok: false; reason: "word"; refusal: WordRefusalReason };
 
 /** Finding, or checking, the claims of a Mind made by `verifyDocument`. */
 export interface VerifyClaimsInput {
@@ -8919,7 +8924,8 @@ export interface ExportMindOptions {
    * Word only: a Citation whose check failed (its quote wasn't found, or its
    * claim is unsupported or contradicted), and a sentence checked
    * Contradicted, Unsupported or Needs re-check, gets a comment by
-   * IncarnaMind saying so. Absent: off.
+   * IncarnaMind saying so. Absent: off. A Mind made by Verify from someone
+   * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
   /**
@@ -8971,6 +8977,10 @@ export interface MindExportPreview {
   citationPlace: CitationPlace | null;
   /** Whether a Word file marks the text IncarnaMind wrote (#107), for the Saved line (#1945); null for a format that can't mark it. */
   markAiText: boolean | null;
+  /** The Mind was made by Verify from someone else's file (#110): its Word file is named after the original, and its comments are its own choice. */
+  othersFile: boolean;
+  /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
+  othersComments: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -8982,6 +8992,8 @@ export interface SentenceChecksExported {
   needsRecheck: number;
   /** They went into the file as comments: a Word file, with `commentFailedChecks` on. Otherwise they went out unmarked. */
   commented: boolean;
+  /** The comments on what needs a look the file holds, on these sentences and on Citations; 0 unless `commented`. */
+  comments: number;
 }
 
 /** What a Mind's web page to share would hold, for the sheet to show before it is made. */
@@ -9042,6 +9054,8 @@ export type SavedMindExport =
        * couldn't, which the result line says. True for the other formats.
        */
       sentKept: boolean;
+      /** Written again beside the file of this name, which the User had changed (#110). */
+      changedFile?: string;
     } & Omit<MindExportPreview, "fileName" | "fromWord" | "theirChanges"> &
       Pick<
         MindExport,
@@ -9060,6 +9074,11 @@ export type SavedMindExport =
    */
   | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
+
+/** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
+export type RewrittenMindExport =
+  | (Extract<SavedMindExport, { status: "saved" }> & { step: string })
+  | Exclude<SavedMindExport, { status: "saved" }>;
 
 /** What saving an export did: a Skill's zip (`saveSkillExport`), and the base of a Mind's. */
 export type SavedExport =
@@ -10910,8 +10929,11 @@ export interface CoreApi {
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
-   * text, a paragraph to a Block, each Block's page recorded. Its text is the
-   * document being checked: third-party (#78), and never its own evidence.
+   * text, a paragraph to a Block, each Block's page recorded. A Word file
+   * (#110) is imported as a Mind instead, as `importWordFile` imports
+   * someone else's, kept to export back into, and resolves once every Block
+   * is in it. Its text is the document being checked: third-party (#78), and
+   * never its own evidence.
    */
   verifyDocument(input: VerifyDocumentInput): Promise<VerifyDocumentResult>;
   /**
@@ -11465,6 +11487,37 @@ export interface CoreApi {
    * next free name, asking where new files go the first time.
    */
   saveMindExport(mindId: string, options: ExportMindOptions): Promise<SavedMindExport>;
+  /**
+   * Writes a Mind's export again into the file this Mind's `saveMindExport` saved at `path`
+   * since the app opened, in place, as it would be written now: for a choice changed under its
+   * Saved line, so no second copy sits beside the first (#110). `checkComments`, for someone
+   * else's file, writes with that choice and keeps it for the Note once the file holds it. A file
+   * the User changed since is left as it is, and the export is saved beside it instead
+   * (`changedFile`). What it replaces is kept for `restoreMindExport`, under the `step` it
+   * returns. Throws InvalidInputError for a file another Note exported or this session didn't
+   * save, and a plain-words problem naming a file that was moved, deleted or can't be changed.
+   */
+  rewriteMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    path: string,
+    checkComments?: boolean,
+  ): Promise<RewrittenMindExport>;
+  /**
+   * Undoes the `rewriteMindExport` that returned `step` for `path` (#110): the file's bytes as
+   * they were, or, for a file saved beside one the User had changed, no file; and the Note's
+   * comment choice as it was. Only the newest step of `path`, and never over a file changed since
+   * it was written. Refused, it throws a plain-words problem and leaves the file, the choice and
+   * the step as they were, so it can be tried again.
+   */
+  restoreMindExport(path: string, step: string): Promise<void>;
+  /**
+   * For a Mind made by Verify from someone else's file (#110): whether its Word export gets
+   * comments on what needs a look. Off until the User turns it on, for this Note only, as its
+   * comments quote the User's Documents in a file that goes back to its author. Throws
+   * InvalidInputError for a Mind that verifies nothing.
+   */
+  setCheckComments(mindId: string, on: boolean): Promise<void>;
   /**
    * Saves a record of what was checked in a Mind (#738) into the Output location, as
    * `saveMindExport` does, as a PDF and a CSV side by side under one name: each checked sentence
@@ -12215,6 +12268,9 @@ const methods: Record<CoreApiMethod, true> = {
   previewSharePage: true,
   setSharePageTextOnly: true,
   saveMindExport: true,
+  rewriteMindExport: true,
+  restoreMindExport: true,
+  setCheckComments: true,
   saveCheckRecord: true,
   saveComparisonExport: true,
   formatCitations: true,

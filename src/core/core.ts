@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
@@ -54,6 +54,7 @@ import {
 import { sourceChoiceProblem } from "../shared/sourceFacets";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
+import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
@@ -104,12 +105,14 @@ import {
   type DocumentStatus,
   type EmbeddingModelStatus,
   type EmbeddingSettings,
+  type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
@@ -246,7 +249,7 @@ import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindT
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
-import { createOutputFiles } from "./outputFiles";
+import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
@@ -2409,6 +2412,24 @@ export function createCore(adapters: CoreAdapters): Core {
         kind: DEFAULT_MIND_KIND,
         folderId,
       }),
+    wordRefusal: async (path) => (await wordImports.check(path)).refusal,
+    async importWord({ path, folderId, documentId, name }) {
+      const imported = await wordImports.import(
+        { path, origin: "someone-else", folderId },
+        {
+          documentId,
+          title: translate(settings.get().language, "verify.mindTitle", { name }),
+        },
+      );
+      return imported.ok ? { ok: true, mind: imported.mind } : imported;
+    },
+    wordWritten: (mindId) => wordImports.written(mindId),
+    async discardWordMind(mindId) {
+      if (wordImports.isClosed() || minds.locate(mindId)?.deletedAt !== null) return;
+      removeMind(mindId);
+      recentlyDeleted.deletePermanently([{ kind: "mind", id: mindId }]);
+      await wordImports.dropPurged();
+    },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
       documentVersions: () =>
@@ -2588,8 +2609,84 @@ export function createCore(adapters: CoreAdapters): Core {
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
   });
-  const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
+  const ownFileOf = (options: Pick<ExportMindOptions, "format">): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /**
+   * Each export saved since the app opened, by its path: the Note it came from, and the
+   * fingerprint of the bytes IncarnaMind last wrote there, so a file the User changed since is
+   * never written over (#110).
+   */
+  const exportFiles = new Map<
+    string,
+    { mindId: string; path: string; format: ExportFormat; wrote: string }
+  >();
+  /**
+   * Each Change of an export, by the path it wrote, newest last (#110): the id its Undo names, so
+   * an Undo refused on one side never makes the next one put back the wrong step; the bytes it
+   * replaced, null where it wrote a copy beside; and the Note's comment choice before it, null
+   * where it set none.
+   */
+  const rewrittenExports = new Map<
+    string,
+    { id: string; before: Uint8Array | null; comments: boolean | null }[]
+  >();
+  const keepStep = (path: string, before: Uint8Array | null, comments: boolean | null) => {
+    const id = crypto.randomUUID();
+    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
+    return id;
+  };
+  /**
+   * Changes and Undos of one export run one after another, each reading what the last one wrote,
+   * so two at once never both write over the same bytes (#110).
+   */
+  const exportTurns = new Map<string, Promise<void>>();
+  const inExportTurn = <T>(path: unknown, run: () => Promise<T>): Promise<T> => {
+    const key = typeof path === "string" ? path : "";
+    const turn = (exportTurns.get(key) ?? Promise.resolve()).then(run);
+    const settled = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    exportTurns.set(key, settled);
+    void settled.then(() => {
+      if (exportTurns.get(key) === settled) exportTurns.delete(key);
+    });
+    return turn;
+  };
+  const verificationOfNote = (mindId: string) =>
+    content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
+  const setNoteComments = (mindId: string, on: boolean) => {
+    const verifying = content.edit(mindId, (blocks) => {
+      const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+      const now = settings && readVerification(settings);
+      if (!settings || !now) return false;
+      if (now.comments !== on) writeVerification(settings, { ...now, comments: on });
+      return true;
+    });
+    if (!verifying) throw new InvalidInputError({ key: "error.verify.notVerifying" });
+  };
+  /**
+   * Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name. False
+   * when it couldn't, which the result line says; the file is saved all the same.
+   */
+  const keepSent = (
+    mindId: string,
+    options: ExportMindOptions,
+    name: string,
+    read: NonNullable<ReturnType<typeof content.storedState>>,
+  ): boolean => {
+    if (options.format !== "docx" && options.format !== "pdf") return true;
+    try {
+      checkpoints.sent(mindId, name, read);
+      return true;
+    } catch (error) {
+      console.error(
+        `export: History couldn't keep Mind ${mindId} as it was sent as ${name}`,
+        error,
+      );
+      return false;
+    }
+  };
   /**
    * Keeps where Citations went and whether a Word file marks AI text, the first time an export
    * settles them, so Export options and the next file say the choice rather than the default
@@ -5230,6 +5327,113 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return exported;
     },
+    rewriteMindExport: (mindId, options, path, checkComments) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        if (!known || known.mindId !== mindId || known.format !== options?.format) {
+          throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
+        }
+        if (checkComments !== undefined && typeof checkComments !== "boolean") {
+          throw new InvalidInputError({ key: "error.export.checkComments" });
+        }
+        const verification = verificationOfNote(known.mindId);
+        if (checkComments !== undefined && verification === null) {
+          throw new InvalidInputError({ key: "error.verify.notVerifying" });
+        }
+        const choiceBefore = checkComments === undefined ? null : verification?.comments === true;
+        const read = content.storedState(known.mindId);
+        const {
+          fileName: _name,
+          fromWord: _,
+          theirChanges: _waiting,
+          data,
+          word,
+          ...counts
+        } = await mindExports.export(known.mindId, options, checkComments);
+        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
+        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
+          return { status: "review", word };
+        const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
+        const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
+        let file: SavedFile;
+        let changedFile: string | undefined;
+        let step: string;
+        if (written.kind === "written") {
+          file = written.file;
+          step = keepStep(file.path, written.before, choiceBefore);
+        } else {
+          changedFile = basename(known.path);
+          try {
+            file = await outputs.save({
+              name: changedFile,
+              data,
+              ownFile: ownFile.kind,
+              fromFolder: ownFile.fromFolder,
+              folder: dirname(known.path),
+              approved: true,
+            });
+          } catch (error) {
+            throw fileProblem(changedFile, error);
+          }
+          step = keepStep(file.path, null, choiceBefore);
+        }
+        exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
+        // Only once the file holds them, so the choice never says what the file doesn't.
+        if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
+        const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
+        return {
+          status: "saved",
+          file,
+          step,
+          ...counts,
+          word,
+          sentKept,
+          ...(changedFile !== undefined && { changedFile }),
+        };
+      }),
+    restoreMindExport: (path, step) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        const steps = known ? rewrittenExports.get(known.path) : undefined;
+        const at = steps?.findIndex((each) => each.id === step) ?? -1;
+        const kept = steps?.[at];
+        if (!known || !steps || !kept) {
+          throw new InvalidInputError({
+            key: "error.export.restore.nothing",
+            values: { name: typeof path === "string" ? basename(path) : "" },
+          });
+        }
+        const values = { name: basename(known.path) };
+        const changed = new TranslatableError({ key: "error.export.restore.changed", values });
+        // A later Change wrote the file since: this step's bytes would take that one back too.
+        if (at < steps.length - 1) throw changed;
+        const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
+        const done = kept.before
+          ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
+          : await outputs.remove(known.path, known.wrote);
+        if (done.kind === "gone") {
+          // The copy can never come back to be taken away, so its step goes with it.
+          exportFiles.delete(known.path);
+          rewrittenExports.delete(known.path);
+          throw new TranslatableError({ key: "error.export.restore.copyGone" });
+        }
+        if (done.kind === "changed") throw changed;
+        if (done.kind === "read-only") {
+          throw new TranslatableError({ key: "error.export.rewrite.locked", values });
+        }
+        if (kept.before)
+          exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
+        else exportFiles.delete(known.path);
+        steps.pop();
+        if (steps.length === 0) rewrittenExports.delete(known.path);
+        if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
+      }),
+    setCheckComments: async (mindId, on) => {
+      const mind = writableMind(mindId);
+      if (typeof on !== "boolean")
+        throw new InvalidInputError({ key: "error.export.checkComments" });
+      setNoteComments(mind.id, on);
+    },
     saveMindExport: async (mindId, options) => {
       // The export reads the Note before its first await, so this is the text the file holds,
       // whatever the User writes while it is made.
@@ -5253,20 +5457,13 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
-      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
-      let sentKept = true;
-      if (read && (options.format === "docx" || options.format === "pdf")) {
-        try {
-          checkpoints.sent(mindId, saved.file.name, read);
-        } catch (error) {
-          // The file is saved all the same: the result line says History couldn't keep it.
-          sentKept = false;
-          console.error(
-            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
-            error,
-          );
-        }
-      }
+      exportFiles.set(saved.file.path, {
+        mindId,
+        path: saved.file.path,
+        format: options.format,
+        wrote: fingerprintOf(data),
+      });
+      const sentKept = read === null || keepSent(mindId, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };
     },

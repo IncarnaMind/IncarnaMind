@@ -1,7 +1,8 @@
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
+import { verificationOf } from "../../shared/verification";
 import {
   checkedSentences,
   figuresNow,
@@ -61,6 +62,8 @@ export function failedSentences(
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
   const { figureContexts, figured } = figuresNow(fragment);
+  // A verified document's table row is one claim, marked on its first cell's words (#1368).
+  const rowClaims = fragment.doc !== null && verificationOf(fragment.doc) !== null;
   const note = recordCiteNote(fragment);
   for (const marked of checkedSentences(fragment)) {
     const { check, sentence, cited } = marked;
@@ -77,7 +80,7 @@ export function failedSentences(
       ...noteTextOfMarked(marked),
     });
     if (shown.state === "contradicted") {
-      const { calculation } = check;
+      const { calculation, evidence } = check;
       failed.set(id, {
         id,
         check: "contradicted",
@@ -90,6 +93,9 @@ export function failedSentences(
                 ...(calculation.relation && { relation: calculation.relation }),
               }
             : null,
+        quoted: evidence?.quote
+          ? { quote: evidence.quote, source: context.sourceOf(evidence) }
+          : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {
       failed.set(id, { id, check: "cited-case-unchecked", unsupported: true });
@@ -134,6 +140,12 @@ export function failedSentences(
       if (existing) failed.set(id, { ...existing, recordCites });
       else failed.set(id, { id, check: "record-cites", recordCites });
     }
+    const found = failed.get(id);
+    if (found && rowClaims && inTableCell(marked.element)) failed.set(id, { ...found, row: true });
   }
   return failed;
 }
+
+const inTableCell = (element: Y.XmlElement): boolean =>
+  element.parent instanceof Y.XmlElement &&
+  (element.parent.nodeName === "tableCell" || element.parent.nodeName === "tableHeader");
