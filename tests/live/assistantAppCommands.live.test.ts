@@ -152,6 +152,8 @@ interface Seen {
 interface Library {
   /** The Documents in the Library, by name, not those in Recently deleted. */
   documents: string[];
+  /** Each Document's Tags: adding an existing Tag to a Document changes none of the fields above. */
+  documentTags: { id: string; tags: string[] }[];
   folders: Record<string, string[]>;
   userFiled: string[];
   tags: string[];
@@ -173,6 +175,9 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
   const nameOf = (id: string) => documents.find((each) => each.id === id)?.name ?? id;
   return {
     documents: documents.map((each) => each.name).sort(),
+    documentTags: documents
+      .map((each) => ({ id: each.id, tags: each.tags.map((tag) => tag.tagId).sort() }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
     folders: Object.fromEntries(
       library.groups.map((group) => [
         group.name,
