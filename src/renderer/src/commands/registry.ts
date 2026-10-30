@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { WindowCommandRequest } from "../../../core/api";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
@@ -90,7 +91,7 @@ export interface CommandContext {
    * What the core checked against the Folder wall for an assistant's run of a command that names
    * no ids (To review's Accept all): it acts on these alone, never on what is in view (#2243).
    */
-  checked?: readonly ObjectRef[];
+  checked?: WindowCommandRequest["targets"];
 }
 
 export interface Command {

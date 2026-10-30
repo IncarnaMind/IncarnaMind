@@ -361,6 +361,8 @@ export const en = {
   "error.paste.noteGone": "The pasted text wasn’t saved: this note has been deleted.",
   "error.folder.wallAccept":
     "Not accepted: some suggestions would file Documents into a Folder that keeps its work inside it, and the assistant can’t do that from outside it. You can still accept them yourself in To review.",
+  "error.folder.suggestionMoved":
+    "Not accepted: a suggested Folder changed after the assistant checked it, so nothing was accepted. You can accept them yourself in To review.",
   "error.folder.wallAcceptInside":
     "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",

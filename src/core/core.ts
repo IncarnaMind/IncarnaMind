@@ -4918,7 +4918,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
       transcripts?.dropPurged();
     },
-    acceptAssignments: async (ids) => library.accept(ids),
+    acceptAssignments: async (ids, checked) => library.accept(ids, checked),
     rejectAssignments: async (ids) => library.reject(ids),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");

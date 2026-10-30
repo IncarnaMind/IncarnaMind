@@ -217,13 +217,17 @@ export function commandEffects(input: Record<string, unknown>): Effect[] {
  * refused when none waits. A suggestion counts as behind its Folder's wall, which the gate holds
  * it to, though a Note there doesn't search it yet: so they are named here, not by what is found.
  */
-async function waitingSuggestions(host: CommandsHost): Promise<{ ids: string[]; named: Findable }> {
+async function waitingSuggestions(
+  host: CommandsHost,
+): Promise<{ ids: string[]; named: Findable; into: Map<string, string | null> }> {
   const [library, listed] = await Promise.all([host.core.getLibrary(), host.core.listDocuments()]);
-  const waiting = new Set(library.assignments.filter((a) => a.suggested).map((a) => a.documentId));
-  const documents = listed.filter((each) => waiting.has(each.id));
+  const into = new Map(
+    library.assignments.filter((a) => a.suggested).map((a) => [a.documentId, a.groupId]),
+  );
+  const documents = listed.filter((each) => into.has(each.id));
   if (documents.length === 0) throw new InvalidInputError({ key: "error.commands.nothingWaiting" });
   const named = { documents, minds: [], library, tags: [], deleted: [] };
-  return { ids: documents.map((each) => each.id), named };
+  return { ids: documents.map((each) => each.id), named, into };
 }
 
 /** The Folder a request for a wall's switch is about: the one it names, the Note's, or the only walled one. */
@@ -285,7 +289,7 @@ export async function checkCommand(
   await host.allows?.(call, touches, context.mindId, context.wallId);
   if (entry && (entry.yours !== null || !isCoreCommand(entry.id))) {
     const findable = waiting?.named ?? (await context.findable());
-    return windowChecked(entry, call.ids, findable, context, host.window);
+    return windowChecked(entry, call.ids, findable, context, host.window, waiting?.into);
   }
   if (isCoreCommand(input.command)) {
     const command: CoreCommand = CORE_COMMANDS[input.command];

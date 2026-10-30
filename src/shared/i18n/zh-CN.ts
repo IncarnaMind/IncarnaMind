@@ -352,6 +352,8 @@ export const zhCN = {
   "error.paste.noteGone": "粘贴的文本未保存：这篇笔记已删除。",
   "error.folder.wallAccept":
     "未接受：部分推荐会把文档放进只在本文件夹内工作的文件夹，助手不能在文件夹外这样做。你仍可以在“待确认”中自己接受。",
+  "error.folder.suggestionMoved":
+    "未接受：助手核对后，有推荐的文件夹发生了变化，因此未接受任何推荐。你可以在“待确认”中自己接受。",
   "error.folder.wallAcceptInside":
     "未接受：在只在本文件夹内工作的文件夹中，助手只能接受放进该文件夹的推荐。其余推荐，你仍可以在“待确认”中自己接受。",
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",

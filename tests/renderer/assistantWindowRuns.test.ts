@@ -122,7 +122,7 @@ describe("The window says a command started, then how it ended (#1421)", () => {
       run,
     });
     try {
-      const checked = [{ kind: "document" as const, id: "memo" }];
+      const checked = [{ kind: "document" as const, id: "memo", into: "general" }];
       heard.handlers.get("command.windowRun")?.({ ...request("test.noIds"), targets: checked });
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
       expect(run.mock.calls[0]?.[0]).toMatchObject({ checked, selection: [] });

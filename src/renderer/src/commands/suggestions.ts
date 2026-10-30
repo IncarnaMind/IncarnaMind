@@ -56,8 +56,9 @@ export const suggestionCommands: readonly Command[] = [
       waitingIds().length > 0,
     reversible: true,
     async run(ctx) {
-      const ids = ctx.checked ? ctx.checked.map((each) => each.id) : waitingIds();
-      return (await acceptSuggestions(ids)) ?? undefined;
+      if (!ctx.checked) return (await acceptSuggestions(waitingIds())) ?? undefined;
+      const checked = Object.fromEntries(ctx.checked.map((each) => [each.id, each.into ?? null]));
+      return (await acceptSuggestions(Object.keys(checked), checked)) ?? undefined;
     },
   },
 ];

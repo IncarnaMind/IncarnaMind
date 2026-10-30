@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Core, OfferedCommand, WindowCommandRequest } from "../../src/core";
+import { TranslatableError } from "../../src/core/errors";
 import { ACCEPT_SUGGESTIONS } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
@@ -71,12 +72,19 @@ async function setUp() {
     windowAsked.push(request);
     void (async () => {
       await meanwhile();
-      // As the window runs it: what the core checked, of what is still waiting.
+      // As the window runs it: what the core checked, for the Folder it was checked against.
       if (request.command === ACCEPT_SUGGESTIONS) {
-        const { assignments } = await core.getLibrary();
-        const waiting = new Set(assignments.filter((a) => a.suggested).map((a) => a.documentId));
-        const checked = request.targets.map((each) => each.id);
-        await core.acceptAssignments(checked.filter((id) => waiting.has(id)));
+        const checked = Object.fromEntries(
+          request.targets.map((each) => [each.id, each.into ?? null]),
+        );
+        try {
+          await core.acceptAssignments(Object.keys(checked), checked);
+        } catch (error) {
+          if (!(error instanceof TranslatableError)) throw error;
+          const said = { ran: false as const, why: error.message, wording: error.wording };
+          await core.answerWindowCommand(request.requestId, said);
+          return;
+        }
       }
       await core.answerWindowCommand(request.requestId, { ran: true, changed: true });
     })();
@@ -274,6 +282,26 @@ describe("Accept all suggested Folders goes through the same door as a move", ()
     expect(await heldIn(s.core, s.folderA.id)).toEqual([
       "Client A lease: filed",
       "Late filing: waiting",
+    ]);
+  });
+
+  test("a suggestion that moves to another Folder after the check is never accepted, and it says so", async () => {
+    const s = await setUp();
+    const general = await s.core.createLibraryGroup({ name: "General", description: "" });
+    await suggest(s.core, s.general.id, general.id);
+    s.landing(() => suggest(s.core, s.general.id, s.folderA.id));
+
+    const said = await s.ask(s.outside.id, [acceptAll]);
+
+    expect(s.windowAsked.map((each) => each.targets)).toEqual([
+      [{ kind: "document", id: s.general.id, into: general.id }],
+    ]);
+    expect(said).toContain(translate("en", "error.folder.suggestionMoved"));
+    expect(translate("zh-CN", "error.folder.suggestionMoved")).toMatch(/^未接受：/);
+    expect(await heldIn(s.core, general.id)).toEqual([]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual([
+      "Client A lease: filed",
+      "General memo: waiting",
     ]);
   });
 
