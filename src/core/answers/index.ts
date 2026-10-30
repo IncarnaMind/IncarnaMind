@@ -757,12 +757,12 @@ export interface DocumentsForAnswers
   names(): readonly LiveDocument[];
   /**
    * How many Documents there are to search, and the names of the `limit` most recently added,
-   * newest first; `webPage`: one of them is a saved web page, named by its own title.
+   * newest first; `webPages`: the saved web pages among them, by id, each named by its own title.
    */
   searchableNames(
     documentIds: readonly string[] | null,
     limit: number,
-  ): ListedDocuments & { webPage: boolean };
+  ): ListedDocuments & { webPages: string[] };
   /** The Documents to search, the most text first. */
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
   /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
@@ -1736,12 +1736,12 @@ export function createAnswers(options: AnswersOptions) {
     /**
      * What the Answer read that the User didn't write, by the kinds the card names (#2240). A web
      * page is never named by its title here: a page writes its own title, so an injected one could
-     * pass for the User's file on this card; its host is the part it can't write. `titlesRead`: a
-     * saved page's title reached the Run, and no kind here names a title.
+     * pass for the User's file on this card; its host is the part it can't write. `titlesRead`: the
+     * saved pages whose titles reached the Run, by id, named by their hosts as a read page is.
      */
     const readText = (
       thirdParty: readonly ThirdPartyReason[],
-      titlesRead: boolean,
+      titlesRead: readonly string[],
     ): { readText?: ApprovalReadText } => {
       const kinds = readKinds({
         reads: session.passagesRead(),
@@ -1791,7 +1791,7 @@ export function createAnswers(options: AnswersOptions) {
             tool: COMMAND_TOOLS.run,
             ask: asked,
             effects: checked.effects,
-            tainted: tainted || readTitles,
+            tainted: tainted || readTitles.length > 0,
             ...readReasons(thirdParty),
             ...readText(thirdParty, readTitles),
           },
@@ -2388,8 +2388,8 @@ export function createAnswers(options: AnswersOptions) {
               host: commands.host,
               findable: () => commands.findable(),
               focusedMindId: focusedId,
-              namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
-                .webPage,
+              titledPages: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
+                .webPages,
               renames: input.assistant.renames,
               answerId,
               runId: randomUUID(),

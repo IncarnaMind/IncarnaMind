@@ -21,10 +21,9 @@ import {
 
 /*
  * The approval card's line naming what the Answer read (#2240): a Document by name, a web page by
- * host (never the title it wrote itself), a Connector by its name, and other text for the saved
- * page's title, in English and Chinese. A local OpenAI-compatible chat model, test-only, does what
- * the smoke fake can't: it searches the Documents, reads the Tides Connector, then asks to record
- * a meeting, so one card shows all of them.
+ * host (never the title it wrote itself) and a Connector by its name, in English and Chinese. A
+ * local OpenAI-compatible chat model, test-only, does what the smoke fake can't: it searches the
+ * Documents, reads the Tides Connector, then asks to record a meeting, so one card shows all three.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -283,8 +282,7 @@ test("the card names a Document, a web page by host and a Connector, in English 
     await expect(line).toContainText("“Q3 board pack notes”");
     await expect(line).toContainText("a web page on files.example");
     await expect(line).toContainText("results from Tides");
-    // The saved page's title was in the Run's Documents too, and no kind names a title.
-    await expect(line).toContainText("and other text.");
+    await expect(line).not.toContainText("other text");
     await shot(window, card, "approval-read-text-kinds-en");
 
     await setLanguage(window, "zh-CN");
@@ -292,7 +290,7 @@ test("the card names a Document, a web page by host and a Connector, in English 
     await expect(line).toContainText("“Q3 board pack notes”");
     await expect(line).toContainText("files.example 上的一个网页");
     await expect(line).toContainText("Tides 返回的内容");
-    await expect(line).toContainText("和其他内容。");
+    await expect(line).not.toContainText("其他内容");
     await shot(window, card, "approval-read-text-kinds-zh");
   } finally {
     await app.close();
@@ -308,13 +306,13 @@ test("a page whose title imitates a Document is named by its host, in English an
     await expect(line).toContainText("a web page on files.example");
     // The page's own title never stands in for a Document the User wrote.
     await expect(line).not.toContainText(TITLE);
-    await expect(line).toContainText("and other text.");
+    await expect(line).not.toContainText("other text");
     await shot(window, card, "approval-read-text-impersonation-en");
 
     await setLanguage(window, "zh-CN");
     await expect(line).toContainText("files.example 上的一个网页");
     await expect(line).not.toContainText(TITLE);
-    await expect(line).toContainText("和其他内容。");
+    await expect(line).not.toContainText("其他内容");
     await shot(window, card, "approval-read-text-impersonation-zh");
   } finally {
     await app.close();

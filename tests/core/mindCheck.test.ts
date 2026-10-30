@@ -393,6 +393,32 @@ describe("Check this note", () => {
     );
   });
 
+  // protects=one Check is two parts: the claims run hands the window its Note back for the watch that follows, so a second window's Check is refused until the renderer frees it at the end; fails_when=the Note is free between the two parts; no_claim=what the watch checks.
+  test("a window's Check keeps its Note through the watch, and the next Check starts after it", async () => {
+    const { core, mindId } = await setUp();
+    const first = request(mindId, "all", "first");
+    expect(
+      await core.holdMindCheck({
+        requestId: first.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+
+    expect(await core.checkMind(first)).toMatchObject({ kind: "checked", sentences: 3 });
+    // The claims ended, the watch has not: the Note is still the window's.
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(false);
+    expect(await core.checkMind(request(mindId, "all", "second"))).toEqual({ kind: "running" });
+
+    // `runCheck`'s finally, after the watch: the Note is free, and the next Check starts.
+    await core.cancelCheck(first.requestId);
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(true);
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {

@@ -26,7 +26,7 @@ const input = (more: Partial<ReadInput> = {}): ReadInput => ({
   transcripts: new Set<string>(),
   calls: [],
   reasons: [],
-  titlesRead: false,
+  titlesRead: [],
   webAddress: () => null,
   ...more,
 });
@@ -160,28 +160,54 @@ describe("What the approval card names (#2240)", () => {
     ).toBe(false);
   });
 
-  // protects=a saved page's title that reached the Run without the page being read is other text, never left off; fails_when=the card names only the kinds it read and drops the title; no_claim=what list_commands showed the model.
-  test("a page title read through the Run is other text", () => {
-    expect(readKinds(input({ titlesRead: true })).otherText).toBe(true);
+  // protects=a saved page's title is named by its host, never quoted as a Document name; fails_when=the title's own words reach the card as a name; no_claim=what the page says of itself.
+  test("a saved page's title is named by its host, never by the title it wrote", () => {
+    const kinds = readKinds(
+      input({
+        reads: [read("w1", "Q3 Report.pdf", "web")],
+        titlesRead: ["w1"],
+        webAddress: () => "https://files.example/report",
+      }),
+    );
+    expect(kinds.webPages).toEqual(["files.example"]);
+    expect(kinds.documents).toEqual([]);
+    expect(JSON.stringify(kinds)).not.toContain("Q3 Report.pdf");
+  });
+
+  // protects=a page read and its title name the page once, and nothing becomes other text; fails_when=the title adds a duplicate page or an unnamed bucket; no_claim=the page and its title.
+  test("a Run reading only a saved page and its title shows no other text", () => {
     expect(
       readKinds(
         input({
-          titlesRead: true,
+          reads: [read("w1", "Q3 Report.pdf", "web")],
+          titlesRead: ["w1"],
+          webAddress: () => "https://files.example/report",
+        }),
+      ),
+    ).toEqual({ ...empty, webPages: ["files.example"] });
+  });
+
+  // protects=a title whose page was never read still names that page by its host; fails_when=the title alone is other text or a quoted Document; no_claim=what list_commands showed.
+  test("a saved page's title alone names its page by its host", () => {
+    expect(
+      readKinds(
+        input({
+          titlesRead: ["w1"],
           reads: [read("d1", "Budget")],
           calls: [call("connector", "lookup_tide", { connector: { id: "c1", name: "Tides" } })],
+          webAddress: (id) => (id === "w1" ? "https://files.example/report" : null),
         }),
       ),
-    ).toEqual({ ...empty, documents: ["Budget"], connectors: ["Tides"], otherText: true });
-    // The page itself read too is still no title on the card: the host names the page, never the title.
-    expect(
-      readKinds(
-        input({
-          titlesRead: true,
-          reads: [read("w1", "Q3 board pack.pdf", "web")],
-          webAddress: () => "http://files.example/report",
-        }),
-      ),
-    ).toEqual({ ...empty, webPages: ["files.example"], otherText: true });
+    ).toEqual({
+      ...empty,
+      documents: ["Budget"],
+      webPages: ["files.example"],
+      connectors: ["Tides"],
+    });
+  });
+
+  test("a title whose page has no address is other text", () => {
+    expect(readKinds(input({ titlesRead: ["w1"], webAddress: () => null })).otherText).toBe(true);
   });
 
   test("a call that failed, or was denied, read nothing", () => {

@@ -1266,8 +1266,8 @@ describe("A saved page's title on an approval card (#2240)", { timeout: 90_000 }
       return { text: "Done." };
     });
 
-  // protects=a saved page's title that reached the Run through list_commands is named as other text on the card; fails_when=the card shows only the kinds it read and leaves the title off; no_claim=what the page says of itself.
-  test("a title listed by list_commands is other text on the card", async () => {
+  // protects=a saved page's title that reached the Run through list_commands names its page by host on the card, never by the title and never as other text; fails_when=the title's own words reach the card or the page is left off; no_claim=what the page says of itself.
+  test("a title listed by list_commands names its page by its host", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, {
       createChatModel: () => listing(),
@@ -1302,12 +1302,13 @@ describe("A saved page's title on an approval card (#2240)", { timeout: 90_000 }
     expect(approved.map((each) => each.readText)).toEqual([
       {
         documents: ["Budget"],
-        webPages: [],
+        // The page was never read: its title alone names it, by its host.
+        webPages: ["files.example"],
         webSearchResults: false,
         connectors: ["Tides"],
         scriptOutput: false,
         transcript: false,
-        otherText: true,
+        otherText: false,
       },
     ]);
     core.close();

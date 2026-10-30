@@ -146,11 +146,21 @@ interface Sending {
 }
 
 export function createMindCheck(options: MindCheckOptions) {
+  /** The Note each Check request keeps, and the window it belongs to (#2240). */
+  interface CheckHold {
+    requestId: string;
+    clientId: string | null;
+    /** Its claims run is on: at its end the hold goes back to the window, for the watch that follows. */
+    running: boolean;
+    /** The window went while the run was on: no watch will follow, so the claims end frees the Note. */
+    windowGone: boolean;
+  }
+
   /**
    * The Note each Check request keeps from its planning until it runs or is dropped, and the
    * window that keeps it (#2240).
    */
-  const checking = new Map<string, { requestId: string; clientId: string | null }>();
+  const checking = new Map<string, CheckHold>();
   const { content } = options;
 
   const release = (requestId: string) => {
@@ -590,7 +600,13 @@ export function createMindCheck(options: MindCheckOptions) {
       const held = checking.get(parsed.mindId);
       if (held && held.requestId !== parsed.requestId) return { kind: "running" };
       const planning = held === undefined;
-      if (planning) checking.set(parsed.mindId, { requestId: parsed.requestId, clientId: null });
+      if (planning)
+        checking.set(parsed.mindId, {
+          requestId: parsed.requestId,
+          clientId: null,
+          running: false,
+          windowGone: false,
+        });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
         return await findClaims(parsed, tracked.signal);
@@ -626,6 +642,8 @@ export function createMindCheck(options: MindCheckOptions) {
         requestId,
         clientId:
           typeof input.clientId === "string" && input.clientId !== "" ? input.clientId : null,
+        running: false,
+        windowGone: false,
       });
       return true;
     },
@@ -636,7 +654,11 @@ export function createMindCheck(options: MindCheckOptions) {
         throw new InvalidInputError({ key: "error.mindCheck.request" });
       }
       for (const [mindId, held] of checking)
-        if (held.clientId === clientId) checking.delete(mindId);
+        if (held.clientId === clientId) {
+          // A running Check keeps the Note: only the claims end can free it, having lost its window.
+          if (held.running) held.windowGone = true;
+          else checking.delete(mindId);
+        }
     },
 
     /** Frees the Note a request kept, whether or not it ran (#2240). */
@@ -652,15 +674,24 @@ export function createMindCheck(options: MindCheckOptions) {
       // One Check of a Note at a time, from its planning to its end, whichever window asks (#2240).
       const held = checking.get(parsed.mindId);
       if (held && held.requestId !== parsed.requestId) return { kind: "running" };
-      // The run holds the Note now, not the window: a window gone frees only a planned Check.
-      checking.set(parsed.mindId, { requestId: parsed.requestId, clientId: null });
+      // The run keeps the window's hold under it; a window gone is remembered, never freed mid-run.
+      checking.set(parsed.mindId, {
+        requestId: parsed.requestId,
+        clientId: held?.clientId ?? null,
+        running: true,
+        windowGone: held?.windowGone ?? false,
+      });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
         return await check(parsed, tracked.signal);
       } finally {
         tracked.done();
-        if (checking.get(parsed.mindId)?.requestId === parsed.requestId)
-          checking.delete(parsed.mindId);
+        const current = checking.get(parsed.mindId);
+        if (current?.requestId === parsed.requestId) {
+          // The claims end hands the window its hold back: the watch it runs next is covered too.
+          if (current.clientId === null || current.windowGone) checking.delete(parsed.mindId);
+          else checking.set(parsed.mindId, { ...current, running: false });
+        }
       }
     },
   };

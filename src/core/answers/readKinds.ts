@@ -86,8 +86,8 @@ export interface ReadInput {
   calls: readonly Call[];
   /** Why the Run counts as having read third-party text, from its Question context too. */
   reasons: readonly ThirdPartyReason[];
-  /** A saved web page's title reached the Run, through its instructions or `list_commands`. */
-  titlesRead: boolean;
+  /** The saved pages whose titles the Run was given, by id: a title belongs to its page. */
+  titlesRead: readonly string[];
   /** A saved web page's address; null for a file, or a Document no longer here. */
   webAddress(documentId: string): string | null;
 }
@@ -98,6 +98,7 @@ export function readKinds(input: ReadInput): ReadKinds {
   const webPages: string[] = [];
   const connectors = new Map<string, string>();
   const seen = new Set<string>();
+  const namedPages = new Set<string>();
   let webSearchResults = false;
   let scriptOutput = false;
   let transcript = false;
@@ -113,7 +114,10 @@ export function readKinds(input: ReadInput): ReadKinds {
       const source = input.webAddress(read.documentId);
       const host = source === null ? null : webHostOf(source);
       if (host === null) otherText = true;
-      else webPages.push(host);
+      else {
+        webPages.push(host);
+        namedPages.add(read.documentId);
+      }
       continue;
     }
     documents.push(read.documentName);
@@ -144,8 +148,17 @@ export function readKinds(input: ReadInput): ReadKinds {
       if (webPages.length === 0 && !webSearchResults) otherText = true;
     } else otherText = true;
   }
-  // A page's title is text the User didn't write, and no kind names one: the card says other text.
-  if (input.titlesRead) otherText = true;
+  // A title is its page's, named by host as a read page is, never by the title it wrote itself.
+  for (const documentId of input.titlesRead) {
+    if (namedPages.has(documentId)) continue;
+    const source = input.webAddress(documentId);
+    const host = source === null ? null : webHostOf(source);
+    if (host === null) otherText = true;
+    else {
+      webPages.push(host);
+      namedPages.add(documentId);
+    }
+  }
   return {
     documents,
     webPages,
