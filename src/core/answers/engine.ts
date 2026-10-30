@@ -460,6 +460,11 @@ export interface AnswerRequest {
    */
   isReply?(text: string): boolean;
   /**
+   * Told what the first model call wrote once its Tools have returned, before any further call:
+   * a Run it stops there makes none.
+   */
+  afterFirstStep?(text: string): void;
+  /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
    * Absent: all of it.
@@ -472,6 +477,8 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
+  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
+  refusalSuffix?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1423,7 +1430,7 @@ export function documentTools(
     calculate: documents.calculate
       ? {
           ...own(DOCUMENT_TOOLS.calculate),
-          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
+          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
             checking
               ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
@@ -1598,10 +1605,12 @@ async function* toolLoop(
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
+  const endedTurn = new Set<string>();
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
-   * so for its card; one that read third-party text says so.
+   * so for its card; one that read third-party text says so; one whose result
+   * ends the turn says so.
    */
   const tracked = (tool: Tool): Tool => ({
     ...tool,
@@ -1611,6 +1620,7 @@ async function* toolLoop(
         counted: (count) => results.set(context.toolCallId, count),
         readThirdParty,
       });
+      if (tool.endsTurn?.(result, input)) endedTurn.add(context.toolCallId);
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
         ? (results.get(context.toolCallId) ?? 0) > 0
@@ -1700,6 +1710,7 @@ async function* toolLoop(
   let answered = false;
   /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
   let besideRecords = "";
+  let stepped = false;
   const owesNothing = (text: string) => {
     const left = request.documents.owed?.(text);
     return left === undefined || left.citations.length + left.figures.length === 0;
@@ -1748,15 +1759,22 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    if (!request.documents.wroteIntoMind?.()) {
-      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
-      yield* textEdits(keptText, figured);
-      keptText = figured;
-      const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-      yield* citeUnmarked(request, placed, temperature, budget, () =>
-        nudges.take("unmarked-quotes"),
-      );
+  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+    if (keptText.trim() !== "" || suffix === null) {
+      if (!request.documents.wroteIntoMind?.()) {
+        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+        yield* textEdits(keptText, figured);
+        keptText = figured;
+        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+        yield* citeUnmarked(request, placed, temperature, budget, () =>
+          nudges.take("unmarked-quotes"),
+        );
+      }
+    }
+    if (suffix) {
+      const withRefusal = keptText.trim() === "" ? suffix : `${keptText}\n\n${suffix}`;
+      yield* textEdits(keptText, withRefusal);
+      keptText = withRefusal;
     }
     yield { type: "finished" };
   }
@@ -1804,6 +1822,12 @@ async function* toolLoop(
     // another call would only write it again. Written then cited (#489), it is complete once the
     // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
     endsAfter: (step) => {
+      if (!stepped) {
+        stepped = true;
+        request.afterFirstStep?.(step.text);
+      }
+      if (signal.aborted) return true;
+      if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
@@ -1932,7 +1956,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         // Too long only with a window, so sized to one.
@@ -1951,12 +1975,13 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
+        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -1969,7 +1994,7 @@ async function* toolLoop(
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
@@ -2011,7 +2036,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer();
+        yield* endAnswer(refused);
         return;
       }
     }

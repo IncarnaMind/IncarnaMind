@@ -15,6 +15,8 @@ import { settleAsk, useAnswers } from "./answers";
 import { applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
+import { offeredCommands } from "./assistantWindow";
+import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
@@ -239,6 +241,8 @@ export async function askInAssistant(
       ...input,
       conversationId: useConversations.getState().openId,
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(input.mindId),
+      clientId,
     });
     if (
       !result.asked &&
@@ -335,12 +339,26 @@ export async function regenerateAnswer(
       ...(clearScope && { clearScope }),
       ...(model && { model }),
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(askedFrom(answerId)),
+      clientId,
     });
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
     settleAsk(answerId, null, error);
   }
+}
+
+/** The Note the Question of an Answer of the open conversation was asked from, while it is there. */
+function askedFrom(answerId: string): string | null {
+  const { messages } = useConversations.getState();
+  const answer = messages.find((message) => message.id === answerId);
+  const question =
+    answer?.kind === "answer"
+      ? messages.find((message) => message.id === answer.questionId)
+      : undefined;
+  const from = question?.kind === "question" ? question.askedFrom : null;
+  return from && !from.deleted ? from.mindId : null;
 }
 
 /** Stops an Answer of the open conversation being written, keeping what it has. */

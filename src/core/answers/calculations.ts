@@ -534,6 +534,17 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       : `[^${record}]'s quote isn't word for word where it cites; fix it with cite, or give passage, location and quote.`;
   }
 
+  /** Whether an input's quote, recorded with cite or given inline, is where the check can't read it. */
+  function onUnreadPage(given: GivenInput): boolean {
+    const quoted =
+      given.citation !== null
+        ? quotes.recorded(given.citation)
+        : given.record
+          ? quotes.quote(given.record)
+          : null;
+    return quoted !== null && !("problem" in quoted) && quoted.check().check === "cant-check";
+  }
+
   /** The quote an input reads from; or why it can't. */
   function quoteOf(
     given: GivenInput,
@@ -1075,9 +1086,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
      * with no unit of its own where its page states one needs that line as
      * `unitQuote`: alone, its scale always matters.
      */
-    number(raw: unknown): { input: FigureInput } | { problem: string } {
-      const read = readInput(givenInput(raw));
-      if (typeof read === "string") return { problem: read };
+    number(raw: unknown): { input: FigureInput } | { problem: string; pageUnread?: true } {
+      const given = givenInput(raw);
+      const read = readInput(given);
+      if (typeof read === "string")
+        return { problem: read, ...(onUnreadPage(given) && { pageUnread: true as const }) };
       if (read.candidate && !read.unit) {
         return {
           problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,

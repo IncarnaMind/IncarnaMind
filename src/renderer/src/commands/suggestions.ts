@@ -1,3 +1,4 @@
+import { ACCEPT_SUGGESTIONS } from "../../../shared/commands";
 import { countNow } from "../i18n";
 import { useLibraryFolds } from "../libraryFolds";
 import { acceptSuggestions, rejectSuggestions, waitingIds } from "../suggestionReview";
@@ -43,7 +44,7 @@ export const suggestionCommands: readonly Command[] = [
     },
   },
   {
-    id: "library.acceptSuggestions",
+    id: ACCEPT_SUGGESTIONS,
     label: "library.acceptSuggestions",
     // In the Library's lists only: ⌘↵ sends a Question or accepts a change where those are.
     shortcut: { keys: "CmdOrCtrl+Enter", list: true },
@@ -54,8 +55,10 @@ export const suggestionCommands: readonly Command[] = [
       useLibraryFolds.getState().reviewShown &&
       waitingIds().length > 0,
     reversible: true,
-    async run() {
-      return (await acceptSuggestions(waitingIds())) ?? undefined;
+    async run(ctx) {
+      if (!ctx.checked) return (await acceptSuggestions(waitingIds())) ?? undefined;
+      const checked = Object.fromEntries(ctx.checked.map((each) => [each.id, each.into ?? null]));
+      return (await acceptSuggestions(Object.keys(checked), checked)) ?? undefined;
     },
   },
 ];

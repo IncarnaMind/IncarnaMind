@@ -58,24 +58,24 @@ function focusRow(from: HTMLElement | null): void {
 /**
  * What a row needs for its menu: `buttonProps` for the ⋯ button (so the row
  * finds it), and `rowProps` for the row, so a right-click, the context-menu
- * key or Shift+F10 on it opens the menu the ⋯ button opens. A row without an
- * object, the examples' (#1944), passes null and the button that finds its own.
+ * key or Shift+F10 on it opens the menu the ⋯ button opens. A row without a fixed
+ * object resolves its button at the pointer, or from its selection for a key.
  */
 export function useObjectMenu(
   target: ObjectRef | null,
-  buttonOf?: (row: HTMLElement) => HTMLButtonElement | null,
+  buttonOf?: (row: HTMLElement, at?: { x: number; y: number }) => HTMLButtonElement | null,
 ) {
   const key = target ? keyOf(target) : null;
-  const findButton = (row: HTMLElement): HTMLButtonElement | null =>
+  const findButton = (row: HTMLElement, at?: { x: number; y: number }): HTMLButtonElement | null =>
     key !== null
       ? row.querySelector<HTMLButtonElement>(`[data-object-menu="${CSS.escape(key)}"]`)
-      : (buttonOf?.(row) ?? null);
+      : (buttonOf?.(row, at) ?? null);
   const open = (
     row: HTMLElement,
     buttons: number,
     at: { x: number; y: number; above?: number },
   ): boolean => {
-    const button = findButton(row);
+    const button = findButton(row, at.above === undefined ? at : undefined);
     if (!button) return false;
     openMenuFromRightClick(button, buttons, at);
     return true;
@@ -100,7 +100,13 @@ export function useObjectMenu(
         if (!opensMenu || event.defaultPrevented) return;
         const field = event.target;
         if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
-        const box = event.currentTarget.getBoundingClientRect();
+        const selection =
+          field instanceof HTMLElement && field.isContentEditable ? window.getSelection() : null;
+        const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+        const box =
+          range && event.currentTarget.contains(range.commonAncestorContainer)
+            ? range.getBoundingClientRect()
+            : event.currentTarget.getBoundingClientRect();
         if (open(event.currentTarget, 0, { x: box.left + 24, y: box.bottom, above: box.top })) {
           event.preventDefault();
           event.stopPropagation();
@@ -234,10 +240,10 @@ export function ObjectMenu({
       return <div key={`rule-${index}`} className={menuRuleClass} />;
     }
     const { command, enabled } = entry;
+    const checked = command.checked?.(ctx);
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
-    const checked = command.checked?.(ctx);
     return (
       // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
@@ -252,8 +258,12 @@ export function ObjectMenu({
         onClick={() => run(entry)}
         className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
+        {checked !== undefined && (
+          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
+            {checked && <CheckLineIcon className="size-4" />}
+          </span>
+        )}
         <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
-        {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>
     );

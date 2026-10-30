@@ -7,7 +7,14 @@ import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks"
 import { pendingProposals } from "../../src/shared/proposals";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn } from "../helpers/assistant";
-import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  requestedFigures,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -20,6 +27,7 @@ import {
   scriptedModels,
 } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
+import { buildPdf } from "../helpers/pdf";
 
 /**
  * A table's cell is checked as a User reads it (#1459): the check after the assistant writes a
@@ -74,10 +82,10 @@ const BUDGETS: Budget[] = [
       { label: "Profit", quote: EN_PROFIT, values: ["30", "42"] },
     ],
     plans: {
-      [`100${INLINE_NODE}`]: plan("supported", EN_REVENUE, "100"),
-      [`210${INLINE_NODE}`]: plan("contradicted", EN_REVENUE, "120"),
-      [`30${INLINE_NODE}`]: plan("supported", EN_PROFIT, "30"),
-      [`42${INLINE_NODE}`]: plan("supported", EN_PROFIT, "42"),
+      "100": plan("supported", EN_REVENUE, "100"),
+      "210": plan("contradicted", EN_REVENUE, "120"),
+      "30": plan("supported", EN_PROFIT, "30"),
+      "42": plan("supported", EN_PROFIT, "42"),
     },
   },
   {
@@ -94,10 +102,10 @@ const BUDGETS: Budget[] = [
     ],
     plans: {
       // The row's unit cell states its numbers' unit, which the model gives as unitQuote.
-      [`100${INLINE_NODE}`]: plan("supported", ZH_REVENUE, "100", "万元"),
-      [`210${INLINE_NODE}`]: plan("contradicted", ZH_REVENUE, "120", "万元"),
-      [`30${INLINE_NODE}`]: plan("supported", ZH_PROFIT, "30", "万元"),
-      [`42${INLINE_NODE}`]: plan("supported", ZH_PROFIT, "42", "万元"),
+      "100": plan("supported", ZH_REVENUE, "100", "万元"),
+      "210": plan("contradicted", ZH_REVENUE, "120", "万元"),
+      "30": plan("supported", ZH_PROFIT, "30", "万元"),
+      "42": plan("supported", ZH_PROFIT, "42", "万元"),
     },
   },
 ];
@@ -206,6 +214,82 @@ const marksIn = (client: MindClient) =>
     span.check.state,
   ]);
 
+test.each(BUDGETS)(
+  "$language: a selected Verify row figure reuses its first-cell owner",
+  async (budget) => {
+    const revenue = budget.rows[0];
+    if (!revenue) throw new Error("Missing Revenue fixture row");
+    const whole = `${revenue.label} — ${budget.headings[1]}: 100; ${budget.headings[2]}: 210`;
+    const plans: Record<string, Plan> = { [whole]: { verdict: "unsupported" } };
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core, folderId } = await budgetMind(budget, model);
+    const sources = await createTempDataFolder();
+    const row = (y: number, cells: readonly string[]) =>
+      cells.map((text, column) => ({ text, x: [72, 260, 340][column] ?? 72, y }));
+    const path = await writeSourceFile(
+      sources,
+      "Accounts.pdf",
+      buildPdf([
+        {
+          placed: [
+            ...row(720, budget.headings),
+            ...row(706, [revenue.label, ...revenue.values]),
+            ...row(692, [budget.rows[1]?.label ?? "Profit", "30", "42"]),
+          ],
+        },
+      ]),
+    );
+    const verified = await core.verifyDocument({ path, folderId });
+    if (!verified.ok) throw new Error(`Report could not be verified: ${verified.reason}`);
+    const mindId = verified.mind.id;
+    const client = await connectToMind(core, mindId);
+    const input = () => ({ requestId: randomUUID(), mindId });
+    expect(await core.findClaims(input())).toMatchObject({ kind: "found", claims: 1 });
+    expect(await core.verifyClaims(input())).toMatchObject({
+      kind: "checked",
+      claims: 1,
+      checked: 1,
+    });
+    await client.settled();
+    const before = claimSpans(readMind(client));
+    expect(before.map((owner) => owner.sentence.text)).toEqual([revenue.label]);
+    const owner = before[0];
+    const figures = await core.getFigureSchedule(mindId);
+    const selected = figures.rows.find((figure) => figure.reading.chars === "210");
+    const sibling = figures.rows.find((figure) => figure.reading.chars === "100");
+    if (!owner || !selected || !sibling) throw new Error("Missing verified row figure owner");
+    expect(owner.check.figures?.map((figure) => figure.id)).toEqual([sibling.id, selected.id]);
+    const originalSibling = structuredClone(
+      owner.check.figures?.find((figure) => figure.id === sibling.id),
+    );
+    const count = calls.filter((call) => isCheckRun(call) && call.results.length === 0).length;
+    const request = { ...input(), mode: "all" as const, figureIds: [selected.id] };
+    expect(await core.checkMind(request)).toMatchObject({ kind: "checked", sentences: 1 });
+    await client.settled();
+    const after = claimSpans(readMind(client));
+    expect(after.map((each) => each.sentence.text)).toEqual([revenue.label]);
+    expect(after[0]?.from).toBe(owner.from);
+    expect(after[0]?.check.request).toBe(request.requestId);
+    expect(after[0]?.check.figures?.map((figure) => figure.id)).toEqual([sibling.id, selected.id]);
+    expect(after[0]?.check.figures?.find((figure) => figure.id === sibling.id)).toEqual(
+      originalSibling,
+    );
+    expect(
+      calls
+        .filter((call) => isCheckRun(call) && call.results.length === 0)
+        .slice(count)
+        .map((call) => requestedFigures(call).map((figure) => figure.id)),
+    ).toEqual([[selected.id]]);
+  },
+);
+
 describe("A table the assistant writes is checked cell by cell, each with its row and column", () => {
   // protects=the check after a write reads each cited cell as Check this Mind does: its column's heading, its row and the line before the table go to the check with the cell's figure, and each figure lands with its own result, through accepting, Undo, Redo and reopening (#1459); fails_when=a cell is sent alone, as "100" with "100" for its paragraph, or a mark goes; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
   test.each(BUDGETS)(
@@ -232,7 +316,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       await client.settled();
 
       const sent = checks.filter((call) => call.results.length === 0);
-      expect(sent.map(sentenceOf)).toEqual(Object.keys(budget.plans));
+      expect(sent.map(sentenceOf)).toEqual(budget.rows.flatMap((row) => row.values));
       const [first] = budget.rows;
       const cell = sent.find((call) => sentenceOf(call).startsWith("100"));
       const prompt = promptOf(cell);
@@ -263,7 +347,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
     const budget = BUDGETS[0] as Budget;
     const plans: Record<string, Plan> = {
       ...budget.plans,
-      [`42${INLINE_NODE}`]: {
+      "42": {
         reply: {
           text: [
             "Verdict: unsupported",

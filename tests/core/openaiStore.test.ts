@@ -127,6 +127,7 @@ describe("Requests to OpenAI say not to store", () => {
           name: "Reports",
           description: "Reports",
           countsOwnFiles: false,
+          keepInside: false,
           createdAt: "",
           updatedAt: "",
         },

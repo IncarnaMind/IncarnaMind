@@ -35,6 +35,9 @@ const NAMES: ReadonlySet<string> = new Set([
 const HAN_END = /\p{Script=Han}$/u;
 const HAN_START = /^\p{Script=Han}/u;
 
+export const isMessageKey = (value: unknown): value is MessageKey =>
+  typeof value === "string" && Object.hasOwn(en, value);
+
 export function translate(language: Language, key: MessageKey, params?: MessageParams): string {
   const template = dictionaries[language][key];
   if (!params) return template;

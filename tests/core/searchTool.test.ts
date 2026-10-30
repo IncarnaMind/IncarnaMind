@@ -119,7 +119,7 @@ describe("The document-search Tool", { timeout: 30_000 }, () => {
       (passage) => passage.documentName === "Coast",
     );
     // The model sees where each new section starts, e.g. "[§ Section 3]" (ADR-0011).
-    const unmarked = (text: string) => text.replace(/\n\n\[(?:§[^\]\n]*|p\. \d+)\] /g, "\n\n");
+    const unmarked = (text: string) => text.replace(/(^|\n\n)\[(?:§[^\]\n]*|p\. \d+)\] /g, "$1");
     const positionOf = (text: string) =>
       all.find((passage) => passage.text === unmarked(text))?.position;
 

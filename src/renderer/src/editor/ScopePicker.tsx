@@ -19,7 +19,12 @@ import {
   scopeIds,
   searchScopeOf,
 } from "../../../shared/searchScope";
-import { DocumentLineIcon, FolderLineIcon, TagLineIcon } from "../components/lineIcons";
+import {
+  DocumentLineIcon,
+  FolderLineIcon,
+  LockLineIcon,
+  TagLineIcon,
+} from "../components/lineIcons";
 import { useT } from "../i18n";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
@@ -152,6 +157,7 @@ export const ScopePicker = Extension.create({
 /** A choice's icon: the sidebar's line icons, in its muted ink. */
 function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   const className = "size-4 text-ink-meta";
+  if (choice.walled) return <LockLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
   return <DocumentLineIcon kind={choice.documentKind ?? "text"} className={className} />;
@@ -177,6 +183,8 @@ function ScopePickerList({ editor, range, query, command, ref }: ScopePickerList
  */
 export function ScopeChoiceList({
   scope,
+  ownFolderId = null,
+  onOpenNote,
   query,
   onChoose,
   id,
@@ -185,6 +193,10 @@ export function ScopeChoiceList({
   ref,
 }: {
   scope: SearchScope;
+  /** The current Note's Folder, used to tell an inside wall from an outside one. */
+  ownFolderId?: string | null;
+  /** Opens a Note in a walled Folder without adding it to this scope. */
+  onOpenNote?(folderId: string): void;
   /** Only these kinds, e.g. Documents for a chip in a Note; all by default. */
   kinds?: readonly ScopeKind[];
   query: string;
@@ -198,6 +210,8 @@ export function ScopeChoiceList({
   const t = useT();
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
+  const currentWalled =
+    groups?.find((group) => group.id === ownFolderId && group.keepInside)?.id ?? null;
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
@@ -205,6 +219,15 @@ export function ScopeChoiceList({
   const shown = scopeChoices(library, scope, query).filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
+  const isBlocked = (item: ScopeChoice) => {
+    if (item.walled === undefined || item.walled === null) return false;
+    if (item.walled !== currentWalled) return true;
+    if (item.kind !== "document") return false;
+    const filings = (assignments ?? []).filter(
+      (each) => each.documentId === item.id && each.groupId === currentWalled,
+    );
+    return !filings.some((each) => each.source === "user");
+  };
   const nothing = kinds
     ? documents.length === 0
     : folders.length + (groups?.length ?? 0) + tags.length + documents.length === 0;
@@ -212,7 +235,7 @@ export function ScopeChoiceList({
   const [choice, setChoice] = useState({ query, index: 0 });
   const selected = choice.query === query ? Math.min(choice.index, shown.length - 1) : 0;
   const setSelected = (index: number) => setChoice({ query, index });
-  const options = useRef<(HTMLButtonElement | null)[]>([]);
+  const options = useRef<(HTMLElement | null)[]>([]);
   const reportSelected = useRef(onSelect);
   reportSelected.current = onSelect;
 
@@ -232,7 +255,8 @@ export function ScopeChoiceList({
       }
       if (event.key === "Enter" || event.key === "Tab") {
         const item = shown[selected];
-        if (item) onChoose(item);
+        if (item && !isBlocked(item)) onChoose(item);
+        else if (item?.kind === "folder" && onOpenNote) onOpenNote(item.id);
         return true;
       }
       return false;
@@ -271,6 +295,53 @@ export function ScopeChoiceList({
             </p>
             {ofKind.map((item) => {
               const index = shown.indexOf(item);
+              if (isBlocked(item)) {
+                return (
+                  <div
+                    key={`${item.kind}:${item.id}`}
+                    ref={(element) => {
+                      options.current[index] = element;
+                    }}
+                    id={id && `${id}-${index}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === selected}
+                    // A locked Folder can't join the scope, but it opens a Note there.
+                    aria-disabled={item.kind === "folder" && onOpenNote ? undefined : "true"}
+                    data-testid="scope-choice"
+                    data-kind={item.kind}
+                    data-id={item.id}
+                    data-walled="true"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setSelected(index)}
+                    className="editor-menu-item scope-picker-item--walled"
+                  >
+                    <span className="scope-picker-icon">
+                      <ChoiceIcon choice={item} />
+                    </span>
+                    <span className="truncate" aria-disabled="true">
+                      {item.name}
+                    </span>
+                    {item.kind === "folder" && index === selected && onOpenNote ? (
+                      <button
+                        type="button"
+                        data-testid="scope-open-note"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onOpenNote(item.id)}
+                        className="scope-picker-path underline"
+                      >
+                        {t("scope.openNote")}
+                      </button>
+                    ) : (
+                      item.count !== undefined && (
+                        <span data-testid="scope-choice-count" className="scope-picker-path">
+                          {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
+                        </span>
+                      )
+                    )}
+                  </div>
+                );
+              }
               return (
                 <button
                   key={`${item.kind}:${item.id}`}

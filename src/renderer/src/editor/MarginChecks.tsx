@@ -12,9 +12,10 @@ import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
-import { type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
+import { markOf, type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
+import { OpinionCard } from "./OpinionCard";
 import { scrollMindTo } from "./reviewPick";
 
 const MARK_HEIGHT = 18;
@@ -234,7 +235,7 @@ export function MarginChecks({
         } catch {
           continue;
         }
-        const state = claim.shown.state;
+        const state = markOf(claim);
         const mark: Mark = {
           key: `claim:${claim.check.id}`,
           state,
@@ -345,7 +346,7 @@ export function MarginChecks({
     [],
   );
 
-  const markOf = (mark: Mark) => (
+  const markElement = (mark: Mark) => (
     <ClaimMark
       key={mark.key}
       claim={mark.claim}
@@ -371,6 +372,7 @@ export function MarginChecks({
 
   return (
     <div ref={layer} className="margin-checks" data-testid="margin-checks">
+      <OpinionCard editor={editor} mindId={mind.id} doc={mind.doc} />
       {focusedFigure && layerReady && layer.current && (
         <ClaimOutline
           editor={editor}
@@ -378,7 +380,7 @@ export function MarginChecks({
           rangeOf={() => figurePlace(editor.state.doc, focusedFigure)}
         />
       )}
-      {marks.map((mark) => markOf(mark))}
+      {marks.map((mark) => markElement(mark))}
     </div>
   );
 }
