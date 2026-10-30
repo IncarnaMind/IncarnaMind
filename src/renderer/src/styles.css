@@ -4170,6 +4170,21 @@
       white-space: normal;
     }
   }
+  .node-citation + .node-citation .citation-marker {
+    margin-left: 2px;
+  }
+  /*
+   * A marker follows its word with no space, and the browser may still break before any inline
+   * box: a no-break space of no width, drawn only, keeps the first marker on its word's line. It
+   * is in no stored text, copy or export (DESIGN.md, Citations).
+   */
+  .mind-editor .node-citation::before {
+    content: "\202F";
+    font-size: 0;
+  }
+  .mind-editor .node-citation + .node-citation::before {
+    content: none;
+  }
   /* The Citation's ⋯, out of sight: its menu opens from the marker (see `ObjectMenu`). */
   .citation-menu-anchor {
     position: absolute;
@@ -4185,7 +4200,7 @@
     box-sizing: border-box;
     min-width: 18px;
     height: 18px;
-    margin: 0 0 0 2px;
+    margin: 0 1px 0 4px;
     padding: 0 4px;
     border: 0;
     border-radius: 4px;

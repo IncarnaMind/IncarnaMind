@@ -84,6 +84,44 @@ function written(window: Page) {
   });
 }
 
+/**
+ * Each marker of the Note's first paragraph that starts a line apart from the word before it, as
+ * "<width>:<marker>", over a sweep of the paragraph's width; set by a style sheet, so the editor's
+ * own elements are never changed.
+ */
+function markersOffTheirWords(window: Page) {
+  return window.getByTestId("mind-editor").evaluate((dom) => {
+    const paragraph = dom.querySelector("p");
+    if (!paragraph) throw new Error("The Note has no paragraph.");
+    const sheet = document.createElement("style");
+    document.head.append(sheet);
+    const inChip = (node: Node) => node.parentElement?.closest(".node-citation") !== null;
+    const apart: string[] = [];
+    for (let width = 40; width <= 420; width += 2) {
+      sheet.textContent = `.ProseMirror p { width: ${width}px; }`;
+      const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (inChip(text)) {
+          const chip = text.parentElement?.closest(".node-citation");
+          const marker = chip?.querySelector(".citation-marker");
+          if (!last || !marker || chip?.previousElementSibling?.matches(".node-citation")) continue;
+          const range = document.createRange();
+          range.setStart(last, last.length - 1);
+          range.setEnd(last, last.length);
+          const word = range.getBoundingClientRect();
+          const box = marker.getBoundingClientRect();
+          const middle = (box.top + box.bottom) / 2;
+          if (middle < word.top || middle > word.bottom) apart.push(`${width}:${text.data}`);
+        } else if (text.data.length > 0) last = text;
+      }
+    }
+    sheet.remove();
+    return apart;
+  });
+}
+
 /** A Word file's body text, each footnote reference written as [n]. */
 const wordText = (xml: string) =>
   xml
@@ -200,6 +238,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => written(window)).toBe(cited);
     await expect(mark).toHaveAttribute("data-check", "supported");
     await expect(mark).not.toContainText("+");
+    // No space before a marker, and at no width does a line break between it and its word.
+    expect(await markersOffTheirWords(window)).toEqual([]);
 
     await useOutputLocation(window, out);
     await exportFromMenu(window, "docx");

@@ -558,8 +558,29 @@ for (const language of ["en", "zh-CN"] as const) {
             })),
           },
         };
+        // One part: its rows say what it covers, with no coverage line above them.
         await setContent(window, [
           paragraph("coverage", quantifier, checked("coverage-check", quantifier, [coveragePart])),
+        ]);
+        await window.getByTestId("claim-mark").click();
+        await allRowsVisible(window, 4);
+        await expect(card.getByTestId("claim-parts-coverage")).toHaveCount(0);
+        await window.keyboard.press("Escape");
+
+        // Two parts: the coverage line sits above the rows.
+        const quarters = quantifier.slice(0, -1);
+        const view = language === "en" ? "which we welcome" : "我们对此表示欢迎";
+        const twoParts = language === "en" ? `${quarters}, ${view}.` : `${quarters}，${view}。`;
+        const viewAt = twoParts.indexOf(view);
+        await setContent(window, [
+          paragraph(
+            "coverage",
+            twoParts,
+            checked("coverage-check", twoParts, [
+              { ...coveragePart, span: { start: 0, end: quarters.length } },
+              part(viewAt, viewAt + view.length, "opinion"),
+            ]),
+          ),
         ]);
         await window.getByTestId("claim-mark").click();
         await expect(card.getByTestId("claim-parts-coverage")).toContainText(

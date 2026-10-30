@@ -477,13 +477,16 @@ export function ClaimPartRows({
         const format = (value: number) => new Intl.NumberFormat(language).format(value);
         return [
           <div key={part.span.start}>
-            <p data-testid="claim-parts-coverage" className="claim-card-says">
-              {t("claim.parts.coverage", {
-                covered: format(count.covered),
-                total: format(count.total),
-                unit: part.coverage.unit,
-              })}
-            </p>
+            {/* A single part's rows already say what it covers. */}
+            {parts.length >= 2 && (
+              <p data-testid="claim-parts-coverage" className="claim-card-says">
+                {t("claim.parts.coverage", {
+                  covered: format(count.covered),
+                  total: format(count.total),
+                  unit: part.coverage.unit,
+                })}
+              </p>
+            )}
             {part.coverage.domainEvidence.map((citation) => (
               <PartCitation
                 editor={editor}
