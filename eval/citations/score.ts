@@ -12,6 +12,7 @@ import {
   currentVerdict,
   finalVerdict,
   inputSha256,
+  isScriptedJudge,
   judgeFiles,
   judgeInputOf,
   readJudgements,
@@ -150,19 +151,7 @@ export async function scoreFolder(
       });
     }
 
-    if (run.model.label === "scripted") {
-      because("Answered by the smoke tests' scripted chat model, which isn't a model", file);
-    }
-    if (score.answers < score.questions) {
-      because(`Answered fewer than the ${score.questions} Questions of its language`, file);
-    }
-    if (judges.some((judge) => judge.startsWith("scripted-"))) {
-      because("Judged by the scripted stand-ins, not by model judges", file);
-    }
-    if (judges.length < 2) because("Not judged by two judges", file);
-    if (run.app.commit.includes("uncommitted")) {
-      because("Made from a working tree with uncommitted changes", file);
-    }
+    for (const reason of notPublishedBecause(run, score, judges)) because(reason, file);
   }
 
   writeFileSync(
@@ -182,6 +171,31 @@ export async function scoreFolder(
     }),
   );
   return { scores, disagreements, problems };
+}
+
+/** Why a run's numbers can't be the published ones; none when they can. */
+export function notPublishedBecause(
+  run: Pick<CitationsRun, "model" | "app">,
+  score: Pick<RunScore, "answers" | "failed" | "questions">,
+  judges: readonly string[],
+): string[] {
+  const reasons: string[] = [];
+  if (run.model.label === "scripted") {
+    reasons.push("Answered by the smoke tests' scripted chat model, which isn't a model");
+  }
+  if (score.answers - score.failed < score.questions) {
+    reasons.push(
+      `Answered fewer than the ${score.questions} Questions of its language, a failed or timed-out Answer not counted`,
+    );
+  }
+  if (judges.some(isScriptedJudge)) {
+    reasons.push("Judged by the scripted stand-ins, not by model judges");
+  }
+  if (judges.length < 2) reasons.push("Not judged by two judges");
+  if (run.app.commit.includes("uncommitted")) {
+    reasons.push("Made from a working tree with uncommitted changes");
+  }
+  return reasons;
 }
 
 function runSummary(run: CitationsRun) {

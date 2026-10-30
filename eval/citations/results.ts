@@ -2,6 +2,7 @@
  * The results page: Markdown made from the scores, which leads with the
  * misses, and in which every number links to the run file it was counted from.
  */
+import { isScriptedJudge } from "./judges";
 import type { MissKind, RunScore } from "./scorers";
 
 export interface ResultsPage {
@@ -59,7 +60,7 @@ export function resultsPage(page: ResultsPage): string {
     );
   }
   lines.push(
-    `The set: version ${page.set.version} (questions.jsonl SHA-256 \`${page.set.questions.slice(0, 12)}\`). Scored with \`npm run eval:citations:score\`. Every number links to the run file it is counted from; \`scores.json\` beside this page has each miss.`,
+    `The set: version ${page.set.version} (questions.jsonl SHA-256 \`${page.set.questions}\`). Scored with \`npm run eval:citations:score\`. Every number links to the run file it is counted from; \`scores.json\` beside this page has each miss.`,
     "",
     "## The misses",
     "",
@@ -121,10 +122,17 @@ export function resultsPage(page: ResultsPage): string {
       `| ${score.model} | ${LANGUAGE[score.language] ?? score.language} | ${link(`${score.answers} of ${score.questions}`, file)}${score.failed > 0 ? `, ${link(score.failed, file)} failed` : ""} | ${ofLink(score.quoteFound, score.citations, file)} | ${supported} | ${ofLink(score.figureRight.right, score.figureRight.scored, file)} | ${ofLink(score.withTheCheck.caught, score.withTheCheck.misses, file)} |`,
     );
   }
+  const judged = Object.entries(page.judges).filter(([, judges]) => judges.length > 0);
+  const scripted = new Set(judged.flatMap(([, judges]) => judges.map(isScriptedJudge)));
+  const judgesAre = !scripted.has(true)
+    ? "two model judges, with one fixed prompt,"
+    : scripted.has(false)
+      ? 'two judges (model judges, or a pipeline check\'s scripted stand-ins, as "The judges" says for each run)'
+      : "two scripted stand-ins, which compare words and numbers by fixed rules and are no model,";
   lines.push(
     "",
     "- **Quote found:** the Citation's quote is at the Location it cites, read again from the Document's text under a looser normalisation than the app's.",
-    "- **Supported:** two model judges, with one fixed prompt, say the cited Passage supports the sentence; a person settles where they disagree.",
+    `- **Supported:** ${judgesAre} say the cited Passage supports the sentence; a person settles where they disagree.`,
     "- **Figure right:** every figure the reference answer gives is written in the Answer at its scale. An Answer that gives a superseded figure in place of the current one is counted apart; one that names it as superseded beside the current one is right.",
     "",
     "## What the check gets wrong itself",
@@ -168,14 +176,13 @@ export function resultsPage(page: ResultsPage): string {
     );
   }
 
-  const judged = Object.entries(page.judges).filter(([, judges]) => judges.length > 0);
   lines.push("", "## The judges", "");
   if (judged.length === 0)
     lines.push("No run has been judged yet (`npm run eval:citations:judge`).");
   for (const [file, judges] of judged) {
     const open = page.unsettled[file] ?? 0;
     lines.push(
-      `- ${link(file, file)}: ${judges.join(" and ")}${open > 0 ? `; ${open} ${open === 1 ? "disagreement" : "disagreements"} to settle (\`disagreements.json\`, settled in \`settled.json\`)` : ""}.`,
+      `- ${link(file, file)}: ${judges.map((judge) => (isScriptedJudge(judge) ? `${judge} (a scripted stand-in, no model)` : judge)).join(" and ")}${open > 0 ? `; ${open} ${open === 1 ? "disagreement" : "disagreements"} to settle (\`disagreements.json\`, settled in \`settled.json\`)` : ""}.`,
     );
   }
   lines.push(

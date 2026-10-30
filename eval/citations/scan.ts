@@ -73,7 +73,8 @@ export const KEY_PATTERNS: readonly RegExp[] = [
   /\bhf_[A-Za-z0-9]{30,}/g,
   /\bgsk_[A-Za-z0-9]{40,}/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
-  /\bBearer\s+[A-Za-z0-9._~+/-]{20,}=*/g,
+  // An authentication scheme's name is case-insensitive (RFC 9110).
+  /\bBearer\s+[A-Za-z0-9._~+/-]{20,}=*/gi,
 ];
 
 const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;

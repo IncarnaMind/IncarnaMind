@@ -38,6 +38,7 @@ import {
   scanBenchmark,
   scanText,
 } from "../../eval/citations/scan";
+import { notPublishedBecause } from "../../eval/citations/score";
 import {
   type FinalVerdict,
   figureRight,
@@ -410,6 +411,9 @@ describe("The citation benchmark (#1999)", () => {
       ["api-key", 3],
       ["email", 3],
     ]);
+    // An authentication scheme's name is case-insensitive.
+    const lower = `authorization: bearer ${"t".repeat(24)}`;
+    expect(scanText(lower, "log.txt").map(({ kind }) => kind)).toEqual(["api-key"]);
   });
 
   test("a verdict holds for the Citation it read under today's prompt; a verdict is reserved at its most", async () => {
@@ -590,5 +594,39 @@ describe("The citation benchmark (#1999)", () => {
     expect(unlinked.filter((each) => !each.includes("commit") && !each.includes("app "))).toEqual(
       [],
     );
+  });
+
+  test("the results page gives the set's whole SHA-256 and says which judges are scripted stand-ins", () => {
+    const questions = "a".repeat(64);
+    const pageWith = (judges: string[]) =>
+      resultsPage({
+        scores: [],
+        notPublished: new Map(),
+        judges: { "anthropic-claude-haiku-5-5.en.json": judges },
+        unsettled: {},
+        set: { version: 1, questions },
+        runs: {},
+      });
+    const scripted = pageWith(["scripted-words", "scripted-numbers"]);
+    expect(scripted).toContain(`SHA-256 \`${questions}\``);
+    expect(scripted).not.toContain("model judges, with one fixed prompt");
+    expect(scripted).toContain("two scripted stand-ins");
+    expect(scripted).toContain("scripted-words (a scripted stand-in, no model)");
+    const models = pageWith(["openai/gpt-6.1-sol", "google/gemini-3.1-pro-preview"]);
+    expect(models).toContain("two model judges, with one fixed prompt,");
+    expect(models).not.toContain("stand-in");
+  });
+
+  test("a run is published only with every Question answered: a failed or timed-out Answer doesn't count", () => {
+    const run = runOf([]);
+    const judges = ["openai/gpt-6.1-sol", "google/gemini-3.1-pro-preview"];
+    const whole = { answers: 75, failed: 0, questions: 75 };
+    expect(notPublishedBecause(run, whole, judges)).toEqual([]);
+    expect(notPublishedBecause(run, { ...whole, failed: 2 }, judges)).toEqual([
+      "Answered fewer than the 75 Questions of its language, a failed or timed-out Answer not counted",
+    ]);
+    expect(notPublishedBecause(run, whole, ["scripted-words", "scripted-numbers"])).toEqual([
+      "Judged by the scripted stand-ins, not by model judges",
+    ]);
   });
 });

@@ -1,11 +1,11 @@
 # Do AI citations hold up? Results
 
 > **A pipeline check, not published numbers.** These scores show that the run, the scorers and this page work end to end:
-> - Answered fewer than the 75 Questions of its language: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json).
+> - Answered fewer than the 75 Questions of its language, a failed or timed-out Answer not counted: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json).
 > - Judged by the scripted stand-ins, not by model judges: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json), [scripted.en.json](scripted.en.json), [scripted.zh.json](scripted.zh.json).
 > - Answered by the smoke tests' scripted chat model, which isn't a model: [scripted.en.json](scripted.en.json), [scripted.zh.json](scripted.zh.json).
 
-The set: version 1 (questions.jsonl SHA-256 `ab17b69ea42c`). Scored with `npm run eval:citations:score`. Every number links to the run file it is counted from; `scores.json` beside this page has each miss.
+The set: version 1 (questions.jsonl SHA-256 `ab17b69ea42ce560fa1981061932059d84e124b70e08b98fdd34c9ea121d1923`). Scored with `npm run eval:citations:score`. Every number links to the run file it is counted from; `scores.json` beside this page has each miss.
 
 ## The misses
 
@@ -177,7 +177,7 @@ Each run's misses, and how many the app's check flagged: a Citation's "Quote not
 | scripted | Chinese | [75 of 75](scripted.zh.json) | [74 of 74 (100%)](scripted.zh.json) | [74](scripted.zh.json) to settle | [0 of 61 (0%)](scripted.zh.json) | [0 of 61 (0%)](scripted.zh.json) |
 
 - **Quote found:** the Citation's quote is at the Location it cites, read again from the Document's text under a looser normalisation than the app's.
-- **Supported:** two model judges, with one fixed prompt, say the cited Passage supports the sentence; a person settles where they disagree.
+- **Supported:** two scripted stand-ins, which compare words and numbers by fixed rules and are no model, say the cited Passage supports the sentence; a person settles where they disagree.
 - **Figure right:** every figure the reference answer gives is written in the Answer at its scale. An Answer that gives a superseded figure in place of the current one is counted apart; one that names it as superseded beside the current one is right.
 
 ## What the check gets wrong itself
@@ -209,10 +209,10 @@ Each run's misses, and how many the app's check flagged: a Citation's "Quote not
 
 ## The judges
 
-- [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json): scripted-numbers and scripted-words; 3 disagreements to settle (`disagreements.json`, settled in `settled.json`).
-- [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json): scripted-numbers and scripted-words.
-- [scripted.en.json](scripted.en.json): scripted-numbers and scripted-words; 72 disagreements to settle (`disagreements.json`, settled in `settled.json`).
-- [scripted.zh.json](scripted.zh.json): scripted-numbers and scripted-words; 74 disagreements to settle (`disagreements.json`, settled in `settled.json`).
+- [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json): scripted-numbers (a scripted stand-in, no model) and scripted-words (a scripted stand-in, no model); 3 disagreements to settle (`disagreements.json`, settled in `settled.json`).
+- [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json): scripted-numbers (a scripted stand-in, no model) and scripted-words (a scripted stand-in, no model).
+- [scripted.en.json](scripted.en.json): scripted-numbers (a scripted stand-in, no model) and scripted-words (a scripted stand-in, no model); 72 disagreements to settle (`disagreements.json`, settled in `settled.json`).
+- [scripted.zh.json](scripted.zh.json): scripted-numbers (a scripted stand-in, no model) and scripted-words (a scripted stand-in, no model); 74 disagreements to settle (`disagreements.json`, settled in `settled.json`).
 
 ## Rerun
 

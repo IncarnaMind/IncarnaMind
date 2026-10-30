@@ -239,6 +239,9 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
   },
 ];
 
+/** A judge's id names a scripted stand-in, not a model. */
+export const isScriptedJudge = (id: string) => SCRIPTED_JUDGES.some((judge) => judge.id === id);
+
 export const judgementsFile = (runsDir: string, runFile: string, judge: string) =>
   join(runsDir, "judgements", `${runFile.replace(/\.json$/, "")}.${modelSlug(judge)}.jsonl`);
 
