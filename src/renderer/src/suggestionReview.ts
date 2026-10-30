@@ -47,11 +47,16 @@ function showDecided(decision: Decision, ids: readonly string[]): void {
   }));
 }
 
-async function apply(decision: Decision, ids: readonly string[]): Promise<AssignmentChange[]> {
+/** `checked`: for an accept, the Suggested Folder each was checked against (see `acceptAssignments`). */
+async function apply(
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+): Promise<AssignmentChange[]> {
   showDecided(decision, ids);
   try {
     return decision === "accept"
-      ? await core.acceptAssignments([...ids])
+      ? await core.acceptAssignments([...ids], checked)
       : await core.rejectAssignments([...ids]);
   } catch (error) {
     await useAppStore.getState().refreshLibrary();
@@ -95,10 +100,17 @@ function stepOf(
 }
 
 // A ⌘Z pressed while it runs waits for it, then takes it back.
-const decide = (decision: Decision, ids: readonly string[]): Promise<Undoable | null> =>
-  makeInTurn(() => decideNow(decision, ids));
+const decide = (
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+): Promise<Undoable | null> => makeInTurn(() => decideNow(decision, ids, checked));
 
-async function decideNow(decision: Decision, ids: readonly string[]): Promise<Undoable | null> {
+async function decideNow(
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+): Promise<Undoable | null> {
   const waiting = new Set(waitingIds());
   const chosen = [...new Set(ids)].filter((id) => waiting.has(id));
   if (chosen.length === 0) return null;
@@ -108,7 +120,7 @@ async function decideNow(decision: Decision, ids: readonly string[]): Promise<Un
   const name = only ? displayName(only) : "";
   const folderId = only ? assignmentsNow().get(only.id)?.groupId : null;
   const folder = library?.groups.find((each) => each.id === folderId)?.name ?? "";
-  const changes = await apply(decision, chosen);
+  const changes = await apply(decision, chosen, checked);
   if (changes.length === 0) {
     await useAppStore.getState().refreshLibrary();
     return null;
@@ -128,6 +140,9 @@ async function decideNow(decision: Decision, ids: readonly string[]): Promise<Un
   return step;
 }
 
-export const acceptSuggestions = (ids: readonly string[]) => decide("accept", ids);
+export const acceptSuggestions = (
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+) => decide("accept", ids, checked);
 
 export const rejectSuggestions = (ids: readonly string[]) => decide("reject", ids);

@@ -348,6 +348,14 @@ export const zhCN = {
     "未移动：只在本文件夹内工作的文件夹，助手不能移入或移出其中的内容。你仍可以自己移动。",
   "error.folder.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
+  "error.paste.conversationGone": "粘贴的文本未保存：这个对话已删除。",
+  "error.paste.noteGone": "粘贴的文本未保存：这篇笔记已删除。",
+  "error.folder.wallAccept":
+    "未接受：部分推荐会把文档放进只在本文件夹内工作的文件夹，助手不能在文件夹外这样做。你仍可以在“待确认”中自己接受。",
+  "error.folder.suggestionMoved":
+    "未接受：助手核对后，有推荐的文件夹发生了变化，因此未接受任何推荐。你可以在“待确认”中自己接受。",
+  "error.folder.wallAcceptInside":
+    "未接受：在只在本文件夹内工作的文件夹中，助手只能接受放进该文件夹的推荐。其余推荐，你仍可以在“待确认”中自己接受。",
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",
   "undo.folderWallOn": "已开启“{name}”只在本文件夹内工作",
   "undo.folderWallOff": "已关闭“{name}”只在本文件夹内工作",
@@ -4199,6 +4207,7 @@ export const zhCN = {
   "error.commands.noFolderName": "命令缺少文件夹名称。",
   "error.commands.noTag": "命令缺少标签名称。",
   "error.commands.noFolderPath": "命令缺少要从中添加文件的文件夹。",
+  "error.commands.nothingWaiting": "“待确认”中没有要接受的推荐。",
   "error.commands.noIds": "命令缺少要处理的文档或笔记。",
   "error.commands.noDocument": "没有 id 为 {id} 的文档。",
   "error.commands.exampleDocument":
@@ -4501,6 +4510,7 @@ export const zhCN = {
   "error.agent.noFolders": "至少选择一个文件夹，供智能体读取。",
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
+  "error.library.checkedFolders": "推荐的文件夹无效。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.noFolders": "先新建或选择文件夹。",
   "error.library.scanImagesOff":
