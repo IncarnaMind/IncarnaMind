@@ -690,14 +690,14 @@ export interface AnswerWeb {
   /** Searches with the model's provider, asking the User to allow it first. */
   search(model: ChatModelChoice, query: string, signal: AbortSignal): Promise<WebResult[]>;
   /**
-   * Saves a page into the Folder `filing` gives for the place the Question was asked in, or not at
-   * all when it gives none; resolves once it can be searched.
+   * Saves a page into the Folder `filedWithin` gives the turn's wall `wallId` for the place the
+   * Question was asked in, or not at all when it gives none; resolves once it can be searched.
    */
   save(
     address: string,
     place: AnswerPlace,
     signal: AbortSignal,
-    filing: (asked: string | null) => { folderId: string | null } | null,
+    wallId: string | null,
   ): Promise<SavedPage>;
 }
 
@@ -2252,7 +2252,7 @@ export function createAnswers(options: AnswersOptions) {
               service: webService,
               question: context.question,
               search: (query, signal) => web.search(model, query, signal),
-              save: (address, signal) => web.save(address, place, signal, filing),
+              save: (address, signal) => web.save(address, place, signal, turnWall),
               passages: (documentId, query, signal) =>
                 session.searchDocument(documentId, query, signal),
               read: (toolCallId, call) => webPages.set(toolCallId, call),

@@ -15,7 +15,9 @@ describe("The drafts a reload leaves", () => {
       text: "Compare these",
       scope: { folderIds: ["f"], tagIds: [], documentIds: ["d"] },
       skill: "summarise-document",
-      pastes: [{ id: "p1", text: "A long paste." }],
+      pastes: [
+        { id: "p1", text: "A long paste.", place: { mindId: "mind", conversationId: null } },
+      ],
     };
 
     expect(draftsFrom({ mind: draft, other: full })).toEqual({ mind: draft, other: full });
@@ -28,6 +30,7 @@ describe("The drafts a reload leaves", () => {
         noText: { ...draft, text: 3 },
         badScope: { ...draft, scope: { folderIds: "f", tagIds: [], documentIds: [] } },
         badPaste: { ...draft, pastes: [{ id: 1, text: "x" }] },
+        placeLessPaste: { ...draft, pastes: [{ id: "p1", text: "x" }] },
         notAnObject: "text",
       }),
     ).toEqual({ good: draft });
