@@ -571,6 +571,43 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
+    /**
+     * Gives a copy of a Mind the original package the Mind was imported from, so the copy's
+     * checks leave that file out and it exports back into it (#1935).
+     */
+    copyPackage(sourceMindId: string, copyMindId: string): void {
+      const row = db.get<{
+        sha256: string;
+        file_name: string;
+        size: number;
+        document_id: string | null;
+        look_version: number | null;
+        completed_at: string | null;
+      }>(
+        "SELECT sha256, file_name, size, document_id, look_version, completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+        [sourceMindId],
+      );
+      if (!row) return;
+      const at = options.now();
+      db.run(
+        `INSERT INTO word_packages (id, mind_id, sha256, file_name, size, document_id, look_version,
+           completed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          randomUUID(),
+          copyMindId,
+          row.sha256,
+          row.file_name,
+          row.size,
+          row.document_id,
+          row.look_version,
+          row.completed_at,
+          at,
+          at,
+        ],
+      );
+    },
+
     /** Not an Undo step: it is the core's change, and the editor undoes only its own. */
     async addLooks(): Promise<void> {
       const imported = db.all<{ id: string; mind_id: string; sha256: string }>(
