@@ -124,6 +124,7 @@ import {
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingRoute,
   type Task,
   type TurnPlace,
   type UnlockDocumentInput,
@@ -4911,6 +4912,27 @@ export function createCore(adapters: CoreAdapters): Core {
         library.resume();
       }
       return models;
+    },
+    getTaggingRoute: async (flow = "tagging"): Promise<TaggingRoute> => {
+      if (flow !== "tagging" && flow !== "classification" && flow !== "scan-images")
+        throw new InvalidInputError({ key: "error.library.flow" });
+      const classifier =
+        flow === "tagging" ? await tagging.resolve() : organizeModelOf(library.settings());
+      if (!classifier) return { where: "none" };
+      if (flow === "scan-images") {
+        if (decisionModelElsewhere(classifier)) return { where: "none" };
+        if (classifier.kind !== "chat")
+          return classifier.kind === "auto" ||
+            (classifier.kind === "ollama" && classifier.usePageImages)
+            ? { where: "local" }
+            : { where: "none" };
+        const reader = chat.imageModel(classifier.choice);
+        const model = reader && chat.describeModel(reader);
+        if (!model) return { where: "none" };
+        return model.service ? { where: "cloud", service: model.service } : { where: "local" };
+      }
+      const service = tagging.service(classifier);
+      return service ? { where: "cloud", service } : { where: "local" };
     },
     classifyDocuments: async (ids) => {
       library.classify(ids);
