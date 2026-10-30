@@ -184,8 +184,10 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
       // fade says more.
       const spare = strip.querySelector<HTMLElement>(".tab-strip-spacer");
       const room = list.offsetWidth + (spare?.offsetWidth ?? 0);
-      const cramped = wholeWidth + needBefore + needAfter + 10 > room + slack;
-      const state = `whole ${whole}, wholeWidth ${Math.round(wholeWidth)}, need ${Math.round(needBefore)}/${Math.round(needAfter)}, room ${Math.round(room)}, cramped ${cramped}, squeezed ${list.hasAttribute("data-squeezed")}, fit ${strip.getAttribute("data-fit")}, scroll ${Math.round(list.scrollLeft)}`;
+      const squeezed = list.hasAttribute("data-squeezed");
+      // A squeezed strip has already narrowed its shown tab for the room: the pieces give way.
+      const cramped = squeezed || wholeWidth + needBefore + needAfter + 10 > room + slack;
+      const state = `whole ${whole}, wholeWidth ${Math.round(wholeWidth)}, need ${Math.round(needBefore)}/${Math.round(needAfter)}, room ${Math.round(room)}, cramped ${cramped}, squeezed ${squeezed}, fit ${strip.getAttribute("data-fit")}, scroll ${Math.round(list.scrollLeft)}`;
       if (!cramped) {
         if (before > 0 && !nameBefore)
           problems.push(`${where}: no name shows tabs on the left (${state})`);
@@ -914,7 +916,12 @@ for (const language of LANGUAGES) {
                   }
                   const view = strip.getBoundingClientRect();
                   const at = element.getBoundingClientRect();
-                  return at.left >= view.left - 1 && at.right <= view.right + 1;
+                  const whole = at.left >= view.left - 1 && at.right <= view.right + 1;
+                  // A tab wider than the strip can't be whole: it is shown from its start, and
+                  // "Show all tabs" reaches everything.
+                  const tooWide = at.width > view.width + 1;
+                  const atStart = Math.abs(at.left - view.left) <= 1;
+                  return whole || (tooWide && atStart);
                 }),
               { message: `"${name}" at ${width} px` },
             )
