@@ -541,7 +541,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       claim = request.claim,
       bound?: readonly BoundNumber[],
       worked?: readonly Figure[],
-    ): { why: UnsupportedReason; quote: Citation | null } | null => {
+    ): { why: UnsupportedReason; quote: Citation | null; decides: boolean } | null => {
       const checked = citations.map((citation) => {
         const text = (from: number | null, to: number | null) =>
           scoped
@@ -590,7 +590,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         )
           ? single
           : null;
-      const problem = (why: UnsupportedReason) => ({ why, quote });
+      const problem = (why: UnsupportedReason, decides = false) => ({ why, quote, decides });
+      if (found.kind === "which dollar" || found.kind === "yuan sign") {
+        const document = candidates[0]?.documentName ?? "";
+        const key =
+          found.kind === "which dollar"
+            ? "claim.unsupported.whichDollar"
+            : "claim.unsupported.yuanSign";
+        // The Document doesn't say the currency, so it neither backs nor contradicts one (#2226).
+        const reason = t(key, { document, amount });
+        return problem({ reason, covered: null, uncovered: null, found: true }, true);
+      }
       if (found.kind === "scale") {
         return problem({
           found: true,
@@ -1092,7 +1102,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       checked.map(({ number }) => number),
     );
     const unit = unitProblem?.why ?? null;
-    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation))
+    if (unit && (verdict.verdict !== "contradicted" || onlyCalculation || unitProblem?.decides))
       return unsupported(unit, unitProblem?.quote ?? null, null);
     // An unsupported reply with no topic or part named can be missing only the derived figure.
     // Only a reason or part about that figure alone is settled; a found topic or any independent

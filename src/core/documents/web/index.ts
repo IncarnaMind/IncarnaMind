@@ -140,6 +140,22 @@ function parseSaveInput(input: unknown): SaveWebPageInput {
   };
 }
 
+/**
+ * Which page saved already a save may give back: only those `reusable` takes, any when it is left
+ * out. A save under way is shared only with saves of the same `key`.
+ */
+export interface PageReuse {
+  key: string;
+  reusable?(documentId: string): boolean;
+}
+
+/**
+ * The key of a save for one side of the Folder wall (`wallId`, null: outside every wall): a page
+ * under way is shared only on that side, so whoever joins it never takes, or files, a page across
+ * the wall (#2243).
+ */
+export const wallKey = (wallId: string | null): string => `wall:${wallId ?? "none"}`;
+
 export function createWebPages(options: WebPagesOptions) {
   const { db, now, documents, signal } = options;
   const folder = join(options.dataDir, "Web pages");
@@ -430,13 +446,15 @@ export function createWebPages(options: WebPagesOptions) {
      * See `CoreApi.saveWebPage`; the caller files it in its Folder. `added`
      * hears a new Document's id as it is stored, before it is processed.
      * `fetch` fetches the page instead of the usual one: web search's (#128). `origin` says who
-     * saves it; the User saving an address a search saved makes it theirs.
+     * saves it; the User saving an address a search saved makes it theirs. `reuse` limits which
+     * page saved already is given back; without it, any is.
      */
     save(
       input: unknown,
       added?: (documentId: string) => void,
       fetch?: PageFetch,
       origin: WebPageOrigin = "user",
+      reuse?: PageReuse,
     ): Promise<WebPageResult> {
       const { address: typed, html, keepLook, localModeOnce } = parseSaveInput(input);
       const address = normaliseAddress(typed);
@@ -456,15 +474,15 @@ export function createWebPages(options: WebPagesOptions) {
         claimForUser(db, result.document.id, now());
         return { ...result, document: documents.get(result.document.id) };
       };
-      const known = documentAtAddress(db, address);
+      const known = documentAtAddress(db, address, reuse?.reusable);
       if (known) return Promise.resolve(claimed(saved(known)));
       if (options.localOnly?.() && html === undefined && !fetch && !localModeOnce) {
         return Promise.resolve(heldInLocalMode(address));
       }
-      return once(address, async () => {
+      return once(reuse ? `${reuse.key}\n${address}` : address, async () => {
         try {
           return await withPage(await pageFor(address, html, fetch), async (page) => {
-            const meanwhile = documentAtAddress(db, address);
+            const meanwhile = documentAtAddress(db, address, reuse?.reusable);
             if (meanwhile) return saved(meanwhile);
             const id = randomUUID();
             const file = await write(join(folder, `${id}.html`), page.xhtml);
