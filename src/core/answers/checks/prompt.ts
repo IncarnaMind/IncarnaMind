@@ -529,6 +529,7 @@ const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
+export const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const EVIDENCE = /^[\s>*_#`'"“”-]*(?:evidence|证据)[\s*_]*[:：][\s*_]*(.*)$/i;
 const COVERAGE = /^[\s>*_#`'"“”-]*(?:coverage|覆盖情况)[\s*_]*[:：][\s*_]*(.*)$/i;
 const REASON_KIND =
@@ -545,6 +546,7 @@ const FIELDS = [
   EVIDENCE,
   COVERAGE,
   REASON_KIND,
+  FIGURES,
 ];
 const MAX_PHRASE = 120;
 const MAX_REASON = 300;
@@ -767,8 +769,14 @@ export function readVerdict(reply: string): ReadVerdict | null {
   return withShortReason(jsonVerdict(text));
 }
 
-/** Words a model refuses with, in English and Chinese: a reply with no verdict that says this declined. */
+/** Words a model refuses with, in English and Chinese. */
 const REFUSAL =
   /\b(?:I(?:'m| am)? (?:sorry|unable|not able)|I can(?:no|')t (?:help|assist|check|do)|I won't|cannot (?:help|assist|comply))|抱歉|无法(?:协助|帮助|完成|核对)|不能(?:协助|帮助)/i;
 
-export const readsAsRefusal = (reply: string): boolean => REFUSAL.test(reply);
+/**
+ * A reply that declined: it says so and gives no verdict. A reason uses the same words for what
+ * the Documents don't show ("两万元无法核对", "I am unable to find 65,000"), so a reply with a
+ * verdict has answered.
+ */
+export const readsAsRefusal = (reply: string): boolean =>
+  REFUSAL.test(reply) && readVerdict(reply) === null;
