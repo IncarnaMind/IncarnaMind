@@ -3,7 +3,8 @@
  * step in `STEPS`: the package, the import as a Mind (#104), opening in LibreOffice, the
  * round-trip back into the file (#105), the export for review (#107), and someone's changes
  * accepted and rejected (#108), and the Citations in a list at the end (#1600), each export opened in LibreOffice too. Last, a file exported for review has every change accepted in LibreOffice,
- * which must show the text accepting every change in IncarnaMind does.
+ * which must show the text accepting every change in IncarnaMind does, and a file someone else
+ * wrote, verified (#110), exports with its claims' results as comments and opens there.
  *
  * INCARNAMIND_WORD_SET picks the files: "core" (the committed files, the default), "extended"
  * (the cache that `npm run eval:word:fetch` fills) or "all".
@@ -22,6 +23,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { createTempDataFolder, manualClock, startCore } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { writeMind } from "../../tests/helpers/minds";
+import { setUpWordVerify, verifyRequest, verifyWordFile } from "../../tests/helpers/verifiedWord";
 import { paragraph, run, table, wordFile } from "../../tests/helpers/word";
 import {
   type CorpusEntry,
@@ -29,6 +31,7 @@ import {
   checkInputPackage,
   corpusFailure,
   extendedCache,
+  inspectPackage,
   readExtended,
   readManifest,
   WORD_DIR,
@@ -272,6 +275,35 @@ describe("the Word corpus", () => {
         const accepted = await acceptAllChanges(soffice as string, path);
         if ("problem" in accepted) throw new Error(`LibreOffice: ${accepted.problem}`);
         expect(wordsOf(accepted.text.split("\n"))).toEqual(wordsOf(outcome.accepted ?? []));
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+      }
+    },
+    5 * 60_000,
+  );
+
+  it.skipIf(!soffice)(
+    "a file someone else wrote, with their change and comment, verified and exported with each claim's problem as a comment, opens in LibreOffice",
+    async () => {
+      const { core, report } = await setUpWordVerify();
+      const { mind } = await verifyWordFile(core, report);
+      await core.findClaims(verifyRequest(mind.id));
+      await core.verifyClaims(verifyRequest(mind.id));
+      await core.setCheckComments(mind.id, true);
+      const exported = await core.exportMind(mind.id, {
+        format: "docx",
+        commentFailedChecks: true,
+      });
+      expect((await inspectPackage(exported.data)).problems).toEqual([]);
+      expect(exported.sentenceChecks).toMatchObject({ contradicted: 1, commented: true });
+
+      const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-verified-"));
+      try {
+        const path = join(folder, "Harbour report (checked).docx");
+        writeFileSync(path, exported.data);
+        const keep = keepPdfs ? join(keepPdfs, "verified-report.pdf") : undefined;
+        const opened = await convertToPdf(soffice as string, path, keep);
+        expect(opened.opened, opened.problem).toBe(true);
       } finally {
         rmSync(folder, { recursive: true, force: true });
       }

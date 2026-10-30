@@ -2103,10 +2103,37 @@ export async function pointAndClick(
     modifiers?: readonly ("ControlOrMeta" | "Shift")[];
   } = {},
 ): Promise<void> {
+  // A scroll into view can settle a frame or two later (a tab strip rests on whole tabs, which
+  // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
   // A list that redraws as the click begins swaps the element for an equal one: look again.
+  let scrolled = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
-    await target.scrollIntoViewIfNeeded();
+    if (!scrolled) {
+      await target.scrollIntoViewIfNeeded();
+      scrolled = true;
+    }
+    const held = await target.evaluate(async (element) => {
+      const at = element.getBoundingClientRect();
+      const off = at.right <= 0 || at.bottom <= 0 || at.left >= innerWidth || at.top >= innerHeight;
+      if (off) return "off";
+      const read = () => {
+        const at = element.getBoundingClientRect();
+        return `${Math.round(at.left)} ${Math.round(at.top)} ${Math.round(at.width)} ${Math.round(at.height)}`;
+      };
+      const first = read();
+      for (let frame = 0; frame < 3; frame++) {
+        await new Promise((next) => requestAnimationFrame(next));
+        if (read() !== first) return false;
+      }
+      return true;
+    });
+    if (held === "off") {
+      // Drawn again somewhere out of the window: the next look brings it back.
+      scrolled = false;
+      throw new Error("The element is out of the window.");
+    }
+    if (!held) throw new Error("The element is still moving.");
     box = await target.boundingBox();
     if (!box) throw new Error("The element isn't visible.");
   }).toPass();

@@ -149,6 +149,10 @@ export interface ChecksOptions
     | "readTables"
     | "readScanned"
     | "createMind"
+    | "wordRefusal"
+    | "importWord"
+    | "wordWritten"
+    | "discardWordMind"
     | "recordAiUse"
     | "unread"
   > {

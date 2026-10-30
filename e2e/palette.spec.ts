@@ -489,7 +489,7 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     if (query === "verify") {
       const verify = row("verify.document");
       await expect(verify.getByTestId("palette-purpose")).toHaveText(
-        "Check the claims in a PDF someone else wrote",
+        "Check the claims in a file someone else wrote",
       );
       // The hint sits under the name and inside the row.
       const rowBox = await verify.boundingBox();
@@ -518,9 +518,9 @@ test("with a sentence selected, ⌘K finds the one check by check, find support,
     await expect(palette(window)).toBeHidden();
   }
 
-  await search("核对别人的 PDF");
+  await search("核对别人的文件");
   await expect(row("verify.document").getByTestId("palette-purpose")).toHaveText(
-    "核对别人写的 PDF 里的说法",
+    "核对别人所写文件中的说法",
   );
   await window.keyboard.press("Escape");
   await expect(palette(window)).toBeHidden();
