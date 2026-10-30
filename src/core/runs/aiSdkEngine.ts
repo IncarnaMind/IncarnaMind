@@ -434,6 +434,9 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       // One more than `maxSteps`: a model that calls a Tool on the last step has it refused and
       // gets one more call to write.
       stepCountIs(maxSteps + 1) as StopCondition<ToolSet>,
+      // A step that failed, cut at its output limit too (#2275), ends the Run: the SDK would send a
+      // call whose input was cut back to the model as a Tool error, and go on.
+      ({ steps }) => steps.at(-1)?.finishReason === "error",
       ({ steps }) => {
         const last = steps.at(-1);
         return (

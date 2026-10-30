@@ -51,14 +51,16 @@ const promptOf = (body: Record<string, unknown>) =>
  * A stub of a small local model: `answer` for the Answer, `retry` for the
  * request for exact quotes (none: it replies with no JSON), no Tags for tagging.
  */
-async function smallModel(answer: object, retry?: object) {
+async function smallModel(answer: object, retry?: object | OllamaChatReply) {
   return startOllamaServer({
     models: [QWEN35],
     reply: (body): OllamaChatReply =>
       isAnswer(body)
         ? { content: JSON.stringify(answer) }
         : isQuoteRetry(body)
-          ? { content: retry ? JSON.stringify(retry) : "I can't." }
+          ? retry && "cutOff" in retry
+            ? retry
+            : { content: retry ? JSON.stringify(retry) : "I can't." }
           : { content: JSON.stringify({ tags: [] }) },
   });
 }
@@ -121,6 +123,26 @@ describe("A small local model's quotes the check doesn't find", () => {
     expect(prompt).toContain(NEAP);
     expect(retry?.body.format).toMatchObject({ type: "object" });
     expect(retry?.body.options).toMatchObject({ num_predict: outputTokens("quote-retry", 1) });
+  });
+
+  // protects=a request for exact quotes cut at its output limit reads nothing: a cut-off quote is never recorded, though its words are on the page; fails_when=the start of a cut reply is taken as a quote and found (#2275).
+  test("a reply cut at its limit is read for nothing: the record keeps its own quote", async () => {
+    const answer = {
+      answer: "Spring tides come at new and full moon [^1].",
+      citations: [{ marker: 1, passage: "P1", quote: "Spring tides come at new and full moon" }],
+    };
+    const cut = await smallModel(answer, {
+      content: '{"quotes":[{"marker":1,"quote":"Spring tides happen at new moon',
+      cutOff: true,
+    });
+
+    const { finished } = await ask(cut);
+
+    expect(retries(cut)).toHaveLength(1);
+    expect(finished.citations).toMatchObject([
+      { quote: "Spring tides come at new and full moon", check: "not-found" },
+    ]);
+    expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
   });
 
   test("a new quote the check still doesn't find is dropped: the record keeps its own, not found", async () => {

@@ -629,11 +629,9 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
   return takesTemperature === false ? undefined : ANSWER_TEMPERATURE;
 }
 
-/** The call that writes the reply: a check's verdict, or an Answer. */
 const writingKind = (request: AnswerRequest): ModelCallKind =>
   request.toolSet === "check" ? "check-step" : "answer";
 
-/** A call's output limit, within the model's own most. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
   Math.min(outputTokens(kind), request.maxOutput ?? Number.POSITIVE_INFINITY);
 

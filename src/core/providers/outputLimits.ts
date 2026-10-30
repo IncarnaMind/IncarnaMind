@@ -39,7 +39,7 @@ export const OUTPUT_LIMITS = {
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;
 
-/** The output limit of a call of `kind`, in tokens, asking about `count` items when it has `each`. */
+/** `count`: the items a call of a kind with `each` asks about. */
 export function outputTokens(kind: ModelCallKind, count = 1): number {
   const limit: { most: number; each?: number } = OUTPUT_LIMITS[kind];
   return limit.each === undefined

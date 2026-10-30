@@ -99,6 +99,8 @@ export async function* retryFigures(
     console.error(
       `The figures couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
     );
+    // What came before the failure may be cut off (#2275): none of it is read.
+    raw = "";
   }
   if (signal.aborted) return;
   const markers = new Set(asked.map((figure) => figure.marker));

@@ -214,6 +214,8 @@ export async function* retryQuotes(
     console.error(
       `The quotes couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
     );
+    // What came before the failure may be cut off (#2275): none of it is read.
+    raw = "";
   }
   if (signal.aborted) return;
   const corrections = parseCorrections(await replyJson(raw));
