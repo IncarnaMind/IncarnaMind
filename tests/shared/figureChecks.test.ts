@@ -2,9 +2,11 @@ import { describe, expect, test } from "vitest";
 import type {
   ClaimCheckAttributes,
   ClaimCheckBasis,
+  ClaimCheckPart,
   FigureCheckAttributes,
 } from "../../src/core/api";
 import { type ClaimCheckNow, claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import { pendingPart } from "../../src/shared/claimParts";
 import {
   aggregateFigureStates,
   beginFigureCheck,
@@ -226,4 +228,58 @@ test("a full check reopens every child and explicitly checks its qualitative rem
   expect(pending.figures?.[0]).toMatchObject({ state: "checking", request: "new" });
   expect(pending.figures?.[0]?.kept).toBeUndefined();
   expect(pending.remainder).toMatchObject({ state: "checking", request: "new" });
+});
+
+test.each([
+  { prefix: "According to Report", text: "According to Report, revenue was 10.", name: "Report" },
+  { prefix: "据报告", text: "据报告，收入为10。", name: "报告" },
+])("a native figure cannot conceal an invalid chosen Source: $name", ({ prefix, text, name }) => {
+  const documentId = "c18b10f9-3a1b-4e3d-9b76-1e49082ba130";
+  const start = prefix.indexOf(name);
+  const part: ClaimCheckPart = {
+    ...pendingPart({
+      kind: "fact",
+      span: { start: 0, end: prefix.length },
+      facet: {
+        kind: "source",
+        selectedDocumentId: documentId,
+        named: { start, end: start + name.length },
+        candidates: [{ documentId }],
+      },
+    }),
+    verdict: "supported",
+    decidingEvidence: 0,
+    evidence: [
+      {
+        id: "2e013d36-e288-4fdf-a4db-3c9aee631e75",
+        passageId: "passage",
+        documentId,
+        documentName: name,
+        contentHash: "source-version",
+        quote: text,
+        pageFrom: 1,
+        pageTo: 1,
+        location: null,
+        check: "found",
+        checkReason: null,
+      },
+    ],
+  };
+  const value: ClaimCheckAttributes = {
+    ...basis(),
+    text,
+    parts: [part],
+    figures: [{ ...figure("revenue"), text }],
+    remainder: { ...basis(), text },
+  };
+  const current = { ...now, text };
+  expect(claimCheckShown(value, { ...current, sourceChoicesValid: () => true })).toEqual({
+    state: "supported",
+  });
+  expect(claimCheckShown(value, { ...current, sourceChoicesValid: () => false })).toEqual({
+    state: "needs-recheck",
+    why: "source-choice",
+  });
+  expect(claimCheckShown(value, current)).toEqual({ state: "needs-recheck", why: "source-choice" });
+  expect(claimCheckShown({ ...value, kept: true }, current)).toEqual({ state: "kept" });
 });

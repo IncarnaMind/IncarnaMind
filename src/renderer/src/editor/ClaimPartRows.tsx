@@ -16,6 +16,7 @@ import { attributionCorrection, coverageCount } from "../../../shared/claimParts
 import { formatClaimFacetPeriod } from "../../../shared/dates";
 import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
+import { sourceChoiceAt } from "../checks";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { useLanguage, useT } from "../i18n";
@@ -278,6 +279,7 @@ function PartRow({
 }) {
   const t = useT();
   const language = useLanguage();
+  const mindId = useContext(MindIdContext);
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
   );
@@ -309,13 +311,9 @@ function PartRow({
       ? t("claim.time.supported", { period, document })
       : null;
   const chooseSource =
-    !stale &&
     !checking &&
-    part.facet?.kind === "source" &&
-    part.facet.candidates !== undefined &&
-    (part.facet.candidates.length > 1 || part.facet.selectedDocumentId !== undefined) &&
-    (part.verdict === "unsupported" ||
-      (part.verdict === "supported" && part.facet.selectedDocumentId !== undefined)) &&
+    mindId !== null &&
+    sourceChoiceAt(editor, mindId, `${id}:${part.span.start}:${part.span.end}`) !== null &&
     onChooseSource;
   const changePeriod =
     !stale && !checking && part.verdict === "unsupported" && period && onChangePeriod;

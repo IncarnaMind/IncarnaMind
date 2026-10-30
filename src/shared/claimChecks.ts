@@ -285,7 +285,8 @@ export type RecheckReason =
   /** Checked before each of its figures was checked with its own source (#1459). */
   | "figures"
   /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
-  | "referent";
+  | "referent"
+  | "source-choice";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -295,8 +296,11 @@ export type ClaimCheckShown =
   | { state: "needs-recheck"; why: RecheckReason }
   | { state: "kept" };
 
+export type SourceChoicesValid = (check: ClaimCheckBasis) => boolean;
+
 /** What a check is compared with. */
 export interface ClaimCheckNow {
+  sourceChoicesValid?: SourceChoicesValid;
   figureContexts?: ReadonlyMap<string, string> | null;
   /** The sentence is a table cell holding figures the one Check checks each with its own source; unknown when absent. */
   figured?: boolean;
@@ -444,6 +448,11 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   }
   if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
+  if (
+    check.parts?.some((part) => part.facet?.kind === "source" && part.facet.selectedDocumentId) &&
+    now.sourceChoicesValid?.(check) !== true
+  )
+    return { state: "needs-recheck", why: "source-choice" };
   if (now.versions) {
     const relied = new Set(restsOn(check).map((each) => each.documentId));
     for (const version of check.versions) {
@@ -506,6 +515,10 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         shown.state === "contradicted")
       ? { state: "needs-recheck", why: "figures" }
       : shown;
+  }
+  if (check.parts?.some((part) => part.facet?.kind === "source")) {
+    const shown = basisShown(check, now);
+    if (shown.state === "needs-recheck" && shown.why === "source-choice") return shown;
   }
   if (
     comparableSentence(now.text) === comparableSentence(check.text) &&

@@ -6,6 +6,7 @@ import * as Y from "yjs";
 import type { ClaimCheckAttributes, ClaimCheckPart } from "../../src/core/api";
 import { checkWithParts, pendingPart } from "../../src/shared/claimParts";
 import { translate } from "../../src/shared/i18n";
+import { sourceChoiceProblem } from "../../src/shared/sourceFacets";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -77,7 +78,9 @@ test.each([
     settings: await core.getSettings(),
   });
   const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
-  const { ClaimChecks } = await import("../../src/renderer/src/editor/claimChecks");
+  const { ClaimChecks, setClaimContext } = await import(
+    "../../src/renderer/src/editor/claimChecks"
+  );
   const controller = await import("../../src/renderer/src/checks");
   const { noteHandle } = await import("../../src/renderer/src/commands/handles");
   const { checkCommands } = await import("../../src/renderer/src/commands/checks");
@@ -149,6 +152,27 @@ test.each([
     content: { type: "doc", content: [paragraph(check)] },
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  setClaimContext(editor.view, {
+    versions: new Map(documents.map((document) => [document.id, document.contentHash])),
+    folderId: mind.folderId,
+    scope: null,
+    sourceChoicesValid: (check) => {
+      const state = useAppStore.getState();
+      return (
+        sourceChoiceProblem(
+          check,
+          {
+            documents: state.documents,
+            folders: state.folders,
+            tags: state.tags,
+            groups: state.library?.groups,
+            assignments: state.library?.assignments,
+          },
+          mind.folderId,
+        ) === null
+      );
+    },
+  });
   const doc = new Y.Doc();
   const place = randomUUID();
   noteHandle.current = { editor, mindId: mind.id, doc, place };

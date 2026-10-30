@@ -34,7 +34,8 @@ export async function chooseSourceFacet(
     !current ||
     !row ||
     current.check.text !== claim.check.text ||
-    current.shown.state === "needs-recheck" ||
+    current.sentence.text !== current.check.text ||
+    (current.shown.state === "needs-recheck" && current.shown.why !== "source-choice") ||
     current.shown.state === "checking"
   ) {
     useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));

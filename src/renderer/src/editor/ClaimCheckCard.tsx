@@ -23,6 +23,7 @@ import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { comparableSentence } from "../../../shared/sentences";
+import { sourceChoiceProblem } from "../../../shared/sourceFacets";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
@@ -756,6 +757,45 @@ function ClaimCard({
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
   const documents = useAppStore((store) => store.documents);
+  const folders = useAppStore((store) => store.folders);
+  const tags = useAppStore((store) => store.tags);
+  const library = useAppStore((store) => store.library);
+  const ready = useAppStore((store) => store.status.kind === "ready");
+  const mindFolderId = useAppStore(
+    (store) => store.minds.find((mind) => mind.id === mindId)?.folderId ?? null,
+  );
+  const sourceProblem =
+    shown.state === "needs-recheck" && shown.why === "source-choice"
+      ? sourceChoiceProblem(
+          check,
+          ready
+            ? {
+                documents,
+                folders,
+                tags,
+                groups: library?.groups,
+                assignments: library?.assignments,
+              }
+            : null,
+          mindFolderId,
+        )
+      : null;
+  const sourceReason =
+    sourceProblem?.kind === "deleted"
+      ? t("claim.recheck.source-choice.deleted", { name: sourceProblem.name })
+      : sourceProblem?.kind === "walled"
+        ? t("claim.recheck.source-choice.walled", {
+            name: sourceProblem.name,
+            Folder: sourceProblem.folder,
+          })
+        : sourceProblem?.kind === "out-of-scope"
+          ? t("claim.recheck.source-choice.out-of-scope", { name: sourceProblem.name })
+          : sourceProblem?.kind === "renamed"
+            ? t("claim.recheck.source-choice.renamed", {
+                name: sourceProblem.name,
+                new: sourceProblem.currentName,
+              })
+            : null;
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;
@@ -778,7 +818,7 @@ function ClaimCard({
           cap: SENTENCES_CHECKED_AT_MOST,
         })
       : shown.state === "needs-recheck"
-        ? t(`claim.recheck.${shown.why}`)
+        ? (sourceReason ?? t(`claim.recheck.${shown.why}`))
         : null;
 
   const figureSources = mismatched.map((figure) => {

@@ -9,6 +9,7 @@
  */
 import * as Y from "yjs";
 import { citationState, type LiveDocument } from "../../shared/citations";
+import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
 import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
@@ -132,6 +133,7 @@ export interface AiUseFigures {
 }
 
 export interface FigureSources {
+  sourceChoicesValid?: SourceChoicesValid;
   fragment: Y.XmlFragment;
   /** The Mind's entries in the record of AI use. */
   entries: readonly AiUseEntry[];
@@ -331,6 +333,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     const { check, sentence, cited } = marked;
     requests.push(check.request);
     const shown = claimCheckShown(check, {
+      sourceChoicesValid: sources.sourceChoicesValid,
       text: sentence,
       figureContexts,
       figured: figured(marked),

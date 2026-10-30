@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import {
@@ -12,6 +13,7 @@ import type { FailedSentence, RecordCiteComment } from "../mindText";
 
 /** What the checks of a Mind's sentences are compared with, and how an export names things. */
 export interface SentenceCheckContext {
+  sourceChoicesValid?: SourceChoicesValid;
   versions: ReadonlyMap<string, string>;
   folderId: string | null;
   /** The Search scope the User set for the Mind; null for none. */
@@ -64,6 +66,7 @@ export function failedSentences(
     const { check, sentence, cited } = marked;
     const { id } = check;
     const shown = claimCheckShown(check, {
+      sourceChoicesValid: context.sourceChoicesValid,
       text: sentence,
       figureContexts,
       figured: figured(marked),

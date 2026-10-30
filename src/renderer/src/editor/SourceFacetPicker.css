@@ -1,3 +1,8 @@
+.claim-source-picker [role="listbox"] {
+  max-height: min(336px, calc(60vh - 120px));
+  overflow-y: auto;
+}
+
 .claim-source-picker [role="option"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

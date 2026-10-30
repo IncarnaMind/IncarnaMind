@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
+import type { SourceChoicesValid } from "../shared/claimChecks";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
@@ -50,6 +51,7 @@ import {
   NO_SCOPE,
   type ScopeKind,
 } from "../shared/searchScope";
+import { sourceChoiceProblem } from "../shared/sourceFacets";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { wordFileOf } from "../shared/wordFiles";
@@ -2326,6 +2328,20 @@ export function createCore(adapters: CoreAdapters): Core {
     return mind;
   };
 
+  function sourceChoicesValid(folderId: string | null): SourceChoicesValid {
+    return (check) =>
+      sourceChoiceProblem(
+        check,
+        {
+          ...library.snapshot(),
+          documents: documents.list(),
+          folders: folders.list(),
+          tags: tags.list(),
+        },
+        folderId,
+      ) === null;
+  }
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2338,6 +2354,7 @@ export function createCore(adapters: CoreAdapters): Core {
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
         scope,
+        sourceChoicesValid: sourceChoicesValid(mind.folderId),
         personId: settings.get().user.personId,
       });
     });
@@ -2399,6 +2416,7 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     },
     mindFolder: (mindId) => minds.get(mindId).folderId,
+    sourceChoicesValid: (mindId) => sourceChoicesValid(minds.get(mindId).folderId),
     walledFolder,
     walledDocument,
     walledFolderName,
@@ -2472,6 +2490,7 @@ export function createCore(adapters: CoreAdapters): Core {
 
   // The AI use statement (#739): a new Mind, made from what the Mind records.
   const aiUseStatement = createAiUseStatement({
+    sourceChoicesValid: (mindId) => sourceChoicesValid(minds.get(mindId).folderId),
     mind: (mindId) => minds.get(mindId),
     read: (mindId, look) => content.peek(mindId, look),
     entries: (mindId) => aiUse.list(mindId),
@@ -2490,6 +2509,7 @@ export function createCore(adapters: CoreAdapters): Core {
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
   const exportDependencies: ExportsDependencies = {
+    sourceChoicesValid: (mindId) => sourceChoicesValid(minds.get(mindId).folderId),
     mind: (mindId) => minds.get(mindId),
     read: (mindId, look) => content.read(mindId, look),
     liveDocuments: () => documents.list(),
@@ -2536,6 +2556,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const mindExports = createExports(exportDependencies);
   const comparisonExport = createComparisonExport(exportDependencies);
   const checkRecord = createCheckRecord({
+    sourceChoicesValid: (mindId) => sourceChoicesValid(minds.get(mindId).folderId),
     mind: (mindId) => minds.get(mindId),
     read: (mindId, look) => content.peek(mindId, look),
     providers: () => chat.list(),

@@ -28,6 +28,7 @@ import {
   figureCheckShown,
   type KeptMark,
   readClaimCheck,
+  type SourceChoicesValid,
 } from "../../../shared/claimChecks";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
 import { sameScope } from "../../../shared/searchScope";
@@ -316,6 +317,7 @@ function noteOf(
 
 /** What a check is compared with besides its sentence: the Documents' versions and the Mind's Folder. */
 export interface ClaimContext {
+  sourceChoicesValid?: SourceChoicesValid;
   figureContexts?: ReadonlyMap<string, string> | null;
   /** Where each figure the one Check reads in a table's cells is, by Block: its start and end in the Block's text. */
   figurePlaces?: ReadonlyMap<string, readonly (readonly [number, number])[]> | null;
@@ -564,7 +566,8 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     now.folderId === context.folderId &&
     sameScopes &&
     now.figureContexts === context.figureContexts &&
-    now.figurePlaces === context.figurePlaces
+    now.figurePlaces === context.figurePlaces &&
+    now.sourceChoicesValid === context.sourceChoicesValid
   )
     return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));

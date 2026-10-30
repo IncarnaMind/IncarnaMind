@@ -89,6 +89,18 @@ async function openClaim(window: Page) {
   await expect(window.getByTestId("claim-card")).toBeVisible();
 }
 
+async function shot(window: Page, name: string) {
+  await window.evaluate(() =>
+    Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished),
+    ),
+  );
+  await window.screenshot({ path: test.info().outputPath(`${name}.png`) });
+}
+
 const facetRow = (window: Page, kind: "source" | "speaker" | "time") =>
   window.locator(`[data-testid="claim-part"][data-facet="${kind}"]`);
 
@@ -123,44 +135,50 @@ async function fixture(language: AttributionLanguage, width: number) {
     `WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n<v Nora>${language === "en" ? "Welcome to the call." : "欢迎参加通话。"}\n\n00:14:32.000 --> 00:14:35.000\n<v Speaker 2>${row.spoken}\n`,
   );
   paths.push(transcript);
-  const { app, window } = await launchApp(data, { fakeChat: true });
-  await dismissChatSetup(window);
-  await connectLocalChatModel(window);
-  await setLanguage(window, language);
-  await setWindowSize(app, window, width, 900);
-  await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const { settings } = await core.getLibrary();
-    await core.saveLibrarySettings({ ...settings, automatic: false });
-  });
-  await addDocuments(window, paths);
-  const documents = await window.evaluate(
-    async ({ name, first, second }) => {
+  try {
+    const { app, window } = await launchApp(data, { fakeChat: true });
+    await dismissChatSetup(window);
+    await connectLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 900);
+    await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const documents = await core.listDocuments();
-      const twins = documents.filter((document) => document.name === name);
-      const home = twins.find((document) => /[/\\]home[/\\]/.test(document.path));
-      const group = twins.find((document) => /[/\\]group[/\\]/.test(document.path));
-      if (!home || !group) throw new Error("Both real same-title Sources must be imported.");
-      const firstFolder = await core.createLibraryGroup({ name: first, description: "" });
-      const secondFolder = await core.createLibraryGroup({ name: second, description: "" });
-      await core.assignDocumentGroup(home.id, firstFolder.id);
-      await core.assignDocumentGroup(group.id, secondFolder.id);
-      return { home: home.id, group: group.id };
-    },
-    { name: row.residents, first: row.firstFolder, second: row.secondFolder },
-  );
-  return {
-    app,
-    window,
-    row,
-    documents,
-    async close() {
-      await app.close();
-      await removeDataFolder(data);
-      await removeDataFolder(sources);
-    },
-  };
+      const { settings } = await core.getLibrary();
+      await core.saveLibrarySettings({ ...settings, automatic: false });
+    });
+    await addDocuments(window, paths);
+    const documents = await window.evaluate(
+      async ({ name, first, second }) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const documents = await core.listDocuments();
+        const twins = documents.filter((document) => document.name === name);
+        const home = twins.find((document) => /[/\\]home[/\\]/.test(document.path));
+        const group = twins.find((document) => /[/\\]group[/\\]/.test(document.path));
+        if (!home || !group) throw new Error("Both real same-title Sources must be imported.");
+        const firstFolder = await core.createLibraryGroup({ name: first, description: "" });
+        const secondFolder = await core.createLibraryGroup({ name: second, description: "" });
+        await core.assignDocumentGroup(home.id, firstFolder.id);
+        await core.assignDocumentGroup(group.id, secondFolder.id);
+        return { home: home.id, group: group.id };
+      },
+      { name: row.residents, first: row.firstFolder, second: row.secondFolder },
+    );
+    return {
+      app,
+      window,
+      row,
+      documents,
+      async close() {
+        await app.close();
+        await removeDataFolder(data);
+        await removeDataFolder(sources);
+      },
+    };
+  } catch (error) {
+    await removeDataFolder(data);
+    await removeDataFolder(sources);
+    throw error;
+  }
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -178,7 +196,39 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(source.getByTestId("claim-part-reason")).toHaveText(
           translate(language, "claim.source.ambiguous", { n: 2, name: row.residents }),
         );
-        await pointAndClick(window, source.getByTestId("claim-part-choose-source"));
+        await shot(window, "source-before");
+        if (width === 1600) {
+          await window.keyboard.press("Escape");
+          const editor = window.getByTestId("mind-editor");
+          await editor.evaluate((dom) => {
+            (dom as unknown as { editor: Editor }).editor.commands.focus("start");
+          });
+          await expect(editor).toBeFocused();
+          await runCommand(
+            window,
+            "check.chooseSource",
+            translate(language, "claim.source.choose"),
+          );
+          await expect(window.getByTestId("claim-source-picker")).toBeVisible();
+          await window.keyboard.press("Escape");
+          await expect(window.getByTestId("claim-source-picker")).toHaveCount(0);
+          await expect(window.getByTestId("claim-card")).toBeVisible();
+          await window.keyboard.press("Escape");
+          await expect(window.getByTestId("claim-card")).toHaveCount(0);
+          await expect(editor).toBeFocused();
+          await openClaim(window);
+          await source.focus();
+          await window.keyboard.press("Shift+F10");
+          await pointAndClick(
+            window,
+            window.getByTestId("check-actions").getByRole("menuitem", {
+              name: translate(language, "claim.source.choose"),
+              exact: true,
+            }),
+          );
+        } else {
+          await pointAndClick(window, source.getByTestId("claim-part-choose-source"));
+        }
         const picker = window.getByTestId("claim-source-picker");
         await expect(picker).toContainText(
           translate(language, "claim.source.picker", { name: row.residents }),
@@ -200,12 +250,22 @@ for (const language of ["en", "zh-CN"] as const) {
             language,
           ),
         );
+        expect(
+          await picker.evaluate((element) => {
+            const box = element.getBoundingClientRect();
+            return (
+              box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight
+            );
+          }),
+        ).toBe(true);
+        await shot(window, "source-picker");
         await pointAndClick(window, second);
         await expect(picker).toBeHidden();
         await expect
           .poll(async () => (await readCheck(window))?.parts?.find((part) => !part.facet)?.verdict)
           .toBe("contradicted");
         const chosen = await readCheck(window);
+        await shot(window, "source-chosen");
         expect(chosen?.parts?.find((part) => part.facet?.kind === "source")?.facet).toMatchObject({
           selectedDocumentId: documents.group,
         });
@@ -274,6 +334,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(speaker).toHaveAttribute("data-verdict", "unsupported");
         await expect(speaker).toContainText(row.speakerWords);
         await expect(speaker.getByTestId("claim-part-reason")).toContainText(row.transcriptName);
+        await shot(window, "speaker");
         await pointAndClick(window, speaker.getByTestId("claim-part-citation").first());
         const cue = window.getByTestId("transcript-line").filter({ hasText: row.spoken });
         await expect(cue).toHaveAttribute("data-start", "872000");
@@ -321,6 +382,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(time.getByTestId("claim-part-reason")).toHaveText(
           translate(language, "claim.time.stale", { period, document: row.staleName }),
         );
+        await shot(window, "time-before");
         await pointAndClick(
           window,
           window
@@ -344,6 +406,7 @@ for (const language of ["en", "zh-CN"] as const) {
           );
         }
         await expect(window.getByTestId("mind-editor")).toContainText(row.anchored);
+        await shot(window, "time-anchored");
         await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(1);
         await pointAndClick(window, window.getByTestId("undo-action").last());
         await expect.poll(() => documentJSON(window)).toEqual(before);

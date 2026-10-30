@@ -7,6 +7,7 @@
  */
 import type * as Y from "yjs";
 import type { LiveDocument } from "../../shared/citations";
+import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import type { NodeJSON } from "../answers/blocks";
@@ -24,6 +25,7 @@ import { readFigures } from "./figures";
 import { statementBlocks } from "./template";
 
 export interface AiUseStatementOptions {
+  sourceChoicesValid?(mindId: string): SourceChoicesValid;
   /** Throws `NotFoundError` unless the Mind exists. */
   mind(mindId: unknown): Mind;
   /** Reads a Mind's Blocks; the Mind is left as it is. */
@@ -60,6 +62,7 @@ export function createAiUseStatement(options: AiUseStatementOptions) {
       const entries = options.entries(source.id);
       const figures = options.read(source.id, (fragment) =>
         readFigures({
+          sourceChoicesValid: options.sourceChoicesValid?.(source.id),
           fragment,
           entries,
           documents: options.documents(),

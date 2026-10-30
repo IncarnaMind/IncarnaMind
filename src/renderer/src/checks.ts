@@ -147,10 +147,15 @@ export function clearSourceChoice(
 export function sourceChoiceAt(editor: Editor, mindId: string, objectId?: string) {
   if (editor.isDestroyed || !editor.isEditable || useChecks.getState().running[mindId]) return null;
   const state = useAppStore.getState();
+  if (!state.library) return null;
   const folderId = state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
   const { from, to } = editor.state.selection;
   const matches = shownClaims(editor.state).flatMap((claim) => {
-    if (claim.shown.state === "needs-recheck" || claim.shown.state === "checking") return [];
+    if (
+      claim.shown.state === "checking" ||
+      (claim.shown.state === "needs-recheck" && claim.shown.why !== "source-choice")
+    )
+      return [];
     return (claim.check.parts ?? []).flatMap((part) => {
       const facet = part.facet;
       if (
@@ -179,9 +184,7 @@ export function sourceChoiceAt(editor: Editor, mindId: string, objectId?: string
         },
         folderId,
       );
-      return choices && (choices.choices.length > 1 || facet.selectedDocumentId !== undefined)
-        ? [{ claim, part }]
-        : [];
+      return choices && choices.choices.length > 1 ? [{ claim, part }] : [];
     });
   });
   return matches.length === 1 ? (matches[0] ?? null) : null;

@@ -13,6 +13,7 @@ import {
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
+import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -126,6 +127,7 @@ export interface RecordCiteItem {
 }
 
 export interface RecordSources {
+  sourceChoicesValid?: SourceChoicesValid;
   fragment: Y.XmlFragment;
   documents: readonly Document[];
   kept: readonly KeptCitationText[];
@@ -242,6 +244,7 @@ export function readRecord(sources: RecordSources): {
     requests.push(check.request);
     const result = sentenceResultOf(
       claimCheckShown(check, {
+        sourceChoicesValid: sources.sourceChoicesValid,
         text: sentence,
         versions,
         folderId,

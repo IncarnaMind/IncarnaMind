@@ -167,6 +167,7 @@ export interface ChecksOptions
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  sourceChoicesValid?: MindCheckOptions["sourceChoicesValid"];
   /** The Folder whose work stays inside it, or null when this Mind is not walled. */
   walledFolder(mindId: string | null): string | null;
   /** The wall a Document belongs to, or null when it belongs to none. */
@@ -606,6 +607,7 @@ export function createChecks(options: ChecksOptions) {
       {
         ...result,
         ...augmentFigureFooting(blocks, result, options.documents, {
+          sourceChoicesValid: options.sourceChoicesValid?.(mindId),
           versions: options.watch.documentVersions(),
           folderId: options.mindFolder(mindId),
           scope: content.readSettings(mindId, mindScopeIn),

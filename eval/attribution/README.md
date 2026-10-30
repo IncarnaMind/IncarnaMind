@@ -22,3 +22,23 @@ The intended measurement uses Claude Haiku 5.5 and Kimi before and after the cha
 Real-model runs are pending credit. No paid runner is enabled by adding these fixtures. The engine, older-reader protection, date-boundary and UI integration remain in progress.
 
 `scoring.ts` builds an allowlisted Check input with imported Document UUIDs, and retains every returned result or missing result in the frozen denominators. A native-verdict hit is reported separately from scope, expected-Source and physical-quote checks. Decisive newer/context coverage is a separate conservative diagnostic; finding a short literal quote does not prove a context reversal. None of these helpers replaces semantic review or enables a model runner. The scripted tests cover input leakage, false evidence, missing results and blanket rejection at zero cost.
+
+## Zero-cost adapter
+
+Run the existing evaluation host against the dry entry point:
+
+```sh
+npx vitest run --config eval/vitest.config.ts eval/attribution/run.attribution.eval.ts
+```
+
+This command uses a scripted model with no external requests. It imports all 48 exact Source texts, calls public `checkClaim` for all 40 assertions with their actual imported UUID scope, and injects the frozen Check clock. Automatic tagging is disabled before import. It sends no gold, rationale, proof references or expected facet/figure targets to the model. The deliberately uninformative mock response tests loading and retention; its scores are not model-quality results.
+
+Reports go to a new `test-results/attribution-eval` directory. Each completed case and its request traces are appended to `outcomes.jsonl`; `report.json` retains all 40 rows, every miss and actual returned parts, plus the full measured source head, source-diff hash and fixture hash. The fixture SHA-256 is `a62d633b30fdd0413498378f83472b526db0bd6c2092a82f6953cf112c64e4ce`.
+
+`INCARNAMIND_ATTRIBUTION_ARM=before` labels a dry baseline; `after` is the default. Use the identical frozen fixture and adapter at the landed baseline and candidate heads. The manifest identifies the actual source; a dirty dry run cannot be presented as a clean measured candidate. This adapter is standalone Core measurement, not a Note/Verify or UI pipeline. It reports every observed sort request without inventing an amortized Note/Verify sort count. Sampling seed, temperature and output limits are recorded as actually sent; absent values stay null.
+
+The observer wraps both SDK entry points, including unmatched setup requests, strict contradiction confirmations, errors, unfinished streams and cancellations. It retains raw synthetic Tool inputs/results, text replies, latency, input/output and separate cache-read/cache-write usage. Missing or invalid counts stay unknown; missing cache details are never zero-filled. Error records keep only an allowlisted error class and numeric status, without headers, credentials, options or whole Error objects. Per-language summaries show all 20 cases, requests per check, strict requests, total/mean/p50/p95 latency and native false Supported/Contradicted counts. Exact target-row presence is diagnostic; a parent verdict never supplies a missing facet verdict. Native and strict physical-evidence scores remain separate.
+
+Frozen modification timestamps are applied before import. Portable file creation time cannot be assigned through the ordinary importer: reports retain the declared creation timestamp, actual file timestamps and imported Document metadata with `createdAtApplied: false`. Source bytes are never modified to fake metadata.
+
+Paid execution is disabled: every mode except `dry` refuses before opening a host, and no credential/config loader is called. A funded host still needs explicit opt-in, exact model/source/data pins, one cumulative approved budget across both heads, conservative reservation before every generate/stream call, actual cache-write settlement and unreleased maximum holds for unknown usage. It must stop the arm on auth, out-of-credit or budget errors, preserve unstarted rows, and never retry a case for quality or switch providers. The app's monthly meter alone does not supply this experiment-wide guarantee. No paid cost forecast is inferred from the mock's token counts; those requirements remain a funding gate.

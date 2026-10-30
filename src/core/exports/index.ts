@@ -12,6 +12,7 @@ import { seriesName } from "../../shared/charts";
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
+import type { SourceChoicesValid } from "../../shared/claimChecks";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
@@ -102,6 +103,7 @@ import type { ReviewChoices } from "./wordReview";
 type LiveDocument = SourceDocument;
 
 export interface ExportsDependencies {
+  sourceChoicesValid?(mindId: string): SourceChoicesValid;
   /** The Mind; throws if it doesn't exist or was deleted. */
   mind(mindId: unknown): Mind;
   /** Reads the Mind's Blocks (see `MindContent.read`). */
@@ -298,6 +300,7 @@ export function createExports(deps: ExportsDependencies) {
       else if (doc && fromWord && format !== "source-pack")
         readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
+        sourceChoicesValid: deps.sourceChoicesValid?.(mind.id),
         versions: new Map(documents.map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
         scope: doc ? mindScopeOf(doc) : null,

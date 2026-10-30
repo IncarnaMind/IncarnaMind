@@ -1005,6 +1005,12 @@ export const zhCN = {
   "claim.recheck.document-removed": "核对时用到的文档已删除。",
   "claim.recheck.scope": "这篇笔记已移到别的文件夹。",
   "claim.recheck.search-scope": "这篇笔记的搜索范围已更改。",
+  "claim.recheck.source-choice": "需重新核对",
+  "claim.recheck.source-choice.renamed": "你在这里选的“{name}”已改名为“{new}”",
+  "claim.recheck.source-choice.deleted": "你在这里选的“{name}”已移到“最近删除”",
+  "claim.recheck.source-choice.out-of-scope": "你在这里选的“{name}”已不在这篇笔记的范围内",
+  "claim.recheck.source-choice.walled":
+    "你在这里选的“{name}”在“{Folder}”中，该文件夹只在本文件夹内工作",
   "claim.recheck.figures": "核对它时，其中的数字尚未逐个对照各自的来源。",
   "claim.recheck.referent": "其中 Id. 或 supra 所指的记录引用已改动。",
   "health.label": "说法和引用",
@@ -4060,6 +4066,7 @@ export const zhCN = {
   "export.comment.sentence.needs-recheck.document-removed": "需重新核对：核对时用到的文档已删除。",
   "export.comment.sentence.needs-recheck.scope": "需重新核对：这篇笔记已移到别的文件夹。",
   "export.comment.sentence.needs-recheck.search-scope": "需重新核对：这篇笔记的搜索范围已更改。",
+  "export.comment.sentence.needs-recheck.source-choice": "需重新核对",
   "export.comment.sentence.needs-recheck.figures":
     "需重新核对：核对它时，其中的数字尚未逐个对照各自的来源。",
   "export.comment.sentence.needs-recheck.referent":

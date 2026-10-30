@@ -4,6 +4,7 @@ import { DOMParser } from "linkedom";
 import { afterEach, expect, test, vi } from "vitest";
 import type * as Y from "yjs";
 import { type Document, MIND_CONTENT_FIELD } from "../../src/core/api";
+import { sourceChoiceProblem } from "../../src/shared/sourceFacets";
 import { listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock } from "../helpers/core";
@@ -177,7 +178,7 @@ test.each([
     cleanup.push(close);
   });
   const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
-  const { ClaimChecks, shownClaims, claimSpans } = await import(
+  const { ClaimChecks, shownClaims, claimSpans, setClaimContext } = await import(
     "../../src/renderer/src/editor/claimChecks"
   );
   const { registerMindEditor } = await import("../../src/renderer/src/editor/openEditors");
@@ -194,6 +195,24 @@ test.each([
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  const live = useAppStore.getState();
+  setClaimContext(editor.view, {
+    versions: new Map(live.documents.map((document) => [document.id, document.contentHash])),
+    folderId: mind.folderId,
+    scope: null,
+    sourceChoicesValid: (check) =>
+      sourceChoiceProblem(
+        check,
+        {
+          documents: live.documents,
+          folders: live.folders,
+          tags: live.tags,
+          groups: live.library?.groups,
+          assignments: live.library?.assignments,
+        },
+        mind.folderId,
+      ) === null,
+  });
   const unregister = registerMindEditor(mind.id, editor);
   cleanup.push(() => {
     unregister();

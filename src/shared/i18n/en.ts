@@ -1026,6 +1026,13 @@ export const en = {
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
   "claim.recheck.scope": "The note is in another Folder now.",
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
+  "claim.recheck.source-choice": "Needs re-check",
+  "claim.recheck.source-choice.renamed": "The “{name}” you chose here is now called “{new}”",
+  "claim.recheck.source-choice.deleted": "The “{name}” you chose here is in Recently deleted",
+  "claim.recheck.source-choice.out-of-scope":
+    "The “{name}” you chose here is no longer in this note’s scope",
+  "claim.recheck.source-choice.walled":
+    "The “{name}” you chose here is in “{Folder}”, which keeps its work inside it",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
@@ -4226,6 +4233,7 @@ export const en = {
     "Needs re-check: the note is in another Folder now.",
   "export.comment.sentence.needs-recheck.search-scope":
     "Needs re-check: the note’s Search scope has changed since.",
+  "export.comment.sentence.needs-recheck.source-choice": "Needs re-check",
   "export.comment.sentence.needs-recheck.figures":
     "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.comment.sentence.needs-recheck.referent":

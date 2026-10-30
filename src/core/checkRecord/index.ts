@@ -4,7 +4,7 @@
  * checks (see ./read), on this computer; the host decides where the bytes go, and nothing is sent.
  */
 import type * as Y from "yjs";
-import { checkedScope } from "../../shared/claimChecks";
+import { checkedScope, type SourceChoicesValid } from "../../shared/claimChecks";
 import type { MessageKey } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
@@ -33,6 +33,7 @@ import { modelLabel, translatorFor } from "./labels";
 import { type CitationItem, type RecordCiteItem, readRecord, type SentenceItem } from "./read";
 
 export interface CheckRecordDependencies {
+  sourceChoicesValid?(mindId: string): SourceChoicesValid;
   /** Throws `NotFoundError` unless the Mind exists. */
   mind(mindId: unknown): Mind;
   /** Reads a Mind's Blocks; the Mind is left as it is. */
@@ -96,6 +97,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const t = translatorFor(language);
     const { sentences, citations, recordCites, unread } = deps.read(mind.id, (fragment) => {
       const record = readRecord({
+        sourceChoicesValid: deps.sourceChoicesValid?.(mind.id),
         fragment,
         documents: deps.documents(),
         kept: deps.keptCitationTexts(),

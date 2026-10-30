@@ -28,6 +28,7 @@ import {
   checkedSentence,
   claimCheckShown,
   restsOn,
+  type SourceChoicesValid,
 } from "../../../shared/claimChecks";
 import { readPartPlans, withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
@@ -89,6 +90,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
+  sourceChoicesValid?(mindId: string): SourceChoicesValid;
   documents: {
     /**
      * The live Documents with Passages to search, of these (null: of all), that joined after
@@ -243,6 +245,7 @@ export function createMindCheck(options: MindCheckOptions) {
           marked.check,
           claimCheckShown(marked.check, {
             text: marked.sentence,
+            sourceChoicesValid: options.sourceChoicesValid?.(mindId),
             versions,
             folderId,
             scope,
@@ -412,6 +415,7 @@ export function createMindCheck(options: MindCheckOptions) {
             check: mark
               ? claimCheckShown(mark.check, {
                   text: sentence.text,
+                  sourceChoicesValid: options.sourceChoicesValid?.(mindId),
                   versions,
                   folderId,
                   scope,
@@ -463,6 +467,7 @@ export function createMindCheck(options: MindCheckOptions) {
           check: mark
             ? claimCheckShown(mark.check, {
                 text: sentence.text,
+                sourceChoicesValid: options.sourceChoicesValid?.(mindId),
                 versions,
                 folderId,
                 scope,

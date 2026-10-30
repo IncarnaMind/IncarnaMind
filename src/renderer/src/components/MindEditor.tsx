@@ -6,16 +6,26 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import type { SourceChoicesValid } from "../../../shared/claimChecks";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
+import { sourceChoiceProblem } from "../../../shared/sourceFacets";
 import { askedInThisWindow } from "../askedChanges";
 import { checkSentences, useChecks } from "../checks";
 import {
@@ -489,12 +499,32 @@ function MindEditorView({
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
+  const folders = useAppStore((state) => state.folders);
+  const tags = useAppStore((state) => state.tags);
+  const library = useAppStore((state) => state.library);
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
   const versions = useMemo(
     () => (documents ? new Map(documents.map((each) => [each.id, each.contentHash])) : null),
     [documents],
+  );
+  const sourceLibrary = useMemo(
+    () =>
+      documents
+        ? {
+            documents,
+            folders,
+            tags,
+            groups: library?.groups,
+            assignments: library?.assignments,
+          }
+        : null,
+    [documents, folders, tags, library],
+  );
+  const sourceChoicesValid = useCallback<SourceChoicesValid>(
+    (check) => sourceChoiceProblem(check, sourceLibrary, folderId) === null,
+    [sourceLibrary, folderId],
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
@@ -534,8 +564,15 @@ function MindEditorView({
   );
   useEffect(() => {
     if (!editor.isDestroyed)
-      setClaimContext(editor.view, { versions, folderId, scope, figureContexts, figurePlaces });
-  }, [editor, versions, folderId, scope, figureContexts, figurePlaces]);
+      setClaimContext(editor.view, {
+        versions,
+        folderId,
+        scope,
+        figureContexts,
+        figurePlaces,
+        sourceChoicesValid,
+      });
+  }, [editor, versions, folderId, scope, figureContexts, figurePlaces, sourceChoicesValid]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.
