@@ -51,6 +51,7 @@ import type {
   DocumentStatus,
   DocumentText,
   DocumentTextMatch,
+  DocumentVersionText,
   KeptCitationText,
   OwnFile,
   PassageSearchResult,
@@ -210,6 +211,16 @@ const toUnitText = (row: UnitRow): PageText => ({
   anchors: parseJson<Anchor[]>(row.anchors),
 });
 
+/**
+ * When a version was made: its file's last change as the app saw it, else
+ * when it was read (a file whose modified time the app doesn't know, such as
+ * one that returned after going missing).
+ */
+const versionMomentOf = (row: Pick<DocumentRow, "file_mtime_ms">, readAt: string): string =>
+  row.file_mtime_ms === null || row.file_mtime_ms === 0
+    ? readAt
+    : new Date(row.file_mtime_ms).toISOString();
+
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
@@ -240,6 +251,10 @@ function parseId(id: unknown): string {
     throw new InvalidInputError("A Document id is required.");
   return id;
 }
+
+/** A Unit's number, from 1. */
+const isUnit = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1;
 
 function parseName(name: unknown): string {
   if (typeof name !== "string") throw new InvalidInputError("A Document's name must be text.");
@@ -724,14 +739,15 @@ export function createDocuments(options: DocumentsOptions) {
   function keepScannedPage(documentId: string, contentHash: string, unit: TextUnit): void {
     db.transaction(() => {
       // A job stopped meanwhile read it all the same: the next one keeps it.
-      if (!find(documentId)) return;
+      const row = find(documentId);
+      if (!row) return;
       const at = now();
       db.run(
         `UPDATE document_pages SET deleted_at = ?, updated_at = ?
          WHERE document_id = ? AND content_hash = ? AND page = ? AND deleted_at IS NULL`,
         [at, at, documentId, contentHash, BigInt(unit.page)],
       );
-      insertPages(documentId, contentHash, [unit]);
+      insertPages(documentId, contentHash, [unit], versionMomentOf(row, at));
     });
   }
 
@@ -810,15 +826,20 @@ export function createDocuments(options: DocumentsOptions) {
   /**
    * Stores the text of a version's Units (pages, slides, sections, rows,
    * lines), with their labels and anchors, for the Citation check and the
-   * viewer. Run in a transaction.
+   * viewer, and when that version was made. Run in a transaction.
    */
-  function insertPages(documentId: string, contentHash: string, pages: readonly PageText[]): void {
+  function insertPages(
+    documentId: string,
+    contentHash: string,
+    pages: readonly PageText[],
+    versionAt: string,
+  ): void {
     const at = now();
     for (const { page, text, kind, label, anchors } of pages) {
       db.run(
         `INSERT INTO document_pages (id, document_id, content_hash, page, kind, label, anchors,
-           text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           text, created_at, updated_at, version_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           documentId,
@@ -830,6 +851,7 @@ export function createDocuments(options: DocumentsOptions) {
           text,
           at,
           at,
+          versionAt,
         ],
       );
     }
@@ -1137,7 +1159,7 @@ export function createDocuments(options: DocumentsOptions) {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
-        insertPages(job.documentId, result.contentHash, result.pages);
+        insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -2509,6 +2531,52 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         fileStatus: row.file_status as DocumentFileStatus,
         pages: pages.map(toUnitText).map((unit) => ({
+          page: unit.page ?? 1,
+          text: unit.text,
+          kind: unit.kind ?? "page",
+          label: unit.label ?? null,
+        })),
+      };
+    },
+
+    /**
+     * The text kept of one version of a live Document, its Units `pageFrom`
+     * to `pageTo`, and when that version was made (see
+     * `CoreApi.readVersionText`). Null when that version's text isn't kept.
+     */
+    readVersionText(input: unknown): DocumentVersionText | null {
+      if (!isRecord(input)) throw new InvalidInputError("A version's text needs an object.");
+      const row = find(parseId(input.documentId));
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      const { contentHash, pageFrom, pageTo } = input;
+      if (typeof contentHash !== "string" || contentHash === "") {
+        throw new InvalidInputError("A version's text needs its content hash.");
+      }
+      const whole = pageFrom === null && pageTo === null;
+      if (!whole && !(isUnit(pageFrom) && isUnit(pageTo) && pageFrom <= pageTo)) {
+        throw new InvalidInputError(
+          "A version's Units are a first and a last Unit number, from 1, or both null.",
+        );
+      }
+      const units = pageTexts(row.id, contentHash, whole ? null : pageFrom, whole ? null : pageTo);
+      if (units.length === 0) return null;
+      // A saved page's own fetch is its version's date; any other Document's is its file's.
+      const moment = db.get<{ version_at: string | null; fetched_at: string | null }>(
+        `SELECT MIN(COALESCE(dp.version_at, dp.created_at)) AS version_at,
+           (SELECT w.fetched_at FROM web_pages w
+            WHERE w.document_id = dp.document_id AND w.content_hash = dp.content_hash
+              AND w.deleted_at IS NULL ORDER BY w.fetched_at LIMIT 1) AS fetched_at
+         FROM document_pages dp
+         WHERE dp.document_id = ? AND dp.content_hash = ? AND dp.deleted_at IS NULL`,
+        [row.id, contentHash],
+      );
+      const versionAt = moment?.fetched_at ?? moment?.version_at;
+      if (!versionAt) return null;
+      return {
+        documentId: row.id,
+        contentHash,
+        versionAt,
+        pages: units.map((unit) => ({
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",

@@ -918,43 +918,61 @@ for (const language of ["en", "zh-CN"] as const) {
         await pointAndClick(window, changedCard.getByTestId("claim-part-citation"));
         const viewer = window.getByTestId("viewer");
         await expect(viewer).toBeVisible();
+        const place = () =>
+          window.evaluate(
+            async (id) =>
+              (
+                await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLayout(
+                  "main",
+                )
+              ).groups
+                .flatMap((group) => group.tabs)
+                .find((tab) => tab.item.kind === "document" && tab.item.documentId === id)?.place,
+            changedDocument.id,
+          );
+        // The version the Citation was made from (#2159), at the paragraph it cites.
+        const citedLabel = language === "en" ? "¶\u00a02" : "第 2 段";
+        await expect(viewer.getByTestId("viewer-as-cited")).toBeVisible();
+        await expect(viewer.getByTestId("viewer-cited-place")).toContainText(citedLabel);
         await expect
           .poll(async () =>
             (await viewer.locator("[data-quote-highlight]").allTextContents()).join(""),
           )
           .toBe(changedQuote);
         await expect(viewer.locator("[data-quote-highlight]").first()).toBeInViewport();
+        await expect.poll(place).toMatchObject({
+          pageFrom: 1,
+          pageTo: 1,
+          quote: changedQuote,
+          citation: {
+            contentHash: oldCitation.contentHash,
+            pageFrom: 1,
+            pageTo: 1,
+            location: { kind: "section", paragraphs: { from: 2, to: 2 } },
+            label: citedLabel,
+          },
+        });
+        await screenshot(window, `opinions-cited-source-${language}-900`);
+
+        // One action to the current version, at the paragraph the quote moved to.
         const movedLabel = language === "en" ? "¶\u00a03" : "第 3 段";
+        await pointAndClick(window, viewer.getByTestId("viewer-open-current"));
+        await expect(viewer.getByTestId("viewer-as-cited")).toHaveCount(0);
         const movedParagraph = viewer.locator("section.docx > article p").nth(2);
         await expect(movedParagraph).toHaveText(changedQuote);
         await expect(movedParagraph.locator("[data-quote-highlight]")).toHaveCount(1);
-        await expect
-          .poll(() =>
-            window.evaluate(
-              async (id) =>
-                (
-                  await (
-                    globalThis as unknown as { incarnamind: CoreBridge }
-                  ).incarnamind.getLayout("main")
-                ).groups
-                  .flatMap((group) => group.tabs)
-                  .find((tab) => tab.item.kind === "document" && tab.item.documentId === id)?.place,
-              changedDocument.id,
-            ),
-          )
-          .toMatchObject({
+        await expect.poll(place).toMatchObject({
+          pageFrom: 1,
+          pageTo: 1,
+          quote: changedQuote,
+          citation: {
             pageFrom: 1,
             pageTo: 1,
-            quote: changedQuote,
-            citation: {
-              contentHash: oldCitation.contentHash,
-              pageFrom: 1,
-              pageTo: 1,
-              location: { kind: "section", paragraphs: { from: 2, to: 2 } },
-              label: movedLabel,
-            },
-          });
-        await screenshot(window, `opinions-moved-source-${language}-900`);
+            location: { kind: "section", paragraphs: { from: 3, to: 3 } },
+            label: movedLabel,
+          },
+        });
+        await screenshot(window, `opinions-current-source-${language}-900`);
         const sourceTab = window.getByTestId("document-tab").first();
         await sourceTab.hover();
         await pointAndClick(window, sourceTab.getByTestId("tab-close"));

@@ -503,11 +503,19 @@ for (const language of ["en", "zh-CN"] as const) {
       await screenshot(window, `web-card-${language}`);
       await window.keyboard.press("Escape");
 
-      // The card offers Update and Keep in place of Open; a click on the Citation opens the page.
+      // The card offers Update and Keep in place of Open; a click on the Citation opens the page
+      // as it was cited, and one action there shows the copy fetched since (#2159).
       await pointAndClick(window, chip);
-      const notice = window.getByTestId("viewer-citation-changed");
-      await expect(notice).toContainText(words.fetchedAgain);
+      const viewer = window.getByTestId("viewer");
+      await expect(viewer.getByTestId("viewer-as-cited")).toContainText(
+        language === "zh-CN" ? "引用时，" : "As cited,",
+      );
+      await expect(viewer.getByTestId("viewer-cited")).toContainText(OLD);
+      await expect(viewer.getByTestId("viewer-cited")).not.toContainText(NEW);
       await screenshot(window, `web-viewer-${language}`);
+      await pointAndClick(window, viewer.getByTestId("viewer-open-current"));
+      await expect(viewer.getByTestId("viewer-as-cited")).toHaveCount(0);
+      await expect(viewer.getByTestId("viewer-web-article")).toContainText(NEW);
     } finally {
       await app.close();
       server.closeAllConnections();

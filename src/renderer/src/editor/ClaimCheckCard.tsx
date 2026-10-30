@@ -51,7 +51,7 @@ import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
-import { openCitedFollowing } from "../openCited";
+import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
@@ -452,7 +452,6 @@ export function ClaimMark({
  */
 function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpen(): void }) {
   const t = useT();
-  const mindId = useContext(MindIdContext);
   const documents = useAppStore((store) => store.documents);
   const { figure } = calculation;
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
@@ -495,11 +494,11 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
                 className="claim-card-input"
                 title={input.citation.quote}
                 onClick={() => {
-                  void openCitedFollowing(
-                    input.citation,
-                    { check: "found", withQuote: true, label: where },
-                    mindId,
-                  );
+                  void openCited(input.citation, {
+                    check: "found",
+                    withQuote: true,
+                    label: where,
+                  });
                   onOpen();
                 }}
               >
@@ -1036,10 +1035,9 @@ function ClaimCard({
             }`}
             onClick={() => {
               if (!evidence.documentId) return;
-              void openCitedFollowing(
+              void openCited(
                 { ...evidence, documentId: evidence.documentId },
                 { check: "found", withQuote: true, label: where },
-                mindId,
               );
               onOpen();
             }}

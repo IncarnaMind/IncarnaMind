@@ -2051,6 +2051,29 @@ export const migrations: readonly Migration[] = [
       END;
     `,
   },
+  {
+    version: 116,
+    description: "A version's Units keep when that version was made (#2159)",
+    sql: `
+      -- When the version whose text a row holds was made: its file's last change, as the app saw
+      -- it when it read that version. A Citation opens the version it was made from after its
+      -- Document changed, marked with this date (#2159). A current version's date is its file's
+      -- modified time, already kept; a file dated 0 has none the app can use. Older versions know
+      -- none, and read as when their text was kept; a saved page's fetch is read from web_pages.
+      ALTER TABLE document_pages ADD COLUMN version_at TEXT;
+      UPDATE document_pages
+      SET version_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', d.file_mtime_ms / 1000.0, 'unixepoch')
+        FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+      )
+      WHERE version_at IS NULL AND EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+          AND d.file_mtime_ms > 0
+      );
+    `,
+  },
 ];
 
 /**
