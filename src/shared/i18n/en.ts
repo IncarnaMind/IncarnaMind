@@ -4725,6 +4725,7 @@ export const en = {
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
+  "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":

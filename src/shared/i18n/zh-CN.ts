@@ -4508,6 +4508,7 @@ export const zhCN = {
   "error.agent.noFolders": "至少选择一个文件夹，供智能体读取。",
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
+  "error.library.checkedFolders": "推荐的文件夹无效。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.noFolders": "先新建或选择文件夹。",
   "error.library.scanImagesOff":

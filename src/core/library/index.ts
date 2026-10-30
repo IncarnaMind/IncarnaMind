@@ -1373,7 +1373,8 @@ export function createLibrary(options: {
     // A new request id makes a run already under way for these Documents stale.
     accept(input: unknown, checked?: unknown): AssignmentChange[] {
       if (checked !== undefined) {
-        if (!isRecord(checked)) throw new InvalidInputError("Choose valid Suggested Folders.");
+        if (!isRecord(checked))
+          throw new InvalidInputError({ key: "error.library.checkedFolders" });
         // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
         // that moved to another Folder since it was checked is never accepted unchecked.
         const ids: readonly unknown[] = Array.isArray(input) ? input : [];

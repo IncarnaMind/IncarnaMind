@@ -142,7 +142,7 @@ function parseSaveInput(input: unknown): SaveWebPageInput {
 
 /**
  * Which page saved already a save may give back: only those `reusable` takes. A save under way is
- * shared only with saves of the same `key`, never with one that has no rule.
+ * shared only with saves of the same `key`; a save with no rule joins any.
  */
 export interface PageReuse {
   key: string;
@@ -472,6 +472,12 @@ export function createWebPages(options: WebPagesOptions) {
       if (options.localOnly?.() && html === undefined && !fetch && !localModeOnce) {
         return Promise.resolve(heldInLocalMode(address));
       }
+      // The User may take any page, so their save joins any save of it under way, a web search's
+      // for whichever side of a wall; a save with a rule joins only one with its own key.
+      const joined = reuse
+        ? undefined
+        : [...underWay].find(([key]) => key === address || key.endsWith(`\n${address}`))?.[1];
+      if (joined) return joined.then(claimed);
       return once(reuse ? `${reuse.key}\n${address}` : address, async () => {
         try {
           return await withPage(await pageFor(address, html, fetch), async (page) => {
