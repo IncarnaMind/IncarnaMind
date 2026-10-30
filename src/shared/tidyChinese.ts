@@ -58,13 +58,18 @@ function closedAt(text: string, at: number): number {
  * character, or a parenthesis in a paragraph that is Chinese. A mark inside a number, a time, an
  * address or English text stays half-width.
  */
-function fullWidthPunctuation(text: string, context: TidyContext): string {
+function fullWidthPunctuation(
+  text: string,
+  context: TidyContext,
+  skip: (index: number) => boolean = () => false,
+): string {
   const chinese = HAN.test(text);
   const replaced = new Map<number, string>();
   let at = 0;
   for (const char of text) {
     const index = at;
     at += char.length;
+    if (skip(index)) continue;
     const previous = before(text, index, context);
     const next = after(text, index, context);
     const convert = (mark: string) => replaced.set(index, mark);
@@ -91,6 +96,7 @@ function fullWidthPunctuation(text: string, context: TidyContext): string {
       case "(": {
         const close = closedAt(text, index);
         // An English paragraph keeps its parentheses; a Chinese one writes them full-width.
+        if (close !== -1 && skip(close)) break;
         if (isHan(previous) || (chinese && close !== -1)) {
           convert("（");
           replaced.set(close, "）");
@@ -169,13 +175,21 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
   return out;
 }
 
-/** File names, web and email addresses, and paths: settings a tidy must leave exactly as written. */
+/**
+ * File names, web and email addresses, and paths: settings a tidy must leave
+ * exactly as written. Each protects what punctuation could change, not the
+ * words a clause uses to reach it: a file's extension, the domain of an email
+ * or address, or the whole path, so the Chinese around it is still tidied.
+ */
+const FILE_EXTENSION =
+  "(?:docx?|pdf|xlsx?|pptx?|txt|md|csv|tsv|png|jpe?g|gif|svg|zip|json|html?|xml|ya?ml|toml|py|ts|tsx|js|jsx|mp3|mp4|mov|wav|rtf|pages|numbers|key|ppt|doc|xls|epub|tex|bib)";
 const ADDRESSES: readonly RegExp[] = [
   /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
-  /[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}.-]+\.[A-Za-z]{2,}/gu,
-  /[\p{L}\p{N}._%+'-]+\.(?:docx?|pdf|xlsx?|pptx?|txt|md|csv|tsv|png|jpe?g|gif|svg|zip|json|html?|xml|ya?ml|toml|py|ts|tsx|js|jsx|mp3|mp4|mov|wav|rtf|pages|numbers|key|ppt|doc|xls|epub|tex|bib)(?![\p{L}\p{N}])/giu,
+  /@[\p{L}\p{N}.-]+\.[A-Za-z]{2,}/gu,
+  new RegExp(`[A-Za-z0-9._%+'-]+\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
+  new RegExp(`\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
   /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]*)?/gu,
-  /[\p{L}\p{N}]*\p{Script=Han}[\p{L}\p{N}.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》]*)?/gu,
+  /(?<=\p{Script=Han})\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》]*)?/gu,
   /[A-Za-z0-9._%+'-]+(?:[\\/][A-Za-z0-9._%+'-]+)+/gu,
   /[A-Za-z]:\\[^\s,;，。；：！？、（）“”‘’《》]+/gu,
   /www\.[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
@@ -183,6 +197,9 @@ const ADDRESSES: readonly RegExp[] = [
 
 /** Where an address, a file name or a path is, so the tidy leaves those characters alone. */
 function protectedRanges(text: string): { start: number; end: number }[] {
+  // No address, file name or path can start without one of these: a long run of Chinese
+  // text skips the scans, which would otherwise try every character.
+  if (!/[.\\/@]/.test(text)) return [];
   const found: { start: number; end: number }[] = [];
   for (const pattern of ADDRESSES) {
     for (const match of text.matchAll(new RegExp(pattern.source, pattern.flags))) {
@@ -203,7 +220,6 @@ function protectedRanges(text: string): { start: number; end: number }[] {
 /** One stretch of ordinary text, tidied as it is. */
 function tidyPiece(text: string, context: TidyContext): string {
   let out = curlyQuotes(text);
-  out = fullWidthPunctuation(out, context);
   out = withoutSpacesBesideFullWidth(out, context);
   out = spacesBetweenScripts(out, context);
   return out;
@@ -213,22 +229,27 @@ function tidyPiece(text: string, context: TidyContext): string {
 export function tidyChinese(text: string, context: TidyContext = {}): string {
   if (text === "") return text;
   const ranges = protectedRanges(text);
-  if (ranges.length === 0) return tidyPiece(text, context);
+  const protectedChars = new Uint8Array(text.length);
+  for (const range of ranges) protectedChars.fill(1, range.start, range.end);
+  const inRange = (index: number) => protectedChars[index] === 1;
+  // Full-width punctuation sees the whole run, so a pair around a protected address still pairs.
+  const punctuated = fullWidthPunctuation(text, context, inRange);
+  if (ranges.length === 0) return tidyPiece(punctuated, context);
   let out = "";
   let at = 0;
   const piece = (from: number, to: number) => {
     if (to <= from) return;
-    out += tidyPiece(text.slice(from, to), {
-      before: from > 0 ? text[from - 1] : context.before,
-      after: to < text.length ? text[to] : context.after,
+    out += tidyPiece(punctuated.slice(from, to), {
+      before: from > 0 ? punctuated[from - 1] : context.before,
+      after: to < punctuated.length ? punctuated[to] : context.after,
       edgeSpaces: context.edgeSpaces,
     });
   };
   for (const range of ranges) {
     piece(at, range.start);
-    out += text.slice(range.start, range.end);
+    out += punctuated.slice(range.start, range.end);
     at = range.end;
   }
-  piece(at, text.length);
+  piece(at, punctuated.length);
   return out;
 }

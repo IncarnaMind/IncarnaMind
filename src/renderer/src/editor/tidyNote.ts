@@ -1,15 +1,8 @@
 import type { Editor } from "@tiptap/core";
-import type { Mark } from "@tiptap/pm/model";
+import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { tidyChinese } from "../../../shared/tidyChinese";
 import { useUndo } from "../undo";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
-
-interface Replacement {
-  from: number;
-  to: number;
-  text: string;
-  marks: readonly Mark[];
-}
 
 const isSpace = (char: string | undefined) =>
   char === " " || char === "\t" || char === "\n" || char === undefined;
@@ -51,6 +44,17 @@ function edgeSpace(
   return out;
 }
 
+interface Run {
+  /** Its index among the textblock's children, so only adjacent runs take a space. */
+  child: number;
+  pos: number;
+  text: string;
+  marks: readonly Mark[];
+  start: number;
+  end: number;
+  tidied: string;
+}
+
 /**
  * Tidies Chinese typography (docs/agents/zh-CN.md, rules 2–4) in the selection,
  * or in the whole Note when nothing is selected: spaces between Chinese and
@@ -58,113 +62,155 @@ function edgeSpace(
  * marks. Code keeps its characters, and so do file names, addresses and
  * paths. Each text run keeps its own marks, and a space between two runs is
  * written once, between them. Words inside lists, quotes, tables and Answers
- * are tidied too. The change is one step of the note's Undo, and its line says
- * how many places changed.
+ * are tidied too. Each changed Block is written once, in one transaction, so
+ * a long Note stays responsive; the change is one step of the note's Undo,
+ * and its line says how many places changed.
  */
 export function tidyNote(editor: Editor): void {
   const { doc, selection } = editor.state;
   const whole = selection.empty;
   const from = whole ? 0 : selection.from;
   const to = whole ? doc.content.size : selection.to;
-  const replacements: Replacement[] = [];
-  const spaces: number[] = [];
+  let total = 0;
 
-  doc.descendants((block, blockPos) => {
-    if (block.type.spec.code) return false;
-    // A container holds Blocks: a list, a quote, a table, an Answer.
-    if (!block.isTextblock) return true;
-    const runs: {
-      pos: number;
-      text: string;
-      marks: readonly Mark[];
-      start: number;
-      end: number;
-      tidied?: string;
-    }[] = [];
+  const tidyTextblock = (
+    block: ProseMirrorNode,
+    blockPos: number,
+  ): { node: ProseMirrorNode; changed: boolean } => {
+    const runs: Run[] = [];
+    let childAt = 0;
     block.forEach((child, offset) => {
+      const index = childAt++;
       if (!child.isText || !child.text) return;
       if (child.marks.some((mark) => mark.type.name === "code")) return;
+      const pos = blockPos + 1 + offset;
+      const start = Math.max(from, pos) - pos;
+      const end = Math.min(to, pos + child.text.length) - pos;
       runs.push({
-        pos: blockPos + 1 + offset,
+        child: index,
+        pos,
         text: child.text,
         marks: child.marks,
-        start: 0,
-        end: 0,
+        start,
+        end,
+        tidied: "",
       });
     });
+    if (runs.length === 0) return { node: block, changed: false };
+
+    let blockChanges = 0;
     runs.forEach((run, at) => {
-      const nodeFrom = run.pos;
-      const nodeTo = run.pos + run.text.length;
-      const start = Math.max(from, nodeFrom) - nodeFrom;
-      const end = Math.min(to, nodeTo) - nodeFrom;
-      run.start = start;
-      run.end = end;
-      if (start >= end) return;
-      const slice = run.text.slice(start, end);
+      const slice = run.start < run.end ? run.text.slice(run.start, run.end) : "";
+      run.tidied = slice;
       if (slice.trim() === "") return;
-      const before = start > 0 ? run.text[start - 1] : runs[at - 1]?.text.at(-1);
-      const after = end < run.text.length ? run.text[end] : runs[at + 1]?.text[0];
-      const tidied = edgeSpace(
+      const before = run.start > 0 ? run.text[run.start - 1] : runs[at - 1]?.text.at(-1);
+      const after = run.end < run.text.length ? run.text[run.end] : runs[at + 1]?.text[0];
+      run.tidied = edgeSpace(
         tidyChinese(slice, { before, after, edgeSpaces: false }),
         before,
         after,
-        nodeFrom + start === from,
-        nodeFrom + end === to,
+        run.pos + run.start === from,
+        run.pos + run.end === to,
       );
-      if (tidied === slice) return;
-      run.tidied = tidied;
-      replacements.push({
-        from: nodeFrom + start,
-        to: nodeFrom + end,
-        text: tidied,
-        marks: run.marks,
-      });
+      if (run.tidied !== slice) blockChanges++;
     });
+
+    const spaceAfter = new Set<number>();
     for (let at = 0; at + 1 < runs.length; at++) {
       const left = runs[at];
       const right = runs[at + 1];
-      if (!left || !right) continue;
+      if (!left || !right || right.child !== left.child + 1) continue;
       const boundary = left.pos + left.text.length;
-      // An inline node between two runs is not a place for a space.
-      if (right.pos !== boundary) continue;
       if (boundary < from || boundary > to) continue;
+      if (left.start >= left.end || right.start >= right.end) continue;
       if (left.end !== left.text.length || right.start !== 0) continue;
-      const leftText = left.tidied ?? left.text.slice(left.start, left.end);
-      const rightText = right.tidied ?? right.text.slice(right.start, right.end);
-      const before = leftText.at(-1);
-      const after = rightText[0];
+      const before = left.tidied.at(-1);
+      const after = right.tidied[0];
       if (before === undefined || after === undefined) continue;
       if (isSpace(before) || isSpace(after)) continue;
       if ((isHan(before) && isWord(after)) || (isWord(before) && isHan(after))) {
-        spaces.push(boundary);
+        spaceAfter.add(at);
+        blockChanges++;
       }
     }
-    return false;
-  });
+    if (blockChanges === 0) return { node: block, changed: false };
 
-  if (replacements.length === 0 && spaces.length === 0) {
+    const content: ProseMirrorNode[] = [];
+    let at = 0;
+    childAt = 0;
+    block.forEach((child) => {
+      const index = childAt++;
+      if (!child.isText || !child.text) {
+        content.push(child);
+        return;
+      }
+      const run = runs[at];
+      if (!run || run.child !== index) {
+        content.push(child);
+        return;
+      }
+      const runIndex = at++;
+      const text = child.text.slice(0, run.start) + run.tidied + child.text.slice(run.end);
+      if (text !== child.text) content.push(editor.state.schema.text(text, run.marks));
+      else content.push(child);
+      if (spaceAfter.has(runIndex)) content.push(editor.state.schema.text(" "));
+    });
+    total += blockChanges;
+    return {
+      node: block.type.create(block.attrs, content, block.marks),
+      changed: true,
+    };
+  };
+
+  const rebuild = (
+    node: ProseMirrorNode,
+    pos: number,
+  ): { node: ProseMirrorNode; changed: boolean } => {
+    if (node.type.spec.code) return { node, changed: false };
+    if (node.isTextblock) return tidyTextblock(node, pos);
+    let changed = false;
+    const content: ProseMirrorNode[] = [];
+    node.forEach((child, offset) => {
+      const rebuilt = rebuild(child, pos + 1 + offset);
+      changed ||= rebuilt.changed;
+      content.push(rebuilt.node);
+    });
+    return changed
+      ? { node: node.type.create(node.attrs, content, node.marks), changed: true }
+      : { node, changed: false };
+  };
+
+  const top: { from: number; to: number; node: ProseMirrorNode; changed: boolean }[] = [];
+  doc.forEach((child, offset) => {
+    const rebuilt = rebuild(child, offset);
+    top.push({ from: offset, to: offset + child.nodeSize, ...rebuilt });
+  });
+  const groups: { from: number; to: number; nodes: ProseMirrorNode[] }[] = [];
+  for (let i = 0; i < top.length; ) {
+    const first = top[i];
+    if (!first?.changed) {
+      i++;
+      continue;
+    }
+    let last = i;
+    while (top[last + 1]?.changed) last++;
+    const range = top.slice(i, last + 1);
+    const end = range.at(-1);
+    if (end) groups.push({ from: first.from, to: end.to, nodes: range.map((each) => each.node) });
+    i = last + 1;
+  }
+
+  if (total === 0 || groups.length === 0) {
     useUndo.getState().tell({ says: (translate) => translate("editor.tidy.none") });
     return;
   }
 
-  const count = replacements.length + spaces.length;
+  const count = total;
   asOneStep(editor, () => {
     const tr = editor.state.tr;
-    const edits: { at: number; replacement?: Replacement }[] = [
-      ...replacements.map((replacement) => ({ at: replacement.from, replacement })),
-      ...spaces.map((at) => ({ at })),
-    ];
-    edits.sort((a, b) => b.at - a.at || (a.replacement ? -1 : 1));
-    for (const edit of edits) {
-      if (edit.replacement) {
-        tr.replaceWith(
-          edit.replacement.from,
-          edit.replacement.to,
-          editor.state.schema.text(edit.replacement.text, edit.replacement.marks),
-        );
-      } else {
-        tr.insert(edit.at, editor.state.schema.text(" "));
-      }
+    for (let index = groups.length - 1; index >= 0; index--) {
+      const group = groups[index];
+      if (group) tr.replaceWith(group.from, group.to, group.nodes);
     }
     editor.view.dispatch(tr);
   });

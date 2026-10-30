@@ -62,6 +62,15 @@ describe("tidyChinese", () => {
     expect(tidyChinese("见例子.cn/路径?,第一.第二")).toBe("见例子.cn/路径?,第一。第二");
   });
 
+  test("the clause reaching a file name or an email is still tidied, and the text beside an address, path or date gets its space", () => {
+    expect(tidyChinese("用Word保存为报告.docx")).toBe("用 Word 保存为报告.docx");
+    expect(tidyChinese("请用Word发给例子@example.com然后收到")).toBe(
+      "请用 Word 发给例子@example.com 然后收到",
+    );
+    expect(tidyChinese("用Word打开例子.cn/路径?")).toBe("用 Word 打开例子.cn/路径?");
+    expect(tidyChinese("见report.docx和2026/10/30后")).toBe("见 report.docx 和 2026/10/30 后");
+  });
+
   test("an empty string stays empty", () => {
     expect(tidyChinese("")).toBe("");
   });

@@ -1,9 +1,10 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
 import { tidyNote } from "../../src/renderer/src/editor/tidyNote";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { boundEditor, headlessEditor } from "../helpers/editor";
+import { boundEditor, boundEditorTo, headlessEditor } from "../helpers/editor";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 
@@ -119,5 +120,50 @@ describe("tidying Chinese text in the Note", () => {
     expect(stack?.undoStack).toHaveLength(1);
     editor.commands.undo();
     expect(editor.state.doc.textContent).toBe("导出为Word文件引用Word文件");
+  });
+});
+
+function noteDocument(lines: number, text: string): Y.Doc {
+  const doc = new Y.Doc();
+  const paragraphs: Y.XmlElement[] = [];
+  for (let line = 0; line < lines; line++) {
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute("id", `p${line}`);
+    paragraph.insert(0, [new Y.XmlText(text)]);
+    paragraphs.push(paragraph);
+  }
+  doc.getXmlFragment("blocks").push(paragraphs);
+  return doc;
+}
+
+describe("a long Note is tidied in one pass", () => {
+  test("5,000 lines are one transaction, not one step per line", () => {
+    const editor = boundEditorTo(noteDocument(5_000, "导出为Word文件,你好。"));
+    let dispatched = 0;
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) dispatched++;
+    });
+    tidyNote(editor);
+    expect(dispatched).toBe(1);
+    const paragraphs: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "paragraph") paragraphs.push(node.textContent);
+    });
+    expect(paragraphs).toHaveLength(5_000);
+    expect(paragraphs[0]).toBe("导出为 Word 文件，你好。");
+    expect(paragraphs.at(-1)).toBe("导出为 Word 文件，你好。");
+    editor.destroy();
+  }, 20_000);
+
+  test("a 2,000-character Chinese run with no punctuation is not slowed by the address scan", () => {
+    const editor = boundEditorTo(noteDocument(1, "潮".repeat(2_000)));
+    let dispatched = 0;
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) dispatched++;
+    });
+    tidyNote(editor);
+    expect(dispatched).toBe(0);
+    expect(editor.state.doc.textContent).toBe("潮".repeat(2_000));
+    editor.destroy();
   });
 });
