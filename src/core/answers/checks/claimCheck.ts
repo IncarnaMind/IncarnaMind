@@ -999,13 +999,84 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (!failed) hear(heard);
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
-    if (facetPlans.length > 0) {
-      session.check();
-      const replies = readAttributionReply(
-        reply,
-        request.originalClaim ?? request.claim,
-        facetPlans,
+    const written = figureReplyText(reply, setAside);
+    // Asked about its Figures line, a model that can't do what it was asked may write prose
+    // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
+    // One that writes only its Figures line again leaves its verdict on the sentence standing.
+    const figureText =
+      askedAbout !== null &&
+      readVerdict(written) === null &&
+      readFigureReply(written, request.figures ?? [], request.claim) === null
+        ? askedAbout
+        : written;
+    const verdictText = readVerdict(figureText) === null ? (askedAbout ?? figureText) : figureText;
+    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
+    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
+    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
+    // never becomes what the Document says, and a refusal after it is the reply's last word.
+    const refused = readsAsRefusal(reply);
+    const withVerdict = refused
+      ? undefined
+      : setAside.findLast((text) => readVerdict(text) !== null);
+    let verdict =
+      readVerdict(reply) ??
+      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    const checked = request.figures?.length
+      ? []
+      : calculated(request.claim, figures, stated, figureContext);
+    const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
+    const replies = readAttributionReply(reply, request.originalClaim ?? request.claim, facetPlans);
+    const evidenceVerdict = request.figures?.length ? readVerdict(verdictText) : verdict;
+    session.check();
+    const namedMarkers = [
+      ...(evidenceVerdict?.evidence ?? []),
+      ...(evidenceVerdict?.coverage?.members.flatMap((member) => member.evidence) ?? []),
+      ...(evidenceVerdict?.coverage?.domainEvidence ?? []),
+    ];
+    const declaredMarkers = [
+      ...(!request.figures?.length ? namedMarkers : []),
+      ...replies.flatMap((facet) => facet?.evidence ?? []),
+    ];
+    const rejectedMarkers = new Set(
+      session.summary().rejectedRecords.map((record) => record.marker),
+    );
+    const missing = [
+      ...new Set(declaredMarkers.filter((marker) => session.finalCitation(marker) === null)),
+    ];
+    if (
+      finished &&
+      reply.trim() !== "" &&
+      !refused &&
+      (!request.figures?.length || !readsAsRefusal(written)) &&
+      looked() &&
+      !confirmationFailure &&
+      !invalidInput &&
+      pending.size === 0 &&
+      worked?.calculation.agrees !== false &&
+      evidenceVerdict &&
+      evidenceVerdict.evidence !== null &&
+      evidenceVerdict.coverage !== null &&
+      missing.length > 0 &&
+      !declaredMarkers.some((marker) => {
+        const citation = session.finalCitation(marker);
+        return (citation !== null || rejectedMarkers.has(marker)) && citation?.check !== "found";
+      })
+    ) {
+      const recovered = await askForEvidence(
+        request,
+        evidenceVerdict,
+        session,
+        signal,
+        null,
+        missing,
       );
+      if (isFailed(recovered)) {
+        retainedEvidence = foundCitations(session.finalCitation, null, declaredMarkers);
+        return failedCheck(recovered.failed);
+      }
+      if (signal.aborted) return notChecked("stopped");
+    }
+    if (facetPlans.length > 0) {
       facetParts = await Promise.all(
         facetPlans.map(async (plan, index) => {
           const parsed = replies[index];
@@ -1225,20 +1296,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      const written = figureReplyText(reply, setAside);
-      // Asked about its Figures line, a model that can't do what it was asked may write prose
-      // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
-      // One that writes only its Figures line again leaves its verdict on the sentence standing.
-      const text =
-        askedAbout !== null &&
-        readVerdict(written) === null &&
-        readFigureReply(written, request.figures, request.claim) === null
-          ? askedAbout
-          : written;
-      if (readsAsRefusal(text)) return notChecked("refused");
+      if (readsAsRefusal(figureText)) return notChecked("refused");
       // A refusal after an ask is the model's last word: the reply asked about can still make the
       // sentence stricter, never Supported.
-      const declined = text !== written && readsAsRefusal(written);
+      const declined = figureText !== written && readsAsRefusal(written);
       if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
@@ -1301,14 +1362,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
           : doubted;
       };
-      const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
       const said = readVerdict(verdictText);
       // A reply asked about its Figures line that gives its verdict again without one keeps the
       // last line that reads: each figure is still compared with its own quote.
       const figuresText =
-        readFigureReply(text, request.figures, request.claim) === null
-          ? (askedFigures ?? text)
-          : text;
+        readFigureReply(figureText, request.figures, request.claim) === null
+          ? (askedFigures ?? figureText)
+          : figureText;
       const result = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
@@ -1346,7 +1406,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         const evidence =
           cited ??
-          (verdict.verdict === "contradicted"
+          (verdict.verdict === "contradicted" && missing.length === 0
             ? await askForEvidence(request, verdict, session, signal)
             : null);
         if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
@@ -1371,7 +1431,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
-    const checked = calculated(request.claim, figures, stated, figureContext);
     retainedEvidence = uniqueCitations(
       checked.flatMap(({ calculation }) =>
         calculation.figure.inputs.flatMap((input) => [
@@ -1380,7 +1439,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ]),
       ),
     );
-    const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
     // A figure that disagrees contradicts the sentence. One that agrees settles only that
     // number: the model's verdict still stands on the rest of the sentence.
     if (worked && !worked.calculation.agrees) {
@@ -1395,42 +1453,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
-    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
-    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
-    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
-    // never becomes what the Document says, and a refusal after it is the reply's last word.
-    const refused = readsAsRefusal(reply);
-    const withVerdict = refused
-      ? undefined
-      : setAside.findLast((text) => readVerdict(text) !== null);
-    let verdict =
-      readVerdict(reply) ??
-      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
     session.check();
     if (verdict.evidence === null || verdict.coverage === null) return notChecked("malformed");
-    const namedMarkers = [
-      ...(verdict.evidence ?? []),
-      ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
-      ...(verdict.coverage?.domainEvidence ?? []),
-    ];
-    const rejectedMarkers = new Set(
-      session.summary().rejectedRecords.map((record) => record.marker),
-    );
-    const missing = [
-      ...new Set(namedMarkers.filter((marker) => session.finalCitation(marker) === null)),
-    ];
-    if (
-      missing.length > 0 &&
-      !namedMarkers.some((marker) => {
-        const citation = session.finalCitation(marker);
-        return (citation !== null || rejectedMarkers.has(marker)) && citation?.check !== "found";
-      })
-    ) {
-      const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
-      if (isFailed(recovered)) failed = recovered.failed;
-    }
     const namedCitations = namedMarkers.map((marker) => session.finalCitation(marker));
     namedEvidence = uniqueCitations([
       ...(verdict.evidence === undefined ? foundCitations(session.finalCitation, null) : []),
