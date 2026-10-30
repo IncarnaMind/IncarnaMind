@@ -76,7 +76,7 @@ import {
   type DocumentLanguage,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { checkAbsence, wholeScope } from "./absence";
+import { checkAbsence, fitsWholeRead } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -133,6 +133,8 @@ export interface ClaimCheckDependencies {
     /** The Documents with Passages to search, with their names: what a search names one by. */
     searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
+    /** How many Units each Document's current version has, read from stored counts. */
+    unitCounts(documentIds: readonly string[]): ReadonlyMap<string, number>;
     getMany?(documentIds: readonly string[]): Document[];
     names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
@@ -715,6 +717,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         evidence !== null &&
         opinions.documentIds.has(evidence.documentId ?? ""),
     });
+    let fits: boolean | undefined;
+    const readsWhole = () => {
+      fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
+      return fits;
+    };
     const absenceFor = async (
       absence: AbsenceAnswer,
       searched: ClaimCheckResult["verdict"],
@@ -736,6 +743,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         versions: read,
         facts,
         citedCase,
+        fits: readsWhole(),
         notChecked,
         failedCheck,
       });
@@ -851,10 +859,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text) =>
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
-        searchAgain(
-          () => searches,
-          () => wholeScope(request, deps.documents) !== null,
-        ),
+        searchAgain(() => searches, readsWhole),
         ...figuresReplied(
           request,
           figures,

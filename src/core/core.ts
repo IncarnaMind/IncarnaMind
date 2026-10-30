@@ -2429,6 +2429,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
+      unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
     },
     engine: answerEngine,

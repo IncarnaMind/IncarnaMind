@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { WHOLE_READ } from "../../src/core/answers/checks/absence";
+import { fitsWholeRead, WHOLE_READ } from "../../src/core/answers/checks/absence";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
@@ -494,6 +494,31 @@ describe("Checking an absence sentence", () => {
       });
       expect(queries).toHaveLength(searches);
       expect(reads).toHaveLength(wholeReads);
+    },
+  );
+
+  test.each([
+    { units: [2], fits: true },
+    { units: [40], fits: true },
+    { units: [41], fits: false },
+    { units: [30, 11], fits: false },
+    { units: [5000, 5000, 5000], fits: false },
+    { units: [], fits: false },
+  ])(
+    "a scope of $units Units is judged from stored counts, with no page text loaded: fits $fits",
+    ({ units, fits }) => {
+      const ids = units.map((_, index) => `doc-${index}`);
+      const loaded = () => {
+        throw new Error("The scope check loaded page text.");
+      };
+      const documents = {
+        searchableBySize: () => ids.map((id) => ({ id, name: id })),
+        unitCounts: (asked: readonly string[]) =>
+          new Map(asked.map((id) => [id, units[ids.indexOf(id)] ?? 0])),
+        pageTexts: loaded,
+        passagesBetween: loaded,
+      };
+      expect(fitsWholeRead(null, documents)).toBe(fits);
     },
   );
 

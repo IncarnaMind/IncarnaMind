@@ -30,6 +30,8 @@ interface AbsenceContext {
     citedCaseUnchecked: boolean;
     citedCaseFound: boolean;
   };
+  /** Whether the scope fits a whole read (`fitsWholeRead`), worked out once for the check. */
+  fits: boolean;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
 }
@@ -40,21 +42,19 @@ interface WholeReading {
   units: ReturnType<AnswerDocuments["pageTexts"]>;
 }
 
-function scopeComplete(
-  request: ClaimCheckRequest,
-  documents: ClaimCheckDependencies["documents"],
-  reading: readonly WholeReading[],
+type ScopeRecords = Pick<
+  ClaimCheckDependencies["documents"],
+  "searchableBySize" | "unitCounts" | "getMany" | "names"
+>;
+
+/** The scope's Documents are all whole and current: none failed, missing or partly read. */
+function recordsComplete(
+  documentIds: readonly string[] | null,
+  documents: ScopeRecords,
+  units: ReadonlyMap<string, number>,
 ): boolean {
-  const unreadUnit = reading.some(({ units }) =>
-    units.some(
-      (unit) =>
-        unit.label?.scan?.unread === true ||
-        unit.label?.figures?.some((figure) => figure.unread === true),
-    ),
-  );
-  if (unreadUnit) return false;
   if (!documents.getMany || !documents.names) return true;
-  const ids = request.scope.documentIds ?? documents.names().map((each) => each.id);
+  const ids = documentIds ?? documents.names().map((each) => each.id);
   const records = documents.getMany(ids);
   if (records.length !== ids.length) return false;
   return records.every((document: Document) => {
@@ -69,30 +69,46 @@ function scopeComplete(
       document.unreadPartsUnknown
     )
       return false;
-    if (document.pageCount === null) return true;
-    const units = reading.find((each) => each.documentId === document.id)?.units ?? [];
-    return new Set(units.map((unit) => unit.page)).size === document.pageCount;
+    return document.pageCount === null || units.get(document.id) === document.pageCount;
   });
 }
 
-/** The check's whole scope, ready to read whole; null when it is too long or not all readable. */
-export function wholeScope(
+/**
+ * Whether a check's whole scope (`documentIds`, null for every Document) fits a whole read, from
+ * the stored Unit counts and Document records: no page text is loaded, so a scope far too long
+ * costs nothing to turn away.
+ */
+export function fitsWholeRead(
+  documentIds: readonly string[] | null,
+  documents: ScopeRecords,
+): boolean {
+  const ids = documents.searchableBySize(documentIds).map((each) => each.id);
+  const units = documents.unitCounts(ids);
+  const total = ids.reduce((sum, id) => sum + (units.get(id) ?? 0), 0);
+  return total > 0 && total <= 40 && recordsComplete(documentIds, documents, units);
+}
+
+/** The scope read for the whole read: every Passage and Unit; null when a Unit couldn't be read. */
+function wholeScope(
   request: ClaimCheckRequest,
   documents: ClaimCheckDependencies["documents"],
 ): WholeReading[] | null {
   const reading: WholeReading[] = [];
-  let pageCount = 0;
   for (const document of documents.searchableBySize(request.scope.documentIds)) {
     const passages = documents.passagesBetween?.(document.id, 0, Number.MAX_SAFE_INTEGER) ?? [];
     const contentHash = passages[0]?.contentHash;
     if (!contentHash) continue;
     const units = documents.pageTexts(document.id, contentHash, null, null);
     reading.push({ documentId: document.id, passages, units });
-    pageCount += units.length;
   }
-  if (reading.length === 0 || pageCount > 40) return null;
-  // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
-  return scopeComplete(request, documents, reading) ? reading : null;
+  const unreadUnit = reading.some(({ units }) =>
+    units.some(
+      (unit) =>
+        unit.label?.scan?.unread === true ||
+        unit.label?.figures?.some((figure) => figure.unread === true),
+    ),
+  );
+  return reading.length === 0 || unreadUnit ? null : reading;
 }
 
 export async function checkAbsence({
@@ -102,11 +118,13 @@ export async function checkAbsence({
   versions,
   facts,
   citedCase,
+  fits,
   notChecked,
   failedCheck,
 }: AbsenceContext): Promise<ClaimCheckResult | null> {
   const { model, signal } = request;
-  const reading = wholeScope(request, documents);
+  // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
+  const reading = fits ? wholeScope(request, documents) : null;
   if (!reading) return notChecked("absence-read-limit");
 
   const readDocuments: ClaimReadDocument[] = [];

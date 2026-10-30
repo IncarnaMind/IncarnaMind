@@ -306,6 +306,7 @@ async function checkWith(options: {
       ],
       passagesBetween: () => [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
       savedBySearch: () => false,
+      unitCounts: () => new Map([[source.documentId, 1]]),
       citationSource: (id) => (id === source.passageId ? source : null),
       pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
       documentDate: () => null,

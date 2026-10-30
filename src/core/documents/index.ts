@@ -1543,6 +1543,26 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   /**
+   * How many Units each of these Documents' current versions has, from the stored rows: no text
+   * is read. A Document with none is left out.
+   */
+  function unitCounts(documentIds: readonly string[]): Map<string, number> {
+    if (documentIds.length === 0) return new Map();
+    return new Map(
+      db
+        .all<{ id: string; units: bigint | number }>(
+          `SELECT dp.document_id AS id, count(DISTINCT dp.page) AS units FROM document_pages dp
+           JOIN documents d ON d.id = dp.document_id AND d.content_hash = dp.content_hash
+           WHERE dp.document_id IN (${documentIds.map(() => "?").join(", ")})
+             AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+           GROUP BY dp.document_id`,
+          [...documentIds],
+        )
+        .map((row) => [row.id, Number(row.units)]),
+    );
+  }
+
+  /**
    * The Documents whose text or printed page names may hold a Bates number, from the keyword
    * index and the page labels: one lookup for the Library, not one for each Document. The cite's
    * own pages still decide.
@@ -2418,6 +2438,7 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     pageTexts,
+    unitCounts,
 
     keptCitationTexts,
 
