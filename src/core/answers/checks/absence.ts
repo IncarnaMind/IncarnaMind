@@ -160,6 +160,10 @@ export async function checkAbsence({
   }
   const value = await replyJson(reply);
   if (!isRecord(value)) return notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
+  // The read decides the part, so only what it read backs it: the pages read whole, and the quote
+  // that contains the absent thing when it is there. A quote the check's search cited on the way
+  // backs nothing here, and a card or Citation that showed it would show an unrelated line.
+  const { versions: read, excluded } = facts();
   const judgment = (verdict: "supported" | "contradicted", evidence: Citation | null) => ({
     verdict,
     evidence,
@@ -168,7 +172,8 @@ export async function checkAbsence({
     calculation: null,
     readDocuments,
     ...citedCase(evidence),
-    ...facts(),
+    versions: read,
+    excluded,
   });
   let absence: ClaimJudgment;
   if (value.absence === "holds") absence = judgment("supported", null);
