@@ -53,6 +53,9 @@ export interface AttributionRequest {
   outputTokens: number | null;
   seed: number | null;
   error: { name: string; status: number | null } | null;
+  inputKinds: { role: string; parts: string[] }[];
+  responseKinds: string[];
+  responseModel: string | null;
 }
 
 function failure(error: unknown) {
@@ -130,6 +133,17 @@ export function observeAttribution(inner: ChatModelFactory, hooks: AttributionOb
       outputTokens: params.maxOutputTokens ?? null,
       seed: params.seed ?? null,
       error: null,
+      inputKinds: params.prompt.map((message) => ({
+        role: message.role,
+        parts:
+          typeof message.content === "string"
+            ? ["text"]
+            : message.content.map((part) =>
+                part.type === "custom" ? `custom:${part.kind}` : part.type,
+              ),
+      })),
+      responseKinds: [],
+      responseModel: null,
     };
     requests.push(request);
     const began = performance.now();
@@ -150,6 +164,10 @@ export function observeAttribution(inner: ChatModelFactory, hooks: AttributionOb
       try {
         hooks.before?.(request, params);
         const result = await doGenerate();
+        request.responseKinds = result.content.map((part) =>
+          part.type === "custom" ? `custom:${part.kind}` : part.type,
+        );
+        request.responseModel = result.response?.modelId ?? null;
         request.reply = result.content
           .flatMap((part) => (part.type === "text" ? [part.text] : []))
           .join("\n");
@@ -189,6 +207,9 @@ export function observeAttribution(inner: ChatModelFactory, hooks: AttributionOb
                   return;
                 }
                 const part = next.value;
+                const kind = part.type === "custom" ? `custom:${part.kind}` : part.type;
+                if (!request.responseKinds.includes(kind)) request.responseKinds.push(kind);
+                if (part.type === "response-metadata") request.responseModel = part.modelId ?? null;
                 if (part.type === "text-delta") request.reply += part.delta;
                 if (part.type === "tool-call")
                   request.tools.push({ name: part.toolName, input: part.input });

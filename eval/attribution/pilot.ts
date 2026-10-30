@@ -145,7 +145,13 @@ function promptByteBound(
     if (typeof message.content !== "string")
       for (const part of message.content) {
         if (!["text", "reasoning", "tool-call", "tool-result"].includes(part.type))
-          throw new Error("The attribution pilot prices text-only requests.");
+          throw new Error(`The attribution pilot cannot price input part ${part.type}.`);
+        if (part.type === "tool-result" && part.output.type === "content")
+          for (const content of part.output.value) {
+            if (content.type !== "text")
+              throw new Error(`The attribution pilot cannot price tool output ${content.type}.`);
+            inspect(content.providerOptions);
+          }
         if ("providerOptions" in part) inspect(part.providerOptions);
       }
   }
@@ -285,6 +291,12 @@ export function createAttributionPilotBudget(options: {
   if (!stopped && retained.entries.some((entry) => entry.status !== "settled"))
     stopped = "unresolved-reservation";
   if (!stopped && retained.entries.some(attempted)) stopped = "already-attempted";
+  function stop(kind: string) {
+    stopped = kind;
+    update((ledger) => {
+      ledger.stopKind ??= kind;
+    });
+  }
   const hooks: AttributionObserverHooks = {
     prepare: (params) =>
       params.maxOutputTokens === undefined
@@ -298,12 +310,12 @@ export function createAttributionPilotBudget(options: {
           throw new Error("Known five-minute cache billing is required before sending.");
         promptTokens = promptByteBound(params);
       } catch (error) {
-        stopped = "unpriced-request";
+        stop("unpriced-request");
         throw error;
       }
       const outputTokens = params.maxOutputTokens;
       if (!finite(outputTokens)) {
-        stopped = "invalid-output-limit";
+        stop("invalid-output-limit");
         throw new Error("The actual output limit is invalid.");
       }
       const maximumUSD = reservationOf(
@@ -336,7 +348,7 @@ export function createAttributionPilotBudget(options: {
           });
         });
       } catch (error) {
-        stopped = "admission-refused";
+        stop("admission-refused");
         throw error;
       }
     },

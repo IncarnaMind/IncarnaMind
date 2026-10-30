@@ -558,3 +558,123 @@ test("an unproved positive model default and ceiling above two dollars refuse", 
   ).toThrow("output limit");
   expect(() => validateAttributionPilot({ ...plan, capUSD: 2.01 })).toThrow("ceiling");
 });
+
+test("ordinary text tool results retain their shape and remain priced", async () => {
+  const cost = await budget();
+  const model = mock();
+  const observed = observeAttribution(() => model, cost.hooks);
+  const prompt = [
+    {
+      role: "assistant" as const,
+      content: [
+        { type: "text" as const, text: "Parts: []" },
+        {
+          type: "tool-call" as const,
+          toolCallId: "search-1",
+          toolName: "search_documents",
+          input: {},
+        },
+      ],
+    },
+    {
+      role: "tool" as const,
+      content: [
+        {
+          type: "tool-result" as const,
+          toolCallId: "search-1",
+          toolName: "search_documents",
+          output: { type: "text" as const, value: "A synthetic checked Passage." },
+        },
+      ],
+    },
+  ];
+  await observed.factory(spec).doGenerate({ prompt });
+  expect(model.doGenerateCalls[0]?.prompt).toEqual(prompt);
+  expect(cost.snapshot().entries[0]?.status).toBe("settled");
+  expect(observed.requests[0]?.inputKinds).toEqual([
+    { role: "assistant", parts: ["text", "tool-call"] },
+    { role: "tool", parts: ["tool-result"] },
+  ]);
+});
+
+test("unsupported input is diagnosed and durably stops all arms before provider entry", async () => {
+  const cost = await budget();
+  const model = mock();
+  const observed = observeAttribution(() => model, cost.hooks);
+  await expect(
+    observed.factory(spec).doGenerate({
+      prompt: [{ role: "assistant", content: [{ type: "custom", kind: "anthropic.fallback" }] }],
+    }),
+  ).rejects.toThrow("input part custom");
+  expect(model.doGenerateCalls).toHaveLength(0);
+  expect(observed.requests[0]?.inputKinds).toEqual([
+    { role: "assistant", parts: ["custom:anthropic.fallback"] },
+  ]);
+  expect(cost.snapshot()).toMatchObject({
+    stopKind: "unpriced-request",
+    chargedUSD: 0,
+    entries: [],
+  });
+  const restarted = createAttributionPilotBudget({
+    ...cost.options,
+    plan: { ...plan, arm: "after", sourceHead: plan.pins.after },
+  });
+  expect(restarted.stopped()).toBe(true);
+});
+
+test("a nested non-text tool output refuses before sending", async () => {
+  const cost = await budget();
+  const model = mock();
+  const observed = observeAttribution(() => model, cost.hooks);
+  await expect(
+    observed.factory(spec).doGenerate({
+      prompt: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "search-1",
+              toolName: "search_documents",
+              output: {
+                type: "content",
+                value: [
+                  {
+                    type: "file",
+                    mediaType: "image/png",
+                    data: { type: "data", data: new Uint8Array([1]) },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  ).rejects.toThrow("tool output file");
+  expect(model.doGenerateCalls).toHaveLength(0);
+  expect(cost.snapshot().stopKind).toBe("unpriced-request");
+});
+
+test("response kind and model diagnostics retain neither response headers nor custom payloads", async () => {
+  const cost = await budget();
+  const chunks: LanguageModelV4StreamPart[] = [
+    { type: "response-metadata", modelId: "synthetic-response-model" },
+    {
+      type: "custom",
+      kind: "anthropic.fallback",
+      providerMetadata: { anthropic: { private: "synthetic-private-payload" } },
+    },
+    finish(),
+  ];
+  const observed = observeAttribution(() => mock(usage, chunks), cost.hooks);
+  const reply = await observed.factory(spec).doStream({ prompt: [] });
+  for await (const part of reply.stream) void part;
+  expect(observed.requests[0]?.responseModel).toBe("synthetic-response-model");
+  expect(observed.requests[0]?.responseKinds).toEqual([
+    "response-metadata",
+    "custom:anthropic.fallback",
+    "finish",
+  ]);
+  expect(attributionPilotJSON(observed.requests)).not.toContain("synthetic-private-payload");
+});
