@@ -681,9 +681,49 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["产量为54,000吨。", "单位：吨\n产量\t54,000"],
     ["产量为54,000吨。", "单位：吨（万吨）\n产量\t54,000"],
     ["产量为54,000吨。", "单位：吨/年\n产量\t54,000"],
+    ["The mill's output was 54,000 tonnes.", "The price was 54,000/t."],
+    ["The mill's output was 54,000 tonnes.", "Cost ($/t)\t54,000"],
+    ["产量为54,000吨。", "成本（¥/吨）\t54,000"],
     ["路线长54公里。", "今年新增路段54米，路线长54。"],
   ])("%s against %j isn't flagged", (claim, cited) => {
     expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+});
+
+describe("A bare dollar beside a unit symbol (#2225, #2226)", () => {
+  // protects=each rule finds its own figure and neither hides the other: a Document that gives the dollar and the unit passes, another figure's unit doesn't hide the bare dollar, a Document that gives only the dollar still finds the unit, and a "$" inside a rate heading states no dollar for the figure while the same heading states the measure; fails_when=either rule makes the other's problem pass; no_claim=which dollar it is, or whether the figure is right.
+  test("the Document gives both the dollar and the unit", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 54,000 tonnes.",
+        read("The fee was $54,000 and the mass was 54,000 t."),
+      ),
+    ).toBeNull();
+  });
+
+  test("another figure's unit does not hide the bare dollar", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 42,000 tonnes.",
+        read("The fee was 54,000 and the mass was 42,000 t."),
+      ),
+    ).toMatchObject({ kind: "currency", amount: "54,000" });
+  });
+
+  test("the Document gives only the dollar", () => {
+    expect(
+      unitNotStated(
+        "The fee was $54,000 for 54,000 tonnes.",
+        read("The fee was $54,000 and the mass was 54,000."),
+      ),
+    ).toMatchObject({ kind: "unit", amount: "54,000" });
+  });
+
+  test("a rate heading states the measure but not which dollar", () => {
+    expect(unitNotStated("The output was 54,000 tonnes.", read("Cost ($/t)\t54,000"))).toBeNull();
+    expect(
+      unitNotStated("The cost was $54,000 a tonne.", read("Cost ($/t)\t54,000")),
+    ).toMatchObject({ kind: "currency", amount: "54,000" });
   });
 });
 

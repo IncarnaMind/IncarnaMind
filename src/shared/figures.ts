@@ -2386,7 +2386,7 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
 };
 
 // A symbol states its measure only where it belongs to a figure or a unit line, and on a unit line only as the whole name there: a word can hide it ("don't", 克服, 单位：克林工厂).
-const UNIT_AFTER_NUMBER = `${NUMBER_CHAR.source}[ \\u00a0]?`;
+const UNIT_AFTER_NUMBER = `${NUMBER_CHAR.source}[ \\u00a0]?(?:[/⁄][ \\u00a0]?)?`;
 const symbolPattern = (symbols: string) =>
   symbols
     .split("|")
@@ -2401,7 +2401,7 @@ const measureRule = ({ symbols, words }: { symbols: string; words: string }) => 
     [
       word,
       `${UNIT_AFTER_NUMBER}(?:${symbol})`,
-      `[(（]\\s*(?:${symbol})(?:\\s*[/⁄]\\s*[^)）\\n]{0,4})?\\s*[)）]`,
+      `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]?)?(?:${symbol})(?:[ \\u00a0]*[/⁄][ \\u00a0]*[^)）\\n]{0,4})?\\s*[)）]`,
       `(?:(?:金额|货币|数量)?单位|(?<![A-Za-z])units?)\\s*[:：]?\\s*(?:${symbol})(?![\\u3400-\\u9fff\\uf900-\\ufaff])`,
     ].join("|"),
     "i",
