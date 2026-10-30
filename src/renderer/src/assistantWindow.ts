@@ -7,6 +7,7 @@
  * changes, as one Undo.
  */
 import type { WindowCommandEnd, WindowCommandRequest } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../shared/commands";
 import { type MessageKey, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -168,8 +169,19 @@ export function startForAssistant(request: WindowCommandRequest): {
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
       // The core's own words, as for a suggestion that moved since it was checked (#2243).
       (error: unknown) => {
-        const { message, wording } = describeError(error);
-        return { result: { ran: false, why: message, wording }, change: undefined };
+        const { message, wording: described } = describeError(error);
+        // A Check refused because another window checks the Note says so by its name, never Done.
+        const said = (error instanceof TranslatableError ? error.wording : null) ?? described;
+        const named = said ? NAMED_REASONS[said.key] : undefined;
+        const note = noteOf(ctx);
+        return {
+          result: {
+            ran: false,
+            why: message,
+            wording: named && note !== null ? { key: named, values: { name: note } } : said,
+          },
+          change: undefined,
+        };
       },
     ),
   };

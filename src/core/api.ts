@@ -6146,6 +6146,15 @@ export interface CheckMindInput {
   model?: ChatModelChoice | null;
 }
 
+/** A Note kept for one Check from its planning until it runs or is dropped (#2240). */
+export interface HoldMindCheckInput {
+  /** The request that plans and runs the Check; `cancelCheck` drops its hold. */
+  requestId: string;
+  mindId: string;
+  /** The window holding it: the core frees the Note if that window goes before the Check runs. */
+  clientId: string;
+}
+
 /** What `checkMind` would send, before it sends anything, so a cloud model's estimate can show first. */
 export type MindCheckPlan =
   | {
@@ -8469,16 +8478,35 @@ interface ApprovalRequestBase extends AnswerPlace {
    */
   thirdParty?: ThirdPartyReason[];
   /**
-   * For a command of the assistant's (#1421): what its Answer read that the User didn't write, as
-   * it read it, its Documents by name, each once, and whether it heard the live Transcript. It
-   * never says which of them asked for the command. Absent: it read none of them.
+   * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
+   * write, by the kinds the card names, in the card's order. It never says which of them asked
+   * for the command. Absent: it read none of them.
    */
   readText?: ApprovalReadText;
 }
 
+/**
+ * What an approval card names the Answer read (#2240). A web page is its host, never its
+ * title: a page writes its own, and could pass for the User's file. A page whose title alone
+ * reached the Answer is its title, by host; a page both title and text reached is a web page.
+ * Other text is every read the kinds here cannot name, so a kind added later is still on the card.
+ */
 export interface ApprovalReadText {
+  /** One entry per Document, by its id: two Documents with one name are two. */
   documents: string[];
+  /** Web pages read, by host, one entry for each page. */
+  webPages: string[];
+  /** Pages whose title alone was seen, by host, one entry for each page. */
+  webPageTitles: string[];
+  /** Web search's results, Find sources' included. */
+  webSearchResults: boolean;
+  /** One entry per Connector whose results the Answer read, by its id. */
+  connectors: string[];
+  /** A Skill script's or an Analysis's output. */
+  scriptOutput: boolean;
   transcript: boolean;
+  /** Some text the kinds here cannot name. */
+  otherText: boolean;
 }
 
 /**
@@ -10881,6 +10909,17 @@ export interface CoreApi {
     allDocuments?: boolean,
   ): Promise<MindCheckPlan>;
   /**
+   * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it
+   * (#2240), so a second window's Check is refused before it plans and asks. False: another
+   * request keeps it.
+   */
+  holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
+  /**
+   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
+   * again for another window's Check.
+   */
+  forgetCheckWindow(input: { clientId: string }): Promise<void>;
+  /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
    * counts and prices them exactly. What it named is kept, and `checkMind`
@@ -11988,6 +12027,8 @@ const methods: Record<CoreApiMethod, true> = {
   planContradictionCheck: true,
   checkContradictions: true,
   planMindCheck: true,
+  holdMindCheck: true,
+  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,

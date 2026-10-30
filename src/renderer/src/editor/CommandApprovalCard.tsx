@@ -12,7 +12,7 @@ import { useApprovals } from "../approvals";
 import { readTextLine } from "../commandFacts";
 import { commands, labelOf } from "../commands/registry";
 import { FORMAT_LABELS } from "../exports";
-import { useT } from "../i18n";
+import { useGap, useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import type { Translate } from "../objects";
 import { withShortcut } from "./withShortcut";
@@ -162,6 +162,7 @@ export function CommandApprovalCard({
   keys?: string;
 }) {
   const t = useT();
+  const gap = useGap();
   const respond = useApprovals((state) => state.respond);
   const titleId = useId();
   const { ask } = request;
@@ -169,6 +170,7 @@ export function CommandApprovalCard({
   const deletes = ask.kind === "change" && ask.reason === "delete";
   const allow = t(deletes ? "commands.ask.delete" : "commands.ask.allow");
   const read = request.tainted || (request.thirdParty?.length ?? 0) > 0;
+  const readLine = request.readText ? readTextLine(t, request.readText, gap) : null;
   return (
     <div
       contentEditable={false}
@@ -186,13 +188,13 @@ export function CommandApprovalCard({
           <span aria-hidden="true" className="approval-dot" />
           <span className="approval-title-text">{title}</span>
         </p>
-        {request.readText && (
+        {readLine && (
           <p data-testid="approval-read-text" className="approval-read-text">
-            {readTextLine(t, request.readText)}
+            {readLine}
           </p>
         )}
         <p className="approval-explanation">{why}</p>
-        {read && !request.readText && (
+        {read && !readLine && (
           <p data-testid="approval-read" className="approval-explanation">
             {t("commands.ask.read")}
           </p>

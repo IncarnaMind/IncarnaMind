@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { CommandDone } from "../../src/core/api";
+import type { ApprovalReadText, CommandDone } from "../../src/core/api";
 import {
   commandCallText,
   doneText,
@@ -9,7 +9,7 @@ import {
   YOURS_WORDS,
 } from "../../src/renderer/src/commandFacts";
 import { commands } from "../../src/renderer/src/commands/registry";
-import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { gap, type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
  * The words of what the assistant's commands did (#1110, #1421), on their card and the undo line,
@@ -18,6 +18,8 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 
 const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
 const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
+const enGap = (before: string, after: string) => gap("en", before, after);
+const zhGap = (before: string, after: string) => gap("zh-CN", before, after);
 
 const leases = { kind: "folder" as const, id: "f1", name: "Leases" };
 const documents = [
@@ -113,28 +115,172 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     }
   });
 
-  // protects=a command asked about after its Answer read text the User didn't write names what it read: one Document by name, more by their number, this meeting's Transcript, and both, in English and Chinese; fails_when=a form reads wrong, or names a source; no_claim=what the core read.
-  test("what the Answer read, in its four forms", () => {
-    const one = { documents: ["Q3 board pack.pdf"], transcript: false };
-    const many = { documents: ["Q3 board pack.pdf", "Minutes"], transcript: false };
-    const heard = { documents: [], transcript: true };
-    const both = { documents: ["Q3 board pack.pdf"], transcript: true };
-    expect(readTextLine(en, one)).toBe(
+  const read = (what: Partial<ApprovalReadText>): ApprovalReadText => ({
+    documents: [],
+    webPages: [],
+    webPageTitles: [],
+    webSearchResults: false,
+    connectors: [],
+    scriptOutput: false,
+    transcript: false,
+    otherText: false,
+    ...what,
+  });
+
+  // protects=a command asked about after its Answer read text the User didn't write names each kind: Documents by name or count, web pages by host, web search's results, Connectors by name or count, a script's output, the Transcript, in English and Chinese; fails_when=a form reads wrong, or a Connector count names one instead of counting; no_claim=what the core read.
+  test("what the Answer read, each kind alone", () => {
+    const one = read({ documents: ["Q3 board pack.pdf"] });
+    const many = read({ documents: ["Q3 board pack.pdf", "Minutes"] });
+    const same = read({ documents: ["Q3 board pack.pdf", "Q3 board pack.pdf"] });
+    const page = read({ webPages: ["files.example"] });
+    const pages = read({ webPages: ["files.example", "news.example"] });
+    const title = read({ webPageTitles: ["files.example"] });
+    const titles = read({ webPageTitles: ["files.example", "news.example", "court.example"] });
+    const search = read({ webSearchResults: true });
+    const connector = read({ connectors: ["Gmail"] });
+    const connectors = read({ connectors: ["Gmail", "飞书"] });
+    const script = read({ scriptOutput: true });
+    const heard = read({ transcript: true });
+    expect(readTextLine(en, one, enGap)).toBe(
       "This Answer read text you didn’t write: “Q3 board pack.pdf”.",
     );
-    expect(readTextLine(en, many)).toBe("This Answer read text you didn’t write: 2 Documents.");
-    expect(readTextLine(en, heard)).toBe(
+    expect(readTextLine(en, many, enGap)).toBe(
+      "This Answer read text you didn’t write: 2 Documents.",
+    );
+    expect(readTextLine(en, same, enGap)).toBe(
+      "This Answer read text you didn’t write: 2 Documents.",
+    );
+    expect(readTextLine(en, page, enGap)).toBe(
+      "This Answer read text you didn’t write: a web page on files.example.",
+    );
+    expect(readTextLine(en, pages, enGap)).toBe(
+      "This Answer read text you didn’t write: 2 web pages.",
+    );
+    expect(readTextLine(en, title, enGap)).toBe(
+      "This Answer read text you didn’t write: the title of a web page on files.example.",
+    );
+    expect(readTextLine(en, titles, enGap)).toBe(
+      "This Answer read text you didn’t write: 3 web page titles.",
+    );
+    expect(readTextLine(en, search, enGap)).toBe(
+      "This Answer read text you didn’t write: web search results.",
+    );
+    expect(readTextLine(en, connector, enGap)).toBe(
+      "This Answer read text you didn’t write: results from Gmail.",
+    );
+    expect(readTextLine(en, connectors, enGap)).toBe(
+      "This Answer read text you didn’t write: results from 2 Connectors.",
+    );
+    expect(readTextLine(en, script, enGap)).toBe(
+      "This Answer read text you didn’t write: a script’s output.",
+    );
+    expect(readTextLine(en, heard, enGap)).toBe(
       "This Answer read text you didn’t write: this meeting’s Transcript.",
     );
-    expect(readTextLine(en, both)).toBe(
-      "This Answer read text you didn’t write: “Q3 board pack.pdf” and this meeting’s Transcript.",
+    expect(readTextLine(zh, one, zhGap)).toBe("这次回答读过不是你写的内容：“Q3 board pack.pdf”。");
+    expect(readTextLine(zh, many, zhGap)).toBe("这次回答读过不是你写的内容：2 个文档。");
+    expect(readTextLine(zh, same, zhGap)).toBe("这次回答读过不是你写的内容：2 个文档。");
+    expect(readTextLine(zh, page, zhGap)).toBe(
+      "这次回答读过不是你写的内容：files.example 上的一个网页。",
     );
-    expect(readTextLine(zh, one)).toBe("这次回答读过不是你写的内容：“Q3 board pack.pdf”。");
-    expect(readTextLine(zh, many)).toBe("这次回答读过不是你写的内容：2 个文档。");
-    expect(readTextLine(zh, heard)).toBe("这次回答读过不是你写的内容：本次会议的转写稿。");
-    expect(readTextLine(zh, both)).toBe(
-      "这次回答读过不是你写的内容：“Q3 board pack.pdf”和本次会议的转写稿。",
+    expect(readTextLine(zh, pages, zhGap)).toBe("这次回答读过不是你写的内容：2 个网页。");
+    expect(readTextLine(zh, title, zhGap)).toBe(
+      "这次回答读过不是你写的内容：files.example 上一个网页的标题。",
     );
+    expect(readTextLine(zh, titles, zhGap)).toBe("这次回答读过不是你写的内容：3 个网页标题。");
+    expect(readTextLine(zh, search, zhGap)).toBe("这次回答读过不是你写的内容：网页搜索结果。");
+    expect(readTextLine(zh, connector, zhGap)).toBe(
+      "这次回答读过不是你写的内容：Gmail 返回的内容。",
+    );
+    expect(readTextLine(zh, connectors, zhGap)).toBe(
+      "这次回答读过不是你写的内容：2 个连接器返回的内容。",
+    );
+    expect(readTextLine(zh, script, zhGap)).toBe("这次回答读过不是你写的内容：脚本的输出。");
+    expect(readTextLine(zh, heard, zhGap)).toBe("这次回答读过不是你写的内容：本次会议的转写稿。");
+  });
+
+  // protects=the kinds join as the design's worked example says, in this order: Documents, web pages, web page titles, web search results, Connectors, a script's output, the Transcript, other text; two take "and"/和, more take commas and a last "and" or 、 and a last 和; fails_when=a comma is missing or doubled, or 和 comes too early; no_claim=what the core read.
+  test("kinds joined in the card's order", () => {
+    const worked = read({
+      documents: ["Q3 board pack.pdf", "Minutes"],
+      webSearchResults: true,
+      transcript: true,
+    });
+    expect(readTextLine(en, worked, enGap)).toBe(
+      "This Answer read text you didn’t write: 2 Documents, web search results and this meeting’s Transcript.",
+    );
+    expect(readTextLine(zh, worked, zhGap)).toBe(
+      "这次回答读过不是你写的内容：2 个文档、网页搜索结果和本次会议的转写稿。",
+    );
+    const all = read({
+      documents: ["Q3 board pack.pdf"],
+      webPages: ["files.example"],
+      webSearchResults: true,
+      connectors: ["Gmail"],
+      scriptOutput: true,
+      transcript: true,
+      otherText: true,
+    });
+    expect(readTextLine(en, all, enGap)).toBe(
+      "This Answer read text you didn’t write: “Q3 board pack.pdf”, a web page on files.example, web search results, results from Gmail, a script’s output, this meeting’s Transcript and other text.",
+    );
+    expect(readTextLine(zh, all, zhGap)).toBe(
+      "这次回答读过不是你写的内容：“Q3 board pack.pdf”、files.example 上的一个网页、网页搜索结果、Gmail 返回的内容、脚本的输出、本次会议的转写稿和其他内容。",
+    );
+    const titled = read({
+      documents: ["Budget"],
+      webPages: ["files.example", "news.example"],
+      webPageTitles: ["a.example", "b.example", "c.example"],
+      connectors: ["Tides"],
+    });
+    expect(readTextLine(en, titled, enGap)).toBe(
+      "This Answer read text you didn’t write: “Budget”, 2 web pages, 3 web page titles and results from Tides.",
+    );
+    expect(readTextLine(zh, titled, zhGap)).toBe(
+      "这次回答读过不是你写的内容：“Budget”、2 个网页、3 个网页标题和 Tides 返回的内容。",
+    );
+  });
+
+  // protects=the three branches of other text: named kinds only never say it; named kinds with unclassified text say it last; unclassified text alone is the bare sentence, with no colon and no list; fails_when=the card claims a read nobody made, or hides an unclassified one; no_claim=what the core read.
+  test("other text: absent when all named, last when beside kinds, the bare stem alone", () => {
+    const named = read({ documents: ["Q3 board pack.pdf"], transcript: true });
+    expect(readTextLine(en, named, enGap)).not.toContain("other text");
+    expect(readTextLine(zh, named, zhGap)).not.toContain("其他内容");
+    const beside = read({ documents: ["Q3 board pack.pdf", "Minutes"], otherText: true });
+    expect(readTextLine(en, beside, enGap)).toBe(
+      "This Answer read text you didn’t write: 2 Documents and other text.",
+    );
+    expect(readTextLine(zh, beside, zhGap)).toBe(
+      "这次回答读过不是你写的内容：2 个文档和其他内容。",
+    );
+    const only = read({ otherText: true });
+    expect(readTextLine(en, only, enGap)).toBe("This Answer read text you didn’t write.");
+    expect(readTextLine(zh, only, zhGap)).toBe("这次回答读过不是你写的内容。");
+  });
+
+  // protects=a web page is named by its host even when the host itself looks like a file, and the title it wrote is never on the card; fails_when=the line shows a title that could pass for the User's file; no_claim=the page's words.
+  test("a web page shows its host, never a title", () => {
+    const imitating = read({ webPages: ["q3-board-pack.pdf.example"] });
+    expect(readTextLine(en, imitating, enGap)).toBe(
+      "This Answer read text you didn’t write: a web page on q3-board-pack.pdf.example.",
+    );
+    expect(readTextLine(zh, imitating, zhGap)).toBe(
+      "这次回答读过不是你写的内容：q3-board-pack.pdf.example 上的一个网页。",
+    );
+    const titled = read({ webPageTitles: ["q3-board-pack.pdf.example"] });
+    expect(readTextLine(en, titled, enGap)).toBe(
+      "This Answer read text you didn’t write: the title of a web page on q3-board-pack.pdf.example.",
+    );
+    expect(readTextLine(zh, titled, zhGap)).toBe(
+      "这次回答读过不是你写的内容：q3-board-pack.pdf.example 上一个网页的标题。",
+    );
+  });
+
+  // protects=nothing read says no line at all, so the card shows its general line instead; fails_when=the card hides that line behind an empty one; no_claim=which kinds the list can name.
+  test("nothing read: no line, in either language", () => {
+    const nothing = read({});
+    expect(readTextLine(en, nothing, enGap)).toBeNull();
+    expect(readTextLine(zh, nothing, zhGap)).toBeNull();
   });
 
   // protects=a window command that didn't finish before a quit, or that found a Check already running, says so as its whole line; fails_when=it reads "Didn't run:" with a raw id; no_claim=when it happens.
@@ -162,6 +308,41 @@ describe("What the assistant's commands did, in words (#1421)", () => {
       /^Didn’t finish: IncarnaMind closed while “.+” was going on$/,
     );
     expect(commandCallText(zh, unfinished)).toMatch(/^未完成：“.+”进行时 IncarnaMind 已关闭$/);
+  });
+
+  // protects=a Check that stopped, found nothing, was not allowed, or could not run says so as its whole line; fails_when=it reads "Didn't run:" before a sentence; no_claim=the Check.
+  test("a Check that stopped, found nothing, or was not allowed says so plainly", () => {
+    const ended = (wording: { key: string; values: Record<string, string> }) =>
+      ({
+        id: "call",
+        tool: "run_command",
+        source: "commands",
+        input: {},
+        status: "failed",
+        commandProblem: { command: "mind.check", message: "", wording },
+      }) as unknown as Parameters<typeof commandCallText>[1];
+    expect(commandCallText(en, ended({ key: "run.stopped.cancelled", values: {} }))).toBe(
+      "Stopped",
+    );
+    expect(commandCallText(zh, ended({ key: "run.stopped.cancelled", values: {} }))).toBe("已停止");
+    expect(commandCallText(en, ended({ key: "mindCheck.nothingToCheck", values: {} }))).toBe(
+      "Nothing to check",
+    );
+    expect(commandCallText(zh, ended({ key: "mindCheck.nothingToCheck", values: {} }))).toBe(
+      "没有需要核对的内容",
+    );
+    expect(commandCallText(en, ended({ key: "commands.denied", values: {} }))).toBe(
+      "Not allowed, so nothing changed",
+    );
+    expect(commandCallText(zh, ended({ key: "commands.denied", values: {} }))).toBe(
+      "未允许，没有改动",
+    );
+    expect(commandCallText(en, ended({ key: "checks.problem.no-claims", values: {} }))).toBe(
+      "This note has no claims to check.",
+    );
+    expect(commandCallText(zh, ended({ key: "checks.problem.local-mode", values: {} }))).toBe(
+      "未核对：已开启“所有内容都留在这台电脑上”。",
+    );
   });
 
   // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.
