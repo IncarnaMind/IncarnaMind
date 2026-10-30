@@ -2394,7 +2394,7 @@ const NAME_END = `(?:(?!${HAN})|(?=的|计|以|左右|、|和|与|及|或|钢))`
 // The words a symbol begins ("每升高", "每克拉", "美元/升级"), which a free name after 每 or a currency must not run into; a figure's own unit stays free ("50升到油箱", "3米其余").
 const WORD_START: Readonly<Record<string, string>> = {
   克: "服|隆|制|拉",
-  升: "高|级|值|至|温|降|迁",
+  升: "高|级|值|至(?![0-9])|温|降|迁",
   米: "其林|兰|饭|粒",
 };
 const wordStart = (symbol: string) => {

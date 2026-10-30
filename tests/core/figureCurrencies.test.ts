@@ -690,6 +690,7 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["容量为54升。", "多元/升级转型，容量54", "54"],
     ["产量为54,000吨。", "报价540/吨左，产量54,000", "54,000"],
     ["容量为54升。", "美元/升级版，容量54", "54"],
+    ["容量为54升。", "价格每升至新高，容量54", "54"],
     ["路线长54米。", "汤圆/米粉，路线长54", "54"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
@@ -754,6 +755,7 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["重量为54克。", "重500克拉面，重量54"],
     ["产量为54,000吨。", "吨钢成本540元，产量54,000"],
     ["容量为54升。", "价格8元/升等，容量54"],
+    ["容量为54升。", "价格8元/升至10元，容量54"],
     ["路线长54米。", "造价3万元/米其中含税，路线长54"],
     ["The plate was 5 millimetres thick.", "The plate is 5 mm-thick."],
     ["产量为54,000吨。", "产量54,000，另有一吨。"],
