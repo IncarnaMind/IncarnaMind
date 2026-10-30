@@ -661,11 +661,14 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["The mill's output was 54,000 tonnes.", "Output 54,000 — the t-test is valid", "54,000"],
     ["The mill's output was 54,000 tonnes.", "Grade A-t steel; output 54,000.", "54,000"],
     ["The tank held 54 litres.", "Smith L.P. holds a tank of 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "We sold 5 T-shirts; output was 54,000.", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "We ran 2 t-tests; output was 54,000.", "54,000"],
+    ["The tank held 54 litres.", "We fitted 3 L-brackets; the tank holds 54.", "54"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
-  // protects=a Han symbol is not the first character of a word after a figure, on a unit line or in a heading: 克 in 克服, 克林工厂 and （克林工厂）, 米 in 大米 and 米其林, 升 in 升迁; fails_when="54,000吨" against "克服困难，产量54,000", "单位：克林工厂" or "（克林工厂）" passes; no_claim=the value.
+  // protects=a Han symbol is not the first character of a word after a figure, on a unit line or in a heading: 克 in 克服, 克林工厂, 克等级 and （克林工厂）, 米 in 大米, 米其林 and 一米的, 升 in 升迁 and 升等; fails_when="54,000吨" against "克服困难，产量54,000", "单位：克林工厂" or "（克林工厂）" passes; no_claim=the value.
   test.each([
     ["产量为54,000吨。", "克服困难，产量54,000", "54,000"],
     ["路线长54公里。", "大米\t54", "54"],
@@ -673,6 +676,10 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["路线长54公里。", "单位：米其林轮胎\n路线长54", "54"],
     ["容量为54升。", "单位：升迁记录\n容量\t54", "54"],
     ["产量为54,000吨。", "（克林工厂）\t54,000", "54,000"],
+    ["路线长54公里。", "统一米的价格，路线长54", "54"],
+    ["产量为54,000吨。", "单位：克等级\n产量54,000", "54,000"],
+    ["容量为54升。", "单位：升等记录\n容量54", "54"],
+    ["产量为54,000吨。", "每克服一个困难，产量54,000", "54,000"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
@@ -720,6 +727,15 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["产量为54,000吨。", "报价540/吨的货物，产量54,000"],
     ["产量为54,000吨。", "价格3,500元/吨的货物，产量54,000"],
     ["产量为54,000吨。", "按每吨3,500元计，产量54,000"],
+    ["产量为54,000吨。", "每吨成本3,500元，产量54,000"],
+    ["产量为54,000吨。", "每吨价格3,500元；产量54,000"],
+    ["容量为54升。", "每升油价8元；容量54"],
+    ["产量为54,000吨。", "价格3,500元/吨和运费，产量54,000"],
+    ["产量为54,000吨。", "成本（元/吨钢）\t54,000"],
+    ["产量为54,000吨。", "3,500美元/吨，产量54,000"],
+    ["产量为54,000吨。", "报价540/吨左右，产量54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output 54,000 t-CO2e."],
+    ["The plate was 5 millimetres thick.", "The plate is 5 mm-thick."],
     ["产量为54,000吨。", "产量54,000，另有一吨。"],
     ["容量为54升。", "容量54，另有十升。"],
   ])("%s against %j isn't flagged", (claim, cited) => {
