@@ -18,7 +18,7 @@ import type {
 import { isRecord } from "../../errors";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision } from "./calculated";
-import { type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
+import { FIGURES, type ReadVerdict, readsAsRefusal, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -48,7 +48,6 @@ export interface FigureReply {
   remainder?: FigureReplyRemainder | null;
 }
 
-const FIGURES = /^\s*Figures:\s*(.*)$/i;
 const MAX_REPLY_CHARACTERS = 100_000;
 // An item's own words (says, covered, uncovered) may each run to 2,000 characters, so the reply
 // may grow with the figures it answers for: a 500-value chart's shortest reply is over 100,000.

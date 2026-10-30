@@ -232,8 +232,7 @@ function figuresReplied(
   asking: (text: string) => void,
 ): TurnCheck[] {
   const figures = request.figures ?? [];
-  const asked = (text: string) =>
-    figures.length > 0 && searched() && !readsAsRefusal(text) && readVerdict(text) !== null;
+  const asked = (text: string) => figures.length > 0 && searched() && readVerdict(text) !== null;
   const ask = (text: string, finding: TurnFinding): TurnFinding => {
     asking(text);
     return finding;
@@ -755,7 +754,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: async (text) =>
             !request.figures?.length &&
             attempts === 0 &&
-            (await requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text)))
+            (await requiresCalculation(readVerdict(text)))
               ? {
                   claims: [],
                   note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
@@ -775,7 +774,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      if (readsAsRefusal(reply)) return notChecked("refused");
+      const written = figureReplyText(reply, setAside);
+      // Asked about its Figures line, a model that can't do what it was asked may write prose
+      // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
+      // One that writes only its Figures line again leaves its verdict on the sentence standing.
+      const text =
+        askedAbout !== null &&
+        readVerdict(written) === null &&
+        readFigureReply(written, request.figures, request.claim) === null
+          ? askedAbout
+          : written;
+      if (readsAsRefusal(text)) return notChecked("refused");
       if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
@@ -836,16 +845,6 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
           : doubted;
       };
-      const written = figureReplyText(reply, setAside);
-      // Asked about its Figures line, a model that can't do what it was asked may write prose
-      // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
-      // One that writes only its Figures line again leaves its verdict on the sentence standing.
-      const text =
-        askedAbout !== null &&
-        readVerdict(written) === null &&
-        readFigureReply(written, request.figures, request.claim) === null
-          ? askedAbout
-          : written;
       const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
       const said = readVerdict(verdictText);
       const result = await checkFigureReply({
@@ -876,9 +875,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           .find((citation) => citation?.check === "found") ??
         decidingCitation(session.finalCitation) ??
         (result.verdict === "not-checked" ? null : result.evidence);
-      return said && !signal.aborted
-        ? withSentenceVerdict(result, () => judged(said, request.claim, cited))
-        : result;
+      // A contradiction with no quote found is asked for its quote once, as a sentence without
+      // figures is: Claude Haiku 5.5 wrote its record into the reply instead of calling cite in
+      // about one contradicted check in seven (#2184).
+      const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
+        const evidence =
+          cited ??
+          (verdict.verdict === "contradicted"
+            ? await askForEvidence(request, verdict, session, signal)
+            : null);
+        if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
+        const failure = failureOf(evidence.failed);
+        return unchecked(failure.reason, failure.detail);
+      };
+      return said && !signal.aborted ? withSentenceVerdict(result, () => sentence(said)) : result;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
