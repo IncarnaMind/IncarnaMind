@@ -436,6 +436,66 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(0);
   });
 
+  test.each([
+    { pages: 2, searches: 1, wholeReads: 1 },
+    { pages: 41, searches: 2, wholeReads: 0 },
+  ])(
+    "an absence on $pages pages searches again only when the scope is too long to read whole",
+    async ({ pages, searches, wholeReads }) => {
+      const reads: number[] = [];
+      const queries: string[] = [];
+      // The first search misses the clause; only a search in other words finds it.
+      const plan = {
+        verdict: "unsupported",
+        absence: true,
+        again: {
+          query: "Either party may end this lease",
+          plan: { verdict: "contradicted", absence: true, quote: CLAUSE },
+        },
+      } as const;
+      const model = scriptedModel(
+        (call) => {
+          const reply = checkReply(call, { [CLAIM]: plan });
+          for (const each of "calls" in reply ? (reply.calls ?? []) : []) {
+            if (each.tool === "search_documents") queries.push(each.tool);
+          }
+          return reply;
+        },
+        {
+          generate: (call) => {
+            if (call.system.startsWith("Read the whole Documents")) {
+              reads.push(1);
+              const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
+              return { text: JSON.stringify(contained(passage)) };
+            }
+            return checkGenerate({ [CLAIM]: plan.again.plan })(call);
+          },
+        },
+      );
+      const { core } = await setUpWithDocuments(model, [
+        {
+          name: "Lease.pdf",
+          contents: buildPdf([
+            { lines: ["Term", "The lease runs for three years."] },
+            { lines: ["Break clause", CLAUSE] },
+            ...Array.from({ length: pages - 2 }, (_, index) => ({
+              lines: [`Schedule ${index + 1}`, "Rent schedule"],
+            })),
+          ]),
+        },
+      ]);
+
+      const result = await core.checkClaim({ claim: CLAIM });
+
+      expect(result).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: CLAUSE, check: "found" },
+      });
+      expect(queries).toHaveLength(searches);
+      expect(reads).toHaveLength(wholeReads);
+    },
+  );
+
   test("a figure the search found contradicts an absence on a scope too long to read whole", async () => {
     const claim = "The company never disclosed the $5 million loan.";
     const quote = "The company disclosed a $5 million loan on 14 May 2026.";
@@ -677,9 +737,9 @@ describe("An absence is one part of its sentence, judged by the whole read alone
         verdict: "supported",
         evidence: [{ quote: each.quote, check: "found" }],
       });
-      // The first turn names the two parts and stops; then each part's own three requests, and
-      // one whole read for the absence.
-      expect(checkRequests).toHaveLength(8);
+      // The first turn names the two parts and stops; the absence part's search and verdict, its
+      // one whole read, and the other part's search, cite and verdict.
+      expect(checkRequests).toHaveLength(7);
       expect(checkRequests.filter((system) => system.startsWith("Read the whole"))).toHaveLength(1);
     },
   );
@@ -775,8 +835,8 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       expect(reads).toHaveLength(1);
       expect(check).toMatchObject({ state: "supported", evidence: null });
       expect(check?.readDocuments).toHaveLength(1);
-      // The check's own three requests, then the one whole read.
-      expect(checkRequests).toHaveLength(4);
+      // Its search and verdict, then the one whole read: no second search, which can't decide it.
+      expect(checkRequests).toHaveLength(3);
     },
   );
 

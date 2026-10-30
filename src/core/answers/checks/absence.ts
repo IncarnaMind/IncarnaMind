@@ -75,6 +75,26 @@ function scopeComplete(
   });
 }
 
+/** The check's whole scope, ready to read whole; null when it is too long or not all readable. */
+export function wholeScope(
+  request: ClaimCheckRequest,
+  documents: ClaimCheckDependencies["documents"],
+): WholeReading[] | null {
+  const reading: WholeReading[] = [];
+  let pageCount = 0;
+  for (const document of documents.searchableBySize(request.scope.documentIds)) {
+    const passages = documents.passagesBetween?.(document.id, 0, Number.MAX_SAFE_INTEGER) ?? [];
+    const contentHash = passages[0]?.contentHash;
+    if (!contentHash) continue;
+    const units = documents.pageTexts(document.id, contentHash, null, null);
+    reading.push({ documentId: document.id, passages, units });
+    pageCount += units.length;
+  }
+  if (reading.length === 0 || pageCount > 40) return null;
+  // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
+  return scopeComplete(request, documents, reading) ? reading : null;
+}
+
 export async function checkAbsence({
   request,
   documents,
@@ -86,20 +106,8 @@ export async function checkAbsence({
   failedCheck,
 }: AbsenceContext): Promise<ClaimCheckResult | null> {
   const { model, signal } = request;
-  const reading: WholeReading[] = [];
-  let pageCount = 0;
-  for (const document of documents.searchableBySize(request.scope.documentIds)) {
-    const passages = documents.passagesBetween?.(document.id, 0, Number.MAX_SAFE_INTEGER) ?? [];
-    const contentHash = passages[0]?.contentHash;
-    if (!contentHash) continue;
-    const units = documents.pageTexts(document.id, contentHash, null, null);
-    reading.push({ documentId: document.id, passages, units });
-    pageCount += units.length;
-  }
-  if (reading.length === 0) return notChecked("absence-read-limit");
-  if (pageCount > 40) return notChecked("absence-read-limit");
-  // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
-  if (!scopeComplete(request, documents, reading)) return notChecked("absence-read-limit");
+  const reading = wholeScope(request, documents);
+  if (!reading) return notChecked("absence-read-limit");
 
   const readDocuments: ClaimReadDocument[] = [];
   for (const { documentId, passages, units } of reading) {

@@ -75,7 +75,7 @@ import {
   type DocumentLanguage,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { checkAbsence } from "./absence";
+import { checkAbsence, wholeScope } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -844,7 +844,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text) =>
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
-        searchAgain(() => searches),
+        searchAgain(
+          () => searches,
+          () => wholeScope(request, deps.documents) !== null,
+        ),
         ...figuresReplied(
           request,
           figures,
