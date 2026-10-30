@@ -152,6 +152,15 @@ export function commandTools(options: CommandToolsOptions): {
   drop(toolCallId: string): void;
 } {
   const checked = new Map<string, CheckedCommand>();
+  /**
+   * The calls checked and not yet run or dropped. A call is checked as it arrives, so the next one
+   * of the same step waits for these: "bring back the memo, then open it" must find it restored.
+   */
+  const unrun = new Map<string, { ran: Promise<void>; settle: () => void }>();
+  const settle = (toolCallId: string) => {
+    unrun.get(toolCallId)?.settle();
+    unrun.delete(toolCallId);
+  };
   const asks = new Map<string, CommandAsk>();
   /** How many things the Answer changed without asking, since the User last allowed more. */
   let changed = 0;
@@ -340,6 +349,7 @@ export function commandTools(options: CommandToolsOptions): {
         throw error;
       } finally {
         counted.delete(toolCallId);
+        settle(toolCallId);
       }
       renames.push(...renamesOf(ran.done.items));
       if (ran.step) options.steps.add(options.runId, ran.step);
@@ -359,6 +369,7 @@ export function commandTools(options: CommandToolsOptions): {
   return {
     tools: [listTool, runTool],
     async check(toolCallId, input, read) {
+      await Promise.all([...unrun.values()].map((each) => each.ran));
       try {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
@@ -374,6 +385,8 @@ export function commandTools(options: CommandToolsOptions): {
         });
         const ask = askOf(command, { changed, renames, read: read || readTitles.size > 0 });
         checked.set(toolCallId, command);
+        const { promise: ran, resolve: settled } = Promise.withResolvers<void>();
+        unrun.set(toolCallId, { ran, settle: settled });
         if (ask) asks.set(toolCallId, ask);
         else if (command.changes) {
           changed += command.items.length;
@@ -393,6 +406,7 @@ export function commandTools(options: CommandToolsOptions): {
     drop: (toolCallId) => {
       checked.delete(toolCallId);
       asks.delete(toolCallId);
+      settle(toolCallId);
     },
   };
 }

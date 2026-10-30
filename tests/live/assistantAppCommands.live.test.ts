@@ -311,13 +311,6 @@ const neitherCheckNorOrganize: Check = (seen) => {
   expect(ran(seen).some((done) => done.command === "documents.organize")).toBe(false);
 };
 
-const notRenamed =
-  (name: string, to: string): Check =>
-  ({ after }) => {
-    expect(after.documents).toContain(name);
-    expect(after.documents).not.toContain(to);
-  };
-
 const renamed =
   (to: string): Check =>
   ({ after }) =>
@@ -374,6 +367,15 @@ const neverForGood: Check = (seen) => {
   const card = ran(seen).some((done) => done.yours === "permanent");
   if (!card) expect(seen.answer.text).toMatch(/Recently deleted|最近删除|回收站/);
 };
+
+/** Brought back because the User chose it, the memo then takes the new name the request gave. */
+const renamedOnceBack =
+  (to: string): Check =>
+  (seen) => {
+    if (ran(seen).some((done) => done.command === "deleted.restore")) {
+      expect(seen.after.documents).toContain(to);
+    }
+  };
 
 /** An unclear request: putting the Documents in a Folder, or writing a Note of what they say. */
 const organizedOrNoted: Check = (seen) => {
@@ -539,7 +541,7 @@ const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = 
   {
     id: "rename-deleted-en",
     text: "Rename the Q3 memo to Q3 close",
-    check: both(commentaryUntouched, notRenamed("Q3 commentary", "Q3 close"), askedAboutTheMemo),
+    check: both(commentaryUntouched, askedAboutTheMemo, renamedOnceBack("Q3 close")),
     choose: theMemo,
   },
   {

@@ -1708,6 +1708,60 @@ describe("A refusal is said, and the commands a request names are within reach (
     },
   );
 
+  // protects=calls made in one step see what the calls before them did: bring back the memo, then open it or rename it, in the same step, acts on the memo restored; fails_when=the second call is refused because it was checked before the restore ran; no_claim=a real model's order of calls.
+  test.each([
+    { second: "document.open", more: {} },
+    { second: "document.rename", more: { name: "Q3 close" } },
+  ])("restored, then $second in the same step, acts on it", async ({ second, more }) => {
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "list_commands", input: { kind: "deleted", name: "Q3 memo" } }] };
+      }
+      const [id = ""] = idsFound(call.results);
+      return call.results.some((each) => each.tool === "run_command")
+        ? { text: "Done." }
+        : {
+            calls: [
+              { tool: "run_command", input: { command: "deleted.restore", ids: [id] } },
+              { tool: "run_command", input: { command: second, ids: [id], ...more } },
+            ],
+          };
+    });
+    const { core, mind, documents } = await setUpWithDocuments(model, [
+      ...DOCUMENTS,
+      { name: "Q3 memo.md", contents: "# Q3 memo\n\nThe quarter closed ahead of plan.\n" },
+    ]);
+    const memo = documents.find((each) => each.name === "Q3 memo");
+    if (!memo) throw new Error("No Q3 memo.");
+    await core.deleteDocuments([memo.id]);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    const offered = [...OFFERED, entry("document.open", "Open", { on: ["document"] })];
+
+    const answer = await askAssistant(core, {
+      text: "Bring the Q3 memo back and deal with it",
+      mindId: mind.id,
+      commands: offered,
+      clientId: WINDOW,
+    });
+
+    expect(
+      commandCalls(answer)
+        .filter((call) => call.tool === "run_command")
+        .map((call) => call.status),
+    ).toEqual(["done", "done"]);
+    const names = (await core.listDocuments()).map((each) => each.name);
+    if (second === "document.open") {
+      expect(asked.map(({ command, targets }) => ({ command, targets }))).toEqual([
+        { command: "document.open", targets: [{ kind: "document", id: memo.id }] },
+      ]);
+      expect(names).toContain("Q3 memo");
+    } else {
+      expect(names).toContain("Q3 close");
+      expect(names).toContain("Q3 commentary");
+    }
+    core.close();
+  });
+
   // protects=every citation style name the command's description gives is one the app knows, and Chicago by its other names and an earlier edition by its number are found too, never another edition in its place; fails_when=a name the description shows is refused, or "Chicago 17" cites in the 18th edition; no_claim=every name a model might use.
   test("every style name the description gives is accepted, and Chicago by its other names", async () => {
     let style = "";
