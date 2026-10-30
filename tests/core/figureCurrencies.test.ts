@@ -168,6 +168,15 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
+  // protects=a unit line states its unit only where the symbol is the unit the line names, not the first character of a word after the colon: 克 in 克林工厂, 米 in 米其林, 升 in 升迁; fails_when=an invented unit on a line that names a place or a word passes; no_claim=the value.
+  test.each([
+    ["产量为54,000吨。", "单位：克林工厂\n产量\t54,000", "54,000"],
+    ["路线长54公里。", "单位：米其林轮胎\n路线长54", "54"],
+    ["容量为54升。", "单位：升迁记录\n容量\t54", "54"],
+  ])("%s against %j gives %s", (claim, cited, amount) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
+  });
+
   // protects=a symbol genuinely attached to a figure, or on a unit line, states the measure in any shape: no space ("54,000t"), a scale word ("5.4万吨"), a fullwidth heading ("（T）"), a rate heading ("(t/yr)", "（吨/年）"), a capital letter, another figure's unit, or a space before a Chinese character; fails_when=any of these is Unsupported; no_claim=the value.
   test.each([
     ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
@@ -180,6 +189,8 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["产量为54,000吨。", "2025年产量5.4万吨\n2024年产量54,000"],
     ["产量为54,000吨。", "产量 54,000 吨"],
     ["产量为54,000吨。", "单位：吨\n产量\t54,000"],
+    ["产量为54,000吨。", "单位：吨（万吨）\n产量\t54,000"],
+    ["产量为54,000吨。", "单位：吨/年\n产量\t54,000"],
     ["路线长54公里。", "今年新增路段54米，路线长54。"],
   ])("%s against %j isn't flagged", (claim, cited) => {
     expect(unitNotStated(claim, read(cited))).toBeNull();
