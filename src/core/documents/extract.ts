@@ -229,6 +229,10 @@ function readPageText(items: readonly object[]): PrintedText {
 // Lines inside a paragraph of CJK text: a PDF breaks them anywhere, and the break isn't a space.
 const CJK_LINE_WRAP = new RegExp(`([${CJK}])[^\\S\\n]*\\n[^\\S\\n]*(?=[${CJK}])`, "gu");
 
+/**
+ * The readers that still read a page directly predate the stored text's heading rule (#2219),
+ * so every CJK line wrapped beside CJK text is joined here, whatever line it is on.
+ */
 function pageText(items: readonly object[]): string {
   let text = "";
   for (const item of items) {

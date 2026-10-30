@@ -298,5 +298,19 @@ describe("A model no list names, or one in a flow no list admits it to", {
     expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
     expect(JSON.stringify(requests(reasked))).not.toMatch(/\bMinds?\b/);
     expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
+    // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
+    const again = requests(reasked).find((request) =>
+      JSON.stringify(request).includes("but no Tool did that"),
+    );
+    expect(again).toBeDefined();
+    const said = JSON.stringify(again);
+    for (const phrase of [
+      "made a Note",
+      "added text to a Note",
+      "changed a Note",
+      "removed or replaced text in a Note",
+    ]) {
+      expect(said, phrase).toContain(phrase);
+    }
   });
 });
