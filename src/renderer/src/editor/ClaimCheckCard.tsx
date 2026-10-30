@@ -79,12 +79,13 @@ import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
-import { claimPartRows, type ShownClaim } from "./claimChecks";
+import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
+import { RecordCiteResults } from "./RecordCiteResults";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -145,6 +146,7 @@ export function ClaimMark({
 }) {
   const t = useT();
   const state = claim.shown.state;
+  const mark = markOf(claim);
   const running = useChecks((store) => store.running[mindId] !== undefined);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = state === "not-checked";
@@ -157,6 +159,7 @@ export function ClaimMark({
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const card = useRef<HTMLDivElement>(null);
+  const sourcePickerOpen = useRef(false);
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
@@ -178,6 +181,13 @@ export function ClaimMark({
     const wanted = askers.current.size > 0;
     timer.current = window.setTimeout(() => setPeeking(wanted), wanted ? SHOW_MS : HIDE_MS);
   }, []);
+  const sourcePickerChanged = useCallback(
+    (open: boolean) => {
+      sourcePickerOpen.current = open;
+      hold("source-picker", open);
+    },
+    [hold],
+  );
   const dismiss = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
@@ -256,7 +266,7 @@ export function ClaimMark({
         ref={setButton}
         type="button"
         data-testid="claim-mark"
-        data-check={state}
+        data-check={mark}
         data-claim={claim.check.id}
         data-open={open || undefined}
         data-guided={guided || undefined}
@@ -291,7 +301,7 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        {!silent && <ClaimMarkIcon state={state} className="margin-check-icon" />}
+        {!silent && <ClaimMarkIcon state={mark} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
       {open && button?.parentElement && (
@@ -306,6 +316,7 @@ export function ClaimMark({
             middleware={() => claimCardPlace(button)}
             follows={() => badgeCorner(button)}
             onDismiss={(how) => {
+              if (sourcePickerOpen.current) return;
               if (how === "escape" && openedByKeyboard.current) returnToNote();
               dismiss();
             }}
@@ -326,6 +337,7 @@ export function ClaimMark({
               rootRef={card}
               claim={claim}
               heading={heading}
+              onSourcePickerChange={sourcePickerChanged}
               checking={state === "checking" || running}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
@@ -527,6 +539,7 @@ function ClaimCard({
   rootRef,
   claim,
   heading,
+  onSourcePickerChange,
   checking,
   verified,
   cited,
@@ -558,6 +571,7 @@ function ClaimCard({
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
+  onSourcePickerChange(open: boolean): void;
   checking: boolean;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
@@ -596,6 +610,7 @@ function ClaimCard({
   const [webOffShown, setWebOffShown] = useState(false);
   const { shown, check } = claim;
   const state = shown.state;
+  const mark = markOf(claim);
   const sentence = comparableSentence(claim.sentence.text);
   const decided = state === "supported" || state === "contradicted";
   const calculation = decided ? check.calculation : null;
@@ -694,15 +709,15 @@ function ClaimCard({
   return (
     <div
       ref={rootRef}
-      className={`citation-card citation-card--${TONE[state]} ${partRows ? "citation-card--parts" : ""}`}
+      className={`citation-card citation-card--${TONE[mark]} ${partRows ? "citation-card--parts" : ""}`}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
       {partRows ? (
         <>
           <div className="citation-card-head">
-            <p data-testid="claim-badge" data-check={state} className="citation-badge">
-              <ClaimMarkIcon state={state} className="citation-badge-icon" />
+            <p data-testid="claim-badge" data-check={mark} className="citation-badge">
+              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
               <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
             </p>
             <p data-testid="claim-sentence" className="claim-card-sentence">
@@ -739,8 +754,8 @@ function ClaimCard({
       ) : (
         <>
           <div className="citation-card-head">
-            <p data-testid="claim-badge" data-check={state} className="citation-badge">
-              <ClaimMarkIcon state={state} className="citation-badge-icon" />
+            <p data-testid="claim-badge" data-check={mark} className="citation-badge">
+              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
               <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
             </p>
             {sentence && (
@@ -1123,6 +1138,15 @@ function ClaimCard({
           </button>
         )}
       </div>
+      {mindId && (
+        <RecordCiteResults
+          mindId={mindId}
+          checkId={check.id}
+          cites={check.recordCites ?? []}
+          onOpen={onOpen}
+          onPickerChange={onSourcePickerChange}
+        />
+      )}
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

@@ -34,7 +34,13 @@ import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
-import { claimPlaces, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
+import {
+  claimPlaces,
+  markOf,
+  placeInSentence,
+  type ShownClaim,
+  shownClaims,
+} from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { writeSentenceCheck } from "./editor/figurePlaces";
 import { requestEdit, useEdits } from "./editWithAi";
@@ -99,9 +105,16 @@ export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
 export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
   (claimWordsAt(editor.state.doc, claim.sentence.from, claim.sentence.to) ?? "").trim();
 
-/** The word a check's mark and card are headed with: "Not found" apart from "Unsupported". */
+/**
+ * The word a check's mark and card are headed with: "Not found" apart from "Unsupported", and
+ * "Record cite" for a Supported sentence one of whose own record cites needs a look.
+ */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
-  notFoundIn(editor, claim) ? "claim.state.notFound" : `claim.state.${claim.shown.state}`;
+  markOf(claim) !== claim.shown.state
+    ? "claim.state.recordCite"
+    : notFoundIn(editor, claim)
+      ? "claim.state.notFound"
+      : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";

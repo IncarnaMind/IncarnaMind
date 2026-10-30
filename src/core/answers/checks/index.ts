@@ -27,7 +27,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
-import { restsOn } from "../../../shared/claimChecks";
+import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
   checkWithParts,
   partWithResult,
@@ -40,6 +40,7 @@ import {
   settleFigureCheck,
 } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
+import { readRecordCiteChoices, writeRecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { namePartCitations } from "../../../shared/signOffs";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -50,6 +51,7 @@ import {
   type CheckContradictionsResult,
   type CheckedDocument,
   type CheckSentencesResult,
+  type ChooseRecordCiteSourceInput,
   type CitationAttributes,
   type CitedQuote,
   type ClaimCheckAction,
@@ -71,6 +73,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
+import { depositionMapper } from "../../documents/deposition";
 import type { Evidence } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
@@ -87,6 +90,9 @@ import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
+import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
+import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
@@ -98,14 +104,23 @@ import {
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck } from "./partCheck";
+import {
+  judgeResolvedRecordCites,
+  notJudgedError,
+  unplacedRecordCites,
+  withRecordCites,
+} from "./recordCites";
 import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
+  checkedSentences,
   checkText,
   citedQuoteOf,
   everySentence,
   markedSentences,
   markSentence,
+  noteTextOf,
+  recordCiteParagraphs,
   selectedSentences,
   updateCheck,
 } from "./sentences";
@@ -177,7 +192,8 @@ export interface ChecksOptions
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
-    MindCheckOptions["documents"] & {
+    MindCheckOptions["documents"] &
+    Pick<RecordCiteSource, "batesHolders"> & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
       names(): readonly LiveDocument[];
     };
@@ -309,10 +325,17 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 
 /** A result written onto its mark. */
 function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
-  const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
+  // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
+  const { recordCites: _earlier, ...basis } = check;
+  const common = {
+    versions: result.versions,
+    excluded: result.excluded,
+    ...(result.recordCites && { recordCites: result.recordCites }),
+    checkedAt: at,
+  };
   return result.verdict === "not-checked"
     ? {
-        ...check,
+        ...basis,
         ...common,
         state: "not-checked",
         reason: result.reason,
@@ -326,7 +349,7 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
         ...(result.parts && { parts: result.parts }),
       }
     : {
-        ...check,
+        ...basis,
         ...common,
         state: result.verdict,
         reason: null,
@@ -362,8 +385,14 @@ function withResult(
       ]),
     };
   }
-  if (result.parts)
-    return checkWithParts({ ...check, checkedAt: at }, namePartCitations(result.parts, priorParts));
+  if (result.parts) {
+    // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
+    const { recordCites: _earlier, ...basis } = check;
+    return keepRecordCites(
+      checkWithParts({ ...basis, checkedAt: at }, namePartCitations(result.parts, priorParts)),
+      result.recordCites,
+    );
+  }
   const { figures: _figures, remainder: _remainder, ...basis } = check;
   const next = withJudgment(basis, result, at);
   const { parts: _parts, ...childBasis } = basis;
@@ -491,6 +520,35 @@ function partsKeptInside(
   return kept ? next : null;
 }
 
+function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
+  if (!isRecord(value)) throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+  const { mindId, checkId, raw, documentId, from, to } = value;
+  if (
+    typeof mindId !== "string" ||
+    !mindId ||
+    typeof checkId !== "string" ||
+    !checkId ||
+    typeof raw !== "string" ||
+    !raw ||
+    typeof documentId !== "string" ||
+    !documentId
+  )
+    throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+  if (
+    (from !== undefined && (typeof from !== "number" || !Number.isInteger(from) || from < 0)) ||
+    (to !== undefined && (typeof to !== "number" || !Number.isInteger(to) || to < 0))
+  )
+    throw new InvalidInputError({ key: "error.recordCite.spanInvalid" });
+  return {
+    mindId,
+    checkId,
+    raw,
+    documentId,
+    from: from as number | undefined,
+    to: to as number | undefined,
+  };
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
 
@@ -547,9 +605,16 @@ export function createChecks(options: ChecksOptions) {
   }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
-  const claimCheck = createPartCheck(options);
+  const recordCiteDocuments = {
+    ...options.documents,
+    recordChoices: (mindId: string) => content.readSettings(mindId, readRecordCiteChoices),
+    noteParagraphs: (mindId: string) => content.read(mindId, recordCiteParagraphs),
+  };
+  const withCites = (check: ReturnType<typeof createClaimCheck>) =>
+    withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
+  const claimCheck = withCites(createPartCheck(options));
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
-  const wholeCheck = createClaimCheck(options);
+  const wholeCheck = withCites(createClaimCheck(options));
 
   options.consent.registry.register({
     id: "checks",
@@ -844,6 +909,8 @@ export function createChecks(options: ChecksOptions) {
             id: check.id,
             ...checkText(sentence),
             cited: sentence.cited,
+            recordClaim: noteTextOf(sentence),
+            place: { blockId: sentence.blockId, from: sentence.from },
             ...(plans && { parts: plans }),
             ...(input.part && { only: input.part.span }),
             ...(previous && { previous }),
@@ -876,6 +943,9 @@ export function createChecks(options: ChecksOptions) {
         ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
         scope: evidenceScope,
         model: ready.prepared,
+        mindId,
+        recordClaim: sentence.recordClaim,
+        place: sentence.place,
         cacheKey: mindId,
         signal,
       });
@@ -1081,6 +1151,7 @@ export function createChecks(options: ChecksOptions) {
           citedCaseFound: false,
           versions: [],
           excluded: [],
+          ...unplacedRecordCites(parsed.claim),
         };
         return resultFromParts([
           partWithResult({ kind: "fact", span: { start: 0, end: parsed.claim.length } }, result),
@@ -1098,6 +1169,130 @@ export function createChecks(options: ChecksOptions) {
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
         signal: new AbortController().signal,
       });
+    },
+
+    async chooseRecordCiteSource(value: unknown) {
+      const input = chooseInput(value);
+      const stored = content.read(input.mindId, (blocks) =>
+        checkedSentences(blocks).find(({ check }) => check.id === input.checkId),
+      );
+      if (!stored) throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      // The cites' offsets are in the sentence as the Note holds it, its Citations included.
+      const recordClaim = stored.noteText ?? stored.check.text;
+      const sameCite = (cite: { raw: string; from?: number; to?: number }) =>
+        cite.raw === input.raw &&
+        (input.from === undefined || cite.from === input.from) &&
+        (input.to === undefined || cite.to === input.to);
+      const existing = (stored.check.recordCites ?? []).filter(sameCite);
+      const cite = existing[0];
+      if (existing.length !== 1 || !cite) {
+        throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      }
+      if (!(cite.candidates ?? []).some((candidate) => candidate.id === input.documentId)) {
+        throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+      }
+      const wanted =
+        stored.check.scope.chosen ??
+        (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
+      // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      const scope = options.evidence.scope(
+        options.scopeDocuments(wanted, input.mindId),
+        leftOutOf(input.mindId),
+      );
+      const document = recordCiteLibrary(options.documents, scope).documents.find(
+        (each) => each.id === input.documentId,
+      );
+      if (!document) {
+        const live = (options.documents.names?.() ?? []).some(
+          (each) => each.id === input.documentId,
+        );
+        const walled =
+          options.walledFolder(input.mindId) !== null ||
+          options.walledDocument(input.documentId) !== null;
+        throw new InvalidInputError({
+          key: live && walled ? "error.folder.wall" : "error.recordCite.documentGone",
+        });
+      }
+      // Read as the check read it: a further range of a deposition ("…, 47:1–4") has its source.
+      const read =
+        recordCiteTokens(recordClaim).find((token) => token.kind === "cite" && sameCite(token)) ??
+        null;
+      const parsed = read?.kind === "cite" ? read.result : parseRecordCite(cite.raw);
+      const resolved = resolveChosenRecordCite(
+        { ...parsed, raw: cite.raw, from: cite.from, to: cite.to },
+        document,
+        depositionMapper,
+      );
+      if (resolved.outcome !== "found") {
+        throw new InvalidInputError({ key: "error.recordCite.unresolved" });
+      }
+      const ready = await prepare(
+        stored.check.providerId && stored.check.modelId
+          ? { providerId: stored.check.providerId, modelId: stored.check.modelId }
+          : options.defaultModel(),
+      );
+      if (!ready.ok) {
+        const { result } = ready;
+        const reason = result.kind === "not-ready" ? result.readiness.reason : result.kind;
+        throw new InvalidInputError({
+          key:
+            reason === "local-mode"
+              ? "error.check.localMode"
+              : reason === "cancelled" || reason === "consent-declined"
+                ? "error.check.declined"
+                : "error.recordCite.modelNotReady",
+        });
+      }
+      const judged = await judgeResolvedRecordCites(
+        [resolved],
+        ready.prepared,
+        recordClaim,
+        new AbortController().signal,
+        options.language(),
+        stored.check.recordCites ?? [resolved],
+      );
+      if (judged.failure) throw notJudgedError(judged.failure);
+      const final = judged.recordCites[0];
+      if (!final?.location) throw new InvalidInputError({ key: "error.recordCite.unresolved" });
+      const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
+      let replaced = false;
+      content.edit(input.mindId, (blocks) =>
+        updateCheck(blocks, input.checkId, (check) => {
+          if (check.text !== stored.check.text) return check;
+          const recordCites = (check.recordCites ?? []).map((each) => {
+            if (each.raw !== cite.raw || each.from !== cite.from || each.to !== cite.to) {
+              return each;
+            }
+            replaced = true;
+            return final;
+          });
+          return {
+            ...check,
+            recordCites,
+            versions:
+              final.documentId &&
+              final.contentHash &&
+              !check.versions.some((version) => version.documentId === final.documentId)
+                ? [
+                    ...check.versions,
+                    { documentId: final.documentId, contentHash: final.contentHash },
+                  ]
+                : check.versions,
+          };
+        }),
+      );
+      // The sentence was edited or checked again meanwhile: its cites are no longer these.
+      if (!replaced) throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      if (alias) {
+        content.editSettings(input.mindId, (settings) =>
+          writeRecordCiteChoice(settings, alias, {
+            documentId: document.id,
+            contentHash: document.contentHash,
+          }),
+        );
+      }
+      retainEvidence(input.mindId);
+      return { cite: final };
     },
 
     /** Stops a request: its sentences not checked yet are marked "stopped". */

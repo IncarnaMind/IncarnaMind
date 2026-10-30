@@ -242,8 +242,12 @@ export interface CreateMindInput {
  *   the verification record (#2002). Older editors strip the part ranges and
  *   their evidence when saving marked words, so these Notes open read-only
  *   there. Older content is version 35 content as it is.
+ * - 36: the individual record cites in a sentence's check (#1709): their raw
+ *   text, outcome, resolved Document/version/Location, passage and any
+ *   candidates or nearby suggestion. An older editor would drop them, so it
+ *   opens these Notes read-only. Existing content needs no conversion.
  */
-export const CONTENT_SCHEMA_VERSION = 35;
+export const CONTENT_SCHEMA_VERSION = 36;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2019,7 +2023,14 @@ export const MAX_CITED_PAGES = 2;
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
 export type CitationLocation =
-  | { kind: "page"; from: number; to: number; printed?: { from: string; to: string } }
+  | {
+      kind: "page";
+      from: number;
+      to: number;
+      printed?: { from: string; to: string };
+      /** The printed line on the first printed page and on the last (#1709). */
+      lines?: { from: number; to: number };
+    }
   | { kind: "slide"; from: number; to: number }
   | { kind: "rows"; sheet: string | null; from: number; to: number }
   | { kind: "lines"; from: number; to: number }
@@ -5690,6 +5701,46 @@ export type UnlockDocumentResult =
   | { kind: "unlocked"; document: Document }
   | { kind: "wrong-password" };
 
+/** One record cite's own result inside a sentence's check (#1709). */
+export interface RecordCiteResult {
+  /**
+   * The cite as written and its UTF-16 span, when it has one, in the sentence as the Note holds it:
+   * each Citation there is one U+FFFC, which the mark's `text` leaves out.
+   */
+  raw: string;
+  from?: number;
+  to?: number;
+  outcome: "supported" | "partly" | "unsupported" | "choose" | "not-found" | "not-checked";
+  /** For "not-checked": why this cite's auxiliary judgement could not be read. */
+  reason?: ClaimCheckFailure;
+  detail?: string | null;
+  documentId?: string;
+  documentName?: string;
+  contentHash?: string;
+  location?: CitationLocation;
+  /** The physical PDF Units the passage and viewer open, when it is one. */
+  pageFrom?: number;
+  pageTo?: number;
+  passage?: string;
+  /** For "partly": the parts the cited Location does and does not cover. */
+  covered?: string;
+  uncovered?: string;
+  /** Documents the User must choose between; never a silent first match. */
+  candidates?: { id: string; name: string }[];
+  /**
+   * For an `Id.` or `supra`: what its reading rests on, as written: the nearest cite before it that
+   * names a place, when it names none itself, then the record cite its chain ends at; empty when it
+   * referred to none. When they read otherwise now, the sentence needs re-check.
+   */
+  via?: string[];
+  nearby?: {
+    location: CitationLocation;
+    pageFrom: number;
+    pageTo: number;
+    passage: string;
+  };
+}
+
 /** What one claim check found: the claim-check function's result (`checkClaim`). */
 export type ClaimJudgment =
   | {
@@ -5720,6 +5771,7 @@ export type ClaimJudgment =
       /** The versions of the Documents it read, each once. */
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
     }
   | {
       verdict: "not-checked";
@@ -5730,6 +5782,7 @@ export type ClaimJudgment =
       detail: string | null;
       versions: CheckedVersion[];
       excluded: LeftOutDocument[];
+      recordCites?: RecordCiteResult[];
     };
 
 export type FigureLocator =
@@ -5834,6 +5887,20 @@ export interface CitedQuote {
   passageId?: string;
 }
 
+export interface ChooseRecordCiteSourceInput {
+  mindId: string;
+  /** The sentence check whose one record cite is resolved again. */
+  checkId: string;
+  raw: string;
+  from?: number;
+  to?: number;
+  documentId: string;
+}
+
+export interface ChooseRecordCiteSourceResult {
+  cite: RecordCiteResult;
+}
+
 /** What the claim-check function checks (`checkClaim`). */
 export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
@@ -5900,6 +5967,8 @@ export interface ClaimCheckBasis {
   scope: ClaimCheckScope;
   versions: CheckedVersion[];
   excluded: LeftOutDocument[];
+  /** The individual record cites checked in this sentence, when it has any. */
+  recordCites?: RecordCiteResult[];
   /** When it was checked, or started. ISO 8601, UTC. */
   checkedAt: string;
   /**
@@ -10753,6 +10822,7 @@ export interface CoreApi {
    * Sends on the "checks" flow, as `checkSentences` does.
    */
   checkClaim(input: CheckClaimInput): Promise<ClaimCheckResult>;
+  chooseRecordCiteSource(input: ChooseRecordCiteSourceInput): Promise<ChooseRecordCiteSourceResult>;
   /**
    * Verify (#97): adds a document someone else wrote (a PDF) to the Library,
    * or finds it there, waits until its text is read, and makes a Mind of that
@@ -11901,6 +11971,7 @@ const methods: Record<CoreApiMethod, true> = {
   checkSentences: true,
   cancelCheck: true,
   checkClaim: true,
+  chooseRecordCiteSource: true,
   verifyDocument: true,
   findClaims: true,
   verifyClaims: true,

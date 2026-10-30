@@ -99,6 +99,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
+| Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
