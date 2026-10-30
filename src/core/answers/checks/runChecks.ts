@@ -20,6 +20,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
@@ -59,6 +60,9 @@ export interface QueuedClaim {
   context: string;
   cited?: ClaimCheckRequest["cited"];
   figures?: ClaimCheckRequest["figures"];
+  /** The sentence as the Note has it, and where it starts there, for its record cites. */
+  recordClaim?: string;
+  place?: RecordCitePlace;
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
   parts?: readonly ClaimPartPlan[];
@@ -144,6 +148,9 @@ export async function runChecks(
         scope: claim.scope ?? run.scope,
         model: prepared,
         ...(run.thirdParty && { thirdParty: run.thirdParty }),
+        mindId,
+        ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
+        ...(claim.place && { place: claim.place }),
         cacheKey: mindId,
         slots: limit,
         signal,

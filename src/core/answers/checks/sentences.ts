@@ -37,6 +37,7 @@ import {
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks } from "../../proposals/write";
+import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
 import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
@@ -76,6 +77,13 @@ export interface SelectedSentence {
 export type SelectedSentences =
   | { ok: true; sentences: SelectedSentence[]; waiting: WaitingSentences }
   | { ok: false; reason: "nothing" };
+
+/**
+ * A sentence as its Note holds it, an inline node as U+FFFC: what its record cites are read in,
+ * where its `text` leaves its Citations out (#2002).
+ */
+export const noteTextOf = (sentence: Pick<SelectedSentence, "element" | "from" | "to">): string =>
+  textOf(sentence.element).slice(sentence.from, sentence.to);
 
 /** A Block's text as checks read it. */
 export function textOf(element: Y.XmlElement): string {
@@ -402,6 +410,29 @@ export function selectedSentences(
     : { ok: false, reason: "nothing" };
 }
 
+/** Every paragraph's text in reading order, changes still waiting included: what record cites refer back through. */
+export function recordCiteParagraphs(blocks: Y.XmlFragment): NoteParagraph[] {
+  return textBlocks(blocks).flatMap(({ element }) => {
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (element.nodeName !== "paragraph" || typeof blockId !== "string") return [];
+    return [{ blockId, text: textOf(element) }];
+  });
+}
+
+/** A checked sentence's Note text as `claimCheckShown` reads it (`ClaimCheckNow.noteText`). */
+export const noteTextOfMarked = ({ noteText }: { noteText?: string }) =>
+  noteText === undefined ? {} : { noteText: () => noteText };
+
+/** The Note as a sentence's `Id.` and `supra` read it when its check is shown: its paragraphs read once, and only if one needs them. */
+export function recordCiteNote(blocks: Y.XmlFragment): (place?: RecordCitePlace) => RecordCiteNote {
+  let paragraphs: NoteParagraph[] | undefined;
+  const read = () => {
+    paragraphs ??= recordCiteParagraphs(blocks);
+    return paragraphs;
+  };
+  return (place) => ({ paragraphs: read, ...(place && { place }) });
+}
+
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   const figures = figuresByBlock(blocks);
@@ -595,18 +626,25 @@ export function keptAsView(
  * Every check in the Mind with the whole sentences its marked text is in, as they read now, and
  * where its mark is (`MarkedSentence`).
  */
-export function checkedSentences(
-  blocks: Y.XmlFragment,
-): (MarkedSentence & { sentence: string; cited: CitedQuote[] })[] {
+export function checkedSentences(blocks: Y.XmlFragment): (MarkedSentence & {
+  sentence: string;
+  cited: CitedQuote[];
+  noteText?: string;
+  place?: RecordCitePlace;
+})[] {
   return markedSentences(blocks).map((marked) => {
     const { element, from, to } = marked;
     if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const start = touched[0]?.from ?? 0;
     return {
       ...marked,
       sentence: text.slice(touched[0]?.start ?? 0, touched.at(-1)?.end ?? 0),
       cited: touched.flatMap((span) => span.cited),
+      noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
+      ...(typeof blockId === "string" && { place: { blockId, from: start } }),
     };
   });
 }

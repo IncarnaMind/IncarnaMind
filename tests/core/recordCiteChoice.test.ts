@@ -1,0 +1,601 @@
+import type { JSONContent } from "@tiptap/core";
+import type { MockLanguageModelV4 } from "ai/test";
+import { describe, expect, test } from "vitest";
+import type {
+  ClaimCheckAttributes,
+  CoreAdapters,
+  Document,
+  RecordCiteResult,
+} from "../../src/core";
+import { TranslatableError } from "../../src/core/errors";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimCheckShown } from "../../src/shared/claimChecks";
+import {
+  readRecordCiteChoices,
+  recordCiteSettingsOf,
+  writeRecordCiteChoice,
+} from "../../src/shared/recordCiteChoices";
+import { checkGenerate, checkingModel, checkReply, type Plan } from "../helpers/checks";
+import { setUpWithDocuments } from "../helpers/citations";
+import type { MindClient } from "../helpers/mindClient";
+import { editMind, readMind, writeMind } from "../helpers/minds";
+import { scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
+
+const CLAIM = "Ex. 7 at 1 proves the record fact.";
+const REPEATED = "Ex. 7 at 1 and Ex. 7 at 1 together prove the record fact.";
+
+async function setUp(
+  claim = CLAIM,
+  morePlans: Record<string, Plan> = {},
+  overrides: Partial<CoreAdapters> = {},
+  customModel?: MockLanguageModelV4,
+) {
+  const plans: Record<string, Plan> = {
+    [claim]: {
+      verdict: "supported",
+      quote: "record fact",
+      says: "The exhibit proves the record fact.",
+      judgement: "same",
+    },
+    ...morePlans,
+  };
+  const model = customModel ?? checkingModel(plans);
+  const setup = await setUpWithDocuments(
+    model,
+    [
+      {
+        name: "Ex. 7 first.pdf",
+        contents: buildPdf([
+          { lines: ["record fact", "First copy"] },
+          { lines: ["Second page", "First next"] },
+        ]),
+      },
+      {
+        name: "Ex. 7 second.pdf",
+        contents: buildPdf([
+          { lines: ["record fact", "Second copy"] },
+          { lines: ["Second page", "Second next"] },
+        ]),
+      },
+    ],
+    overrides,
+  );
+  const block: JSONContent & { attrs: { id: string } } = {
+    type: "paragraph",
+    attrs: { id: "record-cite-choice" },
+    content: [{ type: "text", text: claim }],
+  };
+  writeMind(setup.client, [block]);
+  await setup.client.settled();
+  const check = () =>
+    setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: claim.length },
+    });
+  const first = setup.documents[0];
+  const second = setup.documents[1];
+  if (!first || !second) throw new Error("The two exhibit Documents were not added.");
+  return { ...setup, model, check, first, second };
+}
+
+type Setup = Awaited<ReturnType<typeof setUp>>;
+
+async function storedChecks(client: MindClient): Promise<ClaimCheckAttributes[]> {
+  await client.settled();
+  return claimSpans(readMind(client)).map((span) => span.check);
+}
+
+async function storedCheck(client: MindClient): Promise<ClaimCheckAttributes> {
+  const checks = await storedChecks(client);
+  const check = checks.length === 1 ? checks[0] : undefined;
+  if (!check) throw new Error("The Note does not hold exactly one check.");
+  return check;
+}
+
+async function storeCloudCheck(setup: Setup, provider: { id: string }) {
+  editMind(setup.client, (blocks) =>
+    blocks.map((block) => ({
+      ...block,
+      content: (block.content ?? []).map((node) => ({
+        ...node,
+        marks: (node.marks ?? []).map((mark) => ({
+          ...mark,
+          attrs: { ...mark.attrs, providerId: provider.id, modelId: "claude-haiku-5-5" },
+        })),
+      })),
+    })),
+  );
+  await setup.client.settled();
+}
+
+function oneCite(check: ClaimCheckAttributes, index = 0): RecordCiteResult {
+  const cites = check.recordCites ?? [];
+  const cite = cites[index];
+  if (!cite || cites.length <= index) throw new Error(`Record cite ${index + 1} is missing.`);
+  return cite;
+}
+
+async function choose(
+  setup: Setup,
+  cite: RecordCiteResult,
+  document: Document,
+  check = storedCheck(setup.client),
+) {
+  const stored = await check;
+  return setup.core.chooseRecordCiteSource({
+    mindId: setup.mind.id,
+    checkId: stored.id,
+    raw: cite.raw,
+    from: cite.from,
+    to: cite.to,
+    documentId: document.id,
+  });
+}
+
+async function chooseSecond(setup: Setup) {
+  const stored = await storedCheck(setup.client);
+  return choose(setup, oneCite(stored), setup.second, Promise.resolve(stored));
+}
+
+async function setUpTime() {
+  const claim = "Meeting Tr. at 12:20 proves the record fact.";
+  const model = checkingModel({
+    [claim]: {
+      verdict: "supported",
+      quote: "record fact",
+      says: "The transcript proves the record fact.",
+      judgement: "same",
+    },
+  });
+  const setup = await setUpWithDocuments(model, [
+    {
+      name: "Meeting first.vtt",
+      contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact First copy\n",
+    },
+    {
+      name: "Meeting second.vtt",
+      contents: "WEBVTT\n\n00:12:20.000 --> 00:12:25.000\nrecord fact Second copy\n",
+    },
+  ]);
+  const block: JSONContent & { attrs: { id: string } } = {
+    type: "paragraph",
+    attrs: { id: "record-cite-time" },
+    content: [{ type: "text", text: claim }],
+  };
+  writeMind(setup.client, [block]);
+  await setup.client.settled();
+  const check = () =>
+    setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: claim.length },
+    });
+  const first = setup.documents[0];
+  const second = setup.documents[1];
+  if (!first || !second) throw new Error("The two transcript Documents were not added.");
+  return { ...setup, model, check, first, second };
+}
+
+describe("record-cite choices through the core", () => {
+  test("lists both candidates, remembers the stable Document id, and keeps the sentence verdict", async () => {
+    const setup = await setUp();
+    await setup.check();
+
+    const ambiguous = await storedCheck(setup.client);
+    expect(ambiguous.state).toBe("supported");
+    const candidates = oneCite(ambiguous).candidates;
+    expect(oneCite(ambiguous).outcome).toBe("choose");
+    expect(candidates).toHaveLength(2);
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        { id: setup.first.id, name: "Ex. 7 first" },
+        { id: setup.second.id, name: "Ex. 7 second" },
+      ]),
+    );
+
+    const chosen = await chooseSecond(setup);
+    expect(chosen.cite).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+      passage: expect.stringContaining("Second copy"),
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({
+      "ex 7": { documentId: setup.second.id, contentHash: setup.second.contentHash },
+    });
+
+    await setup.check();
+    const remembered = await storedCheck(setup.client);
+    expect(remembered.state).toBe("supported");
+    expect(oneCite(remembered)).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+    });
+  });
+
+  test("a check removed during source preparation leaves no saved choice", async () => {
+    const setup = await setUp();
+    await setup.check();
+    const stored = await storedCheck(setup.client);
+    const pending = choose(setup, oneCite(stored), setup.second, Promise.resolve(stored));
+    editMind(setup.client, () => []);
+    await setup.client.settled();
+
+    await expect(pending).rejects.toMatchObject({ wording: { key: "error.recordCite.notFound" } });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("choosing one of two identical raws re-checks only that occurrence", async () => {
+    const setup = await setUp(REPEATED);
+    await setup.check();
+    const ambiguous = await storedCheck(setup.client);
+    const first = oneCite(ambiguous, 0);
+    const second = oneCite(ambiguous, 1);
+    expect(first.from).not.toBe(second.from);
+    expect(ambiguous.recordCites?.map((cite) => cite.outcome)).toEqual(["choose", "choose"]);
+    const generateCalls = setup.model.doGenerateCalls.length;
+
+    await choose(setup, first, setup.second, Promise.resolve(ambiguous));
+
+    const updated = await storedCheck(setup.client);
+    expect(updated.recordCites?.map((cite) => cite.outcome)).toEqual(["supported", "choose"]);
+    expect(oneCite(updated, 0)).toMatchObject({ documentId: setup.second.id, from: first.from });
+    expect(oneCite(updated, 1)).toMatchObject({ from: second.from, candidates: second.candidates });
+    expect(setup.model.doGenerateCalls.length - generateCalls).toBe(1);
+    expect(updated.state).toBe("supported");
+
+    await choose(setup, second, setup.second, Promise.resolve(updated));
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))["ex 7"]).toMatchObject({
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+    });
+  });
+
+  test("a deleted chosen Document asks again instead of silently using the survivor", async () => {
+    const setup = await setUp();
+    await setup.check();
+    await chooseSecond(setup);
+    await setup.core.deleteDocument(setup.second.id);
+
+    await setup.check();
+
+    const invalidated = oneCite(await storedCheck(setup.client));
+    expect(invalidated).toMatchObject({
+      outcome: "choose",
+      candidates: [{ id: setup.first.id, name: "Ex. 7 first" }],
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))["ex 7"]).toMatchObject({
+      documentId: setup.second.id,
+    });
+  });
+
+  test("a changed Document hash invalidates its saved choice", async () => {
+    const setup = await setUp();
+    await setup.check();
+    await chooseSecond(setup);
+    writeRecordCiteChoice(recordCiteSettingsOf(setup.client.doc), "ex 7", {
+      documentId: setup.second.id,
+      contentHash: "an-older-version",
+    });
+    await setup.client.settled();
+
+    await setup.check();
+
+    expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
+  });
+
+  test("a Document deleted before confirmation returns an explicit error and writes nothing", async () => {
+    const setup = await setUp();
+    await setup.check();
+    const stored = await storedCheck(setup.client);
+    const generateCalls = setup.model.doGenerateCalls.length;
+    await setup.core.deleteDocument(setup.second.id);
+
+    await expect(
+      choose(setup, oneCite(stored), setup.second, Promise.resolve(stored)),
+    ).rejects.toMatchObject({ wording: { key: "error.recordCite.documentGone" } });
+    expect(setup.model.doGenerateCalls).toHaveLength(generateCalls);
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("Local mode keeps its own error and writes no source choice", async () => {
+    const setup = await setUp();
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    await setup.check();
+    await setup.core.setLocalOnly(true);
+    await storeCloudCheck(setup, saved);
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "error.check.localMode" },
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("declined consent keeps its own error and writes no source choice", async () => {
+    const setup = await setUp();
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    await setup.check();
+    if (saved.service) await setup.core.revokeConsent("checks", saved.service.id);
+    await storeCloudCheck(setup, saved);
+    const stop = setup.core.on("consent.requested", (request) => {
+      void setup.core.respondToConsent(request.requestId, false);
+    });
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "error.check.declined" },
+    });
+    stop();
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("a provider failure keeps its translated wording and writes no source choice", async () => {
+    const plans: Record<string, Plan> = {
+      [CLAIM]: {
+        verdict: "supported",
+        quote: "record fact",
+        says: "The exhibit proves the record fact.",
+        judgement: "same",
+      },
+    };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) => {
+        if (call.system.includes("exact Passage a record cite names")) {
+          throw new TranslatableError({ key: "claim.reason.rate-limit" });
+        }
+        return checkGenerate(plans)(call);
+      },
+    });
+    const setup = await setUp(CLAIM, {}, {}, model);
+    await setup.check();
+
+    await expect(chooseSecond(setup)).rejects.toMatchObject({
+      wording: { key: "claim.reason.rate-limit" },
+    });
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("one unreadable auxiliary reply leaves the overall sentence verdict intact", async () => {
+    const plans: Record<string, Plan> = {
+      [CLAIM]: {
+        verdict: "supported",
+        quote: "record fact",
+        says: "The exhibit proves the record fact.",
+        judgement: "same",
+      },
+    };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) =>
+        call.system.includes("exact Passage a record cite names")
+          ? { text: "unreadable" }
+          : checkGenerate(plans)(call),
+    });
+    const setup = await setUp(CLAIM, {}, {}, model);
+
+    const result = await setup.core.checkClaim({
+      claim: CLAIM,
+      scope: { folderIds: [], tagIds: [], documentIds: [setup.first.id] },
+    });
+
+    expect(result.verdict).toBe("supported");
+    expect(result.recordCites?.[0]).toMatchObject({ outcome: "not-checked", reason: "malformed" });
+  });
+
+  test("a direct check without a Note returns candidates without persisting a choice", async () => {
+    const setup = await setUp();
+
+    const result = await setup.core.checkClaim({ claim: CLAIM });
+
+    expect(result.verdict).toBe("supported");
+    expect(result.recordCites).toHaveLength(1);
+    expect(result.recordCites?.[0]?.outcome).toBe("choose");
+    expect(result.recordCites?.[0]?.candidates).toHaveLength(2);
+    expect(result.recordCites?.[0]?.candidates?.map((candidate) => candidate.id)).toEqual(
+      expect.arrayContaining([setup.first.id, setup.second.id]),
+    );
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc))).toEqual({});
+  });
+
+  test("a later sentence's Id. is read on the record cite before it in the Note", async () => {
+    const next = "Id. at 2 confirms the second page.";
+    const setup = await setUp(CLAIM, {
+      [next]: {
+        verdict: "supported",
+        quote: "Second page",
+        says: "The next page confirms it.",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    await chooseSecond(setup);
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-next-sentence" },
+      content: [{ type: "text", text: next }],
+    };
+    editMind(setup.client, (blocks) => [...blocks, block]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(checked?.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      documentId: setup.second.id,
+      location: { kind: "page", from: 2, to: 2 },
+      passage: expect.stringContaining("Second next"),
+    });
+
+    editMind(setup.client, (blocks) =>
+      blocks.filter((each) => each.attrs?.id !== "record-cite-choice"),
+    );
+    await setup.client.settled();
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+    const rechecked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(rechecked?.recordCites ?? []).toEqual([]);
+  });
+
+  test("an Id. with no record cite before it in the Note isn't a record cite", async () => {
+    const first = "Id. at 2 has no earlier source.";
+    const setup = await setUp(CLAIM, {
+      [first]: {
+        verdict: "unsupported",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    await chooseSecond(setup);
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-before-referent" },
+      content: [{ type: "text", text: first }],
+    };
+    editMind(setup.client, (blocks) => [block, ...blocks]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: first.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === first);
+    expect(checked?.state).toBe("unsupported");
+    expect(checked?.recordCites ?? []).toEqual([]);
+  });
+
+  test("an Id. after a cite still waiting for its Document can't be placed", async () => {
+    const next = "Id. at 2 has no immediate referent.";
+    const setup = await setUp(REPEATED, {
+      [next]: {
+        verdict: "unsupported",
+        judgement: "same",
+      },
+    });
+    await setup.check();
+    const block: JSONContent & { attrs: { id: string } } = {
+      type: "paragraph",
+      attrs: { id: "record-cite-after-ambiguous" },
+      content: [{ type: "text", text: next }],
+    };
+    editMind(setup.client, (blocks) => [...blocks, block]);
+    await setup.client.settled();
+
+    await setup.core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-documents",
+      from: { blockId: block.attrs.id, offset: 0 },
+      to: { blockId: block.attrs.id, offset: next.length },
+    });
+
+    const checked = (await storedChecks(setup.client)).find((check) => check.text === next);
+    expect(checked?.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+  });
+
+  test("record resolution honors the direct Search scope and checked-Document exclusion", async () => {
+    const setup = await setUp();
+
+    const scoped = await setup.core.checkClaim({
+      claim: CLAIM,
+      scope: { folderIds: [], tagIds: [], documentIds: [setup.first.id] },
+    });
+    expect(scoped.recordCites?.[0]).toMatchObject({
+      outcome: "supported",
+      documentId: setup.first.id,
+    });
+
+    const excluded = await setup.core.checkClaim({
+      claim: CLAIM,
+      checked: { documentIds: [setup.first.id] },
+    });
+    expect(excluded.recordCites?.[0]).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+    });
+  });
+
+  test("choosing adds the source version, so deleting it makes the stored check stale", async () => {
+    const setup = await setUp();
+    await setup.check();
+    editMind(setup.client, (blocks) =>
+      blocks.map((block) => ({
+        ...block,
+        content: (block.content ?? []).map((node) => ({
+          ...node,
+          marks: (node.marks ?? []).map((mark) => ({
+            ...mark,
+            attrs: { ...mark.attrs, versions: [] },
+          })),
+        })),
+      })),
+    );
+    await setup.client.settled();
+    await chooseSecond(setup);
+    // The sentence's parts keep the versions their own evidence read; the choice adds its source's.
+    expect((await storedCheck(setup.client)).versions).toContainEqual({
+      documentId: setup.second.id,
+      contentHash: setup.second.contentHash,
+    });
+
+    await setup.core.deleteDocument(setup.second.id);
+    const stale = await storedCheck(setup.client);
+    expect(
+      claimCheckShown(stale, {
+        text: stale.text,
+        versions: new Map([[setup.first.id, setup.first.contentHash]]),
+        folderId: null,
+        scope: null,
+      }),
+    ).toMatchObject({ state: "needs-recheck", why: "document-removed" });
+  });
+
+  test("a recording source choice is remembered by its stable source alias", async () => {
+    const setup = await setUpTime();
+    await setup.check();
+    expect(oneCite(await storedCheck(setup.client)).outcome).toBe("choose");
+
+    await chooseSecond(setup);
+    expect(readRecordCiteChoices(recordCiteSettingsOf(setup.client.doc)).meeting).toMatchObject({
+      documentId: setup.second.id,
+    });
+
+    await setup.check();
+    expect(oneCite(await storedCheck(setup.client))).toMatchObject({
+      outcome: "supported",
+      documentId: setup.second.id,
+      passage: expect.stringContaining("Second copy"),
+    });
+  });
+});

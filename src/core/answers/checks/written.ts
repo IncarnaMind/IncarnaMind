@@ -60,6 +60,7 @@ import {
   type RunStop,
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
@@ -610,6 +611,18 @@ function readAsChecked(
   return checkText(sentenceOf(element, blockId, place, figures));
 }
 
+/** Where the sentence is in the Note, for what its record cites' `Id.` and `supra` refer to. */
+function notePlace(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  sentence: Sentence,
+): RecordCitePlace | undefined {
+  const element = paragraphIn(blocks, ids, sentence.path);
+  const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const place = element ? placeOf(element, sentence) : null;
+  return typeof blockId === "string" && place?.same ? { blockId, from: place.from } : undefined;
+}
+
 const notChecked = (
   mark: ClaimCheckAttributes,
   reason: ClaimCheckFailure,
@@ -673,7 +686,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
     sentence: Sentence,
-    read: ReturnType<typeof checkText>,
+    read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
@@ -692,6 +705,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
         model: prepared,
+        mindId,
+        recordClaim: sentence.rawText,
         cacheKey: mindId,
         opinionsLeftOut: true,
         slots: limit,
@@ -727,7 +742,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
       return new Map(
-        sending.map((sentence) => [sentence, readAsChecked(note, input.ids, sentence, figures)]),
+        sending.map((sentence) => {
+          const place = notePlace(note, input.ids, sentence);
+          const read = readAsChecked(note, input.ids, sentence, figures);
+          return [sentence, place ? { ...read, place } : read];
+        }),
       );
     });
     input.checking(sending.length);
