@@ -325,6 +325,10 @@ export function BlockHandle({ editor }: { editor: Editor }) {
           title={t("editor.block.handle")}
           aria-haspopup="menu"
           aria-expanded={menuFor !== null}
+          onMouseDown={(event) => {
+            // A right-click is not an activation: taking focus would leave the Note unable to type.
+            if (event.button !== 0) event.preventDefault();
+          }}
           onClick={openMenu}
         >
           <GripIcon className="size-4" />
