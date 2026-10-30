@@ -498,3 +498,44 @@ describe("earlier turns are judged by the wall, not by this turn's Search scope"
     expect(carried(s.calls, from)).toBe(false);
   });
 });
+
+describe("a long paste saved after its Note or conversation was deleted", () => {
+  const OFFER = "The notice of the settlement offer zeta: 4 million omega.";
+  const said = (key: Parameters<typeof translate>[1]) => ({
+    message: translate("en", key),
+    wording: { key },
+  });
+
+  test("in a walled conversation deleted meanwhile, nothing is saved and it says why", async () => {
+    const s = await setUp();
+    const first = await askAssistant(s.core, { text: "What is the notice?", mindId: s.noteA.id });
+    const place = { mindId: null, conversationId: first.conversationId };
+    const before = (await s.core.listDocuments()).length;
+    await s.core.deleteConversation(first.conversationId);
+
+    await expect(
+      s.core.saveTextAsDocument({ name: "Pasted", text: OFFER, ...place }),
+    ).rejects.toMatchObject(said("error.paste.conversationGone"));
+    await expect(s.core.wallOfTurn(place)).rejects.toThrow();
+    expect(await s.core.listDocuments()).toHaveLength(before);
+    expect(translate("zh-CN", "error.paste.conversationGone")).toBe(
+      "粘贴的文本未保存：这个对话已删除。",
+    );
+  });
+
+  test("in a walled Note deleted meanwhile, nothing is saved, not even outside the wall", async () => {
+    const s = await setUp();
+    const before = (await s.core.listDocuments()).length;
+    await s.core.deleteMind(s.noteA.id);
+
+    await expect(
+      s.core.saveTextAsDocument({
+        name: "Pasted",
+        text: OFFER,
+        mindId: s.noteA.id,
+        conversationId: null,
+      }),
+    ).rejects.toMatchObject(said("error.paste.noteGone"));
+    expect(await s.core.listDocuments()).toHaveLength(before);
+  });
+});

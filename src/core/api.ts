@@ -8542,7 +8542,11 @@ export interface WindowCommandRequest {
   /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
   run: string;
   command: CommandId;
-  targets: { kind: CommandTarget; id: string }[];
+  /**
+   * What it acts on. For a suggestion To review's Accept all takes, `into` is the Suggested Folder
+   * the core checked it against (null: none): it is accepted only while it waits for that one.
+   */
+  targets: { kind: CommandTarget; id: string; into?: string | null }[];
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -9732,8 +9736,13 @@ export interface CoreApi {
    * Makes these Documents' Suggested Folders the User's choices, which
    * Organize never changes. Documents with none waiting are left alone; an
    * unknown Document throws and changes nothing. Returns what changed.
+   * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
+   * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
    */
-  acceptAssignments(documentIds: string[]): Promise<AssignmentChange[]>;
+  acceptAssignments(
+    documentIds: string[],
+    checked?: Record<string, string | null>,
+  ): Promise<AssignmentChange[]>;
   /**
    * Turns down these Documents' Suggested Folders: each is left Not in a
    * Folder, and Organize doesn't suggest that Folder for it again. Documents
@@ -10036,7 +10045,8 @@ export interface CoreApi {
    * The file is written in the data folder ("Saved text"), never next to the
    * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
    * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
-   * already gets a number. Throws InvalidInputError for text with no words.
+   * already gets a number. Throws InvalidInputError for text with no words, and NotFoundError,
+   * saving nothing, once that Note or conversation is deleted.
    */
   saveTextAsDocument(
     input: {
@@ -10047,7 +10057,8 @@ export interface CoreApi {
   /**
    * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
    * Note's, else the conversation's when no Note is open; null outside every wall. What the
-   * composer shows and files follows it.
+   * composer shows and files follows it. Throws NotFoundError once that Note or conversation is
+   * deleted.
    */
   wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
