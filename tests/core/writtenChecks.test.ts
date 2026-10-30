@@ -6,18 +6,26 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown, SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
-import { checkReply, isCheckRun, type Plan, sentenceOf, unsupportedReply } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  sentenceOf,
+  unsupportedReply,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
-import { readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
+import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 /**
  * What the assistant writes into a Mind is checked against its own Citations
@@ -33,6 +41,9 @@ const MOON = "Spring tides come at new and full moon.";
 const OVERSTATED = "Spring tides come at new and full moon, and they flood the harbour every year";
 const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
+const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
+const RECORD_NEXT = "Id. at 2 states another deadline";
+const RECORD_CUT = `${RECORD_SOURCE}, and the harbour floods`;
 const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
 const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
 const TWO_CITED =
@@ -59,7 +70,7 @@ const partly = (covered: string, uncovered: string) => ({
 /** A check's reply for a cut its Citations support once the unsupported part is out. */
 const supported: Plan = { verdict: "supported", quote: MOON, says: MOON };
 
-const PLANS: Record<string, Plan> = {
+const RAW_PLANS: Record<string, Plan> = {
   [asChecked(OVERSTATED)]: {
     reply: {
       text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
@@ -111,7 +122,16 @@ const PLANS: Record<string, Plan> = {
   [`港口在春季会淹水${INLINE_NODE}。`]: supported,
   [`Revenue did rise in 2023 ${INLINE_NODE}.`]: { reply: { text: "Verdict: unsupported" } },
   [`公司营收在所有地区增长${INLINE_NODE}。`]: { reply: { text: "Verdict: unsupported" } },
+  [asChecked(RECORD_SOURCE)]: { verdict: "unsupported", judgement: "same" },
+  [asChecked(RECORD_NEXT)]: { verdict: "unsupported", judgement: "same" },
+  [asChecked(RECORD_CUT)]: partly("the deadline", "the harbour floods"),
+  [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
+  [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
 };
+
+const PLANS: Record<string, Plan> = Object.fromEntries(
+  Object.entries(RAW_PLANS).map(([text, plan]) => [text.replaceAll(INLINE_NODE, ""), plan]),
+);
 
 const CUT = /<task action="cut-unsupported">/;
 
@@ -129,7 +149,19 @@ interface Writing {
   ends?: "finished" | "failed";
   /** The model's cut of a sentence, in place of its first clause and its marker. */
   cut?: string;
+  record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
 }
+
+const RECORD_FILE: NonNullable<Writing["record"]> = {
+  name: "ECF No. 41.pdf",
+  contents: buildPdf([
+    { lines: ["Introduction"] },
+    { lines: ["Second page", "Another deadline"] },
+    { lines: ["Trial briefs", "Trial briefs are due September 2"] },
+  ]),
+  quote: "Trial briefs are due September 2",
+  query: "Trial briefs",
+};
 
 /**
  * A model that searches, cites the moon line, writes `content`, and replies;
@@ -143,48 +175,56 @@ function writingModel(
     during,
     check,
     cut = "Spring tides come at new and full moon [1].",
+    record,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
 ) {
   let waited: Promise<void> | null = null;
   const tool = into ? "add_to_mind" : "create_mind";
-  return scriptedModel((call): ScriptedReply => {
-    calls.push(call);
-    if (isCheckRun(call)) {
-      const core = coreOf();
-      const reply = (check && core && check(call, core)) || checkReply(call, PLANS);
-      if (!during || waited || "error" in reply) return reply;
-      waited = during();
-      return { ...reply, pause: { after: 0, until: waited } };
-    }
-    if (CUT.test(call.prompt)) {
-      return { text: `${cut}\n<why>Only what the source says.</why>` };
-    }
-    const { results } = call;
-    const search = results.find((result) => result.tool === "search_documents");
-    if (!search) return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
-    if (!results.some((result) => result.tool === "cite")) {
-      const [passage] = shownPassages(search.text);
-      const record = { marker: 1, passage: passage?.id, quote: MOON };
-      return { calls: [{ tool: "cite", input: { citations: [record] } }] };
-    }
-    const writes = results.filter((result) => result.tool === tool);
-    // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
-    const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
-    if (writes.length === 0 || refused) {
-      const input = into ? { content } : { title: "Tide notes", content };
-      return { calls: [{ tool, input }] };
-    }
-    return { text: "Wrote it from your Documents." };
-  });
+  return scriptedModel(
+    (call): ScriptedReply => {
+      calls.push(call);
+      if (isCheckRun(call)) {
+        const core = coreOf();
+        const reply = (check && core && check(call, core)) || checkReply(call, PLANS);
+        if (!during || waited || "error" in reply) return reply;
+        waited = during();
+        return { ...reply, pause: { after: 0, until: waited } };
+      }
+      if (CUT.test(call.prompt)) {
+        return { text: `${cut}\n<why>Only what the source says.</why>` };
+      }
+      const { results } = call;
+      const search = results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return {
+          calls: [{ tool: "search_documents", input: { query: record?.query ?? "spring tides" } }],
+        };
+      if (!results.some((result) => result.tool === "cite")) {
+        const [passage] = shownPassages(search.text);
+        const citation = { marker: 1, passage: passage?.id, quote: record?.quote ?? MOON };
+        const citations = record ? [citation, { ...citation, marker: 2 }] : [citation];
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      const writes = results.filter((result) => result.tool === tool);
+      // Told its text has no Citation (#1415), it writes it again as it was: it says nothing the Documents say.
+      const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+      if (writes.length === 0 || refused) {
+        const input = into ? { content } : { title: "Tide notes", content };
+        return { calls: [{ tool, input }] };
+      }
+      return { text: "Wrote it from your Documents." };
+    },
+    record ? { generate: checkGenerate(PLANS) } : undefined,
+  );
 }
 
 /** The scripted model finds the English line a Chinese cut cites, as a real model does: it searches in English, then quotes it. */
 const englishEvidence =
   (claim: string) =>
   (call: ModelCall): ScriptedReply | null => {
-    if (sentenceOf(call) !== claim) return null;
+    if (sentenceOf(call) !== claim.replaceAll(INLINE_NODE, "")) return null;
     const searches = call.results.filter((result) => result.tool === "search_documents");
     if (searches.length === 0)
       return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
@@ -200,7 +240,11 @@ const englishEvidence =
   };
 
 /** A core with the tides line in a Folder, and a Mind there with a heading and a line. */
-async function harbour(model: ReturnType<typeof writingModel>, cloud: Writing["cloud"]) {
+async function harbour(
+  model: ReturnType<typeof writingModel>,
+  cloud: Writing["cloud"],
+  record: Writing["record"],
+) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -218,7 +262,11 @@ async function harbour(model: ReturnType<typeof writingModel>, cloud: Writing["c
   } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const sources = await createTempDataFolder();
   const documents = await addAndProcess(core, [
-    await writeSourceFile(sources, "Tides.md", `# Tides\n\n${MOON}\n`),
+    await writeSourceFile(
+      sources,
+      record?.name ?? "Tides.md",
+      record?.contents ?? `# Tides\n\n${MOON}\n`,
+    ),
   ]);
   const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
@@ -237,16 +285,21 @@ async function write(
   onStart?: (started: {
     core: Core;
     client: MindClient;
+    mindId: string;
     service: string | undefined;
     calls: readonly ModelCall[];
-  }) => void,
+  }) => void | Promise<void>,
 ) {
   const calls: ModelCall[] = [];
   let started: Core | null = null;
   const model = writingModel(writing, calls, () => started);
-  const { core, folderId, mindId, client, service } = await harbour(model, writing.cloud);
+  const { core, folderId, mindId, client, service } = await harbour(
+    model,
+    writing.cloud,
+    writing.record,
+  );
   started = core;
-  onStart?.({ core, client, service, calls });
+  await onStart?.({ core, client, mindId, service, calls });
   const answer = await askAssistant(
     core,
     {
@@ -377,7 +430,10 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
       expect(lastResult(model)).not.toContain("was taken out");
     },
@@ -460,7 +516,10 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
       // The rule refused it, not the check of the cut.
       expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(1);
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
@@ -491,8 +550,15 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
       expect(paragraphText(client, 1)).toBe(written);
       const [mark] = claimSpans(readMind(client));
-      expect(mark?.check).toMatchObject({ state: "unsupported", text: written });
-      expect(calls.some((call) => isCheckRun(call) && sentenceOf(call) === checked)).toBe(true);
+      expect(mark?.check).toMatchObject({
+        state: "unsupported",
+        text: written.replaceAll(INLINE_NODE, ""),
+      });
+      expect(
+        calls.some(
+          (call) => isCheckRun(call) && sentenceOf(call) === checked.replaceAll(INLINE_NODE, ""),
+        ),
+      ).toBe(true);
       expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
       expect(lastResult(model)).not.toContain("was taken out");
     },
@@ -551,7 +617,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(mark?.check).toMatchObject({
       state: "unsupported",
       action: "check-against-documents",
-      text: asChecked(UNBACKED),
+      text: asChecked(UNBACKED).replaceAll(INLINE_NODE, ""),
       unsupported: { reason: "No Passage compares the strength of the tides." },
     });
     expect(calls.some((call) => CUT.test(call.prompt))).toBe(false);
@@ -751,6 +817,110 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(marks.map(({ sentence, shown }) => [sentence, shown.state])).toEqual([
       ["€12 million .", "unsupported"],
     ]);
+  });
+
+  test("a nested proposed write resolves Id. against its own preceding sentence", async () => {
+    const { core, change, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      content: `> ${RECORD_SOURCE} [^1].\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
+  });
+
+  test("identical proposed Id. sentences never borrow a later occurrence", async () => {
+    const { core, change, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      content: `> ${RECORD_SOURCE} [^1].\n> ${RECORD_NEXT} [^2].\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    expect(change?.selfCheck).toMatchObject({ cited: 3, sent: 3, checked: 3, failed: 0 });
+    const next = (await marksIn(core, client)).filter(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next).toHaveLength(2);
+    for (const { check } of next) {
+      expect(check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "supported" });
+    }
+  });
+
+  test("a cut's validation preserves the referent for the next written sentence", async () => {
+    const { core, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      cut: `${RECORD_SOURCE} [1].`,
+      content: `> ${RECORD_CUT} [^1].\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
+  });
+
+  test("an uncited unresolved cite between proposed sentences clears Id.'s referent", async () => {
+    const { core, client } = await write({
+      into: true,
+      record: RECORD_FILE,
+      content: `> ${RECORD_SOURCE} [^1].\n> PL-999999.\n> ${RECORD_NEXT} [^2].`,
+    });
+
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({ raw: "Id. at 2", outcome: "not-found" });
+  });
+
+  test("a proposed Id. resolves against a record item already in the Note", async () => {
+    const { core, client } = await write(
+      {
+        into: true,
+        record: RECORD_FILE,
+        content: `> ${RECORD_NEXT} [^1].`,
+      },
+      async ({ core, client, mindId }) => {
+        const text = `${RECORD_SOURCE}.`;
+        editMind(client, (blocks) => [
+          ...blocks,
+          {
+            type: "paragraph",
+            attrs: { id: "existing-record-source" },
+            content: [{ type: "text", text }],
+          },
+        ]);
+        await client.settled();
+        await core.checkSentences({
+          requestId: "existing-record-source",
+          mindId,
+          action: "check-against-documents",
+          from: { blockId: "existing-record-source", offset: 0 },
+          to: { blockId: "existing-record-source", offset: text.length },
+        });
+      },
+    );
+
+    const next = (await marksIn(core, client)).find(({ sentence }) =>
+      sentence.includes(RECORD_NEXT),
+    );
+    expect(next?.check.recordCites?.[0]).toMatchObject({
+      raw: "Id. at 2",
+      outcome: "supported",
+      location: { kind: "page", from: 2, to: 2 },
+    });
   });
 
   // protects=a sentence with no Citation isn't checked as it lands (#1909: it is left to the one count and the one Check), as its Citations are what the written check reads; fails_when=a check Run is made for it, or it lands marked; no_claim=none beyond protects.

@@ -108,12 +108,15 @@ const ITEM_COSTS: Record<NonNullable<RunEstimateInput["each"]>, ItemCost> = {
   /**
    * A sentence checked: it searches, cites and gives its verdict, with its
    * run's one call naming the claims shared out. Measured on a memo checked
-   * with Claude Haiku 5.5 (tests/fixtures/cost/recorded-checks.json). Its own
-   * recorded calls, not Answers', which carry more of the Documents: those made
-   * one estimate seven times its run's cost (#973).
+   * with Claude Haiku 5.5 (tests/fixtures/cost/recorded-checks.json): 40 calls
+   * for 17 claims, before a sentence's facts were checked one by one. Checking
+   * them so took 380 check requests where 259 did before, on the same model
+   * and the same 72 sentences (#2002). Its own recorded calls, not Answers',
+   * which carry more of the Documents: those made one estimate seven times its
+   * run's cost (#973).
    */
   check: {
-    calls: 2.35,
+    calls: (40 / 17) * (380 / 259),
     call: {
       inputTokens: 8_260,
       cachedInputTokens: 2_903,

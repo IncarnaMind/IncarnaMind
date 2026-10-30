@@ -10,11 +10,17 @@
  * be used instead (#1247). Each is one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
-import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckAttributes } from "../../core/api";
+import {
+  CLAIM_CHECK_MARK,
+  type ClaimCalculation,
+  type ClaimCheckAttributes,
+  type ClaimCheckPart,
+} from "../../core/api";
 import { detectLanguage } from "../../core/documents/textLanguage";
 import { checkedScope, saysNotFound } from "../../shared/claimChecks";
+import { keepCheckAsView } from "../../shared/claimParts";
 import {
   type FigureContext,
   figureContextOf,
@@ -23,11 +29,18 @@ import {
 } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
-import { INLINE_NODE } from "../../shared/sentences";
+import { inlineRange } from "../../shared/inlineText";
+import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, useChecks } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
-import { paragraphPlaces, type ShownClaim, shownClaims } from "./editor/claimChecks";
+import {
+  claimPlaces,
+  markOf,
+  placeInSentence,
+  type ShownClaim,
+  shownClaims,
+} from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { writeSentenceCheck } from "./editor/figurePlaces";
 import { requestEdit, useEdits } from "./editWithAi";
@@ -90,11 +103,18 @@ export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
 
 /** The words of the sentence a check is about. */
 export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
-  editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, " ", " ").trim();
+  (claimWordsAt(editor.state.doc, claim.sentence.from, claim.sentence.to) ?? "").trim();
 
-/** The word a check's mark and card are headed with: "Not found" apart from "Unsupported". */
+/**
+ * The word a check's mark and card are headed with: "Not found" apart from "Unsupported", and
+ * "Record cite" for a Supported sentence one of whose own record cites needs a look.
+ */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
-  notFoundIn(editor, claim) ? "claim.state.notFound" : `claim.state.${claim.shown.state}`;
+  markOf(claim) !== claim.shown.state
+    ? "claim.state.recordCite"
+    : notFoundIn(editor, claim)
+      ? "claim.state.notFound"
+      : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";
@@ -213,6 +233,20 @@ const wordsAt = (doc: ProseMirrorNode, from: number, to: number) => {
   return words;
 };
 
+function claimWordsAt(doc: ProseMirrorNode, from: number, to: number): string | null {
+  const start = doc.resolve(from);
+  const end = doc.resolve(to);
+  if (!start.parent.isTextblock || start.parent !== end.parent) return null;
+  const places = claimPlaces(start.parent, start.start() - 1);
+  const sentence = places.sentences.find((each) => each.from === from && each.to === to);
+  if (sentence) return sentence.text;
+  const first = places.starts.indexOf(from);
+  const last = places.ends.indexOf(to) + 1;
+  return first >= 0 && last > first && inlineRange(places, first, last)
+    ? places.text.slice(first, last)
+    : null;
+}
+
 /**
  * Takes the whole sentence out, with the space that kept it from its neighbour, or its paragraph when
  * it is all the paragraph says. No model: one step of Undo brings back the words and their check.
@@ -222,7 +256,15 @@ export function cutSentence(editor: Editor, claim: ShownClaim): void {
   const { state } = editor;
   const { from, to } = claim.sentence;
   // Read from the document again, so a range that has drifted from its words is never deleted.
-  if (wordsAt(state.doc, from, to) !== claim.sentence.text) {
+  const current = claimWordsAt(state.doc, from, to);
+  if (current === null) {
+    useNotices.getState().showError(new Error(translateNow("claim.cutSentence.moved")));
+    return;
+  }
+  const spans = sentenceSpans(current);
+  const span = spans.length === 1 ? spans[0] : null;
+  const text = span ? current.slice(span.from, span.to) : current;
+  if (text !== claim.sentence.text) {
     useNotices.getState().showError(new Error(translateNow("claim.cutSentence.moved")));
     return;
   }
@@ -249,28 +291,11 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   writeSentenceCheck(
     tr,
     { ...claim, ...(claim.kind === "chart" && { node: true as const }) },
-    { ...claim.check, kept: true },
+    keepCheckAsView(claim.check),
   );
   makeMine(state, tr, claim.sentence.from, claim.sentence.to);
   asOneStep(editor, () => editor.view.dispatch(tr));
   offerEditorUndo(editor, (t) => t("claim.keptAsView"));
-}
-
-/** Where the characters a figure fix changes are in the document; null when the sentence has moved. */
-function placeInSentence(
-  editor: Editor,
-  claim: ShownClaim,
-  fix: Pick<FigureFix, "from" | "to">,
-): { from: number; to: number } | null {
-  const $start = editor.state.doc.resolve(claim.sentence.from);
-  if (!$start.parent.isTextblock) return null;
-  const places = paragraphPlaces($start.parent, $start.start() - 1);
-  const at = places.starts.indexOf(claim.sentence.from);
-  if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
-    return null;
-  const from = places.starts[at + fix.from];
-  const to = places.ends[at + fix.to - 1];
-  return from === undefined || to === undefined ? null : { from, to };
 }
 
 /**
@@ -307,8 +332,8 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
   const calculation = claim.check.calculation;
   const fix = figureFix(calculation, claim.sentence.text);
   if (!fix || !calculation) return;
-  const place = placeInSentence(editor, claim, fix);
-  const words = place === null ? null : editor.state.doc.textBetween(place.from, place.to);
+  const place = placeInSentence(editor.state, claim, fix);
+  const words = place === null ? null : claimWordsAt(editor.state.doc, place.from, place.to);
   if (place === null || words !== calculation.stated) {
     useNotices.getState().showError(new Error(translateNow("claim.useFigure.moved")));
     return;
@@ -325,4 +350,70 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
   );
   const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
   if (again) void checkAgain(editor, mindId, doc, again);
+}
+
+export function applyDocumentWording(
+  editor: Editor,
+  claim: ShownClaim,
+  part: ClaimCheckPart,
+): void {
+  if (part.unsupported?.kind !== "forecast-certainty") return;
+  if (
+    claim.check.text !== claim.sentence.text ||
+    claim.shown.state === "needs-recheck" ||
+    claim.shown.state === "checking"
+  ) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return;
+  }
+  const quote = part.unsupported.quoted?.quote ?? part.evidence[0]?.quote;
+  if (!quote) return;
+  const place = placeInSentence(editor.state, claim, { from: part.span.start, to: part.span.end });
+  if (!place) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return;
+  }
+  const ranges: { from: number; to: number; marks: readonly ProseMirrorMark[] }[] = [];
+  editor.state.doc.nodesBetween(place.from, place.to, (node, pos) => {
+    if (node.isText)
+      ranges.push({
+        from: Math.max(place.from, pos),
+        to: Math.min(place.to, pos + node.nodeSize),
+        marks: node.marks,
+      });
+    return !node.isInline;
+  });
+  const first = ranges[0];
+  if (!first) return;
+  const tr = editor.state.tr;
+  for (const range of ranges.toReversed()) tr.delete(range.from, range.to);
+  tr.insert(first.from, editor.state.schema.text(quote, first.marks));
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  offerEditorUndo(editor, (t) => t("claim.usedDocumentWording"));
+}
+
+export function documentWordingAt(editor: Editor) {
+  const selection = editor.state.selection;
+  for (const claim of shownClaims(editor.state)) {
+    if (claim.shown.state === "needs-recheck" || claim.shown.state === "checking") continue;
+    for (const part of claim.check.parts ?? []) {
+      if (
+        part.unsupported?.kind !== "forecast-certainty" ||
+        !(part.unsupported.quoted?.quote ?? part.evidence[0]?.quote)
+      )
+        continue;
+      const place = placeInSentence(editor.state, claim, {
+        from: part.span.start,
+        to: part.span.end,
+      });
+      if (
+        place &&
+        place.from <= selection.from &&
+        selection.to <= place.to &&
+        selection.from < place.to
+      )
+        return { claim, part };
+    }
+  }
+  return null;
 }

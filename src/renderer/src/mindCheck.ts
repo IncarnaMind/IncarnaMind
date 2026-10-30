@@ -40,6 +40,7 @@ import { type EstimateLine, estimateLine } from "./cost";
 import { selectionForEdit } from "./editor/editSelection";
 import { type SentencePlace, sentencesToCheck } from "./editor/healthCounts";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
+import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { editorDoc } from "./editor/proposalReview";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
@@ -202,6 +203,7 @@ function endsCheck(outcome: CheckMindResult | "error"): boolean {
  * place, which move nothing.
  */
 interface SentencesToCheck {
+  sentences: readonly SentencePlace[];
   /** The cited sentences' places, as the core reads a selection: where they are in the Note. */
   cited: TextStretch[];
   /** How many model checks the contradiction watch adds: one a cited sentence. */
@@ -215,10 +217,15 @@ async function readSentencesToCheck(mindId: string): Promise<SentencesToCheck | 
   const doc = editor && editorDoc(editor);
   if (!editor || editor.isDestroyed || !doc) return null;
   const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
-  const cited = sentencesToCheck(editor.state, skipped).filter(
-    (place: SentencePlace) => place.citations.length > 0 && isClaim(place.text),
+  const sentences = sentencesToCheck(
+    editor.state,
+    skipped,
+    undefined,
+    opinionSentenceRanges(editor.state.doc, doc),
   );
+  const cited = sentences.filter((place) => place.citations.length > 0 && isClaim(place.text));
   return {
+    sentences,
     count: cited.length,
     model: modelInUseOf(doc),
     cited: cited.flatMap(({ from, to }) => {
@@ -352,8 +359,7 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
 
 /**
  * A run of what changed that only checks again checks at once when small; any
- * run checks at once when nothing is billed per token and no claim is to be
- * named; the rest ask first, once the claims are named.
+ * recheck runs at once when nothing is billed per token; the rest ask first.
  */
 async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan): Promise<void> {
   if (plan.kind === "unchanged") {
@@ -374,7 +380,12 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
     );
     return;
   }
-  if (run.mode === "changed" && !plan.findsClaims && plan.sentences < ASK_FROM) {
+  const pending = plan.findsClaims ? await readSentencesToCheck(mindId) : null;
+  const onlyRechecks =
+    !plan.findsClaims ||
+    (pending?.sentences.length === plan.sentences &&
+      pending.sentences.every((place) => place.claim !== null));
+  if (run.mode === "changed" && onlyRechecks && plan.sentences < ASK_FROM) {
     return runCheck(mindId, run);
   }
   dismissMindCheck(mindId);
@@ -396,7 +407,7 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
       console.warn(`Couldn't estimate checking Note ${mindId}; it asks without one.`, error);
       return null;
     });
-  if (estimated && estimated.billing !== "per-token" && !plan.findsClaims) {
+  if (estimated && estimated.billing !== "per-token" && onlyRechecks) {
     return runCheck(mindId, run);
   }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
