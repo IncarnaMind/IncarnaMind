@@ -50,6 +50,7 @@ const labelFor = (ctx: CommandContext, step: "undo" | "redo", t: Translate) => {
 export const editCommands: readonly Command[] = [
   {
     ...fromMenu("edit.undo"),
+    assistant: false,
     label: (ctx, t) => labelFor(ctx, "undo", t),
     shortcut: { keys: "CmdOrCtrl+Z", outsideText: true },
     group: "edit",
@@ -71,6 +72,7 @@ export const editCommands: readonly Command[] = [
   },
   {
     ...fromMenu("edit.redo"),
+    assistant: false,
     label: (ctx, t) => labelFor(ctx, "redo", t),
     shortcut: { keys: "CmdOrCtrl+Shift+Z", alsoOther: "Ctrl+Y", outsideText: true },
     group: "edit",

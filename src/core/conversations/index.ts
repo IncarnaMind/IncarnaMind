@@ -60,6 +60,7 @@ import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
 import { isChatModelChoice } from "../settings";
 import type { Database, SqlValue } from "../storage";
+import { type CommandWindow, parseCommandWindow } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
 
@@ -74,6 +75,8 @@ export interface QuestionInput {
   focus: MindFocus | null;
   /** The Documents open on screen, by id, the focused group's first; not kept with the Question. */
   onScreen: string[];
+  /** The asking window and its commands (#1421); not kept with the Question. */
+  commands: CommandWindow | null;
   quotes: AskedQuote[];
   scope: SearchScope | null;
   model: ChatModelChoice | null;
@@ -134,6 +137,7 @@ interface MessageRow {
   text: string;
   asked_from_mind_id: string | null;
   scope: string | null;
+  folder_asked_in: string | null;
   provider_id: string | null;
   model_id: string | null;
   forced_skill: string | null;
@@ -480,6 +484,7 @@ function toQuestion(row: MessageRow): ConversationQuestion {
     askedFrom: askedFromOf(row),
     focus: storedFocus(row.focus),
     scope: storedScope(row.scope),
+    folderAskedIn: row.folder_asked_in ?? undefined,
     model: modelOf(row),
     forcedSkill: row.forced_skill,
     analyse: row.analyse === 1,
@@ -550,6 +555,22 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
   read?.version ?? null,
   read?.partial ? 1 : 0,
 ];
+
+/** A call whose window's command was still going on: it didn't finish. */
+function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const done = call.command;
+  if (!done?.window?.running) return call;
+  const { command: _done, ...rest } = call;
+  return {
+    ...rest,
+    status: "failed",
+    commandProblem: {
+      command: done.command,
+      message: `IncarnaMind closed while ${done.command} was still going on, so it didn't finish.`,
+      wording: { key: "commands.window.unfinished", values: { command: done.command } },
+    },
+  };
+}
 
 export function createConversations(db: Database, now: () => string) {
   /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
@@ -665,6 +686,7 @@ export function createConversations(db: Database, now: () => string) {
       askedFrom?: string | null;
       focus?: MindFocus | null;
       scope?: SearchScope | null;
+      folderAskedIn?: string;
       model: ChatModelChoice | null;
       forcedSkill?: string | null;
       analyse?: boolean;
@@ -677,10 +699,10 @@ export function createConversations(db: Database, now: () => string) {
     const id = randomUUID();
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
-         asked_from_mind_id, focus, scope, provider_id, model_id, forced_skill, analyse, quotes, status,
+         asked_from_mind_id, focus, scope, folder_asked_in, provider_id, model_id, forced_skill, analyse, quotes, status,
          read_mind_id, read_mind_version, read_partial, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -691,6 +713,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.askedFrom ?? null,
         fields.focus ? JSON.stringify(fields.focus) : null,
         fields.scope ? JSON.stringify(fields.scope) : null,
+        fields.folderAskedIn ?? null,
         fields.model?.providerId ?? null,
         fields.model?.modelId ?? null,
         fields.forcedSkill ?? null,
@@ -726,6 +749,24 @@ export function createConversations(db: Database, now: () => string) {
       [now()],
     )) {
       indexMessage(row.seq, row.text, storedList<MarkedFigure>(row.figures));
+    }
+  });
+
+  /**
+   * A window's command still going on when an earlier run of the app ended, a Check for one,
+   * never says how it ended (#1421): its call says it didn't finish.
+   */
+  db.transaction(() => {
+    for (const row of db.all<{ id: string; tool_calls: string }>(
+      `SELECT id, tool_calls FROM conversation_messages
+       WHERE kind = 'answer' AND tool_calls LIKE '%"running":true%'`,
+    )) {
+      const calls = storedList<AnswerToolCall>(row.tool_calls).map(unfinished);
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(calls),
+        now(),
+        row.id,
+      ]);
     }
   });
 
@@ -874,6 +915,7 @@ export function createConversations(db: Database, now: () => string) {
         mind,
         focus: mind ? where : null,
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseCommandWindow(input.clientId, input.commands),
         quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
         model: model ?? null,
@@ -886,12 +928,14 @@ export function createConversations(db: Database, now: () => string) {
      * Adds a Question, starting its conversation when it has none, and its Answer, being
      * written with `answerModel` from the Mind it reads (`read`), all in one go. A new
      * conversation is named by the Question and belongs to the Folder of the Mind in
-     * focus, or to none.
+     * focus, or to none. `askedIn` gives the Folder the Question is asked in, "" for none, from
+     * its conversation's Folder; left out, it isn't recorded.
      */
     add(
-      input: Omit<QuestionInput, "onScreen">,
+      input: Omit<QuestionInput, "onScreen" | "commands">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
+      askedIn?: (conversationFolderId: string | null) => string,
     ): AddedTurn {
       const previousConversationUpdatedAt =
         input.conversationId === null
@@ -925,6 +969,7 @@ export function createConversations(db: Database, now: () => string) {
             askedFrom: input.mind?.id ?? null,
             focus: input.focus,
             scope: input.scope,
+            folderAskedIn: askedIn?.(get(conversationId).folderId),
             model: input.model,
             forcedSkill: input.forcedSkill,
             analyse: input.analyse,
@@ -1063,6 +1108,7 @@ export function createConversations(db: Database, now: () => string) {
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
       onScreen: string[];
+      commands: CommandWindow | null;
       /** The model to write it with instead of the Question's own, when the caller chose one. */
       model: ChatModelChoice | null;
     } {
@@ -1086,6 +1132,7 @@ export function createConversations(db: Database, now: () => string) {
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseCommandWindow(input.clientId, input.commands),
         model: input.model ?? null,
       };
     },
@@ -1184,6 +1231,21 @@ export function createConversations(db: Database, now: () => string) {
         );
         if (outcome) indexMessage(row.seq, write.text, write.figures);
       });
+      return toAnswer(storedMessage(answerId));
+    },
+
+    /** Writes an ended Answer's Tool calls again; null when it is gone. */
+    writeToolCalls(
+      answerId: string,
+      toolCalls: readonly AnswerToolCall[],
+    ): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer") return null;
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(toolCalls),
+        now(),
+        answerId,
+      ]);
       return toAnswer(storedMessage(answerId));
     },
 

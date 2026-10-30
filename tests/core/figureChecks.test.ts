@@ -186,6 +186,7 @@ async function checkWith(options: {
   findsNothing?: boolean;
   /** It replies before it records its quotes, and records them only once asked to. */
   citesWhenAsked?: boolean;
+  scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -274,6 +275,8 @@ async function checkWith(options: {
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
     language: () => "en",
+    walledDocument: () => null,
+    walledFolderName: () => null,
     engine: {
       async *generate(request) {
         for await (const event of engine.generate(request)) {
@@ -309,7 +312,7 @@ async function checkWith(options: {
   const result = await check({
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
-    scope: { documentIds: null, excluded: new Map() },
+    scope: options.scope ?? { documentIds: null, excluded: new Map() },
     model: prepared,
     signal: new AbortController().signal,
   });
@@ -667,6 +670,15 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     verdict: "not-checked",
     reason: "no-evidence",
   });
+
+  const outside = await checkWith({
+    figures: [saved],
+    body,
+    text: reply([{ ...item(), source: null }]),
+    scope: { documentIds: [], excluded: new Map() },
+  });
+  expect(outside.result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(outside.calls.map((call) => call.prompt).join("\n")).not.toContain("<passage id=");
 
   const analysis = {
     ...saved,

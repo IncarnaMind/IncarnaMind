@@ -15,6 +15,7 @@ import type {
   KeptCitationText,
   QuotedPiece,
   QuotedWords,
+  RecheckResult,
 } from "../core/api";
 import type { Language } from "../core/language";
 import { formatDate } from "./dates";
@@ -68,6 +69,11 @@ export interface CitationState {
   check: CitationCheck;
   /** Why it wasn't found, or can't be checked. */
   reason: CitationCheckReason | null;
+  /**
+   * The walled Folder that keeps its Document inside it, seen from a Note outside: its last result
+   * stands, unread again, and the card says so under the Document's name (#1934).
+   */
+  keptInside?: string | null;
   /**
    * The live Document the Citation opens: its own, or one with the same
    * content added again after it was deleted. Null once the Document has
@@ -196,6 +202,7 @@ export function citationState(
   attributes: Partial<CitationAttributes>,
   documents: readonly LiveDocument[] | null,
   kept: readonly KeptCitationText[] = [],
+  keptInside: string | null = null,
 ): CitationState {
   const check = attributes.check ?? "checking";
   const reason = attributes.checkReason ?? null;
@@ -209,6 +216,9 @@ export function citationState(
     live.contentHash !== attributes.contentHash;
   if (check === "checking") {
     return { check, reason: null, documentId: live?.id ?? own, changedAfterCited: false };
+  }
+  if (keptInside) {
+    return { check, reason, documentId: live?.id ?? own, changedAfterCited: false, keptInside };
   }
   if (!live && citedTextKept(attributes, kept)) {
     return { check, reason, documentId: null, changedAfterCited: false };
@@ -301,11 +311,15 @@ export function changedOnMessage(
 export function changedSourceLines(
   changedAfterCited: boolean,
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
   document: Parameters<typeof versionMoment>[0] | undefined,
   language: Language,
   t: Translate,
 ): { note: ChangedSource | null; on: string | null } {
+  // Kept inside a wall the Note is outside: nothing of the new version was read, so nothing is said.
+  if (recheck !== null && recheck !== "failed" && "keptInside" in recheck) {
+    return { note: null, on: null };
+  }
   const note = changedSourceNote(
     changedAfterCited,
     cited,
@@ -334,7 +348,7 @@ export interface ChangedSource {
 export function changedSourceNote(
   changed: boolean,
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
   t: Translate,
   fetchedAgain: string | null = null,
 ): ChangedSource | null {
@@ -345,6 +359,7 @@ export function changedSourceNote(
       ? t("citation.changedAfterCited")
       : t("citation.changedAfterCited.web", { date: fetchedAgain });
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
+  if ("keptInside" in recheck) return null;
   const standing = quoteStanding(cited, recheck);
   if (standing === "found") return { notice, quote: t("citation.changed.still") };
   if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
@@ -367,10 +382,11 @@ export function changedSourceNote(
 export function needsRecheck(
   state: Pick<CitationState, "changedAfterCited">,
   attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "keptOver">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
 ): boolean {
   if (!state.changedAfterCited || recheck === null) return false;
   if (recheck === "failed") return true;
+  if ("keptInside" in recheck) return false;
   if (attributes.keptOver && attributes.keptOver === recheck.contentHash) return false;
   return quoteStanding(attributes, recheck) !== "found";
 }
@@ -382,9 +398,10 @@ export function needsRecheck(
  */
 export function newVersionCitation(
   attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
-  recheck: CitationRecheck | "failed" | null,
+  recheck: RecheckResult | "failed" | null,
 ): Partial<CitationAttributes> | null {
-  if (recheck === null || recheck === "failed" || recheck.contentHash === null) return null;
+  if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
+  if (recheck.contentHash === null) return null;
   const now =
     recheck.changed?.now ??
     (quoteStanding(attributes, recheck) === "moved"

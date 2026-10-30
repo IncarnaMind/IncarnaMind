@@ -244,15 +244,19 @@ function ChangeLine({
 
   const shown = within(columns);
   const whole = said.fullMessage ?? said.message;
-  // No-break spaces join the message's last word, the dot and Undo, so a wrapped line never leaves
-  // "· Undo" alone at the end of its second line.
+  // No-break spaces join the message's last word, the dot and Undo, and they don't break inside
+  // their span, so a wrapped line never leaves "· Undo" alone: Chinese can break after any
+  // character, and an inline-block may start a line of its own.
   return (
-    <div ref={line} className={`${changeLineClass(inPill)} break-words`}>
+    // Chinese wraps between words, at the quotes around a name, not inside a word (`break-keep`).
+    <div ref={line} className={`${changeLineClass(inPill)} break-words break-keep`}>
       <span data-testid="undo-message" title={shown === whole ? undefined : whole}>
         {shown}
       </span>
-      <span aria-hidden="true">{"\u00A0·\u00A0"}</span>
-      <span className="-my-1 inline-block align-middle">{undo}</span>
+      <span className="whitespace-nowrap">
+        <span aria-hidden="true">{"\u00A0·\u00A0"}</span>
+        <span className="-my-1 inline-block align-middle">{undo}</span>
+      </span>
     </div>
   );
 }

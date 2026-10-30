@@ -59,10 +59,10 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationRecheck,
+  type CitationToRecheck,
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
-  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -459,7 +459,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
  * Checks a Citation again against its Document's current version (see
@@ -1165,6 +1165,8 @@ export function createCitationSession(
   const searched = new Set<string>();
   let reads = 0;
   const passageDocuments: string[] = [];
+  /** What the model was given of each Passage, in the order it was, with its Document. */
+  const read: { documentId: string; documentName: string; text: string }[] = [];
   const searchedDocuments: string[] = [];
   const remember = (list: string[], id: string) => {
     if (!list.includes(id)) list.push(id);
@@ -1585,6 +1587,9 @@ export function createCitationSession(
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
+      if (!measuring) {
+        read.push({ documentId: passage.documentId, documentName: passage.documentName, text });
+      }
       return {
         id,
         documentName: passage.documentName,
@@ -1873,6 +1878,9 @@ export function createCitationSession(
 
   return {
     tools,
+
+    /** What the model was given of each Passage so far, in order, with its Document's id and name. */
+    passagesRead: (): readonly { documentId: string; documentName: string; text: string }[] => read,
 
     /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
     documentsRead: () => ({
