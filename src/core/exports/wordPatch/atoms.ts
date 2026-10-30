@@ -3,8 +3,10 @@
  * Each atom's XML is written once, by one occurrence: the node the import
  * read it into, wherever it is now, else the first in the paragraph it came
  * from while that paragraph is in the Mind, else the first anywhere. A copy
- * is written as its text, or a note's mark as a new footnote (#746), except
- * what has no id to clash (a field, an equation, a symbol, a page break).
+ * is written as its text, or a note's mark or a page break as a new one
+ * (#746), except what has no id to clash (a field, an equation, a symbol, a
+ * page break). So is a node whose place this file doesn't have, or has as
+ * something else, which was pasted from another file's Note.
  * Marks that come in pairs (a bookmark's start and end, a comment's range
  * and its mark) are left out when their other half is gone, as Word would
  * repair the file. What can't be kept, someone's comment or tracked change
@@ -16,8 +18,9 @@
  */
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import type { WordAtomKind, WordExportLoss } from "../../api";
+import { FOOTNOTE_NODE, PAGE_BREAK_NODE, type WordAtomKind, type WordExportLoss } from "../../api";
 import type { Places } from "../../documents/formats/docxImport";
+import type { XmlElement } from "../../documents/formats/xml";
 import { type Counterpart, counterpartsOf } from "./mind";
 import { sourceOf } from "./paragraph";
 
@@ -63,6 +66,8 @@ export class AtomPlan {
   private readonly unwritten = new Set<string>();
   /** Atoms written where they were, in what the User deleted, as their deletion. */
   private readonly removed = new Set<string>();
+  /** Nodes naming a place this file doesn't have as what they are: from another file. */
+  private readonly foreign = new Set<NodeJSON>();
   readonly losses: WordExportLoss[] = [];
 
   constructor(
@@ -81,7 +86,12 @@ export class AtomPlan {
     const presentKeys = new Set(
       [...now.values()].flat().flatMap((each) => (each.ownerKey ? [each.ownerKey] : [])),
     );
-    for (const [source, found] of now) {
+    for (const [source, all] of now) {
+      const found = all.filter((each) => {
+        const fits = isAt(each.node, places.get(source));
+        if (!fits) this.foreign.add(each.node);
+        return fits;
+      });
       const home = baseAtoms.get(source)?.[0]?.ownerKey ?? null;
       const atHome =
         home && presentKeys.has(home) ? found.find((each) => each.ownerKey === home) : undefined;
@@ -150,8 +160,13 @@ export class AtomPlan {
    * unless nothing may.
    */
   writes(source: string, node: NodeJSON, kind: WordAtomKind): boolean {
-    if (this.unwritten.has(source)) return false;
+    if (this.unwritten.has(source) || this.foreign.has(node)) return false;
     return this.writer.get(source) === node || COPYABLE.has(kind);
+  }
+
+  /** Whether the node names a place this file doesn't have as what it is: it is written new. */
+  isForeign(node: NodeJSON): boolean {
+    return this.foreign.has(node);
   }
 
   /** Whether the atom is written somewhere. */
@@ -174,6 +189,19 @@ export class AtomPlan {
     if (this.losses.some((each) => each.key === key)) return;
     this.losses.push({ key, kind: "copy", author: null, text: text.slice(0, QUOTED) });
   }
+}
+
+/** Whether `element`, at the place a note's mark or a page break names, is what it is. */
+function isAt(node: NodeJSON, element: XmlElement | undefined): boolean {
+  if (node.type === FOOTNOTE_NODE) {
+    const mark = node.attrs?.endnote === true ? "w:endnoteReference" : "w:footnoteReference";
+    return element?.name === mark;
+  }
+  if (node.type === PAGE_BREAK_NODE) {
+    return element?.name === "w:br" && element.attrs["w:type"] === "page";
+  }
+  // What the import keeps as is can span runs ("w:r#40..w:r#44"), a place no one element is at.
+  return true;
 }
 
 /** Every atom in some Blocks, by source, with the paragraph or Block it is in. */

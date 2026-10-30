@@ -738,7 +738,7 @@ export class DocumentPatch {
       if (token.kind !== "atom" || !token.source || !node) return [token];
       if (plan.writes(token.source, node, keptKindOf(node))) return [token];
       if (token.inline) return [special(token.inline)];
-      if (!plan.written(token.source)) return [];
+      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
       plan.copied(node);
       const text = node.type === "image" ? "" : wordAtomText(readWordAtom(node.attrs ?? {}));
       return Array.from(text, (each) => ({

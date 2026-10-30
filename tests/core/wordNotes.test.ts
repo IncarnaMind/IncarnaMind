@@ -377,6 +377,70 @@ describe("a Word file's notes are the Note's own footnotes", () => {
   });
 });
 
+describe("a note or page break from another file's Note", () => {
+  test.each([
+    [
+      "English",
+      "The lease ends.",
+      "B's own note.",
+      "From A's endnote.",
+      "From A's third footnote.",
+    ],
+    ["Chinese", "租约到期。", "乙方自己的脚注。", "来自甲文件的尾注。", "来自甲文件的第三条脚注。"],
+  ])(
+    "is written as a new one, never dropped, and the file's own notes stay byte for byte (%s)",
+    async (_, body, own, endnote, footnote) => {
+      // B has one footnote, no endnotes, and a column break at the place A's page break names.
+      const { core, bytes, mindId, client } = await setUp({
+        body: [
+          paragraph(`${run(body)}${noteMark("footnote", 1)}`),
+          paragraph(`${run("Part two.")}<w:r><w:br w:type="column"/></w:r>${run("Column two.")}`),
+        ].join(""),
+        footnotes: note("footnote", 1, [own]),
+      });
+      // As the core receives them from anything but this device's editor, which takes the places off.
+      const fromA: JSONContent[] = [
+        {
+          type: FOOTNOTE_NODE,
+          attrs: { id: randomUUID(), source: "w:endnoteReference#0", endnote: true },
+          content: [{ type: "text", text: endnote }],
+        },
+        {
+          type: FOOTNOTE_NODE,
+          attrs: { id: randomUUID(), source: "w:footnoteReference#3" },
+          content: [{ type: "text", text: footnote }],
+        },
+        { type: PAGE_BREAK_NODE, attrs: { source: "w:br#7" } },
+        { type: "text", text: "After." },
+        { type: PAGE_BREAK_NODE, attrs: { source: "w:br#0" } },
+      ];
+      editMind(client, (blocks) => [
+        { ...(blocks[0] as JSONContent), content: [...(blocks[0]?.content ?? []), ...fromA] },
+        blocks[1] as JSONContent,
+      ]);
+      await client.settled();
+
+      const was = unzip(bytes).get("word/footnotes.xml")?.toString("utf8") ?? "";
+      const { files, part } = await exported(core, mindId);
+      const document = part("word/document.xml");
+      const footnotes = part("word/footnotes.xml");
+      expect(noteXml(footnotes, "footnote", 1)).toBe(noteXml(was, "footnote", 1));
+      const ids = [...document.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g)].map((match) =>
+        Number(match[1]),
+      );
+      expect(ids).toHaveLength(3);
+      const added = ids.filter((id) => id !== 1);
+      expect(added.map((id) => noteXml(footnotes, "footnote", id))).toEqual([
+        expect.stringContaining(endnote),
+        expect.stringContaining(footnote),
+      ]);
+      expect(files.has("word/endnotes.xml")).toBe(false);
+      expect(document.match(/<w:br w:type="page"\/>/g)).toHaveLength(2);
+      expect(document.match(/<w:br w:type="column"\/>/g)).toHaveLength(1);
+    },
+  );
+});
+
 describe("page breaks", () => {
   const breaks = (): WordFileInput => ({
     body: [

@@ -10,6 +10,7 @@
 import "../src/fonts.css";
 import "./print.css";
 import { PAPER, PRINT_ENTRY, type PrintDocument } from "../../shared/printDocument";
+import { apartAtBreaks } from "./pageBreaks";
 
 /** Room left at each page's foot, so rounding never pushes a page onto a second sheet. */
 const SAFETY_PX = 2;
@@ -382,51 +383,6 @@ function blocksOf(source: HTMLElement): HTMLElement[] {
     }
   }
   return blocks;
-}
-
-/**
- * A block with a page break inside it (in a list item, a quote): the part
- * before each break, the break, and the rest, so the break starts a page as
- * one between Blocks does. A list item cut in two keeps one number, on its
- * part before the break unless that part is empty, and each list goes on
- * counting after the break from the items before it.
- */
-function apartAtBreaks(block: HTMLElement): HTMLElement[] {
-  const parts: HTMLElement[] = [];
-  let rest = block;
-  for (
-    let at = rest.querySelector<HTMLElement>(".page-break");
-    at;
-    at = rest.querySelector<HTMLElement>(".page-break")
-  ) {
-    const holders: HTMLElement[] = [];
-    for (let each = at.parentElement; each; each = each === rest ? null : each.parentElement) {
-      holders.unshift(each);
-    }
-    const after = cutAt(rest, { node: at, offset: null });
-    at.remove();
-    // What follows the break is in a copy of each element it was in, each the first in the one before.
-    const cut: [HTMLElement, Element | null][] = [];
-    let copy: Element | null = after;
-    for (const holder of holders) {
-      cut.push([holder, copy]);
-      copy = copy?.firstElementChild ?? null;
-    }
-    let numbered = false;
-    for (const [holder, continued] of cut.reverse()) {
-      if (holder instanceof HTMLLIElement && continued instanceof HTMLElement) {
-        numbered = holder.childElementCount > 0 || (holder.textContent ?? "").trim() !== "";
-        if (numbered) continued.style.listStyleType = "none";
-        else holder.remove();
-      } else if (holder instanceof HTMLOListElement && continued instanceof HTMLOListElement) {
-        const before = holder.querySelectorAll(":scope > li").length;
-        continued.start = holder.start + before - (numbered ? 1 : 0);
-      }
-    }
-    parts.push(rest, at);
-    rest = after;
-  }
-  return [...parts, rest];
 }
 
 /** Moves a cited page's number badges apart, downwards, where two quotes start on about the same line. */
