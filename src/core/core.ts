@@ -2558,7 +2558,7 @@ export function createCore(adapters: CoreAdapters): Core {
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
   });
-  const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
+  const ownFileOf = (options: Pick<ExportMindOptions, "format">): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
   /**
    * Each export saved since the app opened, by its path: the Note it came from, and the
@@ -2569,12 +2569,23 @@ export function createCore(adapters: CoreAdapters): Core {
     string,
     { mindId: string; path: string; format: ExportFormat; wrote: string }
   >();
-  /** What each Change replaced, newest last; null where it wrote a copy beside (#110). */
-  const rewrittenExports = new Map<string, (Uint8Array | null)[]>();
-  const keepBefore = (path: string, before: Uint8Array | null) =>
-    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), before]);
-  const verifies = (mindId: string) =>
-    content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) !== null : false));
+  /**
+   * Each Change of an export, by the path it wrote, newest last (#110): the id its Undo names, so
+   * an Undo refused on one side never makes the next one put back the wrong step; the bytes it
+   * replaced, null where it wrote a copy beside; and the Note's comment choice before it, null
+   * where it set none.
+   */
+  const rewrittenExports = new Map<
+    string,
+    { id: string; before: Uint8Array | null; comments: boolean | null }[]
+  >();
+  const keepStep = (path: string, before: Uint8Array | null, comments: boolean | null) => {
+    const id = crypto.randomUUID();
+    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
+    return id;
+  };
+  const verificationOfNote = (mindId: string) =>
+    content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
   const setNoteComments = (mindId: string, on: boolean) => {
     const verifying = content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
@@ -5216,9 +5227,11 @@ export function createCore(adapters: CoreAdapters): Core {
       if (checkComments !== undefined && typeof checkComments !== "boolean") {
         throw new InvalidInputError({ key: "error.export.checkComments" });
       }
-      if (checkComments !== undefined && !verifies(known.mindId)) {
+      const verification = verificationOfNote(known.mindId);
+      if (checkComments !== undefined && verification === null) {
         throw new InvalidInputError({ key: "error.verify.notVerifying" });
       }
+      const choiceBefore = checkComments === undefined ? null : verification?.comments === true;
       const read = content.storedState(known.mindId);
       const {
         fileName: _name,
@@ -5230,26 +5243,29 @@ export function createCore(adapters: CoreAdapters): Core {
       } = await mindExports.export(known.mindId, options, checkComments);
       const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
       if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
-      const written = await outputs.rewrite(known.path, data, ownFileOf(options), known.wrote);
+      const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
+      const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
       let file: SavedFile;
       let changedFile: string | undefined;
+      let step: string;
       if (written.kind === "written") {
         file = written.file;
-        keepBefore(file.path, written.before);
+        step = keepStep(file.path, written.before, choiceBefore);
       } else {
         changedFile = basename(known.path);
         try {
           file = await outputs.save({
             name: changedFile,
             data,
-            ownFile: ownFileOf(options),
+            ownFile: ownFile.kind,
+            fromFolder: ownFile.fromFolder,
             folder: dirname(known.path),
             approved: true,
           });
         } catch (error) {
           throw fileProblem(changedFile, error);
         }
-        keepBefore(file.path, null);
+        step = keepStep(file.path, null, choiceBefore);
       }
       exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
       // Only once the file holds them, so the choice never says what the file doesn't.
@@ -5258,36 +5274,41 @@ export function createCore(adapters: CoreAdapters): Core {
       return {
         status: "saved",
         file,
+        step,
         ...counts,
         word,
         sentKept,
         ...(changedFile !== undefined && { changedFile }),
       };
     },
-    restoreMindExport: async (path) => {
+    restoreMindExport: async (path, step) => {
       const known = typeof path === "string" ? exportFiles.get(path) : undefined;
       const steps = known ? rewrittenExports.get(known.path) : undefined;
-      const before = steps?.at(-1);
-      if (!known || !steps || before === undefined) {
+      const at = steps?.findIndex((each) => each.id === step) ?? -1;
+      const kept = steps?.[at];
+      if (!known || !steps || !kept) {
         throw new InvalidInputError({
           key: "error.export.restore.nothing",
           values: { name: typeof path === "string" ? basename(path) : "" },
         });
       }
-      const changed = new TranslatableError({
-        key: "error.export.restore.changed",
-        values: { name: basename(known.path) },
-      });
-      if (before) {
-        const put = await outputs.rewrite(known.path, before, null, known.wrote);
-        if (put.kind === "changed") throw changed;
-        exportFiles.set(known.path, { ...known, wrote: fingerprintOf(before) });
-      } else {
-        if (!(await outputs.remove(known.path, known.wrote))) throw changed;
-        exportFiles.delete(known.path);
+      const values = { name: basename(known.path) };
+      const changed = new TranslatableError({ key: "error.export.restore.changed", values });
+      // A later Change wrote the file since: this step's bytes would take that one back too.
+      if (at < steps.length - 1) throw changed;
+      const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
+      const done = kept.before
+        ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
+        : await outputs.remove(known.path, known.wrote);
+      if (done.kind === "changed") throw changed;
+      if (done.kind === "read-only") {
+        throw new TranslatableError({ key: "error.export.rewrite.locked", values });
       }
+      if (kept.before) exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
+      else exportFiles.delete(known.path);
       steps.pop();
       if (steps.length === 0) rewrittenExports.delete(known.path);
+      if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
     },
     setCheckComments: async (mindId, on) => {
       const mind = writableMind(mindId);

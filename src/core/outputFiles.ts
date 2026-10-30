@@ -160,17 +160,22 @@ export function fileProblem(name: string, error: unknown): Error {
 export const fingerprintOf = (data: Uint8Array): string =>
   createHash("sha256").update(data).digest("hex");
 
-/** A read-only file counts as changed, so it is never written over (#110). */
-async function unchanged(path: string, wrote: string): Promise<Uint8Array | null> {
-  const now = new Uint8Array(await readFile(path));
-  if (fingerprintOf(now) !== wrote) return null;
+/** Why a file IncarnaMind saved isn't written again: the User changed it, or made it read-only (#110). */
+export type NotRewritten = { kind: "changed" } | { kind: "read-only" };
+
+async function held(
+  path: string,
+  wrote: string,
+): Promise<{ kind: "held"; bytes: Uint8Array } | NotRewritten> {
+  const bytes = new Uint8Array(await readFile(path));
+  if (fingerprintOf(bytes) !== wrote) return { kind: "changed" };
   try {
     await access(path, constants.W_OK);
   } catch (error) {
-    if (isRefused(error)) return null;
+    if (isRefused(error)) return { kind: "read-only" };
     throw error;
   }
-  return now;
+  return { kind: "held", bytes };
 }
 
 export function createOutputFiles(options: OutputFilesOptions) {
@@ -458,44 +463,47 @@ export function createOutputFiles(options: OutputFilesOptions) {
 
     /**
      * Writes a file this session saved again, in place (#110), only while it still holds the bytes
-     * of `wrote`, checked again right before the rename; otherwise "changed". Throws a plain-words
-     * problem naming the file when it is gone or locked.
+     * of `wrote` and may be written, checked again right before the rename. `ownFile` records the
+     * new bytes as IncarnaMind's, from that Folder's Note. Throws a plain-words problem naming the
+     * file when it is gone or locked.
      */
     async rewrite(
       path: unknown,
       data: Uint8Array,
-      ownFile: OwnFileKind | null,
       wrote: string,
-    ): Promise<{ kind: "written"; file: SavedFile; before: Uint8Array } | { kind: "changed" }> {
+      ownFile: { kind: OwnFileKind; fromFolder: string | null } | null,
+    ): Promise<{ kind: "written"; file: SavedFile; before: Uint8Array } | NotRewritten> {
       const file = savedFile(path);
       try {
-        const before = await unchanged(file.path, wrote);
-        if (!before) return { kind: "changed" };
-        if (ownFile) options.recordOwnFile(data, ownFile);
-        const replaced = await replaceFile(
-          file.path,
-          data,
-          async () => (await unchanged(file.path, wrote)) !== null,
-        );
+        const before = await held(file.path, wrote);
+        if (before.kind !== "held") return before;
+        if (ownFile) options.recordOwnFile(data, ownFile.kind, ownFile.fromFolder);
+        let refused: NotRewritten = { kind: "changed" };
+        const replaced = await replaceFile(file.path, data, async () => {
+          const still = await held(file.path, wrote);
+          if (still.kind !== "held") refused = still;
+          return still.kind === "held";
+        });
         return replaced
-          ? { kind: "written", file: { ...file, defaulted: false }, before }
-          : { kind: "changed" };
+          ? { kind: "written", file: { ...file, defaulted: false }, before: before.bytes }
+          : refused;
       } catch (error) {
         throw fileProblem(file.name, error);
       }
     },
 
-    /** Deletes a file this session saved, only while it still holds the bytes of `wrote` (#110). */
-    async remove(path: unknown, wrote: string): Promise<boolean> {
+    /** Deletes a file this session saved, only while it still holds the bytes of `wrote` and may be written (#110). */
+    async remove(path: unknown, wrote: string): Promise<{ kind: "removed" } | NotRewritten> {
       const file = savedFile(path);
       try {
-        if (!(await unchanged(file.path, wrote))) return false;
+        const now = await held(file.path, wrote);
+        if (now.kind !== "held") return now;
         await rm(file.path);
       } catch (error) {
         throw fileProblem(file.name, error);
       }
       saved.delete(file.path);
-      return true;
+      return { kind: "removed" };
     },
 
     /** Whether IncarnaMind saved this file since it started. */

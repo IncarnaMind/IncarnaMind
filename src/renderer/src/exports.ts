@@ -21,13 +21,13 @@ import {
 } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
 import { core, files } from "./core";
-import { errorMessage } from "./errors";
+import { describeError, errorMessage } from "./errors";
 import { rewrittenLine } from "./exportChecks";
 import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
-import { useUndo } from "./undo";
+import { UndoRefused, useUndo } from "./undo";
 
 /** Each format's name, as the options sheet, the menus and ⌘K say it. */
 export const FORMAT_LABELS: Readonly<Record<ExportFormat, MessageKey>> = {
@@ -248,10 +248,17 @@ export async function answerMarkAiText(
   );
 }
 
+/** A refusal Undo can try again once the file is back or free; any other never can (#110). */
+const RETRIED_UNDO: readonly MessageKey[] = [
+  "error.export.rewrite.gone",
+  "error.export.rewrite.locked",
+];
+
 /**
  * Picks in Change whether this Note's file, from someone else, gets check comments (#110): the
  * choice is this Note's alone, and the same file is written again, so no second copy sits
- * beside it that could be sent instead. Undo puts both the choice and the file back.
+ * beside it that could be sent instead. Undo puts both the choice and the file back, by the step
+ * the core gave this Change, and Redo writes it again as a new one.
  */
 export async function answerCheckComments(mindId: string, answer: boolean): Promise<void> {
   const { result } = useExports.getState();
@@ -259,7 +266,6 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
   if (result.checks.commented === answer) return;
   const previous: ExportResult = { ...result, changing: undefined };
   // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
-  let written = result.path;
   const write = async () => {
     const saved = await core.rewriteMindExport(
       mindId,
@@ -267,7 +273,6 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
       result.path,
       answer,
     );
-    if (saved.status === "saved") written = saved.file.path;
     useExports.setState({
       result:
         saved.status === "review"
@@ -277,30 +282,45 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
     return saved.status === "saved" ? saved : null;
   };
   try {
-    const saved = await write();
-    if (!saved) return;
-    const count = saved.sentenceChecks.comments;
-    const changed = saved.changedFile ?? null;
-    const copy = saved.file.path;
+    const first = await write();
+    if (!first) return;
+    let written = first;
     useUndo.getState().push({
-      said: (t) => rewrittenLine(t, answer, count, saved.file.name, changed),
-      ...(changed && {
+      said: (t) =>
+        rewrittenLine(
+          t,
+          answer,
+          written.sentenceChecks.comments,
+          written.file.name,
+          written.changedFile ?? null,
+        ),
+      ...(first.changedFile && {
         also: {
           label: (t) => t("export.open"),
           testId: "undo-open-copy",
           run: () =>
-            void files.openSavedFile(copy).catch((error: unknown) => {
+            void files.openSavedFile(written.file.path).catch((error: unknown) => {
               useAppStore.getState().reportError(error);
             }),
         },
       }),
       undo: async () => {
-        await core.restoreMindExport(written);
-        await core.setCheckComments(mindId, !answer);
-        useExports.setState({ result: { ...previous, at: Date.now() } });
+        try {
+          await core.restoreMindExport(written.file.path, written.step);
+        } catch (error) {
+          const { wording } = describeError(error);
+          if (!wording || !RETRIED_UNDO.includes(wording.key)) throw error;
+          throw new UndoRefused((t) => t(wording.key, wording.values), {
+            label: (t) => t("undo.tryAgain"),
+            run: async () => undefined,
+          });
+        }
+        if (useExports.getState().result?.mindId === mindId) {
+          useExports.setState({ result: { ...previous, at: Date.now() } });
+        }
       },
       redo: async () => {
-        await write();
+        written = (await write()) ?? written;
       },
     });
   } catch (failure) {

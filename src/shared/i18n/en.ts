@@ -502,6 +502,7 @@ export const en = {
   "redo.refused": "Couldn’t do it again: {reason}",
   "undo.folderGone": "“{name}” is deleted",
   "undo.restoreFolder": "Restore {name}",
+  "undo.tryAgain": "Try again",
   "undo.title": "Undo ({shortcut})",
   "line.actionKeys": "{label} ({keys})",
 

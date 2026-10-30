@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -15,7 +15,11 @@ import { describe, expect, test, vi } from "vitest";
 import { type Core, type FileWriteRequest, InvalidInputError, NotFoundError } from "../../src/core";
 import { createOwnFiles } from "../../src/core/documents/ownFiles";
 import { createEventHub } from "../../src/core/events";
-import { createOutputFiles } from "../../src/core/outputFiles";
+import {
+  createOutputFiles,
+  fingerprintOf,
+  type OutputFilesOptions,
+} from "../../src/core/outputFiles";
 import { createSettings } from "../../src/core/settings";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
@@ -533,7 +537,7 @@ test("Show in Finder shows only a file IncarnaMind saved", async () => {
 
 describe("Saving next to an original (the call other features use)", () => {
   /** The module over an empty database, with one Linked folder holding one original. */
-  async function outputsWith() {
+  async function outputsWith(record?: OutputFilesOptions["recordOwnFile"]) {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
@@ -546,7 +550,7 @@ describe("Saving next to an original (the call other features use)", () => {
       settings: createSettings(db, now, () => ["en-US"], "none"),
       suggested: join(await createSourceFolder(), "IncarnaMind"),
       linkedFolders: () => [{ id: "linked-1", path: linked }],
-      recordOwnFile: createOwnFiles(db, now).record,
+      recordOwnFile: record ?? createOwnFiles(db, now).record,
     });
     outputs.setLinkedFolderWriting("linked-1", true);
     const fingerprints = () =>
@@ -606,6 +610,34 @@ describe("Saving next to an original (the call other features use)", () => {
       fromFolder: null,
     });
     expect(fingerprints()).toHaveLength(1);
+  });
+
+  test("a file written again stays as the User saved it while the new bytes were being written (#110)", async () => {
+    const theirs = "Saved by the User meanwhile.";
+    let into: string | null = null;
+    // Called between the first look at the file and the rename: the User's save lands then.
+    const { outputs, linked } = await outputsWith(() => {
+      if (into) writeFileSync(into, theirs);
+    });
+    const folder = join(linked, "Leases");
+    const file = await outputs.save({
+      name: "Lease.md",
+      data,
+      folder,
+      ownFile: null,
+      fromFolder: null,
+    });
+    into = file.path;
+
+    const again = new TextEncoder().encode("Written again.");
+    expect(
+      await outputs.rewrite(file.path, again, fingerprintOf(data), {
+        kind: "export",
+        fromFolder: null,
+      }),
+    ).toEqual({ kind: "changed" });
+    expect(await readFile(file.path, "utf8")).toBe(theirs);
+    expect(await readdir(folder)).toEqual(["Lease.docx", "Lease.md"]);
   });
 
   test("a folder outside the Output location and every Linked folder, or a link leading out of one, is refused", async () => {

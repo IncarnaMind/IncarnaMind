@@ -8840,6 +8840,11 @@ export type SavedMindExport =
   | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
 
+/** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
+export type RewrittenMindExport =
+  | (Extract<SavedMindExport, { status: "saved" }> & { step: string })
+  | Exclude<SavedMindExport, { status: "saved" }>;
+
 /** What saving an export did: a Skill's zip (`saveSkillExport`), and the base of a Mind's. */
 export type SavedExport =
   | { status: "saved"; file: SavedFile }
@@ -11228,22 +11233,24 @@ export interface CoreApi {
    * Saved line, so no second copy sits beside the first (#110). `checkComments`, for someone
    * else's file, writes with that choice and keeps it for the Note once the file holds it. A file
    * the User changed since is left as it is, and the export is saved beside it instead
-   * (`changedFile`). What it replaces is kept for `restoreMindExport`. Throws InvalidInputError
-   * for a file another Note exported or this session didn't save, and a plain-words problem
-   * naming a file that was moved, deleted or can't be changed.
+   * (`changedFile`). What it replaces is kept for `restoreMindExport`, under the `step` it
+   * returns. Throws InvalidInputError for a file another Note exported or this session didn't
+   * save, and a plain-words problem naming a file that was moved, deleted or can't be changed.
    */
   rewriteMindExport(
     mindId: string,
     options: ExportMindOptions,
     path: string,
     checkComments?: boolean,
-  ): Promise<SavedMindExport>;
+  ): Promise<RewrittenMindExport>;
   /**
-   * Puts back what the last `rewriteMindExport` that wrote `path` replaced, its Undo (#110): the
-   * file's bytes as they were, or, for a file saved beside one the User had changed, no file.
-   * Never over a file changed since it was written.
+   * Undoes the `rewriteMindExport` that returned `step` for `path` (#110): the file's bytes as
+   * they were, or, for a file saved beside one the User had changed, no file; and the Note's
+   * comment choice as it was. Only the newest step of `path`, and never over a file changed since
+   * it was written. Refused, it throws a plain-words problem and leaves the file, the choice and
+   * the step as they were, so it can be tried again.
    */
-  restoreMindExport(path: string): Promise<void>;
+  restoreMindExport(path: string, step: string): Promise<void>;
   /**
    * For a Mind made by Verify from someone else's file (#110): whether its Word export gets
    * comments on what needs a look. Off until the User turns it on, for this Note only, as its

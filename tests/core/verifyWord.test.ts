@@ -11,7 +11,12 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
-import { type Core, DATABASE_FILE, MIND_SETTINGS_FIELD } from "../../src/core";
+import {
+  type Core,
+  DATABASE_FILE,
+  MIND_SETTINGS_FIELD,
+  type RewrittenMindExport,
+} from "../../src/core";
 import { openWordPackage, reviewOf } from "../../src/core/documents/formats/docxPackage";
 import { COMMENTS_CONTENT_TYPE, COMMENTS_RELATIONSHIP } from "../../src/core/exports/wordml";
 import { openDatabase } from "../../src/core/storage";
@@ -19,11 +24,12 @@ import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
+import { NO_SCOPE } from "../../src/shared/searchScope";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
 import { wordFileOf } from "../../src/shared/wordFiles";
 import { shownPassages } from "../helpers/citations";
-import { addAndProcess } from "../helpers/documents";
+import { addAndProcess, documentAt, linkAndProcess } from "../helpers/documents";
 import { textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, note, readMind } from "../helpers/minds";
@@ -62,6 +68,33 @@ async function checkedReport(calls?: ModelCall[], language: "en" | "zh-CN" = "en
   expect(await set.core.findClaims(request(made.mind.id))).toEqual({ kind: "found", claims: 4 });
   await set.core.verifyClaims(request(made.mind.id));
   return { ...set, ...made };
+}
+
+const WORD = { format: "docx", commentFailedChecks: true } as const;
+
+/** The checked report saved as a Word file in an Exports folder, with what the file and its Note's choice hold now. */
+async function exportedReport() {
+  const set = await checkedReport();
+  const out = join(set.sources, "Exports");
+  await mkdir(out);
+  await set.core.setOutputLocation(out);
+  const first = await set.core.saveMindExport(set.mind.id, WORD);
+  if (first.status !== "saved") throw new Error(first.status);
+  const { path } = first.file;
+  return {
+    ...set,
+    out,
+    word: WORD,
+    path,
+    bytes: () => readFile(path),
+    choice: async () => (await set.core.previewMindExport(set.mind.id, WORD)).othersComments,
+  };
+}
+
+function saved(result: RewrittenMindExport) {
+  if (result.status !== "saved")
+    throw new Error(`The file wasn't written again: ${result.status}.`);
+  return result;
 }
 
 /** The export into the file, its parts, and each comment's words with the words its range holds. */
@@ -360,9 +393,9 @@ describe("check comments in someone else's file", () => {
     );
     expect(await readdir(out)).toEqual(["Harbour report.docx"]);
 
-    await core.restoreMindExport(first.file.path);
-    await core.setCheckComments(mind.id, false);
+    await core.restoreMindExport(first.file.path, again.step);
     expect(Buffer.compare(await readFile(first.file.path), plain)).toBe(0);
+    expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(false);
 
     await core.rewriteMindExport(mind.id, word, first.file.path, true);
     expect(
@@ -401,84 +434,133 @@ describe("check comments in someone else's file", () => {
     });
     expect(Buffer.compare(await readFile(first.file.path), edited)).toBe(0);
 
-    await core.restoreMindExport(beside.file.path);
+    // A copy the User edited since is never taken away, and its step stays to try again.
+    const copied = await readFile(beside.file.path);
+    await writeFile(beside.file.path, edited);
+    await expect(core.restoreMindExport(beside.file.path, beside.step)).rejects.toThrow(
+      "“Harbour report 2.docx” was changed after it was written, so it wasn’t put back.",
+    );
+    expect(Buffer.compare(await readFile(beside.file.path), edited)).toBe(0);
+    expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(true);
+    await writeFile(beside.file.path, copied);
+
+    await core.restoreMindExport(beside.file.path, beside.step);
     expect(await readdir(out)).toEqual(["Harbour report.docx"]);
     expect(Buffer.compare(await readFile(first.file.path), edited)).toBe(0);
+    expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(false);
 
     // Undo never puts bytes back over a file changed after it was written either.
     const fresh = await core.saveMindExport(mind.id, word);
     if (fresh.status !== "saved") throw new Error(fresh.status);
-    await core.rewriteMindExport(mind.id, word, fresh.file.path, false);
+    const off = await core.rewriteMindExport(mind.id, word, fresh.file.path, false);
+    if (off.status !== "saved") throw new Error(off.status);
     await writeFile(fresh.file.path, edited);
-    await expect(core.restoreMindExport(fresh.file.path)).rejects.toThrow(
+    await expect(core.restoreMindExport(fresh.file.path, off.step)).rejects.toThrow(
       `“${fresh.file.name}” was changed after it was written, so it wasn’t put back.`,
     );
     expect(Buffer.compare(await readFile(fresh.file.path), edited)).toBe(0);
   });
 
-  test("Change, Change, Undo, Undo and Redo each leave the file as that step had it", async () => {
-    const { core, mind, sources } = await checkedReport();
-    const out = join(sources, "Exports");
-    await mkdir(out);
-    await core.setOutputLocation(out);
-    const word = { format: "docx", commentFailedChecks: true } as const;
-    const first = await core.saveMindExport(mind.id, word);
-    if (first.status !== "saved") throw new Error(first.status);
-    const { path } = first.file;
-    const bytes = () => readFile(path);
+  test("Change, Change, Undo, Undo, Redo and Undo each leave the file and the Note's choice as that step had them", async () => {
+    const { core, mind, out, word, path, bytes, choice } = await exportedReport();
     const plain = await bytes();
 
-    await core.rewriteMindExport(mind.id, word, path, true);
+    const on = saved(await core.rewriteMindExport(mind.id, word, path, true));
     const commented = await bytes();
     expect(unzip(commented).get("word/comments.xml")?.toString("utf8")).toContain(
       'w:author="IncarnaMind"',
     );
-    await core.rewriteMindExport(mind.id, word, path, false);
-    const off = await bytes();
-    expect(unzip(off).get("word/comments.xml")?.toString("utf8")).not.toContain(
-      'w:author="IncarnaMind"',
-    );
-
-    await core.restoreMindExport(path);
-    expect(Buffer.compare(await bytes(), commented)).toBe(0);
-    await core.restoreMindExport(path);
-    expect(Buffer.compare(await bytes(), plain)).toBe(0);
-    await expect(core.restoreMindExport(path)).rejects.toThrow(
-      "There is nothing to put back in “Harbour report.docx”.",
-    );
-
-    await core.rewriteMindExport(mind.id, word, path, true);
+    const off = saved(await core.rewriteMindExport(mind.id, word, path, false));
     expect(
       unzip(await bytes())
         .get("word/comments.xml")
         ?.toString("utf8"),
-    ).toContain('w:author="IncarnaMind"');
+    ).not.toContain('w:author="IncarnaMind"');
+
+    await core.restoreMindExport(path, off.step);
+    expect(Buffer.compare(await bytes(), commented)).toBe(0);
+    expect(await choice()).toBe(true);
+    await core.restoreMindExport(path, on.step);
+    expect(Buffer.compare(await bytes(), plain)).toBe(0);
+    expect(await choice()).toBe(false);
+    await expect(core.restoreMindExport(path, on.step)).rejects.toThrow(
+      "There is nothing to put back in “Harbour report.docx”.",
+    );
+
+    // Redo writes it again as a step of its own, which only its own Undo takes back.
+    const redone = saved(await core.rewriteMindExport(mind.id, word, path, true));
+    expect(Buffer.compare(await bytes(), commented)).toBe(0);
+    expect(await choice()).toBe(true);
+    await expect(core.restoreMindExport(path, on.step)).rejects.toThrow(
+      "There is nothing to put back in “Harbour report.docx”.",
+    );
+    await core.restoreMindExport(path, redone.step);
+    expect(Buffer.compare(await bytes(), plain)).toBe(0);
+    expect(await choice()).toBe(false);
     expect(await readdir(out)).toEqual(["Harbour report.docx"]);
   });
 
   test.skipIf(process.platform === "win32")(
-    "a read-only file is never written over, and a read-only folder says so by the file's name",
+    "an Undo refused while the folder is locked leaves the file, the Note's choice and its step as they were, and the Change before it waits for it",
     async () => {
-      const { core, mind, sources } = await checkedReport();
-      const out = join(sources, "Exports");
-      await mkdir(out);
-      await core.setOutputLocation(out);
-      const word = { format: "docx", commentFailedChecks: true } as const;
-      const first = await core.saveMindExport(mind.id, word);
-      if (first.status !== "saved") throw new Error(first.status);
-      const plain = await readFile(first.file.path);
-      await chmod(first.file.path, 0o444);
+      const { core, mind, out, word, path, bytes, choice } = await exportedReport();
+      const plain = await bytes();
+      const on = saved(await core.rewriteMindExport(mind.id, word, path, true));
+      const commented = await bytes();
+      const off = saved(await core.rewriteMindExport(mind.id, word, path, false));
+      const uncommented = await bytes();
 
-      const copy = await core.rewriteMindExport(mind.id, word, first.file.path, true);
+      await chmod(out, 0o555);
+      try {
+        const refused = core.restoreMindExport(path, off.step);
+        await expect(refused).rejects.toThrow(
+          "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
+        );
+        await expect(refused).rejects.not.toThrow(out);
+      } finally {
+        await chmod(out, 0o755);
+      }
+      expect(Buffer.compare(await bytes(), uncommented)).toBe(0);
+      expect(await choice()).toBe(false);
+
+      await expect(core.restoreMindExport(path, on.step)).rejects.toThrow(
+        "“Harbour report.docx” was changed after it was written, so it wasn’t put back.",
+      );
+      expect(Buffer.compare(await bytes(), uncommented)).toBe(0);
+      expect(await choice()).toBe(false);
+
+      await core.restoreMindExport(path, off.step);
+      expect(Buffer.compare(await bytes(), commented)).toBe(0);
+      expect(await choice()).toBe(true);
+      await core.restoreMindExport(path, on.step);
+      expect(Buffer.compare(await bytes(), plain)).toBe(0);
+      expect(await choice()).toBe(false);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a read-only file is never written over or put back, and a read-only folder says so by the file's name",
+    async () => {
+      const { core, mind, out, word, path, bytes } = await exportedReport();
+      const on = saved(await core.rewriteMindExport(mind.id, word, path, true));
+      const commented = await bytes();
+      await chmod(path, 0o444);
+
+      await expect(core.restoreMindExport(path, on.step)).rejects.toThrow(
+        "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
+      );
+      expect(Buffer.compare(await bytes(), commented)).toBe(0);
+
+      const copy = await core.rewriteMindExport(mind.id, word, path, false);
       expect(copy).toMatchObject({
         file: { name: "Harbour report 2.docx" },
         changedFile: "Harbour report.docx",
       });
-      expect(Buffer.compare(await readFile(first.file.path), plain)).toBe(0);
+      expect(Buffer.compare(await bytes(), commented)).toBe(0);
 
       await chmod(out, 0o555);
       try {
-        const refused = core.rewriteMindExport(mind.id, word, first.file.path, true);
+        const refused = core.rewriteMindExport(mind.id, word, path, true);
         await expect(refused).rejects.toThrow(
           "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
         );
@@ -548,8 +630,59 @@ describe("check comments in someone else's file", () => {
       "That file wasn’t exported from this note, so this note can’t write it again.",
     );
     expect(Buffer.compare(await readFile(saved.file.path), before)).toBe(0);
-    await expect(core.restoreMindExport(saved.file.path)).rejects.toThrow(
+    await expect(core.restoreMindExport(saved.file.path, "")).rejects.toThrow(
       "There is nothing to put back in “Memo.md”.",
+    );
+  });
+
+  describe("a walled Note's commented file comes back as a Document behind that wall", () => {
+    async function walledReport() {
+      const set = await exportedReport();
+      const folder = await set.core.createLibraryGroup({ name: "Client A", description: "" });
+      const wall = (keepInside: boolean) =>
+        set.core.updateLibraryGroup(folder.id, { name: "Client A", description: "", keepInside });
+      await wall(true);
+      await set.core.moveToFolder({ mindIds: [set.mind.id], folderId: folder.id });
+      return { ...set, wall };
+    }
+
+    /** Links the Exports folder, so the file Change wrote is indexed, and looks for it from outside the wall. */
+    async function cameBack(set: Awaited<ReturnType<typeof walledReport>>, written: string) {
+      const document = documentAt(await linkAndProcess(set.core, set.out), written);
+      expect(document.ownFile?.kind).toBe("export");
+      const seen = () => set.core.countScopeDocuments({ ...NO_SCOPE, documentIds: [document.id] });
+      expect(await seen()).toBe(0);
+      await set.wall(false);
+      expect(await seen()).toBe(1);
+    }
+
+    test("written in place", async () => {
+      const set = await walledReport();
+      const written = saved(
+        await set.core.rewriteMindExport(set.mind.id, set.word, set.path, true),
+      );
+      expect(written.file.path).toBe(set.path);
+      await cameBack(set, written.file.path);
+    });
+
+    test("put back by Undo, though first saved before the Note was behind it", async () => {
+      const set = await walledReport();
+      const plain = await set.bytes();
+      const on = saved(await set.core.rewriteMindExport(set.mind.id, set.word, set.path, true));
+      await set.core.restoreMindExport(set.path, on.step);
+      expect(Buffer.compare(await set.bytes(), plain)).toBe(0);
+      await cameBack(set, set.path);
+    });
+
+    test.skipIf(process.platform === "win32")(
+      "written as a copy beside a read-only file",
+      async () => {
+        const set = await walledReport();
+        await chmod(set.path, 0o444);
+        const copy = saved(await set.core.rewriteMindExport(set.mind.id, set.word, set.path, true));
+        expect(copy.changedFile).toBe("Harbour report.docx");
+        await cameBack(set, copy.file.path);
+      },
     );
   });
 

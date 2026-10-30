@@ -491,6 +491,7 @@ export const zhCN = {
   "redo.refused": "无法重做：{reason}",
   "undo.folderGone": "“{name}”已删除",
   "undo.restoreFolder": "恢复“{name}”",
+  "undo.tryAgain": "重试",
   "undo.title": "撤销（{shortcut}）",
   "line.actionKeys": "{label}（{keys}）",
 
