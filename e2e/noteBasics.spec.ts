@@ -321,6 +321,24 @@ test("Tidy Chinese text sets spaces and full-width punctuation in the whole Note
   await expect(window.getByTestId("undo-line")).toContainText("Tidied 1 place · Undo");
 });
 
+test("Tidy Chinese text spaces Latin text beside an address, a date and a file name in the Note", async () => {
+  const { window, editor } = await startMind();
+  const lines = ["访问https://example.com和Word文件", "截至2026/10/30后", "打开report.docx后"];
+  for (const [index, line] of lines.entries()) {
+    if (index > 0) await window.keyboard.press("Enter");
+    await window.keyboard.type(line);
+  }
+
+  await runCommand(window, "mind.tidy", "Tidy Chinese text");
+
+  const paragraphs = editor.locator("p");
+  await expect(paragraphs).toHaveCount(3);
+  await expect(paragraphs.nth(0)).toHaveText("访问 https://example.com 和 Word 文件");
+  await expect(paragraphs.nth(1)).toHaveText("截至 2026/10/30 后");
+  await expect(paragraphs.nth(2)).toHaveText("打开 report.docx 后");
+  await expect(window.getByTestId("undo-line")).toContainText("Tidied 3 places · Undo");
+});
+
 test("find and replace in a Note a newer version wrote: Replace is off, says why in both languages, and nothing changes", async () => {
   const { app, window } = await launchApp(dataDir);
   try {

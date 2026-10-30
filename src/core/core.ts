@@ -2014,7 +2014,7 @@ export function createCore(adapters: CoreAdapters): Core {
       },
     },
     resolveScope,
-    workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
+    workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     walledFolder,

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
 import { tidyNote } from "../../src/renderer/src/editor/tidyNote";
+import { tidyChinese } from "../../src/shared/tidyChinese";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor, boundEditorTo, headlessEditor } from "../helpers/editor";
 import { connectToMind } from "../helpers/mindClient";
@@ -104,6 +105,19 @@ describe("tidying Chinese text in the Note", () => {
     expect(marksIn(checked).find((run) => run.text.includes("document"))?.marks).not.toContain(
       "claimCheck",
     );
+  });
+
+  test("spaces Latin text beside an address, a date or a file name, and agrees with the plain tidy", () => {
+    const lines = ["访问https://example.com和Word文件", "截至2026/10/30后", "打开report.docx后"];
+    const editor = editorWith(lines.map((line) => paragraph(text(line))));
+    tidyNote(editor);
+    const tidied = paragraphsIn(editor);
+    expect(tidied).toEqual([
+      "访问 https://example.com 和 Word 文件",
+      "截至 2026/10/30 后",
+      "打开 report.docx 后",
+    ]);
+    expect(tidied).toEqual(lines.map((line) => tidyChinese(line)));
   });
 
   test("a whole Note is one Undo step", async () => {

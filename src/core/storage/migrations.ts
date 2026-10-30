@@ -2074,6 +2074,21 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 117,
+    description:
+      "A duplicate of an imported Note keeps its Word file, so its checks leave it out (#1935)",
+    sql: `
+      -- The Document the file was imported as, beside document_id, which says which Mind is the
+      -- import: a duplicate sets document_id NULL but keeps this, so its checks leave that file
+      -- out by its Document and every version of it, not only by the bytes it was imported from
+      -- (#1935). Imported files already linked to a Document know the same.
+      ALTER TABLE word_packages ADD COLUMN source_document_id TEXT;
+      UPDATE word_packages SET source_document_id = document_id WHERE document_id IS NOT NULL;
+      CREATE INDEX word_packages_by_source_document ON word_packages (source_document_id)
+        WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

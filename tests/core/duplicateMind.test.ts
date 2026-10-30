@@ -165,6 +165,7 @@ describe("a Note duplicated from its menu", () => {
     );
 
     const originalId = wordFileOf(client.doc)?.documentId;
+    if (!originalId) throw new Error("The import has no original Document.");
     const importedAs = async () =>
       (await core.listDocuments()).find((each) => each.id === originalId)?.importedAs;
     expect(await importedAs()).toBe(mindId);
@@ -172,6 +173,25 @@ describe("a Note duplicated from its menu", () => {
     const copy = await core.duplicateMind(mindId);
     // A copy is not the import: the Document still names the Mind it was imported as.
     expect(await importedAs()).toBe(mindId);
+
+    // A later draft of the same original: the copy's checks must leave it out as the source's do.
+    const later = `${LOAN} The later draft confirms the facility was renewed.`;
+    await importWordBytes(core, sources, wordFile({ body: paragraph(later) }), {
+      name: "Draft memo v2.docx",
+      origin: "own",
+      folderId: folder.id,
+      addOriginal: true,
+      newVersionOf: originalId,
+    });
+    await expect
+      .poll(async () => {
+        const draft = (await core.listDocuments()).find((each) => each.id === originalId);
+        if (draft?.status !== "ready") return false;
+        const { passages } = await core.searchEvidence("later draft confirms", {});
+        return passages.some((each) => each.documentName.startsWith("Draft memo"));
+      })
+      .toBe(true);
+
     const copyClient = await connectToMind(core, copy.id);
     const request: CheckMindInput = { requestId: "copy-all", mindId: copy.id, mode: "all" };
     await core.checkMind(request);
@@ -182,12 +202,14 @@ describe("a Note duplicated from its menu", () => {
     )?.check;
     expect(check).toMatchObject({ state: "contradicted", evidence: { quote: BANK } });
 
-    // The copy's own Word file is left out of the search: it is its draft, never evidence.
+    // The copy's own Word file is left out of the search, its later drafts too: never evidence.
     const shownToChecks = calls.flatMap((call) =>
       call.results
         .filter((result) => result.tool === "search_documents")
         .flatMap((result) => shownPassages(result.text)),
     );
     expect(shownToChecks.some((each) => each.document.startsWith("Draft memo"))).toBe(false);
+    // The bank's Document is still evidence: the checks searched, and found it.
+    expect(shownToChecks.some((each) => each.document.startsWith("Northgate Bank"))).toBe(true);
   });
 });

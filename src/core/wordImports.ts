@@ -324,6 +324,18 @@ export function createWordImports(options: WordImportsOptions) {
     }
   };
 
+  /**
+   * Every live package of these bytes was the same file: once one is linked to its Document, all
+   * of them leave that Document out of their checks, a copy made before the link included.
+   */
+  const linkSourceDocument = (sha256: string, documentId: string) => {
+    db.run(
+      `UPDATE word_packages SET source_document_id = ?, updated_at = ?
+       WHERE sha256 = ? AND deleted_at IS NULL AND source_document_id IS NULL`,
+      [documentId, options.now(), sha256],
+    );
+  };
+
   const start = (
     mindId: string,
     structure: WordStructure,
@@ -410,8 +422,8 @@ export function createWordImports(options: WordImportsOptions) {
           const made = minds.create({ title, kind: DEFAULT_MIND_KIND, folderId });
           db.run(
             `INSERT INTO word_packages (id, mind_id, sha256, file_name, size, document_id,
-               look_version, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               source_document_id, look_version, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               randomUUID(),
               made.id,
@@ -419,11 +431,13 @@ export function createWordImports(options: WordImportsOptions) {
               fileName,
               bytes.byteLength,
               documentId,
+              documentId,
               WORD_LOOK_VERSION,
               at,
               at,
             ],
           );
+          if (documentId !== null) linkSourceDocument(sha256, documentId);
           return made;
         });
       } finally {
@@ -479,18 +493,18 @@ export function createWordImports(options: WordImportsOptions) {
     /** See `CoreApi.addWordOriginal`. */
     async addOriginal(mindId: string, input: unknown): Promise<boolean> {
       const path = parsePath(input);
-      const row = db.get<{ id: string }>(
-        "SELECT id FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+      const row = db.get<{ id: string; sha256: string }>(
+        "SELECT id, sha256 FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
         [mindId],
       );
       if (!row) throw new InvalidInputError({ key: "error.mind.notFromWord" });
       const documentId = await addOriginal(path, minds.get(mindId).folderId, null);
       if (documentId === null) return false;
-      db.run("UPDATE word_packages SET document_id = ?, updated_at = ? WHERE id = ?", [
-        documentId,
-        options.now(),
-        row.id,
-      ]);
+      db.run(
+        "UPDATE word_packages SET document_id = ?, source_document_id = ?, updated_at = ? WHERE id = ?",
+        [documentId, documentId, options.now(), row.id],
+      );
+      linkSourceDocument(row.sha256, documentId);
       content.edit(mindId, (blocks) => {
         if (blocks.doc) linkWordFileDocument(blocks.doc, documentId);
       });
@@ -556,44 +570,66 @@ export function createWordImports(options: WordImportsOptions) {
     },
 
     /**
-     * A Mind's original, for its checks to leave out (#720): the Document it was also added
-     * as, and any copy of the file as imported. Null for a Mind not imported from Word.
+     * A Mind's original, for its checks to leave out (#720): the Document it was imported as or
+     * copied from, every version of it, and the bytes it was imported from. Null for a Mind not
+     * imported from Word.
      */
     originalOf(mindId: string): CheckedDocument | null {
-      const row = db.get<{ document_id: string | null; sha256: string }>(
-        "SELECT document_id, sha256 FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+      const row = db.get<{
+        document_id: string | null;
+        source_document_id: string | null;
+        sha256: string;
+      }>(
+        `SELECT document_id, source_document_id, sha256 FROM word_packages
+         WHERE mind_id = ? AND deleted_at IS NULL`,
         [mindId],
       );
       if (!row) return null;
+      const documentIds = [...new Set([row.document_id, row.source_document_id])].filter(
+        (each): each is string => each !== null,
+      );
       return {
-        ...(row.document_id !== null && { documentIds: [row.document_id] }),
+        ...(documentIds.length > 0 && { documentIds }),
         contentHashes: [row.sha256],
       };
     },
 
+    /** The Document this Mind was imported as: the import, not a duplicate's source (#1935). */
+    importedAsOf(mindId: string): string | null {
+      return (
+        db.get<{ document_id: string | null }>(
+          "SELECT document_id FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+          [mindId],
+        )?.document_id ?? null
+      );
+    },
+
     /**
      * Gives a copy of a Mind the original package the Mind was imported from, so the copy's
-     * checks leave that file out (by its content hash) and it exports back into it (#1935). The
-     * copy is not the import, so it carries no Document link: the Document's "imported as" stays
-     * the Mind the file was imported as.
+     * checks leave that file out (by its Document and every version of it, and by its content
+     * hash) and it exports back into it (#1935). The copy is not the import, so it carries no
+     * Document link: the Document's "imported as" stays the Mind the file was imported as.
      */
     copyPackage(sourceMindId: string, copyMindId: string): void {
       const row = db.get<{
         sha256: string;
         file_name: string;
         size: number;
+        document_id: string | null;
+        source_document_id: string | null;
         look_version: number | null;
         completed_at: string | null;
       }>(
-        "SELECT sha256, file_name, size, look_version, completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+        `SELECT sha256, file_name, size, document_id, source_document_id, look_version,
+           completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL`,
         [sourceMindId],
       );
       if (!row) return;
       const at = options.now();
       db.run(
-        `INSERT INTO word_packages (id, mind_id, sha256, file_name, size, document_id, look_version,
-           completed_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO word_packages (id, mind_id, sha256, file_name, size, document_id,
+           source_document_id, look_version, completed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           copyMindId,
@@ -601,6 +637,7 @@ export function createWordImports(options: WordImportsOptions) {
           row.file_name,
           row.size,
           null,
+          row.source_document_id ?? row.document_id,
           row.look_version,
           row.completed_at,
           at,

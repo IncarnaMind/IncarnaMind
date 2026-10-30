@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
@@ -180,38 +179,17 @@ for (const language of ["en", "zh-CN"] as const) {
       const cited = await chips.count();
 
       // Deleted as a person does: the word before it double-clicked, a Shift-click just after it,
-      // and Backspace. A loaded runner can miss the second click, so the selection is checked and
-      // made again rather than pressing Backspace with nothing selected; the counts cover the text.
-      const selectAcross = async () => {
-        await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
-        const box = await chip.boundingBox();
-        if (!box) throw new Error("The Citation isn't on screen.");
-        await window.mouse.dblclick(box.x - 15, box.y + box.height / 2);
-        await window.keyboard.down("Shift");
-        await window.mouse.click(box.x + box.width + 4, box.y + box.height / 2);
-        await window.keyboard.up("Shift");
-        await window.mouse.move(box.x - 15, box.y - 120);
-        await expect(window.getByTestId("citation-card")).toHaveCount(0);
-      };
-      const selectionCoversChip = () =>
-        chip.evaluate((element) => {
-          const root = element.closest(".ProseMirror") as (Element & { editor?: Editor }) | null;
-          const view = root?.editor?.view;
-          if (!view) return false;
-          const at = view.posAtDOM(element, 0);
-          for (const from of [at, at - 1]) {
-            const node = view.state.doc.nodeAt(from);
-            if (!node || node.type.name !== "citation") continue;
-            const { selection } = view.state;
-            if (!selection.empty && selection.from <= from && selection.to >= from + node.nodeSize)
-              return true;
-          }
-          return false;
-        });
-      for (let attempt = 0; attempt < 3 && !(await selectionCoversChip()); attempt++) {
-        await selectAcross();
-      }
-      await expect.poll(selectionCoversChip).toBe(true);
+      // and Backspace. A loaded runner can miss the second click (#2279, a known flake under
+      // #1741); the counts cover the text.
+      await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      const box = await chip.boundingBox();
+      if (!box) throw new Error("The Citation isn't on screen.");
+      await window.mouse.dblclick(box.x - 15, box.y + box.height / 2);
+      await window.keyboard.down("Shift");
+      await window.mouse.click(box.x + box.width + 4, box.y + box.height / 2);
+      await window.keyboard.up("Shift");
+      await window.mouse.move(box.x - 15, box.y - 120);
+      await expect(window.getByTestId("citation-card")).toHaveCount(0);
       await window.keyboard.press("Backspace");
       await expect.poll(() => chips.count()).toBeLessThan(cited);
       const left = await chips.count();

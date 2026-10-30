@@ -11,6 +11,10 @@ export interface TidyContext {
   after?: string;
   /** false: leave a run's outer edges to the caller, which joins the runs itself. Default true. */
   edgeSpaces?: boolean;
+  /** Whether the text's own first edge takes a context space; default true. */
+  leading?: boolean;
+  /** Whether the text's own last edge takes a context space; default true. */
+  trailing?: boolean;
 }
 
 const HAN = /\p{Script=Han}/u;
@@ -165,12 +169,16 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
   out = out.replace(/([A-Za-z0-9])(?=\p{Script=Han})/gu, "$1 ");
   if (context.edgeSpaces === false) return out;
   if (out.length > 0) {
-    const first = out[0];
-    if (isHan(first) && isWord(context.before)) out = ` ${out}`;
-    if (isWord(first) && isHan(context.before)) out = ` ${out}`;
-    const last = out.at(-1);
-    if (isHan(last) && isWord(context.after)) out = `${out} `;
-    if (isWord(last) && isHan(context.after)) out = `${out} `;
+    if (context.leading !== false) {
+      const first = out[0];
+      if (isHan(first) && isWord(context.before)) out = ` ${out}`;
+      if (isWord(first) && isHan(context.before)) out = ` ${out}`;
+    }
+    if (context.trailing !== false) {
+      const last = out.at(-1);
+      if (isHan(last) && isWord(context.after)) out = `${out} `;
+      if (isWord(last) && isHan(context.after)) out = `${out} `;
+    }
   }
   return out;
 }
@@ -239,10 +247,16 @@ export function tidyChinese(text: string, context: TidyContext = {}): string {
   let at = 0;
   const piece = (from: number, to: number) => {
     if (to <= from) return;
+    // A piece beside a protected name is still inside the run: its edge takes a space even when
+    // the run's own outer edges are left to the caller (a Note joins its runs itself).
+    const outerLeading = context.edgeSpaces !== false && context.leading !== false;
+    const outerTrailing = context.edgeSpaces !== false && context.trailing !== false;
     out += tidyPiece(punctuated.slice(from, to), {
       before: from > 0 ? punctuated[from - 1] : context.before,
       after: to < punctuated.length ? punctuated[to] : context.after,
-      edgeSpaces: context.edgeSpaces,
+      edgeSpaces: true,
+      leading: from > 0 || outerLeading,
+      trailing: to < punctuated.length || outerTrailing,
     });
   };
   for (const range of ranges) {
