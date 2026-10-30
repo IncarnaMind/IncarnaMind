@@ -314,6 +314,7 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<C
   const requestId = crypto.randomUUID();
   let held = false;
   let keeps = false;
+  let ranCheck = false;
   try {
     if (!(await core.holdMindCheck({ requestId, mindId, clientId }))) {
       setCheckProblem(mindId, { kind: "running" });
@@ -322,15 +323,17 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<C
     }
     held = true;
     const { mode, allDocuments, plan, watch } = await planned();
-    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan);
+    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan, () => {
+      ranCheck = true;
+    });
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
   } catch (error) {
     setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
     return { kind: "threw", error };
   } finally {
-    // A shown question keeps the Note for the run it asks for; every other end frees it here.
-    if (held && !keeps) await releaseHold(requestId);
+    // A shown question keeps the Note for the run it asks for, and a run frees its own hold at its end.
+    if (held && !keeps && !ranCheck) await releaseHold(requestId);
   }
 }
 
@@ -512,10 +515,10 @@ async function askOrCheck(
   requestId: string,
   run: CheckToRun,
   plan: MindCheckPlan,
+  started: () => void,
 ): Promise<CheckOutcome> {
   if (plan.kind === "unchanged") {
     clearAsk(mindId);
-    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     useMindCheck.setState((state) => ({ unchanged: { ...state.unchanged, [mindId]: true } }));
     showCheckCard(mindId);
@@ -523,7 +526,6 @@ async function askOrCheck(
   }
   if (plan.kind !== "ready") {
     clearAsk(mindId);
-    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     setCheckProblem(
       mindId,
@@ -539,6 +541,7 @@ async function askOrCheck(
     (pending?.sentences.length === plan.sentences &&
       pending.sentences.every((place) => place.claim !== null));
   if (run.mode === "changed" && onlyRechecks && plan.sentences < ASK_FROM) {
+    started();
     return runCheck(mindId, requestId, run);
   }
   clearAsk(mindId);
@@ -561,6 +564,7 @@ async function askOrCheck(
       return null;
     });
   if (estimated && estimated.billing !== "per-token" && onlyRechecks) {
+    started();
     return runCheck(mindId, requestId, run);
   }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
