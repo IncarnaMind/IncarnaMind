@@ -10,6 +10,7 @@ import type {
   PlanDocumentCheckInput,
   SearchScope,
 } from "../../src/core";
+import { estimateTokens } from "../../src/core/answers/context";
 import { DATABASE_FILE } from "../../src/core/core";
 import { createMeter, type MeteredModel } from "../../src/core/cost/meter";
 import { openDatabase } from "../../src/core/storage";
@@ -1427,8 +1428,11 @@ const SPLIT = [
     line: (page: number, line: number) =>
       `L${String(page).padStart(3, "0")}-${String(line).padStart(2, "0")} has ordinary lease words on rent and repairs.`,
     first: "Either party may end this lease early",
+    middle: "and the notice must be in writing and signed",
     second: "with three months notice to the other.",
     pad: "~",
+    // Pages a 4,096-token window reads in one, two and three windows.
+    windowPages: [8, 18, 28],
   },
   {
     language: "zh-CN" as const,
@@ -1436,27 +1440,40 @@ const SPLIT = [
     line: (page: number, line: number) =>
       `L${String(page).padStart(3, "0")}-${String(line).padStart(2, "0")} 是关于租金和维修的普通租约条款。`,
     first: "任何一方提前三个月",
+    middle: "并须以书面形式送达对方",
     second: "书面通知即可解除本租约。",
     pad: "，",
+    windowPages: [6, 14, 20],
   },
 ];
 
 describe("A whole read's windows, on a sentence that says something is absent", () => {
-  /** A Note's absence sentence read whole by a model whose small window takes several windows. */
+  /**
+   * A Note's absence sentence read whole by a model whose small window takes several windows: a
+   * local one, or a priced one whose cost the plan estimates.
+   */
   async function readWindows(
     example: (typeof SPLIT)[number],
     pages: readonly (readonly string[])[],
     judge: (prompt: string, index: number) => string,
+    priced = false,
   ) {
+    const runs: ModelCall[] = [];
     const judged: string[] = [];
     const plan = { [example.sentence]: { verdict: "unsupported" as const, absence: true } };
-    const model = scriptedModel((call) => checkReply(call, plan), {
-      generate: (call) => {
-        if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
-        judged.push(call.prompt);
-        return { text: judge(call.prompt, judged.length - 1) };
+    const model = scriptedModel(
+      (call) => {
+        runs.push(call);
+        return checkReply(call, plan);
       },
-    });
+      {
+        generate: (call) => {
+          if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
+          judged.push(call.prompt);
+          return { text: judge(call.prompt, judged.length - 1) };
+        },
+      },
+    );
     const ollamaModels: CoreAdapters["ollamaModels"] = {
       describe: async () => ({
         digest: null,
@@ -1485,10 +1502,33 @@ describe("A whole read's windows, on a sentence that says something is absent", 
     const block = paragraph(text(example.sentence));
     writeMind(client, [block]);
     await client.settled();
-    await core.checkSentences(
-      await readInput(core, mind.id, block, example.sentence, within([documents[0]?.id ?? ""])),
-    );
-    return { check: await onlyMark(client), judged };
+    let chosen: PlanDocumentCheckInput["model"];
+    if (priced) {
+      // A 16,385-token context: windows of 4,096 tokens.
+      const modelId = "openai/gpt-3.5-turbo";
+      const provider = await core.saveChatProvider({
+        kind: "openrouter",
+        apiKey: "sk-test",
+        modelId,
+      });
+      if (!provider.service) throw new Error("The test provider has no service.");
+      await core.allowDataFlow("document-check", provider.service.id);
+      chosen = { providerId: provider.id, modelId };
+    }
+    const picked = within([documents[0]?.id ?? ""]);
+    const planned = await core.planDocumentCheck({
+      mindId: mind.id,
+      ...whole(block, example.sentence.length),
+      within: picked,
+      ...(chosen && { model: chosen }),
+    });
+    if (planned.kind !== "ready") throw new Error(`The pick can't be read: ${planned.kind}.`);
+    await core.checkSentences({
+      ...checkInput(mind.id, block, example.sentence, picked),
+      plan: planned.id,
+      ...(chosen && { model: chosen }),
+    });
+    return { check: await onlyMark(client), judged, runs, estimate: planned.estimate };
   }
 
   const pagesOf = (example: (typeof SPLIT)[number], count: number) =>
@@ -1496,7 +1536,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
       Array.from({ length: 30 }, (_, line) => example.line(page + 1, line + 1)),
     );
   const HOLDS = JSON.stringify({ absent: "break clause", absence: "holds" });
-  /** A judgement that finds the clause only when both of its halves are in front of it. */
+  /** A judgement that finds the clause only when its first and last words are in front of it. */
   const judgeOf =
     (example: (typeof SPLIT)[number]) =>
     (prompt: string): string => {
@@ -1510,6 +1550,42 @@ describe("A whole read's windows, on a sentence that says something is absent", 
     };
   /** Where a judged window's own text ends: the id of its last line. */
   const lastLine = (prompt: string) => [...prompt.matchAll(/L(\d{3})-(\d{2})/g)].at(-1);
+  const tokensOf = (passages: readonly { text: string }[]) =>
+    passages.reduce((sum, each) => sum + estimateTokens(each.text), 0);
+  /**
+   * The pages with a clause of about 900 tokens that ends two lines after `edge`, so that nearly
+   * all of it comes before. Each line keeps its id and its length, so the Passages and windows
+   * stay where they were.
+   */
+  const clauseAt = (
+    example: (typeof SPLIT)[number],
+    count: number,
+    edge: { page: number; line: number },
+  ) => {
+    const pages = pagesOf(example, count);
+    const lineAt = (index: number) => {
+      const lines = pages[Math.floor(index / 30)];
+      if (!lines || lines[index % 30] === undefined) throw new Error("No such line.");
+      return { lines, at: index % 30 };
+    };
+    const put = (index: number, words: string) => {
+      const { lines, at } = lineAt(index);
+      const was = lines[at] ?? "";
+      lines[at] = `${was.slice(0, 8)}${words}`.padEnd(was.length, example.pad);
+    };
+    const end = (edge.page - 1) * 30 + edge.line - 1 + 2;
+    let start = end;
+    const clause = () =>
+      Array.from({ length: end - start + 1 }, (_, offset) => {
+        const { lines, at } = lineAt(start + offset);
+        return lines[at];
+      }).join("\n");
+    while (estimateTokens(clause()) < 900) start--;
+    put(start, example.first);
+    for (let index = start + 1; index < end; index++) put(index, example.middle);
+    put(end, example.second);
+    return pages;
+  };
 
   test.each(SPLIT)(
     "holds over every window only when each holds it, every page read ($language)",
@@ -1532,40 +1608,75 @@ describe("A whole read's windows, on a sentence that says something is absent", 
   );
 
   test.each(SPLIT)(
-    "finds a clause cut at each window's edge, and one in the last window ($language)",
+    "finds a 900-token clause cut at each window's edge, and one in the last window ($language)",
     async (example) => {
       const judge = judgeOf(example);
       const found = await readWindows(example, pagesOf(example, 24), () => HOLDS);
       expect(found.judged.length).toBeGreaterThanOrEqual(3);
-      // Each window after the first opens with the Passage that closed the one before.
+      // Each window after the first opens with the fewest whole Passages that end the one before
+      // and reach 1,000 tokens.
       for (const [index, prompt] of found.judged.entries()) {
         if (index === 0) continue;
-        const before = shownPassages(found.judged[index - 1] ?? "").at(-1)?.text;
-        expect(shownPassages(prompt)[0]?.text).toBe(before);
+        const before = shownPassages(found.judged[index - 1] ?? "");
+        const shown = shownPassages(prompt);
+        let carried = 1;
+        while (carried < before.length && tokensOf(before.slice(-carried)) < 1000) carried++;
+        expect(shown.slice(0, carried).map((each) => each.text)).toEqual(
+          before.slice(-carried).map((each) => each.text),
+        );
+        expect(before.map((each) => each.text)).not.toContain(shown[carried]?.text);
       }
       const edges = found.judged.slice(0, -1).map((prompt) => {
         const end = lastLine(prompt);
         if (!end) throw new Error("A window holds no line.");
         return { page: Number(end[1]), line: Number(end[2]) };
       });
-      const cut = (page: number, line: number) => {
-        const pages = pagesOf(example, 24);
-        const next = line === 30 ? { page: page + 1, line: 1 } : { page, line: line + 1 };
-        const put = (at: { page: number; line: number }, words: string) => {
-          const lines = pages[at.page - 1];
-          const was = lines?.[at.line - 1];
-          if (!lines || was === undefined) throw new Error("No such line.");
-          const id = was.slice(0, 8);
-          lines[at.line - 1] = `${id}${words}`.padEnd(was.length, example.pad);
-        };
-        put({ page, line }, example.first);
-        put(next, example.second);
-        return pages;
-      };
-      for (const edge of [...edges, { page: 24, line: 15 }]) {
-        const read = await readWindows(example, cut(edge.page, edge.line), judge);
+      for (const edge of edges) {
+        const read = await readWindows(example, clauseAt(example, 24, edge), judge);
+        // The window that ends at the edge holds the clause's start without its end.
+        expect(
+          read.judged.some(
+            (prompt) => prompt.includes(example.first) && !prompt.includes(example.second),
+          ),
+        ).toBe(true);
         expect(read.check.state).toBe("contradicted");
         expect(read.check.evidence?.quote).toBe(example.first);
+      }
+      const last = await readWindows(example, clauseAt(example, 24, { page: 24, line: 20 }), judge);
+      expect(last.check.state).toBe("contradicted");
+      expect(last.check.evidence?.quote).toBe(example.first);
+    },
+  );
+
+  test.each(SPLIT)(
+    "the estimate counts the windows sent and the tokens each sends, at one, two and three windows ($language)",
+    async (example) => {
+      const db = openDatabase(join(await createTempDataFolder(), DATABASE_FILE));
+      const meter = createMeter({ db, now: () => new Date(), cap: () => null });
+      const priced: MeteredModel = {
+        providerId: "provider",
+        kind: "openrouter",
+        modelId: "openai/gpt-3.5-turbo",
+        flow: "document-check",
+        billing: "per-token",
+        price: { currency: "USD", input: 0.5, output: 1.5 },
+        maxOutput: undefined,
+        ollamaCloud: false,
+      };
+      for (const [index, pages] of example.windowPages.entries()) {
+        const read = await readWindows(example, pagesOf(example, pages), () => HOLDS, true);
+        expect(read.check).toMatchObject({ state: "supported", read: { pages, of: pages } });
+        expect(read.judged).toHaveLength(index + 1);
+        if (read.estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
+        // Each window sends its Passages, the carried ones too, to its check and its judgement.
+        const sent = meter.estimateRead(
+          priced,
+          read.judged.map((prompt) => tokensOf(shownPassages(prompt))),
+        );
+        if (sent.billing !== "per-token") throw new Error("No per-token estimate.");
+        expect(read.estimate.tokens).toBe(sent.tokens);
+        expect(read.estimate.calls).toBe(4 * read.judged.length);
+        expect(read.runs.filter(isCheckRun).length).toBeLessThanOrEqual(3 * read.judged.length);
       }
     },
   );

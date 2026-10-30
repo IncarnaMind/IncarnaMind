@@ -12,15 +12,16 @@ import type {
   Document,
   DocumentCheckPlan,
   DocumentCheckProgress,
-  DocumentText,
   DocumentToRead,
   LeftOutDocument,
   RunEstimate,
   SearchScope,
 } from "../../api";
 import type { EvidenceScope } from "../../documents/evidence";
+import type { PageText } from "../../documents/passages";
 import type { WindowedPassage } from "../../documents/search";
 import type { PreparedChatModel } from "../../providers/chat";
+import { type AnswerDocuments, shownText } from "../citations";
 import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { type AtomicClaimCheckResult, type ClaimCheckRequest, runFailureOf } from "./claimCheck";
@@ -28,6 +29,7 @@ import { type AtomicClaimCheckResult, type ClaimCheckRequest, runFailureOf } fro
 export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as const;
 
 const WINDOW_TOKENS = 48_000;
+const CARRIED_TOKENS = 1_000;
 export const MOST_READ_TOKENS = 500_000;
 export const MOST_READ_DOCUMENTS = 25;
 
@@ -35,7 +37,7 @@ export interface WholeReadOptions {
   documents: {
     live(documentIds: readonly string[]): Document[];
     passages(documentId: string): WindowedPassage[];
-    readText(documentId: string): DocumentText;
+    pageTexts: AnswerDocuments["pageTexts"];
   };
   /** The Documents a pick covers on its Note's side of a Folder wall (#1934). */
   pickedDocuments(within: SearchScope, mindId: string): string[];
@@ -76,6 +78,12 @@ function pagesOf(
   return Array.from({ length: Math.max(1, to - from + 1) }, (_, at) => from + at);
 }
 
+/** The Units a Passage covers, which the model is shown with it. */
+function unitsOf({ pageFrom, pageTo }: WindowedPassage, units: readonly PageText[]): PageText[] {
+  if (pageFrom === null || pageTo === null) return [];
+  return units.filter((unit) => unit.page !== null && unit.page >= pageFrom && unit.page <= pageTo);
+}
+
 /** The pages every supplied Passage of which reached the model. */
 const coverageOf = (passages: ToRead["passages"], received: ReadonlySet<string>): number => {
   const required = new Map<string, Set<string>>();
@@ -113,8 +121,9 @@ export function windowTokens(model: Pick<PreparedChatModel, "window"> | null): n
 
 /**
  * The read's windows of about `tokens` each. Each window after the first starts with the last
- * Passage of the one before, so words that run on from one Passage into the next, a clause cut at
- * a window's edge among them, are whole in at least one window.
+ * whole Passages of the one before, at least `CARRIED_TOKENS` of them, so a clause cut at a
+ * window's edge and up to about that long is whole in the next window. A window's `tokens` count
+ * its Passages as the model is shown them, the carried ones included.
  */
 function windowsOf(
   read: ToRead,
@@ -129,13 +138,24 @@ function windowsOf(
   for (const each of read.passages) {
     if (current.length > carried && size() + each.tokens > tokens) {
       close();
-      current = current.slice(-1);
-      carried = 1;
+      carried = carriedFrom(current);
+      current = current.slice(-carried);
     }
     current.push(each);
   }
   if (current.length > carried) close();
   return windows;
+}
+
+/** How many of a window's last Passages, whole, the next one starts with. */
+function carriedFrom(window: ToRead["passages"]): number {
+  let count = 0;
+  let tokens = 0;
+  while (count < window.length && tokens < CARRIED_TOKENS) {
+    count++;
+    tokens += window.at(-count)?.tokens ?? 0;
+  }
+  return count;
 }
 
 interface Reading {
@@ -164,11 +184,11 @@ export function createWholeRead(options: WholeReadOptions) {
     for (const document of options.documents.live(scope.documentIds ?? picked)) {
       const own = withoutOverlap(options.documents.passages(document.id));
       if (own.length === 0) continue;
-      const units = options.documents.readText(document.id).pages;
-      const unitText = new Map(units.map((unit) => [unit.page, unit.text]));
+      const units = options.documents.pageTexts(document.id, own[0]?.contentHash ?? "", null, null);
+      const unitText = new Map(units.map((unit) => [unit.page ?? 1, unit.text]));
       const paged = own.map((passage) => ({
         passage,
-        tokens: estimateTokens(passage.text),
+        tokens: estimateTokens(shownText(passage.text, unitsOf(passage, units))),
         pages: pagesOf(passage, unitText),
       }));
       const covered = new Set(paged.flatMap((each) => each.pages));

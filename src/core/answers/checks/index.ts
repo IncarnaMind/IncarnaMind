@@ -1345,7 +1345,7 @@ export function createChecks(options: ChecksOptions) {
     documents: {
       live: options.documents.live,
       passages: options.documents.passages,
-      readText: options.readText,
+      pageTexts: options.documents.pageTexts,
     },
     pickedDocuments: options.pickedDocuments,
     evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),

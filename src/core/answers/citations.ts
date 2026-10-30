@@ -1044,6 +1044,25 @@ function withUnitMarks(text: string, units: readonly PageText[]): string {
 
 const attribute = (value: string) => value.replace(/"/g, "'").replace(/\s+/g, " ");
 
+function inSeveralSections(units: readonly PageText[]): boolean {
+  return (
+    units.every((unit) => unit.kind === "section") &&
+    new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
+      .size > 1
+  );
+}
+
+/** A Passage's text as the model is shown it, given the Units it covers. */
+export function shownText(text: string, units: readonly PageText[]): string {
+  const firstMark = inSeveralSections(units) && units[0] ? unitMark(units[0]) : null;
+  const marked =
+    units.length > 1 || units.some((unit) => innerMarks(unit).length > 0)
+      ? withUnitMarks(text, units)
+      : text;
+  // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
+  return foldRadicals(withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units));
+}
+
 /** A Passage as the model sees it: its short id, Document and its date, where it is, and its text. */
 interface ShownPassage {
   id: string;
@@ -1581,20 +1600,11 @@ export function createCitationSession(
               passage.pageTo,
             )
           : [];
-      const severalSections =
-        units.every((unit) => unit.kind === "section") &&
-        new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
-          .size > 1;
-      const firstMark = severalSections && units[0] ? unitMark(units[0]) : null;
-      const marked =
-        units.length > 1 || units.some((unit) => innerMarks(unit).length > 0)
-          ? withUnitMarks(passage.text, units)
-          : passage.text;
+      const severalSections = inSeveralSections(units);
       const id = measuring
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
-      // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
-      const text = foldRadicals(withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units));
+      const text = shownText(passage.text, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
