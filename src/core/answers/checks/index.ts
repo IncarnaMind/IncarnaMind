@@ -951,7 +951,17 @@ export function createChecks(options: ChecksOptions) {
       const document = recordCiteLibrary(options.documents, scope).documents.find(
         (each) => each.id === input.documentId,
       );
-      if (!document) throw new InvalidInputError({ key: "error.recordCite.documentGone" });
+      if (!document) {
+        const live = (options.documents.names?.() ?? []).some(
+          (each) => each.id === input.documentId,
+        );
+        const walled =
+          options.walledFolder(input.mindId) !== null ||
+          options.walledDocument(input.documentId) !== null;
+        throw new InvalidInputError({
+          key: live && walled ? "error.folder.wall" : "error.recordCite.documentGone",
+        });
+      }
       // Read as the check read it: a further range of a deposition ("…, 47:1–4") has its source.
       const read =
         recordCiteTokens(stored.check.text).find(
