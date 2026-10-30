@@ -292,7 +292,7 @@ describe("an Answer's Citations copied out of a wall", () => {
       pageTo: null,
       mindId: s.noteX.id,
     });
-    expect(outside).toMatchObject({ contentHash: null, checkReason: "kept-inside" });
+    expect(outside).toEqual({ keptInside: "Client A" });
 
     await s.core.addToNote({ mindId: s.noteA.id, blocks: cited(s), origin: null, model: null });
     expect(await checksIn(s, s.noteA.id)).toEqual(["not-found"]);
