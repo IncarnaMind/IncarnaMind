@@ -4201,6 +4201,7 @@ export const zhCN = {
     "“{name}”已不在保存的位置，可能已被移动或删除。请重新导出这篇笔记，生成新文件。",
   "error.export.rewrite.locked":
     "无法修改“{name}”：它可能是只读的，或正在其他应用中打开。请先在那里关闭，或重新导出这篇笔记。",
+  "error.export.restore.copyGone": "副本已被删除，没有可恢复的内容。",
   "error.export.restore.nothing": "“{name}”没有可以恢复的内容。",
   "error.export.restore.changed": "“{name}”写入后又被修改过，因此没有恢复。",
   "error.verify.notAllRead": "Word 文件有一部分没能读入这篇笔记，暂时无法找出其中的说法。",

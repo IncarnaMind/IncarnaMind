@@ -492,15 +492,23 @@ export function createOutputFiles(options: OutputFilesOptions) {
       }
     },
 
-    /** Deletes a file this session saved, only while it still holds the bytes of `wrote` and may be written (#110). */
-    async remove(path: unknown, wrote: string): Promise<{ kind: "removed" } | NotRewritten> {
+    /**
+     * Deletes a file this session saved, only while it still holds the bytes of `wrote` and may be
+     * written (#110); "gone" when it was deleted already.
+     */
+    async remove(
+      path: unknown,
+      wrote: string,
+    ): Promise<{ kind: "removed" } | { kind: "gone" } | NotRewritten> {
       const file = savedFile(path);
       try {
         const now = await held(file.path, wrote);
         if (now.kind !== "held") return now;
         await rm(file.path);
       } catch (error) {
-        throw fileProblem(file.name, error);
+        if (!isGone(error)) throw fileProblem(file.name, error);
+        saved.delete(file.path);
+        return { kind: "gone" };
       }
       saved.delete(file.path);
       return { kind: "removed" };

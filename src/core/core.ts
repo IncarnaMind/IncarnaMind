@@ -2613,6 +2613,24 @@ export function createCore(adapters: CoreAdapters): Core {
     rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
     return id;
   };
+  /**
+   * Changes and Undos of one export run one after another, each reading what the last one wrote,
+   * so two at once never both write over the same bytes (#110).
+   */
+  const exportTurns = new Map<string, Promise<void>>();
+  const inExportTurn = <T>(path: unknown, run: () => Promise<T>): Promise<T> => {
+    const key = typeof path === "string" ? path : "";
+    const turn = (exportTurns.get(key) ?? Promise.resolve()).then(run);
+    const settled = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    exportTurns.set(key, settled);
+    void settled.then(() => {
+      if (exportTurns.get(key) === settled) exportTurns.delete(key);
+    });
+    return turn;
+  };
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
   const setNoteComments = (mindId: string, on: boolean) => {
@@ -5287,97 +5305,107 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return exported;
     },
-    rewriteMindExport: async (mindId, options, path, checkComments) => {
-      const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-      if (!known || known.mindId !== mindId || known.format !== options?.format) {
-        throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
-      }
-      if (checkComments !== undefined && typeof checkComments !== "boolean") {
-        throw new InvalidInputError({ key: "error.export.checkComments" });
-      }
-      const verification = verificationOfNote(known.mindId);
-      if (checkComments !== undefined && verification === null) {
-        throw new InvalidInputError({ key: "error.verify.notVerifying" });
-      }
-      const choiceBefore = checkComments === undefined ? null : verification?.comments === true;
-      const read = content.storedState(known.mindId);
-      const {
-        fileName: _name,
-        fromWord: _,
-        theirChanges: _waiting,
-        data,
-        word,
-        ...counts
-      } = await mindExports.export(known.mindId, options, checkComments);
-      const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-      if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
-      const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
-      const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
-      let file: SavedFile;
-      let changedFile: string | undefined;
-      let step: string;
-      if (written.kind === "written") {
-        file = written.file;
-        step = keepStep(file.path, written.before, choiceBefore);
-      } else {
-        changedFile = basename(known.path);
-        try {
-          file = await outputs.save({
-            name: changedFile,
-            data,
-            ownFile: ownFile.kind,
-            fromFolder: ownFile.fromFolder,
-            folder: dirname(known.path),
-            approved: true,
-          });
-        } catch (error) {
-          throw fileProblem(changedFile, error);
+    rewriteMindExport: (mindId, options, path, checkComments) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        if (!known || known.mindId !== mindId || known.format !== options?.format) {
+          throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
         }
-        step = keepStep(file.path, null, choiceBefore);
-      }
-      exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
-      // Only once the file holds them, so the choice never says what the file doesn't.
-      if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
-      const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
-      return {
-        status: "saved",
-        file,
-        step,
-        ...counts,
-        word,
-        sentKept,
-        ...(changedFile !== undefined && { changedFile }),
-      };
-    },
-    restoreMindExport: async (path, step) => {
-      const known = typeof path === "string" ? exportFiles.get(path) : undefined;
-      const steps = known ? rewrittenExports.get(known.path) : undefined;
-      const at = steps?.findIndex((each) => each.id === step) ?? -1;
-      const kept = steps?.[at];
-      if (!known || !steps || !kept) {
-        throw new InvalidInputError({
-          key: "error.export.restore.nothing",
-          values: { name: typeof path === "string" ? basename(path) : "" },
-        });
-      }
-      const values = { name: basename(known.path) };
-      const changed = new TranslatableError({ key: "error.export.restore.changed", values });
-      // A later Change wrote the file since: this step's bytes would take that one back too.
-      if (at < steps.length - 1) throw changed;
-      const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
-      const done = kept.before
-        ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
-        : await outputs.remove(known.path, known.wrote);
-      if (done.kind === "changed") throw changed;
-      if (done.kind === "read-only") {
-        throw new TranslatableError({ key: "error.export.rewrite.locked", values });
-      }
-      if (kept.before) exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
-      else exportFiles.delete(known.path);
-      steps.pop();
-      if (steps.length === 0) rewrittenExports.delete(known.path);
-      if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
-    },
+        if (checkComments !== undefined && typeof checkComments !== "boolean") {
+          throw new InvalidInputError({ key: "error.export.checkComments" });
+        }
+        const verification = verificationOfNote(known.mindId);
+        if (checkComments !== undefined && verification === null) {
+          throw new InvalidInputError({ key: "error.verify.notVerifying" });
+        }
+        const choiceBefore = checkComments === undefined ? null : verification?.comments === true;
+        const read = content.storedState(known.mindId);
+        const {
+          fileName: _name,
+          fromWord: _,
+          theirChanges: _waiting,
+          data,
+          word,
+          ...counts
+        } = await mindExports.export(known.mindId, options, checkComments);
+        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
+        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
+          return { status: "review", word };
+        const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
+        const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
+        let file: SavedFile;
+        let changedFile: string | undefined;
+        let step: string;
+        if (written.kind === "written") {
+          file = written.file;
+          step = keepStep(file.path, written.before, choiceBefore);
+        } else {
+          changedFile = basename(known.path);
+          try {
+            file = await outputs.save({
+              name: changedFile,
+              data,
+              ownFile: ownFile.kind,
+              fromFolder: ownFile.fromFolder,
+              folder: dirname(known.path),
+              approved: true,
+            });
+          } catch (error) {
+            throw fileProblem(changedFile, error);
+          }
+          step = keepStep(file.path, null, choiceBefore);
+        }
+        exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
+        // Only once the file holds them, so the choice never says what the file doesn't.
+        if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
+        const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
+        return {
+          status: "saved",
+          file,
+          step,
+          ...counts,
+          word,
+          sentKept,
+          ...(changedFile !== undefined && { changedFile }),
+        };
+      }),
+    restoreMindExport: (path, step) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        const steps = known ? rewrittenExports.get(known.path) : undefined;
+        const at = steps?.findIndex((each) => each.id === step) ?? -1;
+        const kept = steps?.[at];
+        if (!known || !steps || !kept) {
+          throw new InvalidInputError({
+            key: "error.export.restore.nothing",
+            values: { name: typeof path === "string" ? basename(path) : "" },
+          });
+        }
+        const values = { name: basename(known.path) };
+        const changed = new TranslatableError({ key: "error.export.restore.changed", values });
+        // A later Change wrote the file since: this step's bytes would take that one back too.
+        if (at < steps.length - 1) throw changed;
+        const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
+        const done = kept.before
+          ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
+          : await outputs.remove(known.path, known.wrote);
+        if (done.kind === "gone") {
+          // The copy can never come back to be taken away, so its step goes with it.
+          exportFiles.delete(known.path);
+          rewrittenExports.delete(known.path);
+          throw new TranslatableError({ key: "error.export.restore.copyGone" });
+        }
+        if (done.kind === "changed") throw changed;
+        if (done.kind === "read-only") {
+          throw new TranslatableError({ key: "error.export.rewrite.locked", values });
+        }
+        if (kept.before)
+          exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
+        else exportFiles.delete(known.path);
+        steps.pop();
+        if (steps.length === 0) rewrittenExports.delete(known.path);
+        if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
+      }),
     setCheckComments: async (mindId, on) => {
       const mind = writableMind(mindId);
       if (typeof on !== "boolean")

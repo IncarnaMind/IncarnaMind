@@ -73,8 +73,8 @@ async function checkedReport(calls?: ModelCall[], language: "en" | "zh-CN" = "en
 const WORD = { format: "docx", commentFailedChecks: true } as const;
 
 /** The checked report saved as a Word file in an Exports folder, with what the file and its Note's choice hold now. */
-async function exportedReport() {
-  const set = await checkedReport();
+async function exportedReport(language: "en" | "zh-CN" = "en") {
+  const set = await checkedReport(undefined, language);
   const out = join(set.sources, "Exports");
   await mkdir(out);
   await set.core.setOutputLocation(out);
@@ -90,6 +90,11 @@ async function exportedReport() {
     choice: async () => (await set.core.previewMindExport(set.mind.id, WORD)).othersComments,
   };
 }
+
+const ours = (bytes: Buffer) =>
+  (unzip(bytes).get("word/comments.xml")?.toString("utf8") ?? "").includes(
+    'w:author="IncarnaMind"',
+  );
 
 function saved(result: RewrittenMindExport) {
   if (result.status !== "saved")
@@ -503,6 +508,49 @@ describe("check comments in someone else's file", () => {
     expect(Buffer.compare(await bytes(), plain)).toBe(0);
     expect(await choice()).toBe(false);
     expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+  });
+
+  test.each(["en", "zh-CN"] as const)(
+    "two Changes of one file at once run one after another, so each Undo puts back what the one before it wrote (%s)",
+    async (language) => {
+      const { core, mind, out, word, path, bytes, choice } = await exportedReport(language);
+      const plain = await bytes();
+      const [first, second] = await Promise.all([
+        core.rewriteMindExport(mind.id, word, path, true),
+        core.rewriteMindExport(mind.id, word, path, false),
+      ]);
+      const on = saved(first);
+      const off = saved(second);
+      expect([on.file.path, off.file.path]).toEqual([path, path]);
+      expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+      expect(ours(await bytes())).toBe(false);
+      expect(await choice()).toBe(false);
+
+      await core.restoreMindExport(path, off.step);
+      expect(ours(await bytes())).toBe(true);
+      expect(await choice()).toBe(true);
+      await core.restoreMindExport(path, on.step);
+      expect(Buffer.compare(await bytes(), plain)).toBe(0);
+      expect(await choice()).toBe(false);
+    },
+  );
+
+  test("Undo of a copy the User deleted says there is nothing to put back, and its step goes", async () => {
+    const { core, mind, out, word, path } = await exportedReport();
+    const edited = Buffer.from("edited in Word");
+    await writeFile(path, edited);
+    const copy = saved(await core.rewriteMindExport(mind.id, word, path, true));
+    expect(copy.changedFile).toBe("Harbour report.docx");
+    await rm(copy.file.path);
+
+    await expect(core.restoreMindExport(copy.file.path, copy.step)).rejects.toThrow(
+      "The copy was deleted, so there’s nothing to put back.",
+    );
+    await expect(core.restoreMindExport(copy.file.path, copy.step)).rejects.toThrow(
+      "There is nothing to put back in “Harbour report 2.docx”.",
+    );
+    expect(await readdir(out)).toEqual(["Harbour report.docx"]);
+    expect(Buffer.compare(await readFile(path), edited)).toBe(0);
   });
 
   test.skipIf(process.platform === "win32")(

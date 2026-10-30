@@ -4386,6 +4386,7 @@ export const en = {
     "“{name}” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
   "error.export.rewrite.locked":
     "“{name}” can’t be changed: it may be read-only or open in another app. Close it there, or export the note again.",
+  "error.export.restore.copyGone": "The copy was deleted, so there’s nothing to put back.",
   "error.export.restore.nothing": "There is nothing to put back in “{name}”.",
   "error.export.restore.changed":
     "“{name}” was changed after it was written, so it wasn’t put back.",

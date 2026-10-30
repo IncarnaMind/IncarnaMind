@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
@@ -63,26 +63,35 @@ const ours = (bytes: Buffer) =>
     'w:author="IncarnaMind"',
   );
 
+const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
+
+const saved = () => {
+  const { result } = useExports.getState();
+  if (result?.state !== "saved") throw new Error(`Nothing is saved: ${result?.state}.`);
+  return result;
+};
+
+/** The report verified, checked and saved as a Word file in an Exports folder, from the window. */
+async function exportedFromWindow() {
+  useUndo.setState({ done: [], undone: [], line: null });
+  const set = await setUpWordVerify();
+  bridge.core = set.core;
+  const { mind } = await verifyWordFile(set.core, set.report);
+  await set.core.findClaims(request(mind.id));
+  await set.core.verifyClaims(request(mind.id));
+  const out = join(set.sources, "Exports");
+  await mkdir(out);
+  await set.core.setOutputLocation(out);
+  await exportMind(mind.id, "docx");
+  return { ...set, mind, out, path: saved().path };
+}
+
 describe("Undo of Change in someone else's Word file", () => {
   test.skipIf(process.platform === "win32")(
     "an Undo refused while the folder is locked keeps the file, the Note's choice and the Saved line, and Try again takes back that Change, then the one before",
     async () => {
-      const set = await setUpWordVerify();
-      bridge.core = set.core;
-      const { mind } = await verifyWordFile(set.core, set.report);
-      await set.core.findClaims(request(mind.id));
-      await set.core.verifyClaims(request(mind.id));
-      const out = join(set.sources, "Exports");
-      await mkdir(out);
-      await set.core.setOutputLocation(out);
-      await exportMind(mind.id, "docx");
-
-      const saved = () => {
-        const { result } = useExports.getState();
-        if (result?.state !== "saved") throw new Error(`Nothing is saved: ${result?.state}.`);
-        return result;
-      };
-      const { path } = saved();
+      const set = await exportedFromWindow();
+      const { mind, out, path } = set;
       const now = async () => ({
         bytes: await readFile(path),
         choice: (await set.core.previewMindExport(mind.id, WORD)).othersComments,
@@ -133,4 +142,28 @@ describe("Undo of Change in someone else's Word file", () => {
       await set.core.close();
     },
   );
+
+  test("Undo of a copy the User deleted says why in English and Chinese, and leaves the stack", async () => {
+    const set = await exportedFromWindow();
+    const edited = Buffer.from("edited in Word");
+    await writeFile(set.path, edited);
+    await answerCheckComments(set.mind.id, true);
+    const copy = saved();
+    expect(copy).toMatchObject({
+      name: "Harbour report 2.docx",
+      changedFile: "Harbour report.docx",
+    });
+    await rm(copy.path);
+
+    await useUndo.getState().undo();
+    const problem = useUndo.getState().line?.problem;
+    expect(problem?.reason(t)).toBe("The copy was deleted, so there’s nothing to put back.");
+    expect(problem?.reason(zh)).toBe("副本已被删除，没有可恢复的内容。");
+    expect(problem?.fix).toBeNull();
+    expect(useUndo.getState().done).toHaveLength(0);
+    expect(await readdir(set.out)).toEqual(["Harbour report.docx"]);
+    expect(Buffer.compare(await readFile(set.path), edited)).toBe(0);
+    expect(bridge.reported).toEqual([]);
+    await set.core.close();
+  });
 });
