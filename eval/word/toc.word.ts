@@ -4,10 +4,10 @@
  * eval:word`), which installs LibreOffice.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pdfText } from "../../e2e/pdfText";
 import { createTempDataFolder, startCore } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
@@ -15,6 +15,38 @@ import { convertFile, findLibreOffice } from "./libreoffice";
 
 const soffice = findLibreOffice();
 const required = process.env.INCARNAMIND_WORD_REQUIRE_LIBREOFFICE === "1";
+const require = createRequire(import.meta.url);
+
+/** What the PDF says, in drawing order, read with pdf.js as the app reads PDFs. */
+async function pdfText(bytes: Uint8Array): Promise<string> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const packageDir = dirname(require.resolve("pdfjs-dist/package.json"));
+  const task = getDocument({
+    data: new Uint8Array(bytes),
+    cMapUrl: `${join(packageDir, "cmaps")}/`,
+    standardFontDataUrl: `${join(packageDir, "standard_fonts")}/`,
+    cMapPacked: true,
+    disableFontFace: true,
+    useSystemFonts: false,
+    verbosity: 0,
+  });
+  let text = "";
+  try {
+    const pdf = await task.promise;
+    for (let number = 1; number <= pdf.numPages; number++) {
+      const page = await pdf.getPage(number);
+      for (const item of (await page.getTextContent()).items) {
+        if (!("str" in item)) continue;
+        text += item.str;
+        if (item.hasEOL) text += "\n";
+      }
+      page.cleanup();
+    }
+  } finally {
+    await task.destroy();
+  }
+  return text;
+}
 
 describe("a Word export's table of contents", () => {
   it("opens in LibreOffice with its entries shown", async () => {
@@ -43,7 +75,7 @@ describe("a Word export's table of contents", () => {
       const converted = await convertFile(soffice, path, "pdf", ".pdf");
       expect(converted.opened, converted.problem).toBe(true);
       if (!converted.data) throw new Error("LibreOffice wrote no PDF.");
-      const text = (await pdfText(new Uint8Array(converted.data))).join("\n");
+      const text = await pdfText(new Uint8Array(converted.data));
       expect(text).toContain("Contents");
       expect(text).toContain("Spring tides");
       expect(text).toContain("Neap tides");
