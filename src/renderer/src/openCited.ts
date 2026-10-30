@@ -52,6 +52,8 @@ export function openCited(
     stay?: boolean;
     /** Where to open it, when that isn't where the Citation points: its quote moved in the new version. */
     place?: { pageFrom: number | null; pageTo: number | null };
+    /** The Document as it is now, not the version the Citation quotes: the tab says the Document changed. */
+    currentVersion?: boolean;
   },
 ): void {
   const composer = useComposer.getState();
@@ -69,6 +71,7 @@ export function openCited(
       pageFrom: (how.place ? how.place.pageFrom : citation.pageFrom) ?? undefined,
       pageTo: (how.place ? how.place.pageTo : citation.pageTo) ?? undefined,
       quote: how.withQuote && citation.quote ? citation.quote : undefined,
+      ...(how.currentVersion && { currentVersion: true as const }),
       ...(citation.location?.kind === "section" && citation.location.figure
         ? { figure: citation.location.figure }
         : {}),
@@ -93,41 +96,73 @@ export function openCited(
 }
 
 /**
- * As `openCited`, but where its Document changed after the Citation was made and the quote now
- * stands at another place in the new version, it opens there, with that place's label (#99). The
- * Citation's own card does the same.
+ * Where the Citation's quote stands in its Document's current version, when it
+ * moved: that place, its Location and its label. Null when it is where it was,
+ * can't be looked for, or is kept inside a wall the Citation is outside.
  */
-export async function openCitedFollowing(
+async function movedPlace(
   citation: Parameters<typeof openCited>[0],
-  how: Parameters<typeof openCited>[1],
-): Promise<void> {
-  const app = useAppStore.getState();
-  const cited = citationState(
-    citation,
-    app.status.kind === "ready" ? app.documents : null,
-    app.keptCitationTexts,
-  );
+  mindId: string | null,
+): Promise<{
+  place: { pageFrom: number | null; pageTo: number | null };
+  location: Parameters<typeof openCited>[0]["location"] | null;
+  label: string | null;
+} | null> {
   const quote = citation.quote ?? "";
-  if (!cited.changedAfterCited || quote === "") return openCited(citation, how);
+  if (!citation.contentHash || quote === "") return null;
   const recheck = await core
     .recheckCitation({
+      mindId,
       documentId: citation.documentId,
       quote,
       pageFrom: citation.pageFrom,
       pageTo: citation.pageTo,
-      contentHash: citation.contentHash ?? null,
+      contentHash: citation.contentHash,
     })
     .catch((failure: unknown) => {
       console.error("A moved quote couldn't be looked for in its Document's new version.", failure);
       return null;
     });
-  if (recheck === null || quoteStanding(citation, recheck) !== "moved") {
-    return openCited(citation, how);
+  if (recheck === null || "keptInside" in recheck || quoteStanding(citation, recheck) !== "moved") {
+    return null;
   }
   const location = recheck.location ?? citationLocation(citation);
-  openCited(citation, {
-    ...how,
+  return {
     place: { pageFrom: recheck.pageFrom, pageTo: recheck.pageTo },
-    label: location ? formatLocation(location, translateNow) : how.label,
+    location,
+    label: location ? formatLocation(location, translateNow) : null,
+  };
+}
+
+/**
+ * Opens the Document's current version at the Citation's place (#2159): the
+ * one action out of the view of the version it was made from. Where the quote
+ * moved in the current version, at its new place. The tab keeps the Citation's
+ * version, marked as showing the current one, so the viewer still says the
+ * Document changed after it was cited, as it does anywhere else.
+ */
+export async function openCurrentVersion(
+  citation: Parameters<typeof openCited>[0],
+  how: Parameters<typeof openCited>[1],
+): Promise<void> {
+  const app = useAppStore.getState();
+  // The opener's object needn't carry the check, which `citationState` reads.
+  const cited = citationState(
+    { ...citation, check: how.check },
+    app.status.kind === "ready" ? app.documents : null,
+    app.keptCitationTexts,
+  );
+  // The Document's own viewer is browsing, which a Folder wall leaves open.
+  const moved = cited.changedAfterCited ? await movedPlace(citation, null) : null;
+  const current = {
+    ...citation,
+    ...(moved?.location && { location: moved.location }),
+  };
+  if (moved === null) return openCited(current, { ...how, currentVersion: true });
+  openCited(current, {
+    ...how,
+    currentVersion: true,
+    place: moved.place,
+    label: moved.label ?? how.label,
   });
 }

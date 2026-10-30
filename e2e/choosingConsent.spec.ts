@@ -144,7 +144,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
     "Sends each new Document’s name and first passages, and your Folder and Tag names, to OpenAI.",
   );
-  await automatic.check();
+  await automatic.click();
+  await expect(automatic).toBeChecked();
   await closeSettings(window);
 
   // A Document added since is tagged without asking.

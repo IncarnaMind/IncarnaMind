@@ -6,10 +6,13 @@ import {
   type CommandItem,
   RECENTLY_DELETED_DAYS,
 } from "../../../core/api";
+import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { useApprovals } from "../approvals";
+import { readTextLine } from "../commandFacts";
+import { commands, labelOf } from "../commands/registry";
 import { FORMAT_LABELS } from "../exports";
-import { useT } from "../i18n";
+import { useGap, useT } from "../i18n";
 import { folderName } from "../linkedFolders";
 import type { Translate } from "../objects";
 import { withShortcut } from "./withShortcut";
@@ -17,7 +20,7 @@ import { withShortcut } from "./withShortcut";
 type Change = Extract<CommandAsk, { kind: "change" }>;
 
 /** A change's question, for several things, then for one. */
-const CHANGE: Readonly<Record<Change["command"], [MessageKey, MessageKey]>> = {
+const CHANGE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "document.rename": [
     "commands.ask.change.document.rename",
     "commands.ask.change.document.rename.one",
@@ -34,7 +37,14 @@ const CHANGE: Readonly<Record<Change["command"], [MessageKey, MessageKey]>> = {
     "commands.ask.change.document.delete.one",
   ],
   "mind.delete": ["commands.ask.change.mind.delete", "commands.ask.change.mind.delete.one"],
+  "folder.delete": ["commands.ask.change.folder.delete", "commands.ask.change.folder.delete.one"],
+  "tag.delete": ["commands.ask.change.tag.delete", "commands.ask.change.tag.delete.one"],
 };
+
+function labelIn(t: Translate, id: CommandId): string {
+  const command = commands.get(id);
+  return command ? labelOf(command, { selection: [], focus: null, surface: "palette" }, t) : id;
+}
 
 function whyOf(t: Translate, ask: Change): string {
   if (ask.reason === "delete") {
@@ -84,8 +94,32 @@ function wordsOf(
         path: ask.folder,
         names: ask.files,
       };
+    case "final":
+      return {
+        title: t("commands.ask.final.title", { command: labelIn(t, ask.command) }),
+        why: t("commands.ask.final.text"),
+        path: null,
+        names: ask.items.map((item) => itemLine(t, item)),
+      };
+    case "listen":
+      return {
+        title: t("commands.ask.final.title", { command: labelIn(t, ask.command) }),
+        why: t("commands.ask.listen.text"),
+        path: null,
+        names: [],
+      };
+    case "output":
+      return {
+        title: t("commands.ask.output.title", { folder: folderName(ask.folder) }),
+        why: t("commands.ask.output.text"),
+        path: ask.folder,
+        names: [],
+      };
     case "change": {
-      const [many, one] = CHANGE[ask.command];
+      const [many, one] = CHANGE[ask.command] ?? [
+        "commands.ask.change.other",
+        "commands.ask.change.other.one",
+      ];
       const into = ask.into ?? "";
       const [first] = ask.items;
       const more = ask.count - ask.items.length;
@@ -95,6 +129,7 @@ function wordsOf(
           name: first?.name ?? "",
           folder: into,
           tag: into,
+          command: labelIn(t, ask.command),
         }),
         why: whyOf(t, ask),
         path: null,
@@ -127,6 +162,7 @@ export function CommandApprovalCard({
   keys?: string;
 }) {
   const t = useT();
+  const gap = useGap();
   const respond = useApprovals((state) => state.respond);
   const titleId = useId();
   const { ask } = request;
@@ -134,6 +170,7 @@ export function CommandApprovalCard({
   const deletes = ask.kind === "change" && ask.reason === "delete";
   const allow = t(deletes ? "commands.ask.delete" : "commands.ask.allow");
   const read = request.tainted || (request.thirdParty?.length ?? 0) > 0;
+  const readLine = request.readText ? readTextLine(t, request.readText, gap) : null;
   return (
     <div
       contentEditable={false}
@@ -151,8 +188,13 @@ export function CommandApprovalCard({
           <span aria-hidden="true" className="approval-dot" />
           <span className="approval-title-text">{title}</span>
         </p>
+        {readLine && (
+          <p data-testid="approval-read-text" className="approval-read-text">
+            {readLine}
+          </p>
+        )}
         <p className="approval-explanation">{why}</p>
-        {read && (
+        {read && !readLine && (
           <p data-testid="approval-read" className="approval-explanation">
             {t("commands.ask.read")}
           </p>

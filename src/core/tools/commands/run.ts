@@ -1,13 +1,13 @@
 /**
- * What each command the assistant may run does (#1110): checked first, with what it would do
- * outside IncarnaMind worked out from the arguments (`CheckedCommand.ask`), then run. Each run
- * says what it changed and how to take it back, from what the core returned. A command that
- * changes several things changes all of them or none.
+ * What the core's commands do (#1110): each checked first, with what it would do outside
+ * IncarnaMind worked out from the arguments (`CheckedCommand.outside`), then run. Each run says
+ * what it changed and how to take it back, from what the core returned. A command that changes
+ * several things changes all of them or none. Which command runs where is ./catalogue's.
  */
 import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { ASSISTANT_COMMANDS, type AssistantCommandId } from "../../../shared/commands";
+import type { CommandId, CommandRecording, CommandTarget, Yours } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { tagLinks } from "../../../shared/tagLinks";
@@ -20,15 +20,21 @@ import type {
   Effect,
   ExportMarking,
   FolderMove,
+  LibraryGroup,
   MarkAiTextChoice,
   Mind,
   SavedFile,
   UserAnswer,
   UserQuestion,
+  WindowCommandEnd,
+  WindowCommandRequest,
+  WindowCommandResult,
 } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, NotFoundError } from "../../errors";
+import type { Language } from "../../language";
+import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
 
 /** The core's calls the commands make: the same the window's own clicks make. */
@@ -46,6 +52,7 @@ export type CommandsCore = Pick<
   | "createLibraryGroup"
   | "deleteLibraryGroup"
   | "restore"
+  | "deleteAgain"
   | "createTag"
   | "deleteTag"
   | "addTagToDocuments"
@@ -56,19 +63,49 @@ export type CommandsCore = Pick<
   | "listConversations"
   | "addDocuments"
   | "previewMindExport"
+  | "updateLibraryGroup"
+  | "updateTag"
+  | "classifyDocuments"
+  | "getMindCitationStyle"
+  | "setMindCitationStyle"
+  | "listCitationStyles"
+  | "getMindStyle"
+  | "setMindStyle"
+  | "getSettings"
+  | "updateSettings"
+  | "getOutputSettings"
+  | "setOutputLocation"
+  | "listChatModels"
+  | "listDeleted"
+  | "deleteConversation"
 >;
 
 export const COMMAND_EXPORT_FORMATS = ["docx", "pdf", "markdown", "html"] as const;
 export type CommandExportFormat = (typeof COMMAND_EXPORT_FORMATS)[number];
 
-/** What a command may ask the User, in the tray, while it runs; null when the Answer has no tray. */
-export type CommandAsking = ((question: UserQuestion) => Promise<UserAnswer>) | null;
+/**
+ * What a command may ask the User, in the tray, while it runs, in the Answer's language; null when
+ * the Answer has no tray.
+ */
+export type CommandAsking =
+  | ((question: (language: Language) => UserQuestion) => Promise<UserAnswer>)
+  | null;
 
 /** How a Word file's choice about marking the text IncarnaMind wrote was settled for an export. */
 export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
+  /**
+   * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
+   * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
+   */
+  allows?(
+    input: CommandInput,
+    touches: readonly CommandTouch[],
+    mindId: string | null,
+    wallId?: string | null,
+  ): void | Promise<void>;
   /** The Output location, links followed; null while none is chosen. */
   outputFolder(): Promise<string | null>;
   /**
@@ -85,11 +122,21 @@ export interface CommandsHost {
     approved: boolean,
     marking: { named: MarkAiTextChoice | null },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
+  /**
+   * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it: how it
+   * ended, or that it started and goes on, its end then coming to `ended`. Absent where there is
+   * no window, so only the core's own commands run.
+   */
+  window?(
+    request: Omit<WindowCommandRequest, "requestId">,
+    signal: AbortSignal,
+    ended: (result: WindowCommandEnd) => void,
+  ): Promise<WindowCommandResult>;
 }
 
 /** A call's arguments, as the model gives them, every one checked. */
 export interface CommandInput {
-  command: AssistantCommandId;
+  command: string;
   ids: string[];
   name: string | null;
   folder: string | null;
@@ -98,6 +145,13 @@ export interface CommandInput {
   /** A Word export's choice about marking the text IncarnaMind wrote, when the User's request names it. */
   marks: MarkAiTextChoice | null;
   kinds: string[];
+  /** What belongs in a Folder, in the User's words: what Organize reads of it (#1421). */
+  about: string | null;
+  style: string | null;
+  font: string | null;
+  size: string | null;
+  setting: string | null;
+  value: string | null;
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -113,37 +167,38 @@ export interface Ran {
  * Whether it asks first is the gate's to decide (`askOf`).
  */
 export interface CheckedCommand {
-  command: AssistantCommandId;
+  command: CommandId;
   effects: Effect[];
-  /** The Documents or Minds it changes, as named now. */
+  /** What it acts on, as named now. */
   items: CommandItem[];
   /** The Folder or Tag it puts them in, by name. */
   into: string | null;
   outside: CommandAsk | null;
-  run(asking: CommandAsking): Promise<Ran>;
+  /** It changes `items` inside IncarnaMind: they count towards the Answer's limit (`COMMAND_AT_ONCE`). */
+  changes: boolean;
+  /** It sends `items` to Recently deleted. */
+  deletes: boolean;
+  /** It can't be taken back. */
+  final: boolean;
+  /** What it does to a recording, as `OfferedCommand.recording` says; null: nothing. */
+  recording: CommandRecording | null;
+  /** Never the assistant's (#1421): it runs nothing, and the User is told where they change it. */
+  yours: Yours | null;
+  run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
 }
 
-const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
+export const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
 
-const isCommand = (value: unknown): value is AssistantCommandId =>
-  typeof value === "string" && Object.hasOwn(ASSISTANT_COMMANDS, value);
-
-const text = (value: unknown): string | null =>
+export const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 
 const texts = (value: unknown): string[] =>
   Array.isArray(value) ? value.flatMap((each) => text(each) ?? []) : [];
 
+/** A call's arguments; which command it names is checked where it runs (./catalogue). */
 export function parseCommandInput(input: Record<string, unknown>): CommandInput {
-  const { command } = input;
-  if (!isCommand(command)) {
-    throw new InvalidInputError({
-      key: "error.commands.unknown",
-      values: { command: String(command) },
-    });
-  }
   return {
-    command,
+    command: typeof input.command === "string" ? input.command.trim() : "",
     ids: texts(input.ids),
     name: text(input.name),
     folder: text(input.folder),
@@ -151,29 +206,16 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
     format: COMMAND_EXPORT_FORMATS.find((each) => each === input.format) ?? "docx",
     marks: input.marks === "mark" || input.marks === "leave" ? input.marks : null,
     kinds: texts(input.kinds).map((kind) => kind.replace(/^\./, "").toLowerCase()),
+    about: text(input.about),
+    style: text(input.style),
+    font: text(input.font),
+    size: text(input.size),
+    setting: text(input.setting),
+    value: text(input.value),
   };
 }
 
-/**
- * What a call can do, from its command's own metadata: a change inside IncarnaMind, a file
- * saved in the Output location or in the folder named, or a folder read and its files added.
- */
-export function commandEffects(input: Record<string, unknown>): Effect[] {
-  if (!isCommand(input.command)) return [{ action: "write", scope: { kind: "anywhere" } }];
-  const folder = text(input.folder);
-  switch (ASSISTANT_COMMANDS[input.command].does) {
-    case "app":
-      return IN_APP;
-    case "export":
-      return [
-        { action: "write", scope: folder ? { kind: "folder", path: folder } : { kind: "output" } },
-      ];
-    case "add":
-      return [{ action: "read", scope: { kind: "folder", path: folder ?? "" } }, ...IN_APP];
-  }
-}
-
-const plural = (count: number, one: string, many = `${one}s`) =>
+export const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
 const markingSaid = (marking: MarkingSettled | null): string => {
@@ -192,21 +234,24 @@ const markingSaid = (marking: MarkingSettled | null): string => {
   }
 };
 
-const same = (a: string, b: string) =>
+export const same = (a: string, b: string) =>
   a.normalize("NFKC").trim().toLowerCase() === b.normalize("NFKC").trim().toLowerCase();
 
 type Missing =
   | "error.commands.noName"
   | "error.commands.noFolderName"
   | "error.commands.noTag"
-  | "error.commands.noFolderPath";
+  | "error.commands.noFolderPath"
+  | "error.commands.noStyle"
+  | "error.commands.noSetting"
+  | "error.commands.noValue";
 
-function needs<T>(value: T | null, missing: Missing): T {
+export function needs<T>(value: T | null, missing: Missing): T {
   if (value === null) throw new InvalidInputError({ key: missing });
   return value;
 }
 
-async function documentsOf(core: CommandsCore, ids: readonly string[]): Promise<Document[]> {
+export async function documentsOf(core: CommandsCore, ids: readonly string[]): Promise<Document[]> {
   if (ids.length === 0) throw new InvalidInputError({ key: "error.commands.noIds" });
   const all = await core.listDocuments();
   return [...new Set(ids)].map((id) => {
@@ -216,7 +261,7 @@ async function documentsOf(core: CommandsCore, ids: readonly string[]): Promise<
   });
 }
 
-async function mindsOf(core: CommandsCore, ids: readonly string[]): Promise<Mind[]> {
+export async function mindsOf(core: CommandsCore, ids: readonly string[]): Promise<Mind[]> {
   if (ids.length === 0) throw new InvalidInputError({ key: "error.commands.noIds" });
   const all = await core.listMinds();
   return [...new Set(ids)].map((id) => {
@@ -226,13 +271,13 @@ async function mindsOf(core: CommandsCore, ids: readonly string[]): Promise<Mind
   });
 }
 
-function onlyOne<T>(items: readonly T[]): T {
+export function onlyOne<T>(items: readonly T[]): T {
   const [item] = items;
   if (!item || items.length > 1) throw new InvalidInputError({ key: "error.commands.oneOnly" });
   return item;
 }
 
-async function folderOnDisk(given: string): Promise<string> {
+export async function folderOnDisk(given: string): Promise<string> {
   const path = given === "~" ? homedir() : given.replace(/^~(?=[\\/])/, homedir());
   if (!isAbsolute(path)) {
     throw new InvalidInputError({ key: "error.commands.notAbsolute", values: { folder: given } });
@@ -264,31 +309,76 @@ async function filesIn(folder: string, kinds: readonly string[]): Promise<string
   return names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
-const documentItem = (document: Document, renamed?: Document): CommandItem => ({
+export const documentItem = (document: Document, renamed?: Document): CommandItem => ({
   kind: "document",
   id: document.id,
   name: displayName(document),
   ...(renamed && { renamed: displayName(renamed) }),
 });
 
-const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
+export const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
   kind: "mind",
   id: mind.id,
   name: mindName(mind),
   ...(renamed && { renamed: mindName(renamed) }),
 });
 
-type Checker = (input: CommandInput, host: CommandsHost) => Promise<CheckedCommand>;
+/**
+ * Where what a command adds is filed, by the Folder wall the Answer was asked behind (#1934);
+ * null: it can't be filed, so nothing is added.
+ */
+export type CommandFiling = (asked: string | null) => { folderId: string | null } | null;
 
-const inApp = (
-  command: AssistantCommandId,
+/**
+ * What a command declares it touches, which the Folder wall holds it to (#1934): a kind of thing it
+ * names by id, the Library it adds to, the app's settings, or the window in front.
+ */
+export type CommandTouch = CommandTarget | "library" | "settings" | "front";
+
+/** What a check knows of where the Answer was asked. */
+export interface CommandPlace {
+  filing: CommandFiling;
+  /** The Documents, Notes, Folders, Tags and deleted things on the turn's side of the wall. */
+  findable(): Promise<Findable>;
+}
+
+export type Checker = (
+  input: CommandInput,
+  host: CommandsHost,
+  place: CommandPlace,
+) => Promise<CheckedCommand>;
+
+/** What a command that reaches outside the Library changes in it: nothing its limit counts. */
+const OUTSIDE_IT = {
+  changes: false,
+  deletes: false,
+  final: false,
+  recording: null,
+  yours: null,
+} as const;
+
+/** A change inside IncarnaMind that Undo takes back: it asks only past the Answer's limit. */
+export const inApp = (
+  command: CommandId,
   items: CommandItem[],
   into: string | null,
-  run: () => Promise<Ran>,
-): CheckedCommand => ({ command, effects: IN_APP, items, into, outside: null, run });
+  run: (asking: CommandAsking) => Promise<Ran>,
+): CheckedCommand => ({
+  command,
+  effects: IN_APP,
+  items,
+  into,
+  outside: null,
+  changes: true,
+  deletes: false,
+  final: false,
+  recording: null,
+  yours: null,
+  run,
+});
 
 /** Whether a Folder holds anything: Documents filed in it, Minds or conversations. */
-async function holdsAny(core: CommandsCore, folderId: string): Promise<boolean> {
+export async function holdsAny(core: CommandsCore, folderId: string): Promise<boolean> {
   const [library, minds, conversations] = await Promise.all([
     core.getLibrary(),
     core.listMinds(),
@@ -305,16 +395,24 @@ async function holdsAny(core: CommandsCore, folderId: string): Promise<boolean> 
  * Removes for good a Folder or Tag a command made just now for a change that then failed: the
  * User never saw it, so it doesn't wait in Recently deleted.
  */
-async function unmake(core: CommandsCore, kind: "folder" | "tag", id: string): Promise<void> {
+export async function unmake(
+  core: CommandsCore,
+  kind: "folder" | "tag",
+  id: string,
+): Promise<void> {
   if (kind === "folder") await core.deleteLibraryGroup(id);
   else await core.deleteTag(id);
   await core.deletePermanently([{ kind, id }]);
 }
 
-async function folderNamed(core: CommandsCore, name: string) {
+export async function folderNamed(
+  core: CommandsCore,
+  name: string,
+  description = "",
+): Promise<{ folder: LibraryGroup; made: boolean }> {
   const existing = (await core.getLibrary()).groups.find((group) => same(group.name, name));
   if (existing) return { folder: existing, made: false };
-  return { folder: await core.createLibraryGroup({ name, description: "" }), made: true };
+  return { folder: await core.createLibraryGroup({ name, description }), made: true };
 }
 
 async function moveBack(core: CommandsCore, move: FolderMove): Promise<void> {
@@ -330,8 +428,7 @@ async function moveBack(core: CommandsCore, move: FolderMove): Promise<void> {
   for (const [folderId, mindIds] of back) await core.moveToFolder({ mindIds, folderId });
 }
 
-function moveTo(command: "document.moveTo" | "mind.moveTo"): Checker {
-  const kind = ASSISTANT_COMMANDS[command].on;
+function moveTo(command: "document.moveTo" | "mind.moveTo", kind: CommandTarget): Checker {
   return async (input, { core }) => {
     const name = needs(input.folder, "error.commands.noFolderName");
     const asked = kind === "document" ? await documentsOf(core, input.ids) : [];
@@ -417,7 +514,8 @@ async function deleteAll(
   }
 }
 
-const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
+/** The commands of #1110, which change the Library's Documents and Minds, export and add files. */
+export const LIBRARY_CHECKERS = {
   "document.rename": async (input, { core }) => {
     const document = onlyOne(await documentsOf(core, input.ids));
     const name = needs(input.name, "error.commands.noName");
@@ -460,8 +558,8 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
     });
   },
 
-  "document.moveTo": moveTo("document.moveTo"),
-  "mind.moveTo": moveTo("mind.moveTo"),
+  "document.moveTo": moveTo("document.moveTo", "document"),
+  "mind.moveTo": moveTo("mind.moveTo", "mind"),
 
   "document.tags": async (input, { core }) => {
     const name = needs(input.tag, "error.commands.noTag");
@@ -589,6 +687,7 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         items,
         into: null,
         outside: null,
+        ...OUTSIDE_IT,
         run,
       };
     }
@@ -605,11 +704,14 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
         folder: given,
         fileName,
       },
+      ...OUTSIDE_IT,
       run,
     };
   },
 
-  "documents.addFromFolder": async (input, { core }) => {
+  "documents.addFromFolder": async (input, { core }, { filing }) => {
+    const filed = filing(null);
+    if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
     const folder = await folderOnDisk(needs(input.folder, "error.commands.noFolderPath"));
     const files = await filesIn(folder, input.kinds);
     if (files.length === 0) {
@@ -621,11 +723,19 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
       items: [],
       into: null,
       outside: { kind: "add", folder, files },
+      ...OUTSIDE_IT,
       async run() {
         const known = new Set((await core.listDocuments()).map((each) => each.id));
         const result = await core.addDocuments(files.map((name) => join(folder, name)));
         const added = result.documents.filter((each) => !known.has(each.id));
         const refs = added.map((each) => ({ kind: "document" as const, id: each.id }));
+        if (filed.folderId !== null && added.length > 0) {
+          await core.moveToFolder({
+            documentIds: refs.map((ref) => ref.id),
+            mindIds: [],
+            folderId: filed.folderId,
+          });
+        }
         const already = result.documents.length - added.length;
         return {
           done: { items: added.map((each) => documentItem(each)) },
@@ -644,8 +754,4 @@ const CHECKERS: Readonly<Record<AssistantCommandId, Checker>> = {
       },
     };
   },
-};
-
-/** Checks a call: what it would do, and whether it asks first. Throws for one that can't run. */
-export const checkCommand = (input: CommandInput, host: CommandsHost): Promise<CheckedCommand> =>
-  CHECKERS[input.command](input, host);
+} satisfies Record<CommandId, Checker>;

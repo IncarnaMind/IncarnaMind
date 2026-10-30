@@ -111,7 +111,7 @@ export async function openFigureSchedule(mindId: string, focus = true): Promise<
  * Whether the note's one Check, just started, waits for the User's yes (`true`) or
  * runs or ends without one (`false`).
  */
-function checkAsks(mindId: string, started: Promise<void>): Promise<boolean> {
+function checkAsks(mindId: string, started: Promise<unknown>): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
     const done = (asks: boolean) => {

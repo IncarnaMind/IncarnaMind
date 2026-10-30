@@ -561,7 +561,9 @@ describe("an Analysis an Answer runs", () => {
       const input = answer.analyses[0]?.inputs[0];
       if (input?.kind !== "range") throw new Error("No range input.");
 
-      expect(await core.recheckCitation(input.citation)).toMatchObject({ check: "found" });
+      expect(await core.recheckCitation({ ...input.citation, mindId: null })).toMatchObject({
+        check: "found",
+      });
     },
   );
 

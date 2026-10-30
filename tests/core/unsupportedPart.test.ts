@@ -375,15 +375,37 @@ describe("What a judgement of a sentence beside its quote says", () => {
     expect(readJudgement("It depends.")).toBeNull();
   });
 
-  test("a supported reply's explanation is still its line", () => {
-    expect(readVerdict("Verdict: supported\nThe Document says so [^1].")).toEqual({
+  test.each([
+    ["English lines", "Verdict: supported\nThe Document says so [^1].", "The Document says so."],
+    ["Chinese lines", "Verdict: supported\n文档这样写 [^1]。", "文档这样写。"],
+    [
+      "English JSON",
+      '{"verdict":"supported","says":"The Document says so [^1]."}',
+      "The Document says so.",
+    ],
+    ["Chinese JSON", '{"verdict":"supported","says":"文档这样写 [^1]。"}', "文档这样写。"],
+  ])("a supported %s reply preserves its explanation", (_name, reply, says) => {
+    expect(readVerdict(reply)).toEqual({
       verdict: "supported",
-      says: "The Document says so.",
+      says,
       covered: null,
       uncovered: null,
       scope: null,
       topic: null,
       roles: null,
+    });
+  });
+
+  test("a display marker preserves the following metadata line and bare evidence array", () => {
+    expect(
+      readVerdict(
+        "Verdict: supported\nCalculation: none\n[^1]Evidence: [1,2]\nThe Document says so [=1].",
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      says: "The Document says so.",
+      calculations: [],
+      evidence: [1, 2],
     });
   });
 });

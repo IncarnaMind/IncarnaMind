@@ -10,6 +10,8 @@ export interface LibraryGroup {
    * the User switched their exclusion off here. False by default.
    */
   countsOwnFiles: boolean;
+  /** Only this Folder's Documents and Notes may be read or cited from it. False by default. */
+  keepInside: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +103,18 @@ export interface TaggingModels {
   /** The choice the User saved, with where it sends its requests; null while Automatic is the setting. */
   saved: { classifier: TaggingClassifier; destination: TaggingDestination } | null;
 }
+
+export type TaggingFlow = "tagging" | "classification" | "scan-images";
+
+/**
+ * Where the flow's model sends now: a service, a model
+ * on this computer, or none it can tag with. The flows say whether the User
+ * allowed it.
+ */
+export type TaggingRoute =
+  | { where: "none" }
+  | { where: "local" }
+  | { where: "cloud"; service: ExternalService };
 
 export interface ClassificationModel {
   id: string;
@@ -227,4 +241,6 @@ export interface LibraryGroupInput {
   description: string;
   /** See `LibraryGroup.countsOwnFiles`. Left out, it stays as it was (false for a new Folder). */
   countsOwnFiles?: boolean;
+  /** See `LibraryGroup.keepInside`. Left out, it stays as it was (false for a new Folder). */
+  keepInside?: boolean;
 }

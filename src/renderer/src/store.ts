@@ -687,12 +687,20 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove;
+    outOfWall?: boolean;
   }): Undoable => {
-    const { moving, folderId, folderName, named, names } = made;
+    const { moving, folderId, folderName, named, names, outOfWall = false } = made;
     let { done } = made;
     return {
-      said: (t) =>
-        moveMessage(t, moving, folderId === null ? t("library.unsorted") : folderName, named),
+      said: (t) => {
+        const message = moveMessage(
+          t,
+          moving,
+          folderId === null ? t("library.unsorted") : folderName,
+          named,
+        );
+        return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+      },
       name: (t) => moveName(t, moving, named),
       undo: () => putBack(done, names),
       redo: async () => {
@@ -708,13 +716,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove | null;
+    outOfWall?: boolean;
   }) => {
-    const { folderId, going, named, names } = made;
+    const { folderId, going, named, names, outOfWall = false } = made;
     let { done } = made;
     return (folderName: string): Undoable => {
       let kept = false;
       return {
-        said: (t) => madeMessage(t, folderName, going, named),
+        said: (t) => {
+          const message = madeMessage(t, folderName, going, named);
+          return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+        },
         name: (t) => t("undo.name.newFolder"),
         undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
         undo: async () => {
@@ -1147,6 +1159,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(moving, { minds, documents }),
           names: namesOfFolders(library, [folderId, ...foldersMovedFrom(done)]),
           done,
+          outOfWall: foldersMovedFrom(done).some(
+            (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+          ),
         });
         push(change);
       });
@@ -1175,6 +1190,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(going ?? {}, { minds, documents }),
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
+          outOfWall: done
+            ? foldersMovedFrom(done).some(
+                (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+              )
+            : false,
         });
         const step = stepNamed(name);
         justMade = { id: folder.id, step, stepNamed };
@@ -1219,13 +1239,25 @@ export const useAppStore = create<AppState>()((set, get) => {
         name: group.name,
         description: group.description,
         countsOwnFiles: group.countsOwnFiles,
+        keepInside: group.keepInside,
       });
       const before = fields(folder);
       const after = fields(edited);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
       const rename = before.name !== after.name;
+      const wallChanged = before.keepInside !== after.keepInside;
       push({
-        said: (t) => t(rename ? "object.renamed" : "undo.folderEdited", { name: after.name }),
+        said: (t) =>
+          t(
+            wallChanged
+              ? after.keepInside
+                ? "undo.folderWallOn"
+                : "undo.folderWallOff"
+              : rename
+                ? "object.renamed"
+                : "undo.folderEdited",
+            { name: after.name },
+          ),
         name: (t) => t(rename ? "undo.name.rename" : "undo.name.editFolder"),
         undo: folderFields(folderId, before),
         redo: folderFields(folderId, after),

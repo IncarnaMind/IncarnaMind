@@ -18,13 +18,16 @@ import {
   checkingModel,
   checkReply,
   isCheckRun,
+  listedSentences,
   type Plan,
+  requestedFigures,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -133,6 +136,7 @@ describe("Verify a document", () => {
       documentName: "Harbour report",
       pages: Object.fromEntries(ids.map((id, index) => [id, index < 4 ? 1 : 2])),
       claims: null,
+      comments: false,
     });
     // Someone else wrote it: a Run that reads it is third-party (#78).
     expect(ids.map((id) => textOriginOf(client.doc, id))).toEqual(
@@ -173,11 +177,18 @@ describe("Verify a document", () => {
         const reply = checkGenerate(PLANS)(call);
         if (!call.system.startsWith("You sort the sentences") || !("text" in reply)) return reply;
         sorts.push(call.prompt);
-        const decisions = JSON.parse(reply.text) as Record<string, string>;
-        const listed = call.prompt.split("\n").find((line) => line.endsWith(UNSUPPORTED));
-        const number = listed && /^\[(\d+)\]/.exec(listed)?.[1];
-        if (number) delete decisions[number];
-        return { text: JSON.stringify(decisions) };
+        const decisions = JSON.parse(reply.text) as { sentences: { number: number }[] };
+        const missing = new Set(
+          listedSentences(call.prompt)
+            .filter(({ text }) => text === UNSUPPORTED)
+            .map(({ number }) => number),
+        );
+        return {
+          text: JSON.stringify({
+            ...decisions,
+            sentences: decisions.sentences.filter(({ number }) => !missing.has(number)),
+          }),
+        };
       },
     });
     const { core, report } = await setUp(model);
@@ -241,7 +252,7 @@ describe("Verify a document", () => {
             ],
           };
         }
-        return { text: "Verdict: supported\nThe memo says so [^1]" };
+        return { text: "Verdict: supported\nAbsence: no\nThe memo says so [^1]" };
       },
       {
         generate: checkGenerate({
@@ -423,16 +434,56 @@ describe("Verify a document", () => {
     const FIXED_ASSETS = "固定资产 — 期末余额: 9,470; 期初余额: 8,860";
     const NET_PROFIT = "净利润 — 本年金额: 1,620; 上年金额: 1,215";
     const LEDGER = "Fleet ledger.md";
+    const fixedQuote = "固定资产期末余额 9,470 万元，期初余额 8,860 万元";
+    const profitQuote = "净利润本年金额 1,580 万元，上年金额 1,215 万元";
+    const rowPlan = (
+      claim: string,
+      quote: string,
+      verdict: "supported" | "contradicted",
+      bindings: Record<string, { number: string; verdict: "supported" | "contradicted" }>,
+    ): Plan => {
+      const base: Plan = { verdict, quote };
+      return {
+        ...base,
+        reply(call) {
+          const reply = checkReply(call, { [claim]: base });
+          if ("calls" in reply) return reply;
+          return {
+            text: `Verdict: ${verdict}\nAbsence: no\nFigures: ${JSON.stringify({
+              items: requestedFigures(call).map(({ id, shown, reading }) => {
+                const binding = bindings[shown];
+                if (!binding) throw new Error(`No checked row fixture for ${shown}`);
+                return {
+                  id,
+                  verdict: binding.verdict,
+                  scope: "same",
+                  topic: "found",
+                  roles: "same",
+                  says: null,
+                  reading,
+                  relation: "equals",
+                  source: { citation: 1, number: binding.number },
+                  calculation: null,
+                };
+              }),
+              remainder: null,
+            })}`,
+          };
+        },
+      };
+    };
     const calls: ModelCall[] = [];
     const { core, sources } = await setUp(
       checkingModel(
         {
-          [FIXED_ASSETS]: {
-            verdict: "supported",
-            quote: "固定资产期末余额 9,470 万元",
-            says: "The fleet ledger gives 9,470 at the year's end.",
-          },
-          [NET_PROFIT]: { verdict: "contradicted", quote: "净利润 1,580 万元" },
+          [FIXED_ASSETS]: rowPlan(FIXED_ASSETS, fixedQuote, "supported", {
+            "9,470": { number: "9,470", verdict: "supported" },
+            "8,860": { number: "8,860", verdict: "supported" },
+          }),
+          [NET_PROFIT]: rowPlan(NET_PROFIT, profitQuote, "contradicted", {
+            "1,620": { number: "1,580", verdict: "contradicted" },
+            "1,215": { number: "1,215", verdict: "supported" },
+          }),
         },
         calls,
       ),
@@ -441,7 +492,7 @@ describe("Verify a document", () => {
       await writeSourceFile(
         sources,
         LEDGER,
-        "# 车队台账\n\n2025 年固定资产期末余额 9,470 万元。净利润 1,580 万元。\n",
+        `# 车队台账\n\n2025 年${fixedQuote}。${profitQuote}。\n`,
       ),
     ]);
     const statement = join(sources, "2025年度财务报表.pdf");
@@ -498,6 +549,19 @@ describe("Verify a document", () => {
     ]);
     const asked = calls.filter(isCheckRun).map(sentenceOf);
     expect(new Set(asked)).toEqual(new Set([FIXED_ASSETS, NET_PROFIT]));
+
+    // Asked for in Word, the contradicted row's comment covers the whole row (#110).
+    await core.setCheckComments(mind.id, true);
+    const { data } = await core.exportMind(mind.id, { format: "docx", commentFailedChecks: true });
+    const files = unzip(data);
+    const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+    const id = /<w:comment w:id="(\d+)"/.exec(
+      files.get("word/comments.xml")?.toString("utf8") ?? "",
+    )?.[1];
+    const range = new RegExp(
+      `<w:commentRangeStart w:id="${id}"/>([\\s\\S]*?)<w:commentRangeEnd w:id="${id}"/>`,
+    ).exec(document);
+    expect(textOf(range?.[1] ?? "")).toBe("净利润1,6201,215");
   });
 
   // protects=a table that goes on over the page is one table with its headings, each row with its page, and a section's name and the caption are what a row's claim refers to (#1368); fails_when=the second page's rows lose their headings, carry the first page's, or a table is taken for a caption; no_claim=tables with a running head between them.
@@ -594,7 +658,14 @@ describe("Verify a document", () => {
     const model = scriptedModel(
       () => ({ text: "Verdict: unsupported", pause: { after: 0, until: held } }),
       {
-        generate: () => ({ text: JSON.stringify({ 1: "claim", 2: "claim", 3: "claim", 4: "no" }) }),
+        generate: (call) => ({
+          text: JSON.stringify({
+            sentences: listedSentences(call.prompt).map(({ number, text }) => ({
+              number,
+              parts: number <= 3 ? [{ kind: "fact", text }] : [],
+            })),
+          }),
+        }),
       },
     );
     const { core, report } = await setUp(model);

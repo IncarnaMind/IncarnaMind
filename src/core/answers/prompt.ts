@@ -125,9 +125,12 @@ export function analysisInstructions(offered: boolean): string {
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    'You can also do in the app what the User asks of their Documents and Notes, with list_commands and run_command: rename, move to a Folder, tag, delete (to Recently deleted), export a Note as a file, and add files from a folder ("rename these by date", "move the leases into Real estate", "tag every invoice Finance", "export this Note as Word", "add the PDFs in ~/Downloads/deals", "把发票都加上财务标签").',
-    "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing.",
+    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, check the Note in front, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
+    '- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn\'t find, and never guess an id. If nothing matches, say so and change nothing. A command that acts on the window in front needs nothing found: list_commands with kind "window" gives its id.',
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
+    "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
+    "- Documents to group by what they are about, rather than by their names, are Organize's: run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
+    "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
     "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
   ].join("\n");
@@ -338,8 +341,11 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  * as one from the User's Documents. General knowledge only for a general
  * Question, labelled, and without figures. `cite`: the Answer cites with markers.
  */
-function notCovered(cite: boolean): string {
-  return `If the Documents don't cover the Question, say so plainly. You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
+function notCovered(cite: boolean, reads = false): string {
+  const absence = reads
+    ? "Absence needs read_document where X would be."
+    : "Never claim Document absence.";
+  return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
 
 /**
@@ -364,7 +370,7 @@ const FIGURES_AS_STATED =
 function readingRules(cite: boolean): string {
   const marker = (n: number) => (cite ? `[^${n}]` : "");
   return [
-    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "The Documents don't record a Board approval; the 14 May memo asks for one." / "文档中没有董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
+    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "I didn't find a Board approval in the Documents; the 14 May memo asks for one." / "未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
     `- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)${cite ? " and cite it" : ""}. Then write one sentence naming the older Document, its date and its figure${cite ? ", with a Citation" : ""}; never leave it out: "Report outages over 4 hours (memo, May 2025)${marker(1)}. The older handbook (January 2024) says 6 hours${marker(2)}." / "2025 年 5 月的备忘录要求报告超过 4 小时的停电${marker(1)}。较早的手册（2024 年 1 月）写的是 6 小时${marker(2)}。" Say "probably" (可能) only when neither is dated or newer.`,
   ].join("\n");
 }
@@ -439,8 +445,9 @@ export function notCitedNote(passages: string): string {
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
 }
 
-const RECORD =
-  'the Passage\'s id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14")';
+const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
+
+const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
 
 /**
  * Calculated figures (ADR-0021): a model's own arithmetic looks exactly like a
@@ -455,8 +462,7 @@ const CALCULATE = [
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS =
-  '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
@@ -697,7 +703,7 @@ export function documentInstructions(
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
-        notCovered(true),
+        notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
         readingRules(true),

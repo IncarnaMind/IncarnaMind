@@ -94,8 +94,8 @@ export interface FilesBridge {
    * if the User cancelled.
    */
   pickWordFile(): Promise<string | null>;
-  /** As `pickWordFile`, for a PDF to verify (see `CoreApi.verifyDocument`). */
-  pickPdfFile(): Promise<string | null>;
+  /** As `pickWordFile`, for a PDF or a Word file to verify (see `CoreApi.verifyDocument`). */
+  pickFileToVerify(): Promise<string | null>;
   /**
    * Shows a Linked folder selected in the system's file manager (Finder,
    * Explorer). Rejects for an unknown Linked folder, or one that can't be
@@ -207,7 +207,7 @@ export const FILES_CHANNELS = {
   pickDocumentsOrFolder: "files:pickDocumentsOrFolder",
   pickReferenceFile: "files:pickReferenceFile",
   pickWordFile: "files:pickWordFile",
-  pickPdfFile: "files:pickPdfFile",
+  pickFileToVerify: "files:pickFileToVerify",
   showLinkedFolder: "files:showLinkedFolder",
   runsWithoutSandbox: "files:runsWithoutSandbox",
   logError: "files:logError",

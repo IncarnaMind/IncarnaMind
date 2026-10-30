@@ -257,7 +257,9 @@ export interface AgentAccessDeps {
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
   /** The live Folders. */
-  folders(): { id: string; name: string }[];
+  folders(): { id: string; name: string; keepInside: boolean }[];
+  /** The Folder ids a pairing may read after Folder walls are applied. */
+  foldersInScope(folderIds: readonly string[]): string[];
   /** The ids of the live Documents in these Folders; `NOT_IN_A_FOLDER_ID` stands for those in no Folder now. */
   documentsIn(folderIds: readonly string[]): string[];
   /** The search Answers use, without reranking, over these Documents. */
@@ -459,12 +461,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     if (pairing.folderIds.length === 0) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
-    if (folderIds === undefined) return deps.documentsIn(pairing.folderIds);
+    const effective = deps.foldersInScope(pairing.folderIds);
+    if (folderIds === undefined) return deps.documentsIn(effective);
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
     }
-    if (folderIds.length === 0) return deps.documentsIn(pairing.folderIds);
-    if (!folderIds.every((id) => pairing.folderIds.includes(id))) {
+    if (folderIds.length === 0) return deps.documentsIn(effective);
+    if (!folderIds.every((id) => effective.includes(id))) {
       throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     }
     return deps.documentsIn(folderIds);
@@ -750,9 +753,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
         }
         const minds = deps.minds();
+        const folderIds = deps.foldersInScope(pairing.folderIds);
         const folders: AgentMindList["folders"] = deps
           .folders()
-          .filter((folder) => pairing.folderIds.includes(folder.id))
+          .filter((folder) => folderIds.includes(folder.id))
           .map((folder) => ({
             id: folder.id,
             name: folder.name,
@@ -765,7 +769,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                 updatedAt: mind.updatedAt,
               })),
           }));
-        if (pairing.folderIds.includes(NOT_IN_A_FOLDER_ID)) {
+        if (folderIds.includes(NOT_IN_A_FOLDER_ID)) {
           folders.push({
             id: NOT_IN_A_FOLDER_ID,
             name: t("library.unsorted"),
@@ -789,7 +793,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const id = text(input?.mindId, "mindId", 200);
         const offset = whole(input?.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0);
         const mind = deps.minds().find((each) => each.id === id);
-        if (!mind || mind.folderId === null || !pairing.folderIds.includes(mind.folderId)) {
+        if (
+          !mind ||
+          mind.folderId === null ||
+          !deps.foldersInScope(pairing.folderIds).includes(mind.folderId)
+        ) {
           throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
         }
         const inScope = new Set(scopeOf(pairing, undefined));
