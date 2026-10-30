@@ -8279,8 +8279,8 @@ interface ApprovalRequestBase extends AnswerPlace {
   thirdParty?: ThirdPartyReason[];
   /**
    * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
-   * write, by the kinds the card names, in the order it read them. It never says which of them
-   * asked for the command. Absent: it read none of them.
+   * write, by the kinds the card names, in the card's order. It never says which of them asked
+   * for the command. Absent: it read none of them.
    */
   readText?: ApprovalReadText;
 }

@@ -278,6 +278,41 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(commandCallText(zh, unfinished)).toMatch(/^未完成：“.+”进行时 IncarnaMind 已关闭$/);
   });
 
+  // protects=a Check that stopped, found nothing, was not allowed, or could not run says so as its whole line; fails_when=it reads "Didn't run:" before a sentence; no_claim=the Check.
+  test("a Check that stopped, found nothing, or was not allowed says so plainly", () => {
+    const ended = (wording: { key: string; values: Record<string, string> }) =>
+      ({
+        id: "call",
+        tool: "run_command",
+        source: "commands",
+        input: {},
+        status: "failed",
+        commandProblem: { command: "mind.check", message: "", wording },
+      }) as unknown as Parameters<typeof commandCallText>[1];
+    expect(commandCallText(en, ended({ key: "run.stopped.cancelled", values: {} }))).toBe(
+      "Stopped",
+    );
+    expect(commandCallText(zh, ended({ key: "run.stopped.cancelled", values: {} }))).toBe("已停止");
+    expect(commandCallText(en, ended({ key: "mindCheck.nothingToCheck", values: {} }))).toBe(
+      "Nothing to check",
+    );
+    expect(commandCallText(zh, ended({ key: "mindCheck.nothingToCheck", values: {} }))).toBe(
+      "没有需要核对的内容",
+    );
+    expect(commandCallText(en, ended({ key: "commands.denied", values: {} }))).toBe(
+      "Not allowed, so nothing changed",
+    );
+    expect(commandCallText(zh, ended({ key: "commands.denied", values: {} }))).toBe(
+      "未允许，没有改动",
+    );
+    expect(commandCallText(en, ended({ key: "checks.problem.no-claims", values: {} }))).toBe(
+      "This note has no claims to check.",
+    );
+    expect(commandCallText(zh, ended({ key: "checks.problem.local-mode", values: {} }))).toBe(
+      "未核对：已开启“所有内容都留在这台电脑上”。",
+    );
+  });
+
   // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.
   test("what came back from Recently deleted says so", () => {
     const restored = done({

@@ -372,6 +372,27 @@ describe("Check this note", () => {
     expect(finds).toHaveLength(1);
   });
 
+  // protects=a planning run stopped while a window held its Note frees it; fails_when=the Note stays held until the window goes; no_claim=what the model would name.
+  test("a planning run stopped while a window held its Note frees it", async () => {
+    const { core, mindId } = await setUp();
+    const planned = request(mindId, "all", "planning");
+    expect(
+      await core.holdMindCheck({
+        requestId: planned.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+
+    const planning = core.findMindClaims(planned);
+    await core.cancelCheck(planned.requestId);
+
+    expect(await planning).toEqual({ kind: "cancelled" });
+    expect(await core.holdMindCheck({ requestId: "next", mindId, clientId: "second-window" })).toBe(
+      true,
+    );
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {

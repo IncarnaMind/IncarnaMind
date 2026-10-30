@@ -73,10 +73,16 @@ export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: Messa
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
 const WHOLE_LINES = new Set<MessageKey>([
+  "commands.denied",
   "commands.window.unanswered",
   "commands.window.closed",
   "commands.window.unfinished",
   "commands.window.alreadyChecking",
+  "mindCheck.nothingToCheck",
+  "run.stopped.cancelled",
+  "checks.problem.no-claims",
+  "checks.problem.no-documents.all",
+  "checks.problem.local-mode",
 ]);
 
 type Gap = (before: string, after: string) => string;

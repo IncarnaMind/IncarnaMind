@@ -36,6 +36,7 @@ import {
   withCheckAll,
 } from "./checks";
 import { clientId } from "./clientId";
+import { readinessKey, serviceName } from "./components/providers/shared";
 import { checkContradictionsNow, dismissContradictions, watchSentencesNow } from "./contradictions";
 import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
@@ -300,7 +301,7 @@ export interface Planned {
 async function start(mindId: string, planned: () => Promise<Planned>): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
-  if (useChecks.getState().running[mindId]) return null;
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   // An earlier question about this Note, and the Note with it, gives way first.
   await freeAskedNote(mindId);
   const requestId = crypto.randomUUID();
@@ -393,41 +394,54 @@ export const startCheck = (mindId: string): Promise<CheckOutcome> =>
  */
 export async function checkFromAssistant(mindId: string, everySentence = false): Promise<void> {
   const outcome = everySentence ? await startMindCheck(mindId, "all") : await startCheck(mindId);
-  if (outcome === null) return;
-  if (outcome.kind === "asked") {
+  if (outcome?.kind === "asked") {
     endAs(await answerOf(outcome.requestId));
     return;
   }
-  endAs(outcome);
+  endAs(outcome ?? null);
 }
 
-/** Ends the assistant's Check as what it came to: a failure or a decline is never "Done". */
-function endAs(outcome: CheckAnswer): void {
+/** Ends the assistant's Check as what it came to: only a run that checked is ever "Done". */
+function endAs(outcome: CheckAnswer | null): void {
+  if (outcome === null) throw new TranslatableError({ key: "mindCheck.nothingToCheck" });
   if (outcome.kind === "declined") throw new TranslatableError({ key: "commands.denied" });
   if (outcome.kind === "threw") {
     throw outcome.error instanceof Error
       ? outcome.error
       : new TranslatableError(String(outcome.error));
   }
-  if (outcome.kind === "failed") {
-    throw new TranslatableError(outcome.error.wording ?? outcome.error.message);
+  switch (outcome.kind) {
+    case "checked":
+      return;
+    case "failed":
+      throw new TranslatableError(outcome.error.wording ?? outcome.error.message);
+    case "running":
+      throw new TranslatableError({ key: "mindCheck.alreadyChecking" });
+    case "cancelled":
+      throw new TranslatableError({ key: "run.stopped.cancelled" });
+    case "not-ready": {
+      const service =
+        "provider" in outcome.readiness
+          ? serviceName(outcome.readiness.provider, translateNow, languageNow())
+          : "";
+      throw new TranslatableError({ key: readinessKey(outcome.readiness), values: { service } });
+    }
+    case "local-mode":
+      throw new TranslatableError({ key: "checks.problem.local-mode" });
+    case "no-documents":
+      throw new TranslatableError({ key: "checks.problem.no-documents.all" });
+    case "nothing":
+      throw new TranslatableError({ key: "checks.problem.no-claims" });
   }
-  if (outcome.kind === "running") {
-    throw new TranslatableError({ key: "mindCheck.alreadyChecking" });
-  }
+  const unhandled: never = outcome;
+  throw new Error(`A Check ended as ${String(unhandled)}, which its card has no ending for.`);
 }
 
 /** Check, in the card's question before a run billed per token. */
 export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   if (!asking) return;
-  try {
-    await runCheck(mindId, asking.requestId, asking);
-  } catch (error) {
-    await releaseHold(asking.requestId);
-    settle(asking.requestId, { kind: "threw", error });
-    throw error;
-  }
+  await runCheck(mindId, asking.requestId, asking);
 }
 
 /**
@@ -436,19 +450,20 @@ export async function confirmCheck(mindId: string): Promise<void> {
  * takes whichever part runs. A problem with the model, or a stop, ends both.
  */
 async function runCheck(mindId: string, requestId: string, run: CheckToRun): Promise<CheckEnd> {
-  if (useChecks.getState().running[mindId]) {
-    // Another Check has the Note: this one starts none, and keeps nothing.
-    await releaseHold(requestId);
-    settle(requestId, { kind: "running" });
-    return { kind: "running" };
-  }
+  let started = false;
+  // Answered, the question goes whichever way the run goes.
   clearAsk(mindId);
-  dismissCheckProblem(mindId);
-  dismissContradictions(mindId);
-  // Recorded before the sentences are read: reading waits for an editor that may not be open
-  // yet, and a second press during that wait must find the run already on (#1941).
-  setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
+    if (useChecks.getState().running[mindId]) {
+      settle(requestId, { kind: "running" });
+      return { kind: "running" };
+    }
+    dismissCheckProblem(mindId);
+    dismissContradictions(mindId);
+    // Recorded before the sentences are read: reading waits for an editor that may not be open
+    // yet, and a second press during that wait must find the run already on (#1941).
+    setCheckRunning(mindId, { requestId, action: "whole-mind" });
+    started = true;
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
@@ -464,8 +479,12 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
     }
     settle(requestId, result);
     return result;
+  } catch (error) {
+    settle(requestId, { kind: "threw", error });
+    throw error;
   } finally {
-    setCheckRunning(mindId, null);
+    if (started) setCheckRunning(mindId, null);
+    await releaseHold(requestId);
   }
 }
 

@@ -1052,6 +1052,7 @@ export const en = {
   "contradictions.after": "After “{document}” changed: {result}",
   "mindCheck.command": "Check",
   "mindCheck.alreadyChecking": "Already checking this note",
+  "mindCheck.nothingToCheck": "Nothing to check",
   "mindCheck.every": "Check every sentence again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",

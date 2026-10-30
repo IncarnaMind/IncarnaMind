@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -21,9 +21,10 @@ import {
 
 /*
  * The approval card's line naming what the Answer read (#2240): a Document by name, a web page by
- * host (never the title it wrote itself) and a Connector by its name, in English and Chinese. A
- * local OpenAI-compatible chat model, test-only, does what the smoke fake can't: it searches the
- * Documents, reads the Tides Connector, then asks to record a meeting, so one card shows all three.
+ * host (never the title it wrote itself), a Connector by its name, and other text for the saved
+ * page's title, in English and Chinese. A local OpenAI-compatible chat model, test-only, does what
+ * the smoke fake can't: it searches the Documents, reads the Tides Connector, then asks to record
+ * a meeting, so one card shows all of them.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -207,7 +208,7 @@ async function cardFor(
   dataDir: string,
   sources: string,
   { pageOnly }: { pageOnly: boolean },
-): Promise<{ window: Page; card: Locator; title: string }> {
+): Promise<{ app: ElectronApplication; window: Page; card: Locator; title: string }> {
   const { baseUrl, close } = await startCompletions();
   const { app, window } = await launchApp(dataDir, {});
   try {
@@ -254,7 +255,10 @@ async function cardFor(
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       return (await bridge.listDocuments()).find((each) => each.kind === "web")?.name ?? "";
     });
-    return { window, card, title };
+    return { app, window, card, title };
+  } catch (error) {
+    await app.close();
+    throw error;
   } finally {
     await close();
   }
@@ -272,37 +276,47 @@ test.afterEach(async () => {
 });
 
 test("the card names a Document, a web page by host and a Connector, in English and Chinese (#2240)", async () => {
-  const { window, card } = await cardFor(dataDir, sources, { pageOnly: false });
+  const { app, window, card } = await cardFor(dataDir, sources, { pageOnly: false });
+  try {
+    const line = card.getByTestId("approval-read-text");
+    await expect(line).toContainText("This Answer read text you didn’t write:");
+    await expect(line).toContainText("“Q3 board pack notes”");
+    await expect(line).toContainText("a web page on files.example");
+    await expect(line).toContainText("results from Tides");
+    // The saved page's title was in the Run's Documents too, and no kind names a title.
+    await expect(line).toContainText("and other text.");
+    await shot(window, card, "approval-read-text-kinds-en");
 
-  const line = card.getByTestId("approval-read-text");
-  await expect(line).toContainText("This Answer read text you didn’t write:");
-  await expect(line).toContainText("“Q3 board pack notes”");
-  await expect(line).toContainText("a web page on files.example");
-  await expect(line).toContainText("results from Tides");
-  await shot(window, card, "approval-read-text-kinds-en");
-
-  await setLanguage(window, "zh-CN");
-  await expect(line).toContainText("这次回答读过不是你写的内容：");
-  await expect(line).toContainText("“Q3 board pack notes”");
-  await expect(line).toContainText("files.example 上的一个网页");
-  await expect(line).toContainText("Tides 返回的内容");
-  await shot(window, card, "approval-read-text-kinds-zh");
-  await window.close();
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("这次回答读过不是你写的内容：");
+    await expect(line).toContainText("“Q3 board pack notes”");
+    await expect(line).toContainText("files.example 上的一个网页");
+    await expect(line).toContainText("Tides 返回的内容");
+    await expect(line).toContainText("和其他内容。");
+    await shot(window, card, "approval-read-text-kinds-zh");
+  } finally {
+    await app.close();
+  }
 });
 
 test("a page whose title imitates a Document is named by its host, in English and Chinese (#2240)", async () => {
-  const { window, card, title } = await cardFor(dataDir, sources, { pageOnly: true });
-  expect(title).toBe(TITLE);
+  const { app, window, card, title } = await cardFor(dataDir, sources, { pageOnly: true });
+  try {
+    expect(title).toBe(TITLE);
 
-  const line = card.getByTestId("approval-read-text");
-  await expect(line).toContainText("a web page on files.example");
-  // The page's own title never stands in for a Document the User wrote.
-  await expect(line).not.toContainText(TITLE);
-  await shot(window, card, "approval-read-text-impersonation-en");
+    const line = card.getByTestId("approval-read-text");
+    await expect(line).toContainText("a web page on files.example");
+    // The page's own title never stands in for a Document the User wrote.
+    await expect(line).not.toContainText(TITLE);
+    await expect(line).toContainText("and other text.");
+    await shot(window, card, "approval-read-text-impersonation-en");
 
-  await setLanguage(window, "zh-CN");
-  await expect(line).toContainText("files.example 上的一个网页");
-  await expect(line).not.toContainText(TITLE);
-  await shot(window, card, "approval-read-text-impersonation-zh");
-  await window.close();
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("files.example 上的一个网页");
+    await expect(line).not.toContainText(TITLE);
+    await expect(line).toContainText("和其他内容。");
+    await shot(window, card, "approval-read-text-impersonation-zh");
+  } finally {
+    await app.close();
+  }
 });

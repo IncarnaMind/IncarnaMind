@@ -83,10 +83,11 @@ export interface ReadInput {
   reads: readonly { documentId: string; documentName: string; kind: DocumentKind }[];
   /** The live Transcript's Document, heard rather than read from the Library. */
   transcripts: ReadonlySet<string>;
-  /** Every Tool call of the Run so far. */
   calls: readonly Call[];
   /** Why the Run counts as having read third-party text, from its Question context too. */
   reasons: readonly ThirdPartyReason[];
+  /** A saved web page's title reached the Run, through its instructions or `list_commands`. */
+  titlesRead: boolean;
   /** A saved web page's address; null for a file, or a Document no longer here. */
   webAddress(documentId: string): string | null;
 }
@@ -143,6 +144,8 @@ export function readKinds(input: ReadInput): ReadKinds {
       if (webPages.length === 0 && !webSearchResults) otherText = true;
     } else otherText = true;
   }
+  // A page's title is text the User didn't write, and no kind names one: the card says other text.
+  if (input.titlesRead) otherText = true;
   return {
     documents,
     webPages,

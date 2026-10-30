@@ -26,6 +26,7 @@ const input = (more: Partial<ReadInput> = {}): ReadInput => ({
   transcripts: new Set<string>(),
   calls: [],
   reasons: [],
+  titlesRead: false,
   webAddress: () => null,
   ...more,
 });
@@ -157,6 +158,30 @@ describe("What the approval card names (#2240)", () => {
         input({ calls: [call("web", "search_web")], reasons: [reason("read", "web-page")] }),
       ).otherText,
     ).toBe(false);
+  });
+
+  // protects=a saved page's title that reached the Run without the page being read is other text, never left off; fails_when=the card names only the kinds it read and drops the title; no_claim=what list_commands showed the model.
+  test("a page title read through the Run is other text", () => {
+    expect(readKinds(input({ titlesRead: true })).otherText).toBe(true);
+    expect(
+      readKinds(
+        input({
+          titlesRead: true,
+          reads: [read("d1", "Budget")],
+          calls: [call("connector", "lookup_tide", { connector: { id: "c1", name: "Tides" } })],
+        }),
+      ),
+    ).toEqual({ ...empty, documents: ["Budget"], connectors: ["Tides"], otherText: true });
+    // The page itself read too is still no title on the card: the host names the page, never the title.
+    expect(
+      readKinds(
+        input({
+          titlesRead: true,
+          reads: [read("w1", "Q3 board pack.pdf", "web")],
+          webAddress: () => "http://files.example/report",
+        }),
+      ),
+    ).toEqual({ ...empty, webPages: ["files.example"], otherText: true });
   });
 
   test("a call that failed, or was denied, read nothing", () => {

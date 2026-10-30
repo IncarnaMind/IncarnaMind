@@ -1736,14 +1736,19 @@ export function createAnswers(options: AnswersOptions) {
     /**
      * What the Answer read that the User didn't write, by the kinds the card names (#2240). A web
      * page is never named by its title here: a page writes its own title, so an injected one could
-     * pass for the User's file on this card; its host is the part it can't write.
+     * pass for the User's file on this card; its host is the part it can't write. `titlesRead`: a
+     * saved page's title reached the Run, and no kind here names a title.
      */
-    const readText = (thirdParty: readonly ThirdPartyReason[]): { readText?: ApprovalReadText } => {
+    const readText = (
+      thirdParty: readonly ThirdPartyReason[],
+      titlesRead: boolean,
+    ): { readText?: ApprovalReadText } => {
       const kinds = readKinds({
         reads: session.passagesRead(),
         transcripts,
         calls: toolCalls,
         reasons: thirdParty,
+        titlesRead,
         webAddress: (documentId) => options.documents.webAddress(documentId),
       });
       const read =
@@ -1788,7 +1793,7 @@ export function createAnswers(options: AnswersOptions) {
             effects: checked.effects,
             tainted: tainted || readTitles,
             ...readReasons(thirdParty),
-            ...readText(thirdParty),
+            ...readText(thirdParty, readTitles),
           },
           card,
         );

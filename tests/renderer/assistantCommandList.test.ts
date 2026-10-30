@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { DEFAULT_ASSISTANT, type Mind, type WindowLayout } from "../../src/core/api";
 import type { Command } from "../../src/renderer/src/commands/registry";
 import {
   COMMAND_TARGETS,
@@ -22,6 +23,17 @@ type Catalogue = typeof import("../../src/core/tools/commands/catalogue");
 let registry: Registry;
 let window: Window;
 let catalogue: Catalogue;
+
+/** The Note a command acts on, as the store keeps it. */
+const dealNotes: Mind = {
+  id: "note",
+  title: "Deal notes",
+  autoTitle: "",
+  kind: "mind",
+  createdAt: "2026-10-02T14:20:00.000Z",
+  updatedAt: "2026-10-02T14:20:00.000Z",
+  folderId: null,
+};
 
 /** The core's answers a test gives, by method; every other call answers nothing. */
 const answers = new Map<string, (input: unknown) => unknown>();
@@ -165,20 +177,39 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         groups: [
           {
             id: "left",
-            tabs: [{ id: "t1", item: { kind: "mind", mindId: "note" } }],
+            tabs: [
+              {
+                id: "t1",
+                item: { kind: "mind", mindId: "note" },
+                preview: false,
+                pinned: false,
+                place: null,
+                opened: 0,
+              },
+            ],
             activeTabId: "t1",
             width: 1,
           },
           {
             id: "right",
-            tabs: [{ id: "t2", item: { kind: "document", documentId: "one" } }],
+            tabs: [
+              {
+                id: "t2",
+                item: { kind: "document", documentId: "one" },
+                preview: false,
+                pinned: false,
+                place: null,
+                opened: 0,
+              },
+            ],
             activeTabId: "t2",
             width: 1,
           },
         ],
         focusedGroupId: "right",
         reopenable: 0,
-      } as never,
+        assistant: DEFAULT_ASSISTANT,
+      } satisfies WindowLayout,
     });
     try {
       expect(window.offeredCommands(null).map((each) => each.id)).not.toContain("mind.check");
@@ -252,8 +283,10 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     check.run = run;
     const minds = useAppStore.getState().minds;
     const running = useChecks.getState().running;
-    useAppStore.setState({ minds: [{ id: "note", title: "Deal notes" } as never] });
-    useChecks.setState({ running: { ...running, note: {} as never } });
+    useAppStore.setState({ minds: [dealNotes] });
+    useChecks.setState({
+      running: { ...running, note: { requestId: "one", action: "whole-mind" } },
+    });
     try {
       const { started, ended } = window.startForAssistant({
         requestId: "request",
@@ -287,7 +320,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     const minds = useAppStore.getState().minds;
     const openMind = useAppStore.getState().openMind;
     useAppStore.setState({
-      minds: [{ id: "note", title: "Deal notes" } as never],
+      minds: [dealNotes],
       openMind: () => {},
     });
     useChecks.setState({ running: {} });

@@ -596,7 +596,8 @@ export function createMindCheck(options: MindCheckOptions) {
         return await findClaims(parsed, tracked.signal);
       } finally {
         tracked.done();
-        if (planning) release(parsed.requestId);
+        // Stopped while planning, the run never asks: the Note is freed even when its window held it.
+        if (planning || tracked.signal.aborted) release(parsed.requestId);
       }
     },
 
