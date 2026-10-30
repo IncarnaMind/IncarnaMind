@@ -3,10 +3,9 @@
  * most 128 approximate tokens, with no overlap (the old command-line app
  * searched ~100-token chunks first), each mapped to the Passages that hold
  * it. The sub-chunks go into an FTS5 table built like the app's keyword index
- * (the Document's name, then the words, segmented the same way; the same
- * tokenizer), in a database of the evaluation's own in memory: the app's
- * schema doesn't change. A search ranks sub-chunks with BM25 and scores each
- * Passage by its best sub-chunk.
+ * (the words, segmented the same way, the same tokenizer), in a database of
+ * the evaluation's own in memory: the app's schema doesn't change. A search
+ * ranks sub-chunks with BM25 and scores each Passage by its best sub-chunk.
  */
 import { keywordQuery, keywordText } from "../../src/core/documents/keywords";
 import { approximateTokens, buildPassages, type PageText } from "../../src/core/documents/passages";
@@ -148,12 +147,6 @@ const sizeOf = (db: Database) =>
     "SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()",
   )?.bytes ?? 0;
 
-/** What a keyword index row holds: the Document's name, then the words, as the app's. */
-const indexedText = (name: string, text: string) => {
-  const words = keywordText(text);
-  return name ? `${name} ${words}` : words;
-};
-
 /** Builds the sub-chunk index of every Document in the corpus, from their stored pages. */
 export function buildSubChunkIndex(
   corpus: Corpus,
@@ -174,13 +167,12 @@ export function buildSubChunkIndex(
         .sort((a, b) => a.position - b.position);
       const found = subChunksOf(pagesOf(document.id), passages);
       unplaced += found.unplaced;
-      const name = keywordText(document.name);
       for (const chunk of found.chunks) {
         subChunks++;
         tokens += approximateTokens(chunk.text);
         db.run("INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)", [
           BigInt(subChunks),
-          indexedText(name, chunk.text),
+          keywordText(chunk.text),
         ]);
         db.run("INSERT INTO chunks (id, passages) VALUES (?, ?)", [
           BigInt(subChunks),
@@ -199,7 +191,7 @@ export function buildSubChunkIndex(
     for (const passage of corpus.passages.values()) {
       passageDb.run("INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)", [
         BigInt(passage.seq),
-        indexedText(keywordText(passage.documentName), passage.text),
+        keywordText(passage.text),
       ]);
     }
   });

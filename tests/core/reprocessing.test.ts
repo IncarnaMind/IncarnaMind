@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import { DATABASE_FILE, type Document } from "../../src/core";
-import { PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { describe, expect, test, vi } from "vitest";
+import { type Core, DATABASE_FILE, type Document } from "../../src/core";
+import { keywordText } from "../../src/core/documents/keywords";
+import { NAME_INDEX_CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
@@ -34,14 +35,19 @@ const OLD_ID = "6f1c1c55-8a0e-4f43-9b5e-1d1b7c8b6a01";
 
 /**
  * Takes a data folder back to what processing version 5 left: every Document
- * marked as of version 5, and the keyword index holding each Passage's words
- * and its Document's name as written, traditional characters and all.
+ * marked as of version 5, except those in `current` (so a test isolates the
+ * rule it is about), and the keyword index holding each Passage's words and
+ * its Document's name as written, traditional characters and all.
  */
-function asVersion5(dataDir: string): void {
+function asVersion5(dataDir: string, current: readonly string[] = []): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
       db.run("UPDATE documents SET processing_version = 5");
+      db.run(
+        "UPDATE documents SET processing_version = ? WHERE id IN (SELECT value FROM json_each(?))",
+        [BigInt(PROCESSING_VERSION), JSON.stringify(current)],
+      );
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.deleted_at IS NULL`,
@@ -51,6 +57,58 @@ function asVersion5(dataDir: string): void {
         db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
           BigInt(seq),
           `${unfoldedKeywords(name)} ${unfoldedKeywords(text)}`,
+        ]);
+      }
+      // The ones left current are what this version builds: their own words, and a name row.
+      for (const id of current) {
+        const row = db.get<{ name: string }>("SELECT name FROM documents WHERE id = ?", [id]);
+        if (!row) continue;
+        db.run("DELETE FROM document_names_fts WHERE document_id = ?", [id]);
+        const name = keywordText(row.name);
+        if (name !== "") {
+          db.run("INSERT INTO document_names_fts (document_id, text) VALUES (?, ?)", [id, name]);
+        }
+        for (const { seq, text } of db.all<{ seq: number; text: string }>(
+          "SELECT seq, text FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+          [id],
+        )) {
+          db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+          db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
+            BigInt(seq),
+            keywordText(text),
+          ]);
+        }
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Takes a data folder back to the keyword index before `NAME_INDEX_CURRENT_SINCE`:
+ * every Document marked as of the version before it, and each Passage's index
+ * row holding its Document's name along with its own words.
+ */
+function asNameWithEveryPassage(dataDir: string): void {
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.transaction(() => {
+      db.run("UPDATE documents SET processing_version = ?, keywords_version = ?", [
+        BigInt(NAME_INDEX_CURRENT_SINCE - 1),
+        BigInt(NAME_INDEX_CURRENT_SINCE - 1),
+      ]);
+      db.run("DELETE FROM document_names_fts");
+      const passages = db.all<{ seq: number; text: string; name: string }>(
+        `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
+         WHERE p.deleted_at IS NULL`,
+      );
+      for (const { seq, text, name } of passages) {
+        db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
+        const keywords = keywordText(name);
+        db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [
+          BigInt(seq),
+          keywords ? `${keywords} ${keywordText(text)}` : keywordText(text),
         ]);
       }
     });
@@ -63,15 +121,16 @@ function asVersion5(dataDir: string): void {
 const FINANCE = "Finance has asked to lower the contingency to 8 per cent.";
 
 /**
- * Takes a data folder back to what processing version 6 left: every Document
- * marked as of version 6, and the Word Document's Passages and keyword index
- * without the comment it didn't read.
+ * Takes a data folder back to what processing version 6 left: the Word
+ * Document marked as of version 6, and its Passages and keyword index without
+ * the comment it didn't read. The others stay as this version built them, so
+ * the test isolates the Word rule.
  */
 function asVersion6(dataDir: string, wordId: string): void {
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   try {
     db.transaction(() => {
-      db.run("UPDATE documents SET processing_version = 6");
+      db.run("UPDATE documents SET processing_version = 6 WHERE id = ?", [wordId]);
       const passages = db.all<{ seq: number; text: string; name: string }>(
         `SELECT p.seq, p.text, d.name FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.deleted_at IS NULL AND p.document_id = ?`,
@@ -206,7 +265,7 @@ describe("Re-processing", { timeout: 30_000 }, () => {
       await writeSourceFile(sources, "Transformers.md", NOTES),
     ])) as [Document, Document, Document];
     first.close();
-    asVersion5(dataDir);
+    asVersion5(dataDir, [notes.id]);
     const passages = (documentId: string) =>
       queryDatabase<{ id: string; text: string; embedding: Uint8Array | null }>(
         dataDir,
@@ -272,6 +331,260 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     ]);
     expect(later.filter((id) => id !== control?.id)).toEqual([]);
     third.close();
+  });
+
+  test("a Document whose index holds its name with every Passage is rewritten in the background, without reading its file (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const embedder = createControlledEmbedder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir, { embedder });
+    await turnOnEmbeddings(first);
+    const [report] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", entries),
+    ])) as [Document];
+    first.close();
+    const live = () =>
+      queryDatabase<{ id: string; text: string; embedding: Uint8Array | null }>(
+        dataDir,
+        `SELECT id, text, embedding FROM passages
+         WHERE document_id = ? AND deleted_at IS NULL ORDER BY position`,
+        [report.id],
+      );
+    const before = live();
+    expect(before.length).toBeGreaterThan(1);
+    const matching = (word: string) =>
+      queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
+        `"${word}"`,
+      ]).length;
+    const names = (word: string) =>
+      queryDatabase(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        [`"${word}"`],
+      ).length;
+    expect(matching("report")).toBe(0);
+    expect(names("report")).toBe(1);
+
+    // As the pipeline before it left the data: its name in every Passage's row, and no name index.
+    asNameWithEveryPassage(dataDir);
+    expect(matching("report")).toBe(before.length);
+    expect(names("report")).toBe(0);
+    const embeddedBefore = embedder.texts.length;
+
+    const second = startCore(dataDir, { embedder });
+    const statuses: string[] = [];
+    second.on("document.status", (document) => statuses.push(document.status));
+    // The start doesn't wait for the rewrite: its index is as the older version left it,
+    // and the rewrite runs afterwards, on the worker (#2042).
+    expect(matching("report")).toBe(before.length);
+    expect(names("report")).toBe(0);
+    expect(
+      queryDatabase(dataDir, "SELECT processing_version, keywords_version FROM documents"),
+    ).toEqual([
+      {
+        processing_version: NAME_INDEX_CURRENT_SINCE - 1,
+        keywords_version: NAME_INDEX_CURRENT_SINCE - 1,
+      },
+    ]);
+    second.upgradeKeywordIndex();
+    await vi.waitFor(() => expect(matching("report")).toBe(0), { timeout: 30_000 });
+    expect(names("report")).toBe(1);
+    // Nothing was queued and nothing was read, and its Passages and vectors were kept.
+    expect((await second.listDocuments()).map((document) => document.status)).toEqual(["ready"]);
+    expect(statuses).toEqual([]);
+    expect(live()).toEqual(before);
+    expect(embedder.texts.length).toBe(embeddedBefore);
+    // Its rows are this version's; its Passages, which this version would build the same, stay
+    // as read (#2185).
+    expect(
+      queryDatabase(dataDir, "SELECT processing_version, keywords_version FROM documents"),
+    ).toEqual([
+      {
+        processing_version: NAME_INDEX_CURRENT_SINCE - 1,
+        keywords_version: PROCESSING_VERSION,
+      },
+    ]);
+    // Its name still finds its Passages, which their own words don't.
+    const byName = await second.searchPassages("annual report", { mode: "keyword" });
+    expect(new Set(byName.map((passage) => passage.documentId))).toEqual(new Set([report.id]));
+    expect(byName.map((passage) => passage.position)).toEqual([0, 1, 2]);
+    second.close();
+  });
+
+  test("a Document queued when its old version can't be read loses the name from its kept rows (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir);
+    const path = await writeSourceFile(sources, "Annual Report.md", entries);
+    const [report] = (await addAndProcess(first, [path])) as [Document];
+    first.close();
+    const passages = () =>
+      queryDatabase<{ seq: number }>(
+        dataDir,
+        "SELECT seq FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+        [report.id],
+      );
+    const before = passages();
+    const matching = (word: string) =>
+      queryDatabase(dataDir, "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", [
+        `"${word}"`,
+      ]).length;
+    const names = (word: string) =>
+      queryDatabase(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        [`"${word}"`],
+      ).length;
+
+    // As the pipeline before it left the data, still queued by a quit when its file went: its
+    // next read fails, and the name in the kept rows has to go without one.
+    asNameWithEveryPassage(dataDir);
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET status = 'queued' WHERE id = ?", [report.id]);
+    } finally {
+      db.close();
+    }
+    expect(matching("report")).toBe(before.length);
+    await rm(path);
+
+    const second = startCore(dataDir);
+    await waitForProcessing(second, [report.id]);
+    // The last good version's Passages are kept, and their rows no longer hold the name: with
+    // a name row too, a word of the name would count twice for this Document.
+    expect(passages()).toEqual(before);
+    expect(matching("report")).toBe(0);
+    expect(names("report")).toBe(1);
+    second.close();
+  });
+
+  test("the start doesn't wait for the keyword rewrite, which runs when the host asks, after the first window (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const first = startCore(dataDir);
+    const [report] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", "Ordinary weather over the coast."),
+    ])) as [Document];
+    first.close();
+    asNameWithEveryPassage(dataDir);
+    const version = () =>
+      queryDatabase<{ keywords_version: number }>(
+        dataDir,
+        "SELECT keywords_version FROM documents WHERE id = ?",
+        [report.id],
+      );
+    const holdsTheName = () =>
+      queryDatabase<{ rowid: number }>(
+        dataDir,
+        "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?",
+        ['"report"'],
+      ).length;
+
+    // The core is ready, as it is when the first window shows, with the older index in place.
+    const second = startCore(dataDir);
+    expect(holdsTheName()).toBe(1);
+    expect(version()).toEqual([{ keywords_version: NAME_INDEX_CURRENT_SINCE - 1 }]);
+    second.upgradeKeywordIndex();
+    await vi.waitFor(() => expect(holdsTheName()).toBe(0), { timeout: 30_000 });
+    expect(version()).toEqual([{ keywords_version: PROCESSING_VERSION }]);
+    second.close();
+  });
+
+  test("asking for the keyword rewrite after the core closed does nothing (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const first = startCore(dataDir);
+    await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", "Ordinary weather over the coast."),
+    ]);
+    first.close();
+    asNameWithEveryPassage(dataDir);
+    const second = startCore(dataDir);
+    second.close();
+    expect(() => second.upgradeKeywordIndex()).not.toThrow();
+    // Nothing ran on the closed database: the older index is still there.
+    expect(
+      queryDatabase<{ n: number }>(
+        dataDir,
+        "SELECT count(*) AS n FROM passages_fts WHERE passages_fts MATCH ?",
+        ['"report"'],
+      ),
+    ).toEqual([{ n: 1 }]);
+  });
+
+  test("the keyword search an upgraded data folder gives equals a fresh index's, a renamed Document and a name with no words included (#2042)", async () => {
+    const dataDir = await createTempDataFolder();
+    const sources = await createSourceFolder();
+    const entries = Array.from(
+      { length: 60 },
+      (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
+    ).join("\n");
+    const first = startCore(dataDir);
+    const [, minutes] = (await addAndProcess(first, [
+      await writeSourceFile(sources, "Annual Report.md", entries),
+      await writeSourceFile(sources, "Weekly Notes.md", "Rainfall rose through the year.\n"),
+    ])) as [Document, Document];
+    // Renamed before this version: the old index holds the new name in every row.
+    first.renameDocument(minutes.id, "Quarterly Log");
+    // A name with no words at all: its rows never held a name.
+    await addAndProcess(first, [
+      await writeSourceFile(sources, "!!!.md", "Coastal traffic only.\n"),
+    ]);
+    first.close();
+
+    const queries = ["annual report", "report", "quarterly log", "rainfall", "coastal traffic"];
+    const searched = async (core: Core) => {
+      const found: Record<string, string[]> = {};
+      for (const query of queries) {
+        found[query] = (await core.searchPassages(query, { mode: "keyword", limit: 50 })).map(
+          (passage) => passage.passageId,
+        );
+      }
+      return found;
+    };
+    // What this version's own processing built: the index the upgrade has to match.
+    const freshCore = startCore(dataDir);
+    const fresh = await searched(freshCore);
+    freshCore.close();
+    expect(fresh["quarterly log"]?.length).toBeGreaterThan(0);
+    expect(fresh["annual report"]?.length).toBeGreaterThan(0);
+
+    // As the pipeline before it left the data, then rewritten by this version, in the background.
+    asNameWithEveryPassage(dataDir);
+    const second = startCore(dataDir);
+    const statuses: string[] = [];
+    second.on("document.status", (document) => statuses.push(document.status));
+    second.upgradeKeywordIndex();
+    await vi.waitFor(
+      () =>
+        expect(queryDatabase(dataDir, "SELECT keywords_version FROM documents")).toEqual(
+          Array(3).fill({ keywords_version: PROCESSING_VERSION }),
+        ),
+      { timeout: 30_000 },
+    );
+    expect((await second.listDocuments()).map((document) => document.status)).toEqual(
+      Array(3).fill("ready"),
+    );
+    expect(statuses).toEqual([]);
+    expect(await searched(second)).toEqual(fresh);
+    // The renamed Document's old name is in no row any more; its new one is the name row's.
+    expect(await second.searchPassages("weekly", { mode: "keyword" })).toEqual([]);
+    expect(
+      queryDatabase<{ document_id: string }>(
+        dataDir,
+        "SELECT document_id FROM document_names_fts WHERE document_names_fts MATCH ?",
+        ['"quarterly"'],
+      ),
+    ).toEqual([{ document_id: minutes.id }]);
+    second.close();
   });
 
   test("Word Documents are processed once more, so their comments are searched; Documents of other kinds are left as they are (#76)", async () => {

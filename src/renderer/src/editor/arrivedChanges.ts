@@ -29,6 +29,7 @@ import {
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
+import { nameOlderCitations } from "../../../shared/signOffs";
 import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
@@ -329,6 +330,7 @@ export function writeAccepted(
   schema: Schema,
 ): ResolvedProposal[] {
   const picked = (ref: ProposalRef) => requests.has(ref.request);
+  nameOlderCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
   const scratch = new Y.Doc();
   try {
     Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));

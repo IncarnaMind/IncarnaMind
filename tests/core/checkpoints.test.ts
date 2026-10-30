@@ -17,6 +17,7 @@ import { sha256, waitForProcessing } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { answerIn, heading, note, readMind, writeMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
+import { fakePrinter } from "../helpers/printer";
 
 /*
  * History (#113): a Checkpoint of a Mind before every AI change and after a
@@ -263,6 +264,60 @@ describe("Saving a Checkpoint", () => {
     const after = await again.listCheckpoints(mind.id);
     expect(after.checkpoints).toEqual(checkpoints);
     expect(after.current).toBeNull();
+  });
+});
+
+describe("Naming a version and keeping one as it was sent (#1933)", () => {
+  // protects=any version can be named and its name taken off, a named idle one is never thinned, and one that isn't the Mind's says it's gone (#1933); fails_when=the name is lost, a named version thins, or a bad id renames another; no_claim=the field in History, which the smoke spec covers.
+  test("a version keeps the name the User gave it, and a named one is kept for good", async () => {
+    const clock = manualClock("2026-10-06T08:05:00.000Z");
+    const core = startCore(await createTempDataFolder(), { now: clock.now });
+    const { mind, client } = await mindWith(core, ["Spring tides"]);
+    const filed = await core.saveCheckpoint(mind.id, "idle");
+    clock.advance(20 * 60_000);
+    writeMind(client, [note("Spring tides, later")]);
+    await client.settled();
+    await core.saveCheckpoint(mind.id, "idle");
+
+    expect(await core.renameCheckpoint(mind.id, filed.id, "  Filed draft ")).toMatchObject({
+      checkpoint: { id: filed.id, name: "Filed draft" },
+      was: null,
+    });
+    // A day on, idle ones thin to one an hour; the named one stays though the hour's newest isn't it.
+    clock.advance(DAY);
+    writeMind(client, [note("Spring tides, the next day")]);
+    await client.settled();
+    await core.saveCheckpoint(mind.id, "idle");
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.find((each) => each.id === filed.id)?.name).toBe("Filed draft");
+
+    expect(await core.renameCheckpoint(mind.id, filed.id, "")).toMatchObject({
+      checkpoint: { name: null },
+      was: "Filed draft",
+    });
+    await expect(core.renameCheckpoint(mind.id, "nothing", "A name")).rejects.toThrow(
+      NotFoundError,
+    );
+  });
+
+  // protects=saving the Note as Word or PDF keeps a version of it as it went, with the file's name, even when the same text was saved before, and a Markdown export keeps none (#1933); fails_when=no version is kept, or one is folded into an earlier one; no_claim=how History words it.
+  test("sending the Note as Word or PDF keeps a version with the file's name; Markdown doesn't", async () => {
+    const core = startCore(await createTempDataFolder(), { printer: fakePrinter().printer });
+    await core.setOutputLocation(await createTempDataFolder());
+    const { mind } = await mindWith(core, ["Spring tides happen at new and full moon."]);
+    await core.saveCheckpoint(mind.id, "accept");
+
+    const word = await core.saveMindExport(mind.id, { format: "docx" });
+    const pdf = await core.saveMindExport(mind.id, { format: "pdf" });
+    await core.saveMindExport(mind.id, { format: "markdown" });
+    if (word.status !== "saved" || pdf.status !== "saved") throw new Error("Not saved");
+
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.map((each) => [each.reason, each.file])).toEqual([
+      ["export", pdf.file.name],
+      ["export", word.file.name],
+      ["accept", null],
+    ]);
   });
 });
 

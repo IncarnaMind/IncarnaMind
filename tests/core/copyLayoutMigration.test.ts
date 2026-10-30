@@ -176,6 +176,7 @@ describe("Migration 21: from copies in the data folder to Documents in place", {
     ]);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: DOCUMENT,
         quote: "Spring tides happen at new moon and at full moon.",
         pageFrom: null,
@@ -484,6 +485,7 @@ describe("A copied Document in Recently deleted (#1432)", { timeout: 30_000 }, (
     await expect(core.openDocumentFile(DOCUMENT)).rejects.toThrow(NotFoundError);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: DOCUMENT,
         quote: "Spring tides happen at new moon and at full moon.",
         pageFrom: null,

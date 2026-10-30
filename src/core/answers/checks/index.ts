@@ -28,6 +28,11 @@ import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
 import { restsOn } from "../../../shared/claimChecks";
+import {
+  beginFigureCheck,
+  readFigureFinding,
+  settleFigureCheck,
+} from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -42,8 +47,10 @@ import {
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
+  type ClaimCheckBasis,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimJudgment,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -66,15 +73,29 @@ import {
   isRecord,
   LocalModeError,
 } from "../../errors";
+import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { type ClaimCheckDependencies, createClaimCheck, recordJudged } from "./claimCheck";
+import {
+  type CheckedCitation,
+  type ClaimCheckDependencies,
+  createClaimCheck,
+  recordJudged,
+} from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
-import { markedSentences, markSentence, selectedSentences, updateCheck } from "./sentences";
+import {
+  markedSentences as allMarks,
+  checkText,
+  citedQuoteOf,
+  markedSentences,
+  markSentence,
+  selectedSentences,
+  updateCheck,
+} from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
@@ -115,6 +136,12 @@ export interface ChecksOptions
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  /** The Folder whose work stays inside it, or null when this Mind is not walled. */
+  walledFolder(mindId: string | null): string | null;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -132,7 +159,9 @@ export interface ChecksOptions
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  resolveScope(scope: SearchScope): string[] | null;
+  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] & {
@@ -202,10 +231,9 @@ function parseClaim(input: unknown) {
         isRecord(each) && typeof each.quote === "string"
           ? [
               {
+                ...citedQuoteOf(each),
                 documentName: String(each.documentName ?? ""),
                 quote: each.quote,
-                ...(typeof each.documentId === "string" && { documentId: each.documentId }),
-                ...(typeof each.contentHash === "string" && { contentHash: each.contentHash }),
               },
             ]
           : [],
@@ -242,11 +270,7 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 };
 
 /** A result written onto its mark. */
-function withResult(
-  check: ClaimCheckAttributes,
-  result: ClaimCheckResult,
-  at: string,
-): ClaimCheckAttributes {
+function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
   const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
   return result.verdict === "not-checked"
     ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
@@ -265,11 +289,126 @@ function withResult(
       };
 }
 
+function withResult(
+  check: ClaimCheckAttributes,
+  result: ClaimCheckResult,
+  at: string,
+): ClaimCheckAttributes {
+  const { figures: _figures, remainder: _remainder, ...basis } = check;
+  const next = withJudgment(basis, result, at);
+  if (!result.figures)
+    return check.figures
+      ? settleFigureCheck(check, (child) =>
+          result.verdict === "not-checked"
+            ? withJudgment(child, result, at)
+            : { ...child, state: "not-checked", reason: "malformed", detail: null, checkedAt: at },
+        )
+      : next;
+  const figures = result.figures.flatMap((figure) => {
+    const finding = readFigureFinding(figure);
+    return finding
+      ? [{ ...withJudgment({ ...basis, id: finding.id }, figure.result, at), ...finding }]
+      : [];
+  });
+  if (figures.length !== result.figures.length)
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  if (!check.figures)
+    return {
+      ...next,
+      figures,
+      ...(result.remainder !== undefined && {
+        remainder:
+          result.remainder === null
+            ? null
+            : withJudgment({ ...basis, id: `${basis.id}:remainder` }, result.remainder, at),
+      }),
+    };
+  const pending = check.figures.filter(
+    (child) => child.request === check.request && child.state === "checking",
+  );
+  const received = new Map(figures.map((child) => [child.id, child]));
+  if (
+    received.size !== figures.length ||
+    received.size !== pending.length ||
+    pending.some((child) => !received.has(child.id))
+  )
+    return settleFigureCheck(check, (child) => ({
+      ...child,
+      state: "not-checked",
+      reason: "malformed",
+      detail: null,
+      checkedAt: at,
+    }));
+  const remainderPending =
+    check.remainder?.request === check.request && check.remainder.state === "checking";
+  return {
+    ...next,
+    figures: check.figures.map((child) => received.get(child.id) ?? child),
+    ...(remainderPending
+      ? result.remainder === undefined
+        ? {}
+        : {
+            remainder:
+              result.remainder === null
+                ? null
+                : withJudgment(check.remainder ?? basis, result.remainder, at),
+          }
+      : check.remainder === undefined
+        ? {}
+        : { remainder: check.remainder }),
+  };
+}
+
 const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
-  check.state === "checking" ? { ...check, state: "not-checked", reason: "stopped" } : check;
+  settleFigureCheck(check, (basis) => ({ ...basis, state: "not-checked", reason: "stopped" }));
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
+
+  function noteResult(
+    check: ClaimCheckAttributes,
+    result: ClaimCheckResult,
+    at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    previous: ClaimCheckAttributes | null = null,
+  ): ClaimCheckAttributes {
+    const before = previous ?? check;
+    const evidence = before.evidence;
+    const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
+    if (
+      result.verdict === "not-checked" &&
+      result.reason === "kept-inside" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked"
+    ) {
+      return before;
+    }
+    if (
+      result.verdict === "unsupported" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked" &&
+      evidenceWall !== null &&
+      evidenceWall !== options.walledFolder(mindId)
+    ) {
+      return before;
+    }
+    return withResult(
+      check,
+      augmentFigureFooting(blocks, result, options.documents, {
+        versions: options.watch.documentVersions(),
+        folderId: options.mindFolder(mindId),
+        scope: content.readSettings(mindId, mindScopeIn),
+      }),
+      at,
+    );
+  }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
   const claimCheck = createClaimCheck(options);
@@ -340,12 +479,18 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /** What a sentence cites, each Document named as it is now. */
-  function citedNow(cited: readonly CitedQuote[]): { documentName: string; quote: string }[] {
+  function citedNow(cited: readonly CitedQuote[]): CheckedCitation[] {
     const live = options.documents.names();
-    return cited.map((each) => ({
-      documentName: withShownName(each, live).documentName,
-      quote: each.quote,
-    }));
+    return cited.map((each) => {
+      const current = live.find((document) => document.id === each.documentId);
+      return {
+        documentName: withShownName(each, live).documentName,
+        quote: each.quote,
+        // A Passage of an older version isn't what the Document says now.
+        ...(each.passageId &&
+          current?.contentHash === each.contentHash && { passageId: each.passageId }),
+      };
+    });
   }
 
   /** Marks a request's sentences not checked yet "stopped". */
@@ -383,22 +528,28 @@ export function createChecks(options: ChecksOptions) {
   function scopeOf(mindId: string, allDocuments: boolean, checked: CheckedDocument = {}) {
     const own = options.mindFolder(mindId);
     const chosen = content.readSettings(mindId, mindScopeIn);
-    const wanted = allDocuments ? null : options.searchedScope(chosen ?? folderScope(own), mindId);
+    const walled = options.walledFolder(mindId) !== null;
+    const wanted =
+      allDocuments && !walled
+        ? null
+        : options.searchedScope(allDocuments ? null : (chosen ?? folderScope(own)), mindId);
     const folderId = oneFolderOf(wanted);
     const inChosen = chosen !== null && wanted !== null && (own === null || folderId !== own);
     // An own Folder that holds no Document searches everything, as "Search all Documents" does.
     const marked: ClaimCheckScope = inChosen
       ? { folderId: own, widened: false, chosen: wanted }
-      : { folderId: own, widened: allDocuments || own !== folderId };
+      : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
-    const resolved = wanted && options.resolveScope(wanted);
+    const resolved = options.scopeDocuments(wanted, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
     const searchable = options.documents.searchableCount(scope.documentIds);
     const empty = (): NoDocuments => {
       const none: NoDocuments = { kind: "no-documents", folderId };
       if (!inChosen || !wanted) return none;
       if (
-        options.documents.searchableCount(options.evidence.scope(null, leftOut).documentIds) === 0
+        options.documents.searchableCount(
+          options.evidence.scope(options.scopeDocuments(null, mindId), leftOut).documentIds,
+        ) === 0
       )
         return none;
       const onlyLeftOut =
@@ -460,12 +611,22 @@ export function createChecks(options: ChecksOptions) {
           excluded: [],
           checkedAt: startedAt,
         };
-        markSentence(sentence.element, sentence.from, sentence.to, check);
+        const previous =
+          allMarks(blocks).find(
+            (mark) =>
+              mark.element === sentence.element &&
+              mark.from < sentence.to &&
+              mark.to > sentence.from,
+          )?.check ?? null;
+        const pending = sentence.figures?.length
+          ? beginFigureCheck(previous, check, sentence.figures, null)
+          : check;
+        markSentence(sentence.element, sentence.from, sentence.to, pending);
         return {
           id: check.id,
-          claim: sentence.text,
-          context: sentence.context,
+          ...checkText(sentence),
           cited: sentence.cited,
+          previous,
         };
       });
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
@@ -481,6 +642,7 @@ export function createChecks(options: ChecksOptions) {
       const result = await claimCheck({
         claim: sentence.claim,
         context: sentence.context,
+        ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
         scope: evidenceScope,
         model: ready.prepared,
@@ -492,7 +654,9 @@ export function createChecks(options: ChecksOptions) {
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) => withResult(check, result, at)),
+        updateCheck(blocks, sentence.id, (check) =>
+          noteResult(check, result, at, blocks, mindId, sentence.previous),
+        ),
       );
       if (kept) retainEvidence(mindId);
     }
@@ -572,7 +736,7 @@ export function createChecks(options: ChecksOptions) {
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     settleStopped,
     track,
@@ -585,7 +749,8 @@ export function createChecks(options: ChecksOptions) {
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
-    withResult,
+    withResult: noteResult,
+    read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
@@ -662,7 +827,7 @@ export function createChecks(options: ChecksOptions) {
         });
       }
       const scope = options.evidence.scope(
-        parsed.scope ? options.resolveScope(parsed.scope) : null,
+        options.scopeDocuments(parsed.scope, null),
         parsed.checked,
       );
       // Nothing to check against: nothing backs it, and nothing is sent.

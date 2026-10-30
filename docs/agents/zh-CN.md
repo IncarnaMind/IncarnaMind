@@ -106,6 +106,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
+| Not examined | 未能判断是否为说法 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否为说法". Not 未核对, which is a claim whose check failed or hasn't run. |
 | Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
@@ -155,6 +156,12 @@ A figure in an Answer is written as reports write it, with no space between the 
 | about (an approximate figure) | 约 | "约1.2亿元". |
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
+| Tie out figures | 核对数字 | The command in ⌘K and the page menu: every figure in a Note against its source. |
+| Figure schedule | 数字核对表 | The tab beside the Note, and its export: "导出核对表…", "{name} – 数字核对表". Counts as the header does: "18 个数字 · 15 个有依据 · 3 个需要留意 · 0 个未核对". |
+| Source value | 来源数值 | The number as the source gives it. |
+| Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
+| Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |
+| Treat as a total / Not a total | 将此行当作合计 / 将此列当作合计 / 不是合计 | The table menu and the schedule's row menu. 合计 is a total, 小计 a subtotal, 总计 a grand total, as statements label them. |
 
 ### Finance and law
 

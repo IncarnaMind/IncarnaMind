@@ -498,9 +498,9 @@ describe("the source pack: after the file is gone, and without the page", () => 
     writeMind(client, [paragraph(text("Tides"), citation(tides, 2))]);
     await client.settled();
 
-    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
+    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      wording: { key: "error.checkRecord.noPdf" },
+    });
   });
 });
 

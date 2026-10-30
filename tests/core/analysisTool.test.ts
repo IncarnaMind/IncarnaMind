@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { nodeOf } from "../../src/core/answers/blocks";
+import { plainText } from "../../src/core/mindText";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
+import {
+  calculatedFiguresIn,
+  figureRunsFor,
+  figureRunsOfAnswer,
+} from "../../src/shared/figureRuns";
+import { askAssistant } from "../helpers/assistant";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -345,7 +354,7 @@ describe("an Analysis an Answer runs", () => {
     expect(kept[0]?.pages).toBeGreaterThan(0);
   });
 
-  test("Add to note serializes the Analysis figure as text without new persisted Mind attributes", async () => {
+  test("Add to note owns the Analysis figure and its used run after its conversation is purged", async () => {
     const model = analysingModel({
       query: "revenue",
       runs: [salesRun()],
@@ -355,21 +364,127 @@ describe("an Analysis an Answer runs", () => {
     const { answer } = await askAndRead(core, "What was the total revenue?");
     const mind = await core.createMind({ title: "Revenue" });
 
+    const blocks = answerBlocks(answer);
     await core.addToNote({
       mindId: mind.id,
-      blocks: answerBlocks(answer),
+      blocks,
+      figureRuns: figureRunsOfAnswer(answer, blocks),
       model: answer.model,
       origin: null,
     });
     const reader = await connectToMind(core, mind.id);
     const read = readMind(reader);
-
-    expect(read.textContent).toContain("350.5");
-    const serialized = JSON.stringify(read.toJSON());
-    expect(serialized).not.toContain('"analyses"');
-    expect(serialized).not.toContain('"analysis"');
-    expect(serialized).not.toContain('"code"');
+    expect(
+      reader.blocks
+        .toArray()
+        .flatMap((node) =>
+          node instanceof Y.XmlElement || node instanceof Y.XmlText ? [plainText(node)] : [],
+        )
+        .join("\n"),
+    ).toContain("350.5");
+    const figures = calculatedFiguresIn(read.toJSON().content ?? []);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({
+      value: 350.5,
+      analysis: { analysis: 1, result: "total" },
+    });
+    const retained = () =>
+      figureRunsFor(
+        reader.doc,
+        reader.blocks
+          .toArray()
+          .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : [])),
+      );
+    expect(retained()).toEqual([
+      expect.objectContaining({
+        code: answer.analyses[0]?.code,
+        inputs: answer.analyses[0]?.inputs,
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+    expect(retained()[0]).not.toHaveProperty("output");
+    expect(figures[0]?.figure).not.toHaveProperty("code");
     expect((await core.getConversation(answer.conversationId)).messages).toContainEqual(answer);
+    await core.deleteConversation(answer.conversationId);
+    await core.deletePermanently([{ kind: "conversation", id: answer.conversationId }]);
+    expect(retained()[0]?.values[0]?.value).toBe(350.5);
+  });
+
+  test("an Analysis figure the assistant writes into a Note is a figure there, with its used run (#439)", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      if (!call.results.some((result) => result.tool === "add_to_mind"))
+        return {
+          calls: [{ tool: "add_to_mind", input: { content: "Revenue came to [=1] in total." } }],
+        };
+      return { text: "" };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    await askAssistant(core, { text: "Add the total revenue to the note", mindId: mind.id });
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    const figures = calculatedFiguresIn(blocks);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({ value: 350.5, analysis: { result: "total" } });
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+  });
+
+  test("a follow-up that writes the last Answer into a Note brings that Answer's Analysis run with its figure", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (call.prompt.includes("Put that in the note")) {
+        if (!call.results.some((result) => result.tool === "add_to_mind"))
+          return { calls: [{ tool: "add_to_mind", input: { answer: true } }] };
+        return { text: "Added." };
+      }
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      return { text: "Revenue came to [=1] in total." };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    const first = await askAssistant(core, {
+      text: "What was the total revenue?",
+      mindId: mind.id,
+    });
+    expect(first.analyses).toHaveLength(1);
+    const added = await askAssistant(core, {
+      text: "Put that in the note",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    expect(added.analyses).toHaveLength(0);
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    expect(calculatedFiguresIn(blocks)).toHaveLength(1);
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
   });
 
   test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {
@@ -446,7 +561,9 @@ describe("an Analysis an Answer runs", () => {
       const input = answer.analyses[0]?.inputs[0];
       if (input?.kind !== "range") throw new Error("No range input.");
 
-      expect(await core.recheckCitation(input.citation)).toMatchObject({ check: "found" });
+      expect(await core.recheckCitation({ ...input.citation, mindId: null })).toMatchObject({
+        check: "found",
+      });
     },
   );
 

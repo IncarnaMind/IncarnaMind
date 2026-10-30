@@ -657,7 +657,22 @@ export const useAppStore = create<AppState>()((set, get) => {
     refuseIfDeleted(foldersMovedFrom(done), names);
     for (const back of undoMoves(done)) await move(back.items, back.folderId);
     for (const document of done.documents)
-      await core.restoreAssignment(document.id, document.previous);
+      await core.restoreAssignment(document.id, document.change.before, document.change.after);
+  };
+
+  /** Whether anything is in this Folder now: a Document, a Mind or a conversation. */
+  const folderOccupied = async (folderId: string) => {
+    const [library, minds, conversations] = await Promise.all([
+      core.getLibrary(),
+      core.listMinds(),
+      core.listConversations(),
+    ]);
+    return (
+      // A Suggested Folder still in To review is Organize's, not something the User filed here.
+      library.assignments.some((each) => each.groupId === folderId && !each.suggested) ||
+      minds.some((each) => each.folderId === folderId) ||
+      conversations.some((each) => each.folderId === folderId)
+    );
   };
 
   /**
@@ -672,12 +687,20 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove;
+    outOfWall?: boolean;
   }): Undoable => {
-    const { moving, folderId, folderName, named, names } = made;
+    const { moving, folderId, folderName, named, names, outOfWall = false } = made;
     let { done } = made;
     return {
-      said: (t) =>
-        moveMessage(t, moving, folderId === null ? t("library.unsorted") : folderName, named),
+      said: (t) => {
+        const message = moveMessage(
+          t,
+          moving,
+          folderId === null ? t("library.unsorted") : folderName,
+          named,
+        );
+        return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+      },
       name: (t) => moveName(t, moving, named),
       undo: () => putBack(done, names),
       redo: async () => {
@@ -693,23 +716,33 @@ export const useAppStore = create<AppState>()((set, get) => {
     named: Names;
     names: ReadonlyMap<string, string>;
     done: FolderMove | null;
+    outOfWall?: boolean;
   }) => {
-    const { folderId, going, named, names } = made;
+    const { folderId, going, named, names, outOfWall = false } = made;
     let { done } = made;
-    return (folderName: string): Undoable => ({
-      said: (t) => madeMessage(t, folderName, going, named),
-      name: (t) => t("undo.name.newFolder"),
-      undo: async () => {
-        if (done) await putBack(done, names);
-        await core.deleteLibraryGroup(folderId);
-        await get().refreshLibrary();
-      },
-      redo: async () => {
-        await core.restore([{ kind: "folder", id: folderId }]);
-        await get().refreshLibrary();
-        if (going) done = await move(going, folderId);
-      },
-    });
+    return (folderName: string): Undoable => {
+      let kept = false;
+      return {
+        said: (t) => {
+          const message = madeMessage(t, folderName, going, named);
+          return outOfWall ? `${message} ${t("move.outOfWall")}` : message;
+        },
+        name: (t) => t("undo.name.newFolder"),
+        undoneNote: () => (kept ? (t) => t("commands.kept.folder", { name: folderName }) : null),
+        undo: async () => {
+          if (done) await putBack(done, names);
+          // What the User put in it since is theirs, so the Folder stays rather than goes with it (#1928).
+          kept = await folderOccupied(folderId);
+          if (!kept) await core.deleteLibraryGroup(folderId);
+          await get().refreshLibrary();
+        },
+        redo: async () => {
+          await core.restore([{ kind: "folder", id: folderId }]);
+          await get().refreshLibrary();
+          if (going) done = await move(going, folderId);
+        },
+      };
+    };
   };
 
   /**
@@ -1126,6 +1159,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(moving, { minds, documents }),
           names: namesOfFolders(library, [folderId, ...foldersMovedFrom(done)]),
           done,
+          outOfWall: foldersMovedFrom(done).some(
+            (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+          ),
         });
         push(change);
       });
@@ -1154,6 +1190,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           named: namesOfMoving(going ?? {}, { minds, documents }),
           names: namesOfFolders(library, done ? foldersMovedFrom(done) : []),
           done,
+          outOfWall: done
+            ? foldersMovedFrom(done).some(
+                (id) => library?.groups.find((group) => group.id === id)?.keepInside === true,
+              )
+            : false,
         });
         const step = stepNamed(name);
         justMade = { id: folder.id, step, stepNamed };
@@ -1198,13 +1239,25 @@ export const useAppStore = create<AppState>()((set, get) => {
         name: group.name,
         description: group.description,
         countsOwnFiles: group.countsOwnFiles,
+        keepInside: group.keepInside,
       });
       const before = fields(folder);
       const after = fields(edited);
       if (JSON.stringify(before) === JSON.stringify(after)) return;
       const rename = before.name !== after.name;
+      const wallChanged = before.keepInside !== after.keepInside;
       push({
-        said: (t) => t(rename ? "object.renamed" : "undo.folderEdited", { name: after.name }),
+        said: (t) =>
+          t(
+            wallChanged
+              ? after.keepInside
+                ? "undo.folderWallOn"
+                : "undo.folderWallOff"
+              : rename
+                ? "object.renamed"
+                : "undo.folderEdited",
+            { name: after.name },
+          ),
         name: (t) => t(rename ? "undo.name.rename" : "undo.name.editFolder"),
         undo: folderFields(folderId, before),
         redo: folderFields(folderId, after),

@@ -16,7 +16,13 @@ import { SCAN_CURRENT_SINCE } from "../../src/core/documents/processing";
 import { createFakeTextRecognizer, type FakeScanScript } from "../../src/core/documents/scan/fake";
 import { BUILT_IN_TEXT_RECOGNITION_MODEL } from "../../src/core/documents/scan/model";
 import { openDatabase } from "../../src/core/storage";
-import { askAndFinish, citingModel, onlyCitation, setUpWithDocuments } from "../helpers/citations";
+import {
+  askAndFinish,
+  checkedResult,
+  citingModel,
+  onlyCitation,
+  setUpWithDocuments,
+} from "../helpers/citations";
 import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -316,6 +322,32 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(found).toMatchObject({ documentId: document.id, pageFrom: 1 });
   });
 
+  test("a scanned page keeps its rows on the first read and on a re-read", async () => {
+    const dataDir = await createTempDataFolder();
+    const lines = ["华东 1,286 1,452", "月起配送费率调整", "华南 974 1,031"];
+    const { recognizer } = countingRecognizer({ pages: { 1: { lines } } });
+    const core = startCore(dataDir, scanning(recognizer));
+    const document = await addPdf(core, "Rows.pdf", buildPdf([{ scan: picture("zh-clean") }]));
+    const pageText = () => unitsOf(dataDir, document)[0]?.text ?? "";
+    // A row ends in a digit and the next starts with a Han character: joining them would merge
+    // the table's rows, so a scanned page keeps the line break.
+    expect(pageText()).toContain("华东 1,286 1,452\n月起配送费率调整");
+    core.close();
+
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET processing_version = 15 WHERE id = ?", [document.id]);
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir, scanning(recognizer));
+    await waitForProcessing(again, [document.id]);
+    expect(unitsOf(dataDir, document)[0]?.text ?? "").toContain(
+      "华东 1,286 1,452\n月起配送费率调整",
+    );
+    again.close();
+  });
+
   test("an Answer cites a scanned page, and the Citation check finds its quote", async () => {
     const quote = "Either party may terminate this Agreement for convenience";
     const model = citingModel({
@@ -565,12 +597,15 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(JSON.parse(units[0]?.label ?? "{}").scan.reader).toBe("PP-OCRv4 mobile/1");
     expect(units[1]?.text).toContain("northern estuarine");
     expect(JSON.parse(units[1]?.label ?? "{}").scan.reader).toBe(READER);
-    const recheck = await restarted.recheckCitation({
-      documentId: document.id,
-      quote,
-      pageFrom: 1,
-      pageTo: 1,
-    });
+    const recheck = checkedResult(
+      await restarted.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote,
+        pageFrom: 1,
+        pageTo: 1,
+      }),
+    );
     expect(recheck.check).toBe("found");
   });
 

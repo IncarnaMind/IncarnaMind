@@ -231,14 +231,21 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   await app.close();
 });
 
-test("a Mind of one's own made on the first open isn't listed under Examples (#123)", async () => {
+test("a Mind of one's own made on the first open is listed under Notes, never under Examples (#123, #1942)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
-  const section = window.getByTestId("sidebar").getByTestId("not-in-a-folder-title");
-  await expect(section).toHaveText("Examples");
+  const sidebar = window.getByTestId("sidebar");
+  await expect(sidebar.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
   await newMind(window);
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
-  // One flat list of the User's own things on day one, called Documents (#1942).
-  await expect(section).toHaveText("Documents");
+  // The User's Note is counted under its own heading, and the example keeps the Examples one (#1942).
+  await expect(sidebar.getByTestId("notes-title")).toContainText("Notes");
+  await expect(
+    sidebar.getByTestId("notes-section").getByTestId("sidebar-section-count"),
+  ).toHaveText("1");
+  await expect(sidebar.getByTestId("notes-section").getByTestId("mind-list-item")).toHaveCount(1);
+  await expect(sidebar.getByTestId("examples-section").getByTestId("mind-list-item")).toHaveCount(
+    1,
+  );
   await app.close();
 });
 

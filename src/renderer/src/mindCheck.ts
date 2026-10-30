@@ -26,7 +26,6 @@ import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
 import {
-  type CheckProblem,
   dismissCheckProblem,
   setCheckCardOpen,
   setCheckProblem,
@@ -81,7 +80,13 @@ interface CheckToRun {
 const ASK_FROM = 10;
 
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
-const STOPS: ReadonlySet<string> = new Set(["failed", "not-ready", "local-mode", "cancelled"]);
+const STOPS: ReadonlySet<string> = new Set([
+  "failed",
+  "not-ready",
+  "local-mode",
+  "cancelled",
+  "running",
+]);
 
 /** How long the Note's editor may take to open before a Check runs without the contradiction watch. */
 const OPEN_WAIT_MS = 10_000;
@@ -112,8 +117,15 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
   return run;
 }
 
-const everywhere = (problem: CheckProblem, mindId: string, mode: CheckMindMode) =>
-  withCheckAll(problem, () => void startMindCheck(mindId, mode, { allDocuments: true }));
+/**
+ * Runs a whole-Note check again: a check of chosen figures checks those figures again, never the
+ * whole Note; any other is planned and asked again.
+ */
+const again =
+  (mindId: string, mode: CheckMindMode, allDocuments: boolean, figureIds?: string[]) => () =>
+    void (figureIds
+      ? checkMind(mindId, mode, { allDocuments, figureIds })
+      : startMindCheck(mindId, mode, { allDocuments }));
 
 /**
  * Checks the Note's claims now, as `mode` says: what changed, every sentence,
@@ -124,7 +136,7 @@ const everywhere = (problem: CheckProblem, mindId: string, mode: CheckMindMode) 
 export async function checkMind(
   mindId: string,
   mode: CheckMindMode,
-  { allDocuments = false }: { allDocuments?: boolean } = {},
+  { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
   dismissMindCheck(mindId);
@@ -132,7 +144,7 @@ export async function checkMind(
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
-    await checkMindNow(mindId, mode, allDocuments, requestId);
+    await checkMindNow(mindId, mode, allDocuments, requestId, figureIds);
   } finally {
     setCheckRunning(mindId, null);
   }
@@ -144,20 +156,33 @@ async function checkMindNow(
   mode: CheckMindMode,
   allDocuments: boolean,
   requestId: string,
+  figureIds?: string[],
 ): Promise<CheckMindResult | "error"> {
   try {
-    const result = await core.checkMind({ requestId, mindId, mode, allDocuments });
+    const result = await core.checkMind({
+      requestId,
+      mindId,
+      mode,
+      allDocuments,
+      ...(figureIds && { figureIds }),
+    });
     if (result.kind === "checked") setCheckSmallModel(mindId, result.smallModel);
     else if (result.kind === "failed") {
-      setCheckProblem(mindId, { kind: "find-failed", error: result.error, mode, allDocuments });
+      setCheckProblem(mindId, {
+        kind: "find-failed",
+        error: result.error,
+        retry: again(mindId, mode, allDocuments, figureIds),
+      });
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
-    else if (result.kind !== "cancelled") setCheckProblem(mindId, everywhere(result, mindId, mode));
+    // Another window's Check of this Note is running: it says how it went.
+    else if (result.kind !== "cancelled" && result.kind !== "running")
+      setCheckProblem(mindId, withCheckAll(result, again(mindId, mode, true, figureIds)));
     return result;
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: () => void checkMind(mindId, mode, { allDocuments }),
+      retry: () => void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) }),
     });
     return "error";
   }
@@ -343,7 +368,9 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
     dismissCheckProblem(mindId);
     setCheckProblem(
       mindId,
-      plan.kind === "nothing" ? { kind: "no-claims" } : everywhere(plan, mindId, run.mode),
+      plan.kind === "nothing"
+        ? { kind: "no-claims" }
+        : withCheckAll(plan, again(mindId, run.mode, true)),
     );
     return;
   }

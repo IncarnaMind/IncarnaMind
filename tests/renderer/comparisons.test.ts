@@ -1,83 +1,16 @@
-import { Editor, type JSONContent } from "@tiptap/core";
-import { describe, expect, onTestFinished, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { ComparisonProblem } from "../../src/core";
-import { addComparisonColumn } from "../../src/renderer/src/editor/comparisonCommands";
-import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   cellProblemMessage,
   cellToFill,
+  comparisonCellCounts,
   comparisonCellOf,
   comparisonQuestionsOf,
-  MAX_COMPARISON_QUESTIONS,
+  comparisonRowMatchesFilter,
 } from "../../src/shared/comparisons";
 import { translate } from "../../src/shared/i18n";
 import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
-
-const cell = (questionId: string, status = "done"): JSONContent => ({
-  type: "comparisonCell",
-  attrs: { questionId, status },
-  content: [{ type: "paragraph", content: [{ type: "text", text: `${questionId} answer` }] }],
-});
-
-/** A headless editor holding a comparison table of two Documents and one Question, after a Note. */
-function editorWithTable(): Editor {
-  const editor = new Editor({
-    element: null,
-    extensions: noteExtensions(),
-    content: {
-      type: "doc",
-      content: [
-        { type: "paragraph", content: [{ type: "text", text: "Shortlist" }] },
-        {
-          type: "comparisonTable",
-          attrs: { id: "table-1", questions: [{ id: "q1", text: "Termination notice" }] },
-          content: ["doc-a", "doc-b"].map((documentId) => ({
-            type: "comparisonRow",
-            attrs: { documentId, documentName: documentId },
-            content: [cell("q1")],
-          })),
-        },
-      ],
-    },
-  });
-  onTestFinished(() => editor.destroy());
-  return editor;
-}
-
-describe("A comparison table in the editor", () => {
-  test("“+ Question” adds a column, and a cell waiting in each row, as one change Undo takes back", () => {
-    const editor = editorWithTable();
-    expect(addComparisonColumn(editor, "table-1", "  Governing   law ")).not.toBeNull();
-
-    const table = editor.state.doc.child(1);
-    expect(comparisonQuestionsOf(table.attrs).map((question) => question.text)).toEqual([
-      "Termination notice",
-      "Governing law",
-    ]);
-    const added = comparisonQuestionsOf(table.attrs)[1]?.id;
-    table.forEach((row) => {
-      expect(row.childCount).toBe(2);
-      expect(comparisonCellOf(row.child(1).attrs)).toMatchObject({
-        questionId: added,
-        status: "waiting",
-      });
-    });
-    expect(() => editor.state.doc.check()).not.toThrow();
-
-    // Nothing to add: no column. A table that isn't there: nothing.
-    expect(addComparisonColumn(editor, "table-1", "   ")).toBeNull();
-    expect(addComparisonColumn(editor, "no-table", "Liability cap")).toBeNull();
-  });
-
-  test("a table holds at most so many Questions", () => {
-    const editor = editorWithTable();
-    for (let added = 1; added < MAX_COMPARISON_QUESTIONS; added++) {
-      expect(addComparisonColumn(editor, "table-1", `Question ${added}`)).not.toBeNull();
-    }
-    expect(addComparisonColumn(editor, "table-1", "One too many")).toBeNull();
-  });
-});
 
 describe("Reading a comparison table", () => {
   test("malformed columns and cells read as their defaults", () => {
@@ -89,6 +22,62 @@ describe("Reading a comparison table", () => {
     ).toEqual([{ id: "q1", text: "A" }]);
     expect(comparisonCellOf({ status: "odd" })).toMatchObject({ status: "waiting", problem: null });
     expect(comparisonCellOf({ status: "failed" })).toMatchObject({ problem: "unknown" });
+  });
+
+  test("title counts distinguish found nothing from failure and follow the latest cells", () => {
+    const cells = [
+      { questionId: "q1", status: "done" },
+      { questionId: "q2", status: "failed", problem: "not-found" },
+      { questionId: "q3", status: "failed", problem: "network" },
+      { questionId: "q4", status: "waiting" },
+      { questionId: "q5", status: "writing" },
+    ].map(comparisonCellOf);
+    expect(comparisonCellCounts(cells)).toMatchObject({
+      total: 5,
+      settled: 3,
+      notFound: 1,
+      failed: 1,
+    });
+    const refilled = cells.map((cell) =>
+      comparisonCellOf({ ...cell, status: "done", problem: null }),
+    );
+    expect(comparisonCellCounts(refilled)).toMatchObject({
+      total: 5,
+      settled: 5,
+      notFound: 0,
+      failed: 0,
+    });
+    expect(comparisonCellCounts([])).toMatchObject({ total: 0, notFound: 0, failed: 0 });
+  });
+
+  test("problem filters match rows by any cell, and combine only where both kinds occur", () => {
+    const done = comparisonCellOf({ questionId: "done", status: "done" });
+    const notFound = comparisonCellOf({ questionId: "nf", status: "failed", problem: "not-found" });
+    const failed = comparisonCellOf({ questionId: "failed", status: "failed", problem: "network" });
+    const rows = [[done, notFound], [done, failed], [notFound, failed], [done]];
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["not-found"]))).toEqual([
+      rows[0],
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["failed"]))).toEqual([
+      rows[1],
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["not-found", "failed"]))).toEqual([
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, []))).toEqual(rows);
+  });
+
+  test("a cell's edited and reviewed marks read as booleans, including HTML's strings", () => {
+    expect(comparisonCellOf({ status: "done", edited: true, reviewed: "true" })).toMatchObject({
+      edited: true,
+      reviewed: true,
+    });
+    expect(comparisonCellOf({ status: "done", edited: "false", reviewed: false })).toMatchObject({
+      edited: false,
+      reviewed: false,
+    });
   });
 
   test("filling again writes cells with no Answer, but not those whose Document can't answer", () => {

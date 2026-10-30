@@ -17,7 +17,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../shared/blockJson";
-import { BLOCK_ID_ATTRIBUTE, NOTE_BLOCK_TYPES } from "../api";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
+  NOTE_BLOCK_TYPES,
+} from "../api";
 import { isRecord } from "../errors";
 import { contentMarkdownOf, elementMarkdown } from "./contextText";
 
@@ -33,8 +38,15 @@ interface Run {
 
 type Child = { kind: "text"; runs: Run[] } | { kind: "element"; node: NodeJSON };
 
-/** Node types that carry a Block ID. Tiptap's UniqueID gives them one; the core does for those it writes. */
-const ID_TYPES: ReadonlySet<string> = new Set(NOTE_BLOCK_TYPES);
+/**
+ * Node types that carry an id. Tiptap's UniqueID gives Blocks one, and `citationIds` Citations;
+ * the core does for those it writes. A Citation's is what "Checked by me" names it by (#1933).
+ */
+const ID_TYPES: ReadonlySet<string> = new Set([
+  ...NOTE_BLOCK_TYPES,
+  CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
+]);
 
 /** The top-level Blocks of a Mind, in order. */
 export function topLevelBlocks(blocks: Y.XmlFragment): Y.XmlElement[] {

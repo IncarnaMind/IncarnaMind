@@ -1,0 +1,10 @@
+{
+  "library": "resources/examples: 19 PDFs, 5 Word files, 2 Markdown files; 600 Passages",
+  "method": "Processed by 401f7af2f with embeddings on, then opened by this branch so the wider pipeline re-read the same data folder. A Document whose pages changed only by a joined line wrap kept its Passages, ids, windows and vectors.",
+  "pdf": { "wrapOnly": 235, "unchanged": 349, "replaced": 0 },
+  "docx": { "unchanged": 10 },
+  "markdown": { "unchanged": 6 },
+  "keptEmbeddings": 600,
+  "newEmbeddings": 0,
+  "removedPassages": 0
+}

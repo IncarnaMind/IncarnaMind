@@ -54,6 +54,8 @@ export interface NewFile {
    * IncarnaMind saves, such as a Transcript or a web page, which counts.
    */
   ownFile: OwnFileKind | null;
+  /** The Folder of the Note it was written from; null for none (see ./documents/ownFiles). */
+  fromFolder: string | null;
   /**
    * The folder to save it in, if not the Output location: one inside a Linked
    * folder, e.g. next to the original it was made from. Anywhere else is refused,
@@ -74,7 +76,7 @@ export interface OutputFilesOptions {
   /** The live Linked folders. */
   linkedFolders(): readonly Pick<LinkedFolder, "id" | "path">[];
   /** Records the fingerprint of a file IncarnaMind wrote, before it is written (see ./documents/ownFiles). */
-  recordOwnFile(data: Uint8Array, kind: OwnFileKind): void;
+  recordOwnFile(data: Uint8Array, kind: OwnFileKind, folderId: string | null): void;
   log: Logger;
 }
 
@@ -398,7 +400,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         const linked = ownerOf(folder);
         if (linked && !(await allowedIn(linked, name))) continue;
         // Before the file exists, so a Linked folder can't index it as the User's.
-        if (file.ownFile) options.recordOwnFile(file.data, file.ownFile);
+        if (file.ownFile) options.recordOwnFile(file.data, file.ownFile, file.fromFolder);
         let used: string;
         try {
           used = await writeNewFile(folder, name, file.data);

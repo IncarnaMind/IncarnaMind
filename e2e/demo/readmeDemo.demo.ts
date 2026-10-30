@@ -3,8 +3,9 @@
  * model, the real speech and search models, and test Documents only. Build the test app first
  * (`npx electron-vite build --mode test`), then:
  *
- *   set -a; . ./.env.local; set +a; npm run demo:record
+ *   ANTHROPIC_API_KEY=… npm run demo:record
  *
+ * `ANTHROPIC_API_KEY` is the Anthropic key it records with.
  * `DEMO_LANGUAGE` records one language, `DEMO_OUT` is where the film's files go (docs/images by
  * default), `DEMO_STILLS` where the feature pictures go (docs/images by default), `DEMO_CONTACT`
  * where the contact sheet goes (a temporary folder) and `DEMO_SCENES` films only the scenes it
@@ -110,9 +111,7 @@ async function record(script: DemoScript): Promise<void> {
     // The computer's spell checker would underline the fictional names in the draft.
     await app.evaluate(({ session }) => session.defaultSession.setSpellCheckerEnabled(false));
     if (script.language !== "en") await setLanguage(window, script.language);
-    console.log(
-      `${script.language}: model ${(await connectClaude(window)).replace(/.*_/, "key ")}`,
-    );
+    await connectClaude(window);
     await chooseSonnetEverywhere(window);
     await saveFilesIn(window, output);
     const workspace = await buildWorkspace(window, script, sources);

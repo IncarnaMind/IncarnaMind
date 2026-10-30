@@ -12,6 +12,7 @@ import {
   citedLocation,
   citedTextKept,
   closestWordsMessage,
+  fetchedAgainOn,
   parseQuotedWords,
   quotedWordsFoundIn,
   quoteStanding,
@@ -238,6 +239,27 @@ describe("A Citation's badge", () => {
     expect(
       citationState({ ...found, contentHash: null }, [{ id: "tides", contentHash: "def" }]),
     ).toMatchObject({ changedAfterCited: false });
+  });
+
+  test("keeps an old Citation's result and Document outside a wall, without re-checking it", () => {
+    const state = citationState(
+      { ...found, contentHash: "old" },
+      [{ id: "tides", contentHash: "new" }],
+      [],
+      "Client A",
+    );
+    expect(state).toMatchObject({
+      check: "found",
+      reason: null,
+      documentId: "tides",
+      changedAfterCited: false,
+      keptInside: "Client A",
+    });
+    // The heading stays the result it was made with; "Kept inside" is said once, under the name.
+    expect(badgeMessage(state, found, in_("en")).key).toBe(
+      badgeMessage(citationState(found, [{ id: "tides", contentHash: "abc" }]), found, in_("en"))
+        .key,
+    );
   });
 
   test("finds its Document by ID first, else the first in the list with the same content", () => {
@@ -750,6 +772,43 @@ describe("A Citation whose Document changed after it was cited", () => {
       notice: "The Document changed after this was cited.",
       quote: null,
     });
+  });
+
+  test("a saved web page says on what day it was fetched again, and that the copy cited is kept", () => {
+    expect(changedSourceNote(true, found, "failed", in_("en"), "21 October 2026")).toEqual({
+      notice:
+        "This page was fetched again on 21 October 2026, after you cited it. What’s shown is the new copy; the one you cited is kept.",
+      quote: null,
+    });
+    expect(changedSourceNote(true, found, "failed", in_("zh-CN"), "2026年10月21日")).toEqual({
+      notice:
+        "此网页在你引用后于 2026年10月21日 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
+      quote: null,
+    });
+    // The words about how the quote stands in the new version are the same as for a file.
+    expect(changedSourceNote(true, found, rechecked({}), in_("en"), "21 October 2026")?.quote).toBe(
+      "The quote is still here.",
+    );
+  });
+
+  test("only a saved web page has a day it was fetched again, and it is the day of the version it now holds", () => {
+    const file = {
+      contentHash: "b",
+      modifiedAt: "2026-10-21T12:00:00Z",
+      updatedAt: "2026-10-24T09:00:00Z",
+      web: null,
+    };
+    expect(fetchedAgainOn(file, "en")).toBeNull();
+    expect(fetchedAgainOn(undefined, "en")).toBeNull();
+    const page = {
+      ...file,
+      web: {
+        fetchedAt: "2026-10-25T08:00:00Z",
+        versions: [{ contentHash: "b", fetchedAt: "2026-10-23T08:00:00Z" }],
+      },
+    };
+    expect(fetchedAgainOn(page, "en")).toBe(formatDate("2026-10-23T08:00:00Z", "en"));
+    expect(fetchedAgainOn(page, "zh-CN")).toBe(formatDate("2026-10-23T08:00:00Z", "zh-CN"));
   });
 
   test("names the day the version it now opens was made", () => {

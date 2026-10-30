@@ -8,9 +8,11 @@ import {
   type Folder,
   type LibrarySnapshot,
   type Mind,
+  type MovedDocument,
   type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
+import { translate } from "../../src/shared/i18n";
 import { isFreed } from "../helpers/freed";
 import { undoLines } from "../helpers/undoLines";
 
@@ -70,17 +72,49 @@ const assignment = (
   model: null,
 });
 
-const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
-  groups: [
-    {
-      id: "g",
-      name: "Research",
-      description: "",
-      countsOwnFiles: false,
-      createdAt: "",
-      updatedAt: "",
+/** A Document a move moved, with the rows before and after as the core returns them. */
+const movedDocument = (
+  id: string,
+  from: string | null,
+  before: DocumentGroupAssignment | null,
+  to: string | null,
+): MovedDocument => {
+  const state = (item: DocumentGroupAssignment | null) => {
+    if (!item) return { assignment: null, tagging: null };
+    const { documentId: _id, tagging: _tagging, ...fields } = item;
+    return { assignment: fields, tagging: null };
+  };
+  return {
+    id,
+    from,
+    change: {
+      documentId: id,
+      before: state(before),
+      after: state({
+        documentId: id,
+        groupId: to,
+        source: "user",
+        suggested: false,
+        status: "classified",
+        error: null,
+        model: null,
+      }),
     },
-  ],
+  };
+};
+
+const researchGroup = (keepInside = false) => ({
+  id: "g",
+  name: "Research",
+  description: "",
+  countsOwnFiles: false,
+  keepInside,
+  createdAt: "",
+  updatedAt: "",
+});
+
+const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
+  groups: [researchGroup()],
   deletedGroups: [],
   assignments,
   settings: {
@@ -248,10 +282,11 @@ describe("undoing a move", () => {
       ],
       library: snapshot([filed]),
     });
+    const moved = movedDocument("a", "g", filed, "h");
     method("moveToFolder").mockResolvedValue({
       folderId: "h",
       minds: [{ id: "m", from: null }],
-      documents: [{ id: "a", from: "g", previous: filed }],
+      documents: [moved],
       conversations: [],
     });
 
@@ -264,7 +299,11 @@ describe("undoing a move", () => {
       conversationIds: [],
       folderId: null,
     });
-    expect(method("restoreAssignment")).toHaveBeenCalledWith("a", filed);
+    expect(method("restoreAssignment")).toHaveBeenCalledWith(
+      "a",
+      moved.change.before,
+      moved.change.after,
+    );
   });
 });
 
@@ -291,6 +330,94 @@ describe("changes the User can take back", () => {
 
   const top = () => useUndo.getState().done.at(-1);
 
+  test("a Folder wall is undone and redone with its other fields intact", async () => {
+    const group = researchGroup(false);
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: true });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    expect(said(top())).toBe("“Research” now keeps its work inside it");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已开启“Research”只在本文件夹内工作",
+    );
+
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [{ ...group, keepInside: true }] },
+    });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: false });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: false,
+    });
+    expect(said(top())).toBe("“Research” no longer keeps its work inside it");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已关闭“Research”只在本文件夹内工作",
+    );
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: true });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    await useUndo.getState().undo();
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: false,
+    });
+    await useUndo.getState().redo();
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+  });
+
+  test("moving out of a walled Folder says what changed", async () => {
+    const group = researchGroup(true);
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("moveToFolder").mockResolvedValue({
+      folderId: null,
+      minds: [],
+      documents: [movedDocument("a", "g", filed, null)],
+      conversations: [],
+    });
+    await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+  });
+
+  test("making a Folder with an item from a walled Folder says it moved out", async () => {
+    const group = researchGroup(true);
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("createLibraryGroup").mockResolvedValue({ ...researchGroup(), id: "n", name: "New" });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "n",
+      minds: [],
+      documents: [movedDocument("a", "g", filed, "n")],
+      conversations: [],
+    });
+    await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+  });
+
   test("a rename says so, is undone by the old name and done again by the new", async () => {
     method("renameMind").mockResolvedValue({ ...mind, title: "Budget" });
     await useAppStore.getState().renameMind("m", "Budget");
@@ -307,7 +434,9 @@ describe("changes the User can take back", () => {
     expect(said(top())).toBe("Moved “a v0” to Recently deleted");
     expect(useAppStore.getState().documents.map((each) => each.id)).toEqual(["b", "c"]);
     await useUndo.getState().undo();
-    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "a" }]);
+    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "a" }], {
+      reopen: true,
+    });
     await useUndo.getState().redo();
     expect(method("deleteDocuments")).toHaveBeenCalledTimes(2);
   });
@@ -321,10 +450,13 @@ describe("changes the User can take back", () => {
     expect(named(top())).toBe("Delete 2 Documents");
     expect(useAppStore.getState().documents.map((each) => each.id)).toEqual(["c"]);
     await useUndo.getState().undo();
-    expect(method("restore")).toHaveBeenCalledWith([
-      { kind: "document", id: "a" },
-      { kind: "document", id: "b" },
-    ]);
+    expect(method("restore")).toHaveBeenCalledWith(
+      [
+        { kind: "document", id: "a" },
+        { kind: "document", id: "b" },
+      ],
+      { reopen: true },
+    );
   });
 
   const slow = () => {
@@ -395,10 +527,13 @@ describe("changes the User can take back", () => {
     deleting.finish();
     await deleted;
     await undone;
-    expect(method("restore")).toHaveBeenCalledWith([
-      { kind: "document", id: "a" },
-      { kind: "document", id: "b" },
-    ]);
+    expect(method("restore")).toHaveBeenCalledWith(
+      [
+        { kind: "document", id: "a" },
+        { kind: "document", id: "b" },
+      ],
+      { reopen: true },
+    );
     expect(method("renameMind")).toHaveBeenCalledTimes(1);
     expect(ids()).toEqual(["a", "b", "c"]);
   });
@@ -432,10 +567,11 @@ describe("changes the User can take back", () => {
   test("a move is done again where it went, and refused, with Restore, once the Folder it came from is gone", async () => {
     const filed = assignment("a", "classified", "g");
     useAppStore.setState({ library: snapshot([filed]) });
+    const moved = movedDocument("a", "g", filed, null);
     method("moveToFolder").mockResolvedValue({
       folderId: null,
       minds: [],
-      documents: [{ id: "a", from: "g", previous: filed }],
+      documents: [moved],
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
@@ -450,7 +586,11 @@ describe("changes the User can take back", () => {
     method("getLibrary").mockResolvedValue(snapshot([]));
     await problem?.fix?.run();
     expect(method("restore")).toHaveBeenCalledWith([{ kind: "folder", id: "g" }]);
-    expect(method("restoreAssignment")).toHaveBeenCalledWith("a", filed);
+    expect(method("restoreAssignment")).toHaveBeenCalledWith(
+      "a",
+      moved.change.before,
+      moved.change.after,
+    );
     await useUndo.getState().redo();
     expect(method("moveToFolder")).toHaveBeenCalledTimes(2);
   });
@@ -460,10 +600,7 @@ describe("changes the User can take back", () => {
     method("moveToFolder").mockResolvedValue({
       folderId: "g",
       minds: [],
-      documents: [
-        { id: "a", from: null, previous: null },
-        { id: "b", from: null, previous: null },
-      ],
+      documents: [movedDocument("a", null, null, "g"), movedDocument("b", null, null, "g")],
       conversations: [],
     });
     useAppStore.setState({ library: snapshot([]) });
@@ -760,6 +897,7 @@ describe("making a Folder", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };
@@ -782,12 +920,16 @@ describe("making a Folder", () => {
     });
   };
   const top = () => useUndo.getState().done.at(-1);
+  /** What the line says once the Undo of the Folder came back, if it kept it. */
+  const noteNow = () => useUndo.getState().line?.note?.(words) ?? null;
 
   beforeEach(() => {
     useUndo.setState({ done: [], undone: [], line: null });
     useRequests.setState({ nameFolder: null });
     useAppStore.setState({ settings: null, minds: [] });
     method("createLibraryGroup").mockResolvedValue(made);
+    method("listMinds").mockResolvedValue([]);
+    method("listConversations").mockResolvedValue([]);
     withNewFolder();
   });
 
@@ -888,17 +1030,28 @@ describe("making a Folder", () => {
       ],
       library: snapshot([filed]),
     });
+    const movedA = movedDocument("a", "g", filed, "n");
+    const movedB = movedDocument("b", null, null, "n");
+    const movedC = movedDocument("c", null, null, "n");
     method("moveToFolder").mockResolvedValue({
       folderId: "n",
       minds: [{ id: "m", from: "g" }],
-      documents: [
-        { id: "a", from: "g", previous: filed },
-        { id: "b", from: null, previous: null },
-        { id: "c", from: null, previous: null },
-      ],
+      documents: [movedA, movedB, movedC],
       conversations: [],
     });
     withNewFolder("Untitled Folder", [filed]);
+    // The Mind is back in its own Folder once Undo has put it there.
+    method("listMinds").mockResolvedValue([
+      {
+        id: "m",
+        title: "Plan",
+        autoTitle: "",
+        kind: "mind",
+        folderId: "g",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
 
     await useAppStore.getState().createFolder({ mindIds: ["m"], documentIds: ["a", "b", "c"] });
     expect(method("moveToFolder")).toHaveBeenCalledWith({
@@ -916,9 +1069,21 @@ describe("making a Folder", () => {
       conversationIds: [],
       folderId: "g",
     });
-    expect(method("restoreAssignment")).toHaveBeenCalledWith("a", filed);
-    expect(method("restoreAssignment")).toHaveBeenCalledWith("b", null);
-    expect(method("restoreAssignment")).toHaveBeenCalledWith("c", null);
+    expect(method("restoreAssignment")).toHaveBeenCalledWith(
+      "a",
+      movedA.change.before,
+      movedA.change.after,
+    );
+    expect(method("restoreAssignment")).toHaveBeenCalledWith(
+      "b",
+      movedB.change.before,
+      movedB.change.after,
+    );
+    expect(method("restoreAssignment")).toHaveBeenCalledWith(
+      "c",
+      movedC.change.before,
+      movedC.change.after,
+    );
     expect(method("deleteLibraryGroup").mock.invocationCallOrder[0]).toBeGreaterThan(
       method("restoreAssignment").mock.invocationCallOrder[2] ?? 0,
     );
@@ -933,12 +1098,74 @@ describe("making a Folder", () => {
     });
   });
 
+  test("a Document filed in the new Folder since keeps it, and the line says so in English and in Chinese", async () => {
+    await useAppStore.getState().createFolder();
+    // Another window filed it here after the Folder was made: Undo leaves that work where it is.
+    withNewFolder(made.name, [assignment("later", "classified", "n")]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
+
+    useUndo.setState({ done: [], undone: [], line: null });
+    useAppStore.setState({ settings: { language: "zh-CN" } as never });
+    await useAppStore.getState().createFolder();
+    withNewFolder("未命名文件夹", [assignment("later", "classified", "n")]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("保留了文件夹“未命名文件夹”：之后你在里面放了其他内容。");
+  });
+
+  test("a Mind put in the new Folder since keeps it too", async () => {
+    await useAppStore.getState().createFolder();
+    method("listMinds").mockResolvedValue([
+      {
+        id: "later",
+        title: "Plan",
+        autoTitle: "",
+        kind: "mind",
+        folderId: "n",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
+  });
+
+  test("a conversation put in the new Folder since keeps it too", async () => {
+    await useAppStore.getState().createFolder();
+    method("listConversations").mockResolvedValue([
+      {
+        id: "later",
+        title: "",
+        autoTitle: "Why do parks cool at night",
+        folderId: "n",
+        askedFrom: [],
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).not.toHaveBeenCalled();
+    expect(noteNow()).toBe("Kept the Folder “Untitled Folder”: you’ve filed things in it since.");
+  });
+
+  test("a Folder only Organize has suggested into goes, and says nothing about being kept", async () => {
+    await useAppStore.getState().createFolder();
+    // A suggestion waiting in To review is Organize's, not something the User filed here.
+    withNewFolder(made.name, [{ ...assignment("later", "pending", "n"), suggested: true }]);
+    await useUndo.getState().undo();
+    expect(method("deleteLibraryGroup")).toHaveBeenCalledWith("n");
+    expect(noteNow()).toBeNull();
+  });
+
   test("the line says how many went in, in English and in Chinese", async () => {
     useAppStore.setState({ documents: [doc("a"), doc("b"), doc("c")] });
     method("moveToFolder").mockResolvedValue({
       folderId: "n",
       minds: [],
-      documents: ["a", "b", "c"].map((id) => ({ id, from: null, previous: null })),
+      documents: ["a", "b", "c"].map((id) => movedDocument(id, null, null, "n")),
       conversations: [],
     });
     await useAppStore.getState().createFolder({ documentIds: ["a", "b", "c"] });
@@ -1034,7 +1261,9 @@ describe("Organize says what it did (#763)", () => {
     const restored = method("restoreAssignment");
     expect(restored).toHaveBeenCalledTimes(2);
     expect(restored.mock.calls[0]?.[0]).toBe("a");
-    expect(restored.mock.calls[0]?.[1]).toMatchObject({ groupId: null, suggested: false });
+    expect(restored.mock.calls[0]?.[1]).toMatchObject({
+      assignment: { groupId: null, suggested: false },
+    });
   });
 
   test("Undo leaves a Document the User moved since", async () => {
@@ -1094,11 +1323,21 @@ describe("Undo of an Organize that began with Documents unfinished (#1391)", () 
       useAppStore.setState({
         library: snapshot(documents.map((id, at) => suggestedIn(id, folderOf(at)))),
       });
+      // As the core does: the change it made, the rows before and after, the other way round.
+      method("restoreAssignment").mockImplementation(
+        async (id: string, putBack: unknown, left: unknown) => ({
+          documentId: id,
+          before: left,
+          after: putBack,
+        }),
+      );
 
       await useUndo.getState().undo();
       const restored = method("restoreAssignment");
       expect(restored).toHaveBeenCalledTimes(count);
-      expect(restored.mock.calls.map((call) => call[1])).toEqual(documents.map(() => null));
+      expect(restored.mock.calls.map((call) => call[1])).toEqual(
+        documents.map(() => ({ assignment: null, tagging: null })),
+      );
 
       // Nothing is left for Organize to do: the Library holds no assignment for them.
       restored.mockClear();
@@ -1107,7 +1346,9 @@ describe("Undo of an Organize that began with Documents unfinished (#1391)", () 
       expect(restored).toHaveBeenCalledTimes(count);
       documents.forEach((id, at) => {
         const call = restored.mock.calls.find((each) => each[0] === id);
-        expect(call?.[1]).toMatchObject({ groupId: folderOf(at), suggested: true });
+        expect(call?.[1]).toMatchObject({
+          assignment: { groupId: folderOf(at), suggested: true },
+        });
       });
     },
   );
@@ -1124,9 +1365,7 @@ describe("Undo of an Organize that began with Documents unfinished (#1391)", () 
     await useUndo.getState().undo();
 
     expect(method("restoreAssignment").mock.calls[0]?.[1]).toMatchObject({
-      groupId: "g0",
-      suggested: false,
-      status: "classified",
+      assignment: { groupId: "g0", suggested: false, status: "classified" },
     });
   });
 });
@@ -1146,6 +1385,7 @@ describe("an undo line keeps only what it shows", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };
@@ -1187,7 +1427,7 @@ describe("an undo line keeps only what it shows", () => {
     method("moveToFolder").mockResolvedValue({
       folderId: "g",
       minds: [],
-      documents: [{ id: "a", from: null, previous: null }],
+      documents: [movedDocument("a", null, null, "g")],
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, "g");
@@ -1201,7 +1441,7 @@ describe("an undo line keeps only what it shows", () => {
     method("moveToFolder").mockResolvedValue({
       folderId: "g",
       minds: [{ id: "m", from: null }],
-      documents: [{ id: "a", from: null, previous: null }],
+      documents: [movedDocument("a", null, null, "g")],
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ mindIds: ["m"], documentIds: ["a"] }, "g");
@@ -1214,7 +1454,7 @@ describe("an undo line keeps only what it shows", () => {
     method("moveToFolder").mockResolvedValue({
       folderId: "n",
       minds: [],
-      documents: [{ id: "a", from: null, previous: null }],
+      documents: [movedDocument("a", null, null, "n")],
       conversations: [],
     });
     const library = snapshot([]);

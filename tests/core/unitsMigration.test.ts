@@ -82,7 +82,7 @@ async function beforeUnits(): Promise<{
           key === "pdf" ? 2n : null,
           paths[key],
           info.mtimeMs,
-          BigInt(key === "pdf" ? CURRENT_SINCE.pdf : 4),
+          BigInt(key === "pdf" ? PROCESSING_VERSION : 4),
           AT,
           AT,
         ],
@@ -198,6 +198,7 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
 
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: IDS.notes,
         quote: "Spring tides came at full moon.",
         pageFrom: null,
@@ -238,13 +239,14 @@ describe("a workbook stamped by an older pipeline", () => {
     expect(blank.status).toBe("no-text");
     first.close();
 
-    // Workbooks are stamped 12, before #1924; the PDF is current and is not read again.
+    // Workbooks are stamped 12, before #1924; the PDF and the Markdown are current and not
+    // read again.
     expect(12).toBeLessThan(PROCESSING_VERSION);
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.run(
-        "UPDATE documents SET processing_version = CASE WHEN kind = 'pdf' THEN ? ELSE 12 END, unread_parts = NULL",
-        [BigInt(CURRENT_SINCE.pdf)],
+        "UPDATE documents SET processing_version = CASE WHEN kind = 'xlsx' THEN 12 ELSE ? END, unread_parts = NULL",
+        [BigInt(PROCESSING_VERSION)],
       );
     } finally {
       db.close();

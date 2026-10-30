@@ -6,13 +6,18 @@
  * page it was reading fails, and the next `load` starts a new one (see
  * `createChannelTextRecognizer`).
  */
-import { utilityProcess } from "electron";
 import type { TextRecognizer } from "../core";
 import {
   createChannelTextRecognizer,
   type TextRecognizerResponse,
 } from "../core/documents/scan/channel";
+import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import scanReaderProcessPath from "./scanReaderProcess?modulePath";
+
+export const TEXT_RECOGNITION_PROCESS: EngineProcess = {
+  modulePath: scanReaderProcessPath,
+  serviceName: "IncarnaMind text recognition",
+};
 
 export interface UtilityProcessTextRecognizerOptions {
   /**
@@ -29,10 +34,7 @@ export function createUtilityProcessTextRecognizer(
     ? ["--fake", ...(options.fake.script ? [options.fake.script] : [])]
     : [];
   return createChannelTextRecognizer(() => {
-    const child = utilityProcess.fork(scanReaderProcessPath, args, {
-      serviceName: "IncarnaMind text recognition",
-      stdio: "inherit",
-    });
+    const child = startEngineProcess(TEXT_RECOGNITION_PROCESS, args);
     return {
       send: (request) => child.postMessage(request),
       onResponse: (listener) =>

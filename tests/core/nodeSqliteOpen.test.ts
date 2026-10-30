@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { openDatabase } from "../../src/core/storage";
 import { openNodeSqlite } from "../../src/core/storage/node-sqlite";
+import { recordingLog } from "../helpers/log";
 
 const sqlite = vi.hoisted(() => ({
   open: vi.fn<(file: string) => void>(),
@@ -54,6 +55,12 @@ function sqliteError(errcode: number) {
   return Object.assign(new Error(`SQLite error ${errcode}`), { code: "ERR_SQLITE_ERROR", errcode });
 }
 
+const failed = (attempt: number, elapsedMs: number, errcode?: number) => ({
+  level: "warn",
+  event: "storage.walOpen.failed",
+  fields: { attempt, elapsedMs, errcode },
+});
+
 function thrownBy(open: () => unknown): unknown {
   try {
     open();
@@ -85,7 +92,9 @@ afterEach(() => {
 
 test("the storage entry returns an adapter with the existing ordered startup pragmas", () => {
   expect(openDatabase).toBe(openNodeSqlite);
-  const db = openDatabase("saved.db");
+  const { log, entries } = recordingLog();
+  const db = openDatabase("saved.db", log);
+  expect(entries).toEqual([]);
   expect(sqlite.open).toHaveBeenCalledExactlyOnceWith("saved.db");
   expect(sqlite.exec.mock.calls.map(([sql]) => sql)).toEqual(pragmas);
   expect(Atomics.wait).not.toHaveBeenCalled();
@@ -107,8 +116,13 @@ test("Windows retries its first WAL error 1546 after 250 ms on the same connecti
     attempts.push(now);
     if (attempts.length === 1) throw error;
   });
-  const db = openDatabase("saved.db");
+  const { log, entries } = recordingLog();
+  const db = openDatabase("saved.db", log);
   expect(attempts).toEqual([1_000, 1_250]);
+  expect(entries).toEqual([
+    failed(1, 0, 1546),
+    { level: "info", event: "storage.walOpen.recovered", fields: { attempts: 2, elapsedMs: 250 } },
+  ]);
   expect(sqlite.open).toHaveBeenCalledTimes(1);
   expect(sqlite.exec.mock.calls.map(([sql]) => sql)).toEqual([WAL, ...pragmas]);
   db.close();
@@ -121,12 +135,17 @@ test("persistent Windows error 1546 stops at five seconds without a call at the 
     attempts.push(now);
     throw error;
   });
-  expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+  const { log, entries } = recordingLog();
+  expect(thrownBy(() => openDatabase("saved.db", log))).toBe(error);
   expect(attempts).toHaveLength(20);
   expect(attempts[0]).toBe(1_000);
   expect(attempts.at(-1)).toBe(5_750);
   expect(attempts.every((at) => at < 6_000)).toBe(true);
   expect(now).toBe(6_000);
+  expect(entries).toEqual([
+    ...attempts.map((at, index) => failed(index + 1, at - 1_000, 1546)),
+    { level: "warn", event: "storage.walOpen.gaveUp", fields: { attempts: 20, elapsedMs: 5_000 } },
+  ]);
 });
 
 test("the five-second window starts after the first failure and preserves the last native error", () => {
@@ -153,9 +172,11 @@ test.each([5, 10, 266, 522])("Windows does not retry first WAL error code %s", (
   sqlite.exec.mockImplementation(() => {
     throw error;
   });
-  expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+  const { log, entries } = recordingLog();
+  expect(thrownBy(() => openDatabase("saved.db", log))).toBe(error);
   expect(sqlite.exec).toHaveBeenCalledExactlyOnceWith(WAL);
   expect(Atomics.wait).not.toHaveBeenCalled();
+  expect(entries).toEqual([failed(1, 0, code)]);
 });
 
 test("Windows does not retry an unclassified first WAL error", () => {
@@ -198,10 +219,12 @@ test("a changed native error after 1546 escapes immediately without another wait
   sqlite.exec.mockImplementation(() => {
     throw changed;
   });
-  expect(thrownBy(() => openDatabase("saved.db"))).toBe(changed);
+  const { log, entries } = recordingLog();
+  expect(thrownBy(() => openDatabase("saved.db", log))).toBe(changed);
   expect(sqlite.exec).toHaveBeenCalledTimes(2);
   expect(Atomics.wait).toHaveBeenCalledTimes(1);
   expect(now).toBe(1_250);
+  expect(entries).toEqual([failed(1, 0, 1546), failed(2, 250, 10)]);
 });
 
 test.each(["darwin", "linux"] as const)("%s never retries first WAL error 1546", (host) => {
@@ -210,9 +233,11 @@ test.each(["darwin", "linux"] as const)("%s never retries first WAL error 1546",
   sqlite.exec.mockImplementation(() => {
     throw error;
   });
-  expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+  const { log, entries } = recordingLog();
+  expect(thrownBy(() => openDatabase("saved.db", log))).toBe(error);
   expect(sqlite.exec).toHaveBeenCalledExactlyOnceWith(WAL);
   expect(Atomics.wait).not.toHaveBeenCalled();
+  expect(entries).toEqual([failed(1, 0, 1546)]);
 });
 
 test("a later initialization pragma failing with 1546 is never retried", () => {
@@ -268,8 +293,14 @@ test.each([6_000, 6_001])(
     sqlite.exec.mockImplementation(() => {
       now = finishedAt;
     });
-    expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+    const { log, entries } = recordingLog();
+    expect(thrownBy(() => openDatabase("saved.db", log))).toBe(error);
     expect(sqlite.exec.mock.calls.map(([sql]) => sql)).toEqual([WAL, WAL]);
     expect(Atomics.wait).toHaveBeenCalledTimes(1);
+    expect(entries.at(-1)).toEqual({
+      level: "warn",
+      event: "storage.walOpen.gaveUp",
+      fields: { attempts: 2, elapsedMs: finishedAt - 1_000 },
+    });
   },
 );

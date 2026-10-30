@@ -60,6 +60,9 @@ export const isCjk = (character: string): boolean => cjkCharacter.test(character
 const SPACELESS =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3000-\u303f\ufe30-\ufe4f\uff00-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]/u;
 
+/** Whether whitespace next to `character` is removed (rule 6). */
+export const isSpaceless = (character: string): boolean => SPACELESS.test(character);
+
 /**
  * CJK Radicals Supplement characters that NFKC leaves alone but PDF generators
  * emit in place of the unified ideograph: a subset of Unicode's

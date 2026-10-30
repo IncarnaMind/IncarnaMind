@@ -13,7 +13,15 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
-import { checkGenerate, checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  sentenceOf,
+  unsupportedReply,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -158,6 +166,33 @@ describe("Verify a document", () => {
     });
   });
 
+  test("a sentence no reply decides, even asked again, is checked as a claim (#1682)", async () => {
+    const sorts: string[] = [];
+    const model = scriptedModel((call) => checkReply(call, PLANS), {
+      generate: (call) => {
+        const reply = checkGenerate(PLANS)(call);
+        if (!call.system.startsWith("You sort the sentences") || !("text" in reply)) return reply;
+        sorts.push(call.prompt);
+        const decisions = JSON.parse(reply.text) as Record<string, string>;
+        const listed = call.prompt.split("\n").find((line) => line.endsWith(UNSUPPORTED));
+        const number = listed && /^\[(\d+)\]/.exec(listed)?.[1];
+        if (number) delete decisions[number];
+        return { text: JSON.stringify(decisions) };
+      },
+    });
+    const { core, report } = await setUp(model);
+    const { mind, client } = await verified(core, report);
+
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 3 });
+    expect(sorts).toHaveLength(2);
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      SUPPORTED,
+      CONTRADICTED,
+      UNSUPPORTED,
+    ]);
+  });
+
   test("the PDF, and a copy of it at another path, never appear as evidence", async () => {
     const calls: ModelCall[] = [];
     const { core, sources, report } = await setUp(checkingModel(PLANS, calls));
@@ -195,7 +230,7 @@ describe("Verify a document", () => {
         const seen = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
           each.text.includes(quote),
         );
-        if (!seen) return { text: "Verdict: unsupported" };
+        if (!seen) return { text: unsupportedReply(call) };
         if (!call.results.some((result) => result.tool === "cite")) {
           return {
             calls: [
@@ -228,10 +263,13 @@ describe("Verify a document", () => {
 
     await core.findClaims(request(mind.id));
     await core.verifyClaims(request(mind.id));
-    expect((await shownChecks(core, client)).map((each) => each.shown)).toEqual([
+    const first = await shownChecks(core, client);
+    expect(first.map((each) => each.shown)).toEqual([
       { state: "unsupported" },
       { state: "unsupported" },
     ]);
+    // A figure keeps its own result, as the one Check gives it.
+    expect(first[1]?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["4.2 million"]);
 
     expect(await core.checkClaim({ claim: DREDGING })).toMatchObject({
       verdict: "unsupported",
@@ -556,7 +594,7 @@ describe("Verify a document", () => {
     const model = scriptedModel(
       () => ({ text: "Verdict: unsupported", pause: { after: 0, until: held } }),
       {
-        generate: () => ({ text: JSON.stringify({ claims: [1, 2, 3] }) }),
+        generate: () => ({ text: JSON.stringify({ 1: "claim", 2: "claim", 3: "claim", 4: "no" }) }),
       },
     );
     const { core, report } = await setUp(model);
