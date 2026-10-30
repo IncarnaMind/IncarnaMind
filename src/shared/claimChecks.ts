@@ -147,13 +147,15 @@ function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
 }
 
 /**
- * A check worked out from its parts, with its record cites and the versions they read: no part
- * holds them, since they are read apart from the sentence's parts (#1709).
+ * A check or result with its record cites and the Document versions they read, the one rule for
+ * all of them: a Document already listed keeps its version, and each other cited Document is
+ * listed once, at the version its first cite read. No part or figure holds these, since record
+ * cites are read apart from them (#1709).
  */
 export function keepRecordCites<Check extends { versions: CheckedVersion[] }>(
   check: Check,
   recordCites: readonly RecordCiteResult[] | undefined,
-): Check {
+): Check & { recordCites?: RecordCiteResult[] } {
   if (!recordCites) return check;
   const versions = new Map(check.versions.map((version) => [version.documentId, version]));
   for (const cite of recordCites) {

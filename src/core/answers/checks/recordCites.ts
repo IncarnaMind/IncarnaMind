@@ -3,10 +3,10 @@
  * against it on its own, apart from the sentence's overall check.
  */
 import { generateText } from "ai";
+import { keepRecordCites } from "../../../shared/claimChecks";
 import type { RecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { comparableSentence } from "../../../shared/sentences";
 import type {
-  CheckedVersion,
   ClaimCheckFailure,
   ClaimCheckResult,
   ProviderError,
@@ -60,7 +60,7 @@ export function recordClaimFacts(
     .trim();
 }
 
-type NotJudged = { failed: ProviderError } | { unreadable: true };
+type NotJudged = { failed: ProviderError } | { unreadable: true } | { stopped: true };
 
 export async function judgeRecordCite(
   model: PreparedChatModel,
@@ -69,13 +69,14 @@ export async function judgeRecordCite(
   signal: AbortSignal,
   language: Language,
 ): Promise<RecordCiteJudgement | NotJudged> {
+  if (signal.aborted) return { stopped: true };
   const first = await compare(model, claim, passage, RECORD_CITE_INSTRUCTIONS, signal);
-  if ("failed" in first) return first;
+  if ("failed" in first) return signal.aborted ? { stopped: true } : first;
   const judged = readRecordJudgement(first.reply);
   if (judged === null) return { unreadable: true };
   if (judged !== "partly") return { outcome: judged };
   const part = await compare(model, claim, passage, partInstructions(language), signal);
-  if ("failed" in part) return part;
+  if ("failed" in part) return signal.aborted ? { stopped: true } : part;
   const { covered, uncovered } = readPart(part.reply);
   return covered && uncovered
     ? { outcome: "partly", covered, uncovered }
@@ -83,7 +84,11 @@ export async function judgeRecordCite(
 }
 
 const notJudged = (why: NotJudged): { reason: ClaimCheckFailure; detail: string | null } =>
-  "unreadable" in why ? { reason: "malformed", detail: null } : failureOf(why.failed);
+  "unreadable" in why
+    ? { reason: "malformed", detail: null }
+    : "stopped" in why
+      ? { reason: "stopped", detail: null }
+      : failureOf(why.failed);
 
 /** Why a record cite couldn't be judged, as the window says it in the interface language. */
 export function notJudgedError(why: NotJudged): TranslatableError {
@@ -152,18 +157,6 @@ export async function judgeResolvedRecordCites(
     recordCites.push(withoutCandidates({ ...result, ...judgement, nearby }));
   }
   return { recordCites, ...(failure ? { failure } : {}) };
-}
-
-export function recordCiteVersions(results: readonly RecordCiteResult[]): CheckedVersion[] {
-  const versions = new Map<string, CheckedVersion>();
-  for (const result of results) {
-    if (!result.documentId || !result.contentHash) continue;
-    versions.set(result.documentId, {
-      documentId: result.documentId,
-      contentHash: result.contentHash,
-    });
-  }
-  return [...versions.values()];
 }
 
 async function compare(
@@ -262,12 +255,7 @@ export function withRecordCites(
     if (request.signal.aborted) return result;
     if (result.verdict === "not-checked" && STOPS_SENDING.has(result.reason)) return result;
     const recordCites = await checkRecordCites(request, deps);
-    if (recordCites.length === 0) return result;
-    const versions = new Map(result.versions.map((version) => [version.documentId, version]));
-    for (const version of recordCiteVersions(recordCites)) {
-      if (!versions.has(version.documentId)) versions.set(version.documentId, version);
-    }
-    return { ...result, recordCites, versions: [...versions.values()] };
+    return recordCites.length === 0 ? result : keepRecordCites(result, recordCites);
   };
 }
 

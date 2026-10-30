@@ -4,6 +4,7 @@ import type { NoteParagraph } from "../../src/core/recordCites/referents";
 import {
   claimCheckShown,
   claimMarkState,
+  keepRecordCites,
   readClaimCheck,
   restsOn,
 } from "../../src/shared/claimChecks";
@@ -245,6 +246,30 @@ describe("an Id. or supra as the text it refers back to changes", () => {
 
   test("round-trips what it was read through", () => {
     expect(readClaimCheck(check)?.recordCites?.[0]?.via).toEqual(["Smith Dep. 45:3"]);
+  });
+});
+
+describe("the Document versions a sentence's record cites read", () => {
+  test("are kept by one rule: a listed Document keeps its version, each other cited one is listed once", () => {
+    const cite = (raw: string, documentId?: string, contentHash?: string): RecordCiteResult => ({
+      raw,
+      outcome: "supported",
+      ...(documentId && { documentId }),
+      ...(contentHash && { contentHash }),
+    });
+    const kept = keepRecordCites({ versions: [{ documentId: "part-read", contentHash: "p1" }] }, [
+      cite("Ex. 7 at 3", "part-read", "p2"),
+      cite("Smith Dep. 45:3", "smith", "s1"),
+      cite("Smith Dep. 46:1", "smith", "s2"),
+      cite("Jones Dep. 4:5"),
+    ]);
+    expect(kept.versions).toEqual([
+      { documentId: "part-read", contentHash: "p1" },
+      { documentId: "smith", contentHash: "s1" },
+    ]);
+    expect(kept.recordCites?.map((each) => each.raw)).toHaveLength(4);
+    const none = { versions: [{ documentId: "part-read", contentHash: "p1" }] };
+    expect(keepRecordCites(none, undefined)).toBe(none);
   });
 });
 

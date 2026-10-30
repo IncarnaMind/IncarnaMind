@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   judgeRecordCite,
   judgeResolvedRecordCites,
-  recordCiteVersions,
 } from "../../src/core/answers/checks/recordCites";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 import type { ResolvableRecordCiteResult } from "../../src/core/recordCites/resolver";
@@ -201,9 +200,37 @@ describe("support judgement for one exact record-cite passage", () => {
       recordCites: [{ ...results[0], outcome: "unsupported" }, results[1]],
     });
     expect(generateText).toHaveBeenCalledTimes(2);
-    expect(
-      recordCiteVersions(results.map((result) => ({ ...result, outcome: "supported" as const }))),
-    ).toEqual([{ documentId: "doc-1", contentHash: "hash-1" }]);
+  });
+
+  test("a judgement stopped part way is Not checked, stopped, and no later cite is sent", async () => {
+    const controller = new AbortController();
+    vi.mocked(generateText).mockImplementation(async () => {
+      controller.abort();
+      throw Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
+    });
+    const found = (raw: string): ResolvableRecordCiteResult => ({
+      raw,
+      outcome: "found",
+      documentId: "doc-1",
+      contentHash: "hash-1",
+      location: { kind: "page", from: 3, to: 3 },
+      pageFrom: 3,
+      pageTo: 3,
+      passage: "The cited lines",
+    });
+    const judged = await judgeResolvedRecordCites(
+      [found("Ex. 7 at 3"), found("Ex. 8 at 3")],
+      model,
+      "The claim",
+      controller.signal,
+      "en",
+    );
+
+    expect(judged.recordCites.map((cite) => [cite.outcome, cite.reason])).toEqual([
+      ["not-checked", "stopped"],
+      ["not-checked", "stopped"],
+    ]);
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 
   test("a supported cited passage does not show its nearby candidate", async () => {

@@ -13,6 +13,8 @@ import { buildPdf } from "../helpers/pdf";
 const SOURCE = "ECF No. 41 at 3 states the deadline.";
 const NEXT = "Id. at 2 states another deadline.";
 const withCitation = (text: string) => `${text} ${INLINE_NODE}.`;
+/** A sentence's words without its stop, for a Citation to go before the stop. */
+const words = (sentence: string) => sentence.slice(0, -1);
 
 function unchecked(text: string): ClaimCheckAttributes {
   return {
@@ -104,6 +106,64 @@ test.each([
   expect(checks[0]?.text.slice(cite?.from ?? 0, cite?.to ?? 0)).toBe("Smith Dep. 45:3–12");
 });
 
+test("Check reads a sentence's record cites with its Citations, so each cite's place is the Note's own", async () => {
+  const model = checkingModel({});
+  const setup = await setUpWithDocuments(model, [
+    {
+      name: "Smith Deposition.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Page 45",
+            ...Array.from({ length: 12 }, (_, index) => `${index + 1} Line ${index + 1}`),
+          ],
+        },
+      ]),
+    },
+    { name: "Memo.md", contents: "The witness denied it in the memo." },
+  ]);
+  const [record, memo] = setup.documents;
+  if (!record || !memo) throw new Error("The Documents are missing.");
+  const mind = await setup.core.createMind({ title: "Cited Note" });
+  const client = await connectToMind(setup.core, mind.id);
+  const before = "The witness denied it ";
+  const after = " (Smith Dep. 45:3–12).";
+  writeMind(client, [
+    {
+      type: "paragraph",
+      attrs: { id: "cited" },
+      content: [
+        { type: "text", text: before },
+        {
+          type: "citation",
+          attrs: {
+            quote: "The witness denied it",
+            documentName: memo.name,
+            documentId: memo.id,
+            contentHash: memo.contentHash,
+          },
+        },
+        { type: "text", text: after },
+      ],
+    },
+  ]);
+  await client.settled();
+
+  await setup.core.checkSentences({
+    requestId: "cited-record-cite",
+    mindId: mind.id,
+    action: "check-against-documents",
+    from: { blockId: "cited", offset: 0 },
+    to: { blockId: "cited", offset: before.length + 1 + after.length },
+  });
+  await client.settled();
+
+  const noteText = `${before}${INLINE_NODE}${after}`;
+  const [cite] = claimSpans(readMind(client)).flatMap((span) => span.check.recordCites ?? []);
+  expect(cite).toMatchObject({ raw: "Smith Dep. 45:3–12", documentId: record.id });
+  expect(noteText.slice(cite?.from, cite?.to)).toBe("Smith Dep. 45:3–12");
+});
+
 test("Check this Note reads a later Id. on the cite before it, in whatever order it checks them", async () => {
   const model = checkingModel({
     [SOURCE]: { verdict: "unsupported", judgement: "same" },
@@ -176,19 +236,20 @@ test("Check this Note reads a later Id. on the cite before it, in whatever order
 });
 
 test("contradiction watch restores Id. from the original cited sentence", async () => {
+  // The watch reads the Folder's other Documents, here the record, and the sentence without its
+  // Citation, as it sends it.
+  const contradicted = (quote: string) =>
+    ({
+      verdict: "contradicted",
+      quote,
+      says: "The record states another deadline.",
+      judgement: "conflict",
+    }) as const;
   const model = checkingModel({
-    [withCitation(SOURCE)]: {
-      verdict: "contradicted",
-      quote: "Other fact",
-      says: "The other Document states another deadline.",
-      judgement: "conflict",
-    },
-    [withCitation(NEXT)]: {
-      verdict: "contradicted",
-      quote: "Other fact",
-      says: "The other Document states another deadline.",
-      judgement: "conflict",
-    },
+    [withCitation(words(SOURCE)).replaceAll(INLINE_NODE, "")]: contradicted(
+      "Trial briefs are due September 2",
+    ),
+    [withCitation(words(NEXT)).replaceAll(INLINE_NODE, "")]: contradicted("Another deadline"),
   });
   const setup = await setUpWithDocuments(model, [
     {
@@ -224,12 +285,12 @@ test("contradiction watch restores Id. from the original cited sentence", async 
     {
       type: "paragraph",
       attrs: { id: "watch-source" },
-      content: [{ type: "text", text: `${SOURCE} ` }, citation, { type: "text", text: "." }],
+      content: [{ type: "text", text: `${words(SOURCE)} ` }, citation, { type: "text", text: "." }],
     },
     {
       type: "paragraph",
       attrs: { id: "watch-next" },
-      content: [{ type: "text", text: `${NEXT} ` }, citation, { type: "text", text: "." }],
+      content: [{ type: "text", text: `${words(NEXT)} ` }, citation, { type: "text", text: "." }],
     },
   ]);
   await client.settled();
@@ -242,4 +303,17 @@ test("contradiction watch restores Id. from the original cited sentence", async 
 
   expect(result).toMatchObject({ kind: "checked", claims: 2, checked: 2 });
   expect(readRecordCiteChoices(recordCiteSettingsOf(client.doc))).toEqual({});
+  // The background watch's own check reads the record cites too: each mark holds its cite, read
+  // on its page, the Id. on the cite before it.
+  const marks = claimSpans(readMind(client)).map((span) => span.check);
+  expect(marks.map((check) => check.recordCites)).toMatchObject([
+    [
+      {
+        raw: "ECF No. 41 at 3",
+        documentId: document.id,
+        location: { kind: "page", from: 3, to: 3 },
+      },
+    ],
+    [{ raw: "Id. at 2", documentId: document.id, location: { kind: "page", from: 2, to: 2 } }],
+  ]);
 });

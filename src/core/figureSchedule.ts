@@ -6,6 +6,7 @@ import {
   type ClaimCheckNow,
   claimCheckShown,
   figureCheckShown,
+  keepRecordCites,
   saysNotFound,
 } from "../shared/claimChecks";
 import { resultFromParts } from "../shared/claimParts";
@@ -63,20 +64,9 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   personId?: string | null;
 }
 
-/**
- * A result worked out again from its parts or figures, keeping the sentence's record cites and
- * the versions they read: they are read apart from both (#1709).
- */
-function keepingRecordCites(checked: ClaimCheckResult, worked: ClaimCheckResult): ClaimCheckResult {
-  if (!checked.recordCites) return worked;
-  const versions = new Map(
-    [...worked.versions, ...checked.versions].map((version) => [
-      `${version.documentId}\n${version.contentHash}`,
-      version,
-    ]),
-  );
-  return { ...worked, recordCites: checked.recordCites, versions: [...versions.values()] };
-}
+/** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
+const keepingRecordCites = (checked: ClaimCheckResult, worked: ClaimCheckResult) =>
+  keepRecordCites(worked, checked.recordCites);
 
 export function augmentFigureFooting(
   blocks: Y.XmlFragment,

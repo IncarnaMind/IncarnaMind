@@ -5703,7 +5703,10 @@ export type UnlockDocumentResult =
 
 /** One record cite's own result inside a sentence's check (#1709). */
 export interface RecordCiteResult {
-  /** The cite as written and its UTF-16 span in the claim, when it has one. */
+  /**
+   * The cite as written and its UTF-16 span, when it has one, in the sentence as the Note holds it:
+   * each Citation there is one U+FFFC, which the mark's `text` leaves out.
+   */
   raw: string;
   from?: number;
   to?: number;

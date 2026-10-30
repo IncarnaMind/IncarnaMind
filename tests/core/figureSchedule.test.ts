@@ -396,7 +396,14 @@ test("a sentence's record cites and the versions they read stay through the foot
     };
   });
   const aggregate = aggregateFigureResults(results, null);
-  const recordCites = [{ raw: "Ex. 7 at 3", outcome: "not-found" as const }];
+  const recordCites = [
+    {
+      raw: "Ex. 7 at 3",
+      outcome: "not-found" as const,
+      documentId: "exhibit",
+      contentHash: "e1",
+    },
+  ];
   const result = augmentFigureFooting(
     blocks,
     {
