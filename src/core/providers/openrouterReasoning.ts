@@ -14,7 +14,7 @@ export function openRouterReasoningFacts(model: Record<string, unknown>): Partia
     thinkingOff: { openrouter: { reasoning: effort ? { effort } : { enabled: true } } },
     // Mandatory-reasoning Claude endpoints reject forced Tools (#2248).
     ...(typeof model.id === "string" &&
-      model.id.startsWith("anthropic/claude-") && {
+      /^~?anthropic\/claude-/.test(model.id) && {
         forcedToolChoice: false,
       }),
   };

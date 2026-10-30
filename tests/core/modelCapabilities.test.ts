@@ -611,6 +611,7 @@ test.each([
     effort: "minimal",
     forced: false,
   },
+  { id: "~anthropic/claude-future", efforts: ["high", "low"], effort: "low", forced: false },
   { id: "openai/next", efforts: ["max", "medium", "high"], effort: "medium" },
   { id: "vendor/future", efforts: ["high"], effort: "high" },
 ])("OpenRouter listing constraints for $id", ({ id, efforts, effort, forced }) => {
@@ -654,6 +655,9 @@ test.each([
   "anthropic/claude-sonnet-5.5",
   "anthropic/claude-opus-5.5",
   "anthropic/claude-fable-5.1",
+  "~anthropic/claude-opus-latest",
+  "~anthropic/claude-sonnet-latest",
+  "~anthropic/claude-fable-latest",
 ])("OpenRouter bundled constraints reach prepared %s", async (modelId) => {
   const { core, models } = await startWithCloudModel({ kind: "openrouter", modelId });
   const prepared = await core.prepareChatModel();
@@ -661,4 +665,13 @@ test.each([
   expect(models.specs.at(-1)).toMatchObject({
     thinkingOff: { openrouter: { reasoning: { effort: "low" } } },
   });
+});
+
+test("OpenRouter's optional-reasoning Haiku alias keeps forced Tools available", () => {
+  const facts = openRouterModelFacts({
+    id: "~anthropic/claude-haiku-latest",
+    reasoning: { mandatory: false, supported_efforts: ["low", "none"] },
+  });
+  expect(facts.forcedToolChoice).toBeUndefined();
+  expect(facts.thinkingOff).toBeUndefined();
 });

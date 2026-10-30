@@ -1499,7 +1499,8 @@
                 "effort": "low"
               }
             }
-          }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~anthropic/claude-haiku-latest",
@@ -1540,7 +1541,8 @@
                 "effort": "low"
               }
             }
-          }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~anthropic/claude-sonnet-latest",
@@ -1564,7 +1566,8 @@
                 "effort": "low"
               }
             }
-          }
+          },
+          "forcedToolChoice": false
         },
         {
           "id": "~deepseek/deepseek-flash-latest",
