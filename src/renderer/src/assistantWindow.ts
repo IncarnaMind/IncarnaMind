@@ -19,6 +19,7 @@ import {
   labelOf,
   offered,
 } from "./commands/registry";
+import { describeError } from "./errors";
 import { translateNow } from "./i18n";
 import type { Translate } from "./objects";
 import { objectInFront } from "./palette";
@@ -166,14 +167,16 @@ export function startForAssistant(request: WindowCommandRequest): {
     ended: tried.change.then(
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
       (error: unknown) => {
+        const described = describeError(error);
         // A Check refused because another window checks the Note says so by its name, never Done.
-        const said = error instanceof TranslatableError ? error.wording : null;
+        const said =
+          (error instanceof TranslatableError ? error.wording : null) ?? described.wording;
         const named = said ? NAMED_REASONS[said.key] : undefined;
         const note = noteOf(ctx);
         return {
           result: {
             ran: false,
-            why: messageOf(error),
+            why: described.message,
             wording: named && note !== null ? { key: named, values: { name: note } } : said,
           },
           change: undefined,

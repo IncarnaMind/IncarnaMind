@@ -79,19 +79,19 @@ const WHOLE_LINES = new Set<MessageKey>([
   "commands.window.alreadyChecking",
 ]);
 
-/** The separator between two pieces of text in the interface language (see `useGap`). */
 type Gap = (before: string, after: string) => string;
 
 /**
  * What an Answer read that the User didn't write, on the approval of a command it asks about, in
- * the order it read them: Documents by name, web pages by host, the Connectors whose results it
- * read, and this meeting's Transcript; null when it lists nothing, and the card says its general
- * line instead. A web page is never named by its title, which it writes itself (#2240). It never
- * says which of them asked for the command.
+ * the order the card names them: Documents, web pages by host (never by the titles they write,
+ * #2240), web search's results, Connectors, a script's output, the Transcript, and other text for
+ * anything the rest cannot name. Other text alone is the bare sentence, with no list. Null when
+ * nothing is left to show.
  */
 export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): string | null {
   const [document] = read.documents;
   const [page] = read.webPages;
+  const [connector] = read.connectors;
   const parts = [
     ...(read.documents.length === 1 && document !== undefined
       ? [t("commands.ask.readText.document", { name: document })]
@@ -103,9 +103,19 @@ export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): st
       : read.webPages.length > 1
         ? [t("commands.ask.readText.webPages", { count: read.webPages.length })]
         : []),
-    ...read.connectors.map((connector) => t("commands.ask.readText.connector", { connector })),
+    ...(read.webSearchResults ? [t("commands.ask.readText.webSearch")] : []),
+    ...(read.connectors.length === 1 && connector !== undefined
+      ? [t("commands.ask.readText.connector", { connector })]
+      : read.connectors.length > 1
+        ? [t("commands.ask.readText.connectors", { count: read.connectors.length })]
+        : []),
+    ...(read.scriptOutput ? [t("commands.ask.readText.script")] : []),
     ...(read.transcript ? [t("commands.ask.readText.transcript")] : []),
   ];
+  if (read.otherText) {
+    if (parts.length === 0) return t("commands.ask.readText.only");
+    parts.push(t("commands.ask.readText.other"));
+  }
   return parts.length === 0 ? null : t("commands.ask.readText", { what: joined(t, gap, parts) });
 }
 

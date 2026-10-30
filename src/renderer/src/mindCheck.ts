@@ -113,11 +113,12 @@ export function dismissMindCheck(mindId: string): void {
   void freeAskedNote(mindId);
 }
 
-/** Forgets the Note's question, and waits until the Note it kept is free. */
 async function freeAskedNote(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   clearAsk(mindId);
-  if (asking) await releaseHold(asking.requestId);
+  if (!asking) return;
+  settle(asking.requestId, { kind: "declined" });
+  await releaseHold(asking.requestId);
 }
 
 async function releaseHold(requestId: string): Promise<void> {
@@ -127,6 +128,35 @@ async function releaseHold(requestId: string): Promise<void> {
     console.warn(`Couldn't free the Note a Check kept while it was planned (${requestId}).`, error);
   }
 }
+
+/** How a Check the window started ended: its result, a failure, or the question it asked. */
+type CheckEnd = CheckMindResult | { kind: "threw"; error: unknown };
+type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | null;
+type CheckAnswer = CheckEnd | { kind: "declined" };
+
+/** What each Check that asked a question comes to, by the request it asked for. */
+const answers = new Map<
+  string,
+  { promise: Promise<CheckAnswer>; resolve(answer: CheckAnswer): void }
+>();
+
+function waitForAnswer(requestId: string): void {
+  let resolve!: (answer: CheckAnswer) => void;
+  const promise = new Promise<CheckAnswer>((done) => {
+    resolve = done;
+  });
+  answers.set(requestId, { promise, resolve });
+}
+
+function settle(requestId: string, answer: CheckAnswer): void {
+  const waiting = answers.get(requestId);
+  if (!waiting) return;
+  answers.delete(requestId);
+  waiting.resolve(answer);
+}
+
+const answerOf = (requestId: string): Promise<CheckAnswer> =>
+  answers.get(requestId)?.promise ?? Promise.resolve({ kind: "declined" });
 
 export function showCheckCard(mindId: string): void {
   const tab = frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged());
@@ -183,7 +213,7 @@ async function checkMindNow(
   allDocuments: boolean,
   requestId: string,
   figureIds?: string[],
-): Promise<CheckMindResult | "error"> {
+): Promise<CheckEnd> {
   try {
     const result = await core.checkMind({
       requestId,
@@ -210,13 +240,13 @@ async function checkMindNow(
       error,
       retry: () => void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) }),
     });
-    return "error";
+    return { kind: "threw", error };
   }
 }
 
 /** Whether a claims run leaves anything for the watch: a throw, a stop, or a model that can't be used ends it. */
-function endsCheck(outcome: CheckMindResult | "error"): boolean {
-  if (outcome === "error") return true;
+function endsCheck(outcome: CheckEnd): boolean {
+  if (outcome.kind === "threw") return true;
   if (outcome.kind === "checked") return outcome.stop !== null;
   return STOPS.has(outcome.kind);
 }
@@ -263,9 +293,6 @@ export interface Planned {
   watch: { claims: number } | null;
 }
 
-/** How a Check the window started ended: its result, "error", or null when it asked first or sent nothing. */
-type CheckOutcome = CheckMindResult | "error" | null;
-
 /**
  * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
  * place if it can't or another window checks it.
@@ -277,18 +304,25 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<C
   // An earlier question about this Note, and the Note with it, gives way first.
   await freeAskedNote(mindId);
   const requestId = crypto.randomUUID();
+  let held = false;
+  let keeps = false;
   try {
     if (!(await core.holdMindCheck({ requestId, mindId, clientId }))) {
       setCheckProblem(mindId, { kind: "running" });
       showCheckCard(mindId);
       return { kind: "running" };
     }
+    held = true;
     const { mode, allDocuments, plan, watch } = await planned();
-    return await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan);
+    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan);
+    keeps = outcome !== null && outcome.kind === "asked";
+    return outcome;
   } catch (error) {
-    await releaseHold(requestId);
     setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
-    return "error";
+    return { kind: "threw", error };
+  } finally {
+    // A shown question keeps the Note for the run it asks for; every other end frees it here.
+    if (held && !keeps) await releaseHold(requestId);
   }
 }
 
@@ -359,14 +393,41 @@ export const startCheck = (mindId: string): Promise<CheckOutcome> =>
  */
 export async function checkFromAssistant(mindId: string, everySentence = false): Promise<void> {
   const outcome = everySentence ? await startMindCheck(mindId, "all") : await startCheck(mindId);
-  if (outcome !== null && outcome !== "error" && outcome.kind === "running")
+  if (outcome === null) return;
+  if (outcome.kind === "asked") {
+    endAs(await answerOf(outcome.requestId));
+    return;
+  }
+  endAs(outcome);
+}
+
+/** Ends the assistant's Check as what it came to: a failure or a decline is never "Done". */
+function endAs(outcome: CheckAnswer): void {
+  if (outcome.kind === "declined") throw new TranslatableError({ key: "commands.denied" });
+  if (outcome.kind === "threw") {
+    throw outcome.error instanceof Error
+      ? outcome.error
+      : new TranslatableError(String(outcome.error));
+  }
+  if (outcome.kind === "failed") {
+    throw new TranslatableError(outcome.error.wording ?? outcome.error.message);
+  }
+  if (outcome.kind === "running") {
     throw new TranslatableError({ key: "mindCheck.alreadyChecking" });
+  }
 }
 
 /** Check, in the card's question before a run billed per token. */
 export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
-  if (asking) await runCheck(mindId, asking.requestId, asking);
+  if (!asking) return;
+  try {
+    await runCheck(mindId, asking.requestId, asking);
+  } catch (error) {
+    await releaseHold(asking.requestId);
+    settle(asking.requestId, { kind: "threw", error });
+    throw error;
+  }
 }
 
 /**
@@ -374,8 +435,13 @@ export async function confirmCheck(mindId: string): Promise<void> {
  * against the Folder's other Documents, under one running state whose Stop
  * takes whichever part runs. A problem with the model, or a stop, ends both.
  */
-async function runCheck(mindId: string, requestId: string, run: CheckToRun): Promise<CheckOutcome> {
-  if (useChecks.getState().running[mindId]) return null;
+async function runCheck(mindId: string, requestId: string, run: CheckToRun): Promise<CheckEnd> {
+  if (useChecks.getState().running[mindId]) {
+    // Another Check has the Note: this one starts none, and keeps nothing.
+    await releaseHold(requestId);
+    settle(requestId, { kind: "running" });
+    return { kind: "running" };
+  }
   clearAsk(mindId);
   dismissCheckProblem(mindId);
   dismissContradictions(mindId);
@@ -396,6 +462,7 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
         await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
       }
     }
+    settle(requestId, result);
     return result;
   } finally {
     setCheckRunning(mindId, null);
@@ -459,6 +526,7 @@ async function askOrCheck(
     return runCheck(mindId, requestId, run);
   }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
+  waitForAnswer(requestId);
   useMindCheck.setState((state) => ({
     asking: {
       ...state.asking,
@@ -474,5 +542,5 @@ async function askOrCheck(
       },
     },
   }));
-  return null;
+  return { kind: "asked", requestId };
 }

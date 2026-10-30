@@ -8279,21 +8279,31 @@ interface ApprovalRequestBase extends AnswerPlace {
   thirdParty?: ThirdPartyReason[];
   /**
    * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
-   * write, as it read it: its Documents by name, its web pages by host (never by title: a page
-   * writes its own, and could pass for the User's file), the Connectors whose results it read,
-   * and whether it heard the live Transcript. Each once, in the order read. It never says which
-   * of them asked for the command. Absent: it read none of them.
+   * write, by the kinds the card names, in the order it read them. It never says which of them
+   * asked for the command. Absent: it read none of them.
    */
   readText?: ApprovalReadText;
 }
 
+/**
+ * What an approval card names the Answer read (#2240). A web page is its host, never its
+ * title: a page writes its own, and could pass for the User's file. Other text is every read the
+ * kinds here cannot name, so a kind added later is still on the card.
+ */
 export interface ApprovalReadText {
+  /** One entry per Document, by its id: two Documents with one name are two. */
   documents: string[];
   /** Web pages read, by host, one entry for each page. */
   webPages: string[];
-  /** The Connectors whose results the Answer read, in the order it first read them. */
+  /** Web search's results, Find sources' included. */
+  webSearchResults: boolean;
+  /** One entry per Connector whose results the Answer read, by its id. */
   connectors: string[];
+  /** A Skill script's or an Analysis's output. */
+  scriptOutput: boolean;
   transcript: boolean;
+  /** Some text the kinds here cannot name. */
+  otherText: boolean;
 }
 
 /**

@@ -48,12 +48,15 @@ export function typedAddresses(text: string): { line: string; address: string | 
 
 /**
  * The host an address names, without "www.": what a web page is called where it must not be
- * believed by its own title, as on an approval card (#2240).
+ * believed by its own title, as on an approval card (#2240). Null for anything that isn't an
+ * http or https address with a host, so a caller leaves it out rather than show the address.
  */
-export function webHostOf(address: string): string {
+export function webHostOf(address: string): string | null {
   try {
-    return new URL(address).hostname.replace(/^www\./, "");
+    const url = new URL(address);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.hostname.replace(/^www\./, "") || null;
   } catch {
-    return address;
+    return null;
   }
 }

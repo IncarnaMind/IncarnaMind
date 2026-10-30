@@ -127,9 +127,10 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
     if (named.length < 2) continue;
     // By id, so twins at one path take their "(2)" in an order that doesn't change.
     const group = [...named].sort((a, b) => a.id.localeCompare(b.id));
-    const places = group.map((document) =>
-      document.web ? [webHostOf(document.web.address)] : foldersOf(document.path),
-    );
+    const places = group.map((document) => {
+      const host = document.web ? webHostOf(document.web.address) : null;
+      return host ? [host] : foldersOf(document.path);
+    });
     let deepest = 0;
     for (const place of places) deepest = Math.max(deepest, place.length);
     const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
