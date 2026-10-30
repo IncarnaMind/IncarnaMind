@@ -13,11 +13,6 @@ function openNote(ctx: CommandContext): Editor | null {
   return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
 }
 
-/**
- * Printing, the table of contents and tidying Chinese text (#1935). Each is in
- * the Note's menu, its tab's and ⌘K; Print has ⌘P, and the table of contents
- * is in the "/" menu too.
- */
 export const noteBasicsCommands: readonly Command[] = [
   {
     id: "mind.print",
