@@ -84,11 +84,13 @@ npm run eval:citations:scan       # no key, personal data or unlisted Document i
    from its image, bound to the Document's SHA-256, so a changed file is read again. An entry that
    matches nothing fails, and the file itself is scanned with no exceptions. A home folder is found
    in a path and also in a folder named after a path, its slashes turned into dashes. Every text is
-   read with its percent-escapes decoded too ("%40" an "@"), and a run of escapes that doesn't
-   decode is scanned as written. With `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` set to a file outside
-   the repository, one word or phrase a line (a `#` at a line's start or after a space starts a
-   comment), the scan also fails on any of them, in any case; a list that is missing, empty or
-   inside the repository fails the scan. `npm test` runs the scan over `eval/citations/`.
+   scanned as written and again with its percent-escapes decoded, once and twice ("%40" an "@",
+   "%252F" a "/"), so decoding only adds findings; an escape that doesn't decode is kept as written.
+   With `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` set to a file outside the repository, one word or
+   phrase a line (a `#` at a line's start or after a space starts a comment, so a phrase can't hold
+   " #"; Windows line ends and a byte-order mark are fine), the scan also fails on any of them, in
+   any case; a list that is missing, empty or inside the repository fails the scan. `npm test` runs
+   the scan over `eval/citations/`.
 
 | Variable | Default | |
 |---|---|---|

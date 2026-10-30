@@ -79,7 +79,9 @@ export const KEY_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/-]{20,}=*/gi,
 ];
 
-const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
+/** Bounded as RFC 5321 bounds an address, so a long unbroken run of letters is read in linear time. */
+const EMAIL =
+  /[\p{L}\p{N}._%+-]{1,64}@[\p{L}\p{N}-]{1,63}(?:\.[\p{L}\p{N}-]{1,63}){0,126}\.\p{L}{2,63}/gu;
 
 /** International, North American and Chinese mobile numbers, standing on their own. */
 const PHONES: readonly RegExp[] = [
@@ -134,7 +136,8 @@ export function readDenyList(path: string, root: string): string[] {
   }
   if (!existsSync(path)) throw new Error(`The deny-list ${path} doesn't exist.`);
   const words = readFileSync(path, "utf8")
-    .split("\n")
+    .replace(/^\uFEFF/, "")
+    .split(/\r\n|\r|\n/)
     .map((line) => line.replace(/(?:^|\s)#.*$/, "").trim())
     .filter((line) => line !== "");
   if (words.length === 0) throw new Error(`The deny-list ${path} holds no words.`);
@@ -143,10 +146,32 @@ export function readDenyList(path: string, root: string): string[] {
 
 const escaped = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** A run of escapes as UTF-8; where it isn't, each escape that decodes alone is read and the rest kept as written. */
+function decodeRun(run: string): string {
+  try {
+    return decodeURIComponent(run);
+  } catch {
+    const escapes = run.match(/%[0-9A-Fa-f]{2}/g) ?? [];
+    let decoded = "";
+    for (let index = 0; index < escapes.length; ) {
+      const lead = Number.parseInt(escapes[index]?.slice(1) ?? "", 16);
+      const size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+      try {
+        decoded += decodeURIComponent(escapes.slice(index, index + size).join(""));
+        index += size;
+      } catch {
+        decoded += escapes[index];
+        index += 1;
+      }
+    }
+    return decoded;
+  }
+}
+
 /**
  * Text with its percent-escapes read as a URL's reader gets them ("%40" an
- * "@", "%2F" a "/"); a run of escapes that doesn't decode stays as written.
- * `at` gives each character's place in the text, for its line.
+ * "@", "%2F" a "/"). `at` gives each character's place in the text, for its
+ * line.
  */
 export function decodePercent(text: string): { text: string; at: number[] } {
   let decoded = "";
@@ -158,12 +183,7 @@ export function decodePercent(text: string): { text: string; at: number[] } {
       decoded += text[index];
       at.push(index);
     }
-    let run = match[0];
-    try {
-      run = decodeURIComponent(match[0]);
-    } catch {
-      // Not UTF-8 once decoded: scanned as written.
-    }
+    const run = decodeRun(match[0]);
     decoded += run;
     for (let index = 0; index < run.length; index++) at.push(start);
     from = start + match[0].length;
@@ -175,10 +195,14 @@ export function decodePercent(text: string): { text: string; at: number[] } {
   return { text: decoded, at };
 }
 
+/** A path escaped twice ("%252F") is read in two passes; no more, so a scan stays bounded. */
+const PERCENT_PASSES = 2;
+
 /**
- * What one text holds that may not be published, read with its
- * percent-escapes decoded; `allowed` lets an address or a number through by
- * its SHA-256.
+ * What one text holds that may not be published: in the text as written,
+ * and in it with its percent-escapes decoded, once and twice, so decoding
+ * only adds findings. `allowed` lets an address or a number through by its
+ * SHA-256.
  */
 export function scanText(
   raw: string,
@@ -192,46 +216,50 @@ export function scanText(
   } = {},
 ): Finding[] {
   const allowed: AllowedValue = options.allowed ?? (() => false);
-  const rawLine = options.lineOf ?? ((index: number) => raw.slice(0, index).split("\n").length);
-  const { text, at } = decodePercent(raw);
-  const lineOf = (index: number) => rawLine(at[index] ?? raw.length);
-  const findings: Finding[] = [];
-  const add = (kind: FindingKind, value: string, index: number) => {
-    if ((kind === "email" || kind === "phone") && allowed(kind, sha256(value))) return;
-    findings.push({ file, line: lineOf(index), kind, shown: hidden(value) });
-  };
-  for (const pattern of KEY_PATTERNS) {
-    for (const match of text.matchAll(pattern)) add("api-key", match[0], match.index ?? 0);
+  const lineOf = options.lineOf ?? ((index: number) => raw.slice(0, index).split("\n").length);
+  const readings = [{ text: raw, at: (index: number) => index }];
+  for (let pass = 0; pass < PERCENT_PASSES; pass++) {
+    const last = readings.at(-1) ?? { text: raw, at: (index: number) => index };
+    const next = decodePercent(last.text);
+    if (next.text === last.text) break;
+    readings.push({
+      text: next.text,
+      at: (index: number) => last.at(next.at[index] ?? last.text.length),
+    });
   }
-  for (const secret of options.secrets ?? []) {
-    const inRaw = raw.indexOf(secret);
-    const inText = text.indexOf(secret);
-    if (inRaw >= 0 || inText >= 0)
-      findings.push({
-        file,
-        line: inRaw >= 0 ? rawLine(inRaw) : lineOf(inText),
-        kind: "held-key",
-        shown: "a key this shell holds",
-      });
-  }
-  for (const match of text.matchAll(EMAIL)) add("email", match[0], match.index ?? 0);
-  for (const pattern of PHONES) {
-    for (const match of text.matchAll(pattern)) add("phone", match[0], match.index ?? 0);
-  }
-  for (const pattern of HOME_PATHS) {
-    for (const match of text.matchAll(pattern)) add("home-path", match[0], match.index ?? 0);
-  }
-  for (const word of options.denied ?? []) {
-    for (const match of text.matchAll(new RegExp(escaped(word), "giu"))) {
-      findings.push({
-        file,
-        line: lineOf(match.index ?? 0),
-        kind: "denied-word",
-        shown: "a word on the deny-list",
-      });
+  /** By kind and place in the text as written, so a finding in more than one reading counts once. */
+  const findings = new Map<string, Finding>();
+  for (const { text, at } of readings) {
+    const found = (kind: FindingKind, index: number, shown: string) => {
+      const place = at(index);
+      const key = `${kind} ${place} ${shown}`;
+      if (!findings.has(key)) findings.set(key, { file, line: lineOf(place), kind, shown });
+    };
+    const add = (kind: FindingKind, value: string, index: number) => {
+      if ((kind === "email" || kind === "phone") && allowed(kind, sha256(value))) return;
+      found(kind, index, hidden(value));
+    };
+    for (const pattern of KEY_PATTERNS) {
+      for (const match of text.matchAll(pattern)) add("api-key", match[0], match.index ?? 0);
+    }
+    for (const secret of options.secrets ?? []) {
+      const index = text.indexOf(secret);
+      if (index >= 0) found("held-key", index, "a key this shell holds");
+    }
+    for (const match of text.matchAll(EMAIL)) add("email", match[0], match.index ?? 0);
+    for (const pattern of PHONES) {
+      for (const match of text.matchAll(pattern)) add("phone", match[0], match.index ?? 0);
+    }
+    for (const pattern of HOME_PATHS) {
+      for (const match of text.matchAll(pattern)) add("home-path", match[0], match.index ?? 0);
+    }
+    for (const word of options.denied ?? []) {
+      for (const match of text.matchAll(new RegExp(escaped(word), "giu"))) {
+        found("denied-word", match.index ?? 0, "a word on the deny-list");
+      }
     }
   }
-  return findings;
+  return [...findings.values()];
 }
 
 const TEXT_FILE = /\.(?:json|jsonl|md|ts|txt|csv)$/i;

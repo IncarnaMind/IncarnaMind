@@ -432,6 +432,36 @@ describe("The citation benchmark (#1999)", () => {
     expect(decodePercent("a%2Fb%ZZ").text).toBe("a/b%ZZ");
   });
 
+  test("decoding only adds findings: what the text shows as written is found too, and a path is read through a bad escape and a second escaping", () => {
+    const kinds = (text: string, options: { denied?: string[]; secrets?: string[] } = {}) =>
+      scanText(text, "file", options).map(({ kind }) => kind);
+    const users = ["", "Users", ""].join("/");
+    expect(kinds(`saved in ${users}%20x`)).toEqual(["home-path"]);
+    expect(kinds("made by foo%41bar", { denied: ["foo%41bar"] })).toEqual(["denied-word"]);
+    expect(kinds("cache at %FF%2FUsers%2Fsomeone%2Fnotes")).toEqual(["home-path"]);
+    expect(kinds("cache at %252FUsers%252Fsomeone%252Fnotes")).toEqual(["home-path"]);
+    const held = `held${"y".repeat(10)}@example`;
+    expect(kinds(`the value held${"y".repeat(10)}%40example`, { secrets: [held] })).toEqual([
+      "held-key",
+    ]);
+    // One address written plainly is one finding, not one for each reading.
+    expect(kinds("write to someone@example.org")).toEqual(["email"]);
+  });
+
+  test("the scan reads a long unbroken run of letters in linear time", () => {
+    const run = (length: number) => "ab1.".repeat(length / 4);
+    const timeOf = (text: string) => {
+      const started = performance.now();
+      scanText(text, "file");
+      return performance.now() - started;
+    };
+    timeOf(run(10_000));
+    const small = Math.min(...[0, 1, 2].map(() => timeOf(run(100_000))));
+    const large = Math.min(...[0, 1, 2].map(() => timeOf(run(1_000_000))));
+    // Ten times the text takes about ten times as long; a quadratic rule would take a hundred.
+    expect(large).toBeLessThan(small * 40);
+  });
+
   test("a deny-list is read from outside the repository and fails when it is missing or empty", () => {
     const outside = mkdtempSync(join(tmpdir(), "deny-"));
     const list = join(outside, "words.txt");
@@ -440,6 +470,12 @@ describe("The citation benchmark (#1999)", () => {
     expect(() => readDenyList(list, ROOT)).toThrow(/holds no words/);
     writeFileSync(list, "# private names\nBluebird # a note\n  project kestrel \nissue#4\n");
     expect(readDenyList(list, ROOT)).toEqual(["Bluebird", "project kestrel", "issue#4"]);
+    // Saved on Windows: a byte-order mark and CRLF line ends.
+    writeFileSync(list, "\uFEFF# private names\r\nBluebird # a note\r\n  project kestrel \r\n");
+    expect(readDenyList(list, ROOT)).toEqual(["Bluebird", "project kestrel"]);
+    writeFileSync(list, "\uFEFF# only a comment\r\n\r\n");
+    expect(() => readDenyList(list, ROOT)).toThrow(/holds no words/);
+    writeFileSync(list, "# private names\nBluebird # a note\n  project kestrel \nissue#4\n");
     expect(() => readDenyList(join(ROOT, "eval/citations/words.txt"), ROOT)).toThrow(
       /inside the repository/,
     );
