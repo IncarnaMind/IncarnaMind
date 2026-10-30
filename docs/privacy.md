@@ -69,6 +69,7 @@ Web pages by address are held until you let each go (see [Web pages](#web-pages)
 - **Update checks** to GitHub at startup, unless you turned them off.
 - **Model downloads** from huggingface.co, hf-mirror.com and IncarnaMind's own copies, with the request to huggingface.co and hf-mirror.com (www.modelscope.cn once IncarnaMind's copy there exists) that picks between them, and Ollama pulls, when you ask for a model. They send nothing of yours, so local mode doesn't stop them; the speaker models download when you first record a Meeting, without asking.
 - **A Connector on this computer** keeps working, and can reach the network itself. Only one whose sign-in is with a server on another computer is paused: its sign-in isn't renewed or started, its Tools aren't offered, and it goes on from where it was once the setting is off. A remote Connector whose server isn't on your computer is paused entirely, its sign-in included.
+- **Crash reports**, once you turned them on in Settings → Privacy; they are stripped of your content first.
 
 ## Other things that leave, or never do
 

@@ -66,6 +66,9 @@ const QUOTES: readonly DocQuote[] = [
   },
   { page: "check", key: "claim.reason.refused" },
   { page: "check", key: "claim.reason.malformed" },
+  { page: "check", key: "claim.reason.no-evidence" },
+  { page: "check", key: "claim.state.recordCite" },
+  { page: "check", key: "opinions.one" },
   { page: "check", key: "claim.reason.consent-revoked" },
   { page: "check", key: "claim.reason.local-mode" },
   { page: "check", key: "claim.recheck.edited" },
@@ -77,6 +80,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "data", key: "embeddingProviders.localOnly.label" },
   { page: "data", key: "tagging.automatic.switch" },
   { page: "data", key: "skills.make.command" },
+  { page: "data", key: "privacy.skills.body" },
 ];
 
 const rendered = (quote: DocQuote, language: Language): string =>
