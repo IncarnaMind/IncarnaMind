@@ -355,6 +355,7 @@ export async function launchApp(
     mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await paintNoFrameInPrintPage(app);
   mainProcessIds.set(app, await app.evaluate(() => process.pid));
   await assertPackagedMain(app);
   const window = await app.firstWindow();
@@ -367,6 +368,19 @@ export async function launchApp(
     });
   }
   return { app, window };
+}
+
+/**
+ * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
+ * that waits for one settles. Playwright's focus emulation, which it turns on in every page it
+ * attaches to, has Chromium paint a page that isn't shown, and hid a print that never ended (#1455).
+ */
+async function paintNoFrameInPrintPage(app: ElectronApplication): Promise<void> {
+  await app.context().addInitScript(() => {
+    if (!location.pathname.endsWith("/print.html")) return;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    globalThis.requestAnimationFrame = () => 0;
+  });
 }
 
 /**
@@ -1419,6 +1433,18 @@ export async function openDocumentAt(window: Page, location: DocumentLocation): 
 }
 
 /**
+ * Opens the Block menu Shift+F10 opens for this Block, without moving the caret, through the
+ * test hook: a spec can hold the caret in one list while the command names another Block.
+ */
+export async function openBlockMenuFor(window: Page, blockId: string): Promise<void> {
+  await window.evaluate((id) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.openBlockMenu(id);
+  }, blockId);
+}
+
+/**
  * The next Skill import in Settings gets this path instead of the system's
  * open dialog, which a test can't drive, through the test hook.
  */
@@ -1466,6 +1492,43 @@ export async function setWindowSize(
   height: number,
 ): Promise<void> {
   await resizeContent(app, window, width, height);
+}
+
+/** Sizes the window until the Note's own pane — its page, beside a viewer in a split — is `width` wide. */
+export async function sizeNote(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const page = window.locator(".mind-tab-page");
+  // A split needs the window's two groups apart, which ends under 1,000px.
+  let windowWidth = Math.max(width + 700, 1100);
+  for (let tries = 0; tries < 8; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await page.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 3) return;
+    windowWidth = Math.max(1000, windowWidth + Math.round(width - have));
+  }
+}
+
+/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
+export async function sizeMind(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const column = window.locator(".mind-column");
+  // Past 1,000px the sidebar stops taking room, so a window under it can't make a column this narrow.
+  let windowWidth = Math.max(width + 600, 1000);
+  for (let tries = 0; tries < 4; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await column.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 1) return;
+    windowWidth += Math.round(width - have);
+  }
+  await expect
+    .poll(async () => Math.abs(((await column.boundingBox())?.width ?? 0) - width))
+    .toBeLessThanOrEqual(1);
 }
 
 const SIZE_WAIT_MS = 30_000;

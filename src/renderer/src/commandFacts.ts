@@ -86,31 +86,75 @@ export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: Messa
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
 const WHOLE_LINES = new Set<MessageKey>([
+  "commands.denied",
   "commands.window.unanswered",
   "commands.window.closed",
   "commands.window.unfinished",
   "commands.window.alreadyChecking",
+  "mindCheck.nothingToCheck",
+  "run.stopped.cancelled",
+  "checks.problem.no-claims",
+  "checks.problem.no-documents.all",
+  "checks.problem.local-mode",
 ]);
 
+type Gap = (before: string, after: string) => string;
+
 /**
- * What an Answer read that the User didn't write, on the approval of a command it asks about: one
- * Document by its name, more by their number, and this meeting's Transcript. It never says which
- * of them asked for the command.
+ * What an Answer read that the User didn't write, on the approval of a command it asks about, in
+ * the order the card names them: Documents, web pages by host, pages whose title alone was seen
+ * (never the title they write, #2240), web search's results, Connectors, a script's output, the
+ * Transcript, and other text for anything the rest cannot name. Other text alone is the bare
+ * sentence, with no list. Null when nothing is left to show.
  */
-export function readTextLine(t: Translate, read: ApprovalReadText): string {
-  const [only] = read.documents;
-  const documents =
-    read.documents.length === 1 && only !== undefined
-      ? t("commands.ask.readText.document", { name: only })
+export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): string | null {
+  const [document] = read.documents;
+  const [page] = read.webPages;
+  const [pageTitle] = read.webPageTitles;
+  const [connector] = read.connectors;
+  const parts = [
+    ...(read.documents.length === 1 && document !== undefined
+      ? [t("commands.ask.readText.document", { name: document })]
       : read.documents.length > 1
-        ? t("commands.ask.readText.documents", { count: read.documents.length })
-        : null;
-  const transcript = read.transcript ? t("commands.ask.readText.transcript") : null;
-  const what =
-    documents && transcript
-      ? t("commands.ask.readText.both", { documents, transcript })
-      : (documents ?? transcript ?? "");
-  return t("commands.ask.readText", { what });
+        ? [t("commands.ask.readText.documents", { count: read.documents.length })]
+        : []),
+    ...(read.webPages.length === 1 && page !== undefined
+      ? [t("commands.ask.readText.webPage", { host: page })]
+      : read.webPages.length > 1
+        ? [t("commands.ask.readText.webPages", { count: read.webPages.length })]
+        : []),
+    ...(read.webPageTitles.length === 1 && pageTitle !== undefined
+      ? [t("commands.ask.readText.webPageTitle", { host: pageTitle })]
+      : read.webPageTitles.length > 1
+        ? [t("commands.ask.readText.webPageTitles", { count: read.webPageTitles.length })]
+        : []),
+    ...(read.webSearchResults ? [t("commands.ask.readText.webSearch")] : []),
+    ...(read.connectors.length === 1 && connector !== undefined
+      ? [t("commands.ask.readText.connector", { connector })]
+      : read.connectors.length > 1
+        ? [t("commands.ask.readText.connectors", { count: read.connectors.length })]
+        : []),
+    ...(read.scriptOutput ? [t("commands.ask.readText.script")] : []),
+    ...(read.transcript ? [t("commands.ask.readText.transcript")] : []),
+  ];
+  if (read.otherText) {
+    if (parts.length === 0) return t("commands.ask.readText.only");
+    parts.push(t("commands.ask.readText.other"));
+  }
+  return parts.length === 0 ? null : t("commands.ask.readText", { what: joined(t, gap, parts) });
+}
+
+/** The kinds as one list: "A, B and C"; in Chinese "A、B和C". */
+function joined(t: Translate, gap: Gap, parts: readonly string[]): string {
+  const [first = "", ...rest] = parts;
+  if (rest.length === 0) return first;
+  const comma = t("commands.ask.readText.comma");
+  const and = t("commands.ask.readText.and");
+  const before = [first, ...rest.slice(0, -1)].reduce(
+    (text, part) => text + comma + gap(comma, part) + part,
+  );
+  const last = rest.at(-1) ?? "";
+  return `${before}${gap(before, and)}${and}${gap(and, last)}${last}`;
 }
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */

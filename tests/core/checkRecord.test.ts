@@ -11,6 +11,7 @@ import {
   type Document,
   GENERATED_MARK,
   PROPOSAL_ATTRIBUTE,
+  type RecordCiteResult,
 } from "../../src/core";
 import { setProposal } from "../../src/core/proposals/write";
 import { pendingPart } from "../../src/shared/claimParts";
@@ -212,6 +213,85 @@ async function writeNotes({ core, mind, client, tides, folderId, localModel, hai
   ]);
 }
 
+const RECORD_SENTENCE = "The cited record supports only part of this claim.";
+const RECORD_PASSAGE = 'Supported <img src=x onerror=alert(1)> & "quoted" text.';
+
+function recordCites(document: Document): RecordCiteResult[] {
+  const source = (page: number, passage: string) => ({
+    documentId: document.id,
+    documentName: "Stored Tides",
+    contentHash: document.contentHash,
+    location: { kind: "page", from: page, to: page } as const,
+    pageFrom: page,
+    pageTo: page,
+    passage,
+  });
+  return [
+    {
+      raw: "Smith Dep. 45:3–12",
+      from: 0,
+      to: 17,
+      outcome: "supported",
+      ...source(45, RECORD_PASSAGE),
+      location: {
+        kind: "page",
+        from: 45,
+        to: 45,
+        printed: { from: "45", to: "45" },
+        lines: { from: 3, to: 12 },
+      },
+    },
+    {
+      raw: "Ex. 7 at 3",
+      outcome: "partly",
+      ...source(3, "The first part is on the cited page."),
+      covered: "The first part",
+      uncovered: "The second part",
+    },
+    {
+      raw: "ECF No. 41 at 5",
+      outcome: "choose",
+      ...source(5, "The passage in the resolved candidate."),
+      candidates: [
+        { id: document.id, name: "Stored Tides" },
+        { id: "candidate-not-live", name: "<Candidate & Co>" },
+      ],
+    },
+    {
+      raw: "Dkt. 41 at 6",
+      outcome: "not-found",
+      ...source(6, '=HYPERLINK("https://example.invalid"), said "them",\nand more.'),
+      nearby: {
+        location: {
+          kind: "page",
+          from: 47,
+          to: 47,
+          printed: { from: "47", to: "47" },
+          lines: { from: 5, to: 9 },
+        },
+        pageFrom: 47,
+        pageTo: 47,
+        passage: "The point appears nearby instead.",
+      },
+    },
+  ];
+}
+
+async function writeRecordCites(setup: Setup) {
+  writeMind(setup.client, [
+    paragraph(
+      randomUUID(),
+      text(RECORD_SENTENCE, {
+        type: "claimCheck",
+        attrs: checked(setup.tides, RECORD_SENTENCE, "supported", setup.localModel, {
+          recordCites: recordCites(setup.tides),
+        }),
+      }),
+    ),
+  ]);
+  await setup.client.settled();
+}
+
 async function saveRecord(
   { core, mind, out }: Pick<Setup, "core" | "mind" | "out">,
   format: CheckRecordFormat,
@@ -225,6 +305,16 @@ async function saveRecord(
 const rowsOf = (csv: string): Row[] => {
   const table = parseCsv(csv);
   const at = table.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
+  const [header = [], ...rows] = table.slice(at + 1);
+  const end = rows.findIndex((each) => each.length === 0 || (each.length === 1 && each[0] === ""));
+  return rows
+    .slice(0, end === -1 ? rows.length : end)
+    .map((each) => Object.fromEntries(header.map((name, i) => [name, each[i] ?? ""])));
+};
+
+const recordCiteRowsOf = (csv: string, heading = "Record cites ("): Row[] => {
+  const table = parseCsv(csv);
+  const at = table.findIndex((each) => each[0]?.startsWith(heading));
   const [header = [], ...rows] = table.slice(at + 1);
   return rows.map((each) => Object.fromEntries(header.map((name, i) => [name, each[i] ?? ""])));
 };
@@ -505,6 +595,101 @@ describe("The check record as CSV", () => {
       服务: "在这台电脑上",
     });
   });
+
+  test("lists every record cite in raw order in its own table, with its source, page lines, partial parts and nearby suggestion", async () => {
+    const setup = await setUp();
+    await writeRecordCites(setup);
+
+    const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+
+    const summary = summaryOf(csv);
+    expect(summary.get("Sentences")).toBe("Supported 1");
+    expect(summary.get("Citations")).toBe("None");
+    expect(summary.get("Record cites")).toBe(
+      "Supported 1; Partly 1; Choose a Document 1; Not found 1",
+    );
+    expect(summary.get("Models")).toBe("local-model (On this computer), 1 sentence check");
+    expect(summary.get("Documents searched")).toBe("All Documents");
+    expect(rowsOf(csv)).toHaveLength(1);
+
+    const rows = recordCiteRowsOf(csv);
+    expect(rows.map((row) => [row["Record cite"], row.Result])).toEqual([
+      ["Smith Dep. 45:3–12", "Supported"],
+      ["Ex. 7 at 3", "Partly"],
+      ["ECF No. 41 at 5", "Choose a Document"],
+      ["Dkt. 41 at 6", "Not found"],
+    ]);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        Sentence: RECORD_SENTENCE,
+        Text: "Your text",
+        Document: "Tides",
+        File: basename(setup.file),
+        "SHA-256": setup.tides.contentHash,
+        Model: "local-model",
+        Service: "On this computer",
+        "Checked (UTC)": CHECKED,
+      });
+    }
+    expect(rows[0]).toMatchObject({
+      Location: "p. 45 · lines 3–12",
+      Passage: RECORD_PASSAGE,
+      Covered: "",
+      Uncovered: "",
+      "Documents to choose from": "",
+      "Nearby Location": "",
+      "Passage nearby": "",
+    });
+    expect(rows[1]).toMatchObject({
+      Location: "p. 3",
+      Passage: "The first part is on the cited page.",
+      Covered: "The first part",
+      Uncovered: "The second part",
+    });
+    expect(rows[2]).toMatchObject({
+      Location: "p. 5",
+      Passage: "The passage in the resolved candidate.",
+      "Documents to choose from": "Tides; <Candidate & Co>",
+    });
+    expect(rows[3]).toMatchObject({
+      Location: "p. 6",
+      "Nearby Location": "p. 47 · lines 5–9",
+      "Passage nearby": "The point appears nearby instead.",
+    });
+    expect(rows[3]?.Passage).toBe(
+      `'=HYPERLINK("https://example.invalid"), said "them",\nand more.`,
+    );
+  });
+
+  test("translates the record-cite heading, columns, outcomes and page lines into Chinese without changing the existing counts", async () => {
+    const setup = await setUp();
+    await writeRecordCites(setup);
+    await setup.core.updateSettings({ user: { language: "zh-CN" } });
+
+    const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+
+    const summary = summaryOf(csv);
+    expect(summary.get("句子")).toBe("有依据 1");
+    expect(summary.get("引用")).toBe("无");
+    expect(summary.get("记录引用")).toBe("有依据 1; 部分有依据 1; 选择文档 1; 未找到 1");
+    expect(summary.get("AI 模型")).toBe("local-model（在这台电脑上），1 次句子核对");
+    const rows = recordCiteRowsOf(csv, "记录引用（");
+    expect(rows.map((row) => row.核对结果)).toEqual(["有依据", "部分有依据", "选择文档", "未找到"]);
+    expect(rows[0]).toMatchObject({
+      记录引用: "Smith Dep. 45:3–12",
+      位置: "第 45 页 · 第 3–12 行",
+      段落: RECORD_PASSAGE,
+      "核对时间（UTC）": CHECKED,
+    });
+    expect(rows[1]).toMatchObject({
+      有依据的部分: "The first part",
+      无依据的部分: "The second part",
+    });
+    expect(rows[3]).toMatchObject({
+      附近位置: "第 47 页 · 第 5–9 行",
+      附近段落: "The point appears nearby instead.",
+    });
+  });
 });
 
 describe("A person's own check in the check record", () => {
@@ -674,6 +859,44 @@ describe("What the check record can't know", () => {
     expect(rowsOf(zh)[0]?.文件).toBe("文档已删除");
   });
 
+  test("a record cite uses a live name only for the same stable Document id, never another Document with the same content", async () => {
+    const setup = await setUp();
+    const sources = await createTempDataFolder();
+    const [copy] = await addAndProcess(setup.core, [
+      await writeSourceFile(sources, "Copy.txt", QUOTE),
+    ]);
+    if (!copy) throw new Error("The same-content copy was not added.");
+    expect(copy.contentHash).toBe(setup.tides.contentHash);
+    await writeRecordCites(setup);
+    await setup.core.renameDocument(setup.tides.id, "Live Tides");
+
+    const live = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+
+    expect(recordCiteRowsOf(live).map((row) => row.Document)).toEqual([
+      "Live Tides",
+      "Live Tides",
+      "Live Tides",
+      "Live Tides",
+    ]);
+
+    await setup.core.deleteDocument(setup.tides.id);
+    const deleted = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+    const rows = recordCiteRowsOf(deleted);
+    expect(rows.map((row) => row.Document)).toEqual([
+      "Stored Tides",
+      "Stored Tides",
+      "Stored Tides",
+      "Stored Tides",
+    ]);
+    expect(rows.map((row) => row.File)).toEqual([
+      "Document deleted",
+      "Document deleted",
+      "Document deleted",
+      "Document deleted",
+    ]);
+    expect(rows.some((row) => row.Document === "Copy" || row.File === "Copy.txt")).toBe(false);
+  });
+
   test("the Documents searched are the ones the checks searched: a Folder, everything, a Folder since deleted, or the Mind's chosen scope, a Linked folder's included", async () => {
     const setup = await setUp();
     const own = { folderId: setup.folderId, widened: false };
@@ -804,6 +1027,60 @@ describe("The check record as PDF", () => {
     expect(body).toContain("&lt;img src=x onerror=alert(1)&gt; is not a picture.");
   });
 
+  test("lists record cites as their own PDF items, escapes their text, keeps full hashes and separates nearby evidence", async () => {
+    const { printed, printer } = fakePrinter();
+    const setup = await setUp({ printer });
+    await writeRecordCites(setup);
+
+    await saveRecord(setup, "pdf");
+
+    const body = printed[0]?.body ?? "";
+    expect(body).toContain("Sentences checked against the Documents (1)");
+    expect(body).toContain("Citations (0)");
+    expect(body).toContain("Record cites (4)");
+    expect(body).toContain("Supported 1 · Partly 1 · Choose a Document 1 · Not found 1");
+    expect(body).toContain(setup.tides.contentHash);
+    expect(body).not.toContain("<img");
+    expect(body).toContain(
+      "Supported &lt;img src=x onerror=alert(1)&gt; &amp; &quot;quoted&quot; text.",
+    );
+    expect(body).toContain("Partly</b> · Record cite · Your text");
+    expect(body).toContain("Choose a Document</b> · Record cite · Your text");
+    expect(body).toContain("Not found</b> · Record cite · Your text");
+    expect(body).toContain("Covered</span> The first part");
+    expect(body).toContain("Uncovered</span> The second part");
+    expect(body).toContain("Documents to choose from</span> Tides, &lt;Candidate &amp; Co&gt;");
+    expect(body).toContain("Nearby Location</span> p. 47 · lines 5–9");
+    expect(body).toContain("Passage nearby</span> “The point appears nearby instead.”");
+    expect(body).toContain("p. 45 · lines 3–12");
+    expect(body.match(/class="record-shape"/g)).toHaveLength(5);
+    expect(body.match(/15 Oct 2026, 14:20 UTC/g)).toHaveLength(5);
+    const rawOrder = ["Smith Dep. 45:3–12", "Ex. 7 at 3", "ECF No. 41 at 5", "Dkt. 41 at 6"];
+    const positions = rawOrder.map((raw) => body.indexOf(raw));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  test("in Chinese, the PDF's record-cite words, outcomes and page lines are Chinese", async () => {
+    const { printed, printer } = fakePrinter();
+    const setup = await setUp({ printer });
+    await writeRecordCites(setup);
+    await setup.core.updateSettings({ user: { language: "zh-CN" } });
+
+    await saveRecord(setup, "pdf");
+
+    const body = printed[0]?.body ?? "";
+    expect(body).toContain("记录引用（4）");
+    expect(body).toContain("有依据 1 · 部分有依据 1 · 选择文档 1 · 未找到 1");
+    expect(body).toContain("部分有依据</b> · 记录引用 · 你写的文字");
+    expect(body).toContain("选择文档</b> · 记录引用 · 你写的文字");
+    expect(body).toContain("未找到</b> · 记录引用 · 你写的文字");
+    expect(body).toContain("第 45 页 · 第 3–12 行");
+    expect(body).toContain("附近位置</span> 第 47 页 · 第 5–9 行");
+    expect(body).toContain("有依据的部分</span> The first part");
+    expect(body).toContain("无依据的部分</span> The second part");
+  });
+
   test("in Chinese, the PDF's words and footer are Chinese", async () => {
     const { printed, printer } = fakePrinter();
     const setup = await setUp({ printer });
@@ -895,7 +1172,13 @@ describe("Saving a check record", () => {
     const failed = await broken.core.saveCheckRecord(broken.mind.id);
     expect(failed).toMatchObject({
       withCsv: false,
-      failures: [{ format: "pdf", message: "The PDF took too long to lay out.", wording: null }],
+      failures: [
+        {
+          format: "pdf",
+          message: "Couldn’t lay out the PDF.",
+          wording: { key: "error.pdf.notLaidOut" },
+        },
+      ],
     });
     expect(readdirSync(broken.out)).toEqual(["Check record – Harbour notes.csv"]);
   });

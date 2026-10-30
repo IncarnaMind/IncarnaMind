@@ -46,6 +46,7 @@ import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -55,6 +56,7 @@ import {
   keptAsView,
   markedSentences,
   markSentence,
+  noteTextOf,
   type SelectedSentence,
   selectedSentences,
   unmarkSentence,
@@ -136,7 +138,10 @@ export interface WatchOptions {
 /** A cited sentence to check: where it is, and the Documents it may be checked against. */
 interface Claim {
   blockId: string;
+  place: RecordCitePlace;
   text: string;
+  /** The sentence as the Note holds it, its Citations included: what its record cites read. */
+  noteText: string;
   context: string;
   scope: EvidenceScope;
   figures?: CheckFigure[];
@@ -181,7 +186,9 @@ export function createContradictionWatch(options: WatchOptions) {
       return [
         {
           blockId: sentence.blockId,
+          place: { blockId: sentence.blockId, from: sentence.from },
           text: sentence.text,
+          noteText: noteTextOf(sentence),
           context: sentence.context,
           scope,
           ...(sentence.figures?.length && { figures: sentence.figures }),
@@ -286,10 +293,13 @@ export function createContradictionWatch(options: WatchOptions) {
           const result = await options.claimCheck({
             claim: claim.projection?.text ?? comparableSentence(claim.text),
             ...(claim.projection && { projection: claim.projection }),
+            recordClaim: claim.noteText,
             context: claim.context,
             scope: claim.scope,
             ...(claim.figures && { figures: claim.figures }),
             model: prepared,
+            mindId,
+            place: claim.place,
             cacheKey: mindId,
             signal,
           });
@@ -422,9 +432,12 @@ export function createContradictionWatch(options: WatchOptions) {
                 claim: claim.projection?.text ?? comparableSentence(claim.text),
                 ...(claim.projection && { projection: claim.projection }),
                 ...(claim.figures && { figures: claim.figures }),
+                recordClaim: claim.noteText,
                 context: claim.context,
                 scope: claim.scope,
                 model: prepared,
+                mindId,
+                place: claim.place,
                 cacheKey: mindId,
                 signal: ended,
               }),

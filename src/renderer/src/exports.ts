@@ -21,7 +21,7 @@ import {
 } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
 import { core } from "./core";
-import { errorMessage } from "./errors";
+import { describeError, errorMessage } from "./errors";
 import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
@@ -126,6 +126,8 @@ export type ExportResult = { tableId?: string } & (
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
   | { mindId: string; state: "review"; format: ExportFormat; word: WordExportReport }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
+  /** A PDF that couldn't be laid out: nothing was saved, and the Output location is fine. */
+  | { mindId: string; state: "not-laid-out"; format: ExportKind }
   /** A source pack of a Mind with no Citations: nothing to make, and nothing went wrong. */
   | { mindId: string; state: "empty"; format: ExportFormat }
   | {
@@ -259,6 +261,13 @@ export async function answerCitationPlace(
   );
 }
 
+/** What a failed export says: a PDF that couldn't be laid out is tried again, anything else says why. */
+function failedResult(mindId: string, format: ExportKind, failure: unknown): ExportResult {
+  return describeError(failure).wording?.key === "error.pdf.notLaidOut"
+    ? { mindId, state: "not-laid-out", format }
+    : { mindId, state: "failed", format, message: errorMessage(failure, translateNow) };
+}
+
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
   notFound: 0,
@@ -373,12 +382,7 @@ export async function exportMind(
       store.updateGettingStarted({ exported: true });
     }
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: chosen,
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, chosen, failure));
   }
 }
 
@@ -395,12 +399,7 @@ export async function exportCheckRecord(
     }
     settle(savedResult(mindId, "check-record", await core.saveCheckRecord(mindId)));
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: "check-record",
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, "check-record", failure));
   }
 }
 

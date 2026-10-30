@@ -145,13 +145,6 @@ export const en = {
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
   "library.progressWith.other": "Organizing {count} Documents with {service}…",
-  "library.progressSends.one": "Organizing 1 Document with {service} · sends its name and excerpts",
-  "library.progressSends.other":
-    "Organizing {count} Documents with {service} · sends names and excerpts",
-  "library.progressSends.full.one":
-    "Organizing 1 Document with {service}: its name, outline and short excerpts are sent",
-  "library.progressSends.full.other":
-    "Organizing {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "library.waiting": "{count} Documents can’t be organized yet. Show why",
   "library.count": "{count} Documents",
   "library.count.one": "1 Document",
@@ -858,6 +851,7 @@ export const en = {
   "claim.state.not-checked": "Not checked",
   "claim.state.needs-recheck": "Needs a look · Needs re-check",
   "claim.state.notFound": "Needs a look · Not found",
+  "claim.state.recordCite": "Needs a look · Record cite",
   "claim.why.unsupported": "Unsupported",
   "claim.why.contradicted": "Contradicted",
   "claim.why.needs-recheck": "Needs re-check",
@@ -867,6 +861,32 @@ export const en = {
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
+  "claim.recordCites.label": "Record cites in this sentence",
+  "claim.recordCites.partly": "Partly supported",
+  "claim.recordCites.choose": "Choose a Document",
+  "claim.recordCites.not-found": "Not found",
+  "claim.recordCites.covered": "Covers {covered}; does not cover {uncovered}.",
+  "claim.recordCites.covers": "Covers {covered}.",
+  "claim.recordCites.doesNotCover": "Does not cover {uncovered}.",
+  "claim.recordCites.nearby": "Nearby: {location}",
+  "claim.recordCites.chooseAction": "Choose a Document…",
+  "claim.recordCites.chooseTitle": "Choose the Document for {raw}",
+  "claim.recordCites.search": "Search Documents",
+  "claim.recordCites.noMatch": "No Documents match “{query}”.",
+  "claim.recordCites.current": "Chosen Document",
+  "claim.recordCites.choosing": "Checking the chosen Document…",
+  "checkRecord.summary.recordCites": "Record cites",
+  "checkRecord.recordCites.heading": "Record cites ({count})",
+  "checkRecord.recordCites.kind": "Record cite",
+  "checkRecord.recordCites.result.partly": "Partly",
+  "checkRecord.recordCites.result.choose": "Choose a Document",
+  "checkRecord.recordCites.column.cite": "Record cite",
+  "checkRecord.recordCites.column.passage": "Passage",
+  "checkRecord.recordCites.column.covered": "Covered",
+  "checkRecord.recordCites.column.uncovered": "Uncovered",
+  "checkRecord.recordCites.column.candidates": "Documents to choose from",
+  "checkRecord.recordCites.column.nearbyLocation": "Nearby Location",
+  "checkRecord.recordCites.column.nearbyPassage": "Passage nearby",
   "claim.addAsCitation": "Add as Citation",
   "claim.addAllAsCitations": "Add all as Citations",
   "claim.alreadyCited": "Already cited",
@@ -990,6 +1010,7 @@ export const en = {
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
+  "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -1096,6 +1117,7 @@ export const en = {
   "contradictions.after": "After “{document}” changed: {result}",
   "mindCheck.command": "Check",
   "mindCheck.alreadyChecking": "Already checking this note",
+  "mindCheck.nothingToCheck": "Nothing to check",
   "mindCheck.every": "Check every sentence again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",
@@ -1500,6 +1522,7 @@ export const en = {
   "viewer.docx.comment": "Comment by {author}",
 
   "location.page": "p. {range}",
+  "location.pageLines.across": "p. {fromPage}, line {fromLine}–p. {toPage}, line {toLine}",
   "location.pages": "pp. {range}",
   "location.page.withPdf.one": "{printed} · page {range} of the PDF",
   "location.page.withPdf.other": "{printed} · pages {range} of the PDF",
@@ -1766,14 +1789,27 @@ export const en = {
   "status.tagging.other": "Tagging {count} Documents…",
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
-  "status.taggingSends.one": "Tagging 1 Document with {service} · sends its name and excerpts",
-  "status.taggingSends.other":
-    "Tagging {count} Documents with {service} · sends names and excerpts",
-  "status.taggingSends.full.one":
-    "Tagging 1 Document with {service}: its name, outline and short excerpts are sent",
-  "status.taggingSends.full.other":
-    "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
-  "status.sendsScans": " (page images for scans)",
+  "status.sends":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.onThisComputer":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.onThisComputer":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
+  "status.sends.organize.onThisComputer.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+  "status.sends.organize.text":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.text.onThisComputer":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.scans":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+  "status.sends.scans.onThisComputer":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+  "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
@@ -4064,8 +4100,10 @@ export const en = {
   "export.failed.dataFolder": "IncarnaMind couldn’t open its data folder",
   "export.failed.corrupt": "IncarnaMind’s data is damaged",
   "export.failed.notAllowed": "you haven’t allowed new files in “{folder}”, a Linked folder",
+  "export.notLaidOut": "Couldn’t lay out the PDF, so nothing was saved.",
   "export.changeLocation": "Change output location…",
   "export.allow": "Allow",
+  "export.tryAgain": "Try again",
   "export.doneIn": "Saved “{name}” in {folder}",
   "export.saved.footnotes.one": "1 footnote",
   "export.saved.footnotes.other": "{count} footnotes",
@@ -4173,6 +4211,12 @@ export const en = {
     "Needs re-check: the note’s Search scope has changed since.",
   "export.comment.sentence.needs-recheck.figures":
     "Needs re-check: checked before each of its figures was checked with its own source.",
+  "export.comment.sentence.needs-recheck.referent":
+    "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.recordCite.result": "{raw}: {outcome}",
+  "export.comment.recordCite.passage": "Passage: {passage}",
+  "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
+  "export.comment.recordCite.nearby": "Nearby suggestion: {source}\n{passage}",
   "export.html.notes": "Notes",
   "export.html.back": "Back to text",
   "export.citation.location": "{document}, {location}",
@@ -4297,6 +4341,7 @@ export const en = {
   "error.document.notFound": "There is no such Document.",
   "sheet.noSavedValue": "No saved value",
   "error.checkRecord.noPdf": "This copy of IncarnaMind can’t make PDFs.",
+  "error.pdf.notLaidOut": "Couldn’t lay out the PDF.",
   "error.export.choice": "{name} must be true or false.",
   "error.export.textOnly": "The Documents kept as text must be a list of their ids.",
   "error.export.theirChanges": "theirChanges must be “shown” or “accepted”.",
@@ -4546,10 +4591,21 @@ export const en = {
   "commands.ask.final.text": "It can’t be taken back with Undo.",
   "commands.ask.listen.text": "It starts or changes a recording, so it waits for you.",
   "commands.ask.readText": "This Answer read text you didn’t write: {what}.",
+  "commands.ask.readText.only": "This Answer read text you didn’t write.",
   "commands.ask.readText.document": "“{name}”",
   "commands.ask.readText.documents": "{count} Documents",
+  "commands.ask.readText.webPage": "a web page on {host}",
+  "commands.ask.readText.webPages": "{count} web pages",
+  "commands.ask.readText.webPageTitle": "the title of a web page on {host}",
+  "commands.ask.readText.webPageTitles": "{count} web page titles",
+  "commands.ask.readText.webSearch": "web search results",
+  "commands.ask.readText.connector": "results from {connector}",
+  "commands.ask.readText.connectors": "results from {count} Connectors",
+  "commands.ask.readText.script": "a script’s output",
   "commands.ask.readText.transcript": "this meeting’s Transcript",
-  "commands.ask.readText.both": "{documents} and {transcript}",
+  "commands.ask.readText.other": "other text",
+  "commands.ask.readText.and": "and",
+  "commands.ask.readText.comma": ",",
   "commands.ask.output.title": "Save new files in “{folder}”?",
   "commands.ask.output.text":
     "It becomes your Output location, where the assistant saves files without asking.",
@@ -4744,6 +4800,7 @@ export const en = {
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
+  "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
@@ -4831,6 +4888,16 @@ export const en = {
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",
+  "error.recordCite.choiceInvalid": "The source choice is incomplete. Choose a Document again.",
+  "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
+  "error.recordCite.notFound":
+    "That record cite is no longer in the check. Check the sentence again.",
+  "error.recordCite.documentGone":
+    "That Document is no longer available. Check the cite again to choose a current Document.",
+  "error.recordCite.modelNotReady":
+    "The model needed to check this cite is not ready. Choose a model and try again.",
+  "error.recordCite.unresolved":
+    "The source could not be resolved. Choose another Document or check the cite.",
   "error.tagging.noModel": "Choose a classification model.",
   "error.tagging.place": "Choose where to tag with AI: a Folder, or Not in a Folder.",
   "error.tagging.cloudPaused": "Cloud tagging paused: “Keep everything on this computer” is on.",

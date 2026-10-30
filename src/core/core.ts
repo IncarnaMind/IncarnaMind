@@ -124,6 +124,7 @@ import {
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingRoute,
   type Task,
   type TurnPlace,
   type UnlockDocumentInput,
@@ -1811,6 +1812,7 @@ export function createCore(adapters: CoreAdapters): Core {
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
@@ -2417,6 +2419,7 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
@@ -4669,6 +4672,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    chooseRecordCiteSource: (input) =>
+      inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
     findClaims: (input) => inFlow("verify", () => checks.findClaims(input)),
     verifyClaims: (input) => inFlow("verify", () => checks.verifyClaims(input)),
@@ -4676,6 +4681,8 @@ export function createCore(adapters: CoreAdapters): Core {
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
+    holdMindCheck: async (input) => checks.holdMindCheck(input),
+    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
@@ -4886,6 +4893,27 @@ export function createCore(adapters: CoreAdapters): Core {
         library.resume();
       }
       return models;
+    },
+    getTaggingRoute: async (flow = "tagging"): Promise<TaggingRoute> => {
+      if (flow !== "tagging" && flow !== "classification" && flow !== "scan-images")
+        throw new InvalidInputError({ key: "error.library.flow" });
+      const classifier =
+        flow === "tagging" ? await tagging.resolve() : organizeModelOf(library.settings());
+      if (!classifier) return { where: "none" };
+      if (flow === "scan-images") {
+        if (decisionModelElsewhere(classifier)) return { where: "none" };
+        if (classifier.kind !== "chat")
+          return classifier.kind === "auto" ||
+            (classifier.kind === "ollama" && classifier.usePageImages)
+            ? { where: "local" }
+            : { where: "none" };
+        const reader = chat.imageModel(classifier.choice);
+        const model = reader && chat.describeModel(reader);
+        if (!model) return { where: "none" };
+        return model.service ? { where: "cloud", service: model.service } : { where: "local" };
+      }
+      const service = tagging.service(classifier);
+      return service ? { where: "cloud", service } : { where: "local" };
     },
     classifyDocuments: async (ids) => {
       library.classify(ids);

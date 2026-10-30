@@ -169,6 +169,7 @@ describe("exporting a Mind to PDF", () => {
     expect(exported).toMatchObject({
       fileName: "Tides 潮汐.pdf",
       citations: 5,
+      footnotes: 5,
       unverifiedCitations: 2,
       questions: 0,
     });
@@ -271,9 +272,12 @@ describe("exporting a Mind to PDF", () => {
     });
     const other = await failing.createMind({ title: "Tides" });
     await failing.setOutputLocation(sources);
-    await expect(failing.saveMindExport(other.id, { format: "pdf" })).rejects.toThrow(
-      "The PDF took too long to lay out.",
-    );
+    await expect(failing.saveMindExport(other.id, { format: "pdf" })).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      message: "Couldn’t lay out the PDF.",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
     expect(readdirSync(sources)).not.toContain("Tides.pdf");
   });
 

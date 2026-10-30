@@ -1542,6 +1542,32 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   /**
+   * The Documents whose text or printed page names may hold a Bates number, from the keyword
+   * index and the page labels: one lookup for the Library, not one for each Document. The cite's
+   * own pages still decide.
+   */
+  function batesHolders(prefix: string, identifier: string): Set<string> {
+    const phrases = [" ", "", "_"].map(
+      (between) => `"${keywordText(`${prefix}${between}${identifier}`).replaceAll('"', '""')}"`,
+    );
+    const inText = db.all<{ id: string }>(
+      `SELECT DISTINCT p.document_id AS id FROM passages_fts
+       JOIN passages p ON p.seq = passages_fts.rowid
+       JOIN documents d ON d.id = p.document_id
+       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+      [phrases.join(" OR ")],
+    );
+    const inLabels = db.all<{ id: string }>(
+      `SELECT DISTINCT dp.document_id AS id FROM document_pages dp
+       JOIN documents d ON d.id = dp.document_id
+       WHERE dp.content_hash = d.content_hash AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND dp.label LIKE ?`,
+      [`%${identifier}%`],
+    );
+    return new Set([...inText, ...inLabels].map((row) => row.id));
+  }
+
+  /**
    * The text kept of Documents unlinked with their Linked folder (see
    * `CoreApi.listKeptCitationTexts`): by Document and version, in that order.
    */
@@ -2287,17 +2313,17 @@ export function createDocuments(options: DocumentsOptions) {
     searchableNames(
       documentIds: readonly string[] | undefined,
       limit: number,
-    ): { total: number; names: string[]; webPage: boolean } {
+    ): { total: number; names: string[]; webPages: string[] } {
       const { where, params } = searchable(documentIds);
-      const rows = db.all<{ name: string; title: string | null; kind: string }>(
-        `SELECT d.name, d.title, d.kind FROM documents d WHERE ${where}
+      const rows = db.all<{ id: string; name: string; title: string | null; kind: string }>(
+        `SELECT d.id, d.name, d.title, d.kind FROM documents d WHERE ${where}
          ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
         [...params, BigInt(limit)],
       );
       return {
         total: searchableCount(documentIds),
         names: rows.map((row) => withTitle(row.name, row.title)),
-        webPage: rows.some((row) => row.kind === "web"),
+        webPages: rows.filter((row) => row.kind === "web").map((row) => row.id),
       };
     },
 
@@ -3019,6 +3045,8 @@ export function createDocuments(options: DocumentsOptions) {
         similar.length > 0 ? keywordOnlyPassages(db, lists[0] ?? [], model.id) : undefined;
       return passagesBySeq(db, fuseRankings(lists, limit, keywordOnly));
     },
+
+    batesHolders,
 
     /** See `CoreApi.searchDocumentText`. */
     searchText(query: unknown, options?: unknown): DocumentTextMatch[] {
