@@ -2042,10 +2042,14 @@ export async function pointAndClick(
 ): Promise<void> {
   // A scroll into view can settle a frame or two later (a tab strip rests on whole tabs, which
   // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
-  await target.scrollIntoViewIfNeeded();
   // A list that redraws as the click begins swaps the element for an equal one: look again.
+  let scrolled = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
+    if (!scrolled) {
+      await target.scrollIntoViewIfNeeded();
+      scrolled = true;
+    }
     const held = await target.evaluate(async (element) => {
       const at = element.getBoundingClientRect();
       const off = at.right <= 0 || at.bottom <= 0 || at.left >= innerWidth || at.top >= innerHeight;
@@ -2062,8 +2066,8 @@ export async function pointAndClick(
       return true;
     });
     if (held === "off") {
-      // Drawn again somewhere out of the window: bring it back, then wait for it again.
-      await target.scrollIntoViewIfNeeded();
+      // Drawn again somewhere out of the window: the next look brings it back.
+      scrolled = false;
       throw new Error("The element is out of the window.");
     }
     if (!held) throw new Error("The element is still moving.");
