@@ -69,6 +69,35 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 
 ## Results
 
+### 2026-10-30: a sentence with a figure keeps a contradiction whose quote the model never recorded (#2184)
+
+A sentence with a figure is checked figure by figure, and the reply's own verdict on the sentence counts beside its figures. On Claude Haiku 5.5, about one contradicted reply in seven gave no recorded quote: it wrote its record into the reply instead of calling `cite`, most often in a long reply that corrects a first verdict. The figure step then had no quote to judge the contradiction on, and the card showed Unsupported. Now the check asks once for the deciding quote, as it does for a sentence without figures, and judges the contradiction on it. A reply reads as a refusal only when it gives no verdict ("两万元无法核对" is a reason), and the Figures line is never shown as what the Document says.
+
+`npm run eval:repeats`, 20 checks, the 13 sentences with a figure of `en-conflicts` and `zh-conflicts`, each language's as one Mind in that set's Library. Claude Haiku 5.5 through OpenRouter (`anthropic/claude-haiku-5.5`, thinking off), on 2026-10-30. Before is 660aa879e, after 47f1867f8. Both ran without the OpenRouter option that keeps to endpoints supporting every parameter, which makes OpenRouter refuse a forced Tool on Claude (#2248). Counts are Contradicted, Unsupported, Supported and Not checked.
+
+| Sentence | Before | After |
+|---|---|---|
+| The salary is 65,000 per year, paid monthly in arrears. | 19, 1, 0, 0 | 20, 0, 0, 0 |
+| The salary is 61,500 per month. | 17, 3, 0, 0 | 16, 4, 0, 0 |
+| The Company pays the Employee a rent of 950 per month for the flat. | 18, 2, 0, 0 | 20, 0, 0, 0 |
+| At the end of employment the Employee may sell the work laptop to the Company for 450. | 13, 7, 0, 0 | 18, 2, 0, 0 |
+| The Employee is the landlord of the flat at 14 Mill Lane and the Company the tenant. | 18, 2, 0, 0 | 20, 0, 0, 0 |
+| Up to 5 unused holiday days must be carried over into the next year. | 19, 1, 0, 0 | 17, 3, 0, 0 |
+| The Company contributes 4 percent of salary to the pension and the Employee 6 percent. | 12, 8, 0, 0 | 19, 1, 0, 0 |
+| Up to 5 unused days should be carried over into the next year. | 6, 13, 1, 0 | 6, 13, 1, 0 |
+| 乙方月工资为人民币两万元。 | 17, 2, 0, 1 | 20, 0, 0, 0 |
+| 乙方年工资为人民币一万八千元。 | 9, 11, 0, 0 | 16, 4, 0, 0 |
+| 甲方每月向乙方支付租金人民币一千五百元。 | 13, 4, 3, 0 | 13, 2, 5, 0 |
+| 劳动合同终止时，乙方可按人民币三千元将笔记本电脑出售给甲方。 | 13, 7, 0, 0 | 19, 1, 0, 0 |
+| 乙方将明川路14号2室出租给甲方。 | 19, 1, 0, 0 | 20, 0, 0, 0 |
+
+- **Contradicted:** English 122 of 160 before, 136 after; Chinese 71 of 100 before, 88 after. Sentences Contradicted in at least 19 of 20 checks: 3 of 13 before, 7 after.
+- **The reply's last `Verdict:` line against the card:** it said contradicted in 229 checks before and 225 after; the card showed Contradicted in 193 of them before and 224 after. The one left is a contradiction the strict judgement didn't uphold ("must" for "may", judged "neither"). Every other card follows the reply's own last verdict.
+- **Not checked:** 1 before (an empty reply), 0 after. Cards that gave the Figures line as what the Document says: 11 before, 0 after.
+- **False Supported:** 4 before, 6 after, every one a reply whose last verdict said supported with the parties the same: the Chinese rent payer 3 and 5, "should be carried over" 1 and 1.
+- **What stays short of 19 of 20 is the model's own last verdict:** unsupported in 13 checks (the salary "per month" and "年工资" 4 each, the Document's figure for another period taken for a near miss; "should" 3, "must" 1, the English laptop 1), and supported with its Roles line or its figures saying the parties or the duty differ, which the card shows as Unsupported, in 16 ("should" 10, the Chinese rent payer 2, the laptop 1 in each language, "must" 1, the pension shares 1).
+- **Cost:** the quote was asked for in 18 of the 260 checks, each one short request, and its contradiction judged twice. $0.55 at OpenRouter's billing for the after run, $0.57 at the app's own count.
+
 ### 2026-10-29: every sentence gets its own decision when the claims are named (#1682)
 
 The claims request asked the model for the numbers of the sentences that make claims, and the app took every number it didn't list for a sentence that makes no claim, for good. Now the model decides each sentence ("claim" or "no", by its number), the sentences a reply says nothing of are asked about once more, in one request for their batch, and one still undecided isn't taken for one that makes no claim: it stays to check, the next Check asks about it again, and the line under the check says how many sentences it didn't examine.
