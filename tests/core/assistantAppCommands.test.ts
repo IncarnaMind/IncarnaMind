@@ -3,6 +3,7 @@ import type {
   ApprovalRequest,
   ConversationAnswer,
   Core,
+  UserQuestion,
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../src/core";
@@ -10,7 +11,7 @@ import type { OfferedCommand } from "../../src/shared/commands";
 import { answerRequests, askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/connectors";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
@@ -844,6 +845,97 @@ describe("A long window command, and two things with one name (#1421)", { timeou
     expect(back).toEqual([note.id]);
     expect((await core.listDeleted()).map((each) => each.id)).toContain(folder.id);
     expect((await core.listMinds()).map((each) => each.id)).toContain(note.id);
+  });
+});
+
+describe("A Folder deleted after what was in it (#2238)", { timeout: 60_000 }, () => {
+  /**
+   * A Document named Leases in the Folder Archive, and a Note of that name, both in
+   * Recently deleted; asks which comes back and answers with the Document. `folderFirst`: the
+   * Folder goes before them, so they were deleted in no Folder.
+   */
+  async function askWhich(text: string, documentKind: string, { folderFirst = false } = {}) {
+    const model = calling(find("Leases", "deleted"), run("deleted.restore"));
+    const clock = manualClock();
+    const { core, documents, mind } = await setUpWithDocuments(model, DOCUMENTS, {
+      now: clock.now,
+    });
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const [filed] = documents;
+    if (!filed) throw new Error("No Document.");
+    await core.renameDocument(filed.id, "Leases");
+    await core.assignDocumentGroup(filed.id, archive.id);
+    const note = await core.createMind({ title: "Leases" });
+    clock.advance(1000);
+    if (folderFirst) {
+      await core.deleteLibraryGroup(archive.id);
+      clock.advance(1000);
+      await core.deleteDocuments([filed.id]);
+      await core.deleteMind(note.id);
+    } else {
+      await core.deleteDocuments([filed.id]);
+      await core.deleteMind(note.id);
+      clock.advance(1000);
+      await core.deleteLibraryGroup(archive.id);
+    }
+    const asked: { label: string; description: string }[][] = [];
+    const questions: UserQuestion[] = [];
+    core.on("question.asked", (request) => {
+      asked.push(request.question.options);
+      questions.push(request.question);
+      const document = request.question.options.find((option) =>
+        option.label.startsWith(documentKind),
+      );
+      void core.answerUserQuestion(request.requestId, {
+        skipped: false,
+        chosen: document ? [document.label] : [],
+        wrote: null,
+      });
+    });
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+    return { asked, question: questions[0] ?? null, answer, core, filed };
+  }
+
+  // protects=the question names the Folder a Document was in when that Folder is deleted after it and still waits in Recently deleted; fails_when=its option says it was in no Folder; no_claim=the other kinds.
+  test("the question says the Folder the Document was in, in English", async () => {
+    const { asked, question, core, filed } = await askWhich(
+      "Bring back the Leases I deleted",
+      "Document",
+    );
+    const options = asked[0] ?? [];
+    expect(options.find((each) => each.label.startsWith("Document"))?.description).toBe(
+      "It was in the Folder “Archive”.",
+    );
+    expect(options.find((each) => each.label.startsWith("Note"))?.description).toBe(
+      "It was in no Folder.",
+    );
+    expect(question?.question).toBe("Which “Leases” should come back?");
+    expect((await core.listDocuments()).map((each) => each.id)).toContain(filed.id);
+    expect((await core.listDeleted()).map((each) => each.kind)).toContain("folder");
+  });
+
+  test("the question says the Folder the Document was in, in Chinese", async () => {
+    const { asked, question, core, filed } = await askWhich("把我删掉的“Leases”恢复回来", "文档");
+    const options = asked[0] ?? [];
+    expect(options.find((each) => each.label.startsWith("文档"))?.description).toBe(
+      "原在文件夹“Archive”里。",
+    );
+    expect(options.find((each) => each.label.startsWith("笔记"))?.description).toBe(
+      "原不在任何文件夹里。",
+    );
+    expect(question?.question).toBe("要恢复哪个“Leases”？");
+    expect((await core.listDocuments()).map((each) => each.id)).toContain(filed.id);
+  });
+
+  // protects=a Document deleted after its Folder says it was in no Folder: the Folder's record is older than its deletion; fails_when=the Folder deleted first is still named; no_claim=the tie in one millisecond, which Recently deleted's own test holds.
+  test("the question says in no Folder for a Document deleted after its Folder", async () => {
+    const { asked } = await askWhich("Bring back the Leases I deleted", "Document", {
+      folderFirst: true,
+    });
+    const options = asked[0] ?? [];
+    expect(options.find((each) => each.label.startsWith("Document"))?.description).toBe(
+      "It was in no Folder.",
+    );
   });
 });
 
