@@ -20,6 +20,7 @@ import {
   motionSettled,
   newMind,
   removeDataFolder,
+  runCommand,
   setMotionSpeed,
   setWindowSize,
   showCountWhileWriting,
@@ -97,9 +98,8 @@ test("footnotes by keyboard, the / menu, the selection menu and ^[…], edited i
   await window.keyboard.press("Enter");
   await window.keyboard.type("Spring tides come at new moon");
 
-  // "/" Footnote puts one after the cursor and opens its text at the marker (⌥⌘F is Find and Replace, #1935).
-  await window.keyboard.type("/footnote");
-  await window.keyboard.press("Enter");
+  // ⌘K Insert Footnote puts one after the cursor and opens its text at the marker (⌥⌘F is Find and Replace, #1935).
+  await runCommand(window, "footnote.insert", "Insert Footnote");
   const popover = window.getByTestId("footnote-popover");
   await expect(popover).toBeVisible();
   const field = popover.getByTestId("footnote-text");
@@ -287,9 +287,8 @@ test("in Chinese: footnotes typed with an input method number together with an A
   await editor.click();
   await window.keyboard.type("Spring tides 大潮");
 
-  // "/" 脚注 opens the footnote, named in Chinese; an input method writes its text.
-  await window.keyboard.type("/脚注");
-  await window.keyboard.press("Enter");
+  // ⌘K 插入脚注 opens the footnote, named in Chinese; an input method writes its text.
+  await runCommand(window, "footnote.insert", "插入脚注");
   const popover = window.getByTestId("footnote-popover");
   const field = popover.getByTestId("footnote-text");
   await expect(field).toBeFocused();
@@ -346,8 +345,7 @@ test("in Chinese: footnotes typed with an input method number together with an A
     return view.serializeForClipboard(view.state.doc.slice(at, at + 1)).dom.innerHTML;
   });
   await clickEndOf(window, editor.locator(":scope > p").first());
-  await window.keyboard.type("/脚注");
-  await window.keyboard.press("Enter");
+  await runCommand(window, "footnote.insert", "插入脚注");
   await expect(field).toBeFocused();
   await window.keyboard.type("参见");
   // Pasted as the editor pastes it (the system clipboard is shared with the machine).
@@ -431,8 +429,7 @@ for (const motion of ["on", "off"] as const) {
       return view.serializeForClipboard(view.state.doc.slice(at, at + 1)).dom.innerHTML;
     });
     await clickEndOf(window, editor.locator(":scope > p").first());
-    await window.keyboard.type("/脚注");
-    await window.keyboard.press("Enter");
+    await runCommand(window, "footnote.insert", "Insert Footnote");
     const popover = window.getByTestId("footnote-popover");
     const field = popover.getByTestId("footnote-text");
     await expect(field).toBeFocused();
