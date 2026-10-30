@@ -8,11 +8,9 @@ import { catalogFacts } from "../../src/core/providers/catalog";
 import type { Price } from "../../src/core/providers/catalog/types";
 import { type AttributionDryRow, runAttributionCases } from "./adapter";
 import {
-  ATTRIBUTION_FULL_CASES,
-  ATTRIBUTION_PILOT_CASES,
   ATTRIBUTION_PILOT_MODELS,
-  ATTRIBUTION_RECOVERY_CASES,
   type AttributionPilotPlan,
+  attributionCaseIds,
   attributionPilotJSON,
   createAttributionPilotBudget,
   validateAttributionPilot,
@@ -64,7 +62,8 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     const root = resolve(__dirname, "../..");
     const phase = process.env.INCARNAMIND_ATTRIBUTION_PHASE ?? "dry";
     let recovery: { lineageSHA256: string; originalAfterReports: unknown } | undefined;
-    if (phase === "recovery") {
+    let focused: { lineageSHA256: string } | undefined;
+    if (phase === "recovery" || phase === "focused") {
       try {
         recovery = JSON.parse(process.env.INCARNAMIND_ATTRIBUTION_RECOVERY ?? "null");
         if (
@@ -77,9 +76,17 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
         throw new Error("The frozen recovery lineage is required.");
       }
     }
+    if (phase === "focused") {
+      try {
+        focused = JSON.parse(process.env.INCARNAMIND_ATTRIBUTION_FOCUSED ?? "null");
+        if (!focused || !/^[a-f0-9]{64}$/.test(focused.lineageSHA256)) throw new Error();
+      } catch {
+        throw new Error("The frozen focused lineage is required.");
+      }
+    }
     const originalAfterReports = recovery ? reportRefs(recovery.originalAfterReports) : [];
     const pilotReceipts =
-      phase === "full" || phase === "recovery"
+      phase === "full" || phase === "recovery" || phase === "focused"
         ? reportRefs(process.env.INCARNAMIND_ATTRIBUTION_PILOT_RECEIPTS ?? "null")
         : [];
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
@@ -112,19 +119,15 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
       sourceHead: git("rev-parse", "HEAD").trim(),
       sourceDiffSHA256: sha256(sourceChanges),
       fixtureSHA256,
-      caseIds:
-        phase === "recovery"
-          ? ATTRIBUTION_RECOVERY_CASES[model]
-          : phase === "full"
-            ? ATTRIBUTION_FULL_CASES
-            : ATTRIBUTION_PILOT_CASES,
+      caseIds: attributionCaseIds(phase, model),
       ...(recovery && {
         recovery: {
           lineageSHA256: recovery.lineageSHA256,
           originalAfterReportHashes: originalAfterReports.map((report) => report.sha256),
         },
       }),
-      ...((phase === "full" || phase === "recovery") && {
+      ...(focused && { focused: { lineageSHA256: focused.lineageSHA256 } }),
+      ...((phase === "full" || phase === "recovery" || phase === "focused") && {
         pilotReceiptHashes: pilotReceipts.map((receipt) => receipt.sha256),
       }),
       sharedHashes: {

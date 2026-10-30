@@ -24,6 +24,9 @@ export const ATTRIBUTION_RECOVERY_CASES = {
   "claude-haiku-5-5": ["N03-en", "S01-en", "S01-zh-CN", "T07-en", "T07-zh-CN"],
   "claude-sonnet-5-5": ["S02-en", "S02-zh-CN"],
 } as const;
+export const ATTRIBUTION_FOCUSED_CASES = {
+  "claude-haiku-5-5": ["T07-en", "T07-zh-CN", "T01-en", "T04-zh-CN", "N01-zh-CN", "C06-en"],
+} as const;
 const PILOT_FACET_VERDICTS = [
   { caseId: "N01-en", kind: "source", verdict: "supported" },
   { caseId: "T02-en", kind: "time", verdict: "contradicted" },
@@ -52,10 +55,18 @@ export interface AttributionPilotPlan {
   expectedSharedHashes: AttributionPilotHashes;
   pilotReceiptHashes?: readonly string[];
   recovery?: { lineageSHA256: string; originalAfterReportHashes: readonly string[] };
+  focused?: { lineageSHA256: string };
+}
+
+export function attributionCaseIds(phase: string, model: PilotModel): readonly string[] {
+  if (phase === "recovery") return ATTRIBUTION_RECOVERY_CASES[model];
+  if (phase === "focused")
+    return model === "claude-haiku-5-5" ? ATTRIBUTION_FOCUSED_CASES[model] : [];
+  return phase === "full" ? ATTRIBUTION_FULL_CASES : ATTRIBUTION_PILOT_CASES;
 }
 
 export function validateAttributionPilot(plan: AttributionPilotPlan) {
-  if (plan.phase !== "pilot" && plan.phase !== "full" && plan.phase !== "recovery")
+  if (!["pilot", "full", "recovery", "focused"].includes(plan.phase))
     throw new Error("Select an explicitly authorized attribution phase.");
   const ceiling = plan.phase === "pilot" ? ATTRIBUTION_PILOT_CAP_USD : ATTRIBUTION_FULL_CAP_USD;
   if (!Number.isFinite(plan.capUSD) || plan.capUSD <= 0 || plan.capUSD > ceiling)
@@ -70,16 +81,11 @@ export function validateAttributionPilot(plan: AttributionPilotPlan) {
     throw new Error("The attribution pilot source pin does not match.");
   if (plan.sourceDiffSHA256 !== EMPTY_SOURCE_DIFF_SHA256)
     throw new Error("The measured attribution source must be clean.");
+  const caseIds = attributionCaseIds(plan.phase, plan.model);
   if (
     plan.fixtureSHA256 !== ATTRIBUTION_SHA256 ||
-    JSON.stringify(plan.caseIds) !==
-      JSON.stringify(
-        plan.phase === "recovery"
-          ? ATTRIBUTION_RECOVERY_CASES[plan.model]
-          : plan.phase === "full"
-            ? ATTRIBUTION_FULL_CASES
-            : ATTRIBUTION_PILOT_CASES,
-      )
+    caseIds.length === 0 ||
+    JSON.stringify(plan.caseIds) !== JSON.stringify(caseIds)
   )
     throw new Error("The frozen attribution pilot cases or fixture hash changed.");
   for (const name of ["adapter", "scorer", "host", "entry"] as const) {
@@ -99,17 +105,20 @@ export function validateAttributionPilot(plan: AttributionPilotPlan) {
       plan.pilotReceiptHashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash)))
   )
     throw new Error("Two hashed candidate pilot reports are required.");
-  if (plan.phase === "recovery") {
+  if (plan.phase === "recovery" || plan.phase === "focused") {
     if (
       plan.arm !== "after" ||
       !plan.recovery ||
+      (plan.phase === "focused"
+        ? !/^[a-f0-9]{64}$/.test(plan.focused?.lineageSHA256 ?? "")
+        : plan.focused !== undefined) ||
       !/^[a-f0-9]{64}$/.test(plan.recovery.lineageSHA256) ||
       plan.recovery.originalAfterReportHashes.length !== 2 ||
       new Set(plan.recovery.originalAfterReportHashes).size !== 2 ||
       plan.recovery.originalAfterReportHashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash))
     )
       throw new Error("Recovery needs the exact approved source lineage and original reports.");
-  } else if (plan.recovery !== undefined)
+  } else if (plan.recovery !== undefined || plan.focused !== undefined)
     throw new Error("Recovery cannot change ordinary pilot/full admission.");
 }
 
@@ -444,6 +453,14 @@ type Ledger = {
     originalLedgerSHA256: string;
     caseIds: Record<PilotModel, readonly string[]>;
   };
+  focusedLineage?: {
+    sourceHead: string;
+    sharedHashes: AttributionPilotHashes;
+    priorEntryCount: number;
+    priorChargedUSD: number;
+    priorLedgerSHA256: string;
+    caseIds: typeof ATTRIBUTION_FOCUSED_CASES;
+  };
 };
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -536,8 +553,8 @@ export function createAttributionPilotBudget(options: {
 }) {
   const { plan, ledgerPath } = options;
   validateAttributionPilot(plan);
-  const basis =
-    plan.phase === "recovery" ? recoveryBasis(plan, options.originalAfterReports ?? []) : plan;
+  const recovering = plan.phase === "recovery" || plan.phase === "focused";
+  const basis = recovering ? recoveryBasis(plan, options.originalAfterReports ?? []) : plan;
   if (plan.phase !== "pilot") validatePromotion(basis, options.pilotReceipts ?? []);
   if (options.defaultOutputTokens !== 128000)
     throw new Error("The pinned models' proven app/SDK output limit is required.");
@@ -567,7 +584,7 @@ export function createAttributionPilotBudget(options: {
   const run = randomUUID();
   let stopped: string | null = null;
   function load(): Ledger {
-    if (plan.phase === "recovery" && !existsSync(ledgerPath))
+    if (recovering && !existsSync(ledgerPath))
       throw new Error("Recovery requires the original full ledger.");
     if (!existsSync(ledgerPath))
       return {
@@ -614,14 +631,18 @@ export function createAttributionPilotBudget(options: {
         1e-9
     )
       throw new Error("The attribution pilot ledger is invalid or its ceiling changed.");
-    if (plan.phase === "recovery") {
+    if (recovering) {
       const lineage = value.recoveryLineage;
+      const focused = value.focusedLineage;
+      const bound = plan.phase === "recovery" ? lineage : focused;
+      const digest = (item: unknown) =>
+        createHash("sha256").update(JSON.stringify(item)).digest("hex");
       if (
         !lineage ||
-        createHash("sha256").update(JSON.stringify(lineage)).digest("hex") !==
-          plan.recovery?.lineageSHA256 ||
-        lineage.sourceHead !== plan.sourceHead ||
-        JSON.stringify(lineage.sharedHashes) !== JSON.stringify(plan.sharedHashes) ||
+        !bound ||
+        digest(lineage) !== plan.recovery?.lineageSHA256 ||
+        bound.sourceHead !== plan.sourceHead ||
+        JSON.stringify(bound.sharedHashes) !== JSON.stringify(plan.sharedHashes) ||
         JSON.stringify(lineage.originalAfterReportHashes) !==
           JSON.stringify(plan.recovery?.originalAfterReportHashes) ||
         JSON.stringify(lineage.caseIds) !== JSON.stringify(ATTRIBUTION_RECOVERY_CASES) ||
@@ -632,7 +653,7 @@ export function createAttributionPilotBudget(options: {
         value.chargedUSD < lineage.originalChargedUSD
       )
         throw new Error("The recovery ledger lineage does not match.");
-      const { recoveryLineage: _lineage, ...prior } = value;
+      const { recoveryLineage: _lineage, focusedLineage: _focused, ...prior } = value;
       const entries = value.entries.slice(0, lineage.originalEntryCount);
       const original = {
         ...prior,
@@ -642,10 +663,34 @@ export function createAttributionPilotBudget(options: {
       };
       if (
         entries.some((entry) => !settledEntry(entry)) ||
-        createHash("sha256").update(JSON.stringify(original)).digest("hex") !==
-          lineage.originalLedgerSHA256
+        digest(original) !== lineage.originalLedgerSHA256
       )
         throw new Error("Recovery cannot clear or change the original spend history.");
+      if (plan.phase === "focused") {
+        if (
+          !focused ||
+          digest(focused) !== plan.focused?.lineageSHA256 ||
+          JSON.stringify(focused.caseIds) !== JSON.stringify(ATTRIBUTION_FOCUSED_CASES) ||
+          !Number.isSafeInteger(focused.priorEntryCount) ||
+          focused.priorEntryCount < lineage.originalEntryCount ||
+          focused.priorEntryCount > value.entries.length ||
+          !finite(focused.priorChargedUSD) ||
+          value.chargedUSD < focused.priorChargedUSD
+        )
+          throw new Error("The focused ledger lineage does not match.");
+        const { focusedLineage: _bound, ...before } = value;
+        const earlier = value.entries.slice(0, focused.priorEntryCount);
+        if (
+          earlier.some((entry) => !settledEntry(entry)) ||
+          digest({
+            ...before,
+            entries: earlier,
+            chargedUSD: focused.priorChargedUSD,
+            stopKind: null,
+          }) !== focused.priorLedgerSHA256
+        )
+          throw new Error("A focused check cannot clear or change earlier spend history.");
+      }
     }
     return value;
   }
@@ -720,10 +765,7 @@ export function createAttributionPilotBudget(options: {
             (sum, entry) => sum + (entry.status === "settled" ? entry.chargedUSD : 0),
             0,
           );
-          if (
-            plan.phase === "recovery" &&
-            (request.caseId === null || !plan.caseIds.includes(request.caseId))
-          ) {
+          if (recovering && (request.caseId === null || !plan.caseIds.includes(request.caseId))) {
             ledger.stopKind = "recovery-case";
             return "recovery-case" as const;
           }

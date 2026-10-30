@@ -10,6 +10,7 @@ import {
 } from "../../eval/attribution/adapter";
 import frozen from "../../eval/attribution/cases.json";
 import {
+  ATTRIBUTION_FOCUSED_CASES,
   ATTRIBUTION_PILOT_CASES,
   type AttributionPilotPlan,
   createAttributionPilotBudget,
@@ -959,3 +960,150 @@ test("an unknown recovery request retains its new hold and all original charges 
   expect(createAttributionPilotBudget(config).stopped()).toBe(true);
   expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
 });
+
+const focusedHead = "5".repeat(40);
+const focusedHashes = { ...hashes, host: "6".repeat(64), entry: "7".repeat(64) };
+async function focusedOptions(spend = 0.2) {
+  const config = await recoveryOptions("claude-haiku-5-5", spend);
+  const [historical] = config.ledger.entries;
+  if (!historical) throw new Error("Missing original entry.");
+  const recovered = {
+    ...config.ledger,
+    chargedUSD: spend + 0.01,
+    entries: [
+      historical,
+      {
+        ...historical,
+        id: "recovery-id",
+        run: "recovery-run",
+        arm: "after",
+        sourceHead: fixedHead,
+        caseId: "N03-en",
+        chargedUSD: 0.01,
+      },
+    ],
+  };
+  const lineage = {
+    sourceHead: focusedHead,
+    sharedHashes: focusedHashes,
+    priorEntryCount: recovered.entries.length,
+    priorChargedUSD: recovered.chargedUSD,
+    priorLedgerSHA256: sealed(recovered).sha256,
+    caseIds: ATTRIBUTION_FOCUSED_CASES,
+  };
+  const ledger = { ...recovered, focusedLineage: lineage };
+  writeFileSync(config.ledgerPath, JSON.stringify(ledger));
+  return {
+    ...config,
+    plan: {
+      ...config.plan,
+      phase: "focused",
+      pins: { ...pins, after: focusedHead },
+      sourceHead: focusedHead,
+      caseIds: ATTRIBUTION_FOCUSED_CASES["claude-haiku-5-5"],
+      sharedHashes: focusedHashes,
+      expectedSharedHashes: focusedHashes,
+      focused: { lineageSHA256: sealed(lineage).sha256 },
+    },
+    recovered,
+    ledger,
+  };
+}
+function focusedCall(config: Awaited<ReturnType<typeof focusedOptions>>, caseId: string | null) {
+  const guard = createAttributionPilotBudget(config);
+  const model = recoveryModel();
+  const observed = observeAttribution(() => model, guard.hooks);
+  observed.setCase(caseId);
+  const call = observed
+    .factory({ kind: "anthropic", modelId: config.plan.model, apiKey: null, baseUrl: null })
+    .doGenerate({ prompt: [], maxOutputTokens: 300 });
+  return { guard, model, call };
+}
+
+test("a focused check admits only its fixed Haiku cells and keeps every earlier entry", async () => {
+  const config = await focusedOptions();
+  const bytes = readFileSync(config.ledgerPath, "utf8");
+  const guard = createAttributionPilotBudget(config);
+  expect(guard.stopped()).toBe(false);
+  expect(guard.snapshot().entries).toEqual(config.recovered.entries);
+  expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  const { model, call } = focusedCall(config, "T07-en");
+  await call;
+  expect(model.doGenerateCalls).toHaveLength(1);
+  const saved = createAttributionPilotBudget({ ...config }).snapshot();
+  expect(saved.entries.slice(0, 2)).toEqual(config.recovered.entries);
+  expect(saved.entries.at(-1)).toMatchObject({ sourceHead: focusedHead, caseId: "T07-en" });
+  expect(createAttributionPilotBudget(config).stopped()).toBe(true);
+});
+
+test.each([null, "N03-en", "T02-en"])(
+  "a focused check refuses setup or another case before provider: %s",
+  async (caseId) => {
+    const config = await focusedOptions();
+    const { guard, model, call } = focusedCall(config, caseId);
+    await expect(call).rejects.toThrow("recovery-case");
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(guard.snapshot().entries).toEqual(config.recovered.entries);
+  },
+);
+
+test.each([
+  { model: "claude-sonnet-5-5" as const, caseIds: [] },
+  { caseIds: [...ATTRIBUTION_FOCUSED_CASES["claude-haiku-5-5"]].reverse() },
+  { caseIds: recoveryCases["claude-haiku-5-5"] },
+  { focused: undefined },
+  { phase: "recovery", caseIds: recoveryCases["claude-haiku-5-5"] },
+  { pins: { ...pins, after: fixedHead }, sourceHead: fixedHead },
+  {
+    sharedHashes: { ...focusedHashes, host: "8".repeat(64) },
+    expectedSharedHashes: { ...focusedHashes, host: "8".repeat(64) },
+  },
+])("a focused check cannot escape its cells, source or lineage: %j", async (change) => {
+  const config = await focusedOptions();
+  expect(() =>
+    createAttributionPilotBudget({ ...config, plan: { ...config.plan, ...change } }),
+  ).toThrow();
+});
+
+test.each(["removed", "relabelled", "uncharged"] as const)(
+  "a focused check refuses %s earlier recovery history without changing its bytes",
+  async (mutation) => {
+    const config = await focusedOptions();
+    const damaged =
+      mutation === "removed"
+        ? { ...config.ledger, entries: config.ledger.entries.slice(0, 1), chargedUSD: 0.2 }
+        : mutation === "relabelled"
+          ? {
+              ...config.ledger,
+              entries: config.ledger.entries.map((entry, at) =>
+                at === 1 ? { ...entry, caseId: "T07-en" } : entry,
+              ),
+            }
+          : {
+              ...config.ledger,
+              entries: config.ledger.entries.map((entry, at) =>
+                at === 1 ? { ...entry, chargedUSD: 0 } : entry,
+              ),
+              chargedUSD: 0.2,
+            };
+    const bytes = JSON.stringify(damaged);
+    writeFileSync(config.ledgerPath, bytes);
+    expect(() => createAttributionPilotBudget(config)).toThrow();
+    expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  },
+);
+
+test.each([2.7, 2.8])(
+  "a focused check keeps the settled stop after %s plus earlier recovery",
+  async (spend) => {
+    const config = await focusedOptions(spend);
+    const { model, call } = focusedCall(config, "C06-en");
+    if (spend + 0.01 > 2.8) {
+      await expect(call).rejects.toThrow("settled-spend");
+      expect(model.doGenerateCalls).toHaveLength(0);
+    } else {
+      await call;
+      expect(model.doGenerateCalls).toHaveLength(1);
+    }
+  },
+);
