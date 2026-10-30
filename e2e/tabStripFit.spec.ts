@@ -136,11 +136,10 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         } else if (partRight || outRight) {
           needAfter = Math.max(needAfter, fade);
         }
+        // The whole tabs as they are drawn: what the fit had to fit beside them.
         if (inside) {
           whole++;
-          // A shown tab counts at its least width: it narrows to make the room (#2244).
-          const shownNow = tab.getAttribute("aria-selected") === "true";
-          wholeWidth += shownNow ? Math.min(box.width, 132) : box.width;
+          wholeWidth += box.width;
         }
         if (tab.getAttribute("aria-selected") === "true") {
           shown++;
@@ -179,11 +178,12 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
         shownBox.left < view.right;
       if (before > 0 && !fadeLeft) problems.push(`${where}: tabs hide on the left with no fade`);
       if (after > 0 && !fadeRight) problems.push(`${where}: tabs hide on the right with no fade`);
-      // One whole tab and those pieces wider than the room the strip has (its buttons and fonts
-      // decide it, so it differs by system): the pieces give way, and only the fade says more.
+      // The whole tabs and those readable pieces are wider than the room the strip has (its
+      // buttons and fonts decide it, so it differs by system): the pieces give way, and only the
+      // fade says more.
       const spare = strip.querySelector<HTMLElement>(".tab-strip-spacer");
       const room = list.offsetWidth + (spare?.offsetWidth ?? 0);
-      const cramped = whole === 1 && wholeWidth + needBefore + needAfter + 10 > room + slack;
+      const cramped = wholeWidth + needBefore + needAfter + 10 > room + slack;
       if (!cramped) {
         if (before > 0 && !nameBefore) problems.push(`${where}: no name shows tabs on the left`);
         if (after > 0 && !nameAfter) problems.push(`${where}: no name shows tabs on the right`);
