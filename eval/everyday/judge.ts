@@ -95,6 +95,46 @@ export async function judgeToolClaims(
   return verdictIn(text);
 }
 
+/** Sentences where a reply says the Documents lack the requested metric. */
+export async function judgeDocumentAbsence(
+  model: LanguageModel,
+  reply: string,
+  requestedMetric: string,
+  request: string,
+): Promise<string[]> {
+  const { text } = await generateText({
+    model,
+    instructions: [
+      "You decide whether an assistant explicitly says the Documents lack a requested metric.",
+      `The requested metric is ${requestedMetric}.`,
+      "Flag only a sentence that itself claims that metric is absent from the Documents: it has no such figure, value, information or specific disclosure.",
+      "Never flag a sentence that gives the metric or its value, excludes a different item (for example other income), limits a calculation's basis, or reports a search miss without claiming absence.",
+      "A sentence that excludes another item is not absence even when it uses without, without including, 不含 or 不包括. A sentence that says the metric is missing, unspecified, undisclosed or lacks information is absence even when it also gives a value and a Citation.",
+      'Copy each flagged sentence exactly, then reply with one JSON object: {"absence": ["…"]}, with an empty list when no sentence claims absence.',
+    ].join("\n"),
+    prompt: ["<request>", request, "</request>", "<reply>", reply, "</reply>"].join("\n"),
+    maxOutputTokens: 1_024,
+    maxRetries: 1,
+  });
+  const verdicts = [...text.matchAll(/\{[^{}]*\}/g)].flatMap((match) => {
+    try {
+      const parsed: unknown = JSON.parse(match[0]);
+      if (
+        !isRecord(parsed) ||
+        !Array.isArray(parsed.absence) ||
+        !parsed.absence.every((each) => typeof each === "string")
+      )
+        return [];
+      return [parsed.absence];
+    } catch {
+      return [];
+    }
+  });
+  const verdict = verdicts.at(-1);
+  if (!verdict) throw new Error("The absence judge's reply couldn't be read.");
+  return verdict;
+}
+
 /**
  * The verdict in a judge's reply: its last JSON object, since a judge may
  * correct itself after a first one. One it can't read lists the whole reply,

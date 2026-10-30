@@ -1805,7 +1805,10 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+      passagesCovering: (documentId, from, to, overlapping) =>
+        documents.passagesCovering(documentId, from, to, overlapping),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       unread: (documentIds) => findUnreadDocuments(documents.unread(documentIds ?? undefined)),
@@ -2416,16 +2419,19 @@ export function createCore(adapters: CoreAdapters): Core {
     evidence,
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
       batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
-      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
+      getMany: (documentIds) => documents.getMany(documentIds),
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
+      unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
     },
     engine: answerEngine,

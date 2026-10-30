@@ -83,6 +83,8 @@ export type StepRow =
   | { kind: "read-documents"; documents: ReadDocument[]; sources: StepSource[] }
   /** A search that failed, where it happened. */
   | { kind: "failed-search"; call: AnswerToolCall }
+  /** A Document read that failed, where it happened. */
+  | { kind: "failed-read"; call: AnswerToolCall }
   /** A search the User stopped the Answer in: it didn't fail. */
   | { kind: "stopped-search"; call: AnswerToolCall }
   /** A Connector's Tool, Find sources or a Skill script. */
@@ -125,7 +127,8 @@ export type LiveStep =
   | { kind: "checking-figures" }
   | { kind: "checking-claims" };
 
-const isSearch = (call: AnswerToolCall) => call.source === "documents" && call.tool === SEARCH;
+const isSearch = (call: AnswerToolCall) =>
+  call.source === "documents" && (call.tool === SEARCH || call.tool === "read_document");
 export const isCalculated = (call: AnswerToolCall) =>
   call.source === "documents" && call.tool === CALCULATE;
 
@@ -329,7 +332,12 @@ export function stepRows(
       if (call.status === "failed") {
         // Stopping an Answer ends a search that was running; only a search that gave an error failed.
         const stopped = answer.status === "stopped" && call.error === undefined;
-        rows.push({ kind: stopped ? "stopped-search" : "failed-search", call });
+        const failure = stopped
+          ? "stopped-search"
+          : call.tool === "read_document"
+            ? "failed-read"
+            : "failed-search";
+        rows.push({ kind: failure, call });
         joining = null;
         continue;
       }

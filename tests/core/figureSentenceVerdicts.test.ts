@@ -143,6 +143,7 @@ const SHAPES: Record<string, Reply> = {
     neverCites: true,
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: 甲方 pays 乙方 / 甲方 pays 乙方, same",
@@ -174,6 +175,7 @@ const SHAPES: Record<string, Reply> = {
       "Correction to the verdict above: the agreement gives the very same salary, so the sentence is supported.",
       "",
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -302,6 +304,7 @@ const UNSETTLED: Record<string, Reply> = {
     prose: "I'm sorry, I can't help with that.",
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -315,6 +318,7 @@ const UNSETTLED: Record<string, Reply> = {
     prose: "抱歉，我无法协助完成此请求。",
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: 乙方, same",
       "Topic: found",
       "Roles: none, same",
@@ -356,6 +360,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     omitsRemainder: true,
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -381,6 +386,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     omitsRemainder: true,
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -407,6 +413,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     omitsRemainder: true,
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -415,6 +422,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     item: SUPPORTED_SALARY,
     prose: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
@@ -426,6 +434,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     omitsRemainder: true,
     lines: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: 乙方, same",
       "Topic: found",
       "Roles: none, same",
@@ -440,6 +449,7 @@ const VERDICT_AGAIN: Record<string, Reply> = {
     },
     prose: [
       "Verdict: supported",
+      "Absence: no",
       "Scope: 乙方, same",
       "Topic: found",
       "Roles: none, same",
@@ -623,6 +633,7 @@ const CASES: Record<string, Reply> = {
         quotes: [SALARY],
         lines: [
           `Verdict: ${verdict}`,
+          "Absence: no",
           "Scope: none, same",
           "Topic: found",
           "Roles: none, same",

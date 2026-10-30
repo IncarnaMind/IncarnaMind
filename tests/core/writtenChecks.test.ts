@@ -236,7 +236,7 @@ const englishEvidence =
         ],
       };
     }
-    return { text: `Verdict: supported\nThe Document says: ${MOON} [^1]` };
+    return { text: `Verdict: supported\nAbsence: no\nThe Document says: ${MOON} [^1]` };
   };
 
 /** A core with the tides line in a Folder, and a Mind there with a heading and a line. */

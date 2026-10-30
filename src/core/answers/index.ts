@@ -797,8 +797,16 @@ export interface DocumentsForAnswers
   searchableBySize(documentIds: readonly string[] | null): SizedDocument[];
   /** Whether a Document to search is a workbook or a CSV file: what an Analysis reads (#447). */
   searchableHasSheets(documentIds: readonly string[] | null): boolean;
+  passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
+  /** Live Passages covering pages `from` to `to`, or intersecting them when `overlapping`. */
+  passagesCovering(
+    documentId: string,
+    from: number | null,
+    to: number | null,
+    overlapping?: boolean,
+  ): WindowedPassage[];
   /** Words the User selected to ask about, checked where they were selected (`recheckWhereSelected`). */
   recheckWhereSelected(quote: AskedQuote): CitedSelection;
   /** The languages the Documents to search are in, the most common first, with how many are in each. */
@@ -843,6 +851,10 @@ function inScope(
     pageTexts: (documentId, contentHash, from, to) =>
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
+    passage: (passageId) => documents.passage(passageId),
+    passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+    passagesCovering: (documentId, from, to, overlapping) =>
+      documents.passagesCovering(documentId, from, to, overlapping),
     documentNamed: (name) => documentNamedAmong(documents.searchableBySize(documentIds), name),
   };
 }
@@ -2515,6 +2527,12 @@ export function createAnswers(options: AnswersOptions) {
         readingDocuments: () => options.documents.reading(documentIds),
         searchDocuments: (query, signal, searchOptions) =>
           session.tools.searchDocuments(query, signal, searchOptions),
+        readDocument: (request) =>
+          session.tools.readDocument?.(request) ??
+          Promise.resolve({
+            text: "Document reads are unavailable for this Answer.",
+            passageCount: 0,
+          }),
         cite: (records, citeOptions) =>
           calculating
             ? citeRecords(records, citeOptions)

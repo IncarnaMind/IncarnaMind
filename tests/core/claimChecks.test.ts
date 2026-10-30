@@ -741,7 +741,7 @@ describe("One claim check", () => {
             calls: [cite("Spring tides happen every week")],
           };
         }
-        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported\nAbsence: no" };
       },
       { generate: checkGenerate(PLANS) },
     );
@@ -957,6 +957,29 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
       });
     },
   );
+
+  test("a figure that disagrees contradicts the sentence even when the reply after it gives no verdict", async () => {
+    const claim = "Revenue grew 15% in 2025.";
+    const plans: Record<string, Plan> = {
+      [claim]: { verdict: "supported", calculation: { ...GROWTH, stated: "15%" } },
+    };
+    const model = scriptedModel(
+      (call) => {
+        const reply = checkReply(call, plans);
+        return "text" in reply ? { text: "The growth is worked out above." } : reply;
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core, board } = await calculatingCheck(model);
+
+    const result = await core.checkClaim({ claim });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { documentId: board.id, check: "found" },
+      calculation: { stated: "15%", figure: { shown: "11.6%" } },
+    });
+  });
 
   test("a model that calculates is offered calculate, with the sentence's number to name, and told when to use it; one that doesn't isn't", async () => {
     const calls: ModelCall[] = [];
@@ -2209,7 +2232,8 @@ describe("When the model can't check a sentence", () => {
 describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
-  const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+  const LINES =
+    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same";
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:
@@ -2619,8 +2643,8 @@ describe("Stopping", () => {
         return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
       }
       if (sentenceOf(call) === UNSUPPORTED)
-        return { text: "Verdict: unsupported", pause: { after: 0, until: held } };
-      return { text: "Verdict: unsupported" };
+        return { text: "Verdict: unsupported\nAbsence: no", pause: { after: 0, until: held } };
+      return { text: "Verdict: unsupported\nAbsence: no" };
     });
     const { core, client, mind, block, body } = await mindWith([SUPPORTED, UNSUPPORTED], model);
     const running = core.checkSentences({
