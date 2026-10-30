@@ -8717,7 +8717,8 @@ export type WindowCommandResult = WindowCommandEnd | { started: true };
 export const RECENTLY_DELETED_DAYS = 30;
 
 /** What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is an in-app one. */
-export type DeletedKind = "mind" | "conversation" | "document" | "folder" | "tag";
+export const DELETED_KINDS = ["mind", "conversation", "document", "folder", "tag"] as const;
+export type DeletedKind = (typeof DELETED_KINDS)[number];
 
 export interface DeletedRef {
   kind: DeletedKind;
@@ -8729,6 +8730,12 @@ export interface RestoreRef extends DeletedRef {
   links?: TagLinkState[];
 }
 
+/** What Undo of a Restore puts back in Recently deleted: an item, at the time it was deleted before it came back. */
+export interface DeletedAgainRef extends DeletedRef {
+  /** ISO 8601, UTC. */
+  deletedAt: string;
+}
+
 export interface DeletedItem {
   kind: DeletedKind;
   id: string;
@@ -8738,7 +8745,10 @@ export interface DeletedItem {
   deletedAt: string;
   /** A Document's kind; null for the others. */
   documentKind: DocumentKind | null;
-  /** The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and for the others. */
+  /**
+   * The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and
+   * for the others. One deleted after it still counts, until that Folder is deleted permanently.
+   */
   groupId: string | null;
   /** A Document's Linked folder, or null: a file added on its own, and for the others. */
   linkedFolderId: string | null;
@@ -9937,6 +9947,13 @@ export interface CoreApi {
    * come back now (its name taken, its Linked folder unlinked). Never touches the User's files.
    */
   restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
+  /**
+   * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
+   * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
+   * was in and its `RECENTLY_DELETED_DAYS` are as they were. A time outside those days, or in the
+   * future, is taken as now, so it never lands expired. Sends the events a delete sends.
+   */
+  deleteAgain(refs: DeletedAgainRef[]): Promise<void>;
   /**
    * Takes back every change the commands of one of the assistant's Runs made (#1110), the last
    * first: `CommandDone.run`. A change that can't be taken back is skipped and the rest are;
@@ -12171,6 +12188,7 @@ const methods: Record<CoreApiMethod, true> = {
   moveToFolder: true,
   restoreAssignment: true,
   restore: true,
+  deleteAgain: true,
   undoCommands: true,
   redoCommands: true,
   listDeleted: true,

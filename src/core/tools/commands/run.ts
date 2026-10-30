@@ -52,6 +52,7 @@ export type CommandsCore = Pick<
   | "createLibraryGroup"
   | "deleteLibraryGroup"
   | "restore"
+  | "deleteAgain"
   | "createTag"
   | "deleteTag"
   | "addTagToDocuments"

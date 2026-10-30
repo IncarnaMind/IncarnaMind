@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { Core, OfferedCommand, WindowCommandRequest } from "../../src/core";
+import type { Core, CoreAdapters, OfferedCommand, WindowCommandRequest } from "../../src/core";
 import { TranslatableError } from "../../src/core/errors";
 import { ACCEPT_SUGGESTIONS } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
+import { manualClock } from "../helpers/core";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 /**
@@ -42,7 +43,7 @@ const WINDOW = "test-window";
 
 type Call = { tool: string; input: Record<string, unknown> };
 
-async function setUp() {
+async function setUp(overrides: Partial<CoreAdapters> = {}) {
   let steps: Call[] = [];
   const calls: ModelCall[] = [];
   const model = scriptedModel((call): ScriptedReply => {
@@ -51,7 +52,7 @@ async function setUp() {
     const step = steps[made.length];
     return step ? { calls: [step] } : { text: "Done." };
   });
-  const setup = await setUpWithDocuments(model, FILES);
+  const setup = await setUpWithDocuments(model, FILES, overrides);
   const { core } = setup;
   const lease = setup.documents.find((each) => each.name.startsWith("Client A"));
   if (!lease) throw new Error("The lease wasn't added.");
@@ -186,6 +187,40 @@ describe("the command gate denies by default what is behind another wall", () =>
     };
     await s.ask(s.outside.id, [restore]);
     expect((await s.core.listMinds()).some((mind) => mind.id === s.memo.id)).toBe(false);
+  });
+
+  test("a Document from a deleted walled Folder says nothing about where it was, outside the wall", async () => {
+    const clock = manualClock();
+    const s = await setUp({ now: clock.now });
+    await s.core.deleteDocuments([s.lease.id]);
+    clock.advance(1000);
+    await s.core.deleteLibraryGroup(s.folderA.id);
+    const namesake = await s.core.createMind({ title: "Client A lease" });
+    await s.core.deleteMind(namesake.id);
+
+    const asked: { label: string; description: string }[][] = [];
+    s.core.on("question.asked", (request) => {
+      asked.push(request.question.options);
+      const note = request.question.options.find((option) => option.label.startsWith("Note"));
+      void s.core.answerUserQuestion(request.requestId, {
+        skipped: false,
+        chosen: note ? [note.label] : [],
+        wrote: null,
+      });
+    });
+    await s.ask(s.outside.id, [
+      {
+        tool: "run_command",
+        input: { command: "deleted.restore", ids: [s.lease.id, namesake.id] },
+      },
+    ]);
+
+    const options = asked[0] ?? [];
+    expect(options.find((each) => each.label.startsWith("Document"))?.description).toBe("");
+    expect(options.every((each) => !each.description.includes("Client A"))).toBe(true);
+    expect(options.find((each) => each.label.startsWith("Note"))?.description).toBe(
+      "It was in no Folder.",
+    );
   });
 
   test("a walled Folder can't be renamed, deleted, organized or tagged from outside it", async () => {
