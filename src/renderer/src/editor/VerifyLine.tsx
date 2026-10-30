@@ -39,6 +39,8 @@ import { coverageOf, type ShownClaim, sameCoverage, shownClaims } from "./claimC
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { useRunModel } from "./ModelChip";
 import { Counted } from "./NoteHealth";
+import { OpinionsLine } from "./OpinionsLine";
+import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
 
@@ -119,6 +121,7 @@ export function useVerifyState(
     selector: ({ editor: current }) => claimMarks(current, verification.pages),
     equalityFn: sameMarks,
   });
+  const opinions = useOpinionChecks(editor, doc);
   const claims = verification.claims;
   const total = claims?.length ?? 0;
   const asking = claims !== null && total > 0 && marks.marked === 0 && running === null;
@@ -147,18 +150,17 @@ export function useVerifyState(
       outcome?.kind === "local-mode" ||
       outcome?.kind === "failed" ||
       outcome?.kind === "error");
-  return { running, outcome, marks, claims, total, asking, estimate, problem };
+  return { running, outcome, marks, claims, total, asking, estimate, problem, opinions };
 }
 
 export type VerifyState = ReturnType<typeof useVerifyState>;
 
 /** Whether a verify's claims have their checks, so its card says what they found. */
-export const verifyDone = ({ running, outcome, claims, total, marks }: VerifyState) =>
+export const verifyDone = ({ running, outcome, claims, marks }: VerifyState) =>
   running === null &&
   outcome?.kind !== "no-documents" &&
   outcome?.kind !== "nothing" &&
   claims !== null &&
-  total > 0 &&
   marks.marked > 0;
 
 const VERIFY_MARKS: Record<VerifyRow, ClaimMarkState> = {
@@ -200,7 +202,7 @@ export function VerifyCard({
     (app) => (app.minds.find((each) => each.id === mindId)?.folderId ?? null) !== null,
   );
   const unread = useCheckUnread(editor, doc);
-  const { running, outcome, marks, claims, total, estimate } = state;
+  const { running, outcome, marks, claims, total, estimate, opinions } = state;
   const emptyScope = useEmptyScopeLine(
     outcome?.kind === "no-documents" ? (outcome.chosen ?? null) : null,
   );
@@ -308,9 +310,9 @@ export function VerifyCard({
         </div>
       </div>
     );
-  } else if (total === 0 || outcome?.kind === "nothing") {
+  } else if ((total === 0 || outcome?.kind === "nothing") && opinions.length === 0) {
     body = <p data-testid="verify-empty">{t("verify.none")}</p>;
-  } else if (marks.marked === 0) {
+  } else if (marks.marked === 0 && (opinions.length === 0 || total > 0)) {
     body = (
       <div className="check-card-ask" data-testid="verify-ask">
         <p className="check-card-ask-title">
@@ -343,23 +345,34 @@ export function VerifyCard({
     const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
-    const summary = [
-      notChecked > 0
-        ? t(marks.marked === 1 ? "verify.checkedOf.one" : "verify.checkedOf", {
-            checked: format(marks.marked - notChecked),
-            count: format(marks.marked),
-          })
-        : t(marks.marked === 1 ? "verify.checked.one" : "verify.checked", {
-            count: format(marks.marked),
-          }),
-      ...(look > 0
-        ? [t(look === 1 ? "verify.needLook.one" : "verify.needLook", { count: format(look) })]
-        : []),
-      ...(stopped ? runStopParts(stopped, t, language) : []),
-    ];
+    const summary =
+      total === 0
+        ? [t("verify.none")]
+        : [
+            notChecked > 0
+              ? t(marks.marked === 1 ? "verify.checkedOf.one" : "verify.checkedOf", {
+                  checked: format(marks.marked - notChecked),
+                  count: format(marks.marked),
+                })
+              : t(marks.marked === 1 ? "verify.checked.one" : "verify.checked", {
+                  count: format(marks.marked),
+                }),
+            ...(look > 0
+              ? [t(look === 1 ? "verify.needLook.one" : "verify.needLook", { count: format(look) })]
+              : []),
+            ...(stopped ? runStopParts(stopped, t, language) : []),
+          ];
     body = (
       <div ref={doneRef} data-testid="verify-done" className="check-rows">
-        <MetaLine parts={summary} className="check-card-summary" />
+        <MetaLine
+          parts={[
+            ...summary,
+            opinions.length > 0 && (
+              <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
+            ),
+          ]}
+          className="check-card-summary"
+        />
         {VERIFY_ROWS.filter((row) => marks.rows[row].length > 0).map((row) => {
           const count = marks.rows[row].length;
           const shown = { count: format(count) };

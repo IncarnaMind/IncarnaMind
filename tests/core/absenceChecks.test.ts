@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { WHOLE_READ } from "../../src/core/answers/checks/absence";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
-import { checkGenerate, checkReply, requestedFigures } from "../helpers/checks";
+import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
-import { scriptedModel } from "../helpers/models";
+import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const CLAIM = "The lease has no break clause.";
@@ -33,14 +34,24 @@ function absenceModel(verdict: "supported" | "contradicted", wholeReads: number[
   );
 }
 
-/** A whole read that finds nothing of what the sentence says is absent, and nothing else to judge. */
-const HOLDS = { absent: "break clause", absence: "holds", rest: "none", citations: [] };
+/**
+ * A first turn that names the sentence's parts, as the check asks before its first search: a
+ * sentence of one part goes on as its own check, with no request to sort it.
+ */
+function withParts(call: ModelCall, reply: ScriptedReply, parts: readonly string[]): ScriptedReply {
+  const first = !call.results.some((result) => result.tool === "search_documents");
+  if (!first || !call.system.includes("Parts:")) return reply;
+  const named = parts.map((text) => ({ kind: "fact", text }));
+  return { ...reply, text: `Parts: ${JSON.stringify(named)}` };
+}
+
+/** A whole read that finds nothing of what the sentence says is absent. */
+const HOLDS = { absent: "break clause", absence: "holds" };
 
 /** A whole read that finds the clause the sentence says is absent, in `passage`. */
 const contained = (passage: string | undefined) => ({
   absent: "break clause",
   absence: "contained",
-  rest: "none",
   citations: [{ marker: 1, passage, quote: CLAUSE }],
 });
 
@@ -61,7 +72,7 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
     (call) => {
       requests.push(call.system);
       const scripted = checkReply(call, { [claim]: plan });
-      if (!("text" in scripted)) return scripted;
+      if (!("text" in scripted)) return withParts(call, scripted, [claim]);
       return { text: fields.startsWith("{") ? fields : `Verdict: supported\n${fields}` };
     },
     {
@@ -149,7 +160,7 @@ describe("Checking an absence sentence", () => {
       state: "not-checked",
       reason: "malformed",
     });
-    expect(claimSpans(readMind(client))[0]?.check.readDocuments).toEqual([]);
+    expect(claimSpans(readMind(client))[0]?.check.readDocuments ?? []).toEqual([]);
   });
 
   test("a sentence with a saved figure still needs the whole read before Supported", async () => {
@@ -490,79 +501,44 @@ describe("Checking an absence sentence", () => {
   });
 });
 
-describe("The whole read of an absence sentence judges its absence and its rest apart", () => {
-  interface Read {
-    absent: string;
-    absence: "holds" | "contained";
-    rest: "none" | "supported" | "contradicted" | "unsupported";
-    /** Citation 1: the words that contain what the sentence says is absent. */
-    absenceQuote?: string;
-    /** Citation 2: the words that state the rest, or give another value for it. */
-    restQuote?: string;
-    /** A figure's verdict and the number its quote writes, by the figure as the sentence shows it. */
-    figures?: Record<string, { verdict: string; number: string }>;
-  }
+describe("An absence is one part of its sentence, judged by the whole read alone", () => {
+  type Plan = Parameters<typeof checkReply>[1][string];
   interface Case {
     claim: string;
     document: string;
-    read: Read;
+    /** Each part's words, in order, and how the check of that part goes. */
+    parts: [string, Plan][];
+    /** The whole read's reply for the absence part. */
+    read?: Record<string, unknown>;
   }
 
-  /** A whole read that answers as a faithful judge of each part would. */
-  function wholeRead(call: { prompt: string }, read: Read): string {
-    const passages = shownPassages(call.prompt);
-    const cite = (marker: number, quote: string | undefined) =>
-      quote
-        ? [{ marker, passage: passages.find((each) => each.text.includes(quote))?.id, quote }]
-        : [];
-    const citations = [...cite(1, read.absenceQuote), ...cite(2, read.restQuote)];
-    const judged = JSON.stringify({
-      absent: read.absent,
-      absence: read.absence,
-      rest: read.rest,
-      citations,
-    });
-    const asked = requestedFigures(call as Parameters<typeof requestedFigures>[0]);
-    if (asked.length === 0) return judged;
-    const items = asked.map(({ id, shown }) => {
-      const own = read.figures?.[shown];
-      const inAbsent = !own && read.absent.includes(shown);
-      return {
-        id,
-        verdict:
-          own?.verdict ?? (inAbsent && read.absence === "holds" ? "supported" : "unsupported"),
-        scope: "same",
-        topic: "found",
-        roles: "same",
-        says: null,
-        reading: null,
-        relation: "equals",
-        source: own ? { citation: 2, number: own.number, reading: null, unitQuote: null } : null,
-        calculation: null,
-      };
-    });
-    return `${judged}\nFigures: ${JSON.stringify({ items, remainder: null })}`;
-  }
-
-  async function checkedInNote(each: Case, language: "en" | "zh-CN", absence = true) {
+  async function checkedInNote(each: Case, language: "en" | "zh-CN") {
     const reads: { system: string; prompt: string }[] = [];
     const requests: string[] = [];
-    const plan = absence
-      ? ({ verdict: "unsupported", absence: true } as const)
-      : ({ verdict: "supported", absence: false, quote: each.read.restQuote } as const);
+    const plans = Object.fromEntries(each.parts);
     const model = scriptedModel(
       (call) => {
         requests.push(call.system);
-        return checkReply(call, { [each.claim]: plan });
+        return withParts(
+          call,
+          checkReply(call, plans),
+          each.parts.map(([text]) => text),
+        );
       },
       {
         generate: (call) => {
           requests.push(call.system);
           if (call.system.startsWith("Read the whole Documents")) {
             reads.push({ system: call.system, prompt: call.prompt });
-            return { text: wholeRead(call, each.read) };
+            const passage = shownPassages(call.prompt)[0]?.id;
+            return {
+              text: JSON.stringify(each.read ?? {}).replaceAll(
+                '"$PASSAGE"',
+                JSON.stringify(passage),
+              ),
+            };
           }
-          return checkGenerate({ [each.claim]: plan })(call);
+          return checkGenerate(plans)(call);
         },
       },
     );
@@ -584,157 +560,212 @@ describe("The whole read of an absence sentence judges its absence and its rest 
     });
     await client.settled();
     const check = claimSpans(readMind(client))[0]?.check;
+    const part = (text: string) =>
+      check?.parts?.find((one) => each.claim.slice(one.span.start, one.span.end) === text);
     const figure = (shown: string) => check?.figures?.find((each) => each.reading.chars === shown);
-    const checkRequests = requests.filter((system) => !system.startsWith("You sort")).length;
-    return { check, figure, reads, checkRequests };
+    const checkRequests = requests.filter((system) => !system.startsWith("You sort Documents"));
+    return { check, part, figure, reads, checkRequests };
   }
 
+  /** The check of an absence part: the search finds nothing, and its judge says Absence: yes. */
+  const absent = (): Plan => ({ verdict: "unsupported", absence: true });
+  const holds = (words: string) => ({ absent: words, absence: "holds" });
   const languages = ["en", "zh-CN"] as const;
-  const LOAN = { en: "the $5 million loan", "zh-CN": "这笔 500 万元的贷款" };
-  const MILLIONS = { en: "$5 million", "zh-CN": "500 万元" };
-  const REVENUE = { en: "Revenue rose 8% in 2025.", "zh-CN": "2025 年收入增长了 8%。" };
-  const LOAN_GIVEN = {
-    en: "The company disclosed a $5 million loan on 14 May 2026.",
-    "zh-CN": "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。",
-  };
-  const loanAnd = (language: "en" | "zh-CN", revenue: string) =>
-    language === "en"
-      ? `The company never disclosed the $5 million loan, and revenue rose ${revenue} in 2025.`
-      : `公司从未披露这笔 500 万元的贷款，且 2025 年收入增长了 ${revenue}。`;
-  const LEASE = {
+
+  const WAREHOUSE = {
     en: {
-      pure: "The lease has no break clause.",
-      law: (law: string) => `The lease has no break clause and is governed by ${law} law.`,
-      laws: ["English", "French"],
-      document: "This lease is governed by English law.",
-      absent: "break clause",
+      claim:
+        "The company never disclosed a second warehouse, and the landlord is Harbour Estates Ltd., which also owns the warehouse.",
+      absence: "The company never disclosed a second warehouse",
+      landlord: "the landlord is Harbour Estates Ltd.",
+      owns: "which also owns the warehouse",
+      document: "The landlord is Harbour Estates Ltd.",
+      quote: "The landlord is Harbour Estates Ltd",
+      absent: "a second warehouse",
     },
     "zh-CN": {
-      pure: "租约没有提前解约条款。",
-      law: (law: string) => `租约没有提前解约条款，并受${law}法律管辖。`,
-      laws: ["英国", "法国"],
-      document: "本租约受英国法律管辖。",
-      absent: "提前解约条款",
+      claim: "公司从未披露第二个仓库，并且出租人为港湾地产有限公司，该公司也拥有这个仓库。",
+      absence: "公司从未披露第二个仓库",
+      landlord: "出租人为港湾地产有限公司",
+      owns: "该公司也拥有这个仓库",
+      document: "出租人为港湾地产有限公司。",
+      quote: "出租人为港湾地产有限公司",
+      absent: "第二个仓库",
     },
   };
 
   test.each(languages)(
-    "%s: a figure inside a true absence keeps the absence's own result, never another part's quote",
+    "%s: a quote the read offers for the rest can't make another part Supported: that part has its own check",
     async (language) => {
-      const { check, figure, reads } = await checkedInNote(
+      const each = WAREHOUSE[language];
+      const { check, part, reads } = await checkedInNote(
         {
-          claim: loanAnd(language, "12%"),
-          document: REVENUE[language],
+          claim: each.claim,
+          document: each.document,
+          parts: [
+            [each.absence, absent()],
+            [each.landlord, { verdict: "supported", quote: each.quote }],
+            [each.owns, { verdict: "unsupported" }],
+          ],
+          // As the live reply was: the absence holds, and the rest "supported" on an off-topic quote.
           read: {
-            absent: LOAN[language],
+            absent: each.absent,
             absence: "holds",
-            rest: "contradicted",
-            restQuote: REVENUE[language],
-            figures: { "12%": { verdict: "contradicted", number: "8%" } },
+            rest: "supported",
+            citations: [
+              { marker: 1, passage: "$PASSAGE", quote: "" },
+              { marker: 2, passage: "$PASSAGE", quote: each.quote },
+            ],
           },
         },
         language,
       );
       expect(reads).toHaveLength(1);
-      expect(check).toMatchObject({
-        state: "contradicted",
-        evidence: { quote: REVENUE[language] },
+      expect(check?.state).not.toBe("supported");
+      expect(check?.state).toBe("unsupported");
+      expect(part(each.absence)).toMatchObject({ verdict: "supported", evidence: [] });
+      expect(part(each.absence)?.readDocuments).toHaveLength(1);
+      expect(part(each.landlord)).toMatchObject({ verdict: "supported" });
+      expect(part(each.owns)).toMatchObject({ verdict: "unsupported" });
+    },
+  );
+
+  const LAW = {
+    en: {
+      absence: "The lease has no break clause",
+      law: (law: string) => `is governed by ${law} law`,
+      claim: (law: string) => `The lease has no break clause and is governed by ${law} law.`,
+      laws: ["English", "French"] as const,
+      document: "This lease is governed by English law.",
+      quote: "This lease is governed by English law",
+      absent: "break clause",
+    },
+    "zh-CN": {
+      absence: "租约没有提前解约条款",
+      law: (law: string) => `适用${law}法律`,
+      claim: (law: string) => `租约没有提前解约条款，并且适用${law}法律。`,
+      laws: ["英国", "法国"] as const,
+      document: "本租约适用英国法律。",
+      quote: "本租约适用英国法律",
+      absent: "提前解约条款",
+    },
+  };
+
+  test.each(languages)(
+    "%s: a true absence beside a right fact is Supported, each part on what backs it",
+    async (language) => {
+      const each = LAW[language];
+      const [right] = each.laws;
+      const { check, part, checkRequests } = await checkedInNote(
+        {
+          claim: each.claim(right),
+          document: each.document,
+          parts: [
+            [each.absence, absent()],
+            [each.law(right), { verdict: "supported", quote: each.quote }],
+          ],
+          read: holds(each.absent),
+        },
+        language,
+      );
+      expect(check?.state).toBe("supported");
+      expect(part(each.absence)?.readDocuments).toHaveLength(1);
+      expect(part(each.law(right))).toMatchObject({
+        verdict: "supported",
+        evidence: [{ quote: each.quote, check: "found" }],
       });
-      expect(figure("12%")).toMatchObject({
-        state: "contradicted",
-        source: { quote: REVENUE[language], check: "found" },
-      });
-      expect(figure(MILLIONS[language])).toMatchObject({
-        state: "supported",
-        evidence: null,
-        source: null,
-      });
+      // The first turn names the two parts and stops; then each part's own three requests, and
+      // one whole read for the absence.
+      expect(checkRequests).toHaveLength(8);
+      expect(checkRequests.filter((system) => system.startsWith("Read the whole"))).toHaveLength(1);
     },
   );
 
   test.each(languages)(
-    "%s: the rest of the sentence is Supported only with a Citation, else Unsupported",
+    "%s: a wrong fact beside a true absence is never Supported",
     async (language) => {
-      const lease = LEASE[language];
-      const [english, french] = lease.laws;
-      const uncited = await checkedInNote(
+      const each = LAW[language];
+      const [, wrong] = each.laws;
+      const { check, part } = await checkedInNote(
         {
-          claim: lease.law(english ?? ""),
-          document: lease.document,
-          read: { absent: lease.absent, absence: "holds", rest: "supported" },
+          claim: each.claim(wrong),
+          document: each.document,
+          parts: [
+            [each.absence, absent()],
+            [
+              each.law(wrong),
+              { verdict: "contradicted", quote: each.quote, confirm: "conflict" } as Plan,
+            ],
+          ],
+          read: holds(each.absent),
         },
         language,
       );
-      expect(uncited.check).toMatchObject({ state: "unsupported", evidence: null });
-
-      const cited = await checkedInNote(
-        {
-          claim: lease.law(english ?? ""),
-          document: lease.document,
-          read: {
-            absent: lease.absent,
-            absence: "holds",
-            rest: "supported",
-            restQuote: lease.document,
-          },
-        },
-        language,
-      );
-      expect(cited.check).toMatchObject({
-        state: "supported",
-        evidence: { quote: lease.document, check: "found" },
-      });
-
-      const wrong = await checkedInNote(
-        {
-          claim: lease.law(french ?? ""),
-          document: lease.document,
-          read: {
-            absent: lease.absent,
-            absence: "holds",
-            rest: "contradicted",
-            restQuote: lease.document,
-          },
-        },
-        language,
-      );
-      expect(wrong.check).toMatchObject({
-        state: "contradicted",
-        evidence: { quote: lease.document, check: "found" },
-      });
+      expect(check?.state).not.toBe("supported");
+      expect(part(each.law(wrong))?.verdict).not.toBe("supported");
     },
   );
 
+  const LOAN = {
+    en: {
+      absence: "The company never disclosed the $5 million loan",
+      revenue: (figure: string) => `revenue rose ${figure} in 2025`,
+      claim: (figure: string) =>
+        `The company never disclosed the $5 million loan, and revenue rose ${figure} in 2025.`,
+      document: "Revenue rose 8% in 2025.",
+      quote: "Revenue rose 8% in 2025",
+      absent: "the $5 million loan",
+      millions: "$5 million",
+      pure: "The company never disclosed the $5 million loan.",
+      given: "The company disclosed a $5 million loan on 14 May 2026.",
+    },
+    "zh-CN": {
+      absence: "公司从未披露这笔 500 万元的贷款",
+      revenue: (figure: string) => `2025 年收入增长了 ${figure}`,
+      claim: (figure: string) =>
+        `公司从未披露这笔 500 万元的贷款，且 2025 年收入增长了 ${figure}。`,
+      document: "2025 年收入增长了 8%。",
+      quote: "2025 年收入增长了 8%",
+      absent: "这笔 500 万元的贷款",
+      millions: "500 万元",
+      pure: "公司从未披露这笔 500 万元的贷款。",
+      given: "公司于 2026 年 5 月 14 日披露了一笔 500 万元的贷款。",
+    },
+  };
+
   test.each(languages)(
-    "%s: beside a figure inside a true absence, an uncited rest leaves the sentence Unsupported",
+    "%s: a wrong figure beside a true absence is never Supported, and the absence's figure keeps its own result",
     async (language) => {
-      const claim =
-        language === "en"
-          ? "The company never disclosed the $5 million loan and is based in London."
-          : "公司从未披露这笔 500 万元的贷款，且总部位于伦敦。";
+      const each = LOAN[language];
       const { check, figure } = await checkedInNote(
         {
-          claim,
-          document: REVENUE[language],
-          read: { absent: LOAN[language], absence: "holds", rest: "supported" },
+          claim: each.claim("12%"),
+          document: each.document,
+          parts: [
+            [each.absence, absent()],
+            [each.revenue("12%"), { verdict: "contradicted", quote: each.quote }],
+          ],
+          read: holds(each.absent),
         },
         language,
       );
-      expect(check?.state).toBe("unsupported");
-      expect(check?.remainder).toMatchObject({ state: "unsupported", evidence: null });
-      expect(figure(MILLIONS[language])).toMatchObject({ state: "supported", evidence: null });
+      expect(check?.state).not.toBe("supported");
+      expect(figure("12%")?.state).not.toBe("supported");
+      expect(figure(each.millions)).toMatchObject({ state: "supported", evidence: null });
     },
   );
 
   test.each(languages)(
-    "%s: a sentence that says only its absence is Supported with no Citation when it holds",
+    "%s: a sentence that is only its absence is Supported with no Citation when it holds",
     async (language) => {
-      const lease = LEASE[language];
+      const each = LAW[language];
+      const claim = language === "en" ? `${each.absence}.` : `${each.absence}。`;
       const { check, reads, checkRequests } = await checkedInNote(
         {
-          claim: lease.pure,
-          document: lease.document,
-          read: { absent: lease.absent, absence: "holds", rest: "none" },
+          claim,
+          document: each.document,
+          parts: [[claim, absent()]],
+          read: holds(each.absent),
         },
         language,
       );
@@ -742,84 +773,65 @@ describe("The whole read of an absence sentence judges its absence and its rest 
       expect(check).toMatchObject({ state: "supported", evidence: null });
       expect(check?.readDocuments).toHaveLength(1);
       // The check's own three requests, then the one whole read.
-      expect(checkRequests).toBe(4);
+      expect(checkRequests).toHaveLength(4);
+    },
+  );
+
+  test.each(languages)(
+    "%s: a figure inside a true absence is Supported with the absence, no quote borrowed",
+    async (language) => {
+      const each = LOAN[language];
+      const { check, figure } = await checkedInNote(
+        {
+          claim: each.pure,
+          document: each.document,
+          parts: [[each.pure, absent()]],
+          read: holds(each.absent),
+        },
+        language,
+      );
+      expect(check?.state).toBe("supported");
+      expect(figure(each.millions)).toMatchObject({ state: "supported", evidence: null });
     },
   );
 
   test.each(languages)(
     "%s: a false absence is Contradicted with the quote that contains it, its figure too",
     async (language) => {
-      const claim =
-        language === "en"
-          ? "The company never disclosed the $5 million loan."
-          : "公司从未披露这笔 500 万元的贷款。";
+      const each = LOAN[language];
+      const quote = each.given.replace(/[.。]$/u, "");
       const { check, figure } = await checkedInNote(
         {
-          claim,
-          document: LOAN_GIVEN[language],
+          claim: each.pure,
+          document: each.given,
+          parts: [[each.pure, absent()]],
           read: {
-            absent: LOAN[language],
+            absent: each.absent,
             absence: "contained",
-            rest: "none",
-            absenceQuote: LOAN_GIVEN[language],
+            citations: [{ marker: 1, passage: "$PASSAGE", quote }],
           },
         },
         language,
       );
-      expect(check).toMatchObject({
+      expect(check).toMatchObject({ state: "contradicted", evidence: { quote } });
+      expect(figure(each.millions)).toMatchObject({
         state: "contradicted",
-        evidence: { quote: LOAN_GIVEN[language] },
-      });
-      expect(figure(MILLIONS[language])).toMatchObject({
-        state: "contradicted",
-        evidence: { quote: LOAN_GIVEN[language] },
+        evidence: { quote },
       });
     },
   );
 
   test.each(languages)(
-    "%s: a true absence with a right figure is Supported, the figure on its own source",
+    "%s: an absence answer that can't be read is Not checked, never Supported",
     async (language) => {
-      const { check, figure, checkRequests } = await checkedInNote(
-        {
-          claim: loanAnd(language, "8%"),
-          document: REVENUE[language],
-          read: {
-            absent: LOAN[language],
-            absence: "holds",
-            rest: "supported",
-            restQuote: REVENUE[language],
-            figures: { "8%": { verdict: "supported", number: "8%" } },
-          },
-        },
-        language,
-      );
-      expect(check?.state).toBe("supported");
-      // The rest of the sentence rests on its own Citation.
-      expect(check?.remainder).toMatchObject({
-        state: "supported",
-        evidence: { quote: REVENUE[language], check: "found" },
-      });
-      expect(figure("8%")).toMatchObject({ state: "supported", source: { check: "found" } });
-      expect(figure(MILLIONS[language])).toMatchObject({ state: "supported", evidence: null });
-      expect(checkRequests).toBe(4);
-    },
-  );
-
-  test.each(languages)(
-    "%s: a reply with no readable rest is Not checked, never Supported",
-    async (language) => {
-      const lease = LEASE[language];
+      const each = LAW[language];
+      const claim = language === "en" ? `${each.absence}.` : `${each.absence}。`;
       const { check } = await checkedInNote(
         {
-          claim: lease.law(lease.laws[0] ?? ""),
-          document: lease.document,
-          read: {
-            absent: lease.absent,
-            absence: "holds",
-            rest: "maybe" as Read["rest"],
-            restQuote: lease.document,
-          },
+          claim,
+          document: each.document,
+          parts: [[claim, absent()]],
+          read: { absent: each.absent, absence: "probably" },
         },
         language,
       );
@@ -827,51 +839,14 @@ describe("The whole read of an absence sentence judges its absence and its rest 
     },
   );
 
-  test.each(languages)(
-    "%s: without the absence answer, each figure keeps its own result from the search",
-    async (language) => {
-      const claim =
-        language === "en"
-          ? "The company disclosed the $5 million loan."
-          : "公司披露了这笔 500 万元的贷款。";
-      const { check, figure, reads, checkRequests } = await checkedInNote(
-        {
-          claim,
-          document: LOAN_GIVEN[language],
-          read: { absent: "", absence: "holds", rest: "none", restQuote: LOAN_GIVEN[language] },
-        },
-        language,
-        false,
-      );
-      expect(reads).toHaveLength(0);
-      expect(check).toMatchObject({ state: "supported" });
-      expect(check?.readDocuments ?? []).toEqual([]);
-      expect(figure(MILLIONS[language])).toMatchObject({
-        state: "supported",
-        source: { check: "found" },
-      });
-      expect(checkRequests).toBe(3);
-    },
-  );
-
-  test("the whole read asks for the absence and the rest of the sentence apart, each with its own quote", async () => {
-    const claim = loanAnd("en", "8%");
-    const { reads } = await checkedInNote(
-      {
-        claim,
-        document: REVENUE.en,
-        read: { absent: LOAN.en, absence: "holds", rest: "supported", restQuote: REVENUE.en },
-      },
-      "en",
+  test("the whole read asks only about the absence", () => {
+    expect(WHOLE_READ).toContain(
+      "decide only whether they contain what the sentence says is absent",
     );
-    const system = reads[0]?.system ?? "";
-    expect(system).toContain("in two parts: what it says is absent, and the rest of what it says");
-    expect(system).toContain('"absence"');
-    expect(system).toContain('"rest"');
-    expect(system).toContain("citation 1");
-    expect(system).toContain("citation 2");
-    expect(system).toContain("Figures:");
-    expect(reads[0]?.prompt).toContain(`<sentence>\n${claim}\n</sentence>`);
-    expect(reads[0]?.prompt).toContain("<figures>");
+    expect(WHOLE_READ).toContain('"absence":"holds"');
+    expect(WHOLE_READ).toContain('"absence":"contained"');
+    expect(WHOLE_READ).not.toContain("rest");
+    expect(WHOLE_READ).not.toContain('"marker":2');
+    expect(WHOLE_READ).not.toContain("Figures:");
   });
 });

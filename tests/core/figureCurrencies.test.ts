@@ -8,8 +8,15 @@
 import { describe, expect, test } from "vitest";
 import { type CheckedText, unitNotStated } from "../../src/core/answers/checks/units";
 import { translate } from "../../src/shared/i18n";
-import { checkingModel, type Plan } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  listedSentences,
+  type Plan,
+} from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
+import { scriptedModel } from "../helpers/models";
 
 const read = (cited: string, document = cited): CheckedText[] => [
   { cited: () => cited, document: () => document },
@@ -760,6 +767,54 @@ describe("Checking a worked-out figure", { timeout: 30_000 }, () => {
     expect(await setup.core.checkClaim({ claim })).toMatchObject({
       verdict: "supported",
       calculation: { stated: "$54,000" },
+    });
+  });
+
+  // protects=the same worked-out figure inside an opinion is decided by its calculation too, as the sentence's fact part (#1452, #2002); fails_when="We think that is steep, and fees A and B came to $54,000." is Unsupported naming "£54,000", or its fact isn't checked; no_claim=a real model's verdict.
+  test("is decided by its calculation when an opinion surrounds it", async () => {
+    const claim = "We think that is steep, and fees A and B came to $54,000.";
+    const opinion = "We think that is steep";
+    const fact = "fees A and B came to $54,000";
+    const plans = {
+      [fact]: {
+        verdict: "supported" as const,
+        calculation: {
+          inputs: [input("a", "$20,000"), input("b", "$34,000")],
+          formula: "a + b",
+          stated: "$54,000",
+        },
+      },
+    };
+    const model = scriptedModel((call) => checkReply(call, plans), {
+      generate: (call) =>
+        call.system.startsWith("You sort the sentences")
+          ? {
+              text: JSON.stringify({
+                sentences: listedSentences(call.prompt).map(({ number }) => ({
+                  number,
+                  parts: [
+                    { kind: "opinion", text: opinion },
+                    { kind: "fact", text: fact },
+                  ],
+                })),
+              }),
+            }
+          : checkGenerate(plans)(call),
+    });
+    const setup = await setUpWithDocuments(model, [FEES]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    expect(await setup.core.checkClaim({ claim })).toMatchObject({
+      verdict: "supported",
+      parts: [
+        { kind: "opinion", verdict: null },
+        { kind: "fact", verdict: "supported", calculation: { stated: "$54,000" } },
+      ],
     });
   });
 });

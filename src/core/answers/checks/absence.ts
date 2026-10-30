@@ -8,7 +8,6 @@ import type {
   ClaimJudgment,
   ClaimReadDocument,
   Document,
-  FigureCheckResult,
   LeftOutDocument,
   ProviderError,
 } from "../../api";
@@ -18,8 +17,7 @@ import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature, parseRecords } from "../engine";
 import { replyJson } from "../quoteRetry";
 import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
-import { wholeReadResults } from "./figureChecks";
-import { FIGURES_SHAPE, figuresSection } from "./prompt";
+import { absenceFigureResults } from "./figureChecks";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
@@ -31,8 +29,6 @@ interface AbsenceContext {
     citedCaseUnchecked: boolean;
     citedCaseFound: boolean;
   };
-  /** Each requested figure's row from a Figures line, read as the check reads its own reply's. */
-  figureRows(reply: string): Promise<FigureCheckResult[]>;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
 }
@@ -85,7 +81,6 @@ export async function checkAbsence({
   versions,
   facts,
   citedCase,
-  figureRows,
   notChecked,
   failedCheck,
 }: AbsenceContext): Promise<ClaimCheckResult | null> {
@@ -121,19 +116,14 @@ export async function checkAbsence({
     });
   }
   const whole = reading.map(({ passages }) => session.show(passages)).join("\n\n");
-  const figures = request.figures ?? [];
   let reply: string;
   try {
     const { text } = await generateText({
       model: model.model,
-      instructions: wholeReadInstructions(figures.length > 0),
-      prompt: [
-        `<sentence>\n${request.claim}\n</sentence>`,
-        ...(figures.length > 0 ? [figuresSection(figures)] : []),
-        whole,
-      ].join("\n\n"),
+      instructions: WHOLE_READ,
+      prompt: `<sentence>\n${request.claim}\n</sentence>\n\n${whole}`,
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 400 + 150 * figures.length,
+      maxOutputTokens: 400,
       maxRetries: 1,
       abortSignal: signal,
     });
@@ -141,105 +131,42 @@ export async function checkAbsence({
   } catch (error) {
     return failedCheck(classifyProviderError(error));
   }
-  const [judged, ...figureLines] = reply.split(/\r?\n(?=\s*Figures:)/i);
-  const value = await replyJson(judged ?? "");
+  const value = await replyJson(reply);
   if (!isRecord(value)) return notChecked("malformed");
-  const citations = parseRecords(value.citations ?? []);
-  if (citations.length > 0) {
-    const recorded = session.tools.cite(citations);
-    if (!recorded.startsWith("Recorded")) return notChecked("no-evidence");
-    session.check();
-  }
-  const found = (marker: number) => {
-    const citation = citations.some((each) => each.marker === marker)
-      ? session.finalCitation(marker)
-      : null;
-    return citation?.check === "found" ? citation : null;
-  };
-  const judgment = (
-    verdict: "supported" | "contradicted" | "unsupported",
-    evidence: Citation | null,
-  ): ClaimJudgment =>
-    verdict === "unsupported"
-      ? {
-          verdict,
-          evidence: null,
-          says: null,
-          unsupported: { reason: null, covered: null, uncovered: null },
-          calculation: null,
-          readDocuments,
-          ...citedCase(null),
-          ...facts(),
-        }
-      : {
-          verdict,
-          evidence,
-          says: null,
-          unsupported: null,
-          calculation: null,
-          readDocuments,
-          ...citedCase(evidence),
-          ...facts(),
-        };
+  const judgment = (verdict: "supported" | "contradicted", evidence: Citation | null) => ({
+    verdict,
+    evidence,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    readDocuments,
+    ...citedCase(evidence),
+    ...facts(),
+  });
   let absence: ClaimJudgment;
   if (value.absence === "holds") absence = judgment("supported", null);
   else if (value.absence === "contained") {
-    const evidence = found(1);
-    if (!evidence) return notChecked("no-evidence");
+    const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
+    if (citations.length === 0) return notChecked("no-evidence");
+    if (!session.tools.cite(citations).startsWith("Recorded")) return notChecked("no-evidence");
+    session.check();
+    const evidence = session.finalCitation(1);
+    if (evidence?.check !== "found") return notChecked("no-evidence");
     absence = judgment("contradicted", evidence);
   } else return notChecked("malformed");
-  const rest = restOfSentence(value.rest, found(2), judgment);
-  if (rest === undefined) return notChecked("malformed");
-  const sentence = [absence, ...(rest ? [rest] : [])];
-  const worst =
-    sentence.find((part) => part.verdict === "contradicted") ??
-    sentence.find((part) => part.verdict === "unsupported") ??
-    rest ??
-    absence;
-  if (figures.length === 0) return worst;
-  const rows = await figureRows(figureLines.join("\n"));
+  const figures = request.figures ?? [];
+  if (figures.length === 0) return absence;
   const absent = typeof value.absent === "string" ? value.absent : null;
-  return wholeReadResults(request.claim, figures, rows, { absence, sentence: worst }, absent);
+  return absenceFigureResults(request.claim, figures, absence, absent);
 }
 
 /**
- * What the read says of the sentence beyond its absence: null when it says nothing more,
- * undefined when the reply gives no answer that can be read. Supported only on a found
- * Citation (`evidence`): the absence holding backs nothing else. Parts of a sentence (#2174)
- * will check this rest on their own.
+ * The whole read judges only the absence. Anything else a sentence says is a part of its own,
+ * checked as any part is with its own Citation (#2174): a read that also judged the rest backed
+ * it with a quote of its own choosing, once an unrelated one (#1443).
  */
-function restOfSentence(
-  rest: unknown,
-  evidence: Citation | null,
-  judgment: (
-    verdict: "supported" | "contradicted" | "unsupported",
-    evidence: Citation | null,
-  ) => ClaimJudgment,
-): ClaimJudgment | null | undefined {
-  if (rest === "none") return null;
-  if (rest === "supported" || rest === "contradicted")
-    return evidence ? judgment(rest, evidence) : judgment("unsupported", null);
-  if (rest === "unsupported") return judgment("unsupported", null);
-  return undefined;
-}
-
-/**
- * The whole read judges the whole sentence, not only its absence: a read that asked only whether
- * the absent thing is there approved whatever else the sentence said (#1443). The absence and the
- * rest of the sentence are answered apart, each with its own evidence, so neither borrows the
- * other's.
- */
-export function wholeReadInstructions(figures: boolean): string {
-  return [
-    "Read the whole Documents and judge the sentence against them in two parts: what it says is absent, and the rest of what it says.",
-    'Reply with one JSON object on one line: {"absent":"the sentence\'s own words for what it says is absent","absence":"holds","rest":"none","citations":[{"marker":1,"passage":"P1","quote":"the exact words"}]}.',
-    '- absence: "holds" when the whole text does not contain what the sentence says is absent; "contained" when it does, and citation 1 quotes the words that contain it.',
-    '- rest: "none" when the sentence says nothing besides its absence; otherwise "supported" when the text states it, or "contradicted" when it gives another value, with citation 2 quoting those words; else "unsupported".',
-    "Copy each quote exactly from one Passage, as one unbroken stretch. A Passage outside the whole text is never evidence.",
-    ...(figures
-      ? [
-          `Then one last line: Figures: and one JSON object shaped ${FIGURES_SHAPE}, giving every requested id once. A figure inside what the sentence says is absent takes the absence's verdict (supported when it holds), with source null. Any other figure names its citation (2 or later) and the number as its quote writes it; calculation is null; remainder is null.`,
-        ]
-      : []),
-  ].join("\n");
-}
+export const WHOLE_READ = [
+  "Read the whole Documents and decide only whether they contain what the sentence says is absent.",
+  'Reply with one JSON object: {"absent":"the sentence\'s own words for what it says is absent","absence":"holds"} when the whole text does not contain it; {"absent":"…","absence":"contained","citations":[{"marker":1,"passage":"P1","quote":"the exact words that contain it"}]} when it does.',
+  "Copy the quote exactly from one Passage, as one unbroken stretch. A Passage outside the whole text is never evidence.",
+].join("\n");

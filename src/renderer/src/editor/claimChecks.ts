@@ -13,10 +13,12 @@ import {
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
+  CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type SearchScope,
 } from "../../../core/api";
+import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type ClaimCheckShown,
@@ -25,6 +27,7 @@ import {
   type KeptMark,
   readClaimCheck,
 } from "../../../shared/claimChecks";
+import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
 import { sameScope } from "../../../shared/searchScope";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 
@@ -34,6 +37,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "request",
   "action",
   "state",
+  "parts",
   "reason",
   "detail",
   "providerId",
@@ -92,12 +96,12 @@ export interface ParagraphPlaces {
 export function paragraphPlaces(
   block: ProseMirrorNode,
   pos: number,
-  skip: (child: ProseMirrorNode) => boolean = () => false,
+  skip: (child: ProseMirrorNode, start: number) => boolean = () => false,
 ): ParagraphPlaces {
   const places: ParagraphPlaces = { text: "", starts: [], ends: [], inline: [] };
   block.forEach((child, offset) => {
     const start = pos + 1 + offset;
-    if (skip(child)) return;
+    if (skip(child, start)) return;
     if (child.isText) {
       const words = child.text ?? "";
       for (let index = 0; index < words.length; index++) {
@@ -113,6 +117,73 @@ export function paragraphPlaces(
     places.text += child.type.name === "hardBreak" ? "\n" : INLINE_NODE;
   });
   return places;
+}
+
+export function claimPlaces(
+  block: ProseMirrorNode,
+  pos: number,
+  skip: (child: ProseMirrorNode, start: number) => boolean = () => false,
+) {
+  const raw = paragraphPlaces(block, pos, skip);
+  const pieces: InlineTextPiece[] = [];
+  let at = 0;
+  const addText = (to: number) => {
+    const from = raw.starts[at];
+    const end = raw.ends[to - 1];
+    if (at < to && from !== undefined && end !== undefined)
+      pieces.push({ kind: "text", text: raw.text.slice(at, to), from, to: end });
+  };
+  for (const each of raw.inline) {
+    addText(each.at);
+    const place = { from: each.pos, to: raw.ends[each.at] ?? each.pos + each.node.nodeSize };
+    const type = each.node.type.name;
+    if (type === CITATION_NODE) pieces.push({ kind: "citation", ...place });
+    else if (type === "hardBreak") pieces.push({ kind: "break", ...place });
+    else {
+      const figure =
+        type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(each.node.attrs) : null;
+      pieces.push({ kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) });
+    }
+    at = each.at + 1;
+  }
+  addText(raw.text.length);
+  const projection = projectInlineText(pieces);
+  const citations = pieces.filter((piece) => piece.kind === "citation");
+  const sentences = sentenceSpans(projection.text).flatMap((span, index, all) => {
+    const range = inlineRange(projection, span.from, span.to);
+    if (!range) return [];
+    const { from, to: end } = range;
+    const next = projection.starts[all[index + 1]?.from ?? projection.text.length] ?? Infinity;
+    const to = citations
+      .filter((cite) => cite.from >= end && cite.to <= next)
+      .reduce((last, cite) => Math.max(last, cite.to), end);
+    return [
+      { start: span.from, end: span.to, from, to, text: projection.text.slice(span.from, span.to) },
+    ];
+  });
+  const inline = raw.inline.map((each) => {
+    const at = projection.rawStarts.findIndex((start) => start !== null && start >= each.at);
+    return { ...each, at: at < 0 ? projection.text.length : at };
+  });
+  return { ...projection, inline, sentences };
+}
+
+/**
+ * Where characters `from`–`to` of a check's sentence, as its check read it, are in the document;
+ * null when the sentence has moved or changed.
+ */
+export function placeInSentence(
+  state: EditorState,
+  claim: Pick<ClaimSpan, "sentence">,
+  { from, to }: { from: number; to: number },
+): { from: number; to: number } | null {
+  const $start = state.doc.resolve(claim.sentence.from);
+  if (!$start.parent.isTextblock) return null;
+  const places = claimPlaces($start.parent, $start.start() - 1);
+  const at = places.starts.indexOf(claim.sentence.from);
+  if (at < 0 || places.text.slice(at, at + claim.sentence.text.length) !== claim.sentence.text)
+    return null;
+  return inlineRange(places, at + from, at + to);
 }
 
 /** A check where it is in the editor now. */
@@ -150,9 +221,10 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
     }
     if (!block.isTextblock) return true;
     const found = new Map<string, { check: ClaimCheckAttributes; from: number; to: number }>();
-    let at = 0;
-    block.forEach((child) => {
-      const length = child.isText ? (child.text ?? "").length : 1;
+    block.forEach((child, offset) => {
+      if (child.type.name === CITATION_NODE) return;
+      const from = pos + 1 + offset;
+      const to = from + child.nodeSize;
       const mark = child.marks.find((each) => each.type.name === CLAIM_CHECK_MARK);
       const check = mark
         ? readClaimCheck(mark.attrs)
@@ -161,30 +233,37 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
           : null;
       if (check) {
         const known = found.get(check.id);
-        if (known) known.to = at + length;
-        else found.set(check.id, { check, from: at, to: at + length });
+        if (known) known.to = to;
+        else found.set(check.id, { check, from, to });
       }
-      at += length;
     });
     if (found.size === 0) return false;
-    const { text, starts, ends, inline } = paragraphPlaces(block, pos);
-    const sentences = sentenceSpans(
-      text,
-      inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE).map(({ at }) => at),
-    );
-    const startOf = (index: number) => starts[index] ?? pos + 1;
-    const endOf = (index: number) => ends[index - 1] ?? startOf(index);
+    const places = claimPlaces(block, pos);
+    const { text, starts, ends, sentences } = places;
     for (const { check, from, to } of found.values()) {
+      const markedStart = starts.indexOf(from);
+      const markedEnd = ends.indexOf(to) + 1;
+      if (markedStart < 0 || markedEnd <= markedStart) continue;
       const touched = sentences.filter((span) => span.from < to && span.to > from);
-      const start = Math.min(from, touched[0]?.from ?? from);
-      const end = Math.max(to, touched.at(-1)?.to ?? to);
+      const start = Math.min(markedStart, touched[0]?.start ?? markedStart);
+      const end = Math.max(markedEnd, touched.at(-1)?.end ?? markedEnd);
+      const range = inlineRange(places, start, end);
+      if (!range) continue;
       const blockId = block.attrs[BLOCK_ID_ATTRIBUTE];
+      const placeFrom = places.rawStarts[start];
+      const placeTo = places.rawEnds[end - 1];
       spans.push({
         check,
-        from: startOf(from),
-        to: endOf(to),
-        sentence: { from: startOf(start), to: endOf(end), text: text.slice(start, end) },
-        ...(typeof blockId === "string" && { place: { blockId, from: start, to: end } }),
+        from,
+        to,
+        sentence: {
+          from: range.from,
+          to: Math.max(range.to, touched.at(-1)?.to ?? 0),
+          text: text.slice(start, end),
+        },
+        ...(typeof blockId === "string" &&
+          typeof placeFrom === "number" &&
+          typeof placeTo === "number" && { place: { blockId, from: placeFrom, to: placeTo } }),
       });
     }
     return false;
@@ -201,6 +280,20 @@ export interface ClaimContext {
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+}
+
+export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
+  return check.parts &&
+    (check.parts.length > 1 ||
+      check.parts.some(
+        (part) =>
+          part.kind === "opinion" ||
+          part.coverage ||
+          part.evidence.length > 1 ||
+          part.unsupported?.kind,
+      ))
+    ? check.parts
+    : undefined;
 }
 
 /** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */

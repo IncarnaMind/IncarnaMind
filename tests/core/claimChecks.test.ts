@@ -992,8 +992,25 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
 
     expect(calls[0]?.tools.sort()).toEqual(["calculate", "cite", "search_documents"]);
     expect(calls[0]?.system).toContain("isn't judged in your head");
-    const offered = JSON.stringify(calls[0]?.options.tools);
-    expect(offered).toContain("The number as the sentence to check writes it");
+    const offered = calls[0]?.options.tools?.find(
+      (tool) => tool.type === "function" && tool.name === "calculate",
+    );
+    expect(offered).toMatchObject({
+      inputSchema: {
+        properties: {
+          figures: {
+            items: {
+              properties: {
+                stated: {
+                  type: "string",
+                  description: expect.stringContaining("original language"),
+                },
+              },
+            },
+          },
+        },
+      },
+    });
 
     const localCalls: ModelCall[] = [];
     const local = await setUpWithDocuments(checkingModel(plans, localCalls), [BOARD]);
@@ -2778,9 +2795,13 @@ describe("A quote that starts with a figure (#1969)", () => {
     ].join("\n"),
   };
   const H1 = "88.0 和 91.5（2025年上半年、2026年上半年）";
+  const WINDOW = "近十二个月指截至2026年6月30日的十二个月。";
 
   // protects=a check whose input quotes "88.0 和 91.5（…）" from the middle of a line reads 88.0 as a figure, so a right Chinese ratio sentence is Supported by calculate; fails_when=calculate says the quote has no 88.0 and the model's own Unsupported stands; no_claim=none beyond protects.
-  test("is Supported by calculate when the sentence is right", async () => {
+  test.each([
+    { name: "is Supported by calculate when the sentence is right", scopeQuote: true },
+    { name: "keeps an unquoted duration Not checked despite the valid ratio", scopeQuote: false },
+  ])("$name", async ({ scopeQuote }) => {
     const claim = "2026年6月30日净负债为528.9，是近十二个月调整后EBITDA的2.77倍。";
     const calculation = {
       inputs: [
@@ -2795,9 +2816,19 @@ describe("A quote that starts with a figure (#1969)", () => {
     };
     const calls: ModelCall[] = [];
     const plans = {
-      [claim]: { verdict: "unsupported", calculation, strict: { text: "same" } },
+      [claim]: {
+        verdict: "unsupported",
+        calculation,
+        strict: { text: "same" },
+        ...(scopeQuote && { quote: WINDOW }),
+      },
     } as const;
-    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [
+      {
+        ...RESULTS_ZH,
+        contents: scopeQuote ? `${RESULTS_ZH.contents}\n\n${WINDOW}` : RESULTS_ZH.contents,
+      },
+    ]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-test",
@@ -2810,7 +2841,11 @@ describe("A quote that starts with a figure (#1969)", () => {
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 2\.77倍/);
-    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    if (scopeQuote) {
+      expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    } else {
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    }
   });
 
   // protects=a quote that is a list's line reads 5% as its figure, not the list's "1.", so a right sentence is Supported by calculate; fails_when=the list's number is read as the figure and 5% is refused; no_claim=none beyond protects.

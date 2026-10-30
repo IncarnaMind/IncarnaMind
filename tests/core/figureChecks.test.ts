@@ -980,8 +980,12 @@ test("a number that writes its own scale is read whatever unit line comes with i
   });
 });
 
-test("a bare cell worked out from inputs in the frame its heading states is compared in that frame", async () => {
-  const { result } = await checkWith({
+test.each([
+  { claim: "300", verdict: "supported" },
+  { claim: "Revenue in 2024 was £20 and revenue in 2025 was £20.", verdict: "not-checked" },
+])("a bare calculated cell binds only to its actual claim: $claim", async ({ claim, verdict }) => {
+  const { result, calls } = await checkWith({
+    claim,
     figures: [cell("f1", "300", "Q3 2026 (£m)")],
     body: SEGMENTS,
     units: segments(),
@@ -998,7 +1002,18 @@ test("a bare cell worked out from inputs in the frame its heading states is comp
     ],
     text: reply([{ ...item(), reading: 1, source: null, calculation: 1 }]),
   });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+  if (verdict === "not-checked") {
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(
+      calls
+        .flatMap((call) => call.results)
+        .some(
+          (result) =>
+            result.tool === "calculate" && result.text.includes("not a readable quantity"),
+        ),
+    ).toBe(true);
+  }
 });
 
 test("a source left without its sheet's unit line is asked for with calculate's words, and the fixed reply binds", async () => {
