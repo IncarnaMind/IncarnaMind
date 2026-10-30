@@ -149,17 +149,29 @@ describe("a Note duplicated from its menu", () => {
     ]);
     const folder = await core.createLibraryGroup({ name: "Year end", description: "" });
     await core.moveToFolder({ documentIds: [bank?.id ?? ""], folderId: folder.id });
-    const { mindId } = await importWordBytes(core, sources, wordFile({ body: paragraph(MEMO) }), {
-      name: "Draft memo.docx",
-      origin: "own",
-      folderId: folder.id,
-      addOriginal: true,
-    });
+    const { mindId, client } = await importWordBytes(
+      core,
+      sources,
+      wordFile({ body: paragraph(MEMO) }),
+      {
+        name: "Draft memo.docx",
+        origin: "own",
+        folderId: folder.id,
+        addOriginal: true,
+      },
+    );
     await waitForDocuments(core, (listed) =>
       expect(listed.filter((each) => each.status === "ready")).toHaveLength(2),
     );
 
+    const originalId = wordFileOf(client.doc)?.documentId;
+    const importedAs = async () =>
+      (await core.listDocuments()).find((each) => each.id === originalId)?.importedAs;
+    expect(await importedAs()).toBe(mindId);
+
     const copy = await core.duplicateMind(mindId);
+    // A copy is not the import: the Document still names the Mind it was imported as.
+    expect(await importedAs()).toBe(mindId);
     const copyClient = await connectToMind(core, copy.id);
     const request: CheckMindInput = { requestId: "copy-all", mindId: copy.id, mode: "all" };
     await core.checkMind(request);

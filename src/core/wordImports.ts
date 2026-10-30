@@ -573,18 +573,19 @@ export function createWordImports(options: WordImportsOptions) {
 
     /**
      * Gives a copy of a Mind the original package the Mind was imported from, so the copy's
-     * checks leave that file out and it exports back into it (#1935).
+     * checks leave that file out (by its content hash) and it exports back into it (#1935). The
+     * copy is not the import, so it carries no Document link: the Document's "imported as" stays
+     * the Mind the file was imported as.
      */
     copyPackage(sourceMindId: string, copyMindId: string): void {
       const row = db.get<{
         sha256: string;
         file_name: string;
         size: number;
-        document_id: string | null;
         look_version: number | null;
         completed_at: string | null;
       }>(
-        "SELECT sha256, file_name, size, document_id, look_version, completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+        "SELECT sha256, file_name, size, look_version, completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
         [sourceMindId],
       );
       if (!row) return;
@@ -599,7 +600,7 @@ export function createWordImports(options: WordImportsOptions) {
           row.sha256,
           row.file_name,
           row.size,
-          row.document_id,
+          null,
           row.look_version,
           row.completed_at,
           at,
