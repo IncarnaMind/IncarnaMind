@@ -17,6 +17,7 @@
  *   what it found and cost in the Mind (src/shared/contradictionWatch.ts).
  */
 import { randomUUID } from "node:crypto";
+import type * as Y from "yjs";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -114,6 +115,9 @@ export interface WatchOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText?: string,
   ): ClaimCheckAttributes;
   retainEvidence(mindId: string): void;
   recordAiUse(inputs: RecordAiUseInput[]): void;
@@ -136,6 +140,7 @@ interface Claim {
   context: string;
   scope: EvidenceScope;
   figures?: CheckFigure[];
+  projection?: ClaimCheckRequest["projection"];
 }
 
 type Plan =
@@ -180,6 +185,7 @@ export function createContradictionWatch(options: WatchOptions) {
           context: sentence.context,
           scope,
           ...(sentence.figures?.length && { figures: sentence.figures }),
+          ...(sentence.projection && { projection: sentence.projection }),
         },
       ];
     });
@@ -216,7 +222,9 @@ export function createContradictionWatch(options: WatchOptions) {
             to > sentence.from,
         );
         if (marked)
-          updateCheck(blocks, marked.check.id, (check) => options.withResult(check, result, at));
+          updateCheck(blocks, marked.check.id, (check) =>
+            options.withResult(check, result, at, blocks, mindId, claim.text),
+          );
         return Boolean(marked);
       }
       if (result.verdict !== "contradicted") {
@@ -246,13 +254,13 @@ export function createContradictionWatch(options: WatchOptions) {
       };
       // Each figure keeps its own result, as the one Check gives it.
       const pending = sentence.figures?.length
-        ? beginFigureCheck(null, check, sentence.figures, null)
+        ? beginFigureCheck(null, check, sentence.figures, null, sentence.projection)
         : check;
       markSentence(
         sentence.element,
         sentence.from,
         sentence.to,
-        options.withResult(pending, result, at),
+        options.withResult(pending, result, at, blocks, mindId, claim.text),
       );
       return true;
     });
@@ -276,7 +284,8 @@ export function createContradictionWatch(options: WatchOptions) {
       (claim) =>
         currentTask.run(runId, async () => {
           const result = await options.claimCheck({
-            claim: comparableSentence(claim.text),
+            claim: claim.projection?.text ?? comparableSentence(claim.text),
+            ...(claim.projection && { projection: claim.projection }),
             context: claim.context,
             scope: claim.scope,
             ...(claim.figures && { figures: claim.figures }),
@@ -410,7 +419,9 @@ export function createContradictionWatch(options: WatchOptions) {
             );
             const checking = currentTask.run(runId, () =>
               options.claimCheck({
-                claim: comparableSentence(claim.text),
+                claim: claim.projection?.text ?? comparableSentence(claim.text),
+                ...(claim.projection && { projection: claim.projection }),
+                ...(claim.figures && { figures: claim.figures }),
                 context: claim.context,
                 scope: claim.scope,
                 model: prepared,

@@ -8,6 +8,7 @@ import {
   figureCheckShown,
   saysNotFound,
 } from "../shared/claimChecks";
+import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
 import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
@@ -68,6 +69,7 @@ export function augmentFigureFooting(
   documents: SourceDocuments,
   now?: Omit<ClaimCheckNow, "text">,
 ): ClaimCheckResult {
+  if (result.parts) result = resultFromParts(result.parts);
   if (!result.figures?.length) return result;
   const occurrences = figuresInMind(blocks);
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
@@ -117,6 +119,17 @@ export function augmentFigureFooting(
     }
     return { ...figure, footing, sourceFooting };
   });
+  if (result.parts) {
+    const updated = new Map(figures.map((figure) => [figure.id, figure]));
+    return resultFromParts(
+      result.parts.map((part) => ({
+        ...part,
+        ...(part.figures && {
+          figures: part.figures.map((figure) => updated.get(figure.id) ?? figure),
+        }),
+      })),
+    );
+  }
   return {
     ...aggregateFigureResults(figures, result.remainder),
     figures,
