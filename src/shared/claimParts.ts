@@ -17,6 +17,7 @@ import type {
   ClaimPartFigure,
   ClaimPartJudgment,
   ClaimPartPlan,
+  ClaimPartSpan,
   ClaimVerdict,
   EvidenceExclusion,
   FigureCheckResult,
@@ -189,10 +190,16 @@ function boundary(text: string, at: number): boolean {
   return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff);
 }
 
+/**
+ * The parts of `sentence`, in order and apart, but for a fact inside the opinion before it: a
+ * number the writer's view surrounds (`withFigureFacts`). Null when they aren't parts of it.
+ */
 export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[] | null {
   if (!Array.isArray(value)) return null;
   const parts: ClaimPartPlan[] = [];
   let end = 0;
+  let opinion: ClaimPartSpan | null = null;
+  let inner = 0;
   for (const each of value as unknown[]) {
     if (!isRecord(each) || !isRecord(each.span)) return null;
     const { start, end: to } = each.span;
@@ -201,7 +208,6 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
       typeof to !== "number" ||
       !Number.isInteger(start) ||
       !Number.isInteger(to) ||
-      start < end ||
       to <= start ||
       to > sentence.length ||
       !boundary(sentence, start) ||
@@ -209,8 +215,22 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
     )
       return null;
     if (each.kind !== "fact" && each.kind !== "opinion") return null;
+    const nested =
+      start < end &&
+      each.kind === "fact" &&
+      opinion !== null &&
+      start >= inner &&
+      to <= opinion.end &&
+      to - start < opinion.end - opinion.start;
+    if (start < end && !nested) return null;
     parts.push({ span: { start, end: to }, kind: each.kind });
+    if (nested) {
+      inner = to;
+      continue;
+    }
     end = to;
+    opinion = each.kind === "opinion" ? { start, end: to } : null;
+    inner = start;
   }
   return parts;
 }
@@ -253,9 +273,10 @@ export function figuresByPart(
     const span =
       projection && inlineSpan(projection, figure.locator.from.offset, figure.locator.to.offset);
     if (!span) return null;
-    const owner = plans.findIndex(
-      (plan) => plan.span.start <= span.start && plan.span.end >= span.end,
-    );
+    const holds = (plan: ClaimPartPlan) =>
+      plan.span.start <= span.start && plan.span.end >= span.end;
+    const fact = plans.findIndex((plan) => plan.kind === "fact" && holds(plan));
+    const owner = fact >= 0 ? fact : plans.findIndex(holds);
     if (owner < 0) return null;
     owned[owner]?.push(figure);
   }
@@ -264,10 +285,12 @@ export function figuresByPart(
 
 /**
  * `plans` with every figure of the sentence inside a fact (#1932): opinions can surround a number,
- * but the number is a checkable fact, so a figure the sort left in an opinion or between parts
- * becomes a part of its own, and the opinion keeps its words on either side. A sentence whose
- * figures can't be placed, and that has no fact, is one fact, as before sentences had parts. One
- * the sort says asserts nothing (a heading, a question) stays so: its numbers say nothing either.
+ * but the number is a checkable fact, so a figure the sort left in an opinion becomes a fact inside
+ * it, and the opinion stays one, counted and shown once (#2002). A figure between parts, or across
+ * one's edge, joins the facts it touches, and an opinion keeps only its words outside them. A
+ * sentence whose figures can't be placed, and that has no fact, is one fact, as before sentences
+ * had parts. One the sort says asserts nothing (a heading, a question) stays so: its numbers say
+ * nothing either.
  */
 export function withFigureFacts(
   sentence: string,
@@ -277,7 +300,7 @@ export function withFigureFacts(
 ): readonly ClaimPartPlan[] {
   if (figures.length === 0 || plans.length === 0) return plans;
   const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
-  const spans: { start: number; end: number }[] = [];
+  const spans: ClaimPartSpan[] = [];
   for (const figure of figures) {
     const span =
       figure.locator.kind === "text" &&
@@ -288,35 +311,34 @@ export function withFigureFacts(
   }
   let parts = [...plans];
   for (const span of spans) {
-    const overlapping = parts.filter(
-      (part) => part.span.start < span.end && part.span.end > span.start,
-    );
-    if (overlapping.some((part) => part.kind === "fact" && within(span, part.span))) continue;
-    const around = overlapping.length === 1 ? overlapping[0] : undefined;
-    const pieces: ClaimPartPlan[] =
-      around && within(span, around.span)
-        ? [
-            ...opinionPiece(sentence, around.span.start, span.start),
-            { kind: "fact", span },
-            ...opinionPiece(sentence, span.end, around.span.end),
-          ]
-        : [
-            {
-              kind: "fact",
-              span: {
-                start: Math.min(span.start, ...overlapping.map((part) => part.span.start)),
-                end: Math.max(span.end, ...overlapping.map((part) => part.span.end)),
-              },
-            },
-          ];
-    parts = [...parts.filter((part) => !overlapping.includes(part)), ...pieces].sort(
-      (a, b) => a.span.start - b.span.start,
-    );
+    const touched = parts.filter((part) => overlaps(part.span, span));
+    if (touched.some((part) => part.kind === "fact" && within(span, part.span))) continue;
+    const facts = touched.filter((part) => part.kind === "fact");
+    const fact: ClaimPartPlan = {
+      kind: "fact",
+      span: {
+        start: Math.min(span.start, ...facts.map((part) => part.span.start)),
+        end: Math.max(span.end, ...facts.map((part) => part.span.end)),
+      },
+    };
+    parts = [
+      ...parts.flatMap((part) => {
+        if (facts.includes(part)) return [];
+        if (part.kind === "fact" || !overlaps(part.span, fact.span)) return [part];
+        const before = opinionPiece(sentence, part.span.start, fact.span.start);
+        const after = opinionPiece(sentence, fact.span.end, part.span.end);
+        if (within(fact.span, part.span)) return before.length || after.length ? [part] : [];
+        return part.span.start < fact.span.start ? before : after;
+      }),
+      fact,
+    ].sort((a, b) => a.span.start - b.span.start || b.span.end - a.span.end);
   }
   return parts;
 }
 
-const within = (inner: { start: number; end: number }, outer: { start: number; end: number }) =>
+const overlaps = (a: ClaimPartSpan, b: ClaimPartSpan) => a.start < b.end && a.end > b.start;
+
+const within = (inner: ClaimPartSpan, outer: ClaimPartSpan) =>
   outer.start <= inner.start && inner.end <= outer.end;
 
 function opinionPiece(sentence: string, start: number, end: number): ClaimPartPlan[] {

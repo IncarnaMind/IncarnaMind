@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type {
+  CheckFigure,
   Citation,
   ClaimCheckAttributes,
   ClaimCheckPart,
@@ -17,6 +18,7 @@ import {
   readClaimParts,
   readPartPlans,
   resultFromParts,
+  withFigureFacts,
 } from "../../src/shared/claimParts";
 import {
   beginFigureCheck,
@@ -1068,4 +1070,141 @@ test("an expanded atom cannot be split between literal owners", () => {
       projection,
     ),
   ).toBeNull();
+});
+
+describe("a figure the sort leaves outside a fact", () => {
+  const plain = (sentence: string) =>
+    projectInlineText([{ kind: "text", text: sentence, from: 0, to: sentence.length }]);
+  const figure = (sentence: string, words: string, from = 0): CheckFigure => {
+    const start = sentence.indexOf(words, from);
+    const reading = readFigures(words, {
+      language: /\p{Script=Han}/u.test(words) ? "zh-CN" : "en",
+    })[0];
+    if (start < 0 || !reading) throw new Error(`No figure ${words} in the fixture.`);
+    return {
+      id: `${words}@${start}`,
+      reading,
+      calculated: null,
+      locator: {
+        kind: "text",
+        from: { blockId: "block", offset: start },
+        to: { blockId: "block", offset: start + words.length },
+      },
+    };
+  };
+  const span = (sentence: string, words: string) => {
+    const start = sentence.indexOf(words);
+    return { start, end: start + words.length };
+  };
+  const words = (sentence: string, plans: readonly ClaimPartPlan[]) =>
+    plans.map(({ kind, span }) => [kind, sentence.slice(span.start, span.end)]);
+
+  test.each([
+    ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])("keeps one opinion whole around its numbers, each a fact inside it: %s", (sentence, a, b) => {
+    const opinion = sentence.slice(0, -1);
+    const plans = withFigureFacts(
+      sentence,
+      [{ kind: "opinion", span: span(sentence, opinion) }],
+      [figure(sentence, a), figure(sentence, b)],
+      plain(sentence),
+    );
+    expect(words(sentence, plans)).toEqual([
+      ["opinion", opinion],
+      ["fact", a],
+      ["fact", b],
+    ]);
+    expect(readPartPlans(plans, sentence)).toEqual(plans);
+    expect(
+      figuresByPart(
+        sentence,
+        plans,
+        [figure(sentence, a), figure(sentence, b)],
+        plain(sentence),
+      )?.map((owned) => owned.map(({ reading }) => reading.chars)),
+    ).toEqual([[], [a], [b]]);
+    expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(plans);
+  });
+
+  test("a figure between parts is a fact of its own, and one already in a fact stays there", () => {
+    const sentence = "Costs rose by £5m and we like it.";
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: span(sentence, "Costs rose") },
+      { kind: "opinion", span: span(sentence, "we like it") },
+    ];
+    expect(
+      words(sentence, withFigureFacts(sentence, plans, [figure(sentence, "£5m")], plain(sentence))),
+    ).toEqual([
+      ["fact", "Costs rose"],
+      ["fact", "£5m"],
+      ["opinion", "we like it"],
+    ]);
+    const whole: ClaimPartPlan[] = [{ kind: "fact", span: span(sentence, "Costs rose by £5m") }];
+    expect(withFigureFacts(sentence, whole, [figure(sentence, "£5m")], plain(sentence))).toEqual(
+      whole,
+    );
+  });
+
+  test.each([
+    ["I think £5m was raised.", "I think £5", "m was raised", "£5m", "I think", "£5m was raised"],
+    [
+      "我认为筹集了500万英镑。",
+      "我认为筹集了500",
+      "万英镑",
+      "500万英镑",
+      "我认为筹集了",
+      "500万英镑",
+    ],
+  ])(
+    "a figure across an opinion's edge joins the fact, and the opinion keeps only its own words: %s",
+    (sentence, opinion, fact, number, kept, checked) => {
+      const plans: ClaimPartPlan[] = [
+        { kind: "opinion", span: span(sentence, opinion) },
+        { kind: "fact", span: span(sentence, fact) },
+      ];
+      expect(
+        words(
+          sentence,
+          withFigureFacts(sentence, plans, [figure(sentence, number)], plain(sentence)),
+        ),
+      ).toEqual([
+        ["opinion", kept],
+        ["fact", checked],
+      ]);
+    },
+  );
+
+  test("a figure that can't be placed leaves the facts as they are, and makes an opinion one fact", () => {
+    const sentence = "We think the £5m rise is impressive.";
+    const opinion: ClaimPartPlan[] = [
+      { kind: "opinion", span: span(sentence, "We think the £5m rise is impressive") },
+    ];
+    expect(withFigureFacts(sentence, opinion, [figure(sentence, "£5m")])).toEqual([
+      { kind: "fact", span: { start: 0, end: sentence.length } },
+    ]);
+    const mixed: ClaimPartPlan[] = [
+      { kind: "opinion", span: span(sentence, "We think") },
+      { kind: "fact", span: span(sentence, "the £5m rise is impressive") },
+    ];
+    expect(withFigureFacts(sentence, mixed, [figure(sentence, "£5m")])).toEqual(mixed);
+  });
+
+  test("only a fact may sit inside the opinion before it, shorter than it and apart from the others", () => {
+    const sentence = "Sadly the £5m and £6m deals are a disaster.";
+    const opinion = {
+      kind: "opinion",
+      span: span(sentence, "Sadly the £5m and £6m deals are a disaster"),
+    };
+    const five = { kind: "fact", span: span(sentence, "£5m") };
+    expect(readPartPlans([opinion, five], sentence)).toEqual([opinion, five]);
+    for (const plans of [
+      [opinion, { kind: "opinion", span: span(sentence, "£5m") }],
+      [opinion, { ...five, span: opinion.span }],
+      [opinion, { kind: "fact", span: span(sentence, "£5m and") }, five],
+      [{ kind: "fact", span: opinion.span }, five],
+      [five, opinion],
+    ])
+      expect(readPartPlans(plans, sentence)).toBeNull();
+  });
 });

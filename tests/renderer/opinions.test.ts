@@ -11,7 +11,11 @@ import {
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { checkOpinion, opinionChecks } from "../../src/renderer/src/editor/opinionChecks";
+import {
+  checkOpinion,
+  opinionChecks,
+  showNextOpinion,
+} from "../../src/renderer/src/editor/opinionChecks";
 import {
   opinionLocations,
   opinionSentenceRanges,
@@ -90,6 +94,7 @@ function editorWith(content: ReturnType<typeof note>): Editor {
       dispatch(transaction: Transaction) {
         state = state.apply(transaction);
       },
+      focus() {},
     },
   } as unknown as Editor;
 }
@@ -305,6 +310,50 @@ describe("left-out opinions in the Note", () => {
     });
     expect(health.supported).toBe(1);
     expect(health.toCheck).toHaveLength(0);
+  });
+});
+
+describe("one opinion around numbers", () => {
+  // protects=an opinion that numbers sit in is one opinion left out, and Show selects its words, never a joining word between the numbers (#2002); fails_when=the opinion counts as several, or Show selects a piece of it; no_claim=how the sort splits it.
+  test.each([
+    ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])("counts once and shows whole: %s", (text, first, second) => {
+    const at = (words: string) => text.indexOf(words);
+    const words = text.slice(0, -1);
+    const check: ClaimCheckAttributes = {
+      id: "deals",
+      request: "r",
+      action: "check-against-documents",
+      state: "supported",
+      reason: null,
+      detail: null,
+      providerId: null,
+      modelId: null,
+      text,
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-30T09:00:00.000Z",
+      parts: [
+        part(0, words.length),
+        part(at(first), at(first) + first.length, "fact"),
+        part(at(second), at(second) + second.length, "fact"),
+      ],
+    };
+    const editor = editorWith(note(paragraph("p", text, check)));
+    const stored = new Y.Doc();
+    expect(opinionsIn(editor.state.doc, stored)).toHaveLength(1);
+    showNextOpinion(editor, stored, "place");
+    expect(
+      editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to),
+    ).toBe(words);
   });
 });
 

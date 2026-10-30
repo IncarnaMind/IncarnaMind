@@ -222,5 +222,89 @@ function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[
     plans.push({ kind, span: { start: at, end: at + text.length } });
     from = at + text.length;
   }
-  return readPartPlans(plans, sentence);
+  return readPartPlans(withLeftWords(sentence, plans), sentence);
+}
+
+// The joining words a sort leaves between parts: each relates the parts beside it, and checked with
+// one of them it could read as a claim of its own ("because" as a cause).
+const JOINING_WORDS = new Set([
+  "and",
+  "or",
+  "but",
+  "nor",
+  "yet",
+  "so",
+  "because",
+  "as",
+  "while",
+  "whereas",
+  "although",
+  "though",
+  "since",
+  "then",
+  "also",
+  "however",
+  "therefore",
+  "thus",
+  "hence",
+  "plus",
+  "和",
+  "与",
+  "及",
+  "以及",
+  "并",
+  "并且",
+  "而",
+  "而且",
+  "但",
+  "但是",
+  "可是",
+  "却",
+  "或",
+  "或者",
+  "因为",
+  "由于",
+  "所以",
+  "因此",
+  "因而",
+  "同时",
+  "此外",
+  "另外",
+  "且",
+  "也",
+  "还",
+  "不过",
+  "然而",
+  "虽然",
+  "尽管",
+  "于是",
+]);
+
+const saysSomething = (text: string) =>
+  text
+    .split(/[\s\p{P}\p{S}]+/u)
+    .some((word) => /[\p{L}\p{N}]/u.test(word) && !JOINING_WORDS.has(word.toLowerCase()));
+
+/**
+ * `plans` keeping every word of `sentence` that says something (#2002): a time, place, scope or
+ * condition a sort leaves out beside a fact is checked with that fact, and one beside opinions only
+ * is left out with them, so a qualifier never drops out unchecked and unlisted. Joining words and
+ * punctuation between parts stay between them.
+ */
+function withLeftWords(sentence: string, plans: readonly ClaimPartPlan[]): ClaimPartPlan[] {
+  const parts = plans.map(({ kind, span }) => ({ kind, span: { ...span } }));
+  for (let index = 0; index <= parts.length; index++) {
+    const before = parts[index - 1];
+    const after = parts[index];
+    if (!before && !after) break;
+    const start = before?.span.end ?? 0;
+    const end = after?.span.start ?? sentence.length;
+    const left = sentence.slice(start, end);
+    if (!saysSomething(left)) continue;
+    const tail = /[\p{L}\p{N}](?=[^\p{L}\p{N}]*$)/u.exec(left);
+    const joinsBefore = before?.kind === "fact" || (before !== undefined && after?.kind !== "fact");
+    if (joinsBefore && before) before.span.end = start + (tail ? tail.index + tail[0].length : 0);
+    else if (after) after.span.start = start + left.search(/[\p{L}\p{N}]/u);
+  }
+  return parts;
 }

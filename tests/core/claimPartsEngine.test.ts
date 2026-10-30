@@ -267,17 +267,24 @@ describe("literal sentence parts", () => {
   test("a legal prefix binds later literal parts but a neighbouring paragraph does not", async () => {
     const first = "rent is paid";
     const second = "the Landlord maintains the roof";
-    const claim = `Under [2024] UKSC 5, ${first} and ${second}.`;
+    const prefix = "Under [2024] UKSC 5";
+    const claim = `${prefix}, ${first} and ${second}.`;
     const plans: Part[] = [
       { kind: "fact", text: first },
       { kind: "fact", text: second },
     ];
     const outcomes = {
       [first]: { quotes: ["The contract says rent is paid."] },
+      // The prefix the parts leave out is a condition of the fact after it, so it is checked with it.
+      [`${prefix}, ${first}`]: { quotes: ["The contract says rent is paid."] },
       [second]: { quotes: ["The Landlord maintains the roof."] },
     };
     const legal = await check(claim, plans, outcomes);
     expect(legal.result.verdict).toBe("supported");
+    expect(legal.result.parts?.map((part) => claim.slice(part.span.start, part.span.end))).toEqual([
+      `${prefix}, ${first}`,
+      second,
+    ]);
     expect(legal.result.parts?.map((part) => part.citedCaseUnchecked)).toEqual([true, true]);
     const ordinary = await check(
       `${first} and ${second}.`,
@@ -813,13 +820,21 @@ describe("literal sentence parts", () => {
 describe("structural part and declared-count readers", () => {
   test("a literal span retains UTF16 positions after an astral character", () => {
     const sentence = "🌳 我认为时机不妥，但成本上涨了40%。";
+    const opinion = "我认为时机不妥";
     const literal = "成本上涨了40%";
+    const parts = [
+      { kind: "opinion", text: opinion },
+      { kind: "fact", text: literal },
+    ];
     expect(
-      readClaimParts(
-        JSON.stringify({ sentences: [{ number: 1, parts: [{ kind: "fact", text: literal }] }] }),
-        [{ number: 1, text: sentence }],
-      )?.get(1),
+      readClaimParts(JSON.stringify({ sentences: [{ number: 1, parts }] }), [
+        { number: 1, text: sentence },
+      ])?.get(1),
     ).toEqual([
+      {
+        kind: "opinion",
+        span: { start: sentence.indexOf(opinion), end: sentence.indexOf(opinion) + opinion.length },
+      },
       {
         kind: "fact",
         span: { start: sentence.indexOf(literal), end: sentence.indexOf(literal) + literal.length },

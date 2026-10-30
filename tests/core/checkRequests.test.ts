@@ -10,6 +10,7 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { opinionsIn } from "../../src/renderer/src/editor/opinionLocations";
 import { askAssistant } from "../helpers/assistant";
 import {
   checkGenerate,
@@ -51,11 +52,25 @@ const LANGUAGES = [
     sentence: (index: number) => `Store ${index} sold ${index + 10} units in June.`,
     survey: "Spring tides come at new and full moon, as the harbour survey found[^1].",
     surveyFact: "Spring tides come at new and full moon",
+    leading: "Yet spring tides come at new and full moon[^1].",
+    leadingFact: "spring tides come at new and full moon",
     figure: {
       source: "Revenue rose by £5m in 2025.",
       written: "I think the £5m rise is impressive[^1].",
       number: "£5m",
-      opinions: ["I think the", "rise is impressive"],
+      opinion: "I think the £5m rise is impressive",
+    },
+    deals: {
+      source: "The £5m and £6m deals closed in 2025.",
+      typed: "Sadly the £5m and £6m deals are a disaster.",
+      numbers: ["£5m", "£6m"],
+      opinion: "Sadly the £5m and £6m deals are a disaster",
+    },
+    year: {
+      source: "Revenue rose 12% in 2024.",
+      written: "Revenue rose 12% in 2025[^1].",
+      named: "Revenue rose 12%",
+      fact: "Revenue rose 12% in 2025",
     },
   },
   {
@@ -70,11 +85,25 @@ const LANGUAGES = [
     sentence: (index: number) => `${index}号店六月售出${index + 10}件商品。`,
     survey: "大潮出现在新月和满月时，正如港口调查所发现的[^1]。",
     surveyFact: "大潮出现在新月和满月时",
+    leading: "而大潮出现在新月和满月时[^1]。",
+    leadingFact: "大潮出现在新月和满月时",
     figure: {
       source: "2025年收入增长了500万英镑。",
       written: "我认为500万英镑的增长令人印象深刻[^1]。",
       number: "500万英镑",
-      opinions: ["我认为", "的增长令人印象深刻"],
+      opinion: "我认为500万英镑的增长令人印象深刻",
+    },
+    deals: {
+      source: "500万英镑和600万英镑的交易已于2025年完成。",
+      typed: "可惜500万英镑和600万英镑的交易是一场灾难。",
+      numbers: ["500万英镑", "600万英镑"],
+      opinion: "可惜500万英镑和600万英镑的交易是一场灾难",
+    },
+    year: {
+      source: "2024年收入增长了12%。",
+      written: "2025年收入增长了12%[^1]。",
+      named: "收入增长了12%",
+      fact: "2025年收入增长了12%",
     },
   },
 ] as const;
@@ -349,18 +378,18 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=a written sentence whose one named fact is shorter than the sentence is checked on that fact alone, so it gets the result Check this Note gives it, never the whole sentence's result on the shorter words (#2002); fails_when=the whole-sentence result is kept on a shorter part, or the two checks disagree; no_claim=how a real model names parts.
-  test("a written sentence whose one fact is shorter than it gets the result Check this Note gives it", async () => {
-    const words = example.survey.replace("[^1]", "");
+  // protects=a written sentence whose named fact leaves out only a joining word is checked on the fact's words, so it gets the result Check this Note gives it, never the whole sentence's result on the shorter words (#2002); fails_when=the whole-sentence result is kept on a shorter part, or the two checks disagree; no_claim=how a real model names parts.
+  test("a written sentence whose one fact leaves out a joining word gets the result Check this Note gives it", async () => {
+    const words = example.leading.replace("[^1]", "");
     const fact = (sentence: string): Part[] =>
-      partsIn(sentence, [{ kind: "fact", text: example.surveyFact }]);
+      partsIn(sentence, [{ kind: "fact", text: example.leadingFact }]);
     const plans = {
-      [example.surveyFact]: { verdict: "supported" as const, quote: example.source },
+      [example.leadingFact]: { verdict: "supported" as const, quote: example.source },
       [words]: { verdict: "unsupported" as const },
     };
     const model = writingModel(
       example.source,
-      example.survey,
+      example.leading,
       (call) => naming(call, plans, fact),
       (call) =>
         call.system.startsWith(SORTS) ? sortingInto(fact)(call) : checkGenerate(plans)(call),
@@ -370,7 +399,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     const expected = [
       {
         state: "supported",
-        parts: [{ text: example.surveyFact, kind: "fact", verdict: "supported" }],
+        parts: [{ text: example.leadingFact, kind: "fact", verdict: "supported" }],
       },
     ];
 
@@ -394,6 +423,53 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ).toMatchObject({ kind: "checked" });
     expect(await marksOf(client)).toEqual(expected);
   });
+
+  // protects=words a named fact leaves out that say something (who found it, a year) are checked with that fact, in what the assistant writes and in Check this Note alike, so the sentence never reads Supported on the shorter words (#2002); fails_when=the left-out words are neither checked nor listed, or the two checks disagree; no_claim=how often a real model leaves words out of a fact.
+  test.each(["survey", "year"] as const)(
+    "words a written sentence's fact leaves out are checked with it, as Check this Note checks them (%s)",
+    async (which) => {
+      const written = which === "survey" ? example.survey : example.year.written;
+      const source = which === "survey" ? example.source : example.year.source;
+      const named = which === "survey" ? example.surveyFact : example.year.named;
+      const words = written.replace("[^1]", "");
+      const kept = words.replace(/[.。]$/u, "");
+      const fact = (sentence: string): Part[] => partsIn(sentence, [{ kind: "fact", text: named }]);
+      // The named words alone are in the Document; with what they leave out, they aren't.
+      const plans = { [named]: { verdict: "supported" as const, quote: source } };
+      const checked: string[] = [];
+      const model = writingModel(
+        source,
+        written,
+        (call) => {
+          if (call.results.length === 0) checked.push(sentenceOf(call));
+          return naming(call, plans, fact);
+        },
+        (call) =>
+          call.system.startsWith(SORTS) ? sortingInto(fact)(call) : checkGenerate(plans)(call),
+      );
+      const core = await coreWith(model);
+      const folderId = await inFolder(core, "Source.md", `# Source\n\n${source}\n`);
+      const expected = [
+        { state: "unsupported", parts: [{ text: kept, kind: "fact", verdict: "unsupported" }] },
+      ];
+
+      const { client } = await write(core, folderId);
+      expect(await marksOf(client)).toEqual(expected);
+
+      const typed = await core.createMind({ title: "Typed", folderId });
+      const own = await connectToMind(core, typed.id);
+      writeMind(own, [
+        { type: "paragraph", attrs: { id: "own" }, content: [{ type: "text", text: words }] },
+      ]);
+      await own.settled();
+      expect(
+        await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
+      ).toMatchObject({ kind: "checked" });
+      expect(await marksOf(own)).toEqual(expected);
+      expect(checked).not.toContain(named);
+      if (which === "year") expect(kept).toBe(example.year.fact);
+    },
+  );
 
   // protects=written sentences with numbers cost the requests they did before sentences had parts: their first turn names the parts, each number inside its fact, and no sorting request is sent (#1635, #1932); fails_when=a sentence with a figure sends a sorting request of its own, or takes more steps; no_claim=how many steps a real model takes.
   test("three written sentences with numbers make no sorting request", async () => {
@@ -425,7 +501,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=a number inside an opinion is checked as its own fact, in what the assistant writes and in Check this Note, with the same parts and result, and the opinion's words either side of it are left out (#1932, #2002); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, or the two checks give it different parts; no_claim=how a real model sorts the sentence.
+  // protects=a number inside an opinion is checked as its own fact inside it, in what the assistant writes and in Check this Note, with the same parts and result, and the opinion is left out whole (#1932, #2002); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, or the two checks give it different parts; no_claim=how a real model sorts the sentence.
   test("a number inside an opinion is checked as its own fact, written or typed", async () => {
     const { figure } = example;
     const opinion = (sentence: string): Part[] => [
@@ -455,9 +531,8 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       {
         state: "supported",
         parts: [
-          { text: figure.opinions[0], kind: "opinion", verdict: null },
+          { text: figure.opinion, kind: "opinion", verdict: null },
           { text: figure.number, kind: "fact", verdict: "supported" },
-          { text: figure.opinions[1], kind: "opinion", verdict: null },
         ],
       },
     ];
@@ -489,6 +564,50 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       await core.checkMind({ requestId: "again", mindId: change.mindId, mode: "all" }),
     ).toMatchObject({ kind: "checked" });
     expect(await marksOf(client)).toEqual(expected);
+  });
+
+  // protects=one opinion that numbers split is one opinion left out, counted once and shown whole, while each number in it is checked as a fact of its own (#2002, #1932); fails_when=the opinion's pieces count as several opinions, or Show would select a joining word on its own; no_claim=how a real model sorts the sentence.
+  test("one opinion around two numbers is left out once and shown whole", async () => {
+    const { deals } = example;
+    const opinion = (sentence: string): Part[] => [
+      { kind: "opinion", text: sentence.replace(/[.。]$/u, "") },
+    ];
+    const plans = Object.fromEntries(
+      deals.numbers.map((number) => [
+        number,
+        { verdict: "supported" as const, quote: deals.source, number },
+      ]),
+    );
+    const model = scriptedModel((call) => naming(call, plans, opinion), {
+      generate: (call) =>
+        call.system.startsWith(SORTS) ? sortingInto(opinion)(call) : checkGenerate(plans)(call),
+    });
+    const core = await coreWith(model);
+    const folderId = await inFolder(core, "Deals.md", `# Deals\n\n${deals.source}\n`);
+    const typed = await core.createMind({ title: "Typed", folderId });
+    const own = await connectToMind(core, typed.id);
+    writeMind(own, [
+      { type: "paragraph", attrs: { id: "own" }, content: [{ type: "text", text: deals.typed }] },
+    ]);
+    await own.settled();
+    expect(
+      await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
+    ).toMatchObject({ kind: "checked" });
+
+    expect(await marksOf(own)).toEqual([
+      {
+        state: "supported",
+        parts: [
+          { text: deals.opinion, kind: "opinion", verdict: null },
+          ...deals.numbers.map((text) => ({ text, kind: "fact", verdict: "supported" })),
+        ],
+      },
+    ]);
+    const page = readMind(own);
+    const opinions = opinionsIn(page, own.doc);
+    expect(opinions.map((each) => page.textBetween(each.range.from, each.range.to))).toEqual([
+      deals.opinion,
+    ]);
   });
 
   // protects=a sentence's factual parts are checked at once on a cloud model, within the run's limit, and one at a time on a model on this computer, after one first turn that names them and no sorting request (#2002); fails_when=parts wait for each other on a cloud model, a local model gets several at once, or a sorting request is sent; no_claim=how long a real provider takes.

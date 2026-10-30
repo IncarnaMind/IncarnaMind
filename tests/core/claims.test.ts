@@ -8,6 +8,7 @@ import {
   paragraphsOf,
   readClaimDecisions,
   readClaimParts,
+  readPartsLine,
 } from "../../src/core/answers/checks/claims";
 
 const page = (number: number, ...lines: string[]) => ({
@@ -193,4 +194,58 @@ describe("The literal parts of numbered JSON input", () => {
       }
     },
   );
+});
+
+describe("Words a sort leaves out of every part", () => {
+  const sorted = (sentence: string, parts: readonly { kind: string; text: string }[]) =>
+    (
+      readClaimParts(JSON.stringify({ sentences: [{ number: 1, parts }] }), [
+        { number: 1, text: sentence },
+      ])?.get(1) ?? []
+    ).map(({ kind, span }) => [kind, sentence.slice(span.start, span.end)]);
+  const named = (sentence: string, parts: readonly { kind: string; text: string }[]) =>
+    (readPartsLine(`Parts: ${JSON.stringify(parts)}`, sentence) ?? []).map(({ kind, span }) => [
+      kind,
+      sentence.slice(span.start, span.end),
+    ]);
+
+  // protects=a time, place, scope or condition a sort or a check's first turn leaves out beside a fact is checked with that fact (#2002); fails_when=the words drop out of every part; no_claim=how often a real model leaves them out.
+  test.each([
+    ["Revenue rose 12% in 2025.", "Revenue rose 12%", "Revenue rose 12% in 2025"],
+    ["2025年收入增长了12%。", "收入增长了12%", "2025年收入增长了12%"],
+    ["In Leeds, rent is paid monthly.", "rent is paid monthly", "In Leeds, rent is paid monthly"],
+    ["在利兹，租金按月支付。", "租金按月支付", "在利兹，租金按月支付"],
+  ])("joins the fact beside it: %s", (sentence, fact, kept) => {
+    const parts = [{ kind: "fact", text: fact }];
+    expect(sorted(sentence, parts)).toEqual([["fact", kept]]);
+    expect(named(sentence, parts)).toEqual([["fact", kept]]);
+  });
+
+  // protects=joining words and punctuation between parts stay out of them, so a fact never takes "because" or "但" as a claim of its own (#2002); fails_when=a joining word is added to a part; no_claim=every joining word a model may leave.
+  test.each([
+    [
+      "We think this is risky because costs rose 40%.",
+      [
+        { kind: "opinion", text: "We think this is risky" },
+        { kind: "fact", text: "costs rose 40%" },
+      ],
+    ],
+    [
+      "我们认为这有风险，但成本上涨了40%。",
+      [
+        { kind: "opinion", text: "我们认为这有风险" },
+        { kind: "fact", text: "成本上涨了40%" },
+      ],
+    ],
+  ])("leaves joining words between parts: %s", (sentence, parts) => {
+    expect(sorted(sentence, parts)).toEqual(parts.map(({ kind, text }) => [kind, text]));
+  });
+
+  // protects=words a sort leaves beside opinions only are left out with those opinions, so they are listed rather than lost (#2002); fails_when=they vanish from every part, or become a fact on their own; no_claim=whether they are an opinion.
+  test.each([
+    ["Frankly, we think it is lovely.", "we think it is lovely", "Frankly, we think it is lovely"],
+    ["坦白说，我们认为它很美。", "我们认为它很美", "坦白说，我们认为它很美"],
+  ])("joins the opinion beside it when no fact is: %s", (sentence, opinion, kept) => {
+    expect(sorted(sentence, [{ kind: "opinion", text: opinion }])).toEqual([["opinion", kept]]);
+  });
 });
