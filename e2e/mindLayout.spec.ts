@@ -24,6 +24,7 @@ import {
   removeDataFolder,
   setGroupBeside,
   setWindowSize,
+  sizeMind,
   slideSelect,
   slideToHandle,
   tokenColor,
@@ -441,19 +442,6 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await app.close();
 });
 
-/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
-async function sizeMind(app: ElectronApplication, window: Page, width: number) {
-  const column = window.locator(".mind-column");
-  let windowWidth = width + 400;
-  for (let tries = 0; tries < 3; tries++) {
-    await setWindowSize(app, window, windowWidth, 900);
-    const have = (await box(column)).width;
-    if (Math.abs(have - width) <= 1) return;
-    windowWidth += Math.round(width - have);
-  }
-  await expect.poll(async () => Math.abs((await box(column)).width - width)).toBeLessThanOrEqual(1);
-}
-
 for (const language of ["en", "zh-CN"] as const) {
   for (const mindWidth of [650, 800, 1440]) {
     test(`a Question's fold chevron and the Block handle share the 40px left margin without covering each other, in a ${mindWidth}px Mind (${language})`, async () => {
@@ -530,7 +518,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the margins narrow to 40px before they fold at 760px, where a sentence's mark keeps to the gutter and both gutters stay 40px, with the composer under the text (${language})`, async () => {
+  test(`the margins narrow to 40px before they fold at 760px, where a sentence's mark moves into the text and both gutters stay 40px, with the composer under the text (${language})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -585,18 +573,24 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.first()).toBeVisible();
     const mark = await box(marks.first());
     const text = await textColumn(editor);
-    expect.soft(mark.x).toBeGreaterThanOrEqual(text.x + text.width);
+    expect
+      .soft(mark.x, "the mark's left edge is 8px after the measure")
+      .toBeGreaterThanOrEqual(text.x + text.width + 8 - 1);
     expect.soft(mark.x + mark.width).toBeLessThanOrEqual(text.x + text.width + 40);
 
-    // Folded under 760px: the mark keeps to the gutter, both gutters stay 40px, and the text edge doesn't move.
+    // Folded under 760px: the mark moves into the text, at the sentence's end; both gutters stay 40px.
     await sizeMind(app, window, 650);
     await expect(marks.first()).toBeVisible();
     const foldedMark = await box(marks.first());
     const foldedText = await textColumn(editor);
-    expect.soft(foldedMark.x).toBeGreaterThanOrEqual(foldedText.x + foldedText.width);
+    expect.soft(foldedMark.x, "the mark sits in the text").toBeGreaterThanOrEqual(foldedText.x);
     expect
-      .soft(foldedMark.x + foldedMark.width)
-      .toBeLessThanOrEqual(foldedText.x + foldedText.width + 40);
+      .soft(foldedMark.x + foldedMark.width, "the mark ends in the text")
+      .toBeLessThanOrEqual(foldedText.x + foldedText.width);
+    expect(
+      await window.getByTestId("margin-checks").getByTestId("claim-mark").count(),
+      "the mark is drawn, in the text",
+    ).toBe(1);
     const folded = await gutters();
     expectNear(folded.left, 40, 1, "the left gutter when folded");
     expectNear(folded.right, 40, 1, "the right gutter when folded");

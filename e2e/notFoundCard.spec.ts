@@ -463,7 +463,7 @@ test("Cut it in a paragraph with footnotes takes out exactly the sentence, its o
 
   // The last sentence follows two footnotes: its outline is over its words, not earlier.
   await openCard(marks.nth(2));
-  const wash = editor.locator(".claim-wash").filter({ hasText: ALONE });
+  const wash = editor.locator(".claim-wash").filter({ hasText: "Seals rest on the sandbanks" });
   const spanOf = (boxes: Locator) =>
     boxes.evaluateAll((all) => {
       const rects = all.flatMap((each) => [...each.getClientRects()]);

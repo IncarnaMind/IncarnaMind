@@ -22,8 +22,8 @@ export const NUMBERING_ATTRIBUTE = "numbering";
 export const START_LEVEL_ATTRIBUTE = "startLevel";
 export const CONTINUES_ATTRIBUTE = "continues";
 
-/** In px: a level's gutter, a wide marker's step, and the room between a marker and its text. */
-const LEVEL_INDENT = 48;
+/** In px: the marker room a level keeps, a wide marker's step, and the room between a marker and its text. */
+const MARKER_ROOM = 24;
 const WIDE_STEP = 12;
 const MARKER_GAP = 8;
 
@@ -96,43 +96,57 @@ function markerDecorations(doc: ProseMirrorNode): Decoration[] {
       numbers.length = level + 1;
       for (let parent = 0; parent < level; parent++) numbers[parent] ||= 1;
     }
+    // Each item with the marker its number gives it, and the numbers as they stand at it for a list under it.
+    const each: {
+      item: ProseMirrorNode;
+      itemAt: number;
+      first: ProseMirrorNode | null;
+      marker: string | null;
+      numbers: number[];
+    }[] = [];
     list.forEach((item, offset) => {
-      const itemAt = at + 1 + offset;
       if (ordered) {
         numbers[level] = (numbers[level] ?? 0) + 1;
         numbers.length = level + 1;
-        const first = item.firstChild;
-        if (first?.isTextblock) {
-          const marker = numberingMarker(outer.scheme, level, numbers);
-          const gutter = LEVEL_INDENT * (level + 1);
-          const over = markerWidth(marker) + MARKER_GAP - gutter;
-          const extra = over > 0 ? WIDE_STEP * Math.ceil(over / WIDE_STEP) : 0;
+      }
+      const first = item.firstChild;
+      const marker =
+        ordered && first?.isTextblock ? numberingMarker(outer.scheme, level, numbers) : null;
+      each.push({ item, itemAt: at + 1 + offset, first, marker, numbers: [...numbers] });
+    });
+    // One room for the whole list, as wide as its widest marker ("10.", "(iv)"), so every item's
+    // text starts at one edge and a short marker gets more space after it, as in Word.
+    const widest = Math.max(0, ...each.map((one) => (one.marker ? markerWidth(one.marker) : 0)));
+    const over = widest + MARKER_GAP - MARKER_ROOM;
+    const extra = over > 0 ? WIDE_STEP * Math.ceil(over / WIDE_STEP) : 0;
+    for (const { item, itemAt, first, marker, numbers: at } of each) {
+      if (marker !== null && first !== null) {
+        decorations.push(
+          Decoration.node(
+            itemAt + 1,
+            itemAt + 1 + first.nodeSize,
+            { "data-marker": marker },
+            { marker },
+          ),
+        );
+        if (extra > 0) {
           decorations.push(
-            Decoration.node(
-              itemAt + 1,
-              itemAt + 1 + first.nodeSize,
-              { "data-marker": marker },
-              { marker },
-            ),
+            Decoration.node(itemAt, itemAt + item.nodeSize, {
+              style: `--marker-room: ${extra}px`,
+            }),
           );
-          if (extra > 0) {
-            decorations.push(
-              Decoration.node(itemAt, itemAt + item.nodeSize, {
-                style: `--marker-room: ${extra}px`,
-              }),
-            );
-          }
         }
       }
+      // Document order: the item's own marker first, then the lists under it.
       item.forEach((child, childOffset) => {
         const childAt = itemAt + 1 + childOffset;
         if (child.type.name === "orderedList") {
-          draw(child, childAt, depth + 1, outer, [...numbers]);
+          draw(child, childAt, depth + 1, outer, at);
         } else if (child.type.name === "bulletList" || child.type.name === "taskList") {
           drawNested(child, childAt);
         }
       });
-    });
+    }
   };
   // A numbered list under a bullet or a to-do starts a numbered list of its own (#1419).
   const drawNested = (list: ProseMirrorNode, at: number) => {

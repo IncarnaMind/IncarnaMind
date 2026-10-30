@@ -221,17 +221,19 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, width, 900);
       await window.mouse.move(2, 2);
       await motionSettled(window);
-      // 900 px is under the 760px fold: the Mind's margins narrow, and nothing else changes.
+      // 900 px is under the 760px fold: the Mind's margins fold, and its marks move into the text.
       const folded = (await box(window.locator(".mind-column"))).width < 760;
       expect(folded, `a ${width}px window folds the Mind`).toBe(width === 900);
 
-      // The margin holds the four sentences' marks, none for a Citation, and none for the
-      // sentences that were never checked; each is level with its sentence.
+      // The four sentences' marks, none for a Citation, and none for the sentences that were
+      // never checked; each is level with its sentence, and in the margin or in the text.
       await expect(margin.getByRole("button")).toHaveCount(4);
+      await expect(marks).toHaveCount(4);
       const column = await editor.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
-        return { right: rect.right - Number.parseFloat(style.paddingRight) };
+        const left = rect.left + Number.parseFloat(style.paddingLeft);
+        return { left, right: rect.right - Number.parseFloat(style.paddingRight) };
       });
       const checked = [supported, unsupported, contradicted, supportedMissing];
       for (const [at, line] of checked.entries()) {
@@ -244,8 +246,12 @@ for (const language of ["en", "zh-CN"] as const) {
           .soft(middle, `mark ${at + 1} is level with its sentence`)
           .toBeLessThanOrEqual(sentence.y + sentence.height);
         expect
-          .soft(mark.x, `mark ${at + 1} is right of the text`)
-          .toBeGreaterThanOrEqual(column.right - 1);
+          .soft(mark.x, `mark ${at + 1} is ${folded ? "in" : "right of"} the text`)
+          .toBeGreaterThanOrEqual(folded ? column.left - 1 : column.right - 1);
+        if (folded)
+          expect
+            .soft(mark.x + mark.width, `mark ${at + 1} ends in the text`)
+            .toBeLessThanOrEqual(column.right + 1);
       }
       for (const line of [notFound, checking, cantCheck]) {
         const unchecked = await box(line);
