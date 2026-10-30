@@ -144,10 +144,11 @@ const PARTS_FIRST = [
 ];
 
 const FACET_REPLY = [
+  "The ordinary Verdict and sentence-level Figures judgment check only the ordinary literal target supplied below or named in your first Parts line. Its complete original assertion still supplies the subject, negation, scope, conditions, causal links and quotation context. Source, speaker and relative currentness are judged on their own facet rows, not counted again against that ordinary target. Never invent a target when the inventory cannot be read.",
   'For each factual facet in Parts, append one Facets: JSON line: {"items":[{"text":"its exact literal words","kind":"source","sourceName":"the source words copied exactly from this target","occurrence":1,"verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"evidence":[1]}]}. Include every requested facet once, including unsupported ones, using its one-based occurrence in the full original assertion. Only a source row has sourceName; speaker/time rows omit it. sourceName can be descriptive: copy "notice" from "the notice says" or "通知" from "通知说", never expand those words into a Library title they do not contain. Ordinary Verdict/Figures results judge the governing factual assertion; these facet results separately judge its attribution or time in that same original context, using quotes recorded in this Run. Do not run another check or invent a Citation.',
   "Every source, speaker and time item requires text, kind, occurrence, verdict, scope, topic, roles, says and evidence. Give says:null when there is no explanatory sentence; never omit it or occurrence from a speaker/time item.",
   "A source facet checks the named Document, never merely the same fact in another Document. A speaker facet checks the named person and their words; an anonymous speaker label establishes no named person. Wrong or ambiguous attribution is unsupported, not contradicted. Keep an explicitly reversed surrounding context with the original factual judgment.",
-  'For each speaker facet give claimedSpeaker (the exact name in its literal words), actualSpeaker (the speaker the evidence attributes those words to), actualSpeakerNamed (true for a named person, false for an anonymous role or numbered voice), and speakerOrigin:"cue" or "quote". Use cue for the Transcript voice actually saying the assertion; use quote when the checked quote explicitly attributes reported words to a different person, or names the speaker in Document prose. Read the full assertion and reported-speech context: a narrator mentioning Li is not automatically Li saying those words. An anonymous voice does not prove a named identity. Source/time rows omit these speaker fields.',
+  'For each speaker facet give claimedSpeaker (the exact name in its literal words), actualSpeaker (the speaker the evidence attributes those words to), actualSpeakerNamed (true for a named person, false for an anonymous role or numbered voice), and speakerOrigin:"cue" or "quote". Use cue only for an actual Transcript cue whose voice says the assertion. A name written in ordinary Document prose is not a cue: use quote for prose attribution, or when the checked quote explicitly attributes reported words to a different person. Read the full assertion and reported-speech context: a narrator mentioning Li is not automatically Li saying those words. An anonymous voice does not prove a named identity. Source/time rows omit these speaker fields.',
   'For time facets additionally give time:"present", "this-year", "last-year" or "explicit", according to the original words, and a required period field: {"start":"YYYY-MM-DD","end":"YYYY-MM-DD","precision":"day|month|quarter|year"} when that facet\'s own checked quote states it. Use period:null only when the own checked quote states no period; never omit the field. Bounds are inclusive calendar dates. Never use a file date or another row\'s period. Missing stated period is unsupported. A present-time statement needs a begun period still open or ended within twelve calendar months of the Check date, with no newer scoped Document giving another value. Search for an applicable newer statement in the same Run and cite it; do not assume absence without looking. This/last year means the Check calendar year/previous year, and a fiscal year counts as the year it ends.',
   'For example, when the checked quote says "As of June 2024, the office is open" and its period is stale at the Check date, a complete reply for the literal word "currently" is Facets: {"items":[{"text":"currently","kind":"time","occurrence":1,"verdict":"unsupported","scope":"same","topic":"found","roles":"same","says":"As of June 2024, the office is open","evidence":[1],"time":"present","period":{"start":"2024-06-01","end":"2024-06-30","precision":"month"}}]}. Copy the dates actually stated by this row\'s evidence, not this example\'s date.',
 ].join("\n");
@@ -214,6 +215,29 @@ export function checkInstructions(
   }
 }
 
+function assertionContext(input: {
+  claim: string;
+  originalClaim?: string;
+  parts?: readonly ClaimPartPlan[];
+}): string[] {
+  const original = input.originalClaim ?? input.claim;
+  const ordinary = input.parts?.filter((part) => part.facet === undefined) ?? [];
+  return [
+    ...(original !== input.claim
+      ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
+      : []),
+    ...((original !== input.claim || input.parts?.some((part) => part.facet)) && ordinary.length > 0
+      ? [
+          "The literal parts checked here, at their UTF-16 positions in that assertion:",
+          JSON.stringify(
+            ordinary.map(({ span }) => ({ span, text: original.slice(span.start, span.end) })),
+          ),
+          "",
+        ]
+      : []),
+  ];
+}
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -273,20 +297,7 @@ export function claimPrompt(input: {
   });
   return [
     ...(input.checkedAt ? [`Check date (UTC): ${input.checkedAt}`, ""] : []),
-    ...(original !== input.claim
-      ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
-      : []),
-    ...(original !== input.claim && input.parts?.some((part) => part.facet === undefined)
-      ? [
-          "The literal parts checked here, at their UTF-16 positions in that assertion:",
-          JSON.stringify(
-            input.parts
-              .filter((part) => part.facet === undefined)
-              .map(({ span }) => ({ span, text: original.slice(span.start, span.end) })),
-          ),
-          "",
-        ]
-      : []),
+    ...assertionContext(input),
     ...(sourceChoices.length > 0
       ? [
           "The User's source choices in the original assertion:",
@@ -377,20 +388,27 @@ export const COVERED_EVIDENCE_INSTRUCTIONS = [
 /** The request for that record: the sentence, the verdict, the part covered if asked for, and the Passages the check read. */
 export function evidencePrompt(input: {
   claim: string;
+  originalClaim?: string;
+  parts?: readonly ClaimPartPlan[];
   verdict: ClaimVerdict;
   says: string | null;
   covered?: string | null;
   markers?: readonly number[];
   coverage?: ReadCoverage | null;
+  facets?: readonly { text: string; kind: string; evidence: readonly number[] }[];
   passages: readonly { id: string; text: string }[];
 }): string {
   return [
+    ...assertionContext(input),
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
     `Your verdict: ${input.verdict}${input.says ? `. ${input.says}` : ""}`,
     ...(input.covered ? [`Covered: ${input.covered}`] : []),
     ...(input.markers?.length
       ? [
           `Missing Citation markers: ${JSON.stringify(input.markers)}`,
+          ...(input.facets?.length
+            ? [`Your declared facet evidence roles: ${JSON.stringify(input.facets)}`]
+            : []),
           ...(input.coverage ? [`Your declared coverage: ${JSON.stringify(input.coverage)}`] : []),
         ]
       : []),
@@ -505,11 +523,14 @@ export function readPart(reply: string): { covered: string | null; uncovered: st
 /** The request to confirm a contradiction: the sentence, the quote, and the Passage it is in. */
 export function confirmPrompt(input: {
   claim: string;
+  originalClaim?: string;
+  parts?: readonly ClaimPartPlan[];
   quote: string;
   passage: string;
   quantity?: { chars: string; start: number; end: number };
 }): string {
   return [
+    ...assertionContext(input),
     `<sentence>\n${input.claim.trim()}\n</sentence>`,
     `<quote>\n${input.quote.trim()}\n</quote>`,
     "The Passage it is quoted from, for what its words refer to:",

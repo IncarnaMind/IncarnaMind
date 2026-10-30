@@ -11,6 +11,7 @@ import {
   ATTRIBUTION_FULL_CASES,
   ATTRIBUTION_PILOT_CASES,
   ATTRIBUTION_PILOT_MODELS,
+  ATTRIBUTION_RECOVERY_CASES,
   type AttributionPilotPlan,
   attributionPilotJSON,
   createAttributionPilotBudget,
@@ -18,6 +19,25 @@ import {
 } from "./pilot";
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+function reportRefs(value: unknown) {
+  const refs: unknown = typeof value === "string" ? JSON.parse(value) : value;
+  if (!Array.isArray(refs) || refs.length !== 2)
+    throw new Error("Two hashed report paths are required.");
+  return refs.map((ref: unknown) => {
+    if (
+      typeof ref !== "object" ||
+      ref === null ||
+      !("path" in ref) ||
+      typeof ref.path !== "string" ||
+      ref.path === "" ||
+      !("sha256" in ref) ||
+      typeof ref.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(ref.sha256)
+    )
+      throw new Error("Two hashed report paths are required.");
+    return { bytes: readFileSync(ref.path, "utf8"), sha256: ref.sha256 };
+  });
+}
 function priceOf(value: unknown): Price {
   if (
     typeof value !== "object" ||
@@ -43,36 +63,24 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
   async () => {
     const root = resolve(__dirname, "../..");
     const phase = process.env.INCARNAMIND_ATTRIBUTION_PHASE ?? "dry";
+    let recovery: { lineageSHA256: string; originalAfterReports: unknown } | undefined;
+    if (phase === "recovery") {
+      try {
+        recovery = JSON.parse(process.env.INCARNAMIND_ATTRIBUTION_RECOVERY ?? "null");
+        if (
+          !recovery ||
+          typeof recovery.lineageSHA256 !== "string" ||
+          !/^[a-f0-9]{64}$/.test(recovery.lineageSHA256)
+        )
+          throw new Error();
+      } catch {
+        throw new Error("The frozen recovery lineage is required.");
+      }
+    }
+    const originalAfterReports = recovery ? reportRefs(recovery.originalAfterReports) : [];
     const pilotReceipts =
-      phase === "full"
-        ? (() => {
-            let refs: { path: string; sha256: string }[];
-            try {
-              refs = JSON.parse(process.env.INCARNAMIND_ATTRIBUTION_PILOT_RECEIPTS ?? "null");
-              if (
-                !Array.isArray(refs) ||
-                refs.length !== 2 ||
-                refs.some(
-                  (ref) =>
-                    typeof ref !== "object" ||
-                    ref === null ||
-                    typeof ref.path !== "string" ||
-                    ref.path === "" ||
-                    typeof ref.sha256 !== "string" ||
-                    !/^[a-f0-9]{64}$/.test(ref.sha256),
-                )
-              )
-                throw new Error();
-            } catch {
-              throw new Error(
-                "Two hashed candidate pilot report paths are required for full execution.",
-              );
-            }
-            return refs.map((ref) => ({
-              bytes: readFileSync(ref.path, "utf8"),
-              sha256: ref.sha256,
-            }));
-          })()
+      phase === "full" || phase === "recovery"
+        ? reportRefs(process.env.INCARNAMIND_ATTRIBUTION_PILOT_RECEIPTS ?? "null")
         : [];
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
     const model = ATTRIBUTION_PILOT_MODELS.find(
@@ -104,8 +112,19 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
       sourceHead: git("rev-parse", "HEAD").trim(),
       sourceDiffSHA256: sha256(sourceChanges),
       fixtureSHA256,
-      caseIds: phase === "full" ? ATTRIBUTION_FULL_CASES : ATTRIBUTION_PILOT_CASES,
-      ...(phase === "full" && {
+      caseIds:
+        phase === "recovery"
+          ? ATTRIBUTION_RECOVERY_CASES[model]
+          : phase === "full"
+            ? ATTRIBUTION_FULL_CASES
+            : ATTRIBUTION_PILOT_CASES,
+      ...(recovery && {
+        recovery: {
+          lineageSHA256: recovery.lineageSHA256,
+          originalAfterReportHashes: originalAfterReports.map((report) => report.sha256),
+        },
+      }),
+      ...((phase === "full" || phase === "recovery") && {
         pilotReceiptHashes: pilotReceipts.map((receipt) => receipt.sha256),
       }),
       sharedHashes: {
@@ -148,6 +167,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     const budget = createAttributionPilotBudget({
       plan,
       pilotReceipts,
+      originalAfterReports,
       ledgerPath,
       price: priceOf(rates.price),
       reservationPrice: priceOf(rates.reservationPrice),
@@ -195,7 +215,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     try {
       const result = await runAttributionCases({
         arm,
-        mode: phase === "full" ? "full" : "pilot",
+        mode: phase === "pilot" ? "pilot" : "full",
         model,
         provider: { kind: "anthropic", modelId: model, apiKey: key },
         createChatModel: (spec) => {

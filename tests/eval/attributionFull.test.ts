@@ -16,6 +16,7 @@ import {
   EMPTY_SOURCE_DIFF_SHA256,
   validateAttributionPilot,
 } from "../../eval/attribution/pilot";
+import { scoreAttributionSet } from "../../eval/attribution/scoring";
 import type { ClaimCheckResult } from "../../src/core";
 import { partWithResult, resultFromParts } from "../../src/shared/claimParts";
 import { createTempDataFolder } from "../helpers/core";
@@ -44,7 +45,10 @@ const importedDocuments = frozen.sources.map((source, index) => ({
   sourceId: source.id,
   documentId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 }));
-function receipt(model: AttributionPilotPlan["model"]) {
+function receipt(
+  model: AttributionPilotPlan["model"],
+  sampleIds: readonly string[] = ATTRIBUTION_PILOT_CASES,
+) {
   return {
     manifest: { ...pilot, model },
     completed: true,
@@ -54,7 +58,7 @@ function receipt(model: AttributionPilotPlan["model"]) {
       task: "attribution-pilot",
       capUSD: 2,
       chargedUSD: 0,
-      entries: ATTRIBUTION_PILOT_CASES.map((id, index) => ({
+      entries: sampleIds.map((id, index) => ({
         request: index + 1,
         caseId: id,
         arm: "after",
@@ -80,7 +84,7 @@ function receipt(model: AttributionPilotPlan["model"]) {
       stopKind: null,
     },
     importedDocuments,
-    rows: ATTRIBUTION_PILOT_CASES.map((id, index) => {
+    rows: sampleIds.map((id, index) => {
       const sample = frozen.cases.find((sample) => sample.id === id);
       if (!sample) throw new Error("Missing frozen case.");
       const proof =
@@ -89,9 +93,12 @@ function receipt(model: AttributionPilotPlan["model"]) {
             proof.role === "decisive-surrounding-context" ||
             proof.role === "newer-current-conflict",
         ) ?? sample.gold.sourceEvidence[0];
-      const source = frozen.sources.find((source) => source.id === proof?.sourceId);
+      const profile = frozen.profiles.find((profile) => profile.id === sample.profileId);
+      const source = frozen.sources.find(
+        (source) => source.id === (proof?.sourceId ?? profile?.inScopeSourceIds[0]),
+      );
       const document = importedDocuments.find((document) => document.sourceId === source?.id);
-      if (!source || !document || !proof) throw new Error("Missing frozen Source.");
+      if (!source || !document) throw new Error("Missing frozen Source.");
       const evidence = {
         passageId: "passage",
         documentId: document.documentId,
@@ -100,7 +107,7 @@ function receipt(model: AttributionPilotPlan["model"]) {
         pageFrom: null,
         pageTo: null,
         location: null,
-        quote: proof.quote,
+        quote: proof?.quote ?? source.text,
         check: "found" as const,
         checkReason: null,
       };
@@ -600,4 +607,355 @@ test("exactly2.80 allows the affordable request and its final settlement may cro
   expect(guard.snapshot().entries.every((entry) => entry.status === "settled")).toBe(true);
   expect(guard.snapshot().stopKind).toBeNull();
   expect(guard.stopped()).toBe(false);
+});
+
+const recoveryCases = {
+  "claude-haiku-5-5": ["N03-en", "S01-en", "S01-zh-CN", "T07-en", "T07-zh-CN"],
+  "claude-sonnet-5-5": ["S02-en", "S02-zh-CN"],
+};
+const fixedHead = "1".repeat(40);
+const fixedHashes = { ...hashes, host: "2".repeat(64), entry: "3".repeat(64) };
+function originalFullReport(model: AttributionPilotPlan["model"]) {
+  const ids = frozen.cases.map((sample) => sample.id);
+  const report = receipt(model, ids);
+  const failures = [
+    ...recoveryCases[model],
+    ...(model === "claude-sonnet-5-5"
+      ? ["C02-en", "C02-zh-CN", "C03-zh-CN", "C05-en", "C05-zh-CN"]
+      : []),
+  ];
+  const rows = report.rows.map((row) => {
+    if (!failures.includes(row.id)) return row;
+    const result = row.result;
+    if (result.verdict === "not-checked") throw new Error("Missing original verdict.");
+    const verdict = result.verdict === "supported" ? "unsupported" : "supported";
+    const parts = result.parts?.map((part) => partWithResult(part, { ...result, verdict }));
+    return { ...row, result: resultFromParts(parts ?? []) };
+  });
+  const originalPlan = { ...full(), model };
+  return {
+    ...report,
+    rows,
+    scores: scoreAttributionSet(
+      frozen,
+      new Map(importedDocuments.map((document) => [document.sourceId, document.documentId])),
+      new Map(rows.map((row) => [row.id, row.result])),
+    ),
+    manifest: originalPlan,
+    ledger: {
+      ...report.ledger,
+      phase: "full",
+      capUSD: 3.75,
+      caseIds: ids,
+      pilotReceiptHashes: originalPlan.pilotReceiptHashes,
+    },
+  };
+}
+async function recoveryOptions(
+  model: AttributionPilotPlan["model"] = "claude-haiku-5-5",
+  spend = 0.2,
+) {
+  const config = await options();
+  const originalAfterReports = [
+    sealed(originalFullReport("claude-haiku-5-5")),
+    sealed(originalFullReport("claude-sonnet-5-5")),
+  ];
+  const original = {
+    version: 1,
+    task: "attribution-pilot",
+    phase: "full",
+    capUSD: 3.75,
+    chargedUSD: spend,
+    pins,
+    fixtureSHA256: ATTRIBUTION_SHA256,
+    caseIds: config.plan.caseIds,
+    sharedHashes: hashes,
+    pilotReceiptHashes: config.plan.pilotReceiptHashes,
+    stopKind: null,
+    entries: [
+      {
+        id: "historical-id",
+        run: "historical-run",
+        request: 1,
+        arm: "before",
+        model,
+        sourceHead: pins.before,
+        caseId: "N01-en",
+        maximumUSD: 3.5,
+        chargedUSD: spend,
+        status: "settled",
+        outcome: "complete",
+        usage: {
+          input: 10,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          known: true,
+          cacheComplete: true,
+        },
+      },
+    ],
+  };
+  const lineage = {
+    sourceHead: fixedHead,
+    sharedHashes: fixedHashes,
+    originalAfterReportHashes: originalAfterReports.map((report) => report.sha256),
+    originalEntryCount: original.entries.length,
+    originalChargedUSD: spend,
+    originalLedgerSHA256: sealed(original).sha256,
+    caseIds: recoveryCases,
+  };
+  const ledger = { ...original, recoveryLineage: lineage };
+  writeFileSync(config.ledgerPath, JSON.stringify(ledger));
+  return {
+    ...config,
+    originalAfterReports,
+    longInputPrice: config.price,
+    plan: {
+      ...config.plan,
+      phase: "recovery",
+      model,
+      pins: { ...pins, after: fixedHead },
+      sourceHead: fixedHead,
+      caseIds: recoveryCases[model],
+      sharedHashes: fixedHashes,
+      expectedSharedHashes: fixedHashes,
+      recovery: {
+        lineageSHA256: sealed(lineage).sha256,
+        originalAfterReportHashes: lineage.originalAfterReportHashes,
+      },
+    },
+    original,
+    ledger,
+  };
+}
+
+test.each(["claude-haiku-5-5", "claude-sonnet-5-5"] as const)(
+  "recovery admits only the approved original failures for %s without relabelling old spend",
+  async (model) => {
+    const config = await recoveryOptions(model);
+    const bytes = readFileSync(config.ledgerPath, "utf8");
+    const guard = createAttributionPilotBudget(config);
+    expect(guard.stopped()).toBe(false);
+    expect(guard.snapshot().pins).toEqual(pins);
+    expect(guard.snapshot().sharedHashes).toEqual(hashes);
+    expect(guard.snapshot().entries).toEqual(config.original.entries);
+    expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  },
+);
+
+function recoveryModel() {
+  return new MockLanguageModelV4({
+    doGenerate: async () => ({
+      content: [{ type: "text", text: "Retained." }],
+      warnings: [],
+      finishReason: { unified: "stop", raw: undefined },
+      usage: {
+        inputTokens: { total: 2, noCache: 2, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
+      },
+    }),
+  });
+}
+
+test.each([null, "T02-en", "C03-zh-CN"])(
+  "recovery blocks setup or another case before provider: %s",
+  async (caseId) => {
+    const config = await recoveryOptions("claude-sonnet-5-5");
+    const guard = createAttributionPilotBudget(config);
+    const model = recoveryModel();
+    const observed = observeAttribution(() => model, guard.hooks);
+    observed.setCase(caseId);
+    await expect(
+      observed
+        .factory({ kind: "anthropic", modelId: config.plan.model, apiKey: null, baseUrl: null })
+        .doGenerate({ prompt: [], maxOutputTokens: 300 }),
+    ).rejects.toThrow("recovery-case");
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(guard.snapshot()).toMatchObject({
+      chargedUSD: config.original.chargedUSD,
+      stopKind: "recovery-case",
+    });
+    expect(guard.snapshot().entries).toEqual(config.original.entries);
+  },
+);
+
+test("recovery appends its real source head once and preserves every original ledger field and charge", async () => {
+  const config = await recoveryOptions();
+  const guard = createAttributionPilotBudget(config);
+  const model = recoveryModel();
+  const observed = observeAttribution(() => model, guard.hooks);
+  observed.setCase("N03-en");
+  await observed
+    .factory({ kind: "anthropic", modelId: config.plan.model, apiKey: null, baseUrl: null })
+    .doGenerate({ prompt: [], maxOutputTokens: 300 });
+  const saved = guard.snapshot();
+  expect(saved.entries.slice(0, config.original.entries.length)).toEqual(config.original.entries);
+  expect(saved.entries.at(-1)).toMatchObject({
+    sourceHead: fixedHead,
+    caseId: "N03-en",
+    model: config.plan.model,
+    status: "settled",
+  });
+  expect(saved.pins).toEqual(pins);
+  expect(saved.sharedHashes).toEqual(hashes);
+  expect(saved.chargedUSD).toBeGreaterThan(config.original.chargedUSD);
+  expect(createAttributionPilotBudget(config).stopped()).toBe(true);
+});
+
+test.each([
+  { arm: "before" as const },
+  { caseIds: ["T02-en"] },
+  { caseIds: ["C03-zh-CN"] },
+  { caseIds: [...recoveryCases["claude-haiku-5-5"]].reverse() },
+  { sourceHead: "4".repeat(40) },
+  { capUSD: 3.76 },
+  { recovery: undefined },
+  { pins: { ...pins, after: fixedHead, before: "4".repeat(40) } },
+  {
+    sharedHashes: { ...fixedHashes, host: "4".repeat(64) },
+    expectedSharedHashes: { ...fixedHashes, host: "4".repeat(64) },
+  },
+])("recovery cannot escape its declared cases/source/cap: %j", async (change) => {
+  const config = await recoveryOptions();
+  expect(() =>
+    createAttributionPilotBudget({ ...config, plan: { ...config.plan, ...change } }),
+  ).toThrow();
+});
+
+test.each(["cleared", "unknown", "relabeled"] as const)(
+  "recovery refuses %s old history without changing its bytes",
+  async (mutation) => {
+    const config = await recoveryOptions();
+    const damaged =
+      mutation === "cleared"
+        ? { ...config.ledger, entries: [], chargedUSD: 0 }
+        : mutation === "unknown"
+          ? {
+              ...config.ledger,
+              entries: config.ledger.entries.map((entry) => ({ ...entry, status: "unknown" })),
+            }
+          : { ...config.ledger, pins: config.plan.pins, sharedHashes: fixedHashes };
+    const bytes = JSON.stringify(damaged);
+    writeFileSync(config.ledgerPath, bytes);
+    expect(() => createAttributionPilotBudget(config)).toThrow();
+    expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  },
+);
+
+test("recovery never creates a substitute ledger", async () => {
+  const config = await recoveryOptions();
+  const missing = join(await createTempDataFolder(), "missing.json");
+  expect(() => createAttributionPilotBudget({ ...config, ledgerPath: missing })).toThrow(
+    "original full ledger",
+  );
+  expect(() => readFileSync(missing)).toThrow();
+});
+
+test.each([2.8, 2.81])("recovery uses the same settled stop at %s", async (spend) => {
+  const config = await recoveryOptions("claude-sonnet-5-5", spend);
+  const guard = createAttributionPilotBudget(config);
+  const model = recoveryModel();
+  const observed = observeAttribution(() => model, guard.hooks);
+  observed.setCase("S02-en");
+  const call = observed
+    .factory({ kind: "anthropic", modelId: config.plan.model, apiKey: null, baseUrl: null })
+    .doGenerate({ prompt: [], maxOutputTokens: 300 });
+  if (spend > 2.8) {
+    await expect(call).rejects.toThrow("settled-spend");
+    expect(model.doGenerateCalls).toHaveLength(0);
+  } else {
+    await call;
+    expect(model.doGenerateCalls).toHaveLength(1);
+    expect(guard.stopped()).toBe(false);
+  }
+});
+
+test.each(["malformed", "successful", "unknown-usage", "wrong-ledger-fixture"] as const)(
+  "recovery rechecks original reports rather than trusting stale scores: %s",
+  async (mutation) => {
+    const config = await recoveryOptions();
+    const report = originalFullReport("claude-haiku-5-5");
+    if (mutation === "successful") {
+      const row = report.rows.find((row) => row.id === "N03-en");
+      if (!row || row.result.verdict === "not-checked") throw new Error("Missing original result.");
+      const result = row.result;
+      row.result = resultFromParts(
+        result.parts?.map((part) => partWithResult(part, { ...result, verdict: "unsupported" })) ??
+          [],
+      );
+    }
+    const changed =
+      mutation === "wrong-ledger-fixture"
+        ? { ...report, ledger: { ...report.ledger, fixtureSHA256: "0".repeat(64) } }
+        : mutation === "malformed"
+          ? { ...report, rows: report.rows.slice(1) }
+          : mutation === "unknown-usage"
+            ? {
+                ...report,
+                ledger: {
+                  ...report.ledger,
+                  entries: report.ledger.entries.map((entry) => ({
+                    ...entry,
+                    usage: { ...entry.usage, input: undefined },
+                  })),
+                },
+              }
+            : report;
+    const reports = [sealed(changed), sealed(originalFullReport("claude-sonnet-5-5"))];
+    const lineage = {
+      ...config.ledger.recoveryLineage,
+      originalAfterReportHashes: reports.map((report) => report.sha256),
+    };
+    writeFileSync(
+      config.ledgerPath,
+      JSON.stringify({ ...config.ledger, recoveryLineage: lineage }),
+    );
+    expect(() =>
+      createAttributionPilotBudget({
+        ...config,
+        originalAfterReports: reports,
+        plan: {
+          ...config.plan,
+          recovery: {
+            lineageSHA256: sealed(lineage).sha256,
+            originalAfterReportHashes: lineage.originalAfterReportHashes,
+          },
+        },
+      }),
+    ).toThrow();
+  },
+);
+
+test("an unknown recovery request retains its new hold and all original charges on reopen", async () => {
+  const config = await recoveryOptions();
+  const guard = createAttributionPilotBudget(config);
+  const model = new MockLanguageModelV4({
+    doGenerate: async () => ({
+      content: [{ type: "text", text: "Incomplete billing." }],
+      finishReason: { unified: "stop", raw: undefined },
+      warnings: [],
+      usage: {
+        inputTokens: {
+          total: undefined,
+          noCache: undefined,
+          cacheRead: undefined,
+          cacheWrite: undefined,
+        },
+        outputTokens: { total: undefined, text: undefined, reasoning: undefined },
+      },
+    }),
+  });
+  const observed = observeAttribution(() => model, guard.hooks);
+  observed.setCase("N03-en");
+  await observed
+    .factory({ kind: "anthropic", modelId: config.plan.model, apiKey: null, baseUrl: null })
+    .doGenerate({ prompt: [], maxOutputTokens: 300 });
+  const saved = guard.snapshot();
+  expect(saved.entries.slice(0, config.original.entries.length)).toEqual(config.original.entries);
+  expect(saved.entries.at(-1)?.status).toBe("unknown");
+  expect(saved.chargedUSD).toBeGreaterThan(config.original.chargedUSD);
+  const bytes = readFileSync(config.ledgerPath, "utf8");
+  expect(createAttributionPilotBudget(config).stopped()).toBe(true);
+  expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
 });

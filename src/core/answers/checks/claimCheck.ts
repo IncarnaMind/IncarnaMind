@@ -258,6 +258,7 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
   coverage?: ClaimPartCoverage;
   facetParts?: readonly ClaimCheckPart[];
   remainderText?: string;
+  ordinaryTarget?: ClaimPartSpan;
 };
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
@@ -742,6 +743,24 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let retainedCoverage: ClaimPartCoverage | undefined;
     let facetParts: readonly ClaimCheckPart[] | undefined;
     let facetPlans = request.parts?.filter((plan) => plan.facet !== undefined) ?? [];
+    let plannedParts = request.parts;
+    const ordinaryPart = () => {
+      const plans =
+        plannedParts && readPartPlans(plannedParts, request.originalClaim ?? request.claim);
+      const ordinary = plans?.filter((part) => part.facet === undefined);
+      return ordinary?.length === 1 ? ordinary[0] : undefined;
+    };
+    const ordinaryRequest = (): ClaimCheckRequest => {
+      const part = ordinaryPart();
+      if (!part || !plannedParts?.some((plan) => plan.facet)) return request;
+      const original = request.originalClaim ?? request.claim;
+      return {
+        ...request,
+        claim: original.slice(part.span.start, part.span.end),
+        originalClaim: original,
+        parts: plannedParts,
+      };
+    };
     const facts = () => ({
       ...(retainedEvidence.length > 0 && { checkedEvidence: retainedEvidence }),
       ...(retainedCoverage && { coverage: retainedCoverage }),
@@ -896,7 +915,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (parted || !request.findParts) return;
       parted = true;
       const plans = request.findParts(text);
-      if (plans) facetPlans = plans.filter((plan) => plan.facet !== undefined);
+      if (plans) {
+        plannedParts = plans;
+        facetPlans = plans.filter((plan) => plan.facet !== undefined);
+      }
     };
     let setAside: readonly string[] = [];
     let askedAbout: string | null = null;
@@ -999,6 +1021,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (!failed) hear(heard);
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
+    const ordinaryTarget = ordinaryPart()?.span;
+    const targetProof = ordinaryTarget ? { ordinaryTarget } : {};
     const written = figureReplyText(reply, setAside);
     // Asked about its Figures line, a model that can't do what it was asked may write prose
     // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
@@ -1064,12 +1088,27 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       })
     ) {
       const recovered = await askForEvidence(
-        request,
+        ordinaryRequest(),
         evidenceVerdict,
         session,
         signal,
         null,
         missing,
+        replies.flatMap((parsed, index) => {
+          const plan = facetPlans[index];
+          return parsed && plan?.facet
+            ? [
+                {
+                  text: (request.originalClaim ?? request.claim).slice(
+                    plan.span.start,
+                    plan.span.end,
+                  ),
+                  kind: plan.facet.kind,
+                  evidence: parsed.evidence,
+                },
+              ]
+            : [];
+        }),
       );
       if (isFailed(recovered)) {
         retainedEvidence = foundCitations(session.finalCitation, null, declaredMarkers);
@@ -1273,7 +1312,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               );
             else {
               const confirmation = await confirmContradiction(
-                { ...request, claim: request.originalClaim ?? request.claim, figures: undefined },
+                {
+                  ...request,
+                  claim: request.originalClaim ?? request.claim,
+                  parts: [plan],
+                  figures: undefined,
+                },
                 evidence,
                 session,
                 signal,
@@ -1333,13 +1377,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       let remainderText: string | undefined;
       const judged = async (
         said: ReadVerdict,
-        words: string,
+        target: ClaimCheckRequest,
         evidence: Citation | null,
       ): Promise<ClaimJudgment> => {
         const result = figureJudgment(said, evidence, facts(), citedCase(evidence));
         if (result.verdict !== "contradicted" || !evidence) return result;
         const confirmation = await confirmContradiction(
-          { ...request, claim: words, figures: undefined },
+          { ...target, figures: undefined },
           evidence,
           session,
           signal,
@@ -1386,7 +1430,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           remainderText = remainder.text;
           return judged(
             remainder,
-            remainder.text,
+            {
+              ...request,
+              claim: remainder.text,
+              originalClaim: request.originalClaim ?? request.claim,
+              parts: undefined,
+            },
             remainder.citation === null ? null : session.finalCitation(remainder.citation),
           );
         },
@@ -1408,24 +1457,26 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
-            ? await askForEvidence(request, verdict, session, signal)
+            ? await askForEvidence(ordinaryRequest(), verdict, session, signal)
             : null);
-        if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
+        if (!isFailed(evidence)) return judged(verdict, ordinaryRequest(), evidence);
         const failure = failureOf(evidence.failed);
         return unchecked(failure.reason, failure.detail);
       };
-      const figureResult = signal.aborted
-        ? result
-        : said
-          ? await withSentenceVerdict(result, () => sentence(said))
-          : result.verdict === "supported"
-            ? await withSentenceVerdict(result, async () => unchecked("malformed"))
-            : result;
+      const figureResult =
+        signal.aborted || (plannedParts !== undefined && !ordinaryPart())
+          ? result
+          : said
+            ? await withSentenceVerdict(result, () => sentence(said))
+            : result.verdict === "supported"
+              ? await withSentenceVerdict(result, async () => unchecked("malformed"))
+              : result;
       const absence = signal.aborted
         ? null
         : await absenceFor(said?.absence ?? null, figureResult.verdict);
       return {
         ...(absence ?? figureResult),
+        ...targetProof,
         ...(facetParts && { facetParts }),
         ...(remainderText !== undefined && { remainderText }),
       };
@@ -1451,6 +1502,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         calculation: worked.calculation,
         ...citedCase(worked.evidence),
         ...facts(),
+        ...targetProof,
       };
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
@@ -1497,7 +1549,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       }
     }
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
-    if (absence) return { ...absence, ...(facetParts && { facetParts }) };
+    if (absence) return { ...absence, ...targetProof, ...(facetParts && { facetParts }) };
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked
@@ -1511,6 +1563,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             calculation: worked.calculation,
             ...citedCase(worked.evidence),
             ...facts(),
+            ...targetProof,
           }
       : null;
     if (confirmationFailure) return failedCheck(confirmationFailure);
@@ -1522,7 +1575,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     ): Promise<ClaimCheckResult> => {
       const nearest =
         judgedNearest === undefined
-          ? await nearestDifferent(request, session, signal)
+          ? await nearestDifferent(ordinaryRequest(), session, signal)
           : judgedNearest;
       if (signal.aborted) return notChecked("stopped");
       // A card that quotes the Passage covering part of the sentence never says it found nothing.
@@ -1540,7 +1593,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             : (found ??
               decidingCitation(session.finalCitation) ??
               // Only the card's quote rests on it: the verdict stands without.
-              notFailed(await askForEvidence(request, verdict, session, signal, why.covered)));
+              notFailed(
+                await askForEvidence(ordinaryRequest(), verdict, session, signal, why.covered),
+              ));
       if (signal.aborted) return notChecked("stopped");
       retainedEvidence = uniqueCitations([
         ...retainedEvidence,
@@ -1556,6 +1611,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         calculation: worked?.calculation ?? null,
         ...citedCase(nearest),
         ...left,
+        ...targetProof,
         excluded: nearest ? left.excluded : [...left.excluded, ...workingsSayingIt()],
       };
     };
@@ -1588,7 +1644,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ...((verdict.topic === "found" || parts) && { found: true }),
       });
     }
-    const cited = namedEvidence[0] ?? (await askForEvidence(request, verdict, session, signal));
+    const cited =
+      namedEvidence[0] ?? (await askForEvidence(ordinaryRequest(), verdict, session, signal));
     const evidence = cited ?? worked?.evidence ?? null;
     const onlyCalculation = cited === null && worked?.evidence != null;
     if (signal.aborted) return notChecked("stopped");
@@ -1651,7 +1708,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const parts = async (quoted: Citation | readonly Citation[]) =>
       verdict.covered && verdict.uncovered
         ? { covered: verdict.covered, uncovered: verdict.uncovered }
-        : await partOf(request, quoted, session, signal, deps.language());
+        : await partOf(ordinaryRequest(), quoted, session, signal, deps.language());
     // A general word for the Passage's own party is backed for that party only: the wider group
     // is the part the Documents don't cover (DESIGN.md › Checks). Another party, the parties the
     // other way round, or must for may is no support at all: Claude Haiku 5.5 called "must pay"
@@ -1691,7 +1748,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         // A judgement has just compared this very quote with the sentence: no nearest line.
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
       };
-      const confirmation = await confirmContradiction(request, deciding, session, signal);
+      const confirmation = await confirmContradiction(ordinaryRequest(), deciding, session, signal);
       if ("failed" in confirmation) return failedCheck(confirmation.failed);
       if (confirmation.kind === "stopped") return notChecked("stopped");
       // The Passage is about something else: what is nearest may still say something different.
@@ -1717,6 +1774,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       calculation: worked?.calculation ?? null,
       ...citedCase(evidence),
       ...facts(),
+      ...targetProof,
     };
   };
 }
@@ -1785,6 +1843,7 @@ async function askForEvidence(
   signal: AbortSignal,
   covered: string | null = null,
   markers: readonly number[] = [],
+  facets: Parameters<typeof evidencePrompt>[0]["facets"] = [],
 ): Promise<Citation | null | Failed> {
   const passages = session.shownPassages();
   if (passages.length === 0) return null;
@@ -1794,7 +1853,16 @@ async function askForEvidence(
     ({ text: reply } = await generateText({
       model: model.model,
       instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
-      prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
+      prompt: evidencePrompt({
+        claim: request.claim,
+        originalClaim: request.originalClaim,
+        parts: request.parts,
+        ...verdict,
+        covered,
+        passages,
+        markers,
+        facets,
+      }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
       maxOutputTokens: Math.min(4000, 600 * Math.max(1, markers.length)),
       maxRetries: 1,
@@ -1861,6 +1929,8 @@ async function compare(
       instructions,
       prompt: confirmPrompt({
         claim: request.claim,
+        originalClaim: request.originalClaim,
+        parts: request.parts,
         quote: citations.map((citation) => citation.quote).join("\n"),
         passage: passages.join("\n"),
         quantity,

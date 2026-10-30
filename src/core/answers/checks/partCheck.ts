@@ -192,9 +192,20 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       result: AtomicClaimCheckResult,
       figures: readonly CheckFigure[],
       found: readonly ClaimPartPlan[],
+      plan: ClaimPartPlan,
     ): AtomicClaimCheckResult => {
-      if (!result.figures || !found.some((plan) => plan.facet)) return result;
-      if (result.verdict === "not-checked")
+      if (!found.some((part) => part.facet)) return result;
+      const proven =
+        result.ordinaryTarget !== undefined && sameSpan(result.ordinaryTarget, plan.span);
+      const unresolved: ClaimCheckResult = {
+        verdict: "not-checked",
+        reason: "malformed",
+        detail: null,
+        versions: result.versions,
+        excluded: result.excluded,
+      };
+      if (!result.figures) return result.verdict === "not-checked" || proven ? result : unresolved;
+      if (result.verdict === "not-checked" && STOPS.includes(result.reason))
         return {
           verdict: result.verdict,
           reason: result.reason,
@@ -203,8 +214,25 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
           excluded: result.excluded,
         };
       const native = result.figures.filter((figure) => figures.some((own) => own.id === figure.id));
-      const remainder = remainderInFacet(result, found) ? null : result.remainder;
-      if (native.length > 0) return { ...result, figures: native, remainder };
+      const text = result.remainderText;
+      const at = text ? request.claim.indexOf(text) : -1;
+      const bound =
+        text !== undefined &&
+        at >= plan.span.start &&
+        request.claim.indexOf(text, at + 1) < 0 &&
+        at + text.length <= plan.span.end;
+      const remainder = remainderInFacet(result, found)
+        ? null
+        : proven || result.remainder === null || bound
+          ? result.remainder
+          : unresolved;
+      if (native.length > 0)
+        return {
+          ...result,
+          figures: native,
+          remainder,
+          ...(!proven && { checkedEvidence: undefined, coverage: undefined }),
+        };
       return (
         remainder ?? {
           verdict: "not-checked",
@@ -229,7 +257,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
             ? facetResult(plan, result, owned[index])
             : checkedPart(
                 plan,
-                ordinaryResult(result, owned[index] ?? [], rows),
+                ordinaryResult(result, owned[index] ?? [], rows, plan),
                 undefined,
                 owned[index] ?? [],
                 undefined,
@@ -477,7 +505,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
           if (index >= 0)
             parts[index] = checkedPart(
               plan,
-              ordinaryResult(result, owned[index] ?? [], planned),
+              ordinaryResult(result, owned[index] ?? [], planned, plan),
               previous,
               owned[index] ?? [],
               request.figureIds,

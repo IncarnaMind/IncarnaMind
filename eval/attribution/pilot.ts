@@ -20,6 +20,10 @@ export const ATTRIBUTION_FULL_CAP_USD = 3.75;
 export const ATTRIBUTION_FULL_SETTLED_STOP_USD = 2.8;
 export const ATTRIBUTION_FULL_CASES = frozen.cases.map((sample) => sample.id);
 export const ATTRIBUTION_PILOT_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"] as const;
+export const ATTRIBUTION_RECOVERY_CASES = {
+  "claude-haiku-5-5": ["N03-en", "S01-en", "S01-zh-CN", "T07-en", "T07-zh-CN"],
+  "claude-sonnet-5-5": ["S02-en", "S02-zh-CN"],
+} as const;
 const PILOT_FACET_VERDICTS = [
   { caseId: "N01-en", kind: "source", verdict: "supported" },
   { caseId: "T02-en", kind: "time", verdict: "contradicted" },
@@ -47,12 +51,13 @@ export interface AttributionPilotPlan {
   sharedHashes: AttributionPilotHashes;
   expectedSharedHashes: AttributionPilotHashes;
   pilotReceiptHashes?: readonly string[];
+  recovery?: { lineageSHA256: string; originalAfterReportHashes: readonly string[] };
 }
 
 export function validateAttributionPilot(plan: AttributionPilotPlan) {
-  if (plan.phase !== "pilot" && plan.phase !== "full")
+  if (plan.phase !== "pilot" && plan.phase !== "full" && plan.phase !== "recovery")
     throw new Error("Select an explicitly authorized attribution phase.");
-  const ceiling = plan.phase === "full" ? ATTRIBUTION_FULL_CAP_USD : ATTRIBUTION_PILOT_CAP_USD;
+  const ceiling = plan.phase === "pilot" ? ATTRIBUTION_PILOT_CAP_USD : ATTRIBUTION_FULL_CAP_USD;
   if (!Number.isFinite(plan.capUSD) || plan.capUSD <= 0 || plan.capUSD > ceiling)
     throw new Error("An explicit authorized pilot ceiling is required.");
   if (!ATTRIBUTION_PILOT_MODELS.includes(plan.model))
@@ -68,7 +73,13 @@ export function validateAttributionPilot(plan: AttributionPilotPlan) {
   if (
     plan.fixtureSHA256 !== ATTRIBUTION_SHA256 ||
     JSON.stringify(plan.caseIds) !==
-      JSON.stringify(plan.phase === "full" ? ATTRIBUTION_FULL_CASES : ATTRIBUTION_PILOT_CASES)
+      JSON.stringify(
+        plan.phase === "recovery"
+          ? ATTRIBUTION_RECOVERY_CASES[plan.model]
+          : plan.phase === "full"
+            ? ATTRIBUTION_FULL_CASES
+            : ATTRIBUTION_PILOT_CASES,
+      )
   )
     throw new Error("The frozen attribution pilot cases or fixture hash changed.");
   for (const name of ["adapter", "scorer", "host", "entry"] as const) {
@@ -81,18 +92,146 @@ export function validateAttributionPilot(plan: AttributionPilotPlan) {
       throw new Error("The shared attribution pilot host hash changed.");
   }
   if (
-    plan.phase === "full" &&
+    plan.phase !== "pilot" &&
     (!Array.isArray(plan.pilotReceiptHashes) ||
       plan.pilotReceiptHashes.length !== 2 ||
       new Set(plan.pilotReceiptHashes).size !== 2 ||
       plan.pilotReceiptHashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash)))
   )
     throw new Error("Two hashed candidate pilot reports are required.");
+  if (plan.phase === "recovery") {
+    if (
+      plan.arm !== "after" ||
+      !plan.recovery ||
+      !/^[a-f0-9]{64}$/.test(plan.recovery.lineageSHA256) ||
+      plan.recovery.originalAfterReportHashes.length !== 2 ||
+      new Set(plan.recovery.originalAfterReportHashes).size !== 2 ||
+      plan.recovery.originalAfterReportHashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash))
+    )
+      throw new Error("Recovery needs the exact approved source lineage and original reports.");
+  } else if (plan.recovery !== undefined)
+    throw new Error("Recovery cannot change ordinary pilot/full admission.");
 }
 
 export interface AttributionPilotReceipt {
   bytes: string;
   sha256: string;
+}
+
+function settledEntry(entry: Entry): boolean {
+  const usage = entry.usage;
+  return (
+    entry.status === "settled" &&
+    entry.outcome === "complete" &&
+    usage?.known === true &&
+    usage.cacheComplete === true &&
+    finite(usage.input) &&
+    finite(usage.output) &&
+    finite(usage.cacheRead) &&
+    finite(usage.cacheWrite) &&
+    usage.cacheRead + usage.cacheWrite <= usage.input
+  );
+}
+
+function recoveryBasis(
+  plan: AttributionPilotPlan,
+  reports: readonly AttributionPilotReceipt[],
+): AttributionPilotPlan {
+  if (reports.length !== 2) throw new Error("Both original after reports are required.");
+  let basis: AttributionPilotPlan | undefined;
+  const models = new Set<string>();
+  try {
+    for (const [index, receipt] of reports.entries()) {
+      if (
+        receipt.sha256 !== plan.recovery?.originalAfterReportHashes[index] ||
+        createHash("sha256").update(receipt.bytes).digest("hex") !== receipt.sha256
+      )
+        throw new Error();
+      const report: {
+        manifest: AttributionPilotPlan;
+        rows: AttributionDryRow[];
+        importedDocuments: { sourceId: string; documentId: string }[];
+        ledger: Ledger;
+        stopReason: string | null;
+      } = JSON.parse(receipt.bytes);
+      const original = report.manifest;
+      validateAttributionPilot(original);
+      if (
+        original.phase !== "full" ||
+        original.arm !== "after" ||
+        original.capUSD !== plan.capUSD ||
+        original.pins.before !== plan.pins.before ||
+        original.sourceHead === plan.sourceHead ||
+        original.fixtureSHA256 !== plan.fixtureSHA256 ||
+        models.has(original.model) ||
+        JSON.stringify(original.pilotReceiptHashes) !== JSON.stringify(plan.pilotReceiptHashes) ||
+        report.stopReason !== null ||
+        report.ledger.stopKind !== null ||
+        report.ledger.phase !== "full" ||
+        report.ledger.version !== 1 ||
+        report.ledger.task !== "attribution-pilot" ||
+        report.ledger.capUSD !== original.capUSD ||
+        report.ledger.fixtureSHA256 !== original.fixtureSHA256 ||
+        JSON.stringify(report.ledger.caseIds) !== JSON.stringify(ATTRIBUTION_FULL_CASES) ||
+        JSON.stringify(report.ledger.pilotReceiptHashes) !==
+          JSON.stringify(original.pilotReceiptHashes) ||
+        !finite(report.ledger.chargedUSD) ||
+        report.ledger.chargedUSD > report.ledger.capUSD ||
+        report.ledger.entries.some(
+          (entry) => !finite(entry.chargedUSD) || !finite(entry.maximumUSD),
+        ) ||
+        Math.abs(
+          report.ledger.entries.reduce((sum, entry) => sum + entry.chargedUSD, 0) -
+            report.ledger.chargedUSD,
+        ) > 1e-9 ||
+        JSON.stringify(report.ledger.pins) !== JSON.stringify(original.pins) ||
+        JSON.stringify(report.ledger.sharedHashes) !== JSON.stringify(original.sharedHashes) ||
+        report.ledger.entries.length === 0 ||
+        report.ledger.entries.some((entry) => !settledEntry(entry)) ||
+        JSON.stringify(report.rows.map((row) => row.id)) !==
+          JSON.stringify(ATTRIBUTION_FULL_CASES) ||
+        report.rows.some(
+          (row) =>
+            row.status !== "returned" ||
+            row.error !== null ||
+            !row.result ||
+            !["supported", "unsupported", "contradicted", "not-checked"].includes(
+              row.result.verdict,
+            ),
+        )
+      )
+        throw new Error();
+      if (
+        basis &&
+        (JSON.stringify(original.pins) !== JSON.stringify(basis.pins) ||
+          JSON.stringify(original.sharedHashes) !== JSON.stringify(basis.sharedHashes))
+      )
+        throw new Error();
+      const documents = new Map(
+        report.importedDocuments.map((document) => [document.sourceId, document.documentId]),
+      );
+      const scores = scoreAttributionSet(
+        frozen,
+        documents,
+        new Map(report.rows.flatMap((row) => (row.result ? [[row.id, row.result] as const] : []))),
+      );
+      if (
+        ATTRIBUTION_RECOVERY_CASES[original.model].some(
+          (id) => scores.rows.find((row) => row.id === id)?.native === "hit",
+        )
+      )
+        throw new Error();
+      models.add(original.model);
+      basis ??= original;
+    }
+  } catch {
+    throw new Error(
+      "The original recovery reports are malformed, mismatched or do not prove the approved failures.",
+    );
+  }
+  if (!basis || ATTRIBUTION_PILOT_MODELS.some((model) => !models.has(model)))
+    throw new Error("Both original models are required.");
+  return basis;
 }
 
 function validatePromotion(
@@ -138,20 +277,7 @@ function validatePromotion(
         JSON.stringify(report.ledger.caseIds) !== JSON.stringify(ATTRIBUTION_PILOT_CASES) ||
         JSON.stringify(report.ledger.sharedHashes) !== JSON.stringify(plan.sharedHashes) ||
         report.ledger.entries.length === 0 ||
-        report.ledger.entries.some((entry) => {
-          const usage = entry.usage;
-          return (
-            entry.status !== "settled" ||
-            entry.outcome !== "complete" ||
-            usage?.known !== true ||
-            usage.cacheComplete !== true ||
-            !finite(usage.input) ||
-            !finite(usage.output) ||
-            !finite(usage.cacheRead) ||
-            !finite(usage.cacheWrite) ||
-            usage.cacheRead + usage.cacheWrite > usage.input
-          );
-        }) ||
+        report.ledger.entries.some((entry) => !settledEntry(entry)) ||
         JSON.stringify(report.rows.map((row) => row.id)) !== JSON.stringify(ATTRIBUTION_PILOT_CASES)
       )
         throw new Error("Invalid candidate pilot completion.");
@@ -309,6 +435,15 @@ type Ledger = {
   stopKind: string | null;
   phase?: string;
   pilotReceiptHashes?: readonly string[];
+  recoveryLineage?: {
+    sourceHead: string;
+    sharedHashes: AttributionPilotHashes;
+    originalAfterReportHashes: readonly string[];
+    originalEntryCount: number;
+    originalChargedUSD: number;
+    originalLedgerSHA256: string;
+    caseIds: Record<PilotModel, readonly string[]>;
+  };
 };
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -397,10 +532,13 @@ export function createAttributionPilotBudget(options: {
   defaultOutputTokens: number;
   cacheWritePolicy: "5m" | "unknown";
   pilotReceipts?: readonly AttributionPilotReceipt[];
+  originalAfterReports?: readonly AttributionPilotReceipt[];
 }) {
   const { plan, ledgerPath } = options;
   validateAttributionPilot(plan);
-  if (plan.phase === "full") validatePromotion(plan, options.pilotReceipts ?? []);
+  const basis =
+    plan.phase === "recovery" ? recoveryBasis(plan, options.originalAfterReports ?? []) : plan;
+  if (plan.phase !== "pilot") validatePromotion(basis, options.pilotReceipts ?? []);
   if (options.defaultOutputTokens !== 128000)
     throw new Error("The pinned models' proven app/SDK output limit is required.");
   for (const price of [options.price, options.reservationPrice, options.longInputPrice].filter(
@@ -429,6 +567,8 @@ export function createAttributionPilotBudget(options: {
   const run = randomUUID();
   let stopped: string | null = null;
   function load(): Ledger {
+    if (plan.phase === "recovery" && !existsSync(ledgerPath))
+      throw new Error("Recovery requires the original full ledger.");
     if (!existsSync(ledgerPath))
       return {
         version: 1,
@@ -450,16 +590,16 @@ export function createAttributionPilotBudget(options: {
     if (
       value.version !== 1 ||
       value.task !== "attribution-pilot" ||
-      (value.phase ?? "pilot") !== plan.phase ||
-      (plan.phase === "full" &&
-        JSON.stringify(value.pilotReceiptHashes) !== JSON.stringify(plan.pilotReceiptHashes)) ||
+      (value.phase ?? "pilot") !== basis.phase ||
+      (basis.phase === "full" &&
+        JSON.stringify(value.pilotReceiptHashes) !== JSON.stringify(basis.pilotReceiptHashes)) ||
       value.capUSD !== plan.capUSD ||
-      value.pins?.before !== plan.pins.before ||
-      value.pins?.after !== plan.pins.after ||
+      value.pins?.before !== basis.pins.before ||
+      value.pins?.after !== basis.pins.after ||
       value.fixtureSHA256 !== plan.fixtureSHA256 ||
-      JSON.stringify(value.caseIds) !== JSON.stringify(plan.caseIds) ||
+      JSON.stringify(value.caseIds) !== JSON.stringify(basis.caseIds) ||
       (["adapter", "scorer", "host", "entry"] as const).some(
-        (name) => value.sharedHashes?.[name] !== plan.sharedHashes[name],
+        (name) => value.sharedHashes?.[name] !== basis.sharedHashes[name],
       ) ||
       (value.stopKind !== null && typeof value.stopKind !== "string") ||
       !Array.isArray(value.entries) ||
@@ -474,6 +614,39 @@ export function createAttributionPilotBudget(options: {
         1e-9
     )
       throw new Error("The attribution pilot ledger is invalid or its ceiling changed.");
+    if (plan.phase === "recovery") {
+      const lineage = value.recoveryLineage;
+      if (
+        !lineage ||
+        createHash("sha256").update(JSON.stringify(lineage)).digest("hex") !==
+          plan.recovery?.lineageSHA256 ||
+        lineage.sourceHead !== plan.sourceHead ||
+        JSON.stringify(lineage.sharedHashes) !== JSON.stringify(plan.sharedHashes) ||
+        JSON.stringify(lineage.originalAfterReportHashes) !==
+          JSON.stringify(plan.recovery?.originalAfterReportHashes) ||
+        JSON.stringify(lineage.caseIds) !== JSON.stringify(ATTRIBUTION_RECOVERY_CASES) ||
+        !Number.isSafeInteger(lineage.originalEntryCount) ||
+        lineage.originalEntryCount < 1 ||
+        lineage.originalEntryCount > value.entries.length ||
+        !finite(lineage.originalChargedUSD) ||
+        value.chargedUSD < lineage.originalChargedUSD
+      )
+        throw new Error("The recovery ledger lineage does not match.");
+      const { recoveryLineage: _lineage, ...prior } = value;
+      const entries = value.entries.slice(0, lineage.originalEntryCount);
+      const original = {
+        ...prior,
+        entries,
+        chargedUSD: lineage.originalChargedUSD,
+        stopKind: null,
+      };
+      if (
+        entries.some((entry) => !settledEntry(entry)) ||
+        createHash("sha256").update(JSON.stringify(original)).digest("hex") !==
+          lineage.originalLedgerSHA256
+      )
+        throw new Error("Recovery cannot clear or change the original spend history.");
+    }
     return value;
   }
   function update<T>(change: (ledger: Ledger) => T): T {
@@ -536,9 +709,9 @@ export function createAttributionPilotBudget(options: {
         options.reservationPrice,
         new Date(),
       );
-      let admitted: boolean;
+      let refusal: "settled-spend" | "recovery-case" | null;
       try {
-        admitted = update((ledger) => {
+        refusal = update((ledger) => {
           if (ledger.stopKind || ledger.entries.some(attempted))
             throw new Error("This attribution arm has stopped or was already attempted.");
           if (ledger.entries.some((entry) => entry.run !== run && entry.status !== "settled"))
@@ -547,9 +720,16 @@ export function createAttributionPilotBudget(options: {
             (sum, entry) => sum + (entry.status === "settled" ? entry.chargedUSD : 0),
             0,
           );
-          if (plan.phase === "full" && settled > ATTRIBUTION_FULL_SETTLED_STOP_USD) {
+          if (
+            plan.phase === "recovery" &&
+            (request.caseId === null || !plan.caseIds.includes(request.caseId))
+          ) {
+            ledger.stopKind = "recovery-case";
+            return "recovery-case" as const;
+          }
+          if (plan.phase !== "pilot" && settled > ATTRIBUTION_FULL_SETTLED_STOP_USD) {
             ledger.stopKind = "settled-spend";
-            return false;
+            return "settled-spend" as const;
           }
           if (ledger.chargedUSD + maximumUSD > ledger.capUSD)
             throw new Error("The attribution pilot ceiling cannot fund this request.");
@@ -568,15 +748,15 @@ export function createAttributionPilotBudget(options: {
             outcome: "running",
             usage: null,
           });
-          return true;
+          return null;
         });
       } catch (error) {
         stop("admission-refused");
         throw error;
       }
-      if (!admitted) {
-        stopped = "settled-spend";
-        throw new Error("The attribution full phase has passed its settled-spend stop.");
+      if (refusal !== null) {
+        stopped = refusal;
+        throw new Error(`The attribution phase refused another request (${refusal}).`);
       }
     },
     failed(error) {

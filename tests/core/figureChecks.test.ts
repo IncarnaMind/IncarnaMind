@@ -428,8 +428,9 @@ test("qualitative remainder retains the existing contradiction confirmations", a
   expect(result.verdict).toBe("contradicted");
   expect(confirmations).toHaveLength(2);
   for (const prompt of confirmations) {
-    expect(prompt).toContain("the licence is valid");
-    expect(prompt).not.toContain(claim);
+    expect(prompt).toContain("<sentence>\nthe licence is valid\n</sentence>");
+    expect(prompt).not.toContain(`<sentence>\n${claim}\n</sentence>`);
+    expect(prompt).toContain(`<assertion>\n${claim}\n</assertion>`);
   }
 });
 
