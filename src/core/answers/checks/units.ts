@@ -330,8 +330,8 @@ export function unitNotStated(
             statement.scale === figure.scale &&
             (figure.unit.kind !== "currency" ||
               (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
-              // "Results ($m)" states the scale, and leaves which dollar to the currency rule.
-              bareDollarStatement(statement) ||
+              // "Results ($m)" states a dollar figure's scale, and leaves which dollar to the currency rule.
+              (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
               same.some(({ unit }) => unit.kind === "currency")),
         ),
       );

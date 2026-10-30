@@ -819,9 +819,10 @@ const HAN_CURRENCIES = Object.keys(CURRENCY_CODES)
   .filter((word) => /^\p{Script=Han}{2,}$/u.test(word))
   .sort((a, b) => b.length - a.length)
   .join("|");
-// "US $54m" is US$54m; a lone letter stays apart, as "A $54,000 fee" is the article.
+// "US $54m" is US$54m. "CA" and "NT" are also a US state and an Australian territory ("CA $54m"),
+// and a lone letter an article ("A $54,000 fee"), so those take the "$" only joined.
 const CURRENCY_TOKEN = new RegExp(
-  `(?:(?<![A-Za-z])(?:(?:US|U\\.S\\.|HK|AU|CA|NZ|SG|NT|MX)[ \\u00a0]?|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
+  `(?:(?<![A-Za-z])(?:(?:US|U\\.S\\.|HK|AU|NZ|SG|MX)[ \\u00a0]?|CA|NT|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
 );
 /** Currency signs before a number, and codes and names before it, with a space allowed. */
 const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);

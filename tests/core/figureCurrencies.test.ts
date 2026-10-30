@@ -319,11 +319,14 @@ describe("Checking which dollar a bare $ is (#2226)", { timeout: 60_000 }, () =>
 const LONG_TABLE = (heading: string, rent: string) =>
   `Item\tAmount (${heading})\n${Array.from({ length: 60 }, (_, at) => `Item ${at + 1}\t${1000 + at}`).join("\n")}\nRent\t${rent}`;
 const FEE_LIST = "费用清单\n以下为本公司的服务费用明细，请于月底前支付。\nFee\t¥54,000\n";
+const ROWS = Array.from({ length: 60 }, (_, at) => `Segment ${at + 1}\t${100 + at}`).join("\n");
+const STATE_SALES = "Sales by state: CA $54m, TX $30m.";
+const TERRITORY_REVENUE = "Revenue by state: NSW $120m, VIC $80m, NT $54m.";
 const JA_FEES =
   "料金表\n以下は当社のサービス料金です。月末までにお支払いください。\nFee\t¥54,000\n";
 
 describe("A dollar named beside its amount, and a plain number under a bare $ (#2226)", () => {
-  // protects=a code, a name or a country prefix beside a "$" says which dollar it is, so the amount is in that dollar and not a bare "$", while a lone letter before it ("A $54,000 fee") stays an article; a plain number whose Document writes a dollar only by a bare "$" or "dollars", in a heading the cited text lost, a unit line or another figure, is asked which dollar, and one whose Document names no currency keeps its reason; a Chinese Document's "¥" is 人民币 and a Japanese one's the yen, even on a line in neither language; fails_when="$54,000 AUD" backs "US$54,000" (even where the Document mentions USD) or is backed by "HK$54,000", 日元 passes against a Chinese Document's "¥" or RMB against a Japanese one's, "US $54m" backs "A$54m", a truly bare "$54,000" backs "US$54,000", or a plain number under a lost "Amount ($)", "All amounts are in dollars." or beside another figure's "$5,000" backs "US$"; no_claim=a real model's verdict.
+  // protects=a code, a name or a country prefix beside a "$" says which dollar it is, so the amount is in that dollar and not a bare "$", while a lone letter before it ("A $54,000 fee") stays an article; a plain number whose Document writes a dollar only by a bare "$" or "dollars", in a heading the cited text lost, a unit line or another figure, is asked which dollar, and one whose Document names no currency keeps its reason; a Chinese Document's "¥" is 人民币 and a Japanese one's the yen, even on a line in neither language; a "($m)" heading gives only a dollar figure its scale; "CA" and "NT" before a spaced "$" are a state or territory, joined ("CA$") the Canadian dollar; fails_when="$54,000 AUD" backs "US$54,000" (even where the Document mentions USD) or is backed by "HK$54,000", 日元 passes against a Chinese Document's "¥" or RMB against a Japanese one's, "€54m" passes against a "($m)" heading, "CA $54m" reads as Canadian dollars, "US $54m" backs "A$54m", a truly bare "$54,000" backs "US$54,000", or a plain number under a lost "Amount ($)", "All amounts are in dollars." or beside another figure's "$5,000" backs "US$"; no_claim=a real model's verdict.
   test.each([
     ["The fee is US$54,000.", "The fee is $54,000 AUD.", "unit", "$54,000 AUD"],
     [
@@ -336,6 +339,13 @@ describe("A dollar named beside its amount, and a plain number under a bare $ (#
     ["The fee is $54,000 AUD.", "The fee is HK$54,000.", "unit", "HK$54,000"],
     ["服务费用为54,000日元。", "Fee\t¥54,000", "yuan sign", "¥54,000", FEE_LIST],
     ["The fee is RMB 54,000.", "Fee\t¥54,000", "unit", "¥54,000", JA_FEES],
+    ["Revenue was €54m.", "Revenue\t54", "scale", "54", "Results ($m)\nRevenue\t54"],
+    ["Revenue was £54m.", "Revenue\t54", "scale", "54", "Results ($m)\nRevenue\t54"],
+    ["Revenue was ¥54m.", "Revenue\t54", "scale", "54", "Results ($m)\nRevenue\t54"],
+    ["欧洲营收为€54m。", "Revenue\t54", "scale", "54", "Results ($m)\nRevenue\t54"],
+    ["California sales were US$54m.", STATE_SALES, "which dollar", "$54m"],
+    ["Northern Territory revenue was A$54m.", TERRITORY_REVENUE, "which dollar", "$54m"],
+    ["Revenue was US$54m.", "Revenue was CA$54m.", "unit", "CA$54m"],
     ["The fee is A$54,000.", "The fee is $54,000 USD.", "unit", "$54,000 USD"],
     ["Revenue was A$54m in 2025.", "Revenue was US $54m in 2025.", "unit", "US $54m"],
     ["租金为54,000美元。", "租金为$54,000 AUD。", "unit", "$54,000 AUD"],
@@ -379,6 +389,20 @@ describe("A dollar named beside its amount, and a plain number under a bare $ (#
     ["The fee is $54,000 AUD.", "The fee is A$54,000."],
     ["服务费用为人民币54,000元。", "Fee\t¥54,000", FEE_LIST],
     ["The fee is 54,000 yen.", "Fee\t¥54,000", JA_FEES],
+    ["Revenue was €54m.", "Revenue\t54", "Results (€m)\nRevenue\t54"],
+    ["California sales were $54m.", STATE_SALES],
+    [
+      "California sales were US$54m.",
+      STATE_SALES,
+      `All amounts are in US dollars.\n${STATE_SALES}`,
+    ],
+    ["加州销售额为5400万美元。", STATE_SALES, `All amounts are in US dollars.\n${STATE_SALES}`],
+    [
+      "Northern Territory revenue was A$54m.",
+      TERRITORY_REVENUE,
+      `All amounts are in Australian dollars.\n${TERRITORY_REVENUE}`,
+    ],
+    ["Revenue was C$54m.", "Revenue was CA$54m."],
     ["Revenue was US$54m in 2025.", "Revenue was US $54m in 2025."],
     ["The fee is US$54,000.", "The fee is $54,000 US dollars."],
     ["The fee is US$54,000.", "The fee is U.S. $54,000."],
@@ -432,6 +456,29 @@ describe("Checking a dollar named beside its amount, and a plain number under a 
     "The fee is US$54,000.": [INVOICE, supported("The fee is $54,000 USD")],
     "The fee is A$54,000.": [INVOICE, supported("The fee is $54,000 USD")],
     "The fee is US$34,000.": [MIXED, supported("The fee is $34,000 AUD")],
+    "Revenue was €94m.": [
+      { name: "Results.txt", contents: `Results\nSegment\tRevenue ($m)\n${ROWS}\nEurope\t94\n` },
+      supported("Europe\t94"),
+    ],
+    "Revenue was $94m.": [
+      { name: "Results.txt", contents: `Results\nSegment\tRevenue ($m)\n${ROWS}\nEurope\t94\n` },
+      supported("Europe\t94"),
+    ],
+    "Revenue was €84m.": [
+      {
+        name: "Euro results.txt",
+        contents: `Euro results\nSegment\tRevenue (€m)\n${ROWS}\nEurope\t84\n`,
+      },
+      supported("Europe\t84"),
+    ],
+    "California sales were US$54m.": [
+      { name: "Sales.txt", contents: `Sales\nAll amounts are in US dollars.\n${STATE_SALES}\n` },
+      supported(STATE_SALES),
+    ],
+    "California sales were US$64m.": [
+      { name: "State sales.txt", contents: "State sales\nSales by state: CA $64m, TX $30m.\n" },
+      supported("Sales by state: CA $64m, TX $30m."),
+    ],
     "The fee is A$34,000.": [MIXED, supported("The fee is $34,000 AUD")],
     "The rent is A$54,000 a year.": [
       { name: "Lease.txt", contents: "Lease\nThe rent is $54,000 AUD a year.\n" },
@@ -457,7 +504,7 @@ describe("Checking a dollar named beside its amount, and a plain number under a 
     return core.checkClaim({ claim });
   };
 
-  // protects=through the core, in English and Chinese, with the model calling every sentence supported: "$54,000 USD", "$54,000 AUD" and "US $54m" back the dollar they name, and "$54,000 USD" doesn't back "A$54,000"; a truly bare "$64,000", a plain number under a 60-row table's "Amount ($)" heading, one under "All amounts are in dollars." and one beside another figure's "$5,000" are Unsupported, naming the Document and the amount without a currency, while "Amount (USD)" and "All amounts are in US dollars." back US$ (#2226); fails_when=any of these checks the other way or gives another reason; no_claim=a real model's verdict.
+  // protects=through the core, in English and Chinese, with the model calling every sentence supported: "$54,000 USD", "$54,000 AUD" and "US $54m" back the dollar they name, and "$54,000 USD" doesn't back "A$54,000"; a truly bare "$64,000", a plain number under a 60-row table's "Amount ($)" heading, one under "All amounts are in dollars." and one beside another figure's "$5,000" are Unsupported, naming the Document and the amount without a currency, while "Amount (USD)" and "All amounts are in US dollars." back US$ (#2226); "€94m" against row 62 of a "Revenue ($m)" table keeps the scale reason while "$94m" there and "€84m" under "Revenue (€m)" are supported; "CA $54m" in a state table is a bare "$", supported for US$ where the Document says US dollars and asked which where it doesn't; fails_when=any of these checks the other way or gives another reason; no_claim=a real model's verdict.
   test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
     const zh = language === "zh-CN";
     const which = (document: string, amount: string) =>
@@ -471,6 +518,9 @@ describe("Checking a dollar named beside its amount, and a plain number under a 
       "The rent is US$84,000 a year.",
       "The deposit is US$44,000.",
       "The fee is A$34,000.",
+      "Revenue was $94m.",
+      "Revenue was €84m.",
+      "California sales were US$54m.",
     ]) {
       expect(await alone(claim, language), claim).toMatchObject({ verdict: "supported" });
     }
@@ -485,11 +535,18 @@ describe("Checking a dollar named beside its amount, and a plain number under a 
           : "The Document gives $34,000 AUD, not US$34,000.",
       },
     });
+    expect(await alone("Revenue was €94m.", language)).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        reason: zh ? "文档写的是 94，不是 €94m。" : "The Document gives 94, not €94m.",
+      },
+    });
     for (const [claim, document, amount] of [
       ["The fee is US$64,000.", "Bare invoice", "$64,000"],
       ["The rent is US$74,000 a year.", "Table", "74,000"],
       ["The rent is US$54,000 a year.", "Rent", "54,000"],
       ["The rent is US$64,000 a year.", "Bond", "64,000"],
+      ["California sales were US$64m.", "State sales", "$64m"],
     ] as const) {
       expect(await alone(claim, language), claim).toMatchObject({
         verdict: "unsupported",
