@@ -48,6 +48,64 @@ describe("same-Run facet reply binding", () => {
     ]);
   });
 
+  test("reads a next-line Source field after an ordinary verdict", () => {
+    const original = "According to the 2023 Annual Report, revenue for 2023 was GBP 12 million.";
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: 35 }, facet: { kind: "source" } },
+    ];
+    const text =
+      'Verdict: supported\nAbsence: no\nEvidence: [1]\nCalculation: none\n\nFacets:\n{"items":[{"text":"According to the 2023 Annual Report","kind":"source","sourceName":"2023 Annual Report","occurrence":1,"verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"evidence":[1]}]}\n\nCitations:\n[^1] Revenue for 2023 was GBP 12 million.';
+    expect(readAttributionReply(text, original, plans)[0]).toMatchObject({
+      verdict: "supported",
+      sourceName: "2023 Annual Report",
+      evidence: [1],
+    });
+  });
+
+  test.each([
+    {
+      words: "According to Atlas",
+      title: "Atlas",
+      says: 'A } and "quoted" word; Facets: is literal text.',
+    },
+    { words: "据阿特拉斯", title: "阿特拉斯", says: "原文包含 } 和“引号”，Facets: 也是原文。" },
+  ])("inline and multiline JSON preserve exact row binding: $words", ({ words, title, says }) => {
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: words.length }, facet: { kind: "source" } },
+    ];
+    const items = [source(words, { sourceName: title, says })];
+    const inline = readAttributionReply(reply(items), words, plans);
+    for (const text of [
+      `Facets:\n${JSON.stringify({ items })}`,
+      `Facets: \n\t${JSON.stringify({ items }, null, 2)}`,
+      `Facets:\r\n${JSON.stringify({ items }, null, 2).replace(/\n/g, "\r\n")} [^1][^2]\r\nEvidence: [1]`,
+    ])
+      expect(readAttributionReply(text, words, plans)).toEqual(inline);
+    expect(inline[0]?.says).toBe(says);
+  });
+
+  test("multiline decoding never borrows another field or an earlier valid object", () => {
+    const words = "Atlas";
+    const plans: ClaimPartPlan[] = [
+      { kind: "fact", span: { start: 0, end: words.length }, facet: { kind: "source" } },
+    ];
+    const valid = JSON.stringify({ items: [source(words)] });
+    for (const text of [
+      `Evidence: ${valid}`,
+      `Facets:\nEvidence: [1]\n${valid}`,
+      `Facets: unavailable\n${valid}`,
+      `Facets: ${valid}\nFacets:\n{broken}\nCoverage: ${valid}`,
+      `Facets: ${valid}\nFacets:\n{"items":[`,
+      'Facets:\n{"items": [unquoted]}',
+      'Facets:\n{"items": [],}',
+      `Facets:\n${valid} unexplained`,
+      `Facets:\n${valid} ${valid}`,
+      `Facets:\n${valid} [^0]`,
+      `Facets:\n${valid.replace('"Atlas"', '"At\nlas"')}`,
+    ])
+      expect(readAttributionReply(text, words, plans)).toEqual([null]);
+  });
+
   test("binds repeated literal words by occurrence in the whole assertion, not reply order", () => {
     const original = "Atlas says X; Atlas says Y.";
     const plans: ClaimPartPlan[] = [

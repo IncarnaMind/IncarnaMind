@@ -50,12 +50,13 @@ export async function claimsAmong(
     batch: readonly { number: number; text: string }[],
     tries: number,
   ): Promise<Asked> => {
+    let previousReply: string | undefined;
     for (let tried = 0; tried < tries; tried++) {
       try {
         const { text } = await generateText({
           model: prepared.model,
           instructions: whose === "own" ? FIND_OWN_CLAIMS_INSTRUCTIONS : FIND_CLAIMS_INSTRUCTIONS,
-          prompt: findClaimsPrompt(batch),
+          prompt: findClaimsPrompt(batch, previousReply),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
           maxOutputTokens: 4_000,
           maxRetries: 1,
@@ -63,6 +64,7 @@ export async function claimsAmong(
         });
         const parts = readClaimParts(text, batch);
         if (parts) return { kind: "read", parts };
+        previousReply = text;
       } catch (error) {
         if (sorting.aborted) return { kind: "cancelled" };
         return { kind: "failed", error: classifyProviderError(error) };

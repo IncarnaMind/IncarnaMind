@@ -21,22 +21,41 @@ const timeOf = (value: unknown): AttributionReply["time"] =>
     ? value
     : undefined;
 
+function facetField(reply: string): string | null {
+  const label = [...reply.matchAll(/^[^\S\r\n]*Facets:[^\S\r\n]*/gm)].at(-1);
+  if (label?.index === undefined) return null;
+  const text = reply.slice(label.index + label[0].length).replace(/^[ \t\r\n]*/, "");
+  if (text.charAt(0) !== "{") return null;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let at = 0; at < text.length; at++) {
+    const char = text.charAt(at);
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) {
+      const tail = text.slice(at + 1).split(/[\r\n]/, 1)[0] ?? "";
+      return /^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(tail) ? text.slice(0, at + 1) : null;
+    }
+  }
+  return null;
+}
+
 export function readAttributionReply(
   reply: string,
   original: string,
   requested: readonly ClaimPartPlan[],
 ): (AttributionReply | null)[] {
   const result: (AttributionReply | null)[] = requested.map(() => null);
-  const line = reply
-    .split(/\r?\n/)
-    .map((text) => /^\s*Facets:\s*(.*)$/.exec(text)?.[1])
-    .findLast((text) => text !== undefined);
-  if (line === undefined) return result;
-  const end = line.lastIndexOf("}") + 1;
-  if (end === 0 || !/^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(line.slice(end))) return result;
+  const field = facetField(reply);
+  if (field === null) return result;
   let value: unknown;
   try {
-    value = JSON.parse(line.slice(0, end));
+    value = JSON.parse(field);
   } catch {
     return result;
   }
