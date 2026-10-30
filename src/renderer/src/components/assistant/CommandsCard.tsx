@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { CommandDone, CommandItem, ConversationAnswer } from "../../../../core/api";
-import type { Yours } from "../../../../shared/commands";
+import { type Yours, yoursWordsOf } from "../../../../shared/commands";
 import { keptWords, undoRun, useCommandRuns } from "../../assistantCommands";
-import { commandCallText, commandRuns, runText, undoable, yoursWordsOf } from "../../commandFacts";
+import { commandCallText, commandRuns, runText, undoable } from "../../commandFacts";
 import { files } from "../../core";
 import { LIBRARY_DELETED } from "../../deletedItems";
 import { showFileLabelKey } from "../../fileInfo";

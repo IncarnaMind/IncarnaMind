@@ -17,7 +17,8 @@
  * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
  * (打开本地模式) asks for what is the User's alone. Each then
  * replies with the first sentence of what its calls returned, or nothing after one whose card is
- * the reply: a window's command it marked done, or what is the User's alone.
+ * the reply: a window's command it marked done, or what is the User's alone. Asked once more to
+ * say a refusal, it says nothing again, so the reply is the refusal's own line (#2252).
  */
 import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
 
@@ -77,6 +78,7 @@ const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
 const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
 const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
 const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
+const EMPTY_REPLY = /^Your reply is empty\./;
 
 function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
   if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
@@ -92,6 +94,9 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
+  if (EMPTY_REPLY.test(question) && lastResult(prompt, "run_command") !== undefined) {
+    return { text: "" };
+  }
   const made = FOLDER_AND_MOVE.exec(question);
   if (made) {
     const folder = made[1] ?? made[3] ?? "";

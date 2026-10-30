@@ -138,7 +138,7 @@ export const CITATION_STYLES: readonly CitationStyle[] = [
     format: "note",
     form: "note",
     language: "en",
-    aliases: ["Chicago Manual of Style"],
+    aliases: ["Chicago", "芝加哥", "Chicago Manual of Style"],
     keywords: ["footnote", "notes and bibliography", "脚注"],
     heading: "Bibliography",
     locators: "in-citation",

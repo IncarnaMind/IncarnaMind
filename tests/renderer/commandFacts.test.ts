@@ -6,9 +6,9 @@ import {
   readTextLine,
   runText,
   undoable,
-  YOURS_WORDS,
 } from "../../src/renderer/src/commandFacts";
 import { commands } from "../../src/renderer/src/commands/registry";
+import { yoursWordsOf } from "../../src/shared/commands";
 import { gap, type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
@@ -80,8 +80,8 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(doneText(zh, mine)).toContain(`“${zh("editor.ai.markAsMine")}”`);
     expect(doneText(en, signOff)).toContain(`“${en("signOff.action")}”`);
     expect(doneText(zh, signOff)).toContain(`“${zh("signOff.action")}”`);
-    expect(YOURS_WORDS.signOff.open).toBeNull();
-    expect(YOURS_WORDS.authorship.open).toBeNull();
+    expect(yoursWordsOf("signOff").open).toBeNull();
+    expect(yoursWordsOf("authorship").open).toBeNull();
   });
 
   // protects=a window command the window never answered says so as a whole line, naming the command as the interface does; fails_when=it reads as "Didn't run:" with the raw id; no_claim=when the window is gone.

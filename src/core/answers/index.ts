@@ -52,6 +52,7 @@ import {
 } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
+import { yoursWordsOf } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
@@ -2659,6 +2660,14 @@ export function createAnswers(options: AnswersOptions) {
         ),
       ];
       const endedAfterRefusal = () => !changedAMind() && missingMindNames().length > 0;
+      /** What the turn asked for that is the User's alone, each once (#2252). */
+      const refusedCommands = () => [
+        ...new Map(
+          [...commandsDone.values()].flatMap(({ yours, folder }) =>
+            yours ? [[`${yours} ${folder?.id ?? ""}`, { yours, folder }] as const] : [],
+          ),
+        ).values(),
+      ];
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
@@ -2758,15 +2767,21 @@ export function createAnswers(options: AnswersOptions) {
         {
           name: "refused-no-reply",
           check: (text) => {
-            const missing = missingMindNames();
-            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            if (text.trim() !== "") return null;
+            const missing = endedAfterRefusal() ? missingMindNames() : [];
+            const refused = refusedCommands().length > 0;
+            if (missing.length === 0 && !refused) return null;
             const named =
               missing.length === 1
                 ? `there is no note called “${missing[0]}”`
                 : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
+            const notThere =
+              missing.length > 0 ? `that ${named}, and that the change wasn't made` : "";
             return {
               claims: [],
-              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
+              note: refused
+                ? `Your reply is empty. Say in the User's language ${notThere ? `${notThere}; ` : ""}that what run_command said is the User's to do wasn't done, and where they do it; then what the other calls did.`
+                : `Your reply is empty. Say in the User's language ${notThere}. Don't say that you changed anything.`,
             };
           },
         },
@@ -2932,26 +2947,36 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              // A command that only acted on the window, or that is the User's alone, ends the
-              // turn: its card is the reply (#1421).
+              // A command that only acted on the window ends the turn: its card is the reply
+              // (#1421). One that is the User's alone is said in the reply too (#2252).
               mayEndBlank: () =>
                 changedAMind() ||
-                [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
+                [...commandsDone.values()].some((done) => done.window !== undefined),
               blankReply: () => {
-                if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
-                const missing = missingMindNames();
+                const missing = endedAfterRefusal() ? missingMindNames() : [];
                 const [only] = missing;
-                if (missing.length === 1 && only !== undefined) {
-                  return translate(language, "answer.refused.noSuchMind", { name: only });
-                }
                 const quoted = missing.map((name) => `“${name}”`);
-                return translate(language, "answer.refused.noSuchMind.many", {
-                  names:
-                    language === "zh-CN"
-                      ? quoted.join("、")
-                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-                });
+                const lines = [
+                  ...(missing.length === 1 && only !== undefined
+                    ? [translate(language, "answer.refused.noSuchMind", { name: only })]
+                    : missing.length > 1
+                      ? [
+                          translate(language, "answer.refused.noSuchMind.many", {
+                            names:
+                              language === "zh-CN"
+                                ? quoted.join("、")
+                                : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+                          }),
+                        ]
+                      : []),
+                  ...refusedCommands().map(({ yours, folder }) =>
+                    translate(language, yoursWordsOf(yours, folder).said, {
+                      folder: folder?.name ?? "",
+                    }),
+                  ),
+                ];
+                return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
               },
               refusalSuffix: () =>
                 wallRefusals.size === 0

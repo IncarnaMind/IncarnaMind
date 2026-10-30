@@ -31,7 +31,7 @@ import {
   coreCommandsOn,
   isCoreCommand,
 } from "./catalogue";
-import { type Findable, type FindInput, find, foundLine, foundOf } from "./find";
+import { type Findable, type FindInput, type Found, find, foundLine, foundOf } from "./find";
 import { askOf, type CommandRename, renamesOf } from "./policy";
 import {
   type CheckedCommand,
@@ -53,12 +53,20 @@ const coreLine = (id: CoreCommandId) => `${id} (${CORE_COMMANDS[id].takes})`;
 const windowLine = (entry: OfferedCommand) =>
   `${entry.id} (“${entry.label}”${entry.purpose ? `: ${entry.purpose}` : ""}${entry.deletes ? "; to Recently deleted, asks first" : entry.final ? "; can't be undone, asks first" : ""})`;
 
-/** The core's commands for a kind, then the window's that act on it and that the core doesn't run. */
+const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
+
+/**
+ * The core's commands for a kind, then the window's that act on it and that the core doesn't run,
+ * then those of the User's alone, which say where the User does it (#2252).
+ */
 function commandsFor(kind: CommandTarget, offered: readonly OfferedCommand[]): string {
-  const windows = offered.filter(
-    (entry) => entry.yours === null && entry.on?.includes(kind) && !isCoreCommand(entry.id),
-  );
-  return [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; ");
+  const acting = offered.filter((entry) => entry.on?.includes(kind) && !isCoreCommand(entry.id));
+  const windows = acting.filter((entry) => entry.yours === null);
+  const yours = acting.filter((entry) => entry.yours !== null);
+  return [
+    [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; "),
+    ...(yours.length > 0 ? [`the User's alone: ${yours.map(yoursLine).join("; ")}`] : []),
+  ].join("; ");
 }
 
 const nouns: Record<CommandTarget, [string, string]> = {
@@ -176,6 +184,19 @@ export function commandTools(options: CommandToolsOptions): {
     (entry) => entry.on === null && entry.yours === null && !isCoreCommand(entry.id),
   );
   const yoursCommands = options.offered.filter((entry) => entry.yours !== null);
+  const listed = (query: FindInput, found: readonly Found[]) => {
+    const [one, many] = nouns[query.kind];
+    const shown = found.slice(0, MAX_LISTED);
+    for (const each of shown) if (each.webPage) readTitles.add(each.id);
+    return [
+      `Found ${found.length === 1 ? `1 ${one}` : `${found.length} ${many}`}:`,
+      ...shown.map((each) => foundLine(each, options.focusedMindId)),
+      ...(found.length > shown.length
+        ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
+        : []),
+      `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
+    ].join("\n");
+  };
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
@@ -204,7 +225,7 @@ export function commandTools(options: CommandToolsOptions): {
             : `Commands for the window in front: ${windowCommands.map(windowLine).join("; ")}.`,
           ...(yoursCommands.length > 0
             ? [
-                `The User's alone, which only tell them where they change it: ${yoursCommands.map((entry) => `${entry.id} (“${entry.label}”)`).join("; ")}.`,
+                `The User's alone, which only tell them where they change it: ${yoursCommands.map(yoursLine).join("; ")}.`,
               ]
             : []),
         ].join("\n");
@@ -215,22 +236,27 @@ export function commandTools(options: CommandToolsOptions): {
         tag: given(input.tag),
         folder: given(input.folder),
       };
-      const found = find(query, await options.findable(options.focusedMindId, options.wallId));
+      const findable = await options.findable(options.focusedMindId, options.wallId);
+      const found = find(query, findable);
+      const [one] = nouns[query.kind];
+      // Asked for by its name after it was deleted, it is still there, in Recently deleted, where
+      // deleting for good and restoring are (#2252).
+      const deleted =
+        found.length > 0 || query.kind === "deleted" || !query.name || query.tag || query.folder
+          ? []
+          : find({ kind: "deleted", name: query.name }, findable).filter(
+              (each) => each.deletedKind === query.kind,
+            );
+      if (deleted.length > 0) {
+        const inDeleted: FindInput = { kind: "deleted", name: query.name };
+        options.found(toolCallId, foundOf(inDeleted, deleted.length));
+        return `No ${one} matches outside Recently deleted.\n${listed(inDeleted, deleted)}`;
+      }
       options.found(toolCallId, foundOf(query, found.length));
-      const [one, many] = nouns[query.kind];
       if (found.length === 0) {
         return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
       }
-      const shown = found.slice(0, MAX_LISTED);
-      for (const each of shown) if (each.webPage) readTitles.add(each.id);
-      return [
-        `Found ${found.length === 1 ? `1 ${one}` : `${found.length} ${many}`}:`,
-        ...shown.map((each) => foundLine(each, options.focusedMindId)),
-        ...(found.length > shown.length
-          ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
-          : []),
-        `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
-      ].join("\n");
+      return listed(query, found);
     },
   };
 
@@ -238,10 +264,10 @@ export function commandTools(options: CommandToolsOptions): {
     name: COMMAND_TOOLS.run,
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
-      `${COMMAND_TOOLS.list} gives the other commands that apply to what it found, and with kind "window" those that act on the window in front; run any of them by its id the same way.`,
+      `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
       `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, starting a recording or turning the microphone on, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
       YOURS_RULE,
-      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
+      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed unless a call was the User's alone: say that. Otherwise say only what each call returned.",
     ].join(" "),
     inputSchema: {
       type: "object",
