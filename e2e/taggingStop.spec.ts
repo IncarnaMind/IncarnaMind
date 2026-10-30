@@ -429,6 +429,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await setWindowSize(app, window, localText ? 1100 : 1440, 900);
         if (language === "zh-CN") await setLanguage(window, language);
         const folderId = await createFolder(window, FOLDER);
+        await acceptPlainTextKeys(window);
         await window.evaluate(async (localText) => {
           const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
           const text = await core.saveChatProvider(
