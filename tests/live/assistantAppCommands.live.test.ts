@@ -10,7 +10,8 @@
  *   INCARNAMIND_LIVE_OLLAMA_MODEL    a model in Ollama on this computer, e.g. qwen3.5:4b, in Local mode
  *
  * Set INCARNAMIND_LIVE_REPORT to a file to keep, for each request, the calls and the reply, and
- * how many requests passed.
+ * how many requests passed; INCARNAMIND_LIVE_ONLY to request ids, comma-separated, to run only
+ * those. Each request is asked in a Library of its own, set up as the first one was.
  */
 import { appendFileSync } from "node:fs";
 import { describe, expect, onTestFinished, test } from "vitest";
@@ -199,10 +200,6 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
   };
 }
 
-/** Whether the request changed the Library: a Run that changed nothing has nothing for Undo to take back. */
-const libraryChanged = (before: Library, after: Library) =>
-  JSON.stringify(before) !== JSON.stringify(after);
-
 const ran = (seen: Seen) =>
   seen.answer.toolCalls.flatMap((call) =>
     call.tool === "run_command" && call.status === "done" && call.command ? [call.command] : [],
@@ -317,6 +314,19 @@ const notRestored =
     expect(ran(seen).some((done) => done.command === "deleted.restore")).toBe(false);
     expect(seen.after.documents).not.toContain(name);
   };
+
+/** "The Q3 memo", deleted: "Q3 commentary" is another Document, never taken in its place. */
+const nothingElseOpened: Check = (seen) =>
+  expect(seen.window.filter((each) => /openBeside|\.open$/.test(each.command))).toEqual([]);
+
+const notRenamed =
+  (name: string, to: string): Check =>
+  ({ after }) => {
+    expect(after.documents).toContain(name);
+    expect(after.documents).not.toContain(to);
+  };
+
+const replied: Check = (seen) => expect(seen.answer.text.trim()).not.toBe("");
 
 const renamed =
   (to: string): Check =>
@@ -478,11 +488,15 @@ const REQUESTS: { id: string; text: string; check: Check }[] = [
     text: "先打开本地模式，再把 Lease Mill Lane 改名为 Mill Lane 2026",
     check: refusedThen("privacy", renamed("Mill Lane 2026")),
   },
-  { id: "open-deleted-en", text: "Open the Q3 memo", check: notRestored("Q3 memo") },
+  {
+    id: "open-deleted-en",
+    text: "Open the Q3 memo",
+    check: both(notRestored("Q3 memo"), nothingElseOpened, replied),
+  },
   {
     id: "rename-deleted-en",
     text: "Rename the Q3 memo to Q3 close",
-    check: notRestored("Q3 memo"),
+    check: both(notRestored("Q3 memo"), notRenamed("Q3 commentary", "Q3 close"), replied),
   },
   {
     id: "write-note-en",
@@ -548,90 +562,102 @@ async function ask(core: Core, text: string, mindId: string, commands: OfferedCo
   }
 }
 
+/** The Note the requests are asked from: claims a Check has something to check against. */
+const NOTE = [
+  "Notes on the two leases.",
+  "Harbour Street costs 900 euros a month.",
+  "The Mill Lane tenant pays 2,400 euros each quarter.",
+  "Both leases run for five years.",
+];
+
+/** A Library as each request finds it, its own: what one request changed never reaches the next. */
+async function libraryFor(live: (typeof LIVE)[number]) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: createAiSdkChatModel,
+    ...(live.kind === "ollama" && { ollamaModels: ollamaAsTheAppSees() }),
+  });
+  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  const window: WindowCommandRequest[] = [];
+  core.on("command.windowRun", (request) => {
+    if (request.clientId !== WINDOW) return;
+    window.push(request);
+    void core.answerWindowCommand(request.requestId, { ran: true, changed: false });
+  });
+  const asked: ApprovalRequest[] = [];
+  core.on("approval.requested", (request) => {
+    asked.push(request);
+    void core.respondToApproval(request.requestId, "deny");
+  });
+  const questions: { request: UserQuestionRequest; openedBefore: boolean }[] = [];
+  core.on("question.asked", (request) => {
+    const openedBefore = window.some((each) => /openBeside|\.open$/.test(each.command));
+    questions.push({ request, openedBefore });
+    const [chosen] = request.question.options;
+    // The tray puts its recommended option first; the test takes it, as a User would, so a
+    // request that asks goes on instead of waiting for a User who is not there.
+    void core.answerUserQuestion(
+      request.requestId,
+      chosen ? { skipped: false, chosen: [chosen.label], wrote: null } : { skipped: true },
+    );
+  });
+  const provider = await core.saveChatProvider({
+    kind: live.kind,
+    ...(live.apiKey && { apiKey: live.apiKey }),
+    modelId: live.model,
+  });
+  if (live.local) await core.setLocalOnly(true);
+  const settings = (await core.getLibrary()).settings;
+  await core.saveLibrarySettings({
+    classifier: { kind: "chat", choice: { providerId: provider.id, modelId: live.model } },
+    automatic: settings.automatic,
+  });
+  const sources = await createSourceFolder();
+  const elsewhere = await createSourceFolder();
+  const documents = await addAndProcess(core, [
+    ...(await Promise.all(
+      DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
+    )),
+    await writeSourceFile(elsewhere, NAMESAKE.name, NAMESAKE.contents),
+  ]);
+  const memo = documents.find((each) => each.name === "Q3 memo");
+  if (memo) await core.deleteDocuments([memo.id]);
+  const old = await core.createTag({ name: "Old" });
+  const minutes = documents.find((each) => each.name === "Board minutes");
+  if (minutes) await core.addTagToDocuments([minutes.id], old.id);
+  const mind = await core.createMind({ title: "Lease review" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(
+    client,
+    NOTE.map((line) => note(line)),
+  );
+  await client.settled();
+  const commands = await windowCommandsFor(core, mind.id);
+  return { core, mind, commands, window, asked, questions };
+}
+
 describe.each(LIVE)("The assistant does what the User can in the app, live: $name", (live) => {
   test.skipIf(live.apiKey === undefined)(
     `${live.name}: everyday requests run the one list's commands, in English and Chinese`,
     { timeout: 3_600_000 },
     async () => {
-      const core = startCore(await createTempDataFolder(), {
-        createChatModel: createAiSdkChatModel,
-        ...(live.kind === "ollama" && { ollamaModels: ollamaAsTheAppSees() }),
-      });
-      core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-      const window: WindowCommandRequest[] = [];
-      core.on("command.windowRun", (request) => {
-        if (request.clientId !== WINDOW) return;
-        window.push(request);
-        void core.answerWindowCommand(request.requestId, { ran: true, changed: false });
-      });
-      const asked: ApprovalRequest[] = [];
-      core.on("approval.requested", (request) => {
-        asked.push(request);
-        void core.respondToApproval(request.requestId, "deny");
-      });
-      const questions: { request: UserQuestionRequest; openedBefore: boolean }[] = [];
-      let windowFrom = 0;
-      core.on("question.asked", (request) => {
-        const openedBefore = window
-          .slice(windowFrom)
-          .some((each) => /openBeside|\.open$/.test(each.command));
-        questions.push({ request, openedBefore });
-        const [chosen] = request.question.options;
-        // The tray puts its recommended option first; the test takes it, as a User would, so a
-        // request that asks goes on instead of waiting for a User who is not there.
-        void core.answerUserQuestion(
-          request.requestId,
-          chosen ? { skipped: false, chosen: [chosen.label], wrote: null } : { skipped: true },
-        );
-      });
-      const provider = await core.saveChatProvider({
-        kind: live.kind,
-        ...(live.apiKey && { apiKey: live.apiKey }),
-        modelId: live.model,
-      });
-      if (live.local) await core.setLocalOnly(true);
-      const settings = (await core.getLibrary()).settings;
-      await core.saveLibrarySettings({
-        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: live.model } },
-        automatic: settings.automatic,
-      });
-      const sources = await createSourceFolder();
-      const elsewhere = await createSourceFolder();
-      const documents = await addAndProcess(core, [
-        ...(await Promise.all(
-          DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
-        )),
-        await writeSourceFile(elsewhere, NAMESAKE.name, NAMESAKE.contents),
-      ]);
-      const memo = documents.find((each) => each.name === "Q3 memo");
-      if (memo) await core.deleteDocuments([memo.id]);
-      const old = await core.createTag({ name: "Old" });
-      const minutes = documents.find((each) => each.name === "Board minutes");
-      if (minutes) await core.addTagToDocuments([minutes.id], old.id);
-      const mind = await core.createMind({ title: "Lease review" });
-      const client = await connectToMind(core, mind.id);
-      writeMind(client, [note("Notes on the two leases.")]);
-      await client.settled();
-      const commands = await windowCommandsFor(core, mind.id);
-
-      record(`## ${live.name} · ${live.model} · ${REQUESTS.length} requests`);
+      const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
+      const requests = REQUESTS.filter((each) => !only || only.includes(each.id));
+      record(`## ${live.name} · ${live.model} · ${requests.length} requests`);
       let passed = 0;
       onTestFinished(() =>
-        record(`${live.name} · ${live.model}: ${passed}/${REQUESTS.length} passed\n`),
+        record(`${live.name} · ${live.model}: ${passed}/${requests.length} passed\n`),
       );
-      for (const request of REQUESTS) {
+      for (const request of requests) {
+        const { core, mind, commands, window, asked, questions } = await libraryFor(live);
         const before = await libraryOf(core, mind.id);
-        windowFrom = window.length;
-        const askedFrom = asked.length;
-        const questionsFrom = questions.length;
         let line = `- ${request.id} “${request.text}”`;
         try {
           const answer = await ask(core, request.text, mind.id, commands);
           const seen: Seen = {
             answer,
-            window: window.slice(windowFrom),
-            asked: asked.slice(askedFrom),
-            questions: questions.slice(questionsFrom),
+            window,
+            asked,
+            questions,
             before,
             after: await libraryOf(core, mind.id),
           };
@@ -653,19 +679,14 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             line = `${line}\n  FAIL: ${String(error).replace(/\s+/g, " ").slice(0, 240)}`;
             expect.soft(error, request.id).toBeUndefined();
           }
-          // Each request starts from the Library as it was, when it changed it.
-          const run = answer.toolCalls.find((call) => call.command?.run)?.command?.run;
-          if (run && libraryChanged(before, seen.after)) {
-            const undone = await core.undoCommands(run);
-            if (undone.failed) line += `\n  undo: ${undone.failed.reasons.join(" ")}`;
-          }
         } catch (error) {
           line = `${line}\n  FAIL: ${String(error)}`;
           expect.soft(error, request.id).toBeUndefined();
+        } finally {
+          core.close();
         }
         record(line);
       }
-      core.close();
     },
   );
 });

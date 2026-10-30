@@ -1521,6 +1521,66 @@ describe("A refusal is said, and the commands a request names are within reach (
     core.close();
   });
 
+  // protects="delete the Q3 memo for good", searched by a shorter name that a live Document also holds, lists the deleted memo beside the live one, with delete for good as the User's alone and the near match marked as another thing, so the refusal runs on the memo and is said, and the live namesake is untouched; fails_when=only the live near match is listed, or anything is deleted; no_claim=that a real model searches by the shorter name, which the live run showed it does.
+  test.each([
+    { text: "Wipe the Q3 memo out completely", language: "en" as const },
+    { text: "把 Q3 memo 从回收站里也清掉", language: "zh-CN" as const },
+  ])("“$text”: a live near match doesn't hide the deleted memo", async ({ text, language }) => {
+    const memoFirst = (results: ModelCall["results"]) => {
+      const listed = results.filter((each) => each.tool === "list_commands").at(-1)?.text ?? "";
+      const [, inDeleted = ""] = listed.split("Recently deleted holds too:");
+      return [...inDeleted.matchAll(/^- (\S+): /gm)].map((match) => match[1] ?? "");
+    };
+    const model = callingThen("", find("Q3"), (results) => ({
+      tool: "run_command",
+      input: { command: "deleted.deletePermanently", ids: memoFirst(results) },
+    }));
+    const { core, mind, documents } = await setUpWithDocuments(model, [
+      ...DOCUMENTS,
+      { name: "Q3 memo.md", contents: "# Q3 memo\n\nThe quarter closed ahead of plan.\n" },
+    ]);
+    const memo = documents.find((each) => each.name === "Q3 memo");
+    if (!memo) throw new Error("No Q3 memo.");
+    await core.deleteDocuments([memo.id]);
+    const deleted = (await core.listDeleted()).find((each) => each.name === "Q3 memo");
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    const listed =
+      model.doStreamCalls[1]?.prompt
+        .flatMap((message) => (message.role === "tool" ? message.content : []))
+        .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
+        .join("\n") ?? "";
+    expect(listed).toContain("“Q3 commentary”");
+    expect(listed).toContain("one that only shares a word with it is another, so ask");
+    expect(listed).toContain(`- ${deleted?.id}: “Q3 memo” (document, deleted`);
+    expect(listed).toContain("the User's alone: deleted.deletePermanently");
+    expect(commandCalls(answer).at(-1)?.command?.yours).toBe("permanent");
+    expect((await core.listDocuments()).map((each) => each.name)).toContain("Q3 commentary");
+    expect((await core.listDeleted()).map((each) => each.id)).toContain(deleted?.id);
+    expect(answer.text).toBe(translate(language, "commands.yours.permanent"));
+    core.close();
+  });
+
+  // protects=deleting for good, asked for with nothing found first, is refused by its own name through settings.change, so the card's line and its button show; fails_when=the name isn't the User's alone, or anything is deleted; no_claim=a real model's choice of route.
+  test("deleting for good is refused by name, with nothing found first", async () => {
+    const model = callingThen(
+      "",
+      run("settings.change", { setting: "deleteForGood", value: "on" }, false),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, {
+      text: "Get rid of the old memo for good",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer)[0]?.command).toMatchObject({ yours: "permanent", items: [] });
+    expect(answer.text).toBe(translate("en", "commands.yours.permanent"));
+    core.close();
+  });
+
   // protects="open the Q3 commentary" when it is in Recently deleted finds it there but offers no command that brings it back, says to change nothing unless the request is to, and an open on its id runs nothing; fails_when=restore is listed as a command for it, the window is asked, or it leaves Recently deleted; no_claim=a real model's choice.
   test.each(["Open the Q3 commentary", "把 Q3 commentary 打开"])(
     "“%s” with it deleted: found, not restored",
@@ -1545,7 +1605,9 @@ describe("A refusal is said, and the commands a request names are within reach (
           .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
           .join("\n") ?? "";
       expect(listed).toContain("“Q3 commentary” (document, deleted");
-      expect(listed).toContain("change nothing, unless the request is to bring it back");
+      expect(listed).toContain(
+        "Change nothing of what is in Recently deleted unless the request is to bring it back",
+      );
       expect(listed).not.toContain("Commands for");
       expect(asked).toEqual([]);
       expect((await core.listDocuments()).map((each) => each.id)).not.toContain(q3.id);
@@ -1625,8 +1687,10 @@ describe("A refusal is said, and the commands a request names are within reach (
     const tools = (first?.tools ?? []).flatMap((tool) =>
       tool.type === "function" ? [[tool.name, tool.description ?? ""] as const] : [],
     );
-    expect(system).toContain("Checking the Note in front is the window's Check, mind.check");
-    expect(system).toContain("is Organize's, not a new Note: run documents.organize");
+    expect(system).toContain(
+      "is the window's Check, mind.check: run it, never check the Note in your reply",
+    );
+    expect(system).toContain("Organize's, never a Note written about them");
     expect(tools.find(([name]) => name === "run_command")?.[1]).toContain("documents.organize (");
     expect(tools.map(([name]) => name)).toEqual(
       expect.arrayContaining(["create_mind", "list_commands"]),
