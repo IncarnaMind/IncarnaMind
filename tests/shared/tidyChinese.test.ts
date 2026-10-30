@@ -51,6 +51,17 @@ describe("tidyChinese", () => {
     expect(tidyChinese(" ", { before: "。", after: "潮" })).toBe("");
   });
 
+  test("file names, web and email addresses and paths keep their characters, while the sentence around them is tidied", () => {
+    // A dot in a file name or an address is the name's, not the sentence's stop.
+    expect(tidyChinese("报告.docx")).toBe("报告.docx");
+    expect(tidyChinese("例子.cn/路径?")).toBe("例子.cn/路径?");
+    expect(tidyChinese("报告.docx,第一.第二")).toBe("报告.docx,第一。第二");
+    expect(tidyChinese("例子@example.com,第一.第二")).toBe("例子@example.com,第一。第二");
+    expect(tidyChinese("打开src/report.docx,第一.第二")).toBe("打开 src/report.docx,第一。第二");
+    // The same state also has ordinary text that is tidied: a positive beside each kept name.
+    expect(tidyChinese("见例子.cn/路径?,第一.第二")).toBe("见例子.cn/路径?,第一。第二");
+  });
+
   test("an empty string stays empty", () => {
     expect(tidyChinese("")).toBe("");
   });

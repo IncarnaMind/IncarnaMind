@@ -9,6 +9,8 @@
 export interface TidyContext {
   before?: string;
   after?: string;
+  /** false: leave a run's outer edges to the caller, which joins the runs itself. Default true. */
+  edgeSpaces?: boolean;
 }
 
 const HAN = /\p{Script=Han}/u;
@@ -155,6 +157,7 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
   let out = text;
   out = out.replace(/(\p{Script=Han})(?=[A-Za-z0-9])/gu, "$1 ");
   out = out.replace(/([A-Za-z0-9])(?=\p{Script=Han})/gu, "$1 ");
+  if (context.edgeSpaces === false) return out;
   if (out.length > 0) {
     const first = out[0];
     if (isHan(first) && isWord(context.before)) out = ` ${out}`;
@@ -166,12 +169,66 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
   return out;
 }
 
-/** `text` set as Chinese text is: spaces between scripts, full-width punctuation, Chinese quotes. */
-export function tidyChinese(text: string, context: TidyContext = {}): string {
-  if (text === "") return text;
+/** File names, web and email addresses, and paths: settings a tidy must leave exactly as written. */
+const ADDRESSES: readonly RegExp[] = [
+  /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
+  /[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}.-]+\.[A-Za-z]{2,}/gu,
+  /[\p{L}\p{N}._%+'-]+\.(?:docx?|pdf|xlsx?|pptx?|txt|md|csv|tsv|png|jpe?g|gif|svg|zip|json|html?|xml|ya?ml|toml|py|ts|tsx|js|jsx|mp3|mp4|mov|wav|rtf|pages|numbers|key|ppt|doc|xls|epub|tex|bib)(?![\p{L}\p{N}])/giu,
+  /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]*)?/gu,
+  /[\p{L}\p{N}]*\p{Script=Han}[\p{L}\p{N}.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》]*)?/gu,
+  /[A-Za-z0-9._%+'-]+(?:[\\/][A-Za-z0-9._%+'-]+)+/gu,
+  /[A-Za-z]:\\[^\s,;，。；：！？、（）“”‘’《》]+/gu,
+  /www\.[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
+];
+
+/** Where an address, a file name or a path is, so the tidy leaves those characters alone. */
+function protectedRanges(text: string): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  for (const pattern of ADDRESSES) {
+    for (const match of text.matchAll(new RegExp(pattern.source, pattern.flags))) {
+      const start = match.index ?? 0;
+      found.push({ start, end: start + match[0].length });
+    }
+  }
+  found.sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: { start: number; end: number }[] = [];
+  for (const range of found) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+/** One stretch of ordinary text, tidied as it is. */
+function tidyPiece(text: string, context: TidyContext): string {
   let out = curlyQuotes(text);
   out = fullWidthPunctuation(out, context);
   out = withoutSpacesBesideFullWidth(out, context);
   out = spacesBetweenScripts(out, context);
+  return out;
+}
+
+/** `text` set as Chinese text is: spaces between scripts, full-width punctuation, Chinese quotes. */
+export function tidyChinese(text: string, context: TidyContext = {}): string {
+  if (text === "") return text;
+  const ranges = protectedRanges(text);
+  if (ranges.length === 0) return tidyPiece(text, context);
+  let out = "";
+  let at = 0;
+  const piece = (from: number, to: number) => {
+    if (to <= from) return;
+    out += tidyPiece(text.slice(from, to), {
+      before: from > 0 ? text[from - 1] : context.before,
+      after: to < text.length ? text[to] : context.after,
+      edgeSpaces: context.edgeSpaces,
+    });
+  };
+  for (const range of ranges) {
+    piece(at, range.start);
+    out += text.slice(range.start, range.end);
+    at = range.end;
+  }
+  piece(at, text.length);
   return out;
 }
