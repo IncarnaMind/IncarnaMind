@@ -17,7 +17,7 @@ IncarnaMind reads, searches and indexes your files here. It has no account or se
 | Meeting transcription | All of a Meeting's audio while it records, microphone and computer sound | Soniox (your key) or OpenAI realtime (your key) | Only with a cloud route; it can't be chosen in local mode |
 | An AI agent you connected | What it reads: Passages and Notes in your shared folders, and Answers it asks for | The agent, then its own AI model | When it calls; paused in local mode |
 
-A Connector Tool that can change something asks first, saying what kinds of text the Answer read, unless you set it to `Always allow` (after the Answer reads a web page or someone else's file, it asks anyway); a read-only Tool runs without asking.
+A Connector Tool that can change something asks first, saying what kinds of text the Answer read, unless you set it to `Always allow` (after the Answer reads a web page, someone else's file, or someone else's text in the Note, it asks anyway); a read-only Tool runs without asking.
 
 `Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.` On Windows, and on Linux without bubblewrap, nothing confines a script, so it can reach the network.
 
