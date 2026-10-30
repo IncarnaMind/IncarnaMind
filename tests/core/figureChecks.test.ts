@@ -301,7 +301,9 @@ async function checkWith(options: {
       },
     },
     documents: {
-      names: () => [{ id: source.documentId, name: source.documentName, contentHash: source.contentHash }],
+      names: () => [
+        { id: source.documentId, name: source.documentName, contentHash: source.contentHash },
+      ],
       searchableCount: () => 1,
       searchableLanguages: () => [],
       searchableBySize: () => [{ id: source.documentId, name: source.documentName }],

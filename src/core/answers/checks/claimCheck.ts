@@ -874,11 +874,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             citedShown,
             language: deps.language(),
             sourceContext: sourceChoices,
-            sourceDocuments: sourceChoices.length > 0
-              ? sourceDocuments().filter((document) =>
-                deps.walledDocument(document.id) === deps.walledFolder(request.cacheKey ?? null),
-              )
-              : [],
+            sourceDocuments:
+              sourceChoices.length > 0
+                ? sourceDocuments().filter(
+                    (document) =>
+                      deps.walledDocument(document.id) ===
+                      deps.walledFolder(request.cacheKey ?? null),
+                  )
+                : [],
             ...(Number.isFinite(checkedAt.getTime()) && { checkedAt: checkedAt.toISOString() }),
           }),
         },
@@ -1015,7 +1018,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
                   start: plan.span.start + source.named.start,
                   end: plan.span.start + source.named.end,
                 },
-                candidates: source.candidates.map((candidate) => ({documentId: candidate.id})),
+                candidates: source.candidates.map((candidate) => ({ documentId: candidate.id })),
               },
             };
             if (source.outcome === "choose-again")

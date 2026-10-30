@@ -98,6 +98,14 @@ The Search scope the User sets for a Mind in its composer is where its Questions
 - **A check records where it looked.** The `claimCheck` mark's `scope` gains `chosen`, the scope searched when it was the Mind's own choice, so the card, the Word comment and the check record name it, and a check made in another scope than the Mind's now needs a re-check. An older version's editor would strip `chosen` and read such a check as made in the Mind's Folder, and it could write over the scope key without knowing it, so the content schema version is 26: an older version opens a Mind written since read-only. Nothing older is rewritten.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
 
+## Amendment: a sentence part's attribution (2026-10-30, #2003)
+
+Each ordinary sentence part may carry a discriminated `facet`: source, speaker or time. Its literal span remains the words in the original assertion, and its result and ordinary Note-owned Citation receipts use the existing part writer, freshness, sign-off and Undo paths. A source prefix shared by several atomic assertions has one physical part; its valid chosen Document is read-only original-assertion context for the sibling Runs, without changing their evidence scope.
+
+A source facet may keep a chosen Document UUID, the named title's offsets inside its own span, and bounded exact-title candidates with optional references to its ordinary Citation ids. The live Library validates identity, title, scope and the Folder wall whenever these are used. Candidate periods are read from their checked quotes when shown; they are not stored and never decide a result. A time facet may keep a calendar period proved by its own checked evidence. The Check's injected date evaluates that period again on the next Check; no timer changes a stored result. A speaker facet adds no separate identity record.
+
+Content schema version 37 protects these fields because an older part reader would strip them on save. Older builds open the Note read-only and cannot compact or save away its facets; existing Notes need no conversion. There is no new store, Citation kind or SQL migration.
+
 ## Amendment: numbered lists take a scheme, a start level and a continuation (2026-10-25, #1419)
 
 A numbered list takes one of four schemes ("1. a. i.", Outline, Clauses and Chinese report), starts at a level other than the first, and can go on from the list before it. The Aa menu's Numbering sets them, and so does a list item's right-click menu.

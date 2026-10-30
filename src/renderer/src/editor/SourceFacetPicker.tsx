@@ -45,9 +45,9 @@ export function SourceFacetPicker({
     const periods = readStatedPeriods(choice.citation?.quote ?? "");
     const period =
       periods.length > 0
-        ? new Intl.ListFormat(language, {style: "short", type: "conjunction"}).format(
-          periods.map((period) => formatClaimFacetPeriod(period, language)),
-        )
+        ? new Intl.ListFormat(language, { style: "short", type: "conjunction" }).format(
+            periods.map((period) => formatClaimFacetPeriod(period, language)),
+          )
         : t("claim.source.noPeriod");
     return {
       id: choice.document.id,
@@ -72,11 +72,13 @@ export function SourceFacetPicker({
       currentLabel={t("claim.source.choose")}
       onChoose={onChoose}
       onClose={onClose}
-      footer={options.length === 0 ? (
-        <button type="button" className="citation-card-action" onClick={onCheckAgain}>
-          {t("claim.checkAgain")}
-        </button>
-      ) : undefined}
+      footer={
+        options.length === 0 ? (
+          <button type="button" className="citation-card-action" onClick={onCheckAgain}>
+            {t("claim.checkAgain")}
+          </button>
+        ) : undefined
+      }
       testId="claim-source"
       widthClass="claim-source-picker w-[min(360px,calc(100vw-16px))]"
     />

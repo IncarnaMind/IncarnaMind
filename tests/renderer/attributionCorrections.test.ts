@@ -89,8 +89,8 @@ beforeAll(async () => {
   for (const [key, value] of Object.entries({
     window: document.defaultView,
     document,
-    requestAnimationFrame: () => 0,
-    cancelAnimationFrame: () => undefined,
+    requestAnimationFrame: (): number => 0,
+    cancelAnimationFrame: (): void => undefined,
     getComputedStyle: () => ({ fontStyle: "", fontWeight: "", fontSize: "", fontFamily: "" }),
     ResizeObserver: class {
       observe() {}

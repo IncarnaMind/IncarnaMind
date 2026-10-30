@@ -232,12 +232,16 @@ export function claimPrompt(input: {
     const facet = part.facet;
     if (facet?.kind !== "source" || !facet.selectedDocumentId) return [];
     const document = input.sourceDocuments?.find((each) => each.id === facet.selectedDocumentId);
-    return document ? [{
-      span: part.span,
-      text: original.slice(part.span.start, part.span.end),
-      document: document.id,
-      documentName: document.name,
-    }] : [];
+    return document
+      ? [
+          {
+            span: part.span,
+            text: original.slice(part.span.start, part.span.end),
+            document: document.id,
+            documentName: document.name,
+          },
+        ]
+      : [];
   });
   const facets = (input.parts ?? []).flatMap((part) => {
     if (!part.facet) return [];
@@ -268,14 +272,16 @@ export function claimPrompt(input: {
     ...(original !== input.claim
       ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
       : []),
-    ...(sourceChoices.length > 0 ? [
-      "The User's source choices in the original assertion:",
-      "<source-choices>",
-      JSON.stringify(sourceChoices),
-      "</source-choices>",
-      "These identify only the literal source prefixes shown. Use a choice only for an assertion your own judgment says that prefix governs; never apply it to an unrelated assertion. Use its exact document token for search_documents' document. The evidence scope is unchanged. These are context, not additional facet targets or verdicts.",
-      "",
-    ] : []),
+    ...(sourceChoices.length > 0
+      ? [
+          "The User's source choices in the original assertion:",
+          "<source-choices>",
+          JSON.stringify(sourceChoices),
+          "</source-choices>",
+          "These identify only the literal source prefixes shown. Use a choice only for an assertion your own judgment says that prefix governs; never apply it to an unrelated assertion. Use its exact document token for search_documents' document. The evidence scope is unchanged. These are context, not additional facet targets or verdicts.",
+          "",
+        ]
+      : []),
     ...(facets.length > 0
       ? [
           "Judge these exact facet targets in that complete assertion, in this same Run:",

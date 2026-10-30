@@ -3,7 +3,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { DOMParser } from "linkedom";
 import { afterEach, expect, test, vi } from "vitest";
 import type * as Y from "yjs";
-import { MIND_CONTENT_FIELD } from "../../src/core/api";
+import { type Document, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { listedSentences, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock } from "../helpers/core";
@@ -101,7 +101,7 @@ test.each([
   const { settings } = await core.getLibrary();
   await core.saveLibrarySettings({ ...settings, automatic: false });
   await core.updateSettings({ user: { language: row.language } });
-  const sources = [];
+  const sources: Document[] = [];
   for (const quote of [row.fact, row.other]) {
     const folder = await createTempDataFolder();
     const path = await writeSourceFile(folder, `${row.name}.md`, `# ${row.name}\n\n${quote}\n`);
@@ -185,7 +185,7 @@ test.each([
   const { checkAgain } = await import("../../src/renderer/src/checks");
   const { useUndo } = await import("../../src/renderer/src/undo");
   const editor = new Editor({
-    element: document.createElement("div"),
+    element: document.createElement("div", {}),
     editorProps: { handleScrollToSelection: () => true },
     extensions: [
       ...noteExtensions(),

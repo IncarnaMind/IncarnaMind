@@ -303,7 +303,11 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
  * brought its number back: every check over the sentence goes, as the
  * re-check's may run past where the earlier one ended.
  */
-export function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttributes): void {
+export function restoreCheck(
+  editor: Editor,
+  claim: ShownClaim,
+  earlier: ClaimCheckAttributes,
+): void {
   if (editor.isDestroyed) return;
   const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
   if (!type) return;

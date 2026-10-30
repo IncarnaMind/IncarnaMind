@@ -250,8 +250,11 @@ export interface CreateMindInput {
  *   text, outcome, resolved Document/version/Location, passage and any
  *   candidates or nearby suggestion. An older editor would drop them, so it
  *   opens these Notes read-only. Existing content needs no conversion.
+ * - 37: a sentence part's source, speaker or time facet (#2003), including
+ *   its source choice and checked period. An older reader rewrites parts
+ *   without these fields, so it opens these Notes read-only.
  */
-export const CONTENT_SCHEMA_VERSION = 36;
+export const CONTENT_SCHEMA_VERSION = 37;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

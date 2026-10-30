@@ -57,8 +57,8 @@ test.each([
     window: dom.defaultView,
     document: dom,
     navigator: { languages: [row.language], platform: "Linux", userAgent: "", maxTouchPoints: 0 },
-    requestAnimationFrame: () => 0,
-    cancelAnimationFrame: () => undefined,
+    requestAnimationFrame: (): number => 0,
+    cancelAnimationFrame: (): void => undefined,
     getComputedStyle: () => ({ fontStyle: "", fontWeight: "", fontSize: "", fontFamily: "" }),
     ResizeObserver: class {
       observe() {}

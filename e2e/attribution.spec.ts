@@ -49,13 +49,14 @@ async function savedCheck(window: Page, mindId: string) {
   try {
     Y.applyUpdate(doc, new Uint8Array(state));
     let result: ClaimCheckAttributes | null = null;
-    const visit = (element: Y.XmlElement | Y.XmlText) => {
+    const visit = (element: Y.XmlElement | Y.XmlText | Y.XmlHook) => {
       if (element instanceof Y.XmlText) {
         for (const delta of element.toDelta()) {
           const check = readClaimCheck(delta.attributes?.claimCheck);
           if (check) result = check;
         }
-      } else for (const child of element.toArray()) visit(child);
+      } else if (element instanceof Y.XmlElement)
+        for (const child of element.toArray()) visit(child);
     };
     for (const child of doc.getXmlFragment(MIND_CONTENT_FIELD).toArray()) visit(child);
     return result;
