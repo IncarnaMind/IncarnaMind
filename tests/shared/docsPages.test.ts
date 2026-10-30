@@ -81,6 +81,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "data", key: "tagging.automatic.switch" },
   { page: "data", key: "skills.make.command" },
   { page: "data", key: "privacy.skills.body" },
+  { page: "data", key: "approvals.card.alwaysAllow" },
 ];
 
 const rendered = (quote: DocQuote, language: Language): string =>
