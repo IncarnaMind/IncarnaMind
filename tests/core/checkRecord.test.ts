@@ -1172,7 +1172,13 @@ describe("Saving a check record", () => {
     const failed = await broken.core.saveCheckRecord(broken.mind.id);
     expect(failed).toMatchObject({
       withCsv: false,
-      failures: [{ format: "pdf", message: "The PDF took too long to lay out.", wording: null }],
+      failures: [
+        {
+          format: "pdf",
+          message: "Couldn’t lay out the PDF.",
+          wording: { key: "error.pdf.notLaidOut" },
+        },
+      ],
     });
     expect(readdirSync(broken.out)).toEqual(["Check record – Harbour notes.csv"]);
   });
