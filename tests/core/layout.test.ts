@@ -245,6 +245,10 @@ describe("Tabs and groups", () => {
     await expect(
       change({ type: "open", item: notes, place: { wordPlace: "w:r#1" } }),
     ).rejects.toThrow(InvalidInputError);
+
+    // A Citation's Document opened at its current version, out of the version it quotes (#2159).
+    layout = await change({ type: "open", item: notes, place: { currentVersion: true } });
+    expect(tabOf(layout, notes).tab.place).toEqual({ currentVersion: true });
   });
 
   test("a Document already open is shown where it is, even in the group it is opened from; Open the page keeps its preview; only Open in a new tab makes a second tab", async () => {
