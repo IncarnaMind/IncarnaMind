@@ -24,16 +24,9 @@ function deletedOf(deleted: readonly DeletedItem[], ids: readonly string[]): Del
   });
 }
 
-/** Deletes them again, as the Library's Undo of a Restore does. */
+/** Deletes them again, as the Library's Undo of a Restore does: at the time each was deleted. */
 async function deleteAgain(core: CommandsCore, items: readonly DeletedItem[]): Promise<void> {
-  const documents = items.filter((item) => item.kind === "document").map((item) => item.id);
-  if (documents.length > 0) await core.deleteDocuments(documents);
-  for (const { kind, id } of items) {
-    if (kind === "mind") await core.deleteMind(id);
-    else if (kind === "conversation") await core.deleteConversation(id);
-    else if (kind === "folder") await core.deleteLibraryGroup(id);
-    else if (kind === "tag") await core.deleteTag(id);
-  }
+  await core.deleteAgain(items.map(({ kind, id, deletedAt }) => ({ kind, id, deletedAt })));
 }
 
 /** The question for one name several things in Recently deleted have, and what each option is. */
@@ -55,15 +48,18 @@ function whichOf(
     let label = base;
     for (let count = 2; byLabel.has(label); count++) label = `${base} (${count})`;
     byLabel.set(label, item);
-    // A Folder or a Tag is in none; the others were in a Folder, or in none.
+    // A Folder or a Tag is in none; the others were in a Folder, or in none. A Folder this
+    // question can't name, behind its wall (#1934), says nothing rather than "in no Folder".
     const folder = item.groupId ? folders.get(item.groupId) : undefined;
     descriptions.set(
       label,
       item.kind === "folder" || item.kind === "tag"
         ? ""
-        : folder
-          ? translate(language, "commands.restore.which.in", { folder })
-          : translate(language, "commands.restore.which.loose"),
+        : item.groupId === null
+          ? translate(language, "commands.restore.which.loose")
+          : folder
+            ? translate(language, "commands.restore.which.in", { folder })
+            : "",
     );
   }
   return {

@@ -11,7 +11,7 @@ import type { OfferedCommand } from "../../src/shared/commands";
 import { answerRequests, askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/connectors";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
@@ -851,20 +851,33 @@ describe("A long window command, and two things with one name (#1421)", { timeou
 describe("A Folder deleted after what was in it (#2238)", { timeout: 60_000 }, () => {
   /**
    * A Document named Leases in the Folder Archive, and a Note of that name, both in
-   * Recently deleted after the Folder; asks which comes back and answers with the Document.
+   * Recently deleted; asks which comes back and answers with the Document. `folderFirst`: the
+   * Folder goes before them, so they were deleted in no Folder.
    */
-  async function askWhich(text: string, documentKind: string) {
+  async function askWhich(text: string, documentKind: string, { folderFirst = false } = {}) {
     const model = calling(find("Leases", "deleted"), run("deleted.restore"));
-    const { core, documents, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const clock = manualClock();
+    const { core, documents, mind } = await setUpWithDocuments(model, DOCUMENTS, {
+      now: clock.now,
+    });
     const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
     const [filed] = documents;
     if (!filed) throw new Error("No Document.");
     await core.renameDocument(filed.id, "Leases");
     await core.assignDocumentGroup(filed.id, archive.id);
     const note = await core.createMind({ title: "Leases" });
-    await core.deleteDocuments([filed.id]);
-    await core.deleteMind(note.id);
-    await core.deleteLibraryGroup(archive.id);
+    clock.advance(1000);
+    if (folderFirst) {
+      await core.deleteLibraryGroup(archive.id);
+      clock.advance(1000);
+      await core.deleteDocuments([filed.id]);
+      await core.deleteMind(note.id);
+    } else {
+      await core.deleteDocuments([filed.id]);
+      await core.deleteMind(note.id);
+      clock.advance(1000);
+      await core.deleteLibraryGroup(archive.id);
+    }
     const asked: { label: string; description: string }[][] = [];
     const questions: UserQuestion[] = [];
     core.on("question.asked", (request) => {
@@ -912,6 +925,17 @@ describe("A Folder deleted after what was in it (#2238)", { timeout: 60_000 }, (
     );
     expect(question?.question).toBe("要恢复哪个“Leases”？");
     expect((await core.listDocuments()).map((each) => each.id)).toContain(filed.id);
+  });
+
+  // protects=a Document deleted after its Folder says it was in no Folder: the Folder's record is older than its deletion; fails_when=the Folder deleted first is still named; no_claim=the tie in one millisecond, which Recently deleted's own test holds.
+  test("the question says in no Folder for a Document deleted after its Folder", async () => {
+    const { asked } = await askWhich("Bring back the Leases I deleted", "Document", {
+      folderFirst: true,
+    });
+    const options = asked[0] ?? [];
+    expect(options.find((each) => each.label.startsWith("Document"))?.description).toBe(
+      "It was in no Folder.",
+    );
   });
 });
 

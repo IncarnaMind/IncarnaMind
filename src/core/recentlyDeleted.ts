@@ -10,6 +10,7 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import {
+  DELETED_KINDS,
   type DeletedItem,
   type DeletedKind,
   type DeletedRef,
@@ -37,7 +38,7 @@ const TABLES: Readonly<Record<DeletedKind, string>> = {
   tag: "tags",
 };
 
-const KINDS: readonly DeletedKind[] = ["mind", "conversation", "document", "folder", "tag"];
+const KINDS: readonly DeletedKind[] = DELETED_KINDS;
 
 /** A name as `mindName` and `conversationName` give it: the title typed, else the one it gave itself. */
 const OWN_NAME = "CASE WHEN title <> '' THEN title ELSE auto_title END";
@@ -47,13 +48,13 @@ const earliestRestorable = (now: string) =>
 
 /**
  * The Folder a deleted item was in, from the latest live record of a Folder's deletion that took
- * it out: the item's own row lost that Folder then. A record older than the item's own deletion
- * isn't where it was: it was in no Folder by then (#2238).
+ * it out: the item's own row lost that Folder then. The record must be strictly newer than the
+ * item's own deletion: one from the same moment or before isn't where it was (#2238).
  */
 function wasIn(kind: DeletedKind, table: string): string {
   return `(SELECT f.folder_id FROM deleted_folder_items f
     WHERE f.item_kind = '${kind}' AND f.item_id = ${table}.id AND f.deleted_at IS NULL
-      AND f.created_at >= ${table}.deleted_at
+      AND f.created_at > ${table}.deleted_at
     ORDER BY f.rowid DESC LIMIT 1)`;
 }
 

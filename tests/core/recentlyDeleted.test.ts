@@ -895,6 +895,51 @@ describe("Recently deleted keeps the Folder an item was in (#2238)", { timeout: 
     await core.restore([{ kind: "document", id: leases.id }]);
     expect(await assignmentOf(core, leases.id)).toMatchObject({ groupId: archive.id });
   });
+
+  test("Undo of restoring one alone, a Document, Note or conversation, keeps its Folder and its 30 days", async () => {
+    const model = scriptedModel(() => ({ text: "Twice a day." }));
+    const { core, clock } = await start({
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    const plan = await core.createMind({ title: "Plan", folderId: archive.id });
+    const asked = await core.askInConversation({ text: "How often are high tides?" });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(core, asked.answerId);
+    await core.moveToFolder({ conversationIds: [asked.conversation.id], folderId: archive.id });
+    clock.advance(1000);
+    await core.deleteDocuments([leases.id]);
+    await core.deleteMind(plan.id);
+    await core.deleteConversation(asked.conversation.id);
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    const deleted = (await core.listDeleted()).filter((each) => each.kind !== "folder");
+    expect(deleted.map((each) => each.groupId)).toEqual([archive.id, archive.id, archive.id]);
+
+    for (const item of deleted) {
+      await core.restore([{ kind: item.kind, id: item.id }]);
+      await core.deleteAgain([{ kind: item.kind, id: item.id, deletedAt: item.deletedAt }]);
+      expect((await core.listDeleted()).find((each) => each.id === item.id)).toMatchObject({
+        groupId: archive.id,
+        deletedAt: item.deletedAt,
+      });
+    }
+  });
+
+  test("a Folder deleted in the same moment as a Document was not the Folder it was in", async () => {
+    const { core, clock } = await start();
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const leases = await addText(core, "Leases.txt", "The leases of the harbour.");
+    await core.assignDocumentGroup(leases.id, archive.id);
+    clock.advance(1000);
+    await core.deleteLibraryGroup(archive.id);
+    await core.deleteDocuments([leases.id]);
+
+    expect((await core.listDeleted()).find((each) => each.id === leases.id)?.groupId).toBeNull();
+  });
 });
 
 describe("Deleting permanently keeps the text Citations quote", { timeout: 30_000 }, () => {

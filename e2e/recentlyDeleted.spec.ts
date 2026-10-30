@@ -255,6 +255,9 @@ test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in 
   await undoLine(window).getByTestId("undo-action").click();
   await expect.poll(() => deletedNames(window)).toHaveLength(4);
   await expect(rows(window)).toHaveCount(4);
+  // Deleted again at the time each was, so where it was is still the Folder (#2238).
+  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText("Finance");
+  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText("Finance");
 
   // One row's own button restores it alone, in its Folder.
   await row(window, "Finance").getByTestId("deleted-restore").click();

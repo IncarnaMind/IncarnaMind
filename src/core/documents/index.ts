@@ -2816,16 +2816,16 @@ export function createDocuments(options: DocumentsOptions) {
     /**
      * Removes Documents from the index, all in one step, or none when one isn't found. No file
      * is touched: a copy the old layout made in the data folder goes once its Document is
-     * deleted permanently (`dropPurged`).
+     * deleted permanently (`dropPurged`). `at`: when Undo of a Restore deletes it again.
      */
-    delete(idsInput: unknown): string[] {
+    delete(idsInput: unknown, at: string = now()): string[] {
       const ids = [...new Set((Array.isArray(idsInput) ? idsInput : [idsInput]).map(parseId))];
       const rows = ids.map((id) => {
         const row = find(id);
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return row;
       });
-      removeFromIndex(ids, now());
+      removeFromIndex(ids, at);
       // Once a Linked folder, not once a Document: 1,700 Documents took 90 s one by one (#1349).
       for (const linkedFolderId of new Set(rows.map((row) => row.linked_folder_id))) {
         library.documentsChanged(linkedFolderId);

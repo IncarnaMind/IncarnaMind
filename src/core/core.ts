@@ -97,6 +97,8 @@ import {
   type CoreApi,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
+  DELETED_KINDS,
+  type DeletedAgainRef,
   type DeletedItem,
   type Document,
   type DocumentStatus,
@@ -472,6 +474,29 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
     throw new InvalidInputError({ key: "error.document.passwordMissing" });
   }
   return { documentId: parseDocumentId(input.documentId), password };
+}
+
+/** `deleteAgain`'s input: each item, and the time it was deleted before its Restore. */
+function parseDeletedAgain(input: unknown): DeletedAgainRef[] {
+  if (!Array.isArray(input))
+    throw new InvalidInputError("deleteAgain expects a list of { kind, id, deletedAt }.");
+  return input.map((each): DeletedAgainRef => {
+    if (
+      !isRecord(each) ||
+      typeof each.id !== "string" ||
+      each.id === "" ||
+      typeof each.deletedAt !== "string" ||
+      Number.isNaN(Date.parse(each.deletedAt))
+    )
+      throw new InvalidInputError("deleteAgain expects a list of { kind, id, deletedAt }.");
+    const kind = DELETED_KINDS.find((known) => known === each.kind);
+    if (!kind) throw new InvalidInputError(`deleteAgain can't take a ${String(each.kind)}.`);
+    return {
+      kind,
+      id: each.id,
+      deletedAt: new Date(Date.parse(each.deletedAt)).toISOString(),
+    };
+  });
 }
 
 /** A Citation's Document, Units and quote, as `readScannedQuote` and `readableQuote` take them. */
@@ -2255,9 +2280,8 @@ export function createCore(adapters: CoreAdapters): Core {
     return { style, textLanguage: chineseText ? ("zh-CN" as const) : ("en" as const) };
   };
   const mindCitationStyle = (mindId: string): MindCitationStyle => mindStyleAndText(mindId).style;
-  /** Sends a Mind to Recently deleted; its tabs close. */
-  const removeMind = (mindId: unknown) => {
-    const at = now();
+  /** Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again. */
+  const removeMind = (mindId: unknown, at: string = now()) => {
     const deleted = db.transaction(() => {
       const mind = minds.delete(mindId, at);
       content.remove(mind.id, at);
@@ -2267,6 +2291,49 @@ export function createCore(adapters: CoreAdapters): Core {
     meetings.mindDeleted(deleted.id);
     mindsChanged();
     layouts.forgetDeletedMinds();
+  };
+
+  /** Sends a Document or several to Recently deleted. */
+  const removeDocuments = (ids: readonly string[], at: string = now()) => {
+    for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+
+  /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
+  const removeConversation = (conversationId: unknown, at: string = now()) => {
+    answers.stopConversation(conversations.get(conversationId).id);
+    conversations.delete(conversationId, at);
+    conversationsChanged();
+  };
+
+  /** Sends a Folder to Recently deleted; what it held goes to Not in a Folder. */
+  const removeFolder = (id: unknown, at: string = now()) => {
+    const deletion = db.transaction(() => {
+      const folder = library.folder(id);
+      const left = minds.leaveFolder(folder.id);
+      const leftConversations = conversations.leaveFolder(folder.id);
+      const { assignments } = library.delete(
+        folder.id,
+        {
+          minds: left.map((mind) => mind.id),
+          conversations: leftConversations.map((conversation) => conversation.id),
+        },
+        at,
+      );
+      const live = (items: { id: string; live: boolean }[]) =>
+        items.filter((item) => item.live).map((item) => item.id);
+      return { assignments, mindIds: live(left), conversationIds: live(leftConversations) };
+    });
+    if (deletion.mindIds.length > 0) mindsChanged();
+    if (deletion.conversationIds.length > 0) conversationsChanged();
+    return deletion;
+  };
+
+  /** Sends a Tag to Recently deleted. */
+  const removeTag = (tagId: unknown, at: string = now()) => {
+    const documentIds = tags.delete(tagId, at);
+    // Tags first, so a listener filtering by the deleted Tag hears it's gone before it refreshes.
+    tagsChanged();
+    announceTagged(documentIds);
   };
 
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
@@ -4249,12 +4316,7 @@ export function createCore(adapters: CoreAdapters): Core {
       conversationsChanged();
       return conversation;
     },
-    deleteConversation: async (conversationId) => {
-      // What an Answer being written has is kept, before the conversation goes.
-      answers.stopConversation(conversations.get(conversationId).id);
-      conversations.delete(conversationId, now());
-      conversationsChanged();
-    },
+    deleteConversation: async (conversationId) => removeConversation(conversationId),
     resolveReference: async (input) => {
       const reference = parseReference(input);
       if (!reference) throw new InvalidInputError("That isn't a reference IncarnaMind can follow.");
@@ -4407,12 +4469,8 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("documents.renamed", [renamed]);
       return renamed;
     },
-    deleteDocument: async (id) => {
-      for (const deleted of documents.delete(id)) activity.documentDeleted(deleted);
-    },
-    deleteDocuments: async (ids) => {
-      for (const deleted of documents.delete(ids)) activity.documentDeleted(deleted);
-    },
+    deleteDocument: async (id) => removeDocuments([id]),
+    deleteDocuments: async (ids) => removeDocuments(ids),
     retryDocument: async (id) => documents.retry(id),
     unlockDocument: async (input) => {
       const { documentId, password } = parseUnlock(input);
@@ -4851,23 +4909,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
     updateLibraryGroup: async (id, input) => library.update(id, input),
-    deleteLibraryGroup: async (id) => {
-      const deletion = db.transaction(() => {
-        const folder = library.folder(id);
-        const left = minds.leaveFolder(folder.id);
-        const leftConversations = conversations.leaveFolder(folder.id);
-        const { assignments } = library.delete(folder.id, {
-          minds: left.map((mind) => mind.id),
-          conversations: leftConversations.map((conversation) => conversation.id),
-        });
-        const live = (items: { id: string; live: boolean }[]) =>
-          items.filter((item) => item.live).map((item) => item.id);
-        return { assignments, mindIds: live(left), conversationIds: live(leftConversations) };
-      });
-      if (deletion.mindIds.length > 0) mindsChanged();
-      if (deletion.conversationIds.length > 0) conversationsChanged();
-      return deletion;
-    },
+    deleteLibraryGroup: async (id) => removeFolder(id),
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
       const before = library.settings();
@@ -4944,6 +4986,22 @@ export function createCore(adapters: CoreAdapters): Core {
       return change;
     },
     restore: async (refs, options) => recentlyDeleted.restore(refs, options),
+    deleteAgain: async (refs) => {
+      const items = parseDeletedAgain(refs);
+      // Documents go back together, as their deletion did (#1349), before what came after them.
+      const byTime = new Map<string, string[]>();
+      for (const { kind, id, deletedAt } of items) {
+        if (kind !== "document") continue;
+        byTime.set(deletedAt, [...(byTime.get(deletedAt) ?? []), id]);
+      }
+      for (const [at, ids] of byTime) removeDocuments(ids, at);
+      for (const { kind, id, deletedAt } of items) {
+        if (kind === "mind") removeMind(id, deletedAt);
+        else if (kind === "conversation") removeConversation(id, deletedAt);
+        else if (kind === "folder") removeFolder(id, deletedAt);
+        else if (kind === "tag") removeTag(id, deletedAt);
+      }
+    },
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
@@ -5002,12 +5060,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagsChanged();
       return tag;
     },
-    deleteTag: async (tagId) => {
-      const documentIds = tags.delete(tagId, now());
-      // Tags first, so a listener filtering by the deleted Tag hears it's gone before it refreshes.
-      tagsChanged();
-      announceTagged(documentIds);
-    },
+    deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
         const document = documents.get(documentId);
