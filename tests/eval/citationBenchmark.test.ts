@@ -3,7 +3,14 @@
  * (#1999), each with a known hit and a known miss. No model, no network.
  */
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +18,6 @@ import { describe, expect, test } from "vitest";
 import { type CitationQuestion, loadCitationSet } from "../../eval/citations/checkSet";
 import { capProblem, estimate, priceOf } from "../../eval/citations/cost";
 import {
-  familyOf,
   finalVerdict,
   inputSha256,
   type Judge,
@@ -20,8 +26,10 @@ import {
   judgeInputOf,
   judgementsFile,
   judgementsUsd,
+  judgePairProblem,
   judgingUsd,
   leftFor,
+  makerOf,
   modelJudge,
   PROMPT_SHA256,
   readJudgements,
@@ -35,6 +43,7 @@ import {
   type Allowed,
   decodeJsonEscapes,
   heldSecrets,
+  readDenyList,
   scanBenchmark,
   scanText,
 } from "../../eval/citations/scan";
@@ -349,6 +358,8 @@ describe("The citation benchmark (#1999)", () => {
     expect(resumeProblem(run, { ...run, settings: { ...run.settings, check: false } })).toMatch(
       /other settings/,
     );
+    const elsewhere = { ...run.model, server: "a".repeat(64) };
+    expect(resumeProblem(run, { ...run, model: elsewhere })).toMatch(/another server/);
   });
 
   test("the cost cap: a paid model needs a cap and stops before passing it; one on this computer needs none", () => {
@@ -393,6 +404,37 @@ describe("The citation benchmark (#1999)", () => {
     expect(heldSecrets({ SOME_API_KEY: held, PATH: "/bin:/usr/bin:/usr/local/bin" })).toEqual([
       held,
     ]);
+    expect(heldSecrets({ KIMI_KEY_2: held })).toEqual([held]);
+  });
+
+  test("the scan finds a home folder flattened into one folder's name, and not words that only look like one", () => {
+    const kinds = (text: string) => scanText(text, "file").map(({ kind }) => kind);
+    const flattened = ["", "private", "tmp", "tool-501", "-Users-someone-Desktop-x", "s"].join("/");
+    expect(kinds(`the cache in ${flattened}`)).toEqual(["home-path"]);
+    expect(kinds("kept in -home-someone-projects-x")).toEqual(["home-path"]);
+    expect(kinds("C--Users-someone-AppData")).toEqual(["home-path"]);
+    expect(kinds("a risk-owning team works from home on work-from-home-office days")).toEqual([]);
+    expect(kinds("the -Users-Shared-x folder")).toEqual([]);
+  });
+
+  test("a deny-list is read from outside the repository and fails when it is missing or empty", () => {
+    const outside = mkdtempSync(join(tmpdir(), "deny-"));
+    const list = join(outside, "words.txt");
+    expect(() => readDenyList(list, ROOT)).toThrow(/doesn't exist/);
+    writeFileSync(list, "# nothing but a comment\n\n");
+    expect(() => readDenyList(list, ROOT)).toThrow(/holds no words/);
+    writeFileSync(list, "# private names\nBluebird\n  project kestrel \n");
+    expect(readDenyList(list, ROOT)).toEqual(["Bluebird", "project kestrel"]);
+    expect(() => readDenyList(join(ROOT, "eval/citations/words.txt"), ROOT)).toThrow(
+      /inside the repository/,
+    );
+    const denied = readDenyList(list, ROOT);
+    const kinds = (text: string) => scanText(text, "file", { denied }).map(({ kind }) => kind);
+    expect(kinds("Notes from BLUEBIRD and Project Kestrel")).toEqual([
+      "denied-word",
+      "denied-word",
+    ]);
+    expect(kinds("a blue bird and a kestrel")).toEqual([]);
   });
 
   test("the scan reads a JSON file's escapes as its reader does, and keeps their lines", () => {
@@ -422,7 +464,7 @@ describe("The citation benchmark (#1999)", () => {
     const judge: Judge = {
       id: "test/judge",
       kind: "anthropic",
-      family: "Test",
+      maker: "Test",
       price: null,
       mostUsd: () => 0,
       async judge() {
@@ -467,13 +509,14 @@ describe("The citation benchmark (#1999)", () => {
   });
 
   test("judges come from two makers, neither the run's; a run keeps the pair that began on it; the cap counts all the judging", () => {
-    expect(familyOf("claude-opus-5-5")).toBe(familyOf("anthropic/claude-sonnet-5-5"));
-    expect(familyOf("gpt-6-luna")).toBe(familyOf("o4-mini"));
-    expect(familyOf("qwen3.5:4b")).not.toBe(familyOf("deepseek-v4-pro"));
+    expect(makerOf("claude-opus-5-5")).toBe(makerOf("anthropic/claude-sonnet-5-5"));
+    expect(makerOf("gpt-6-luna")).toBe(makerOf("o4-mini"));
+    expect(makerOf("qwen3.5:4b")).not.toBe(makerOf("deepseek-v4-pro"));
+    expect(makerOf("openrouter/auto")).toBeNull();
     const judgeOf = (id: string): Judge => ({
       id,
       kind: "openrouter",
-      family: familyOf(id),
+      maker: makerOf(id),
       price: null,
       mostUsd: () => 0,
       judge: async () => ({ verdict: "supported", reason: "", tokens: noTokens() }),
@@ -487,6 +530,22 @@ describe("The citation benchmark (#1999)", () => {
     expect(leftFor(runs, file, "claude-haiku-5-5", claudeAndGemini)).toMatch(/Anthropic's/);
     const pair = [judgeOf("openai/gpt-6.1-sol"), judgeOf("google/gemini-3.1-pro-preview")];
     expect(leftFor(runs, file, "claude-haiku-5-5", pair)).toBeNull();
+    expect(judgePairProblem(pair)).toBeNull();
+    // A router's alias may send to any maker's model, the run's own included.
+    expect(judgePairProblem([judgeOf("openrouter/auto"), pair[1] as Judge])).toMatch(
+      /router's alias/,
+    );
+    expect(
+      judgePairProblem(claudeAndGemini.slice(0, 1).concat(judgeOf("claude-sonnet-5-5"))),
+    ).toMatch(/both Anthropic's/);
+    expect(leftFor(runs, "openrouter-auto.en.json", "openrouter/auto", pair)).toMatch(
+      /can't be told/,
+    );
+    const standIns = ["scripted-words", "scripted-numbers"].map((id) => ({
+      ...judgeOf(id),
+      maker: null,
+    }));
+    expect(leftFor(runs, "scripted.en.json", "scripted", standIns)).toBeNull();
 
     mkdirSync(join(runs, "judgements"));
     const line = (judge: string, usd: number) =>
@@ -497,7 +556,8 @@ describe("The citation benchmark (#1999)", () => {
     expect(judgingUsd(runs)).toBeCloseTo(0.75);
   });
 
-  test("the scan reads its allowlist with no exceptions, lets an address through only where its Document prints it, and fails a page it can't read", async () => {
+  /** A repository with two of the set's Documents, the scanned page and a one-page text, to scan. */
+  async function scanRoot() {
     const set = await loadCitationSet(ROOT);
     const listed = set.documents.filter((document) =>
       ["cia-reading-room-scan", "nbs-gdp-revision"].includes(document.key),
@@ -515,16 +575,29 @@ describe("The citation benchmark (#1999)", () => {
       JSON.stringify({ documents: listed }),
     );
     writeFileSync(join(root, "eval/citations/questions.jsonl"), "");
-    const address = "someone@example.org";
-    writeFileSync(join(root, "eval/citations/runs/run.en.json"), JSON.stringify({ text: address }));
-    const key = ["sk", "ant", "api03", "x".repeat(40)].join("-");
     const allow = (entries: Allowed[]) =>
       writeFileSync(join(root, ALLOWED_FILE), JSON.stringify(entries, null, 2));
-    const found = async () =>
-      (await scanBenchmark(root, [join(root, "eval/citations")], [])).map(
-        ({ file, kind }) => `${file} ${kind}`,
-      );
+    const pageRead = (sha256: string): Allowed => ({
+      kind: "page-read",
+      document: scanned.key,
+      page: 1,
+      sha256,
+      why: "read",
+    });
+    const found = async (denied: readonly string[] = []) =>
+      (await scanBenchmark(root, [join(root, "eval/citations")], { secrets: [], denied }))
+        .map(({ file, kind }) => `${file} ${kind}`)
+        .sort();
+    const run = (name: string, text: string) =>
+      writeFileSync(join(root, "eval/citations/runs", name), text);
+    return { root, scanned, revision, allow, pageRead, found, run };
+  }
 
+  test("the scan reads its allowlist with no exceptions, lets an address through only where its Document prints it, and fails a page it can't read", async () => {
+    const { scanned, revision, allow, pageRead, found, run } = await scanRoot();
+    const address = "someone@example.org";
+    run("run.en.json", JSON.stringify({ text: address }));
+    const key = ["sk", "ant", "api03", "x".repeat(40)].join("-");
     allow([
       {
         kind: "email",
@@ -533,7 +606,7 @@ describe("The citation benchmark (#1999)", () => {
         why: `planted: ${key} and ${address}`,
       },
     ]);
-    expect((await found()).sort()).toEqual(
+    expect(await found()).toEqual(
       [
         `${ALLOWED_FILE} api-key`,
         `${ALLOWED_FILE} email`,
@@ -543,18 +616,55 @@ describe("The citation benchmark (#1999)", () => {
       ].sort(),
     );
 
-    const read = { kind: "page-read" as const, document: scanned.key, page: 1, why: "read" };
-    allow([{ ...read, sha256: revision.sha256 }]);
-    expect((await found()).sort()).toEqual(
+    allow([pageRead(revision.sha256)]);
+    expect(await found()).toEqual(
       [
         `${ALLOWED_FILE} unused-allowance`,
         "eval/citations/runs/run.en.json email",
         `${scanned.path} unread-page`,
       ].sort(),
     );
-    writeFileSync(join(root, "eval/citations/runs/run.en.json"), "{}");
-    allow([{ ...read, sha256: scanned.sha256 }]);
+    run("run.en.json", "{}");
+    allow([pageRead(scanned.sha256)]);
     expect(await found()).toEqual([]);
+  });
+
+  test("the scan refuses a file that isn't text and passes a JSON file without a finding", async () => {
+    const { scanned, allow, pageRead, found, run } = await scanRoot();
+    allow([pageRead(scanned.sha256)]);
+    run("notes.json", JSON.stringify({ text: "a figure of 1,294,272 and nothing else" }));
+    expect(await found()).toEqual([]);
+    const refused = ["run.log", "run.json.gz", ".env", "page.html"];
+    for (const name of refused) run(name, "anything");
+    expect(await found()).toEqual(
+      refused.map((name) => `eval/citations/runs/${name} unlisted-file`).sort(),
+    );
+  });
+
+  test("the scan reads a JSON file's escapes as its reader does: an escaped address is found, other escapes pass", async () => {
+    const { scanned, allow, pageRead, found, run } = await scanRoot();
+    allow([pageRead(scanned.sha256)]);
+    run("plain.json", '{"a": "a line\\nand a tab\\t and \\u0041"}');
+    expect(await found()).toEqual([]);
+    run("escaped.json", '{"a": "write to pio\\u0040example.org"}');
+    expect(await found()).toEqual(["eval/citations/runs/escaped.json email"]);
+  });
+
+  test("the scan finds a listed Document whose file changed, and passes it unchanged", async () => {
+    const { root, scanned, revision, allow, pageRead, found } = await scanRoot();
+    allow([pageRead(scanned.sha256)]);
+    expect(await found()).toEqual([]);
+    const document = join(root, revision.path);
+    writeFileSync(document, Buffer.concat([readFileSync(document), Buffer.from("\n")]));
+    expect(await found()).toEqual([`${revision.path} changed-document`]);
+  });
+
+  test("the scan finds a word of the deny-list in a published file, and none it isn't given", async () => {
+    const { scanned, allow, pageRead, found, run } = await scanRoot();
+    allow([pageRead(scanned.sha256)]);
+    run("notes.md", "Made for Project Kestrel.");
+    expect(await found(["project kestrel"])).toEqual(["eval/citations/runs/notes.md denied-word"]);
+    expect(await found(["bluebird"])).toEqual([]);
   });
 
   test("the results page leads with the misses, and every number in its tables links to a run", () => {
@@ -617,16 +727,35 @@ describe("The citation benchmark (#1999)", () => {
     expect(models).not.toContain("stand-in");
   });
 
-  test("a run is published only with every Question answered: a failed or timed-out Answer doesn't count", () => {
-    const run = runOf([]);
+  test("a run is published only whole: every Question answered, every Citation judged or settled, on today's set and text", () => {
+    const run = {
+      ...runOf([]),
+      documents: [{ key: "treasury", name: "T", status: "ready", pages: 2, pagesSha256: "p" }],
+    };
+    const today = { set: run.set, pagesSha: new Map([["treasury", "p"]]) };
     const judges = ["openai/gpt-6.1-sol", "google/gemini-3.1-pro-preview"];
-    const whole = { answers: 75, failed: 0, questions: 75 };
-    expect(notPublishedBecause(run, whole, judges)).toEqual([]);
-    expect(notPublishedBecause(run, { ...whole, failed: 2 }, judges)).toEqual([
+    const supported = { supported: 3, judged: 3, unsettled: 0, unjudged: 0 };
+    const whole = { answers: 75, failed: 0, questions: 75, supported };
+    const because = (
+      score: typeof whole,
+      options: { judges?: string[]; today?: typeof today } = {},
+    ) => notPublishedBecause(run, score, options.judges ?? judges, options.today ?? today);
+    expect(because(whole)).toEqual([]);
+    expect(because({ ...whole, failed: 2 })).toEqual([
       "Answered fewer than the 75 Questions of its language, a failed or timed-out Answer not counted",
     ]);
-    expect(notPublishedBecause(run, whole, ["scripted-words", "scripted-numbers"])).toEqual([
+    expect(because(whole, { judges: ["scripted-words", "scripted-numbers"] })).toEqual([
       "Judged by the scripted stand-ins, not by model judges",
     ]);
+    expect(because(whole, { today: { ...today, set: { ...run.set, questions: "q2" } } })).toEqual([
+      "Answered another version of the set",
+    ]);
+    expect(
+      because(whole, { today: { ...today, pagesSha: new Map([["treasury", "p2"]]) } }),
+    ).toEqual(["Made on a Document whose text the app now reads differently"]);
+    const open =
+      "Has Citations without both judges' verdicts, or with a disagreement no person has settled";
+    expect(because({ ...whole, supported: { ...supported, unsettled: 1 } })).toEqual([open]);
+    expect(because({ ...whole, supported: { ...supported, unjudged: 1 } })).toEqual([open]);
   });
 });

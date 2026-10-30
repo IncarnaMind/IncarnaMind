@@ -2,7 +2,7 @@
  * The benchmark's own settings, from INCARNAMIND_EVAL_CITATIONS_* variables
  * (eval/citations/README.md). The model asked is set as for `npm run eval`.
  */
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { LANGUAGES, type Language } from "./runs";
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -20,6 +20,8 @@ export interface BenchmarkSettings {
   check: boolean;
   /** The folder of the run files, the judgements, the scores and the results page. */
   runsDir: string;
+  /** A file of words no published file may hold, kept outside the repository; null: none. */
+  denyList: string | null;
 }
 
 export const DEFAULT_RUNS = "eval/citations/runs";
@@ -43,11 +45,13 @@ export function readSettings(root: string, env: Env = process.env): BenchmarkSet
     throw new Error(`${PREFIX}CHECK is "on" (the default) or "off", not "${check}".`);
   }
   const runs = value(env, "RUNS") ?? DEFAULT_RUNS;
+  const denyList = value(env, "DENY_LIST");
   return {
     scripted: value(env, "SCRIPTED") === "1",
     languages: [...new Set(chosen)],
     capUsd,
     check: check !== "off",
     runsDir: isAbsolute(runs) ? runs : join(root, runs),
+    denyList: denyList === null ? null : resolve(denyList),
   };
 }

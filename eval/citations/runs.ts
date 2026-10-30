@@ -78,6 +78,11 @@ export interface RunModel {
   kind: string;
   modelId: string;
   endpoint: string | null;
+  /**
+   * The SHA-256 of the server address the run was given, so a run resumes only
+   * on the same server without publishing the address; null for none.
+   */
+  server?: string | null;
   /** Where the Questions went, e.g. "Anthropic"; null for a model on this computer. */
   service: string | null;
   /** "anthropic/claude-sonnet-5-5": how the results name it. */
@@ -173,6 +178,9 @@ export function resumeProblem(
   if (!same(run.set, wanted.set)) return "it answered another version of the set";
   if (run.model.label !== wanted.model.label || run.model.endpoint !== wanted.model.endpoint)
     return `it is ${run.model.label}'s`;
+  if ((run.model.server ?? null) !== (wanted.model.server ?? null)) {
+    return "it was asked of another server";
+  }
   if (run.language !== wanted.language) return `it is in ${run.language}`;
   const { price: _price, ...settings } = run.settings;
   const { price: _wanted, ...wantedSettings } = wanted.settings;

@@ -9,10 +9,11 @@
  * author's, a court's press office), named by its SHA-256 and never repeated,
  * and each page read from its image, bound to the Document's SHA-256. Every
  * entry must still match, and the file itself is scanned with no exceptions.
+ * A deny-list kept outside the repository adds words no file may hold.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { loadCitationSet, readDocuments } from "./checkSet";
 
 export type FindingKind =
@@ -24,7 +25,8 @@ export type FindingKind =
   | "unlisted-file"
   | "changed-document"
   | "unread-page"
-  | "unused-allowance";
+  | "unused-allowance"
+  | "denied-word";
 
 export interface Finding {
   file: string;
@@ -87,8 +89,14 @@ const PHONES: readonly RegExp[] = [
   /(?<![\w./=-])1[3-9]\d{9}(?![\w.-])/g,
 ];
 
-/** A home folder in a path names its owner. */
-const HOME_PATH = /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)(?!Shared\b)[^\s/\\"'`]+/g;
+/**
+ * A home folder in a path names its owner, also when a tool names a folder
+ * after a project's path, its slashes turned into dashes.
+ */
+const HOME_PATHS: readonly RegExp[] = [
+  /(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)(?!Shared\b)[^\s/\\"'`]+/g,
+  /(?<!\w)-(?:Users|home)-(?!Shared\b)[^\s/\\"'`-]+(?=-|[\s/\\"'`]|$)/g,
+];
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -97,17 +105,42 @@ const hidden = (value: string) => `${value.slice(0, 4)}…(${value.length})`;
 
 /**
  * Values the shell holds under a name that says it is a key, a token or a
- * secret: none may be in a published file, whatever its shape.
+ * secret ("OPENAI_API_KEY", "KIMI_KEY_2"): none may be in a published file,
+ * whatever its shape.
  */
 export function heldSecrets(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string[] {
   return Object.entries(env)
     .filter(
-      ([name, value]) => /(?:KEY|TOKEN|SECRET|PASSWORD)$/i.test(name) && (value?.length ?? 0) >= 12,
+      ([name, value]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(name) && (value?.length ?? 0) >= 12,
     )
     .map(([, value]) => value as string);
 }
+
+/**
+ * The words of a deny-list kept outside the repository, one a line ("#"
+ * starts a comment), which no published file may hold, whatever their case.
+ * A list named but missing, empty or inside the repository fails, so the scan
+ * never runs without the list it was given.
+ */
+export function readDenyList(path: string, root: string): string[] {
+  const where = relative(resolve(root), resolve(path));
+  if (!where.startsWith("..") && !isAbsolute(where)) {
+    throw new Error(
+      "The deny-list is inside the repository: keep it outside, where nothing publishes it.",
+    );
+  }
+  if (!existsSync(path)) throw new Error(`The deny-list ${path} doesn't exist.`);
+  const words = readFileSync(path, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+  if (words.length === 0) throw new Error(`The deny-list ${path} holds no words.`);
+  return words;
+}
+
+const escaped = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** What one text holds that may not be published; `allowed` lets an address or a number through by its SHA-256. */
 export function scanText(
@@ -116,6 +149,8 @@ export function scanText(
   options: {
     allowed?: AllowedValue;
     secrets?: readonly string[];
+    /** Words no published file may hold, in any case (`readDenyList`). */
+    denied?: readonly string[];
     lineOf?: (index: number) => number;
   } = {},
 ): Finding[] {
@@ -143,7 +178,19 @@ export function scanText(
   for (const pattern of PHONES) {
     for (const match of text.matchAll(pattern)) add("phone", match[0], match.index ?? 0);
   }
-  for (const match of text.matchAll(HOME_PATH)) add("home-path", match[0], match.index ?? 0);
+  for (const pattern of HOME_PATHS) {
+    for (const match of text.matchAll(pattern)) add("home-path", match[0], match.index ?? 0);
+  }
+  for (const word of options.denied ?? []) {
+    for (const match of text.matchAll(new RegExp(escaped(word), "giu"))) {
+      findings.push({
+        file,
+        line: lineOf(match.index ?? 0),
+        kind: "denied-word",
+        shown: "a word on the deny-list",
+      });
+    }
+  }
   return findings;
 }
 
@@ -209,7 +256,7 @@ export function readAllowed(root: string): Allowed[] {
 function scanFile(
   path: string,
   file: string,
-  options: { allowed?: AllowedValue; secrets: readonly string[] },
+  options: { allowed?: AllowedValue; secrets: readonly string[]; denied: readonly string[] },
 ): Finding[] {
   const text = readFileSync(path, "utf8");
   if (!JSON_FILE.test(path)) return scanText(text, file, options);
@@ -227,8 +274,10 @@ function scanFile(
 export async function scanBenchmark(
   root: string,
   folders: readonly string[],
-  secrets: readonly string[] = heldSecrets(),
+  options: { secrets?: readonly string[]; denied?: readonly string[] } = {},
 ): Promise<Finding[]> {
+  const secrets = options.secrets ?? heldSecrets();
+  const denied = options.denied ?? [];
   const set = await loadCitationSet(root);
   const allowed = readAllowed(root);
   const used = new Set<Allowed>();
@@ -279,6 +328,7 @@ export async function scanBenchmark(
         ...scanText(unit.text, document.path, {
           allowed: printedHere,
           secrets,
+          denied,
           lineOf: () => unit.page ?? 0,
         }),
       );
@@ -286,7 +336,8 @@ export async function scanBenchmark(
   }
 
   const allowedFile = join(root, ALLOWED_FILE);
-  if (existsSync(allowedFile)) findings.push(...scanFile(allowedFile, ALLOWED_FILE, { secrets }));
+  if (existsSync(allowedFile))
+    findings.push(...scanFile(allowedFile, ALLOWED_FILE, { secrets, denied }));
   allowed.forEach((entry, index) => {
     if (used.has(entry)) return;
     findings.push({
@@ -310,7 +361,7 @@ export async function scanBenchmark(
         });
         continue;
       }
-      findings.push(...scanFile(path, shown(path), { allowed: asPrinted, secrets }));
+      findings.push(...scanFile(path, shown(path), { allowed: asPrinted, secrets, denied }));
     }
   }
   return findings;

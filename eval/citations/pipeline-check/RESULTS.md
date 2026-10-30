@@ -1,7 +1,9 @@
 # Do AI citations hold up? Results
 
 > **A pipeline check, not published numbers.** These scores show that the run, the scorers and this page work end to end:
+> - Made on a Document whose text the app now reads differently: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json).
 > - Answered fewer than the 75 Questions of its language, a failed or timed-out Answer not counted: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json).
+> - Has Citations without both judges' verdicts, or with a disagreement no person has settled: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [scripted.en.json](scripted.en.json), [scripted.zh.json](scripted.zh.json).
 > - Judged by the scripted stand-ins, not by model judges: [ollama-qwen3.5-4b.en.json](ollama-qwen3.5-4b.en.json), [ollama-qwen3.5-4b.zh.json](ollama-qwen3.5-4b.zh.json), [scripted.en.json](scripted.en.json), [scripted.zh.json](scripted.zh.json).
 > - Answered by the smoke tests' scripted chat model, which isn't a model: [scripted.en.json](scripted.en.json), [scripted.zh.json](scripted.zh.json).
 

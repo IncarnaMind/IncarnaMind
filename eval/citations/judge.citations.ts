@@ -19,6 +19,7 @@ import {
   judgeAll,
   judgeInputOf,
   judgementsFile,
+  judgePairProblem,
   judgingUsd,
   leftFor,
   modelJudge,
@@ -41,11 +42,8 @@ function judgesOf(scripted: boolean): readonly Judge[] {
     );
   }
   const judges = [modelJudge(first), modelJudge(second)];
-  if (judges[0]?.family === judges[1]?.family) {
-    throw new Error(
-      `The two judges are both ${judges[0]?.family}'s models: name judges of two makers, so they judge independently.`,
-    );
-  }
+  const problem = judgePairProblem(judges);
+  if (problem) throw new Error(problem);
   const unpriced = judges.find((judge) => judge.price === null && judge.kind !== "ollama");
   if (unpriced) {
     throw new Error(

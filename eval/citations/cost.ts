@@ -78,7 +78,7 @@ export interface Estimate {
    */
   runUsd: number;
   judgesUsd: number;
-  /** At most, the run and the judges: every Question taking `MOST_FACTOR` times as many tokens, none from the cache. */
+  /** At most, the run and the judges: every Question and every verdict taking `MOST_FACTOR` times as many tokens, none from the cache. */
   mostUsd: number;
   /** "measured" when the tokens come from this model's run files, "assumed" from `PER_QUESTION`. */
   basis: "measured" | "assumed";
@@ -124,15 +124,18 @@ export function estimate(
   };
   const price = priceOf(model);
   const cached = price?.cacheRead !== undefined ? Math.round(tokens.inputTokens * CACHED_SHARE) : 0;
-  const judgesUsd = options.judges.map((judge) => {
-    const judgePrice = priceOf(judge);
-    const each = {
-      inputTokens: PER_JUDGEMENT.inputTokens * judgements,
-      outputTokens: PER_JUDGEMENT.outputTokens * judgements,
-    };
-    return judgePrice ? usdOf(asTokens(each), judgePrice, judge.kind) : 0;
-  });
-  const judging = judgesUsd.reduce<number>((sum, each) => sum + (each ?? 0), 0);
+  const judgingAt = (factor: number) =>
+    options.judges
+      .map((judge) => {
+        const judgePrice = priceOf(judge);
+        const each = {
+          inputTokens: PER_JUDGEMENT.inputTokens * judgements * factor,
+          outputTokens: PER_JUDGEMENT.outputTokens * judgements * factor,
+        };
+        return judgePrice ? (usdOf(asTokens(each), judgePrice, judge.kind) ?? 0) : 0;
+      })
+      .reduce((sum, each) => sum + each, 0);
+  const judging = judgingAt(1);
   const most = {
     inputTokens: tokens.inputTokens * MOST_FACTOR,
     outputTokens: tokens.outputTokens * MOST_FACTOR,
@@ -144,7 +147,7 @@ export function estimate(
     judgeTokens,
     runUsd: usdOf(asTokens(tokens, cached), price, model.kind) ?? 0,
     judgesUsd: judging,
-    mostUsd: (usdOf(asTokens(most), price, model.kind) ?? 0) + judging,
+    mostUsd: (usdOf(asTokens(most), price, model.kind) ?? 0) + judgingAt(MOST_FACTOR),
     basis: options.measured ? "measured" : "assumed",
   };
 }

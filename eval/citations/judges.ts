@@ -48,8 +48,8 @@ export interface Judge {
   /** "anthropic/claude-opus-5-5", or a scripted stand-in's name. */
   id: string;
   kind: string | null;
-  /** Who made the model (`familyOf`): it may not judge that maker's models. Null for a scripted stand-in. */
-  family: string | null;
+  /** Who made the model (`makerOf`): it may not judge that maker's models. Null for a scripted stand-in. */
+  maker: string | null;
   judge(
     input: JudgeInput,
   ): Promise<{ verdict: Verdict | "unread"; reason: string; tokens: Tokens }>;
@@ -58,7 +58,7 @@ export interface Judge {
   mostUsd(input: JudgeInput): number;
 }
 
-/** Model names by their makers; another model is its own family, by the letters its name starts with. */
+/** Model names by their makers. */
 const MAKERS: readonly (readonly [RegExp, string])[] = [
   [/^claude/, "Anthropic"],
   [/^(?:gpt|chatgpt|codex|o\d)/, "OpenAI"],
@@ -76,11 +76,25 @@ const MAKERS: readonly (readonly [RegExp, string])[] = [
 /**
  * Who made a model, from its id, whichever service serves it: "claude-opus-5-5"
  * and "anthropic/claude-sonnet-5-5" are both Anthropic's. Two models of one
- * maker are no independent judges of each other.
+ * maker are no independent judges of each other. Null when the id doesn't
+ * say: a router's alias ("openrouter/auto") may send to any maker's model.
  */
-export function familyOf(modelId: string): string {
+export function makerOf(modelId: string): string | null {
   const name = (modelId.toLowerCase().split("/").at(-1) ?? "").trim();
-  return MAKERS.find(([pattern]) => pattern.test(name))?.[1] ?? name.match(/^[a-z]+/)?.[0] ?? name;
+  return MAKERS.find(([pattern]) => pattern.test(name))?.[1] ?? null;
+}
+
+/** Why two model judges can't judge together, or null when they can. */
+export function judgePairProblem(judges: readonly Judge[]): string | null {
+  const unknown = judges.find((judge) => judge.maker === null);
+  if (unknown) {
+    return `Who makes ${unknown.id} can't be told from its name, so it can't be shown to be of another maker than a run's: name a model, not a router's alias.`;
+  }
+  const [first, second] = judges;
+  if (first?.maker === second?.maker) {
+    return `The two judges are both ${first?.maker}'s models: name judges of two makers, so they judge independently.`;
+  }
+  return null;
 }
 
 /** The one prompt every model judge gets; its hash is kept with each verdict. */
@@ -139,7 +153,7 @@ export function modelJudge(settings: ChatSettings): Judge {
   return {
     id: labelOf(settings),
     kind: settings.kind,
-    family: familyOf(settings.modelId),
+    maker: makerOf(settings.modelId),
     price,
     mostUsd(input) {
       if (!price) return 0;
@@ -196,7 +210,7 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
   {
     id: "scripted-words",
     kind: null,
-    family: null,
+    maker: null,
     price: null,
     mostUsd: () => 0,
     async judge(input) {
@@ -214,7 +228,7 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
   {
     id: "scripted-numbers",
     kind: null,
-    family: null,
+    maker: null,
     price: null,
     mostUsd: () => 0,
     async judge(input) {
@@ -258,8 +272,9 @@ export function judgeFiles(runsDir: string, runFile: string): string[] {
 
 /**
  * Why a pair of judges leaves a run for another pair, or null when it judges
- * it: one of them is the maker's of the run's model, or another judge has
- * begun on the run, whose verdicts would make three.
+ * it: one of them is the maker's of the run's model, the run's model's maker
+ * isn't known, or another judge has begun on the run, whose verdicts would
+ * make three. The scripted stand-ins judge any run.
  */
 export function leftFor(
   runsDir: string,
@@ -267,9 +282,14 @@ export function leftFor(
   modelId: string,
   judges: readonly Judge[],
 ): string | null {
-  const maker = familyOf(modelId);
-  const own = judges.find((judge) => judge.family === maker);
-  if (own) return `${own.id} is ${maker}'s, as the run's model is: judge it with another pair`;
+  if (judges.some((judge) => judge.maker !== null)) {
+    const maker = makerOf(modelId);
+    if (maker === null) {
+      return `who makes ${modelId} can't be told from its name, so no judge can be shown to be of another maker`;
+    }
+    const own = judges.find((judge) => judge.maker === maker);
+    if (own) return `${own.id} is ${maker}'s, as the run's model is: judge it with another pair`;
+  }
   const pair = new Set(judges.map((judge) => judgementsFile(runsDir, runFile, judge.id)));
   const others = judgeFiles(runsDir, runFile).filter((path) => !pair.has(path));
   if (others.length === 0) return null;

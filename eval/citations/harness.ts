@@ -100,6 +100,7 @@ const SCRIPTED_MODEL: RunModel = {
   kind: "ollama",
   modelId: SCRIPTED,
   endpoint: null,
+  server: null,
   service: null,
   label: SCRIPTED,
 };
@@ -205,11 +206,14 @@ async function checkNote(
         quote: check?.evidence?.quote ?? coveredPart(check?.unsupported ?? null)?.quote ?? null,
         failure:
           check?.state === "not-checked"
-            ? [check.reason, check.detail].filter(Boolean).join(": ")
+            ? redactMessage([check.reason, check.detail].filter(Boolean).join(": "), secrets)
             : null,
       })),
   };
-  return { check, stop: checked.stop ? `the check stopped: ${checked.stop.reason}` : null };
+  return {
+    check,
+    stop: checked.stop ? redactMessage(`the check stopped: ${checked.stop.reason}`, secrets) : null,
+  };
 }
 
 function runAnswerOf(
@@ -264,6 +268,7 @@ function modelOf(chat: HarnessOptions["chat"], service: string | null): RunModel
     kind: chat.kind,
     modelId: chat.modelId,
     endpoint: chat.endpoint,
+    server: chat.baseUrl === null ? null : sha256(chat.baseUrl),
     service,
     label: labelOf(chat),
   };

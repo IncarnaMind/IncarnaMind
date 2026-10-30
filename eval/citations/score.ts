@@ -151,7 +151,9 @@ export async function scoreFolder(
       });
     }
 
-    for (const reason of notPublishedBecause(run, score, judges)) because(reason, file);
+    for (const reason of notPublishedBecause(run, score, judges, { set: identity, pagesSha })) {
+      because(reason, file);
+    }
   }
 
   writeFileSync(
@@ -173,19 +175,40 @@ export async function scoreFolder(
   return { scores, disagreements, problems };
 }
 
-/** Why a run's numbers can't be the published ones; none when they can. */
+/**
+ * Why a run's numbers can't be the published ones; none when they can.
+ * `today`: the set's identity and each Document's stored text, hashed, as
+ * they are now.
+ */
 export function notPublishedBecause(
-  run: Pick<CitationsRun, "model" | "app">,
-  score: Pick<RunScore, "answers" | "failed" | "questions">,
+  run: Pick<CitationsRun, "model" | "app" | "set" | "documents">,
+  score: Pick<RunScore, "answers" | "failed" | "questions" | "supported">,
   judges: readonly string[],
+  today: { set: CitationsRun["set"]; pagesSha: ReadonlyMap<string, string> },
 ): string[] {
   const reasons: string[] = [];
   if (run.model.label === "scripted") {
     reasons.push("Answered by the smoke tests' scripted chat model, which isn't a model");
   }
+  if (JSON.stringify(run.set) !== JSON.stringify(today.set)) {
+    reasons.push("Answered another version of the set");
+  }
+  if (
+    run.documents.some((document) => {
+      const now = today.pagesSha.get(document.key);
+      return now !== undefined && now !== document.pagesSha256;
+    })
+  ) {
+    reasons.push("Made on a Document whose text the app now reads differently");
+  }
   if (score.answers - score.failed < score.questions) {
     reasons.push(
       `Answered fewer than the ${score.questions} Questions of its language, a failed or timed-out Answer not counted`,
+    );
+  }
+  if (score.supported.unjudged + score.supported.unsettled > 0) {
+    reasons.push(
+      "Has Citations without both judges' verdicts, or with a disagreement no person has settled",
     );
   }
   if (judges.some(isScriptedJudge)) {

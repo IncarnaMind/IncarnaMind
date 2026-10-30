@@ -87,7 +87,7 @@ test("the citation benchmark's cost estimate", async () => {
   console.log(
     [
       `The citation benchmark: ${settings.languages.join(" and ")}, ${settings.check ? "each Note checked" : "no check"}, judged by ${PLANNED_JUDGES.map(labelOf).join(" and ")}.`,
-      "Expected: the provider's prompt cache serving 70% of the input where its price has a cache rate. At most: every Question taking four times the tokens, none cached.",
+      "Expected: the provider's prompt cache serving 70% of the input where its price has a cache rate. At most: every Question and every verdict taking four times the tokens, none cached.",
       "",
       ...rows,
     ].join("\n"),

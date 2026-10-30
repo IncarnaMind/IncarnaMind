@@ -58,7 +58,9 @@ npm run eval:citations:scan       # no key, personal data or unlisted Document i
    model with a price, so what was spent is never lost.
 3. **Judge.** Name the two judges as the chat model is named, with `INCARNAMIND_EVAL_JUDGE_*` and
    `INCARNAMIND_EVAL_SECOND_JUDGE_*`: models of two makers, neither the maker of the run's model
-   (Claude models don't judge a Claude run, whichever service serves them). A run is judged by one
+   (Claude models don't judge a Claude run, whichever service serves them). A judge whose maker
+   its name doesn't tell, such as a router's alias (`openrouter/auto`), is refused, and a run whose
+   model's maker isn't known is left unjudged by model judges. A run is judged by one
    pair: the command leaves a run of one of its judges' makers, or one another pair has begun, for
    that run's own pair, and says so. Their verdicts go into `judgements/`, one file per run and
    judge, a line a Citation, each with the SHA-256 of what the judge read and of the prompt, so an
@@ -80,14 +82,18 @@ npm run eval:citations:scan       # no key, personal data or unlisted Document i
    with why: an address a Document's publisher printed in it (an author's, a court's press office),
    named by its SHA-256, which passes in that Document and in the files that quote it; and a page
    read from its image, bound to the Document's SHA-256, so a changed file is read again. An entry
-   that matches nothing fails, and the file itself is scanned with no exceptions. `npm test` runs
-   the scan over `eval/citations/`.
+   that matches nothing fails, and the file itself is scanned with no exceptions. A home folder is
+   found in a path and also in a folder named after a path, its slashes turned into dashes. With
+   `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` set to a file outside the repository, one word or phrase
+   a line, the scan also fails on any of them, in any case; a list that is missing, empty or inside
+   the repository fails the scan. `npm test` runs the scan over `eval/citations/`.
 
 | Variable | Default | |
 |---|---|---|
 | `INCARNAMIND_EVAL_CITATIONS_CAP_USD` | none | The most a run, or the judging, may spend, in US dollars, its earlier spending included. Required for a model with a price. The run sets the app's own monthly cap to what is left of it, so each request is reserved at its most (its prompt and its output limit) and refused, unsent, when it would pass the cap; the run also stops before a Question it expects would. |
 | `INCARNAMIND_EVAL_CITATIONS_LANGUAGES` | `en,zh` | The languages to run, a run file each. |
 | `INCARNAMIND_EVAL_CITATIONS_CHECK` | `on` | `off` leaves each Answer's Note unchecked, so "with the check" reads only the Citations' own check. |
+| `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` | none | A file of words no published file may hold, kept outside the repository; the scan reads it. |
 | `INCARNAMIND_EVAL_CITATIONS_RUNS` | `eval/citations/runs` | The folder of the run files, the judgements, the settlements, the scores and the results page. |
 | `INCARNAMIND_EVAL_CITATIONS_SCRIPTED` | off | `1` asks the smoke tests' scripted chat model instead, and judges with two scripted stand-ins: a check of the pipeline at no cost, never published numbers. |
 | `INCARNAMIND_EVAL_QUESTIONS` | all | Only these Questions, by id, as for `npm run eval`. |
@@ -105,8 +111,9 @@ Question that could run into the next month. Run the same command again: it keep
 finished, stopped or ran out of time, since those were paid for, asks again only those that failed,
 and counts what the failed ones, and the work under way when it stopped, cost against the cap. An
 Answer whose Note was being checked when the run stopped is kept, with its check marked unfinished.
-A run file made with another model, set, settings or commit isn't resumed; the command says so and
-asks for another folder.
+A run file made with another model, server, set, settings or commit isn't resumed; the command
+says so and asks for another folder. The server's address isn't written in the file, only its
+SHA-256.
 
 ### The run files
 
@@ -126,20 +133,21 @@ The estimate assumes what the app's Answers path was measured to take on the mix
 Answer about 40,000 tokens in and 1,300 out, 70% of the input from the provider's prompt cache, and
 the check of its Note about five claims at 16,700 in and 330 out each. Judging assumes three
 Citations an Answer, each about 1,500 tokens in and 120 out per judge. "At most" takes four times
-the tokens with no cache, as the largest measured Answer did. Prices are the app's catalog's on
-2026-10-29; Claude Opus 5.5 and Gemini 3.1 Pro stand in for the judges until they are chosen.
+the tokens with no cache for every Question and every verdict, as the largest measured Answer did.
+Prices are the app's catalog's on 2026-10-30; Claude Opus 5.5 and Gemini 3.1 Pro stand in for the
+judges until they are chosen (a Claude or a Gemini run takes another maker's judge in its place).
 
 | Model | The run, expected | The judges, expected | At most, both |
 |---|---|---|---|
-| Claude Sonnet 5.5 | $17.59 | $5.78 | $177.08 |
-| Claude Haiku 5.5 | $0.95 | $5.78 | $14.34 |
-| GPT-6 Luna | $0.95 | $5.78 | $14.34 |
-| GPT-6.1 Sol | $17.59 | $5.78 | $177.08 |
-| Gemini 3.8 Flash | $7.09 | $5.78 | $70.02 |
-| Kimi K2.6 (International) | $9.48 | $5.78 | $85.68 |
-| DeepSeek V4 Pro | $4.82 | $5.78 | $57.59 |
-| qwen3.5:4b on Ollama | none | $5.78 | $5.78 |
-| **All** | **$58.46** | **$46.22** | **$601.91** |
+| Claude Sonnet 5.5 | $17.59 | $5.78 | $194.41 |
+| Claude Haiku 5.5 | $0.95 | $5.78 | $31.68 |
+| GPT-6 Luna | $0.95 | $5.78 | $31.68 |
+| GPT-6.1 Sol | $17.59 | $5.78 | $194.41 |
+| Gemini 3.8 Flash | $7.09 | $5.78 | $87.35 |
+| Kimi K2.6 (International) | $9.48 | $5.78 | $103.02 |
+| DeepSeek V4 Pro | $4.82 | $5.78 | $74.93 |
+| qwen3.5:4b on Ollama | none | $5.78 | $23.11 |
+| **All** | **$58.46** | **$46.22** | **$740.58** |
 
 ## The pipeline check
 
@@ -175,7 +183,9 @@ and scanned. Its `RESULTS.md` says at its top that these are not published numbe
 The published runs go into `runs/`, with their judgements, settlements, `scores.json` and
 `RESULTS.md`. Before they are published: every planned model has both languages' runs, every
 Citation is judged by two model judges and every disagreement settled, the runs come from a commit
-with no uncommitted changes, and `npm run eval:citations:scan` passes. Rerunning a model gives
+with no uncommitted changes, and `npm run eval:citations:scan` passes. The results page says at its
+top which runs fall short: a failed or timed-out Answer, another version of the set, a Document the
+app now reads differently, a Citation without a verdict, scripted judges or uncommitted changes. Rerunning a model gives
 scores within the variance the results page states once a model has been run twice.
 
 ## The set
