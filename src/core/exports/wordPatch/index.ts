@@ -40,9 +40,10 @@ import {
   plainText,
   type ReadOptions,
   readBlock,
+  readBlocks,
   readInlineNodes,
 } from "../../mindText";
-import { DocxWriter } from "../docx";
+import { DocxWriter, tableOfContentsHeadings } from "../docx";
 import type { ExportLabels } from "../labels";
 import { Review, type ReviewChoices } from "../wordReview";
 import { AtomPlan } from "./atoms";
@@ -203,7 +204,10 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await reserveIds(writer, target.ids, bookmarks);
   target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
-  const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
+  // The headings the file now holds, an added table of contents' entries; the patch writes the
+  // Blocks it changed, but the field names every heading of the Mind.
+  const headings = tableOfContentsHeadings(readBlocks(input.blocks, input.readOptions));
+  const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review, headings);
 
   // What is written new, read as the native export reads it, then its Citations styled together.
   const options = input.readOptions;

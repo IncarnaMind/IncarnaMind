@@ -135,6 +135,12 @@ const BOX = { open: "\u2610", done: "\u2612" } as const;
 const EMU_PER_TWIP = 635;
 const EMU_PER_PIXEL = 9525;
 
+/** The headings a table of contents names: every one, when the Blocks hold such a Block. */
+export function tableOfContentsHeadings(blocks: readonly Block[]): HeadingEntry[] {
+  const headings = headingEntries(blocks);
+  return headings.length > 0 && containsTableOfContents(blocks) ? headings : [];
+}
+
 /** Whether the Blocks hold a table of contents, at the top or in a quote, list or table. */
 function containsTableOfContents(blocks: readonly Block[]): boolean {
   return blocks.some((block) => {
@@ -163,15 +169,8 @@ export function renderDocx(
     ? new Review(options.review, target.ids, options.labels, () => NEW_DOCUMENT_STYLES.comment)
     : null;
   review?.mark(piecesOf(blocks));
-  const headings = headingEntries(blocks);
-  const contents = headings.length > 0 && containsTableOfContents(blocks);
-  const writer = new DocxWriter(
-    options.labels,
-    paper.width - 2 * MARGIN,
-    target,
-    review,
-    contents ? headings : [],
-  );
+  const headings = tableOfContentsHeadings(blocks);
+  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review, headings);
   const body = writer.body(blocks);
 
   const document = writer.finish(
@@ -210,7 +209,7 @@ export function renderDocx(
         name: "word/styles.xml",
         data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
-      { name: "word/settings.xml", data: settings(contents) },
+      { name: "word/settings.xml", data: settings(headings.length > 0) },
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),

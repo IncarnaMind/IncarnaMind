@@ -1128,6 +1128,19 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
 });
 
 describe("Blocks added, deleted and moved", () => {
+  test("a table of contents added to a Word file's Note is written back as Word's field (#1935)", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Scope", { style: "Heading1" }) + paragraph("Body."),
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { document } = await exported(core, mindId);
+    expect(document).toContain('TOC \\o "1-6" \\h \\z \\u');
+    expect(document).toContain("Scope");
+    expect(document).toContain("Body.");
+  });
+
   test("a new paragraph with a Citation goes after the one before it, in its look; the Citation is a footnote", async () => {
     const { core, mindId, client } = await setUp({
       body: paragraph(run("Intro.", { font: "Georgia" })) + paragraph("Outro."),
