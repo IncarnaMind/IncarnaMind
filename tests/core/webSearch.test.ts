@@ -22,7 +22,7 @@ import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core"
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, answerText } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
-import { startWeb, webSearchingModel } from "../helpers/web";
+import { connectorTo, startWeb, webSearchingModel } from "../helpers/web";
 
 const fixture = (name: string) =>
   readFileSync(new URL(`../fixtures/web/${name}`, import.meta.url), "utf8");
@@ -97,7 +97,16 @@ async function keptInside(core: Core, cited: CitationAttributes, mindId: string)
 /** A core with `model` on Anthropic, Questions allowed to go there, web search on and allowed. */
 async function setUp(
   model: MockLanguageModelV4,
-  { webSearch = true, allowSearch = true }: { webSearch?: boolean; allowSearch?: boolean } = {},
+  {
+    webSearch = true,
+    allowSearch = true,
+    gate,
+  }: {
+    webSearch?: boolean;
+    allowSearch?: boolean;
+    /** Holds every connection web search makes until `open`, and says when the first is asked for. */
+    gate?: { open: Promise<void>; reached(): void };
+  } = {},
   overrides: Partial<CoreAdapters> = {},
 ) {
   const web = await startWeb({
@@ -108,7 +117,22 @@ async function setUp(
     "/members": () => ({ status: 200, body: fixture("login.html") }),
   });
   const dataDir = await createTempDataFolder();
-  const core = startCore(dataDir, { createChatModel: () => model, ...web.adapters, ...overrides });
+  const connect = connectorTo(web.port);
+  const adapters = gate
+    ? {
+        web: {
+          ...web.adapters.web,
+          connector: (lookup: Parameters<typeof connect>[0]) => {
+            const inner = connect(lookup);
+            return (...args: Parameters<typeof inner>) => {
+              gate.reached();
+              void gate.open.then(() => inner(...args));
+            };
+          },
+        },
+      }
+    : web.adapters;
+  const core = startCore(dataDir, { createChatModel: () => model, ...adapters, ...overrides });
   const provider = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",
@@ -399,6 +423,86 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
       folder.id,
     );
     expect(await keptInside(core, cited, mind.id)).toBeNull();
+  });
+
+  /**
+   * The User saves the tea page into `into` while a turn's search, from `asking`, is saving it:
+   * where each page ends up, and whether the turn's Citation is kept inside a Folder.
+   */
+  async function userSavesWhileSearching(asking: "outside" | "inside", into: "walled" | "outside") {
+    let open = () => {};
+    let reached = () => {};
+    const gate = {
+      open: new Promise<void>((resolve) => {
+        open = resolve;
+      }),
+      reached: () => reached(),
+    };
+    const searching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model, { gate });
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const inside = await core.createMind({ title: "Client A tea", folderId: walled.id });
+    const on = asking === "inside" ? await connectToMind(core, inside.id) : client;
+    const from = asking === "inside" ? inside.id : mind.id;
+
+    const asked = askAndFinish(core, on, from, "Search the web: tea in Europe?");
+    await searching;
+    const saving = core.saveWebPage({
+      address: TEA,
+      html: fixture("article.html"),
+      folderId: into === "walled" ? walled.id : folder.id,
+    });
+    // The User's save has reached the page's save, joining the search's or starting its own.
+    await new Promise((resolve) => setImmediate(resolve));
+    open();
+    const [users, { answerId }] = await Promise.all([saving, asked]);
+
+    if (users.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+    const cited = onlyCitation(on, answerId);
+    const { assignments } = await core.getLibrary();
+    const folderOf = (id: unknown) => assignments.find((each) => each.documentId === id)?.groupId;
+    const name = (id: unknown) => (id === walled.id ? "Client A" : id === folder.id ? "Tea" : id);
+    return {
+      users: name(folderOf(users.document.id)),
+      cited: name(folderOf(cited.documentId)),
+      keptInside: await keptInside(core, cited, from),
+      pages: (await core.listDocuments()).length,
+    };
+  }
+
+  test("the User saving a page into a walled Folder while an outside search saves it: each keeps its own", async () => {
+    expect(await userSavesWhileSearching("outside", "walled")).toEqual({
+      users: "Client A",
+      cited: "Tea",
+      keptInside: null,
+      pages: 2,
+    });
+  });
+
+  test("the User saving a page outside while a walled Note's search saves it: each keeps its own", async () => {
+    expect(await userSavesWhileSearching("inside", "outside")).toEqual({
+      users: "Tea",
+      cited: "Client A",
+      keptInside: null,
+      pages: 2,
+    });
+  });
+
+  test("the User saving a page on the search's own side shares the one page, in the User's Folder", async () => {
+    expect(await userSavesWhileSearching("outside", "outside")).toEqual({
+      users: "Tea",
+      cited: "Tea",
+      keptInside: null,
+      pages: 1,
+    });
   });
 
   test("an outside turn reads a page again that the User saved into a walled Folder before", async () => {

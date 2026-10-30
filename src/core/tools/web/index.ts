@@ -17,7 +17,7 @@ import type {
   ExternalService,
   WebPageResult,
 } from "../../api";
-import type { PageReuse } from "../../documents/web";
+import { type PageReuse, wallKey } from "../../documents/web";
 import { WebPageError } from "../../documents/web/errors";
 import type { PageFetch } from "../../documents/web/fetch";
 import { NotFoundError } from "../../errors";
@@ -120,10 +120,9 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
         throw error;
       }
       // A page saved on the other side of a wall is read again, never reused: its Citation would
-      // name a Folder this turn can't see (#2243). A save under way is shared only with turns on
-      // this side, never with the User's own save, which may file it behind a wall.
+      // name a Folder this turn can't see (#2243).
       const result = await options.savePage(address, fetcher.fetch, {
-        key: `wall:${wallId ?? "none"}`,
+        key: wallKey(wallId),
         reusable: (documentId) => options.walledDocument(documentId) === wallId,
       });
       if (result.outcome === "failed") return { outcome: "failed", reason: result.failure.reason };

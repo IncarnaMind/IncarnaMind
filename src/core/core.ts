@@ -175,7 +175,7 @@ import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
 import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
-import { createWebPages } from "./documents/web";
+import { createWebPages, wallKey } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
@@ -4333,7 +4333,12 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new NotFoundError({ key: "error.folder.notFound" });
       }
       const since = now();
-      const result = await webPages.save(input);
+      // A save under way for the other side of a wall is never joined: the User's Folder would
+      // take a turn's page across it, or never get its own (#2243).
+      const into = typeof folderId === "string" ? walledFolderId(folderId) : null;
+      const result = await webPages.save(input, undefined, undefined, "user", {
+        key: wallKey(into),
+      });
       if (result.outcome === "saved" && !result.existing && typeof folderId === "string") {
         library.assign(result.document.id, folderId);
       }

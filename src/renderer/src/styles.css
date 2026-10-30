@@ -2543,7 +2543,7 @@
     background: var(--color-hover);
     color: var(--color-ink-secondary);
   }
-  .composer-controls:has([data-stand-in]) > .composer-scope-all {
+  .composer-controls:has([data-stand-in]) > :is(.composer-scope-all, .composer-scope-waiting) {
     flex: 1 1 0;
     min-width: 22px;
     max-width: max-content;
