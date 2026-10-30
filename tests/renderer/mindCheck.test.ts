@@ -149,6 +149,7 @@ describe("Asking before checking against Documents added since", () => {
     const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     await startMindCheck("mind", "added");
     expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
 });
@@ -698,6 +699,7 @@ describe("Check every sentence again", () => {
     const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     await startMindCheck("mind", "all");
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "all" }));
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
 });
