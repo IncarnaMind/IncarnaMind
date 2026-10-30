@@ -149,6 +149,12 @@ export interface ChecksOptions
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  /** The Folder whose work stays inside it, or null when this Mind is not walled. */
+  walledFolder(mindId: string | null): string | null;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -166,7 +172,7 @@ export interface ChecksOptions
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  resolveScope(scope: SearchScope): string[] | null;
+  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
@@ -458,7 +464,28 @@ export function createChecks(options: ChecksOptions) {
     mindId: string,
     sourceText = check.text,
     priorParts?: readonly ClaimCheckPart[],
+    previous: ClaimCheckAttributes | null = null,
   ): ClaimCheckAttributes {
+    const before = previous ?? check;
+    const evidence = before.evidence;
+    const evidenceWall = evidence?.documentId ? options.walledDocument(evidence.documentId) : null;
+    if (
+      result.verdict === "not-checked" &&
+      result.reason === "kept-inside" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked"
+    ) {
+      return before;
+    }
+    if (
+      result.verdict === "unsupported" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked" &&
+      evidenceWall !== null &&
+      evidenceWall !== options.walledFolder(mindId)
+    ) {
+      return before;
+    }
     return withResult(
       check,
       {
@@ -603,13 +630,17 @@ export function createChecks(options: ChecksOptions) {
   function scopeOf(mindId: string, allDocuments: boolean, checked: CheckedDocument = {}) {
     const own = options.mindFolder(mindId);
     const chosen = content.readSettings(mindId, mindScopeIn);
-    const wanted = allDocuments ? null : options.searchedScope(chosen ?? folderScope(own), mindId);
+    const walled = options.walledFolder(mindId) !== null;
+    const wanted =
+      allDocuments && !walled
+        ? null
+        : options.searchedScope(allDocuments ? null : (chosen ?? folderScope(own)), mindId);
     const folderId = oneFolderOf(wanted);
     const inChosen = chosen !== null && wanted !== null && (own === null || folderId !== own);
     // An own Folder that holds no Document searches everything, as "Search all Documents" does.
     const marked: ClaimCheckScope = inChosen
       ? { folderId: own, widened: false, chosen: wanted }
-      : { folderId: own, widened: allDocuments || own !== folderId };
+      : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
     const resolved = options.scopeDocuments(wanted, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
@@ -775,6 +806,7 @@ export function createChecks(options: ChecksOptions) {
             ...((owner?.parts ?? physicalPrior?.parts) && {
               priorParts: owner?.parts ?? physicalPrior?.parts,
             }),
+            before: priorFigures,
           },
         ];
       });
@@ -809,7 +841,16 @@ export function createChecks(options: ChecksOptions) {
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
         updateCheck(blocks, sentence.id, (check) =>
-          noteResult(check, result, at, blocks, mindId, sentence.claim, sentence.priorParts),
+          noteResult(
+            check,
+            result,
+            at,
+            blocks,
+            mindId,
+            sentence.claim,
+            sentence.priorParts,
+            sentence.before,
+          ),
         ),
       );
       if (kept) retainEvidence(mindId);

@@ -302,6 +302,21 @@ test.each([
 });
 
 describe("Check this note", () => {
+  // protects=a second Check of a Note while one runs starts none, whichever window or request asks, and says one is running; the first goes on to its end; fails_when=two runs check the same Note at once; no_claim=a Check of another Note, which runs beside it.
+  test("one Check of a Note at a time: a second, from anywhere, starts none", async () => {
+    const { core, mindId, finds } = await setUp();
+
+    const first = core.checkMind(request(mindId, "all", "first-window"));
+    const second = core.checkMind(request(mindId, "all", "second-window"));
+
+    expect(await second).toEqual({ kind: "running" });
+    expect(await first).toMatchObject({ kind: "checked", sentences: 3 });
+    expect(finds).toHaveLength(1);
+    expect(await core.checkMind(request(mindId, "all", "after"))).toMatchObject({
+      kind: "checked",
+    });
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {

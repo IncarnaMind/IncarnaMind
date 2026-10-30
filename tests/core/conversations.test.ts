@@ -1166,6 +1166,7 @@ describe("A conversation's Citations", { timeout: 60_000 }, () => {
     if (!citation) throw new Error("No Citation.");
     expect(
       await later.recheckCitation({
+        mindId: null,
         documentId: citation.documentId,
         pageFrom: citation.pageFrom,
         pageTo: citation.pageTo,

@@ -271,9 +271,11 @@ export function DocumentsSection() {
             {t("library.none")}
           </ProblemLine>
         )}
-        {!quiet && hasLinkedFolders && (
-          <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows hideExamples={foldExamples} />
+        {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
+            being read, where the rest of the Library waits for the first Document (#763). */}
+        {hasLinkedFolders && (
+          <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
+            <LinkedFolderRows hideExamples={exampleMindId !== null} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}

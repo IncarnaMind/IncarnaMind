@@ -26,7 +26,7 @@ import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
-import { SignOffsContext } from "./mindContext";
+import { MindIdContext, SignOffsContext } from "./mindContext";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
   citationSignOff,
@@ -69,6 +69,7 @@ function PartCitation({
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
+  const mindId = useContext(MindIdContext);
   const personId = usePersonId();
   const versions = useDocumentVersions();
   const id = typeof citation.id === "string" ? citation.id : null;
@@ -91,6 +92,7 @@ function PartCitation({
     void openCitedFollowing(
       { ...citation, documentId: state.documentId ?? citation.documentId },
       { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
+      mindId,
     );
     onOpen();
   };

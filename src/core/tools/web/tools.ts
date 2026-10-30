@@ -62,6 +62,7 @@ const REASONS: Record<WebPageFailureReason, string> = {
   "too-many-redirects": "it redirects too many times",
   "not-from-search": "search_web didn't return it in this Answer",
   "local-mode": "Local mode is on, so no page is fetched",
+  "kept-inside": "this work stays inside its Folder, and that Folder can't be found now",
 };
 
 function resultsText(query: string, pages: readonly WebResult[]): string {

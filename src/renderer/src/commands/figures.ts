@@ -17,6 +17,7 @@ const figureSignOffCommands: Command[] = (["signOff", "signOffRemove"] as const)
   return {
     id,
     label: "signOff.action",
+    assistant: { never: "signOff" },
     keywords: ["signOff.keywords"],
     group: "edit",
     reversible: true,
@@ -95,6 +96,7 @@ export const figureScheduleCommands: readonly Command[] = [
   },
   {
     id: "figures.signOffChosen",
+    assistant: { never: "signOff" },
     label: (ctx, t) => {
       const { rows, off } = toSignOff(chosenFigures(ctx));
       return rows.length > 1

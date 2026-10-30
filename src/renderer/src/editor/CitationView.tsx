@@ -55,6 +55,7 @@ import {
   unpinCitation,
 } from "../pinnedCitation";
 import { recordUsage, useAppStore } from "../store";
+import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
 import { CitationQuotedWords } from "./CitationQuotedWords";
 import {
@@ -150,17 +151,21 @@ export function CitationView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useKeptInside(attributes.documentId);
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
-  const state = citationState(attributes, documents, kept);
+  const state = citationState(attributes, documents, kept, keptInside);
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
-  const recheck = useCitationRecheck(
+  const looked = useCitationRecheck(
     state.changedAfterCited ? attributes : null,
     state.changedAfterCited,
     liveVersion,
+    mindId,
   );
+  // Kept inside a wall, nothing of the new version was read: the card says Kept inside and its last result.
+  const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
   const where = location ? formatLocation(location, t) : null;
@@ -743,6 +748,11 @@ function CitationCard({
           <span>{badgeText}</span>
         </p>
         {source && <p className="citation-card-source">{source}</p>}
+        {state.keptInside && (
+          <p data-testid="citation-kept-inside" className="citation-card-source">
+            {t("citation.reason.kept-inside", { folder: state.keptInside })}
+          </p>
+        )}
         {withPdfPage && (
           <p data-testid="citation-pdf-page" className="citation-card-source">
             {withPdfPage}

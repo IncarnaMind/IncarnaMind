@@ -153,6 +153,8 @@ interface Sending {
 }
 
 export function createMindCheck(options: MindCheckOptions) {
+  /** The Notes a Check is running on now. */
+  const checking = new Set<string>();
   const { content } = options;
 
   const modelOf = (mindId: string): ChatModelChoice | null =>
@@ -711,11 +713,15 @@ export function createMindCheck(options: MindCheckOptions) {
       if (options.isRunning(parsed.requestId)) {
         throw new InvalidInputError({ key: "error.mindCheck.request" });
       }
+      // One Check of a Note at a time, whichever window or request asks for it.
+      if (checking.has(parsed.mindId)) return { kind: "running" };
+      checking.add(parsed.mindId);
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
         return await check(parsed, tracked.signal);
       } finally {
         tracked.done();
+        checking.delete(parsed.mindId);
       }
     },
   };

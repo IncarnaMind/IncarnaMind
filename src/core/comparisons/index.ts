@@ -38,9 +38,10 @@ import {
 } from "../../shared/comparisons";
 import { recordProposalRequest, targetHash } from "../../shared/proposals";
 import {
-  comparisonCellReviewed,
+  comparisonCellChecked,
+  comparisonCellContent,
+  comparisonCellMarked,
   comparisonCellTarget,
-  removeComparisonCellSignOffs,
   signOffsOf,
 } from "../../shared/signOffs";
 import type { CellAnswer } from "../answers";
@@ -84,6 +85,7 @@ import {
   type ComparisonRowRemoveRequest,
   type ComparisonRowsAdded,
   type ComparisonRowsAddRequest,
+  type ComparisonStopRequest,
   type ComparisonStructureRef,
   type ComparisonStructureUndoResult,
   type ComparisonTableRef,
@@ -290,8 +292,8 @@ export interface ComparisonsOptions {
     /** How many of `ids` have Passages to search. */
     searchableCount(ids: readonly string[]): number;
   };
-  /** The Documents among `ids` that checks may use as evidence (#80). */
-  evidence(ids: readonly string[]): string[];
+  /** The Documents among `ids` that this Mind's checks may use as evidence (#80). */
+  evidence(ids: readonly string[], mindId: string): string[];
   /** Saves a Checkpoint of the Mind as it is before the table goes in (#113). */
   checkpoint(mindId: string): void;
   tasks: ComparisonTasks;
@@ -322,7 +324,9 @@ type Written =
   | { kind: "answer"; blocks: NodeJSON[] }
   | { kind: "problem"; problem: ComparisonProblem; message?: string }
   /** Its column was hidden before its turn came: it stays waiting, with no model call. */
-  | { kind: "left-out" };
+  | { kind: "left-out" }
+  /** The User took its refill back: the cell is theirs again, and nothing is written to it. */
+  | { kind: "withdrawn" };
 
 interface Fill {
   mindId: string;
@@ -334,6 +338,8 @@ interface Fill {
   local: boolean;
   /** The union of row/column targets it fills; null: every cell to fill in the table. */
   scope: ComparisonScope;
+  /** Refill passes the User took back while it ran: their cells' Answers abort and write nothing. */
+  withdrawn: Map<string, AbortController>;
 }
 
 /** What a cell's attributes are set to, and its content (none: one empty paragraph). */
@@ -380,6 +386,15 @@ function parseRef(input: unknown, what: string): ComparisonTableRef {
     throw new InvalidInputError(`${what} needs a Note and a comparison table.`);
   }
   return { mindId: String(input.mindId ?? ""), tableId: input.tableId };
+}
+
+function parseStop(input: unknown): ComparisonStopRequest {
+  const ref = parseRef(input, "stopComparisonTable");
+  const pass = isRecord(input) ? input.pass : undefined;
+  if (pass !== undefined && (typeof pass !== "string" || pass === "")) {
+    throw new InvalidInputError({ key: "error.comparison.fillPass" });
+  }
+  return { ...ref, ...(typeof pass === "string" && { pass }) };
 }
 
 function parseColumnMove(input: unknown): ComparisonColumnMove {
@@ -637,11 +652,42 @@ const tableIn = (blocks: Y.XmlFragment, tableId: string) =>
 const elements = (parent: Y.XmlElement) =>
   parent.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 
-function cellReviewer(table: Y.XmlElement): (documentId: string, questionId: string) => boolean {
+type Versions = (documentIds: readonly string[]) => ReadonlyMap<string, string>;
+
+/** Whether someone's mark on a cell stands on its Answer as it is now, so a bulk refill leaves it. */
+function cellChecker(
+  table: Y.XmlElement,
+  versions: Versions,
+): (documentId: string, element: Y.XmlElement) => boolean {
   const records = table.doc ? signOffsOf(table.doc) : [];
   const tableId = String(table.getAttribute("id") ?? "");
-  return (documentId, questionId) =>
-    comparisonCellReviewed(records, comparisonCellTarget(tableId, documentId, questionId));
+  return (documentId, element) => {
+    const target = comparisonCellTarget(
+      tableId,
+      documentId,
+      String(element.getAttribute("questionId") ?? ""),
+    );
+    if (!comparisonCellMarked(records, target)) return false;
+    const content = comparisonCellContent(nodeOf(element));
+    const cited = content.citations.flatMap(({ documentId }) => (documentId ? [documentId] : []));
+    return comparisonCellChecked(records, target, content, versions(cited));
+  };
+}
+
+/**
+ * Whether a refill pass already wrote the cell, before a quit or a pause: its step ended, other
+ * than by the monthly cap or a plan's limit, which leave it for "Fill N cells".
+ */
+function writtenByPass(
+  task: TaskRun | null,
+  cell: Pick<Cell, "documentId" | "questionId" | "pass">,
+) {
+  if (!task || !cell.pass) return false;
+  const step = task.step(stepOf(cell));
+  if (step?.status === "completed") return true;
+  if (step?.status !== "failed") return false;
+  const problem = isRecord(step.result) ? step.result.problem : null;
+  return problem !== "cost-cap" && problem !== "plan-limit";
 }
 
 function candidate(
@@ -669,9 +715,14 @@ function beforeOf(element: Y.XmlElement): CellBefore {
 }
 
 /** The cells to fill in a table, row by row, each row's in its columns' order. */
-function cellsToFill(table: Y.XmlElement, only: ComparisonScope = null): Cell[] {
+function cellsToFill(
+  table: Y.XmlElement,
+  only: ComparisonScope,
+  versions: Versions,
+  task: TaskRun | null,
+): Cell[] {
   const questions = comparisonQuestionsOf(table.getAttributes());
-  const reviewed = cellReviewer(table);
+  const checked = cellChecker(table, versions);
   const cells: Cell[] = [];
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -686,7 +737,9 @@ function cellsToFill(table: Y.XmlElement, only: ComparisonScope = null): Cell[] 
       const element = byQuestion.get(question.id);
       if (!element) continue;
       const target = targetForCell(only, documentId, question.id, element.getAttribute("fillId"));
-      if (!candidate(element, target, reviewed(documentId, question.id))) continue;
+      if (!candidate(element, target, checked(documentId, element))) continue;
+      if (writtenByPass(task, { documentId, questionId: question.id, pass: target?.pass }))
+        continue;
       const mode = target?.mode ?? "fill";
       cells.push({
         documentId,
@@ -711,8 +764,9 @@ const cellJSON = (questionId: string): NodeJSON => ({
 /** A table's cells settled (written, or without an Answer), and in all. */
 function progressOf(
   table: Y.XmlElement,
-  only: ComparisonScope = null,
+  only: ComparisonScope,
   task: TaskRun,
+  versions: Versions,
 ): {
   done: number;
   total: number;
@@ -724,7 +778,7 @@ function progressOf(
       .filter((question) => question.hidden === true)
       .map((question) => question.id),
   );
-  const reviewed = cellReviewer(table);
+  const checked = cellChecker(table, versions);
   for (const row of elements(table)) {
     if (row.nodeName !== COMPARISON_ROW_NODE) continue;
     const documentId = String(row.getAttribute("documentId") ?? "");
@@ -737,7 +791,7 @@ function progressOf(
       if (
         target?.mode &&
         target.mode !== "fill" &&
-        !candidate(cell, target, reviewed(documentId, questionId)) &&
+        !candidate(cell, target, checked(documentId, cell)) &&
         task.step(stepOf({ documentId, questionId, pass: target?.pass })) === null
       ) {
         continue;
@@ -755,8 +809,9 @@ export function createComparisons(options: ComparisonsOptions) {
   const fills = new Map<string, Fill>();
   // Requests made while a Task is between fills join its durable scope when the fill starts.
   const extraScopes = new Map<string, ComparisonTarget[]>();
+  const versionsNow: Versions = (ids) =>
+    new Map(options.documents.live(ids).map((document) => [document.id, document.contentHash]));
 
-  // Adds a request's targets to the Task's durable input and to its fill going, if any.
   function widen(tableId: string, targets: ComparisonScope): void {
     const task = taskOf(tableId);
     const input = task ? taskInputOf(task.input) : null;
@@ -842,19 +897,16 @@ export function createComparisons(options: ComparisonsOptions) {
         const element = row
           ? elements(row).find((each) => each.getAttribute("questionId") === cell.questionId)
           : undefined;
-        if (!element || (cell.pass && element.getAttribute("fillId") !== cell.pass)) {
+        if (
+          !element ||
+          (cell.pass &&
+            (element.getAttribute("fillId") !== cell.pass ||
+              fill.withdrawn.get(cell.pass)?.signal.aborted))
+        ) {
           result = "cell";
           continue;
         }
-        if (patch.reviewed === null && all.doc) {
-          removeComparisonCellSignOffs(
-            all.doc,
-            comparisonCellTarget(tableId, cell.documentId, cell.questionId),
-            new Date().toISOString(),
-          );
-        }
         for (const [name, value] of Object.entries(patch)) {
-          if (name === "reviewed") continue;
           if (value === null || value === undefined) element.removeAttribute(name);
           else element.setAttribute(name, String(value));
         }
@@ -896,7 +948,7 @@ export function createComparisons(options: ComparisonsOptions) {
         restoreBefore(fill, tableId, cell);
         return;
       case "done":
-        if (outcome.value.kind === "left-out") return;
+        if (outcome.value.kind === "left-out" || outcome.value.kind === "withdrawn") return;
         patch =
           outcome.value.kind === "answer"
             ? {
@@ -937,7 +989,6 @@ export function createComparisons(options: ComparisonsOptions) {
     }
     if (outcome.status === "done" && outcome.value.kind === "answer" && cell.mode !== "fill") {
       patch.edited = null;
-      patch.reviewed = null;
     }
     try {
       if (setCell(fill, tableId, cell, patch) === "table") {
@@ -957,7 +1008,7 @@ export function createComparisons(options: ComparisonsOptions) {
   function reportProgress(fill: Fill, tableId: string): void {
     const progress = content.read(fill.mindId, (all) => {
       const table = tableIn(all, tableId);
-      return table ? progressOf(table, fill.scope, fill.task) : null;
+      return table ? progressOf(table, fill.scope, fill.task, versionsNow) : null;
     });
     if (progress) fill.task.progress(progress);
   }
@@ -970,24 +1021,69 @@ export function createComparisons(options: ComparisonsOptions) {
   async function write(fill: Fill, tableId: string, cell: Cell): Promise<Written> {
     // Hidden since its batch was listed: its turn never comes, so it waits for Show.
     if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
+    const withdrawn = cell.pass ? passController(fill, cell.pass).signal : null;
+    if (withdrawn?.aborted) return { kind: "withdrawn" };
     const turn = await fill.task.turn(fill.local);
     try {
       // It can be hidden while it waits for its turn, too.
       if (!cellShown(fill, tableId, cell)) return { kind: "left-out" };
+      if (withdrawn?.aborted) return { kind: "withdrawn" };
       const written = await writeCell(
         fill,
         tableId,
         cell,
-        AbortSignal.any([fill.controller.signal, turn.signal]),
+        AbortSignal.any([fill.controller.signal, turn.signal, ...(withdrawn ? [withdrawn] : [])]),
       );
+      if (withdrawn?.aborted) return { kind: "withdrawn" };
       if (turn.signal.aborted && !fill.controller.signal.aborted) throw new RunItemGaveWay();
       return written;
     } catch (error) {
+      if (withdrawn?.aborted && !fill.controller.signal.aborted) return { kind: "withdrawn" };
       if (turn.signal.aborted && !fill.controller.signal.aborted) throw new RunItemGaveWay();
       throw error;
     } finally {
       turn.end();
     }
+  }
+
+  function passController(fill: Fill, pass: string): AbortController {
+    let controller = fill.withdrawn.get(pass);
+    if (!controller) {
+      controller = new AbortController();
+      fill.withdrawn.set(pass, controller);
+    }
+    return controller;
+  }
+
+  /**
+   * Takes one refill pass out of a table's fill, as its Undo asks: its cells left are never asked
+   * and those being written stop, while the rest of the fill goes on (#1836).
+   */
+  function withdraw(tableId: string, pass: string): void {
+    const without = (scope: ComparisonScope) =>
+      scope === null ? null : scope.filter((target) => target.pass !== pass);
+    const task = taskOf(tableId);
+    const input = task ? taskInputOf(task.input) : null;
+    const before = input ? scopeOfInput(input) : null;
+    const after = without(before);
+    if (task && input && after && after.length !== before?.length) {
+      options.tasks.updateInput(task.id, {
+        tableId: input.tableId,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        targets: after,
+      });
+    }
+    const extra = extraScopes.get(tableId);
+    if (extra)
+      extraScopes.set(
+        tableId,
+        extra.filter((target) => target.pass !== pass),
+      );
+    const fill = fills.get(tableId);
+    if (!fill) return;
+    fill.scope = without(fill.scope);
+    passController(fill, pass).abort();
   }
 
   async function writeCell(
@@ -1005,7 +1101,7 @@ export function createComparisons(options: ComparisonsOptions) {
     const [document] = options.documents.live([cell.documentId]);
     if (!document) return { kind: "problem", problem: "source-removed" };
     if (document.notCited) return { kind: "problem", problem: "not-cited" };
-    const documentIds = options.evidence([document.id]);
+    const documentIds = options.evidence([document.id], fill.mindId);
     if (documentIds.length === 0) return { kind: "problem", problem: "left-out" };
     if (options.documents.searchableCount(documentIds) === 0) {
       return { kind: "problem", problem: "nothing-to-search" };
@@ -1065,7 +1161,7 @@ export function createComparisons(options: ComparisonsOptions) {
       if (signal.aborted || !options.mindExists(fill.mindId)) return null;
       const cells = content.read(fill.mindId, (all) => {
         const table = tableIn(all, tableId);
-        return table ? cellsToFill(table, fill.scope) : null;
+        return table ? cellsToFill(table, fill.scope, versionsNow, fill.task) : null;
       });
       if (cells === null) {
         fill.controller.abort();
@@ -1108,7 +1204,9 @@ export function createComparisons(options: ComparisonsOptions) {
         const left = content.read(fill.mindId, (all) => {
           const table = tableIn(all, tableId);
           return table
-            ? cellsToFill(table, fill.scope).filter((cell) => !tried.has(keyOf(cell)))
+            ? cellsToFill(table, fill.scope, versionsNow, fill.task).filter(
+                (cell) => !tried.has(keyOf(cell)),
+              )
             : [];
         });
         for (const cell of left) record(fill, tableId, cell, { status: "not-checked", stop });
@@ -1184,6 +1282,7 @@ export function createComparisons(options: ComparisonsOptions) {
       task,
       local: options.chat.runsLocally(ready.model),
       scope,
+      withdrawn: new Map(),
     };
     fills.set(tableId, fill);
     task.retain(rowVersions(mindId, tableId));
@@ -1920,7 +2019,7 @@ export function createComparisons(options: ComparisonsOptions) {
   async function addRows(raw: unknown): Promise<ComparisonRowsAdded> {
     const input = parseRowsAdd(raw);
     const mindId = options.requireMind(input.mindId);
-    const counted = new Set(options.evidence(input.documentIds));
+    const counted = new Set(options.evidence(input.documentIds, mindId));
     const documents = options.documents
       .live(input.documentIds)
       .filter((document) => counted.has(document.id))
@@ -2141,7 +2240,9 @@ export function createComparisons(options: ComparisonsOptions) {
       ) {
         throw new InvalidInputError("documentIds must be a list of Document ids.");
       }
-      const counted = new Set(options.evidence([...new Set(input.documentIds as string[])]));
+      const counted = new Set(
+        options.evidence([...new Set(input.documentIds as string[])], mindId),
+      );
       const documents = options.documents
         .live([...new Set(input.documentIds as string[])])
         .filter((document) => counted.has(document.id));
@@ -2232,13 +2333,12 @@ export function createComparisons(options: ComparisonsOptions) {
         const eligible = content.read(mindId, (blocks) => {
           const table = tableIn(blocks, ref.tableId);
           if (!table) return 0;
-          return cellsToFill(table, targets).length;
+          return cellsToFill(table, targets, versionsNow, null).length;
         });
         if (eligible === 0) return { started: false, reason: "nothing-to-fill" };
       }
       const task = taskOf(ref.tableId);
       if (task && options.tasks.isLive(task.id)) {
-        // The Task going takes this request's targets with it.
         widen(ref.tableId, targets);
         return { started: true, tableId: ref.tableId };
       }
@@ -2267,9 +2367,11 @@ export function createComparisons(options: ComparisonsOptions) {
     forgetWindow: (input: unknown) => forgetWindow(input),
 
     async stop(input: unknown): Promise<void> {
-      const ref = parseRef(input, "stopComparisonTable");
+      const ref = parseStop(input);
       const task = taskOf(ref.tableId);
-      if (task && task.mindId === ref.mindId) await options.tasks.stop(task.id);
+      if (!task || task.mindId !== ref.mindId) return;
+      if (ref.pass) withdraw(ref.tableId, ref.pass);
+      else await options.tasks.stop(task.id);
     },
 
     filling(): ComparisonTableRef[] {

@@ -15,6 +15,7 @@ import { mindName } from "../../../shared/naming";
 import {
   chosenScope,
   filingFolder,
+  folderScope,
   hasSearchScope,
   mindSearchScope,
   type ScopeKind,
@@ -44,6 +45,7 @@ import {
   useAnswerBeingWritten,
   useConversations,
   useHasMessage,
+  useOpenConversation,
 } from "../conversations";
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
@@ -63,13 +65,15 @@ import {
   useWebMissing,
   useWebReach,
 } from "../research";
-import type { ScopeChoice } from "../scope";
+import { type ScopeChoice, scopeWithin } from "../scope";
 import { useFolderHoldsDocuments } from "../scopeDocuments";
 import { skillDescription } from "../skills";
 import { useAppStore } from "../store";
 import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
+import { useTurnWall } from "../turnWall";
+import { scopeOutsideWalls } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -157,12 +161,24 @@ export function Composer({
     (state) => state.minds.find((each) => each.id === (source?.mindId ?? mindId))?.folderId ?? null,
   );
   const folderHolds = useFolderHoldsDocuments(folderId);
+  const conversationId = useOpenConversation()?.id ?? null;
+  const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
+  const walled = wallId !== null;
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
   );
+  const leftOutCount = useAppStore(
+    (state) => state.library?.groups.filter((group) => group.keepInside).length ?? 0,
+  );
+  const allLabel =
+    leftOutCount === 0
+      ? t("composer.scope.all")
+      : t(leftOutCount === 1 ? "composer.scope.leftOut.one" : "composer.scope.leftOut", {
+          count: leftOutCount,
+        });
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = mindSearchScope(scopeDraft.scope, folderId, folderHolds);
+  const scope = scopeWithin(wallId, mindSearchScope(scopeDraft.scope, folderId, folderHolds));
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -250,10 +266,17 @@ export function Composer({
     } else {
       composer.update(key, change);
     }
-    if (change.scope !== undefined) setScope(change.scope);
+    if (change.scope !== undefined && !walled) setScope(change.scope);
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
-  const updateScope = (next: SearchScope) => update({ scope: chosenScope(next, folderId) });
+  const withinWall = (next: SearchScope) => {
+    if (wallId !== null) return folderScope(wallId);
+    return chosenScope(
+      scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
+      folderId,
+    );
+  };
+  const updateScope = (next: SearchScope) => update({ scope: withinWall(next) });
 
   // Single-line text sits beside the controls; once it would run past one line, it takes the
   // full width and they move to a row under it. Decided from the width one line has beside the
@@ -373,7 +396,7 @@ export function Composer({
       ? scope
       : { ...scope, [SCOPE_LISTS[choice.kind]]: [...ids, choice.id] };
     update({
-      scope: chosenScope(next, folderId),
+      scope: withinWall(next),
       ...(picking && { text: withoutTyped(picking) }),
     });
     setPicking(null);
@@ -430,7 +453,7 @@ export function Composer({
   // Back to the wide scope it narrowed, never straight to the whole Library: All Documents is a
   // second, deliberate step in the "@" picker.
   const goBack = () => {
-    update({ scope: before });
+    update({ scope: before === null ? before : withinWall(before) });
     field.current?.focus();
   };
   const backLabel =
@@ -491,6 +514,8 @@ export function Composer({
       const saved = await core.saveTextAsDocument({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
+        mindId: source?.mindId ?? mindId,
+        conversationId,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);
@@ -988,7 +1013,7 @@ export function Composer({
               onRemove={removeFromScope}
               {...(scopeDraft.scope !== null &&
                 hasSearchScope(scopeDraft.scope) && { back: { label: backLabel, onBack: goBack } })}
-              onChange={openScopePicker}
+              onChange={walled ? undefined : openScopePicker}
               shown={CHIPS_SHOWN}
               className="composer-scope"
               testId="composer-scope"
@@ -998,20 +1023,24 @@ export function Composer({
               type="button"
               data-testid="composer-scope-all"
               aria-label={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allLabel")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allLabel")
               }
               title={
-                folderName !== null && !folderHolds
-                  ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                  : t("composer.scope.allTitle")
+                leftOutCount > 0
+                  ? allLabel
+                  : folderName !== null && !folderHolds
+                    ? t("composer.scope.allEmptyFolder", { folder: folderName })
+                    : t("composer.scope.allTitle")
               }
               onClick={openScopePicker}
               className="composer-chip composer-scope-all"
             >
               <SearchIcon className="composer-chip-icon" />
-              <span className="truncate">{t("composer.scope.all")}</span>
+              <span className="truncate">{allLabel}</span>
             </button>
           )}
           {answering && !editing ? (
@@ -1072,6 +1101,18 @@ export function Composer({
               ref={list}
               id={listId}
               scope={scope}
+              ownFolderId={folderId}
+              onOpenNote={(id) => {
+                setPicking(null);
+                const group = useAppStore.getState().library?.groups.find((each) => each.id === id);
+                if (!group) return;
+                void useAppStore.getState().startMindFrom({
+                  kind: "folder",
+                  scope: folderScope(id),
+                  count: 0,
+                  title: group.name,
+                });
+              }}
               query={picking.query}
               onChoose={chooseScope}
               onSelect={setOption}

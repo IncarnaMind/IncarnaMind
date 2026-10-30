@@ -3881,6 +3881,13 @@
     line-height: 20px;
     color: var(--color-ink-secondary);
   }
+  .approval-read-text {
+    margin-left: 16px;
+    overflow-wrap: anywhere;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    color: var(--color-ink-meta);
+  }
   .approval-details {
     display: flex;
     flex-direction: column;

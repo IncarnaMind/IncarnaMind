@@ -57,8 +57,9 @@ import {
   type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import { citedPageKey } from "../citedPages";
-import { InvalidInputError, isRecord } from "../errors";
+import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
 import {
@@ -620,7 +621,7 @@ export function createExports(deps: ExportsDependencies) {
       const prepared = prepare(mindId, options);
       const { title, preview, language, format, style, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
-        throw new Error("This copy of IncarnaMind can't make PDFs.");
+        throw new TranslatableError({ key: "error.checkRecord.noPdf" });
       }
       if (format === "source-pack") return sourcePack(prepared);
       const thin = thinEntries(
@@ -731,7 +732,7 @@ export function createExports(deps: ExportsDependencies) {
     word: NonNullable<Prepared["word"]>,
     thin: ThinEntries,
   ): Promise<MindExport> {
-    if (word.importing) throw new Error("This Note is still being imported from its Word file.");
+    if (word.importing) throw new TranslatableError({ key: "error.export.wordImporting" });
     const { language, style, documents } = prepared;
     // A copy of the Mind as it is now: typing while the file is written doesn't change it.
     const state = deps.read(prepared.mindId, (blocks) =>
@@ -963,10 +964,7 @@ function checkedLines(
       quote: attributes.quote ?? null,
     };
     return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
-      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
-        name: now.name ?? t("checkRecord.notRecorded"),
-        date: formatDate(now.at, language),
-      }),
+      checkedByLine(now, (at) => formatDate(at, language), t),
     );
   };
 }

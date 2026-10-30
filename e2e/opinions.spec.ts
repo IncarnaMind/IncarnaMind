@@ -806,6 +806,7 @@ for (const language of ["en", "zh-CN"] as const) {
             contentHash,
             pageFrom: 1,
             pageTo: 1,
+            mindId: null,
           }),
         {
           documentId: changedDocument.id,
@@ -813,6 +814,7 @@ for (const language of ["en", "zh-CN"] as const) {
           contentHash: changedDocument.contentHash,
         },
       );
+      if ("keptInside" in original) throw new Error("The changed Source is behind no wall.");
       expect(original).toMatchObject({
         check: "found",
         pageFrom: 1,

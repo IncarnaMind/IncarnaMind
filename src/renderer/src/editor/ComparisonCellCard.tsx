@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { badgeMessage, citationState, citedLocation } from "../../../shared/citations";
 import { cellProblemMessage, comparisonCellOf } from "../../../shared/comparisons";
+import { checkedByMe } from "../../../shared/signOffs";
 import type { ComparisonCellHandle } from "../comparisonCellHandle";
 import { comparisonCellKey, comparisonCellRef } from "../comparisonCellHandle";
 import { useComparisonCells } from "../comparisonCellState";
@@ -22,7 +23,8 @@ import { useAppStore } from "../store";
 import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { citationsIn } from "./copyNotes";
 import { Popover } from "./Popover";
-import { useComparisonCellReviewed } from "./signOffActions";
+import { SignOffLine } from "./SignOff";
+import { useComparisonCellSignOff } from "./signOffActions";
 
 export function ComparisonCellCard({
   handle,
@@ -42,9 +44,15 @@ export function ComparisonCellCard({
   const filling = useComparisons((state) => state.filling.has(handle.tableId));
   const checking = useComparisonCells((state) => state.checking[key] === true);
   const problem = useComparisonCells((state) => state.checkProblems[key]);
-  const reviewed = useComparisonCellReviewed(handle.tableId, handle.documentId, handle.questionId);
+  const signOff = useComparisonCellSignOff(
+    handle.tableId,
+    handle.documentId,
+    handle.questionId,
+    location?.cell ?? null,
+  );
   if (!location) return null;
-  const cell = { ...comparisonCellOf(location.cell.attrs), reviewed };
+  const cell = comparisonCellOf(location.cell.attrs);
+  const mine = checkedByMe(signOff);
   const citations = citationsIn(location.cell.content);
   const firstLocation = citations[0] ? citedLocation(citations[0], t) : null;
   const documentName =
@@ -77,11 +85,9 @@ export function ComparisonCellCard({
               const message = cellProblemMessage(cell.problem, cell.message);
               return t(message.key, message.params);
             })()
-          : cell.reviewed
-            ? t("comparison.cell.reviewed")
-            : cell.edited
-              ? t("comparison.cell.edited")
-              : t("comparison.cell.answer");
+          : cell.edited
+            ? t("comparison.cell.edited")
+            : t("comparison.cell.answer");
   const openSource = (citation: Partial<CitationAttributes>, index: number) => {
     const state = citationState(citation, documents, kept);
     if (!state.documentId) return;
@@ -131,6 +137,7 @@ export function ComparisonCellCard({
         >
           {verdict}
         </div>
+        <SignOffLine now={signOff} />
         {problem && (
           <div className="comparison-cell-check-problem" role="alert">
             <span>{problem.message}</span>
@@ -222,17 +229,14 @@ export function ComparisonCellCard({
                 <button
                   type="button"
                   className={buttonStyle("ghost", "sm")}
+                  aria-pressed={mine}
                   disabled={cell.status !== "done" || checking}
                   onClick={() => {
                     toggleComparisonCellsReviewed(handle, comparisonCellsSelected(handle));
                     close();
                   }}
                 >
-                  {t(
-                    cell.reviewed
-                      ? "comparison.cell.unmarkReviewed"
-                      : "comparison.cell.markReviewed",
-                  )}
+                  {t(mine ? "comparison.cell.unmarkReviewed" : "comparison.cell.markReviewed")}
                 </button>
               )}
             </>

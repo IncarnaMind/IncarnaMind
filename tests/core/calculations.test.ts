@@ -299,6 +299,11 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     expect(steer).toMatch(/call calculate/);
     expect(steer.length).toBeLessThan(1000);
     expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toContain("calculate");
+    const tool = model.doStreamCalls[0]?.tools?.find((each) => each.name === "calculate");
+    if (tool?.type !== "function") throw new Error("The calculate Tool is not a function tool.");
+    expect(tool.description).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // The model is told what each came to, with the numbers it read, in one line each.
     expect(told(model, "calculate")).toEqual([
       [

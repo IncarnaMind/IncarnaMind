@@ -81,7 +81,13 @@ interface CheckToRun {
 const ASK_FROM = 10;
 
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
-const STOPS: ReadonlySet<string> = new Set(["failed", "not-ready", "local-mode", "cancelled"]);
+const STOPS: ReadonlySet<string> = new Set([
+  "failed",
+  "not-ready",
+  "local-mode",
+  "cancelled",
+  "running",
+]);
 
 /** How long the Note's editor may take to open before a Check runs without the contradiction watch. */
 const OPEN_WAIT_MS = 10_000;
@@ -169,7 +175,8 @@ async function checkMindNow(
         retry: again(mindId, mode, allDocuments, figureIds),
       });
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
-    else if (result.kind !== "cancelled")
+    // Another window's Check of this Note is running: it says how it went.
+    else if (result.kind !== "cancelled" && result.kind !== "running")
       setCheckProblem(mindId, withCheckAll(result, again(mindId, mode, true, figureIds)));
     return result;
   } catch (error) {
