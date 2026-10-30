@@ -143,7 +143,10 @@ export async function checkAbsence({
     });
   }
   const whole = reading
-    .map(({ documentId, passages }) => `Document ${JSON.stringify(documentId)}:\n${session.show(passages)}`)
+    .map(
+      ({ documentId, passages }) =>
+        `Document ${JSON.stringify(documentId)}:\n${session.show(passages)}`,
+    )
     .join("\n\n");
   let reply: string;
   try {

@@ -94,6 +94,7 @@ test.each(LANGUAGES.flatMap((row) => MODES.map((mode) => ({ ...row, mode }))))(
             "Verdict: supported",
             "Scope: none, same",
             "Topic: found",
+            "Absence: no",
             "Roles: none, same",
             "Calculation: none",
             "Evidence: [1]",
