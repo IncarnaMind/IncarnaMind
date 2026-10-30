@@ -5170,7 +5170,8 @@ export type RunEstimate =
       cost: Money | null;
       /**
        * The most it may come to, with the requests it sends only when what it reads asks for
-       * them: a whole read's second looks at a quote it finds (#1554).
+       * them: in a whole read, the looks at a quote a window's judgement gives, and a judgement
+       * its sentence's last check said it wouldn't need (#1554).
        */
       upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;
@@ -5560,6 +5561,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
+ *   but a look at its quote found it doesn't state that (#1554).
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5577,6 +5580,7 @@ export type ClaimCheckFailure =
   | "consent-revoked"
   | "local-mode"
   | "absence-read-limit"
+  | "absence-unconfirmed"
   | "kept-inside";
 
 /** Why a sentence was found unsupported, as the check gave it. */

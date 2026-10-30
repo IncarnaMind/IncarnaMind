@@ -32,7 +32,7 @@ import {
   CONFIRM_OUTPUT_TOKENS,
   runFailureOf,
 } from "./claimCheck";
-import { CONFIRM_INSTRUCTIONS, confirmPrompt, STRICT_INSTRUCTIONS } from "./prompt";
+import { PRESENCE_INSTRUCTIONS, presencePrompt, STRICT_PRESENCE_INSTRUCTIONS } from "./prompt";
 
 export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as const;
 
@@ -46,6 +46,13 @@ export const MOST_READ_DOCUMENTS = 25;
 
 /** What a read is sized by before its model is prepared: no consent is asked, nothing is sent. */
 export type ModelShape = Pick<PreparedChatModel, "window" | "support" | "capabilities">;
+
+/**
+ * One check a read makes, window by window. `judgesAbsence`: whether its windows are judged for an
+ * absence too; not when its last check found its words unsupported, as a sentence that says
+ * nothing is absent is.
+ */
+export type PlannedCheck = CheckStart & { judgesAbsence: boolean };
 
 export interface WholeReadOptions {
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
@@ -197,13 +204,14 @@ export function createWholeRead(options: WholeReadOptions) {
 
   /**
    * The requests a read of `windows` sends for each of its checks, as their Runs build them: a
-   * search, the verdict with the window's Passages, and the absence judgement that may follow;
-   * and those it sends only when a window's judgement says the thing is there, its two looks at
-   * the quote.
+   * search, the verdict with the window's Passages, and the absence judgement that follows for a
+   * sentence that says something is absent; and those it sends only when what it reads asks for
+   * them: a judgement its last check said it wouldn't need, and the two looks at a quote a window's
+   * judgement gives.
    */
   function readRequests(
     windows: readonly { passages: WindowedPassage[] }[],
-    checks: readonly CheckStart[],
+    checks: readonly PlannedCheck[],
     scope: EvidenceScope,
     model: ModelShape,
   ): { sent: EstimatedRequest[]; mayAlsoSend: EstimatedRequest[] } {
@@ -232,11 +240,20 @@ export function createWholeRead(options: WholeReadOptions) {
           inputTokens: fixed + (searches ? query : 0) + window.tokens,
           outputTokens: VERDICT_OUTPUT_TOKENS,
         });
-        sent.push({ inputTokens: judged + window.tokens, outputTokens: ABSENCE_OUTPUT_TOKENS });
+        const judgement = {
+          inputTokens: judged + window.tokens,
+          outputTokens: ABSENCE_OUTPUT_TOKENS,
+        };
+        (check.judgesAbsence ? sent : mayAlsoSend).push(judgement);
         const looked = estimateTokens(
-          confirmPrompt({ claim: check.claim, quote: window.longest, passage: window.longest }),
+          presencePrompt({
+            claim: check.claim,
+            absent: check.claim,
+            quote: window.longest,
+            passage: window.longest,
+          }),
         );
-        for (const instructions of [CONFIRM_INSTRUCTIONS, STRICT_INSTRUCTIONS]) {
+        for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
           mayAlsoSend.push({
             inputTokens: estimateTokens(instructions) + looked,
             outputTokens: CONFIRM_OUTPUT_TOKENS,
@@ -419,7 +436,7 @@ export function createWholeRead(options: WholeReadOptions) {
       mindId: string,
       within: SearchScope,
       model: ChatModelChoice | null,
-      target: { sentences: string; parts: number | null; checks: readonly CheckStart[] },
+      target: { sentences: string; parts: number | null; checks: readonly PlannedCheck[] },
     ): Promise<DocumentCheckPlan> {
       const id = options.newId();
       plans.set(mindId, { id, within, sentences: target.sentences });

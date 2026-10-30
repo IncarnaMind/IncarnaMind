@@ -1023,6 +1023,8 @@ export const en = {
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
   "claim.reason.absence-read-limit":
     "A sentence that says something is absent needs its Document read whole.",
+  "claim.reason.absence-unconfirmed":
+    "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",

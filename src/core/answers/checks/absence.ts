@@ -38,12 +38,12 @@ interface AbsenceContext {
   fits: boolean;
   notChecked(reason: ClaimCheckFailure, detail?: string | null): ClaimCheckResult;
   failedCheck(error: ProviderError): ClaimCheckResult;
-  /** The two looks an ordinary Contradicted gets, at the quote the read says contains the thing. */
-  confirm(evidence: Citation): Promise<Confirmation>;
+  /** Whether two looks at the quote a window's judgement gives find the absent thing there. */
+  lookAt(evidence: Citation, absent: string | null): Promise<Presence>;
 }
 
-export type Confirmation =
-  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+export type Presence =
+  | { kind: "there" | "not" | "malformed" | "stopped" }
   | { failed: ProviderError };
 
 /** The most a whole read's judgement writes. */
@@ -172,7 +172,7 @@ export async function checkAbsence({
   fits,
   notChecked,
   failedCheck,
-  confirm,
+  lookAt,
 }: AbsenceContext): Promise<AtomicClaimCheckResult | null> {
   const { model, signal, window } = request;
   // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
@@ -222,10 +222,7 @@ export async function checkAbsence({
   // that contains the absent thing when it is there. A quote the check's search cited on the way
   // backs nothing here, and a card or Citation that showed it would show an unrelated line.
   const { versions: read, excluded } = facts();
-  const judgment = (
-    verdict: "supported" | "contradicted" | "unsupported",
-    evidence: Citation | null,
-  ) => ({
+  const judgment = (verdict: "supported" | "contradicted", evidence: Citation | null) => ({
     verdict,
     evidence,
     says: null,
@@ -236,9 +233,9 @@ export async function checkAbsence({
     versions: read,
     excluded,
   });
+  const absent = typeof value.absent === "string" ? value.absent : null;
   let absence: ClaimJudgment;
-  let holds = value.absence === "holds";
-  if (holds) absence = judgment("supported", null);
+  if (value.absence === "holds") absence = judgment("supported", null);
   else if (value.absence === "contained") {
     const citations = parseRecords(value.citations ?? []).filter((each) => each.marker === 1);
     if (citations.length === 0) return notChecked("no-evidence");
@@ -246,28 +243,26 @@ export async function checkAbsence({
     session.check();
     const evidence = session.finalCitation(1);
     if (evidence?.check !== "found") return notChecked("no-evidence");
-    // Saying the thing is there contradicts the sentence, so it gets an ordinary Contradicted's
-    // two looks: a quote about something else leaves the absence holding, as on a garden clause
-    // given for "no parking" (#1554).
-    const confirmation = await confirm(evidence);
-    if ("failed" in confirmation) return failedCheck(confirmation.failed);
-    if (confirmation.kind === "stopped") return notChecked("stopped");
-    if (confirmation.kind === "malformed") return notChecked("malformed");
-    holds = confirmation.kind === "unrelated";
-    absence =
-      confirmation.kind === "confirmed"
-        ? judgment("contradicted", evidence)
-        : judgment(holds ? "supported" : "unsupported", null);
+    if (window) {
+      // A window's judgement can give a quote about something else, a garden clause for "no
+      // parking": the thing stands as there only when two looks find the quote states it, and a
+      // quote either look rejects leaves the window unjudged, never the absence holding (#1554).
+      const presence = await lookAt(evidence, absent);
+      if ("failed" in presence) return failedCheck(presence.failed);
+      if (presence.kind === "stopped") return notChecked("stopped");
+      if (presence.kind === "malformed") return notChecked("malformed");
+      if (presence.kind === "not") return notChecked("absence-unconfirmed");
+    }
+    absence = judgment("contradicted", evidence);
   } else return notChecked("malformed");
   const figures = request.figures ?? [];
-  const absent = typeof value.absent === "string" ? value.absent : null;
   const result =
     figures.length === 0 ? absence : absenceFigureResults(request.claim, figures, absence, absent);
   if (!window) return result;
   return {
     ...result,
     readPassages: window.map((passage) => passage.passageId),
-    ...(holds && { absenceHeld: true }),
+    ...(value.absence === "holds" && { absenceHeld: true }),
   };
 }
 

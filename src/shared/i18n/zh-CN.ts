@@ -1000,6 +1000,7 @@ export const zhCN = {
   "claim.reason.consent-revoked": "未核对：你关闭了向此服务发送内容。",
   "claim.reason.local-mode": "未核对：所有内容都留在这台电脑上。",
   "claim.reason.absence-read-limit": "说某样东西不存在的句子，需要通读文档才能核对。",
+  "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",

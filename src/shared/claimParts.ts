@@ -50,6 +50,7 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "local-mode",
   "kept-inside",
   "absence-read-limit",
+  "absence-unconfirmed",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [

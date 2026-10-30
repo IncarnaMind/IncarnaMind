@@ -106,7 +106,6 @@ import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
   type CheckedCitation,
-  type CheckStart,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
   checkRunStart,
@@ -139,7 +138,12 @@ import {
 } from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
-import { createWholeRead, DOCUMENT_CHECK_FLOW_SENDS, type ModelShape } from "./wholeRead";
+import {
+  createWholeRead,
+  DOCUMENT_CHECK_FLOW_SENDS,
+  type ModelShape,
+  type PlannedCheck,
+} from "./wholeRead";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
 /**
@@ -1016,14 +1020,14 @@ export function createChecks(options: ChecksOptions) {
     mindId: string,
     stretches: readonly TextStretch[],
     part: ParsedCheck["part"],
-  ): { sentences: string; parts: number | null; checks: CheckStart[] } {
+  ): { sentences: string; parts: number | null; checks: PlannedCheck[] } {
     return content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
       const sentences = selected.ok ? selected.sentences : [];
       const owner = part ? partOwner(blocks, part) : null;
       const read = sentences.filter((sentence) => !owner || isSentence(owner.sentence, sentence));
       let parts: number | null = 0;
-      const checks: CheckStart[] = [];
+      const checks: PlannedCheck[] = [];
       for (const sentence of read) {
         const marks = markedSentences(blocks).filter(
           (each) =>
@@ -1045,14 +1049,17 @@ export function createChecks(options: ChecksOptions) {
         parts = parts === null || open === undefined ? null : parts + open.length;
         const asked = { ...checkText(sentence), cited: citedNow(sentence.cited) };
         if (!all || !open) {
-          checks.push({ ...asked, findsParts: true });
+          checks.push({ ...asked, findsParts: true, judgesAbsence: true });
           continue;
         }
         const figures = asked.figures ?? [];
         const plans = withFigureFacts(asked.claim, all, figures, asked.projection);
         const owned = figuresByPart(asked.claim, plans, figures, asked.projection);
         for (const each of open) {
-          checks.push(partRequest(asked, each.span, owned?.[all.indexOf(each)] ?? []));
+          checks.push({
+            ...partRequest(asked, each.span, owned?.[all.indexOf(each)] ?? []),
+            judgesAbsence: each.verdict !== "unsupported",
+          });
         }
       }
       return {

@@ -1330,6 +1330,10 @@ describe("Check against a Document, on a sentence that says something is absent"
       },
       {
         generate: (call) => {
+          // Each look at the quote finds the clause there.
+          if (call.system.startsWith("A sentence the User wrote says something is absent")) {
+            return { text: `Judgement: ${call.prompt.includes(example.clause) ? "there" : "not"}` };
+          }
           if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
           judged.push(call.prompt);
           const holding = shownPassages(call.prompt).find((each) =>
@@ -1490,10 +1494,22 @@ function sentTokens({ options }: ModelCall): number {
 }
 
 interface ReadOptions {
-  priced?: boolean;
+  /** A cloud model whose cost the plan estimates; a local one with small windows when absent. */
+  priced?: { kind: "openrouter" | "anthropic"; modelId: string };
   sentence?: string;
   parts?: readonly string[];
+  /** The sentence says nothing is absent: its check finds it not stated. */
+  ordinary?: boolean;
+  /** The Note is checked before the read, so the sentence's parts have results. */
+  checkedFirst?: boolean;
+  /** What each look at the quote a window's judgement gives finds. */
+  look?: (quote: string) => "there" | "not";
 }
+
+/** A 16,385-token context: windows of 4,096 tokens. */
+const SMALL = { kind: "openrouter" as const, modelId: "openai/gpt-3.5-turbo" };
+/** A 200,000-token context: windows of 48,000 tokens. */
+const LARGE = { kind: "anthropic" as const, modelId: "claude-haiku-5-5" };
 
 describe("A whole read's windows, on a sentence that says something is absent", () => {
   /**
@@ -1506,14 +1522,21 @@ describe("A whole read's windows, on a sentence that says something is absent", 
     example: (typeof SPLIT)[number],
     pages: readonly (readonly string[])[],
     judge: (prompt: string, index: number) => string,
-    { priced = false, sentence = example.sentence, parts }: ReadOptions = {},
+    {
+      priced,
+      sentence = example.sentence,
+      parts,
+      ordinary = false,
+      checkedFirst = parts !== undefined,
+      look = (quote) => (quote.includes(example.first) ? "there" : "not"),
+    }: ReadOptions = {},
   ) {
     const runs: ModelCall[] = [];
     const judged: { system: string; prompt: string }[] = [];
-    const looks: string[] = [];
+    const looks: { system: string; prompt: string }[] = [];
     let reading = false;
-    const absent = { verdict: "unsupported" as const, absence: true };
-    const plan = Object.fromEntries([sentence, ...(parts ?? [])].map((each) => [each, absent]));
+    const verdict = { verdict: "unsupported" as const, absence: !ordinary };
+    const plan = Object.fromEntries([sentence, ...(parts ?? [])].map((each) => [each, verdict]));
     const model = scriptedModel(
       (call) => {
         if (reading) runs.push(call);
@@ -1531,10 +1554,10 @@ describe("A whole read's windows, on a sentence that says something is absent", 
             }));
             return { text: JSON.stringify({ sentences: sorted }) };
           }
-          if (call.system.startsWith("Compare a sentence")) {
-            looks.push(call.system);
+          if (call.system.startsWith("A sentence the User wrote says something is absent")) {
+            looks.push({ system: call.system, prompt: call.prompt });
             const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
-            return { text: `Judgement: ${quote.includes(example.first) ? "conflict" : "neither"}` };
+            return { text: `Judgement: ${look(quote)}` };
           }
           if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
           // The check that sorts the parts first leaves them to the read.
@@ -1574,19 +1597,13 @@ describe("A whole read's windows, on a sentence that says something is absent", 
     await client.settled();
     let chosen: PlanDocumentCheckInput["model"];
     if (priced) {
-      // A 16,385-token context: windows of 4,096 tokens.
-      const modelId = "openai/gpt-3.5-turbo";
-      const provider = await core.saveChatProvider({
-        kind: "openrouter",
-        apiKey: "sk-test",
-        modelId,
-      });
+      const provider = await core.saveChatProvider({ ...priced, apiKey: "sk-test" });
       if (!provider.service) throw new Error("The test provider has no service.");
       await core.allowDataFlow("checks", provider.service.id);
       await core.allowDataFlow("document-check", provider.service.id);
-      chosen = { providerId: provider.id, modelId };
+      chosen = { providerId: provider.id, modelId: priced.modelId };
     }
-    if (parts) {
+    if (checkedFirst) {
       await core.checkMind({
         requestId: crypto.randomUUID(),
         mindId: mind.id,
@@ -1594,7 +1611,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
         ...(chosen && { model: chosen }),
       });
       const sorted = await onlyMark(client);
-      expect(sorted.parts?.length).toBe(parts.length);
+      expect(sorted.parts?.length).toBe(parts?.length ?? 1);
     }
     const picked = within([documents[0]?.id ?? ""]);
     const planned = await core.planDocumentCheck({
@@ -1756,58 +1773,93 @@ describe("A whole read's windows, on a sentence that says something is absent", 
   );
 
   test.each(SPLIT)(
-    "a quote the judgement says holds it but that is about something else doesn't Contradict; the clause still does ($language)",
+    "a clause two looks find there Contradicts; one a look rejects is Not checked, never Supported; a true absence is Supported ($language)",
     async (example) => {
-      // The second window's judgement quotes the first words it was shown, which are on rent.
+      const pages = clauseAt(example, 24, 11 * 30 + 14);
+      const there = await readWindows(example, pages, judgeOf(example));
+      expect(there.check).toMatchObject({
+        state: "contradicted",
+        evidence: { quote: example.first },
+      });
+      expect(there.looks).toHaveLength(2);
+      expect(there.looks.map((each) => each.prompt)).toEqual([
+        expect.stringContaining(example.first),
+        expect.stringContaining(example.first),
+      ]);
+
+      const rejected = await readWindows(example, pages, judgeOf(example), { look: () => "not" });
+      expect(rejected.check).toMatchObject({ state: "not-checked", reason: "absence-unconfirmed" });
+      expect(rejected.looks.length).toBeGreaterThan(0);
+
+      // A quote about rent the second window's judgement gives as the clause.
       const unrelated = await readWindows(example, pagesOf(example, 24), (prompt, index) => {
         if (index !== 1) return HOLDS;
         const [first] = shownPassages(prompt);
         return containing(first?.id, first?.text.slice(0, 20) ?? "");
       });
-      expect(unrelated.check).toMatchObject({ state: "supported", read: { pages: 24, of: 24 } });
-      expect(unrelated.looks).toHaveLength(1);
-
-      const clause = await readWindows(
-        example,
-        clauseAt(example, 24, 11 * 30 + 14),
-        judgeOf(example),
-      );
-      expect(clause.check).toMatchObject({
-        state: "contradicted",
-        evidence: { quote: example.first },
+      expect(unrelated.check).toMatchObject({
+        state: "not-checked",
+        reason: "absence-unconfirmed",
       });
-      expect(clause.looks).toHaveLength(2);
+
+      const absent = await readWindows(example, pagesOf(example, 24), () => HOLDS);
+      expect(absent.check).toMatchObject({ state: "supported", read: { pages: 24, of: 24 } });
+      expect(absent.looks).toHaveLength(0);
     },
   );
 
   test.each(SPLIT)(
-    "the estimate is the requests and the input a read sends, at one, two and three windows, for one part and two ($language)",
+    "the estimate is the requests and the input a read sends, from one window to a 220-page pick ($language)",
     async (example) => {
-      const written = SEARCH_OUTPUT_TOKENS + VERDICT_OUTPUT_TOKENS + ABSENCE_OUTPUT_TOKENS;
-      const sentences: ReadOptions[] = [{}, example.twoParts];
-      for (const asked of sentences) {
-        const parts = asked.parts?.length ?? 1;
-        for (const [index, pages] of example.windowPages.entries()) {
-          const read = await readWindows(example, pagesOf(example, pages), () => HOLDS, {
-            priced: true,
-            ...asked,
-          });
-          expect(read.check.state).toBe("supported");
-          expect(read.judged).toHaveLength((index + 1) * parts);
-          const { estimate } = read;
-          if (estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
-          expect(estimate.calls).toBe(read.runs.length + read.judged.length);
-          const sent =
-            read.runs.reduce((sum, call) => sum + sentTokens(call), 0) +
-            read.judgements.reduce(
-              (sum, each) => sum + estimateTokens(each.system) + estimateTokens(each.prompt),
-              0,
-            );
-          const input = estimate.tokens - (estimate.calls / 3) * written;
-          expect(Math.abs(input - sent)).toBeLessThanOrEqual(0.02 * sent);
-          // A window that says the thing is there may take two looks more at its quote.
-          expect(estimate.upTo?.calls).toBe(estimate.calls + 2 * read.judged.length);
-        }
+      const ordinary = {
+        en: "The lease sets a pet deposit.",
+        "zh-CN": "租约规定了宠物押金。",
+      }[example.language];
+      const reads: { pages: number; windows: number | null; options: ReadOptions }[] = [
+        ...example.windowPages.map((pages, index) => ({
+          pages,
+          windows: index + 1,
+          options: { priced: SMALL },
+        })),
+        ...example.windowPages.map((pages, index) => ({
+          pages,
+          windows: index + 1,
+          options: { priced: SMALL, ...example.twoParts },
+        })),
+        // Over 40 pages, a sentence its check found it can't read whole, and one it found not stated.
+        { pages: 220, windows: null, options: { priced: LARGE, checkedFirst: true } },
+        {
+          pages: 220,
+          windows: null,
+          options: { priced: LARGE, checkedFirst: true, sentence: ordinary, ordinary: true },
+        },
+      ];
+      for (const { pages, windows, options } of reads) {
+        const read = await readWindows(example, pagesOf(example, pages), () => HOLDS, options);
+        const parts = options.parts?.length ?? 1;
+        const runs = read.runs.length / 2;
+        if (windows !== null) expect(runs).toBe(windows * parts);
+        expect(read.check.state).toBe(options.ordinary ? "unsupported" : "supported");
+        expect(read.judged).toHaveLength(options.ordinary ? 0 : runs);
+        const { estimate } = read;
+        if (estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
+        expect(estimate.calls).toBe(read.runs.length + read.judged.length);
+        // Each request is billed for all of its prompt: its instructions, Tools and messages.
+        const sent =
+          read.runs.reduce((sum, call) => sum + sentTokens(call), 0) +
+          read.judgements.reduce(
+            (sum, each) => sum + estimateTokens(each.system) + estimateTokens(each.prompt),
+            0,
+          );
+        const written =
+          runs * (SEARCH_OUTPUT_TOKENS + VERDICT_OUTPUT_TOKENS) +
+          read.judged.length * ABSENCE_OUTPUT_TOKENS;
+        expect(Math.abs(estimate.tokens - written - sent)).toBeLessThanOrEqual(0.02 * sent);
+        // A window that says the thing is there may take two looks more at its quote, and a
+        // sentence found not stated a judgement it shouldn't need.
+        expect(estimate.upTo?.calls).toBe(
+          estimate.calls + 2 * runs + (options.ordinary ? runs : 0),
+        );
       }
     },
   );

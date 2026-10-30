@@ -79,7 +79,7 @@ import {
   documentToolDefinitions,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { type Confirmation, checkAbsence, fitsWholeRead } from "./absence";
+import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -104,14 +104,18 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  PRESENCE_INSTRUCTIONS,
   partInstructions,
+  presencePrompt,
   type ReadVerdict,
   readEvidence,
   readJudgement,
   readPart,
+  readPresence,
   readsAsRefusal,
   readVerdict,
   STRICT_INSTRUCTIONS,
+  STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, unitNotStated } from "./units";
@@ -822,7 +826,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         fits: readsWhole(),
         notChecked,
         failedCheck,
-        confirm: (evidence) => confirmContradiction(request, evidence, session, signal),
+        lookAt: (evidence, absent) => lookForPresence(request, evidence, absent, session, signal),
       });
     };
 
@@ -941,7 +945,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text) =>
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
-        searchAgain(() => searches, readsWhole),
+        // In a window of a whole read every search returns that window: the read is the search.
+        ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...figuresReplied(
           request,
           figures,
@@ -1614,7 +1619,10 @@ async function confirmContradiction(
   quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
-): Promise<Confirmation> {
+): Promise<
+  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { failed: ProviderError }
+> {
   const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
   if (signal.aborted) return { kind: "stopped" };
   if ("failed" in first) return first;
@@ -1626,6 +1634,44 @@ async function confirmContradiction(
   if ("failed" in strict) return strict;
   const strictly = readJudgement(strict.reply);
   return { kind: strictly === null ? "malformed" : strictly === "neither" ? "doubt" : "confirmed" };
+}
+
+/**
+ * Whether the quote a window's judgement gives for what the sentence says is absent states it is
+ * there: two looks, each asked that and nothing else (#1554).
+ */
+async function lookForPresence(
+  request: ClaimCheckRequest,
+  quoted: Citation,
+  absent: string | null,
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+): Promise<Presence> {
+  const passage =
+    session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
+    quoted.quote;
+  const { model } = request;
+  for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
+    let reply: string;
+    try {
+      ({ text: reply } = await generateText({
+        model: model.model,
+        instructions,
+        prompt: presencePrompt({ claim: request.claim, absent, quote: quoted.quote, passage }),
+        temperature: answerTemperature(model.capabilities.facts.temperature),
+        maxOutputTokens: CONFIRM_OUTPUT_TOKENS,
+        maxRetries: 1,
+        abortSignal: signal,
+      }));
+    } catch (error) {
+      if (signal.aborted) return { kind: "stopped" };
+      return { failed: classifyProviderError(error) };
+    }
+    if (signal.aborted) return { kind: "stopped" };
+    const word = readPresence(reply);
+    if (word !== "there") return { kind: word ?? "malformed" };
+  }
+  return { kind: "there" };
 }
 
 async function partOf(
