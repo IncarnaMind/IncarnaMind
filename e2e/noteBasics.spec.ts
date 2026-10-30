@@ -223,15 +223,13 @@ test("a table of contents from the slash menu follows the headings as they chang
   await window.keyboard.type("!");
   await expect(editor.locator("h2")).toHaveText("!Neap tides");
 
-  // Keyboard and the Note's menu both reach it; so do Print and Tidy.
+  // ⌘K reaches the TOC, Print and Tidy; the Note's menu has Duplicate and Tidy.
   expect(await paletteOffers(window, "mind.tableOfContents", "table of contents")).toBe(1);
   expect(await paletteOffers(window, "mind.print", "Print")).toBe(1);
   expect(await paletteOffers(window, "mind.tidy", "Tidy Chinese text")).toBe(1);
   const menu = await openPageMenu(window);
   await motionSettled(window);
   await screenshot(window, "note-page-menu-en");
-  await expect(menu.getByTestId("mind.tableOfContents")).toBeVisible();
-  await expect(menu.getByTestId("mind.print")).toBeVisible();
   await expect(menu.getByTestId("mind.tidy")).toBeVisible();
   await expect(menu.getByTestId("mind.duplicate")).toBeVisible();
   await window.keyboard.press("Escape");
