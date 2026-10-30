@@ -402,8 +402,15 @@ export function createMeter(options: {
         ],
       );
     };
-    /** The web searches the reply made, by their tool's name. */
-    const searches: string[] = [];
+    // A forced OpenRouter server search runs once without a client Tool-call part, even with no results (#2248).
+    const serverSearches = new Set(
+      model.kind === "openrouter" && params.providerOptions?.openrouter?.tool_choice === "required"
+        ? (params.tools ?? [])
+            .filter((tool) => tool.type === "provider" && tool.id === "openrouter.web_search")
+            .map((tool) => tool.name)
+        : [],
+    );
+    const searches = [...serverSearches];
     /** What a usage report costs, with the searches made so far. */
     const counted = (usage: Usage) =>
       tokenUsageOf({
@@ -451,7 +458,7 @@ export function createMeter(options: {
       /** Hears a part of the reply: a web search the provider made is billed. */
       heard(part: object) {
         const search = searchMade(offered, part);
-        if (search) searches.push(search);
+        if (search && !serverSearches.has(search)) searches.push(search);
         const usage = "usage" in part ? (part.usage as Usage | undefined) : undefined;
         if (usage && !("finishReason" in part)) record(usage);
       },
