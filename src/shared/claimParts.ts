@@ -217,18 +217,13 @@ function boundary(text: string, at: number): boolean {
 }
 
 /**
- * How much of one sentence's check a Note stores (#2220): its parts, the receipts of each, the
- * members of a quantified part, and the length of each quote. A check past a count keeps what is
- * there as a reference — the row, its Document and place, its result, and the first words of its
- * quote — so a card, the check record and Undo still list every part and receipt, and the rest of
- * the words stay the Document's, at the place the receipt names.
+ * The longest a quote a sentence's check stores is, in characters (#2220): about 30 words of the
+ * Passage that decided it. Past it the quote is cut, and the rest of the words are the Document's,
+ * at the place the receipt names. One rule for every receipt, wherever it sits, so a receipt that
+ * moves on a re-check keeps its id and the sign-off resting on it, and the quote that decides a
+ * part is never cut shorter than any other.
  */
-export const CHECK_PARTS_AT_MOST = 8;
-export const CHECK_RECEIPTS_AT_MOST = 4;
-export const CHECK_MEMBERS_AT_MOST = 12;
 export const CHECK_QUOTE_CHARS_AT_MOST = 200;
-/** The words a receipt kept as a reference names itself by; the rest is the Document's. */
-export const CHECK_REFERENCE_QUOTE_CHARS = 80;
 
 /** `quote` cut to at most `chars`, at a word boundary when one is near it, with an ellipsis. */
 function cutQuote(quote: string, chars: number): string {
@@ -244,69 +239,43 @@ function cutQuote(quote: string, chars: number): string {
   return `${quote.slice(0, end).trimEnd()}…`;
 }
 
-const withQuote = (citation: CitationAttributes, chars: number): CitationAttributes =>
-  citation.quote === null ? citation : { ...citation, quote: cutQuote(citation.quote, chars) };
+const withQuote = (citation: CitationAttributes): CitationAttributes =>
+  citation.quote === null
+    ? citation
+    : { ...citation, quote: cutQuote(citation.quote, CHECK_QUOTE_CHARS_AT_MOST) };
 
 /**
- * `parts` as a check stores them: a part past the parts bound, a receipt past its part's receipts
- * bound, and a member past the members bound keep a reference quote instead of the whole copy.
- * Idempotent, so a check kept as the User's view is stored as it was.
+ * `parts` as a check stores them: every receipt keeps at most `CHECK_QUOTE_CHARS_AT_MOST`
+ * characters of its quote, and every part, receipt and member is kept, so a card, the check record
+ * and Undo still list them. Idempotent, so a check kept as the User's view is stored as it was.
  */
 export function boundedCheckParts(parts: readonly ClaimCheckPart[]): ClaimCheckPart[] {
-  return parts.map((part, index) => {
-    const pastParts = index >= CHECK_PARTS_AT_MOST;
-    const receipt = (citation: CitationAttributes, at: number): CitationAttributes =>
-      withQuote(
-        citation,
-        !pastParts && at < CHECK_RECEIPTS_AT_MOST
-          ? CHECK_QUOTE_CHARS_AT_MOST
-          : CHECK_REFERENCE_QUOTE_CHARS,
-      );
-    return {
-      ...part,
-      evidence: part.evidence.map(receipt),
-      ...(part.unsupported?.quoted && {
-        unsupported: {
-          ...part.unsupported,
-          quoted: withQuote(part.unsupported.quoted, CHECK_QUOTE_CHARS_AT_MOST),
-        },
-      }),
-      ...(part.coverage && {
-        coverage: {
-          ...part.coverage,
-          domainEvidence: part.coverage.domainEvidence.map(receipt),
-          members: part.coverage.members.map((member, memberIndex) => {
-            const kept = !pastParts && memberIndex < CHECK_MEMBERS_AT_MOST;
-            return {
-              ...member,
-              evidence: member.evidence.map((citation, at) =>
-                withQuote(
-                  citation,
-                  kept && at < CHECK_RECEIPTS_AT_MOST
-                    ? CHECK_QUOTE_CHARS_AT_MOST
-                    : CHECK_REFERENCE_QUOTE_CHARS,
-                ),
-              ),
-            };
-          }),
-        },
-      }),
-    };
-  });
+  return parts.map((part) => ({
+    ...part,
+    evidence: part.evidence.map(withQuote),
+    ...(part.unsupported?.quoted && {
+      unsupported: { ...part.unsupported, quoted: withQuote(part.unsupported.quoted) },
+    }),
+    ...(part.coverage && {
+      coverage: {
+        ...part.coverage,
+        domainEvidence: part.coverage.domainEvidence.map(withQuote),
+        members: part.coverage.members.map((member) => ({
+          ...member,
+          evidence: member.evidence.map(withQuote),
+        })),
+      },
+    }),
+  }));
 }
 
 /** A mark without parts, with its quote bounded as `boundedCheckParts` bounds a part's. */
 export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
   return {
     ...check,
-    ...(check.evidence && {
-      evidence: withQuote(check.evidence, CHECK_QUOTE_CHARS_AT_MOST),
-    }),
+    ...(check.evidence && { evidence: withQuote(check.evidence) }),
     ...(check.unsupported?.quoted && {
-      unsupported: {
-        ...check.unsupported,
-        quoted: withQuote(check.unsupported.quoted, CHECK_QUOTE_CHARS_AT_MOST),
-      },
+      unsupported: { ...check.unsupported, quoted: withQuote(check.unsupported.quoted) },
     }),
   };
 }

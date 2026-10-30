@@ -24,7 +24,11 @@ interface ReceiptOptions {
 }
 
 /** A checked Citation as a check's mark keeps it: a Passage of a Document, with its quote. */
-function receipt(documentId: string, seed: number, options: ReceiptOptions): CitationAttributes {
+export function receipt(
+  documentId: string,
+  seed: number,
+  options: ReceiptOptions,
+): CitationAttributes {
   const { quote, documentName = "Annual report 2025.pdf", contentHash = CONTENT_HASH } = options;
   return {
     passageId: `passage-${seed}`,
@@ -63,7 +67,7 @@ function cited(citation: CitationAttributes): Citation {
 }
 
 /** The basis a check writes its mark from, before its parts. */
-function checkBasis(
+export function checkBasis(
   text: string,
   documentId: string,
   contentHash = CONTENT_HASH,
@@ -91,8 +95,11 @@ function checkBasis(
   };
 }
 
+/** A result that found its Passage: the shape a check gives once a part is decided. */
+type FoundResult = Extract<ClaimCheckResult, { evidence: Citation | null }>;
+
 /** What a claim check gives for a part a Passage backs. */
-function supported(evidence: Citation): ClaimCheckResult {
+function supported(evidence: Citation): FoundResult {
   return {
     verdict: "supported",
     evidence,
@@ -126,12 +133,14 @@ export interface MeasuredSentence {
   contentHash?: string;
   /** Parts the sentence is checked in. */
   parts: number;
-  /** Receipts a part keeps before the bound, each with its own quote. */
+  /** Receipts each part keeps, each with its own quote. */
   receipts: number;
   /** The quote each receipt names its Passage by, its tail numbered per receipt. */
   quote: string;
   /** Members of the first part's quantified domain; none when absent. */
   members?: number;
+  /** A part a test decides itself: the quote its deciding receipt names, and its verdict. */
+  deciding?: { part: number; quote: string; verdict: "contradicted" };
 }
 
 /** `quote` with a four-digit tail of its own, so each receipt names a different stretch. */
@@ -142,17 +151,26 @@ function distinct(quote: string, seed: number): string {
 /** The mark a check of `sentence` stores, as the core's writer stores it (#2220). */
 export function sentenceMark(sentence: MeasuredSentence): ClaimCheckAttributes {
   const { text, documentId, documentName, contentHash, receipts, quote, members = 0 } = sentence;
+  const { deciding } = sentence;
   const named = { ...(documentName && { documentName }), ...(contentHash && { contentHash }) };
   const parts = partPlans(text, sentence.parts).map((plan, part) => {
     const given = Array.from({ length: receipts }, (_, index) =>
       receipt(documentId, part * 100 + index, {
-        quote: distinct(quote, part * 100 + index),
+        quote: deciding?.part === part ? deciding.quote : distinct(quote, part * 100 + index),
         ...named,
       }),
     );
     const [first, ...rest] = given;
     if (!first) throw new Error("A part needs a receipt.");
-    const checked = partWithResult(plan, supported(cited(first)), rest);
+    const result: FoundResult =
+      deciding?.part === part
+        ? {
+            ...supported(cited(first)),
+            verdict: deciding.verdict,
+            says: "The report says 9 percent.",
+          }
+        : supported(cited(first));
+    const checked = partWithResult(plan, result, rest);
     if (part !== 0 || members === 0) return checked;
     const coverage: ClaimPartCoverage = {
       unit: "months",
@@ -167,9 +185,26 @@ export function sentenceMark(sentence: MeasuredSentence): ClaimCheckAttributes {
       })),
       domainEvidence: [receipt(documentId, 9_999, { quote, ...named })],
     };
-    return partWithResult(plan, supported(cited(first)), rest, coverage);
+    return partWithResult(plan, result, rest, coverage);
   });
   return checkWithParts(checkBasis(text, documentId, contentHash), namePartCitations(parts));
+}
+
+/** A part holding `receipts` in this order, the one at `deciding` deciding it. */
+export function partWithReceipts(
+  receipts: readonly CitationAttributes[],
+  deciding: number,
+  verdict: "supported" | "contradicted" = "supported",
+): ClaimCheckPart {
+  const first = receipts[deciding];
+  if (!first) throw new Error("A part needs its deciding receipt.");
+  const plan: ClaimPartPlan = { span: { start: 0, end: 10 }, kind: "fact" };
+  const result: FoundResult = { ...supported(cited(first)), verdict };
+  return partWithResult(
+    plan,
+    result,
+    receipts.filter((_, index) => index !== deciding),
+  );
 }
 
 /** Every quote a mark stores, parts, members and the sentence's own evidence included. */

@@ -397,8 +397,8 @@ function withResult(
     return keepRecordCites(
       checkWithParts(
         { ...basis, checkedAt: at },
-        // Bounded before their ids are matched, so a re-check of a stored receipt keeps the id a
-        // sign-off rests on, its quote cut the same way (#2220).
+        // Bounded before their ids are matched: every receipt's quote is cut the same way wherever
+        // it sits, so one that moves on a re-check keeps the id its sign-off rests on (#2220).
         namePartCitations(boundedCheckParts(result.parts), priorParts),
       ),
       result.recordCites,

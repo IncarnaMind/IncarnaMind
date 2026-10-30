@@ -20,7 +20,7 @@ const SENTENCES = 2_000;
 
 /** 8.5 MB: the measured Note is 8.08 MB with the bound; before it, 10.04 MB. */
 const ENGLISH_STATED_AT_MOST = 8.5 * 1024 * 1024;
-/** 13 MB: a Chinese character takes three bytes, and the measured Note is 11.95 MB; before the bound, 15.31 MB. */
+/** 13 MB: a Chinese character takes three bytes, and the measured Note is about 12 MB; before the bound, 15.31 MB. */
 const CHINESE_STATED_AT_MOST = 13 * 1024 * 1024;
 
 const ENGLISH_QUOTE =

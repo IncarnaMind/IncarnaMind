@@ -1,8 +1,8 @@
 /**
- * What a bounded check still shows (#2220): a sentence whose parts, receipts, coverage members
- * and quotes are all past the bound keeps every one of them, with the place they name, so its
- * card lists each row, the check record names its deciding receipt, and Undo brings the whole
- * check back. English and Simplified Chinese.
+ * What a bounded check still shows (#2220): the quote every receipt keeps, cut to the one bound,
+ * whatever part or place it is in, so a Contradicted sentence shows the words that contradict it,
+ * a receipt that moves on a re-check keeps its id and its sign-off, and the card, the check record
+ * and Undo still list every part, receipt and member. English and Simplified Chinese.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -13,15 +13,19 @@ import * as Y from "yjs";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { SENTENCE_RESULT_LABELS } from "../../src/shared/claimChecks";
 import {
-  CHECK_MEMBERS_AT_MOST,
-  CHECK_PARTS_AT_MOST,
+  boundedCheckParts,
   CHECK_QUOTE_CHARS_AT_MOST,
-  CHECK_RECEIPTS_AT_MOST,
-  CHECK_REFERENCE_QUOTE_CHARS,
+  checkWithParts,
 } from "../../src/shared/claimParts";
 import { cardRows } from "../../src/shared/claimRows";
 import { translate } from "../../src/shared/i18n";
-import { sentenceMark } from "../helpers/checkBounds";
+import {
+  citationSignOffBasis,
+  namePartCitations,
+  type SignOffRecord,
+  signOffShown,
+} from "../../src/shared/signOffs";
+import { checkBasis, partWithReceipts, receipt, sentenceMark } from "../helpers/checkBounds";
 import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -32,43 +36,60 @@ import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
 
-const PARTS = 12;
-const RECEIPTS = 6;
-const MEMBERS = 30;
+const PARTS = 9;
+const RECEIPTS = 5;
+const MEMBERS = 13;
 const CHARACTERS = 500;
+const QUOTE_BOUND = 200;
+
+/** `text` repeated to exactly `length` characters. */
+const toLength = (text: string, length: number) =>
+  `${text.repeat(Math.ceil(length / text.length))}`.slice(0, length);
+
+const ENGLISH_MARKER = "Headcount actually fell by 3 percent.";
+const CHINESE_MARKER = "实际员工人数减少了百分之三。";
 
 const cases = [
   {
     language: "en",
     sentence:
-      "Twelve places back the summary, with six receipts for each, and thirty months of quantities.",
-    quote:
-      `${"Costs rose 12 percent in the third quarter while headcount stayed flat. ".repeat(10)}`.slice(
-        0,
-        CHARACTERS,
-      ),
+      "Nine places back the summary, with five receipts for each, and thirteen months of quantities.",
+    quote: toLength(
+      "The report describes the quarter in detail across every region and segment. ",
+      CHARACTERS,
+    ),
+    // The words that contradict sit past 80 characters and inside the bound (the deciding part's
+    // quote), so a bound that cuts them short shows.
+    deciding: toLength("The quarterly report describes the period. ", 149) + ENGLISH_MARKER,
+    marker: ENGLISH_MARKER,
   },
   {
     language: "zh-CN",
-    sentence: "十二处依据支撑这段总结，每一处各有六条引文，并列出三十个月的数量。",
+    sentence: "九处依据支撑这段总结，每一处各有五条引文，并列出十三个月的数量。",
     // An astral character at the bound, so a cut that splits it would show.
     quote:
-      `${"前三季度成本上升百分之十二，员工人数保持不变，收入持续增长。".repeat(20)}`.slice(0, 198) +
+      toLength("前三季度成本上升百分之十二，员工人数保持不变。", 199) +
       "𠀀" +
-      `${"收入与成本的变化在各地一致。".repeat(10)}`.slice(0, CHARACTERS - 200),
+      toLength("收入与成本的变化在各地一致。", CHARACTERS - 200),
+    deciding: toLength("第三季度报告详细描述了各地区的情况。", 149) + CHINESE_MARKER,
+    marker: CHINESE_MARKER,
   },
 ] as const;
 
 for (const example of cases)
   describe(example.language, () => {
-    test("a sentence past every bound still lists every part and receipt", async () => {
+    test("a checked sentence keeps every part, receipt and member, and the quote that contradicts it", async () => {
       const dataDir = await createTempDataFolder();
       const sources = await createTempDataFolder();
       const out = await createTempDataFolder();
       const printer = fakePrinter();
       const core = startCore(dataDir, { printer: printer.printer });
       await core.setOutputLocation(out);
-      const file = await writeSourceFile(sources, "Quarter.txt", example.quote);
+      const file = await writeSourceFile(
+        sources,
+        "Quarter.txt",
+        `${example.quote}\n\n${example.deciding}`,
+      );
       const [document] = await addAndProcess(core, [file]);
       if (!document) throw new Error("Quarter.txt was not added.");
       const mind = await core.createMind({ title: "A checked Note" });
@@ -82,6 +103,7 @@ for (const example of cases)
         receipts: RECEIPTS,
         quote: example.quote,
         members: MEMBERS,
+        deciding: { part: PARTS - 1, quote: example.deciding, verdict: "contradicted" },
       });
       writeMind(client, [
         {
@@ -94,58 +116,55 @@ for (const example of cases)
       ] satisfies JSONContent[]);
       await client.settled();
 
-      // The card: a row for each part, and for each member of the quantified part, each with
-      // its receipts, every one still naming its Document and place.
+      // The card: a row for each part and for each member of the quantified part, each with its
+      // receipts, every one naming its Document and place.
       const check = claimSpans(readMind(client))[0]?.check;
       if (!check?.parts) throw new Error("The sentence kept no check.");
       expect(check.parts).toHaveLength(PARTS);
       expect(cardRows(check.parts)).toHaveLength(PARTS - 1 + MEMBERS);
-      for (const [index, part] of check.parts.entries()) {
+      for (const part of check.parts) {
         expect(part.evidence).toHaveLength(RECEIPTS);
-        for (const [at, receipt] of part.evidence.entries()) {
+        for (const receipt of part.evidence) {
           expect(receipt.id).toBeTruthy();
           expect(receipt.documentId).toBe(document.id);
           expect(receipt.location).not.toBeNull();
           expect(receipt.quote).toBeTruthy();
           expect(receipt.quote?.isWellFormed()).toBe(true);
-          expect(receipt.quote?.length).toBeLessThanOrEqual(
-            index < CHECK_PARTS_AT_MOST && at < CHECK_RECEIPTS_AT_MOST
-              ? CHECK_QUOTE_CHARS_AT_MOST
-              : CHECK_REFERENCE_QUOTE_CHARS,
-          );
+          expect(receipt.quote?.length).toBeLessThanOrEqual(QUOTE_BOUND);
         }
       }
       const coverage = check.parts[0]?.coverage;
       expect(coverage?.members.map((member) => member.label)).toEqual(
         Array.from({ length: MEMBERS }, (_, member) => `Month ${member + 1}`),
       );
-      for (const [index, member] of (coverage?.members ?? []).entries()) {
+      for (const member of coverage?.members ?? []) {
         const receipt = member.evidence[0];
         expect(member.verdict).toBe("supported");
         expect(receipt?.id).toBeTruthy();
         expect(receipt?.quote).toBeTruthy();
         expect(receipt?.quote?.isWellFormed()).toBe(true);
-        expect(receipt?.quote?.length).toBeLessThanOrEqual(
-          index < CHECK_MEMBERS_AT_MOST ? CHECK_QUOTE_CHARS_AT_MOST : CHECK_REFERENCE_QUOTE_CHARS,
-        );
+        expect(receipt?.quote?.length).toBeLessThanOrEqual(QUOTE_BOUND);
       }
-      expect(check.state).toBe("supported");
-      expect(check.evidence?.quote).toBeTruthy();
-      expect(check.evidence?.quote?.length).toBeLessThanOrEqual(CHECK_QUOTE_CHARS_AT_MOST);
+      // A Contradicted sentence keeps the words that contradict it, in the part that decides it.
+      expect(check.state).toBe("contradicted");
+      const deciding = check.parts[PARTS - 1];
+      expect(deciding?.verdict).toBe("contradicted");
+      expect(deciding?.evidence.length).toBe(RECEIPTS);
+      expect(deciding?.evidence[0]?.quote ?? "").toContain(example.marker);
+      expect(check.evidence?.quote ?? "").toContain(example.marker);
 
-      // The check record: the sentence's row, its Document and the quote that decided it.
+      // The check record: the sentence, its Document and the quote that decided it.
       const saved = await core.saveCheckRecord(mind.id);
       if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
       const name = saved.file.name.replace(/\.(pdf|csv)$/, "");
       const rows = recordRows(readFileSync(join(out, `${name}.csv`), "utf8"));
       const row = rows.find((each) => each.Kind === "Sentence");
       expect(row?.Sentence).toContain(example.sentence);
-      expect(row?.Result).toBe(translate("en", SENTENCE_RESULT_LABELS.supported));
+      expect(row?.Result).toBe(translate("en", SENTENCE_RESULT_LABELS.contradicted));
       expect(row?.Document).toBe(document.name);
-      expect(row?.Quote).toBeTruthy();
-      expect(row?.Quote?.slice(0, 20)).toBe(example.quote.slice(0, 20));
+      expect(row?.Quote).toContain(example.marker);
 
-      // Undo: the check comes back whole, every part and receipt.
+      // Undo: the check comes back whole, every part, receipt and member.
       const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
       const paragraph = client.blocks.get(0);
       const text = paragraph instanceof Y.XmlElement ? paragraph.get(0) : undefined;
@@ -162,6 +181,50 @@ for (const example of cases)
       undo.destroy();
     }, 60_000);
   });
+
+test("a receipt that moves on a re-check keeps its id and the sign-off on it", () => {
+  const sentence = "Costs rose and headcount stayed flat.";
+  const documentId = randomUUID();
+  const quote = toLength("Costs rose in the third quarter while headcount stayed flat. ", 400);
+  const given = [0, 1, 2, 3, 4].map((seed) =>
+    receipt(documentId, seed, { quote: `${quote.slice(0, 396)}${String(seed).padStart(4, "0")}` }),
+  );
+  const [a, b, c, d, moving] = given;
+  if (!a || !b || !c || !d || !moving) throw new Error("The fixture needs five receipts.");
+  const basis = checkBasis(sentence, documentId);
+  // The receipt that moves is the fifth of its part: the model cited it last.
+  const previous = checkWithParts(
+    basis,
+    namePartCitations([partWithReceipts([a, b, c, d, moving], 0)]),
+  );
+  const stored = previous.parts?.[0]?.evidence[4];
+  if (!stored?.id) throw new Error("The fifth receipt kept no id.");
+  expect(stored.quote?.length).toBeGreaterThan(150);
+  const signOff: SignOffRecord = {
+    id: randomUUID(),
+    target: { kind: "citation", id: stored.id },
+    at: "2026-10-30T09:00:00.000Z",
+    contentHash: citationSignOffBasis(sentence, stored),
+    deletedAt: null,
+    name: "Ada Lovelace",
+    personId: "person-1",
+  };
+  // The next check names it first, as the receipt that decides the part now.
+  const after = checkWithParts(
+    basis,
+    namePartCitations(
+      boundedCheckParts([partWithReceipts([moving, a, b, c, d], 0)]),
+      previous.parts ?? [],
+    ),
+  );
+  const kept = after.parts?.[0]?.evidence[0];
+  expect(kept?.id).toBe(stored.id);
+  expect(kept?.quote?.length).toBeGreaterThan(150);
+  if (!kept) throw new Error("The receipt that moved is gone.");
+  expect(signOffShown(signOff, citationSignOffBasis(sentence, kept), [kept], null).state).toBe(
+    "checked",
+  );
+});
 
 test("a check through the engine stores a bounded quote, and a re-check keeps its receipt's id", async () => {
   const quote = `${"Costs rose across every region while headcount stayed flat. ".repeat(8)}`.slice(
