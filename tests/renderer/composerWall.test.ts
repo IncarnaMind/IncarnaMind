@@ -168,8 +168,12 @@ describe("the composer's scope while the core works out the turn's wall", () => 
     expect(asked.map((each) => each.place)).toEqual([{ mindId: null, conversationId: "walled" }]);
     expect(frames.length).toBeGreaterThan(0);
     expect(frames.every((frame) => frame === "")).toBe(true);
+    // Its room is held, hidden, so the composer doesn't move when the chip comes.
+    const waiting = () => container.querySelector('[data-testid="composer-scope-waiting"]');
+    expect(waiting()?.getAttribute("aria-hidden")).toBe("true");
 
     await answer("a");
+    expect(waiting()).toBeNull();
     expect(chip()).toContain("Client A");
     expect(chip()).not.toContain("All Documents");
   });

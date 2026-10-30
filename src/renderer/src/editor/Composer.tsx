@@ -1022,7 +1022,18 @@ export function Composer({
             onChosen={() => field.current?.focus()}
             opensOnRequest
           />
-          {wallId === undefined ? null : hasSearchScope(scope) ? (
+          {wallId === undefined ? (
+            // Holds the chip's room while the core works out the wall, so nothing moves when it
+            // comes; it shows no scope (#2243).
+            <span
+              data-testid="composer-scope-waiting"
+              aria-hidden="true"
+              className="composer-chip composer-scope-waiting"
+            >
+              <SearchIcon className="composer-chip-icon" />
+              <span className="truncate">{allLabel}</span>
+            </span>
+          ) : hasSearchScope(scope) ? (
             <ScopeChips
               scope={scope}
               ownFolderId={folderId}

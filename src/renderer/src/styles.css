@@ -2526,6 +2526,9 @@
       color: var(--color-ink);
     }
   }
+  .composer-scope-waiting {
+    visibility: hidden;
+  }
   .composer-chip-icon {
     width: 12px;
     height: 12px;
