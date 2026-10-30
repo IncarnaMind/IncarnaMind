@@ -185,9 +185,12 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
       const spare = strip.querySelector<HTMLElement>(".tab-strip-spacer");
       const room = list.offsetWidth + (spare?.offsetWidth ?? 0);
       const cramped = wholeWidth + needBefore + needAfter + 10 > room + slack;
+      const state = `whole ${whole}, wholeWidth ${Math.round(wholeWidth)}, need ${Math.round(needBefore)}/${Math.round(needAfter)}, room ${Math.round(room)}, cramped ${cramped}, squeezed ${list.hasAttribute("data-squeezed")}, fit ${strip.getAttribute("data-fit")}, scroll ${Math.round(list.scrollLeft)}`;
       if (!cramped) {
-        if (before > 0 && !nameBefore) problems.push(`${where}: no name shows tabs on the left`);
-        if (after > 0 && !nameAfter) problems.push(`${where}: no name shows tabs on the right`);
+        if (before > 0 && !nameBefore)
+          problems.push(`${where}: no name shows tabs on the left (${state})`);
+        if (after > 0 && !nameAfter)
+          problems.push(`${where}: no name shows tabs on the right (${state})`);
         if (fadeLeft && shownLeft) problems.push(`${where}: the fade covers the shown tab`);
         if (fadeRight && shownRight) problems.push(`${where}: the fade covers the shown tab`);
       }
@@ -896,25 +899,52 @@ for (const language of LANGUAGES) {
         await tab.scrollIntoViewIfNeeded();
         // The strip comes to rest, then holds: its scroll and width stop changing for six frames,
         // and the tab it brought into view is whole.
-        await expect
-          .poll(
-            () =>
-              tab.evaluate(async (element) => {
-                const strip = element.parentElement as HTMLElement;
-                let last = "";
-                for (let still = 0; still < 6; ) {
-                  await new Promise((next) => requestAnimationFrame(next));
-                  const now = `${Math.round(strip.scrollLeft)}|${Math.round(strip.getBoundingClientRect().width)}`;
-                  still = now === last ? still + 1 : 0;
-                  last = now;
-                }
-                const view = strip.getBoundingClientRect();
-                const at = element.getBoundingClientRect();
-                return at.left >= view.left - 1 && at.right <= view.right + 1;
-              }),
-            { message: `"${name}" at ${width} px` },
-          )
-          .toBe(true);
+        try {
+          await expect
+            .poll(
+              () =>
+                tab.evaluate(async (element) => {
+                  const strip = element.parentElement as HTMLElement;
+                  let last = "";
+                  for (let still = 0; still < 6; ) {
+                    await new Promise((next) => requestAnimationFrame(next));
+                    const now = `${Math.round(strip.scrollLeft)}|${Math.round(strip.getBoundingClientRect().width)}`;
+                    still = now === last ? still + 1 : 0;
+                    last = now;
+                  }
+                  const view = strip.getBoundingClientRect();
+                  const at = element.getBoundingClientRect();
+                  return at.left >= view.left - 1 && at.right <= view.right + 1;
+                }),
+              { message: `"${name}" at ${width} px` },
+            )
+            .toBe(true);
+        } catch (error) {
+          const seen = await tab.evaluate((element) => {
+            const strip = element.parentElement as HTMLElement;
+            const view = strip.getBoundingClientRect();
+            const at = element.getBoundingClientRect();
+            const all = Array.from(strip.querySelectorAll<HTMLElement>('[role="tab"]')).map(
+              (tab) => {
+                const box = tab.getBoundingClientRect();
+                return `${tab.getAttribute("aria-label")?.slice(0, 8)} ${Math.round(box.left)}..${Math.round(box.right)}${tab.getAttribute("aria-selected") === "true" ? "*" : ""}`;
+              },
+            );
+            return {
+              view: `${Math.round(view.left)}..${Math.round(view.right)}`,
+              tab: `${Math.round(at.left)}..${Math.round(at.right)}`,
+              scrollLeft: Math.round(strip.scrollLeft),
+              clientWidth: strip.clientWidth,
+              scrollWidth: strip.scrollWidth,
+              run: strip.style.getPropertyValue("--tab-run"),
+              fit: strip
+                .closest<HTMLElement>('[data-testid="tab-strip"]')
+                ?.getAttribute("data-fit"),
+              all,
+            };
+          });
+          throw new Error(`"${name}" at ${width} px: ${JSON.stringify(seen)}`, { cause: error });
+        }
       }
     }
     await app.close();
