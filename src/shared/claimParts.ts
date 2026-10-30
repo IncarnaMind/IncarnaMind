@@ -18,6 +18,7 @@ import type {
   ClaimPartJudgment,
   ClaimPartPlan,
   ClaimPartSpan,
+  ClaimReadDocument,
   ClaimVerdict,
   EvidenceExclusion,
   FigureCheckResult,
@@ -47,6 +48,7 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "consent-revoked",
   "local-mode",
   "kept-inside",
+  "absence-read-limit",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
@@ -71,6 +73,30 @@ export function readClaimScope(value: unknown): ClaimCheckScope {
     widened: value.widened === true,
     ...(chosen && hasSearchScope(chosen) && { chosen }),
   };
+}
+
+/** The Documents a check read whole, as its mark keeps them (#1443). */
+export function readReadDocuments(value: unknown): ClaimReadDocument[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((each: unknown) => {
+    if (!isRecord(each) || !Array.isArray(each.locations)) return [];
+    const documentId = text(each.documentId);
+    const documentName = text(each.documentName);
+    const contentHash = text(each.contentHash);
+    return documentId && documentName !== null && contentHash
+      ? [
+          {
+            documentId,
+            documentName,
+            contentHash,
+            locations: each.locations.flatMap((location: unknown) => {
+              const parsed = parseLocation(location);
+              return parsed ? [parsed] : [];
+            }),
+          },
+        ]
+      : [];
+  });
 }
 
 export function readCheckedVersions(value: unknown): CheckedVersion[] {
@@ -413,6 +439,9 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
   const common = {
     versions,
     excluded,
+    ...(value.readDocuments !== undefined && {
+      readDocuments: readReadDocuments(value.readDocuments),
+    }),
     ...(value.kept === true && { kept: true as const }),
     ...(typeof value.id === "string" && { id: value.id }),
     ...(typeof value.text === "string" && { text: value.text }),
@@ -563,6 +592,9 @@ export function readClaimParts(
       return null;
     parts.push({
       ...plan,
+      ...(each.readDocuments !== undefined && {
+        readDocuments: readReadDocuments(each.readDocuments),
+      }),
       verdict,
       evidence,
       ...(decidingEvidence !== undefined && { decidingEvidence }),
@@ -663,6 +695,7 @@ export function partWithResult(
   return {
     ...pendingPart(plan),
     verdict: result.verdict,
+    ...(result.readDocuments !== undefined && { readDocuments: result.readDocuments }),
     ...(result.kept && { kept: true }),
     ...(result.figures && { figures: result.figures }),
     ...(result.remainder !== undefined && { remainder: result.remainder }),
@@ -866,7 +899,10 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
       unfoundInput ||
       unfoundDomain ||
       unfoundEvidence ||
-      ((verdict === "supported" || verdict === "contradicted") && evidence.length === 0);
+      ((verdict === "supported" || verdict === "contradicted") &&
+        evidence.length === 0 &&
+        // An absence that holds has no quote: the Documents read whole back it.
+        !(verdict === "supported" && (part.readDocuments?.length ?? 0) > 0));
     return { part: incomplete ? notCheckedPart(resolved, "no-evidence") : resolved, evidence };
   });
   const native = outcomes.flatMap(({ part }) =>
@@ -889,10 +925,12 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
         return judgment;
       })()
     : null;
+  const readDocuments = outcomes.flatMap(({ part }) => part.readDocuments ?? []);
   const common = {
     parts: outcomes.map(({ part }) => part),
     versions,
     excluded,
+    ...(readDocuments.length > 0 && { readDocuments }),
     ...(native.length > 0 && {
       figures: native,
       ...(outcomes.some(({ part }) => part.figures?.length && part.remainder === undefined)
@@ -1078,12 +1116,14 @@ function judgmentOn(result: ClaimPartJudgment, basis: ClaimCheckBasis): ClaimPar
 }
 
 function storedJudgment(basis: ClaimCheckBasis, result: ClaimPartJudgment): ClaimCheckBasis {
-  const { kept: _kept, parts: _parts, ...old } = basis;
+  const { kept: _kept, parts: _parts, readDocuments: _read, ...old } = basis;
   const common = {
     ...old,
     ...judgmentMetadata(result),
     versions: result.versions,
     excluded: result.excluded,
+    ...(result.verdict !== "checking" &&
+      result.readDocuments !== undefined && { readDocuments: result.readDocuments }),
     ...(result.kept && { kept: true as const }),
   };
   return result.verdict === "checking" || result.verdict === "not-checked"

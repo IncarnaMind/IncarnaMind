@@ -218,6 +218,47 @@ export function uncheckedFigureResults(
 }
 
 /**
+ * A whole read's result for an absence part with figures. A figure inside what the part says is
+ * absent (`absent`, the read's copy of those words, a proper part of the sentence) is decided
+ * with the absence: it takes the absence's own result and evidence. The read judges nothing
+ * else, so any other figure is Not checked, never Supported on the absence.
+ */
+export function absenceFigureResults(
+  claim: string,
+  requested: readonly CheckFigure[],
+  absence: ClaimJudgment,
+  absent: string | null,
+): ClaimCheckResult {
+  const count = (text: string, part: string) => text.split(part).length - 1;
+  const bare = (text: string) => text.trim().replace(/[.。!！?？]+$/u, "");
+  const part =
+    absent !== null &&
+    claim.includes(absent) &&
+    bare(absent) !== "" &&
+    bare(absent) !== bare(claim);
+  const inAbsent = (figure: CheckFigure) =>
+    part &&
+    absent !== null &&
+    count(absent, figure.reading.chars) > 0 &&
+    count(absent, figure.reading.chars) === count(claim, figure.reading.chars);
+  const { versions, excluded } = absence;
+  const unread: ClaimJudgment = {
+    verdict: "not-checked",
+    reason: "malformed",
+    detail: null,
+    versions,
+    excluded,
+  };
+  const figures = requested.map(
+    (figure): FigureCheckResult => ({
+      ...finding(figure),
+      result: inAbsent(figure) ? absence : unread,
+    }),
+  );
+  return { ...aggregateFigureResults(figures, null), figures, remainder: null };
+}
+
+/**
  * A wider word, another party or another topic takes a Supported verdict's support away; for a
  * contradiction the parties the other way round are what contradicts, and its quote is judged.
  */

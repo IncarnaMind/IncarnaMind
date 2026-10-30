@@ -22,6 +22,7 @@ import type {
   MindCheckRun,
   TextStretch,
 } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
@@ -34,6 +35,8 @@ import {
   useChecks,
   withCheckAll,
 } from "./checks";
+import { clientId } from "./clientId";
+import { readinessKey, serviceName } from "./components/providers/shared";
 import { checkContradictionsNow, dismissContradictions, watchSentencesNow } from "./contradictions";
 import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
@@ -55,6 +58,8 @@ interface MindCheckState {
 }
 
 interface Asking {
+  /** The request that keeps the Note from its planning until the User answers this question. */
+  requestId: string;
   mode: CheckMindMode;
   allDocuments: boolean;
   /** The sentences the run will check: the one count the badge shows (#1909). */
@@ -94,7 +99,8 @@ const OPEN_WAIT_MS = 10_000;
 
 export const useMindCheck = create<MindCheckState>()(() => ({ asking: {}, unchanged: {} }));
 
-export const dismissMindCheck = (mindId: string) =>
+/** Forgets the Note's question in this window; a Check it keeps the Note for is left alone. */
+function clearAsk(mindId: string): void {
   useMindCheck.setState((state) => {
     const asking = { ...state.asking };
     const unchanged = { ...state.unchanged };
@@ -102,6 +108,57 @@ export const dismissMindCheck = (mindId: string) =>
     delete unchanged[mindId];
     return { asking, unchanged };
   });
+}
+
+/** Not now: the question goes, and the Note is free for another window's Check. */
+export function dismissMindCheck(mindId: string): void {
+  void freeAskedNote(mindId);
+}
+
+async function freeAskedNote(mindId: string): Promise<void> {
+  const asking = useMindCheck.getState().asking[mindId];
+  clearAsk(mindId);
+  if (!asking) return;
+  settle(asking.requestId, { kind: "declined" });
+  await releaseHold(asking.requestId);
+}
+
+async function releaseHold(requestId: string): Promise<void> {
+  try {
+    await core.cancelCheck(requestId);
+  } catch (error) {
+    console.warn(`Couldn't free the Note a Check kept while it was planned (${requestId}).`, error);
+  }
+}
+
+/** How a Check the window started ended: its result, a failure, or the question it asked. */
+type CheckEnd = CheckMindResult | { kind: "threw"; error: unknown };
+type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | null;
+type CheckAnswer = CheckEnd | { kind: "declined" };
+
+/** What each Check that asked a question comes to, by the request it asked for. */
+const answers = new Map<
+  string,
+  { promise: Promise<CheckAnswer>; resolve(answer: CheckAnswer): void }
+>();
+
+function waitForAnswer(requestId: string): void {
+  let resolve!: (answer: CheckAnswer) => void;
+  const promise = new Promise<CheckAnswer>((done) => {
+    resolve = done;
+  });
+  answers.set(requestId, { promise, resolve });
+}
+
+function settle(requestId: string, answer: CheckAnswer): void {
+  const waiting = answers.get(requestId);
+  if (!waiting) return;
+  answers.delete(requestId);
+  waiting.resolve(answer);
+}
+
+const answerOf = (requestId: string): Promise<CheckAnswer> =>
+  answers.get(requestId)?.promise ?? Promise.resolve({ kind: "declined" });
 
 export function showCheckCard(mindId: string): void {
   const tab = frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged());
@@ -140,7 +197,7 @@ export async function checkMind(
   { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
-  dismissMindCheck(mindId);
+  await freeAskedNote(mindId);
   dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
@@ -158,7 +215,7 @@ async function checkMindNow(
   allDocuments: boolean,
   requestId: string,
   figureIds?: string[],
-): Promise<CheckMindResult | "error"> {
+): Promise<CheckEnd> {
   try {
     const result = await core.checkMind({
       requestId,
@@ -185,13 +242,13 @@ async function checkMindNow(
       error,
       retry: () => void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) }),
     });
-    return "error";
+    return { kind: "threw", error };
   }
 }
 
 /** Whether a claims run leaves anything for the watch: a throw, a stop, or a model that can't be used ends it. */
-function endsCheck(outcome: CheckMindResult | "error"): boolean {
-  if (outcome === "error") return true;
+function endsCheck(outcome: CheckEnd): boolean {
+  if (outcome.kind === "threw") return true;
   if (outcome.kind === "checked") return outcome.stop !== null;
   return STOPS.has(outcome.kind);
 }
@@ -244,16 +301,36 @@ export interface Planned {
   watch: { claims: number } | null;
 }
 
-/** Shows the Note, plans the run, and says in place if it can't. */
-async function start(mindId: string, planned: () => Promise<Planned>): Promise<void> {
+/**
+ * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
+ * place if it can't or another window checks it.
+ */
+async function start(mindId: string, planned: () => Promise<Planned>): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
-  if (useChecks.getState().running[mindId]) return;
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
+  // An earlier question about this Note, and the Note with it, gives way first.
+  await freeAskedNote(mindId);
+  const requestId = crypto.randomUUID();
+  let held = false;
+  let keeps = false;
   try {
+    if (!(await core.holdMindCheck({ requestId, mindId, clientId }))) {
+      setCheckProblem(mindId, { kind: "running" });
+      showCheckCard(mindId);
+      return { kind: "running" };
+    }
+    held = true;
     const { mode, allDocuments, plan, watch } = await planned();
-    await askOrCheck(mindId, { mode, allDocuments, watch }, plan);
+    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan);
+    keeps = outcome !== null && outcome.kind === "asked";
+    return outcome;
   } catch (error) {
     setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
+    return { kind: "threw", error };
+  } finally {
+    // A shown question keeps the Note for the run it asks for; every other end frees it here.
+    if (held && !keeps) await releaseHold(requestId);
   }
 }
 
@@ -262,7 +339,7 @@ export function startMindCheck(
   mindId: string,
   mode: CheckMindMode,
   { allDocuments = false }: { allDocuments?: boolean } = {},
-): Promise<void> {
+): Promise<CheckOutcome> {
   return start(
     mindId,
     async (): Promise<Planned> => ({
@@ -315,14 +392,71 @@ async function fullWatchNeeded(mindId: string, watch: { claims: number }): Promi
 }
 
 /** The one Check: everything the Note can be checked for, in one press. */
-export const startCheck = (mindId: string): Promise<void> =>
+export const startCheck = (mindId: string): Promise<CheckOutcome> =>
   start(mindId, () => planCheckThisMind(mindId));
 
+/**
+ * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
+ * again. A Note another window checks, or is planning to, starts none, and its card says so.
+ */
+export async function checkFromAssistant(mindId: string, everySentence = false): Promise<void> {
+  const outcome = everySentence ? await startMindCheck(mindId, "all") : await startCheck(mindId);
+  if (outcome?.kind === "asked") {
+    endAs(await answerOf(outcome.requestId));
+    return;
+  }
+  endAs(outcome ?? null);
+}
+
+/** Ends the assistant's Check as what it came to: only a run that checked is ever "Done". */
+function endAs(outcome: CheckAnswer | null): void {
+  if (outcome === null) throw new TranslatableError({ key: "mindCheck.nothingToCheck" });
+  if (outcome.kind === "declined") throw new TranslatableError({ key: "commands.denied" });
+  if (outcome.kind === "threw") {
+    throw outcome.error instanceof Error
+      ? outcome.error
+      : new TranslatableError(String(outcome.error));
+  }
+  switch (outcome.kind) {
+    case "checked":
+      return;
+    case "failed":
+      throw new TranslatableError(outcome.error.wording ?? outcome.error.message);
+    case "running":
+      throw new TranslatableError({ key: "mindCheck.alreadyChecking" });
+    case "cancelled":
+      throw new TranslatableError({ key: "run.stopped.cancelled" });
+    case "not-ready": {
+      const service =
+        "provider" in outcome.readiness
+          ? serviceName(outcome.readiness.provider, translateNow, languageNow())
+          : "";
+      throw new TranslatableError({ key: readinessKey(outcome.readiness), values: { service } });
+    }
+    case "local-mode":
+      throw new TranslatableError({ key: "checks.problem.local-mode" });
+    case "no-documents":
+      throw new TranslatableError({ key: "checks.problem.no-documents.all" });
+    case "nothing":
+      throw new TranslatableError({ key: "checks.problem.no-claims" });
+  }
+  const unhandled: never = outcome;
+  throw new Error(`A Check ended as ${String(unhandled)}, which its card has no ending for.`);
+}
+
 /** Check, in the card's question before a run billed per token. */
-export function confirmCheck(mindId: string): Promise<void> {
+export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
-  if (!asking) return Promise.resolve();
-  return runCheck(mindId, asking);
+  if (!asking) return;
+  try {
+    await runCheck(mindId, asking.requestId, asking);
+  } catch (error) {
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: again(mindId, asking.mode, asking.allDocuments),
+    });
+  }
 }
 
 /**
@@ -330,20 +464,26 @@ export function confirmCheck(mindId: string): Promise<void> {
  * against the Folder's other Documents, under one running state whose Stop
  * takes whichever part runs. A problem with the model, or a stop, ends both.
  */
-async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
-  if (useChecks.getState().running[mindId]) return;
-  dismissMindCheck(mindId);
-  dismissCheckProblem(mindId);
-  dismissContradictions(mindId);
-  const requestId = crypto.randomUUID();
-  // Recorded before the sentences are read: reading waits for an editor that may not be open
-  // yet, and a second press during that wait must find the run already on (#1941).
-  setCheckRunning(mindId, { requestId, action: "whole-mind" });
+async function runCheck(mindId: string, requestId: string, run: CheckToRun): Promise<CheckEnd> {
+  let started = false;
+  // Answered, the question goes whichever way the run goes.
+  clearAsk(mindId);
   try {
+    if (useChecks.getState().running[mindId]) {
+      settle(requestId, { kind: "running" });
+      return { kind: "running" };
+    }
+    dismissCheckProblem(mindId);
+    dismissContradictions(mindId);
+    // Recorded before the sentences are read: reading waits for an editor that may not be open
+    // yet, and a second press during that wait must find the run already on (#1941).
+    setCheckRunning(mindId, { requestId, action: "whole-mind" });
+    started = true;
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
-    const stopped = endsCheck(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
+    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId);
+    const stopped = endsCheck(result);
     if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
       setCheckRunning(mindId, { requestId: watchRequest, action: "contradiction-watch" });
@@ -352,8 +492,14 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
         await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
       }
     }
+    settle(requestId, result);
+    return result;
+  } catch (error) {
+    settle(requestId, { kind: "threw", error });
+    throw error;
   } finally {
-    setCheckRunning(mindId, null);
+    if (started) setCheckRunning(mindId, null);
+    await releaseHold(requestId);
   }
 }
 
@@ -361,16 +507,23 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
  * A run of what changed that only checks again checks at once when small; any
  * recheck runs at once when nothing is billed per token; the rest ask first.
  */
-async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan): Promise<void> {
+async function askOrCheck(
+  mindId: string,
+  requestId: string,
+  run: CheckToRun,
+  plan: MindCheckPlan,
+): Promise<CheckOutcome> {
   if (plan.kind === "unchanged") {
-    dismissMindCheck(mindId);
+    clearAsk(mindId);
+    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     useMindCheck.setState((state) => ({ unchanged: { ...state.unchanged, [mindId]: true } }));
     showCheckCard(mindId);
-    return;
+    return null;
   }
   if (plan.kind !== "ready") {
-    dismissMindCheck(mindId);
+    clearAsk(mindId);
+    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     setCheckProblem(
       mindId,
@@ -378,7 +531,7 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
         ? { kind: "no-claims" }
         : withCheckAll(plan, again(mindId, run.mode, true)),
     );
-    return;
+    return null;
   }
   const pending = plan.findsClaims ? await readSentencesToCheck(mindId) : null;
   const onlyRechecks =
@@ -386,9 +539,9 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
     (pending?.sentences.length === plan.sentences &&
       pending.sentences.every((place) => place.claim !== null));
   if (run.mode === "changed" && onlyRechecks && plan.sentences < ASK_FROM) {
-    return runCheck(mindId, run);
+    return runCheck(mindId, requestId, run);
   }
-  dismissMindCheck(mindId);
+  clearAsk(mindId);
   dismissCheckProblem(mindId);
   const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
   const extra =
@@ -408,13 +561,15 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
       return null;
     });
   if (estimated && estimated.billing !== "per-token" && onlyRechecks) {
-    return runCheck(mindId, run);
+    return runCheck(mindId, requestId, run);
   }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
+  waitForAnswer(requestId);
   useMindCheck.setState((state) => ({
     asking: {
       ...state.asking,
       [mindId]: {
+        requestId,
         mode: run.mode,
         allDocuments: run.allDocuments,
         count: plan.sentences,
@@ -425,4 +580,5 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
       },
     },
   }));
+  return { kind: "asked", requestId };
 }

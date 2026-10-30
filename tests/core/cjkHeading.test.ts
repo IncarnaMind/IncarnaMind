@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { DATABASE_FILE } from "../../src/core";
+import { type Core, DATABASE_FILE } from "../../src/core";
 import { documentBlocks } from "../../src/core/answers/checks/verifyTables";
 import { extractText, pdfTablePages } from "../../src/core/documents/extract";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
@@ -26,13 +26,8 @@ const WRAPPED_SECOND = "值班组长复核当天的记录。";
 const ENGLISH_HEADING = "Volunteer Handbook";
 const ENGLISH_SENTENCE = "Volunteers sign in at the front desk before every shift.";
 
-const storedPages = (dataDir: string, documentId: string) =>
-  queryDatabase<{ text: string }>(
-    dataDir,
-    `SELECT text FROM document_pages
-     WHERE document_id = ? AND deleted_at IS NULL ORDER BY page`,
-    [documentId],
-  ).map((page) => page.text);
+const storedPages = async (core: Core, documentId: string) =>
+  (await core.readDocumentText(documentId)).pages.map((page) => page.text);
 
 const storedPassages = (dataDir: string, documentId: string) =>
   queryDatabase<{ text: string }>(
@@ -58,11 +53,13 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     ]);
     if (!document) throw new Error("The Document wasn't added.");
 
-    expect(storedPages(dataDir, document.id)).toEqual([
+    expect(await storedPages(core, document.id)).toEqual([
       `${HEADING}\n${SENTENCE}`,
       `${WRAPPED_FIRST}${WRAPPED_SECOND}`,
     ]);
-    expect(storedPages(dataDir, document.id).join("\n")).not.toContain(`${HEADING}${SENTENCE}`);
+    expect((await storedPages(core, document.id)).join("\n")).not.toContain(
+      `${HEADING}${SENTENCE}`,
+    );
     expect(storedPassages(dataDir, document.id).join("\n")).toContain(`${HEADING}\n${SENTENCE}`);
 
     expect(
@@ -99,7 +96,9 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     ]);
     if (!document) throw new Error("The Document wasn't added.");
 
-    expect(storedPages(dataDir, document.id)).toEqual([`${ENGLISH_HEADING}\n${ENGLISH_SENTENCE}`]);
+    expect(await storedPages(core, document.id)).toEqual([
+      `${ENGLISH_HEADING}\n${ENGLISH_SENTENCE}`,
+    ]);
     expect(
       await core.recheckCitation({
         mindId: null,
@@ -148,7 +147,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
 
     const second = startCore(dataDir);
     await waitForProcessing(second, [document.id]);
-    expect(storedPages(dataDir, document.id)).toEqual([`${HEADING}\n${SENTENCE}`]);
+    expect(await storedPages(second, document.id)).toEqual([`${HEADING}\n${SENTENCE}`]);
     expect(storedPassages(dataDir, document.id).join("\n")).toContain(`${HEADING}\n${SENTENCE}`);
     expect(
       queryDatabase<{ processing_version: number }>(
@@ -180,7 +179,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
       ),
     ]);
     if (!document) throw new Error("The Document wasn't added.");
-    expect(storedPages(dataDir, document.id)).toEqual([
+    expect(await storedPages(core, document.id)).toEqual([
       `志愿者手册\n志愿者每次值班前都要在前台签到。`,
     ]);
     await core.close();
@@ -207,7 +206,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
       ),
     ]);
     if (!document) throw new Error("The Document wasn't added.");
-    expect(storedPages(dataDir, document.id)).toEqual(["7\n月是单位。\n7月起收入增长。"]);
+    expect(await storedPages(core, document.id)).toEqual(["7\n月是单位。\n7月起收入增长。"]);
     await core.close();
   });
 
@@ -415,7 +414,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     }
     const second = startCore(dataDir);
     await waitForProcessing(second, [document.id]);
-    expect(storedPages(dataDir, document.id)).toEqual([`${HEADING}\n${SENTENCE}`]);
+    expect(await storedPages(second, document.id)).toEqual([`${HEADING}\n${SENTENCE}`]);
 
     // Of the two outcomes there may be, it is the first: found where it was, the Document and
     // its verdict kept. Not a third — nothing orphaned, or pointing at text that is gone.

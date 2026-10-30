@@ -40,6 +40,7 @@ import type {
   ClaimPartCoverage,
   ClaimPartPlan,
   ClaimPartSpan,
+  Document,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -75,6 +76,7 @@ import {
   type DocumentLanguage,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
+import { checkAbsence, fitsWholeRead } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -90,6 +92,7 @@ import {
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
+  type AbsenceAnswer,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
   checkInstructions,
@@ -121,10 +124,19 @@ export interface ClaimCheckDependencies {
   evidence: Pick<Evidence, "search">;
   documents: Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate"> & {
     searchableCount(documentIds: readonly string[] | null): number;
+    passagesBetween(
+      documentId: string,
+      from: number,
+      to: number,
+    ): import("../../documents/search").WindowedPassage[];
     searchableLanguages(documentIds: readonly string[] | null): DocumentLanguage[];
     /** The Documents with Passages to search, with their names: what a search names one by. */
     searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
+    /** How many Units each Document's current version has, read from stored counts. */
+    unitCounts(documentIds: readonly string[]): ReadonlyMap<string, number>;
+    getMany?(documentIds: readonly string[]): Document[];
+    names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
 }
 
@@ -437,6 +449,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       pageTexts: (documentId, contentHash, from, to) =>
         deps.documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => deps.documents.documentDate(documentId),
+      passagesBetween: (documentId, from, to) =>
+        deps.documents.passagesBetween(documentId, from, to),
     };
     const session = createCitationSession(scoped, { onRecord: () => undefined });
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
@@ -703,6 +717,37 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         evidence !== null &&
         opinions.documentIds.has(evidence.documentId ?? ""),
     });
+    let fits: boolean | undefined;
+    const readsWhole = () => {
+      fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
+      return fits;
+    };
+    const absenceFor = async (
+      absence: AbsenceAnswer,
+      searched: ClaimCheckResult["verdict"],
+    ): Promise<ClaimCheckResult | null> => {
+      // A search that found and cited the thing contradicts its absence as any sentence is
+      // contradicted: the whole read decides only whether search may say Supported.
+      if (searched === "contradicted") return null;
+      // A check that ended Not checked (refused, unread, no verdict) stays so: no whole read.
+      if (searched === "not-checked") return null;
+      if (absence === "no") return null;
+      // An answer that can't be read may hide an absence, which search alone never backs; and
+      // the whole read is only for a sentence known to assert one.
+      if (absence === null) return searched === "supported" ? notChecked("malformed") : null;
+      if (signal.aborted) return notChecked("stopped");
+      return checkAbsence({
+        request,
+        documents: deps.documents,
+        session,
+        versions: read,
+        facts,
+        citedCase,
+        fits: readsWhole(),
+        notChecked,
+        failedCheck,
+      });
+    };
 
     const figureContext = (citation: Citation) =>
       documentFigureContext(
@@ -801,6 +846,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       support: model.support,
       structuredOutput: givesStructuredOutput(model.capabilities),
       takesTemperature: model.capabilities.facts.temperature,
+      ...(model.provider.kind === "openrouter" && {
+        forcedToolChoice: model.capabilities.facts.forcedToolChoice,
+      }),
       window: model.window,
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
@@ -814,7 +862,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text) =>
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
-        searchAgain(() => searches),
+        searchAgain(() => searches, readsWhole),
         ...figuresReplied(
           request,
           figures,
@@ -981,11 +1029,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         return unchecked(failure.reason, failure.detail);
       };
       if (signal.aborted) return result;
-      if (said) return withSentenceVerdict(result, () => sentence(said));
-      // Figures that all check out never make a sentence Supported without a verdict to read.
-      return result.verdict === "supported"
-        ? withSentenceVerdict(result, async () => unchecked("malformed"))
-        : result;
+      const figureResult = said
+        ? await withSentenceVerdict(result, () => sentence(said))
+        : // Figures that all check out never make a sentence Supported without a verdict to read.
+          result.verdict === "supported"
+          ? await withSentenceVerdict(result, async () => unchecked("malformed"))
+          : result;
+      const absence = await absenceFor(said?.absence ?? null, figureResult.verdict);
+      return absence ?? figureResult;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
@@ -1087,6 +1138,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         verdict = { ...verdict, verdict: "unsupported", says: null };
       }
     }
+    const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
+    if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked

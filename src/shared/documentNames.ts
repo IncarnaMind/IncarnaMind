@@ -4,6 +4,7 @@
  * "document". The app then shows the Document's own title instead of its
  * name. Pure: the core and the renderer both use it.
  */
+import { webHostOf } from "./webAddresses";
 
 /** A UUID, with or without its dashes, as exported files carry it. */
 const UUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
@@ -126,9 +127,10 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
     if (named.length < 2) continue;
     // By id, so twins at one path take their "(2)" in an order that doesn't change.
     const group = [...named].sort((a, b) => a.id.localeCompare(b.id));
-    const places = group.map((document) =>
-      document.web ? [hostOf(document.web.address)] : foldersOf(document.path),
-    );
+    const places = group.map((document) => {
+      const host = document.web ? webHostOf(document.web.address) : null;
+      return host ? [host] : foldersOf(document.path);
+    });
     let deepest = 0;
     for (const place of places) deepest = Math.max(deepest, place.length);
     const label = (place: string[], upTo: number) => place.slice(-upTo).join(" / ");
@@ -154,12 +156,4 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
     });
   }
   return where;
-}
-
-function hostOf(address: string): string {
-  try {
-    return new URL(address).hostname.replace(/^www\./, "");
-  } catch {
-    return address;
-  }
 }

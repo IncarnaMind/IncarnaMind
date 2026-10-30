@@ -72,7 +72,7 @@ function checking(example: Example, call: ModelCall): ScriptedReply {
     const citations = [{ marker: 1, passage: holding.id, quote }];
     return { calls: [{ tool: "cite", input: { citations } }] };
   }
-  return { text: "Verdict: supported\nThe Document says so. [^1]" };
+  return { text: "Verdict: supported\nAbsence: no\nThe Document says so. [^1]" };
 }
 
 async function setUp(example: Example) {

@@ -664,6 +664,13 @@ function ClaimCard({
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
   const documents = useAppStore((store) => store.documents);
+  const wholeRead = (check.readDocuments ?? [])
+    .map((document) => {
+      const name = shownDocumentName(document, documents) || document.documentName;
+      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
+      return places ? `${name} (${places})` : name;
+    })
+    .join(t("claim.readDocuments.separator"));
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;
@@ -946,6 +953,11 @@ function ClaimCard({
             ]}
           />
         </div>
+      )}
+      {wholeRead && (
+        <p data-testid="claim-read-documents" className="citation-card-note">
+          {t("claim.readDocuments", { documents: wholeRead })}
+        </p>
       )}
       {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">

@@ -91,7 +91,7 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 ## How the check works
 
-For each sentence, the check finds the passages in your files that it relies on and marks whether they support it. The page is one click away.
+For each sentence, the check finds or reads the passages in your files that it relies on and marks whether they support it. The page is one click away.
 
 Figures are compared as numbers. One rounded from the source passes, a different one is marked, and a calculated one shows its formula and where each input came from.
 

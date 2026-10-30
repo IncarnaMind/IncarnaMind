@@ -9,7 +9,10 @@ const bridge = vi.hoisted(() => ({
   checkContradictions: vi.fn<CoreBridge["checkContradictions"]>(),
   checkSentences: vi.fn<CoreBridge["checkSentences"]>(),
   findMindClaims: vi.fn<CoreBridge["findMindClaims"]>(),
+  holdMindCheck: vi.fn<CoreBridge["holdMindCheck"]>(),
+  cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
 }));
+const running = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
 vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: {
@@ -17,7 +20,7 @@ vi.mock("../../src/renderer/src/store", () => ({
   },
 }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: { getState: () => ({ running: {} }) },
+  useChecks: { getState: () => ({ running: running.current }) },
   dismissCheckProblem: vi.fn(),
   setCheckCardOpen: vi.fn(),
   setCheckProblem: vi.fn(),
@@ -99,8 +102,11 @@ beforeEach(async () => {
   bridge.planContradictionCheck.mockResolvedValue({ kind: "no-folder" });
   bridge.estimateRun.mockResolvedValue(estimate);
   bridge.checkMind.mockResolvedValue({ kind: "cancelled" });
+  bridge.holdMindCheck.mockResolvedValue(true);
+  bridge.cancelCheck.mockResolvedValue(undefined);
   bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
   watchRecord.current = { stop: null };
+  running.current = {};
   const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
   useMindCheck.setState({ asking: {}, unchanged: {} });
 });
@@ -385,6 +391,287 @@ describe("Check this note", () => {
     expect(bridge.checkMind).toHaveBeenCalledOnce();
     expect(bridge.checkSentences).not.toHaveBeenCalled();
     expect(bridge.checkContradictions).not.toHaveBeenCalled();
+  });
+});
+
+describe("A Check another window runs or plans", () => {
+  test("a Note another window keeps is refused before this window plans", async () => {
+    bridge.holdMindCheck.mockResolvedValue(false);
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckCardOpen, setCheckProblem } = await import("../../src/renderer/src/checks");
+
+    expect(await startCheck("mind")).toEqual({ kind: "running" });
+    expect(bridge.planMindCheck).not.toHaveBeenCalled();
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+    expect(setCheckProblem).toHaveBeenCalledWith("mind", { kind: "running" });
+    expect(setCheckCardOpen).toHaveBeenCalledWith("tab", true);
+  });
+
+  test("the core's running result is handed back, so a window's card never says Done", async () => {
+    bridge.checkMind.mockResolvedValue({ kind: "running" });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+
+    expect(await startCheck("mind")).toEqual({ kind: "running" });
+    expect(bridge.holdMindCheck).toHaveBeenCalledOnce();
+    expect(bridge.cancelCheck).toHaveBeenCalled();
+  });
+
+  // protects=a Check that finds this window already running one frees the Note and starts nothing; fails_when=its hold stays and every window says already checking; no_claim=what the other run was.
+  test("a Check that finds a run already on frees its Note", async () => {
+    bridge.planMindCheck.mockImplementation(async () => {
+      running.current.mind = { requestId: "other", action: "whole-mind" };
+      return plan;
+    });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+
+    expect(await startCheck("mind")).toEqual({ kind: "running" });
+    expect(bridge.cancelCheck).toHaveBeenCalled();
+  });
+
+  // protects=a core run that throws before taking the Note frees it, and the assistant's card is never Done; fails_when=the hold leaks or the card says Done; no_claim=what the core said.
+  test("a Check whose core run throws frees its Note and is never Done", async () => {
+    bridge.checkMind.mockRejectedValue(new Error("The check couldn’t start."));
+    const { checkFromAssistant, startCheck } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(startCheck("mind")).resolves.toMatchObject({ kind: "threw" });
+    expect(bridge.cancelCheck).toHaveBeenCalled();
+    await expect(checkFromAssistant("mind")).rejects.toThrow("The check couldn’t start.");
+  });
+
+  test("a question keeps the Note until the User answers: Check runs that request", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    const { startMindCheck, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    expect(await startMindCheck("mind", "changed")).toMatchObject({ kind: "asked" });
+    const asking = useMindCheck.getState().asking.mind;
+    expect(asking?.requestId).toEqual(expect.any(String));
+    expect(bridge.cancelCheck).not.toHaveBeenCalled();
+
+    await confirmCheck("mind");
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: asking?.requestId }),
+    );
+  });
+
+  // protects=the assistant's Check that asks ends as the answer, not as Done: confirmed it ends with the run, Not now it ends not allowed; fails_when=the card says Done while a question is unanswered; no_claim=the User's choice.
+  test("the assistant's Check that asks ends as the answer", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { checkFromAssistant, confirmCheck, dismissMindCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    const done = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    await confirmCheck("mind");
+    await expect(done).resolves.toBeUndefined();
+
+    const refused = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    dismissMindCheck("mind");
+    await expect(refused).rejects.toMatchObject({ wording: { key: "commands.denied" } });
+  });
+
+  // protects=a question's hold is freed when its confirmed run throws before taking the Note; fails_when=the Note stays held until the window closes; no_claim=what the core said.
+  test("a question confirmed whose run throws frees the Note it kept", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.checkMind.mockRejectedValue(new Error("The run couldn’t start."));
+    const { checkFromAssistant, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    const done = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    await confirmCheck("mind");
+
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+    await expect(done).rejects.toThrow("The run couldn’t start.");
+  });
+
+  // protects=a question confirmed while another Check runs starts none, frees the Note the question kept, and is never Done; fails_when=the hold leaks or the card says Done; no_claim=the other run.
+  test("a question confirmed while this window runs a Check frees the Note it kept", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    const { checkFromAssistant, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    const done = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    running.current.mind = { requestId: "other", action: "whole-mind" };
+    await confirmCheck("mind");
+
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+    await expect(done).rejects.toMatchObject({
+      wording: { key: "mindCheck.alreadyChecking" },
+    });
+  });
+
+  // protects=a stopped Check's card is never Done; fails_when=the card says Done after the User stopped it; no_claim=what the stopped run checked.
+  test("a stopped Check ends the assistant's card as Stopped", async () => {
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+      wording: { key: "run.stopped.cancelled" },
+    });
+  });
+
+  // protects=a plan with nothing to check is never Done; fails_when=the card says Done while nothing was checked; no_claim=what the plan found.
+  test("a plan with nothing to check ends the assistant's card as nothing to check", async () => {
+    bridge.planMindCheck.mockResolvedValue({ kind: "nothing" });
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+      wording: { key: "mindCheck.nothingToCheck" },
+    });
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  // protects=Check every sentence again asked while this window checks the Note says it is already checking; fails_when=it starts a second Check or the card says Done; no_claim=the run already on.
+  test("Check every sentence again says it is already checking while this window checks", async () => {
+    running.current.mind = { requestId: "other", action: "whole-mind" };
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(checkFromAssistant("mind", true)).rejects.toMatchObject({
+      wording: { key: "mindCheck.alreadyChecking" },
+    });
+    expect(bridge.holdMindCheck).not.toHaveBeenCalled();
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  // protects=the Note a Check kept is freed only after its watch, never between the claims and the watch; fails_when=another window can start between the two parts; no_claim=what the watch checks.
+  test("a Check frees its Note only after its watch ends", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    let release!: () => void;
+    const watching = new Promise<{
+      kind: "checked";
+      sentences: number;
+      checked: number;
+      smallModel: boolean;
+    }>((done) => {
+      release = () => done({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
+    });
+    bridge.checkSentences.mockReturnValueOnce(watching);
+    const { checkFromAssistant, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    const done = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    const confirmed = confirmCheck("mind");
+    await vi.waitFor(() => expect(bridge.checkSentences).toHaveBeenCalled());
+    expect(bridge.cancelCheck).not.toHaveBeenCalledWith(requestId);
+
+    release();
+    await confirmed;
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  // protects=a throw after the claims still settles the answer, never a stuck "Running"; fails_when=the assistant waits forever or the Note stays held; no_claim=what the watch checks.
+  test("a throw in the watch settles the assistant's reply and frees the Note", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    const { setCheckRunning } = await import("../../src/renderer/src/checks");
+    vi.mocked(setCheckRunning)
+      .mockImplementationOnce(() => {})
+      .mockImplementationOnce(() => {
+        throw new Error("The watch couldn’t start.");
+      });
+    const { checkFromAssistant, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    const done = checkFromAssistant("mind");
+    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    await confirmCheck("mind");
+    await expect(done).rejects.toThrow("The watch couldn’t start.");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    expect(setCheckProblem).toHaveBeenCalledWith(
+      "mind",
+      expect.objectContaining({ kind: "failed" }),
+    );
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+  });
+
+  // protects=a plan that throws while the Note is held frees it; fails_when=the hold outlives a failed plan; no_claim=what the plan needed.
+  test("a plan that throws frees the Note it held", async () => {
+    bridge.planMindCheck.mockRejectedValue(new Error("The plan couldn’t be made."));
+    const { checkFromAssistant, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(checkFromAssistant("mind")).rejects.toThrow("The plan couldn’t be made.");
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.cancelCheck).toHaveBeenCalled();
+  });
+
+  test("a Check whose model fails ends the assistant's card as the failure", async () => {
+    bridge.checkMind.mockResolvedValue({
+      kind: "failed",
+      error: { kind: "provider", message: "Overloaded" },
+    });
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+
+    await expect(checkFromAssistant("mind")).rejects.toThrow("Overloaded");
+  });
+
+  test("Not now frees the Note its question kept", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    const { dismissMindCheck, startMindCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    await startMindCheck("mind", "changed");
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    dismissMindCheck("mind");
+
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+  });
+
+  test("the assistant's Check says it is already checking, and a Check that runs does not", async () => {
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+    bridge.holdMindCheck.mockResolvedValue(false);
+    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+      wording: { key: "mindCheck.alreadyChecking" },
+    });
+
+    bridge.holdMindCheck.mockResolvedValue(true);
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    await expect(checkFromAssistant("mind")).resolves.toBeUndefined();
   });
 });
 

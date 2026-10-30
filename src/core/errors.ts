@@ -172,6 +172,4 @@ export class EmbeddingModelNotReadyError extends Error {
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { isRecord } from "../shared/record";

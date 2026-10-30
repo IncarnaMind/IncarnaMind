@@ -47,7 +47,9 @@ export type CheckProblem =
   /** Check this Mind (#737), in a Mind with no sentence to check. */
   | { kind: "no-claims" }
   /** Check this Mind (#737): the model couldn't name the claims. */
-  | { kind: "find-failed"; error: ProviderError; retry(): void };
+  | { kind: "find-failed"; error: ProviderError; retry(): void }
+  /** This Note's Check runs, or is being planned, in another window. */
+  | { kind: "running" };
 
 export interface CheckRunning {
   requestId: string;

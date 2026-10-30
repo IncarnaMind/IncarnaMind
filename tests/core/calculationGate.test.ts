@@ -134,6 +134,7 @@ async function fixture({
       return {
         text: [
           `Verdict: ${verdict}`,
+          "Absence: no",
           `Topic: ${topic}`,
           ...(says ? [says] : []),
           ...(required?.map((number) => `Calculation: ${number}`) ?? []),

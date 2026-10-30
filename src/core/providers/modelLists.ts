@@ -31,6 +31,7 @@ import {
 import { KNOWN_PLAN_MODELS } from "./chatgpt/planEndpoint";
 import { endpointUrl, requiresApiKey } from "./kinds";
 import { isCloudModelName, isRemoteEntry } from "./ollamaCloud";
+import { openRouterReasoningFacts } from "./openrouterReasoning";
 
 const LIST_TIMEOUT_MS = 5_000;
 
@@ -174,7 +175,7 @@ function lmStudioModels(body: unknown): ListedModel[] {
 
 /** What OpenRouter's model list says of a model: its inputs, context window, longest reply, and Tools. */
 export function openRouterModelFacts(model: Record<string, unknown>): ModelFactsLayer {
-  const facts: ModelFactsLayer = {};
+  const facts: ModelFactsLayer = openRouterReasoningFacts(model);
   const architecture = isRecord(model.architecture) ? model.architecture : null;
   const modalities =
     architecture && Array.isArray(architecture.input_modalities)

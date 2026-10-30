@@ -15,7 +15,7 @@ import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
+import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
@@ -341,7 +341,7 @@ const appCommands: readonly Command[] = [
     },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheck(mindId);
+      if (mindId) return checkFromAssistant(mindId);
     },
   },
   {
@@ -353,7 +353,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startMindCheck(mindId, "all");
+      if (mindId) return checkFromAssistant(mindId, true);
     },
   },
   {

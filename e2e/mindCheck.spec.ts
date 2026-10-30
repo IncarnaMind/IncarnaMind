@@ -391,6 +391,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   // The claims are named already and a model on this computer is free: it checks at once, asking nothing.
   await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(3);
   await expect(ask).toHaveCount(0);
+  await mindCheckFinished(window, 15);
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
   await expect(health.getByTestId("health-checked-all")).toBeVisible();
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);

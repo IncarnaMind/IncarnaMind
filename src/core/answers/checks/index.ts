@@ -326,7 +326,9 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 /** A result written onto its mark. */
 function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
   // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
-  const { recordCites: _earlier, ...basis } = check;
+  const { recordCites: _earlier, readDocuments: _gone, ...rest } = check;
+  const basis: ClaimCheckBasis =
+    result.readDocuments === undefined ? rest : { ...rest, readDocuments: result.readDocuments };
   const common = {
     versions: result.versions,
     excluded: result.excluded,
@@ -1109,6 +1111,9 @@ export function createChecks(options: ChecksOptions) {
     planMindCheck: async (mindId: unknown, mode: unknown, allDocuments?: unknown) =>
       mindCheck.planMindCheck(mindId, mode, allDocuments === true),
 
+    holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
+    forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
+
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
@@ -1295,9 +1300,12 @@ export function createChecks(options: ChecksOptions) {
       return { cite: final };
     },
 
-    /** Stops a request: its sentences not checked yet are marked "stopped". */
+    /** Stops a request: its sentences not checked yet are marked "stopped", and a Note it kept is free. */
     cancel(requestId: string): void {
-      running.get(requestId)?.controller.abort();
+      const active = running.get(requestId);
+      active?.controller.abort();
+      // A running Check frees its Note as it unwinds, so no second one starts over it.
+      if (!active) mindCheck.release(requestId);
     },
 
     /** Marks "stopped" the sentences a request that is no longer running left "checking", e.g. after a crash. */
