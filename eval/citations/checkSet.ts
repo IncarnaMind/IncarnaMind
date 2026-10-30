@@ -7,7 +7,7 @@
  * and on no other Unit of its Document.
  */
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PageText } from "../../src/core/documents/passages";
 import { processFile } from "../../src/core/documents/processing";
@@ -149,6 +149,27 @@ interface StoredUnits {
   units: PageText[];
 }
 
+/** Each Document's Units as the app's processing stores them; none for one without text. */
+export async function readDocuments(
+  root: string,
+  documents: readonly Pick<CitationDocument, "key" | "path">[],
+): Promise<Map<string, StoredUnits>> {
+  const stored = new Map<string, StoredUnits>();
+  for (const document of documents) {
+    const result = await processFile({
+      task: "process",
+      documentId: document.key,
+      kind: "pdf",
+      file: join(root, document.path),
+    });
+    stored.set(document.key, {
+      outcome: result.outcome,
+      units: result.outcome === "ready" ? result.pages : [],
+    });
+  }
+  return stored;
+}
+
 function quoteFailure(
   units: PageText[],
   pages: [number, number],
@@ -232,17 +253,11 @@ export async function checkCitationSet(root: string): Promise<CheckReport> {
     }
   }
 
-  const stored = new Map<string, StoredUnits>();
+  const stored = await readDocuments(root, documents);
   for (const document of documents) {
-    const result = await processFile({
-      task: "process",
-      documentId: document.key,
-      kind: "pdf",
-      file: join(root, document.path),
-    });
-    if (result.outcome !== "ready") {
+    const { outcome, units } = stored.get(document.key) ?? { outcome: "missing", units: [] };
+    if (outcome !== "ready") {
       // The one page without a text layer is part of the library and none of the gold rests on it.
-      stored.set(document.key, { outcome: result.outcome, units: [] });
       if (
         questions.some((question) =>
           question.quotes.some((quote) => quote.document === document.key),
@@ -252,13 +267,11 @@ export async function checkCitationSet(root: string): Promise<CheckReport> {
       }
       continue;
     }
-    const units = result.pages;
     if (units.length !== document.pages) {
       fail(
         `${document.key}: listed with ${document.pages} pages, processing reads ${units.length}`,
       );
     }
-    stored.set(document.key, { outcome: result.outcome, units });
   }
 
   const ids = new Set<string>();
@@ -386,4 +399,47 @@ export async function checkCitationSet(root: string): Promise<CheckReport> {
     secondReaderChecked,
     failures,
   };
+}
+
+/** The folders whose prompts, with their examples, a model is shown. */
+const PROMPT_SOURCES = ["src/core", "src/shared"];
+
+/** Long enough that a match is a copy, not a common phrase. */
+const COPY_LENGTH = 20;
+
+const comparable = (text: string) => text.normalize("NFKC").replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * The Questions and gold quotes written in the app's own source, where its
+ * prompts and their examples are: a model shown one in a prompt could answer
+ * from memory, so the set must have none.
+ */
+export async function promptCopies(
+  root: string,
+  questions: readonly CitationQuestion[],
+): Promise<string[]> {
+  const sources: string[] = [];
+  for (const folder of PROMPT_SOURCES) {
+    const names = await readdir(join(root, folder), { recursive: true });
+    for (const name of names.filter((each) => each.endsWith(".ts"))) {
+      sources.push(comparable(await readFile(join(root, folder, name), "utf8")));
+    }
+  }
+  const copied: string[] = [];
+  for (const question of questions) {
+    const texts = [
+      { label: "its wording", text: question.question },
+      ...question.quotes.map((quote, index) => ({
+        label: `quote ${index + 1}`,
+        text: quote.quote,
+      })),
+    ];
+    for (const { label, text } of texts) {
+      const wanted = comparable(text);
+      if (wanted.length >= COPY_LENGTH && sources.some((source) => source.includes(wanted))) {
+        copied.push(`${question.id}: ${label} is in the app's prompts`);
+      }
+    }
+  }
+  return copied;
 }

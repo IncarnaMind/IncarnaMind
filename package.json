@@ -56,7 +56,12 @@
     "check:package": "node scripts/check-package.mjs",
     "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts",
     "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts",
-    "eval:skills": "vitest run --config eval/skills/vitest.config.ts"
+    "eval:skills": "vitest run --config eval/skills/vitest.config.ts",
+    "eval:citations": "vitest run --config eval/citations/vitest.config.ts run.citations",
+    "eval:citations:estimate": "vitest run --config eval/citations/vitest.config.ts estimate.citations",
+    "eval:citations:judge": "vitest run --config eval/citations/vitest.config.ts judge.citations",
+    "eval:citations:score": "vitest run --config eval/citations/vitest.config.ts score.citations",
+    "eval:citations:scan": "vitest run --config eval/citations/vitest.config.ts scan.citations"
   },
   "dependencies": {
     "@ai-sdk/alibaba": "2.0.65",
