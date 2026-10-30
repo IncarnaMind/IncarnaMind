@@ -175,7 +175,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(supported).toBeVisible();
   await window.keyboard.press("ControlOrMeta+Shift+z");
   await expect(citation).toHaveAttribute("data-check", "found");
-  await expect(line).toHaveText(`${SUPPORTED.slice(0, -1)} 1. ${UNSUPPORTED}`);
+  await expect(line).toHaveText(`${SUPPORTED.slice(0, -1)}1. ${UNSUPPORTED}`);
   await expect(marks(window)).toHaveCount(1);
   await expect((await checkCard(window)).getByTestId("health-found")).toContainText(
     "1 Citation found",

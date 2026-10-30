@@ -848,11 +848,11 @@ function SourceRow({ source }: { source: StepSource }) {
       data-document-id={source.documentId}
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
-        void openCitedFollowing(source, {
-          check: source.check,
-          withQuote: quoteSaysSo(source.check),
-          label: where,
-        })
+        void openCitedFollowing(
+          source,
+          { check: source.check, withQuote: quoteSaysSo(source.check), label: where },
+          null,
+        )
       }
       className="answer-step-source"
     >

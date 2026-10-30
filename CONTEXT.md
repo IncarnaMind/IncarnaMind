@@ -35,7 +35,7 @@ What an Answer is generated from: in a Note, every Block above its Question, exc
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. Automatic and suggested Organize filings count only once the User accepts them.
 _Avoid_: filter, context
 
 ### The assistant
@@ -45,7 +45,7 @@ The one place in each window where the User asks Questions and reads their Answe
 _Avoid_: chat panel, thread, copilot, bot
 
 **Conversation**:
-The assistant's history of one exchange: its messages, each a Question or an Answer, in order. It belongs to the Folder of the Note its first Question was asked from, or to none; each Question records the Note it was asked from. A Conversation is not a Note: it is listed only in the assistant's History, never in the sidebar or a tab, and exists once it has a Question. New chat starts one.
+The assistant's history of one exchange: its messages, each a Question or an Answer, in order. It belongs to the Folder of the Note its first Question was asked from, or to none; each Question records the Note it was asked from. A Conversation is not a Note: it is listed only in the assistant's History, never in the sidebar or a tab, and exists once it has a Question. New chat starts one. A Conversation follows the User between Notes, but it never carries earlier turns across a work wall.
 _Avoid_: chat (except in "New chat"), thread, session
 
 ### Documents
@@ -135,11 +135,11 @@ A PDF of the pages a Note cites, made from Export options: a cover list, then on
 _Avoid_: evidence bundle, appendix, bundle
 
 **Folder**:
-A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder.
+A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
 _Avoid_: project (in the interface), group (a Folder's former name; a Group is now a column of tabs), collection, category
 
 **Not in a Folder**:
-The one place for every Document and Note in no Folder. A Note there searches all Documents.
+The one place for every Document and Note in no Folder. A Note there searches every Document except those inside a work wall.
 _Avoid_: Unsorted, Uncategorised, Inbox
 
 **Suggested Folder**:
@@ -214,7 +214,7 @@ _Avoid_: default Skill, system Skill
 ### Changes
 
 **Proposal**:
-A change to a Note, made by the AI or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes from the assistant".
+A change to a Note, made by the AI or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
 _Avoid_: suggestion, edit, draft, diff
 
 **AI text**:
@@ -234,6 +234,10 @@ The one short line that says what the User just changed, with Undo, shown after 
 _Avoid_: toast, snackbar, notification
 
 ### Checks
+
+**Record cite**:
+A reference in legal writing to a Document in the record and the exact place it names: a deposition's page and lines, an exhibit's or a docket entry's page, a Bates number, a numbered paragraph or a recording's time, and the `Id.` and `supra` that refer back to one. A record-cite check reads exactly that Passage and gives the cite its own result (Supported, Partly, Unsupported, Choose, Not found or Not checked), apart from the sentence's overall result.
+_Avoid_: legal citation (a Citation is the general object in a Note), source
 
 **Citation check**:
 The test of whether a Citation's quote is found in the text at its Location, and of whether the words its sentence puts in quotation marks (at least 4 words, or 6 characters in Chinese or Japanese) are found in the text at the Locations the sentence cites. Its only failing result is quote not found.
@@ -262,6 +266,18 @@ _Avoid_: nothing says this, missing, not in your Documents
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
 _Avoid_: wrong, conflict, false
+
+**Not examined**:
+A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
+_Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
+
+**Part**:
+One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion is a fact inside that opinion, which stays one part. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.
+_Avoid_: chunk, clause, segment
+
+**Opinion left out**:
+The writer's own view in a sentence, which a check doesn't judge: a whole sentence that is one has no Mark, and a mixed sentence's opinion part keeps its row. The check's line counts each once: "3 opinions left out · Show" (3 处观点未纳入核对 · 查看), and Check anyway (仍然核对) checks that part alone. Never "Not checked", which is a claim whose check failed.
+_Avoid_: skipped, not checked, ignored
 
 **Needs re-check**:
 A check result whose sentence, evidence or scope has changed since it was made, so it is no longer known to hold.

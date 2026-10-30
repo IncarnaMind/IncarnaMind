@@ -57,8 +57,9 @@ import {
   type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import { citedPageKey } from "../citedPages";
-import { InvalidInputError, isRecord } from "../errors";
+import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
 import {
@@ -341,7 +342,7 @@ export function createExports(deps: ExportsDependencies) {
       format === "source-pack"
         ? numberCitations(blocks, style.form, attributesOf).map((each) => each.footnote)
         : footnotesIn(blocks);
-    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Mind");
+    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Note");
     const listedPlace: CitationPlace | null =
       (format === "docx" || format === "pdf") && style.form === "numbered" && footnotes.length > 0
         ? (options.citationPlace ?? "footnotes")
@@ -406,6 +407,7 @@ export function createExports(deps: ExportsDependencies) {
     });
     return {
       ...preview,
+      footnotes: 0,
       unverifiedCitations: pages.flatMap((page) => page.entries).filter(isUnverified).length,
       data: unifyIdeographs(printed),
       word: null,
@@ -619,7 +621,7 @@ export function createExports(deps: ExportsDependencies) {
       const prepared = prepare(mindId, options);
       const { title, preview, language, format, style, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
-        throw new Error("This copy of IncarnaMind can't make PDFs.");
+        throw new TranslatableError({ key: "error.checkRecord.noPdf" });
       }
       if (format === "source-pack") return sourcePack(prepared);
       const thin = thinEntries(
@@ -632,6 +634,7 @@ export function createExports(deps: ExportsDependencies) {
       if (format === "share-page" && prepared.options.citationCards) {
         return {
           ...preview,
+          footnotes: 0,
           data: await sharePage(prepared),
           word: null,
           needsDetails: [],
@@ -662,10 +665,11 @@ export function createExports(deps: ExportsDependencies) {
             );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
+      let footnotes = 0;
       if (format === "markdown") {
         data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
       } else if (format === "docx") {
-        ({ data, commented } = renderDocx(await withPictures(blocks, language, deps), {
+        ({ data, commented, footnotes } = renderDocx(await withPictures(blocks, language, deps), {
           title,
           labels,
           language: language === "zh-CN" ? "zh-CN" : "en-US",
@@ -688,7 +692,7 @@ export function createExports(deps: ExportsDependencies) {
       } else {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
-        const { body, notes } = renderPrintHtml(drawn, labels);
+        const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
         const printed = await (deps.printer as Printer).print({
           language,
           paper: deps.paper(),
@@ -698,9 +702,11 @@ export function createExports(deps: ExportsDependencies) {
           notes,
         });
         data = unifyIdeographs(printed);
+        footnotes = printedFootnotes;
       }
       return {
         ...preview,
+        footnotes,
         data,
         word: null,
         needsDetails: [...thin.documents],
@@ -726,7 +732,7 @@ export function createExports(deps: ExportsDependencies) {
     word: NonNullable<Prepared["word"]>,
     thin: ThinEntries,
   ): Promise<MindExport> {
-    if (word.importing) throw new Error("This Mind is still being imported from its Word file.");
+    if (word.importing) throw new TranslatableError({ key: "error.export.wordImporting" });
     const { language, style, documents } = prepared;
     // A copy of the Mind as it is now: typing while the file is written doesn't change it.
     const state = deps.read(prepared.mindId, (blocks) =>
@@ -735,7 +741,7 @@ export function createExports(deps: ExportsDependencies) {
     const doc = new Y.Doc();
     try {
       if (state) Y.applyUpdate(doc, state);
-      const { data, report, commented } = await exportWordPatch({
+      const { data, report, commented, footnotes } = await exportWordPatch({
         bytes: await deps.wordPackage(prepared.mindId),
         blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
         readOptions: prepared.readOptions,
@@ -755,6 +761,7 @@ export function createExports(deps: ExportsDependencies) {
       });
       return {
         ...prepared.preview,
+        footnotes,
         data,
         word: report,
         needsDetails: [...thin.documents],
@@ -948,7 +955,8 @@ function checkedLines(
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const t: Translate = (key, params) => translate(language, key, params);
   return (attributes) => {
-    const sentence = typeof attributes.id === "string" ? sentences.get(attributes.id) : undefined;
+    const sentence =
+      typeof attributes.id === "string" ? sentences.get(attributes.id)?.sentence : undefined;
     if (typeof attributes.id !== "string" || sentence === undefined) return [];
     const cited = {
       documentId: attributes.documentId ?? null,
@@ -956,10 +964,7 @@ function checkedLines(
       quote: attributes.quote ?? null,
     };
     return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
-      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
-        name: now.name ?? t("checkRecord.notRecorded"),
-        date: formatDate(now.at, language),
-      }),
+      checkedByLine(now, (at) => formatDate(at, language), t),
     );
   };
 }

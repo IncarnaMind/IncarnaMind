@@ -19,6 +19,7 @@ import {
   type Translate,
   unitLocation,
 } from "../../src/shared/locations";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -48,12 +49,15 @@ async function addReport(core: Core, name: string, bytes: Uint8Array): Promise<D
 
 /** The Location the check gives a quote from `page` of the report. */
 async function locationOf(core: Core, document: Document, page: number) {
-  const result = await core.recheckCitation({
-    documentId: document.id,
-    quote: sentence(page),
-    pageFrom: page,
-    pageTo: page,
-  });
+  const result = checkedResult(
+    await core.recheckCitation({
+      mindId: null,
+      documentId: document.id,
+      quote: sentence(page),
+      pageFrom: page,
+      pageTo: page,
+    }),
+  );
   return { check: result.check, location: result.location, pageFrom: result.pageFrom };
 }
 
@@ -129,12 +133,15 @@ describe("A Citation of a PDF with no labels, whose footers print numbers one lo
     const core = startCore(await createTempDataFolder());
     const document = await addReport(core, "Annual Report.pdf", report(footers));
 
-    const result = await core.recheckCitation({
-      documentId: document.id,
-      quote: `${sentence(3)} ${sentence(4)}`,
-      pageFrom: 3,
-      pageTo: 4,
-    });
+    const result = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: `${sentence(3)} ${sentence(4)}`,
+        pageFrom: 3,
+        pageTo: 4,
+      }),
+    );
 
     expect(result.location).toEqual({
       kind: "page",
@@ -248,6 +255,30 @@ describe("A page's Location in words", () => {
       "68",
     ]) {
       expect(parseLocation({ ...location, printed })).toEqual({ kind: "page", from: 69, to: 69 });
+    }
+  });
+
+  test("printed deposition lines survive normalization and stay in the label", () => {
+    const deposition = {
+      kind: "page",
+      from: 45,
+      to: 46,
+      printed: { from: "45", to: "46" },
+      lines: { from: 3, to: 2 },
+    } as const;
+    expect(parseLocation(JSON.stringify(deposition))).toEqual(deposition);
+    expect(englishLocation(deposition)).toBe("p. 45, line 3–p. 46, line 2");
+    expect(englishPrintedLocation(deposition)).toBe("p. 45, line 3–p. 46, line 2");
+    expect(
+      citationSource({ documentName: "Smith Deposition", location: deposition }, zh).text,
+    ).toBe("Smith Deposition，第 45 页第 3 行至第 46 页第 2 行");
+    for (const lines of [{ from: 0, to: 2 }, { from: 3, to: 0 }, "3-2"]) {
+      expect(parseLocation({ ...deposition, lines })).toEqual({
+        kind: "page",
+        from: 45,
+        to: 46,
+        printed: { from: "45", to: "46" },
+      });
     }
   });
 });

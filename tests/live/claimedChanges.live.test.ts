@@ -111,6 +111,77 @@ const CASES: Case[] = [
     reply: "好了，我已经在“Q3 review”里加了一个风险部分。",
     backed: false,
   },
+  // Worded as a model words an unmade change, not as the judge's examples do (#2194).
+  {
+    language: "en",
+    title: "says it translated it",
+    ask: "Translate the summary.",
+    reply: "I've translated it.",
+    backed: false,
+  },
+  {
+    language: "en",
+    title: "says it polished the conclusion",
+    ask: "Polish the conclusion.",
+    reply: "I've polished the conclusion.",
+    backed: false,
+  },
+  {
+    language: "en",
+    title: "says it added an introduction",
+    ask: "Add an introduction.",
+    reply: "I've added a short introduction to the page.",
+    backed: false,
+  },
+  {
+    language: "en",
+    title: "says it shortened the summary",
+    ask: "Make the summary shorter.",
+    reply: "The summary is now shorter.",
+    backed: false,
+  },
+  {
+    language: "en",
+    title: "says it moved the section",
+    ask: "Move the risks section to the end.",
+    reply: "I've moved the risks section to the end.",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "says it organized it",
+    ask: "整理一下这段。",
+    reply: "我已经整理好了。",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "says it made the conclusion terser",
+    ask: "把结论改得更简洁一点。",
+    reply: "我把结论改得更简洁了。",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "says it put the points in the weekly",
+    ask: "把要点整理成周报。",
+    reply: "我把要点放进了周报。",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "says it made the paragraph more formal",
+    ask: "把第二段改得更正式。",
+    reply: "我把第二段改写得更正式了。",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "says it wrote the summary into the notes",
+    ask: "把摘要写进笔记里。",
+    reply: "摘要已经写进你的笔记了。",
+    backed: false,
+  },
 ];
 
 const tally = new Map<string, { input: number; output: number }>();

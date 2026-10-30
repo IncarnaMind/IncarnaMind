@@ -16,13 +16,16 @@ import {
 } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { keepCheckAsView } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
-import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
+import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
+import { readOpinionSentences } from "../../src/shared/opinions";
 import {
   checkGenerate,
   checkReply,
   isCheckRun,
+  listedSentences,
   type Plan,
   requestedFigures,
   sentenceOf,
@@ -66,6 +69,8 @@ const PLANS: Record<string, Plan> = {
     says: "The harbour office says every week, not every year.",
   },
   [PENGUINS]: { verdict: "unsupported" },
+  [`Big ${MOON}`]: { verdict: "unsupported" },
+  [`Some ${PENGUINS}`]: { verdict: "unsupported" },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -87,6 +92,24 @@ const unbackedFigures = (call: ModelCall) =>
     remainder: null,
   })}`;
 
+interface SortDecisions {
+  sentences: { number: number; parts: { kind: "fact" | "opinion"; text: string }[] }[];
+}
+
+/** The numbers a request listed `sentence` under. */
+const numbersOf = (call: GenerateCall, sentence: string): number[] =>
+  listedSentences(call.prompt).flatMap((listed) =>
+    listed.text === sentence ? [listed.number] : [],
+  );
+
+/** A reply's decisions without those of `sentences`. */
+const withoutDecisions =
+  (sentences: readonly string[]) =>
+  (call: GenerateCall, decisions: SortDecisions): SortDecisions => {
+    const missing = new Set(sentences.flatMap((sentence) => numbersOf(call, sentence)));
+    return { sentences: decisions.sentences.filter((sentence) => !missing.has(sentence.number)) };
+  };
+
 /** The check Runs made: each starts with a call that has no Tool results yet. */
 const runsIn = (calls: readonly ModelCall[]) =>
   calls.filter((call) => isCheckRun(call) && call.results.length === 0);
@@ -96,7 +119,11 @@ const runsIn = (calls: readonly ModelCall[]) =>
  * `billed`, one billed per token, each request reporting its tokens), and
  * every call to it kept.
  */
-async function setUp(billed?: { usage: ReportedUsage; judged?: ReportedUsage }) {
+async function setUp(
+  billed?: { usage: ReportedUsage; judged?: ReportedUsage },
+  /** How a reply naming the claims differs from the plans' decisions, by how many were asked. */
+  decide?: (asked: number, call: GenerateCall, decisions: SortDecisions) => SortDecisions,
+) {
   const checks: ModelCall[] = [];
   const finds: GenerateCall[] = [];
   const model = scriptedModel(
@@ -112,8 +139,21 @@ async function setUp(billed?: { usage: ReportedUsage; judged?: ReportedUsage }) 
     },
     {
       generate: (call) => {
-        if (call.system.startsWith("You sort the sentences")) finds.push(call);
+        const sorting = call.system.startsWith("You sort the sentences");
+        if (sorting) finds.push(call);
         const reply = checkGenerate(PLANS)(call);
+        if (sorting && "text" in reply) {
+          const decisions = JSON.parse(reply.text) as SortDecisions;
+          const views = new Set(numbersOf(call, OPINION));
+          const explicit = {
+            sentences: decisions.sentences.map((sentence) =>
+              views.has(sentence.number)
+                ? { ...sentence, parts: [{ kind: "opinion" as const, text: OPINION }] }
+                : sentence,
+            ),
+          };
+          return { text: JSON.stringify(decide ? decide(finds.length, call, explicit) : explicit) };
+        }
         return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
           ? { ...reply, usage: billed.judged }
           : reply;
@@ -262,6 +302,21 @@ test.each([
 });
 
 describe("Check this note", () => {
+  // protects=a second Check of a Note while one runs starts none, whichever window or request asks, and says one is running; the first goes on to its end; fails_when=two runs check the same Note at once; no_claim=a Check of another Note, which runs beside it.
+  test("one Check of a Note at a time: a second, from anywhere, starts none", async () => {
+    const { core, mindId, finds } = await setUp();
+
+    const first = core.checkMind(request(mindId, "all", "first-window"));
+    const second = core.checkMind(request(mindId, "all", "second-window"));
+
+    expect(await second).toEqual({ kind: "running" });
+    expect(await first).toMatchObject({ kind: "checked", sentences: 3 });
+    expect(finds).toHaveLength(1);
+    expect(await core.checkMind(request(mindId, "all", "after"))).toMatchObject({
+      kind: "checked",
+    });
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {
@@ -348,6 +403,150 @@ describe("Check this note", () => {
     });
   });
 
+  test("a sentence the reply leaves undecided is asked about once more, with its own number, and checked once decided (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (asked, call, decisions) =>
+        asked === 1 ? withoutDecisions([PENGUINS])(call, decisions) : decisions,
+    );
+
+    expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+      kind: "checked",
+      sentences: 3,
+    });
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 5, text: PENGUINS }] }));
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    expect(mindCheckOf(client.doc)).toMatchObject({ unexamined: [] });
+    expect(mindCheckOf(client.doc)?.skipped).toHaveLength(2);
+  });
+
+  test.each([
+    ["Spring tides come at new and full moon.", "Penguins nest on the cliffs above the harbour."],
+    ["大潮发生在新月和满月时。", "企鹅在港口上方的悬崖筑巢。"],
+  ])(
+    "a readable reply missing every sentence leaves them unexamined: %s",
+    async (first, second) => {
+      const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({
+        sentences: [],
+      }));
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "all-missing" }, content: [text(`${first} ${second}`)] },
+      ]);
+      await client.settled();
+      expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+        kind: "checked",
+        sentences: 0,
+        checked: 0,
+        stop: null,
+      });
+      expect(finds).toHaveLength(2);
+      expect(finds[1]?.prompt).toBe(finds[0]?.prompt);
+      expect(mindCheckOf(client.doc)).toMatchObject({
+        skipped: [],
+        unexamined: [sentenceKey(first), sentenceKey(second)],
+      });
+      expect(await shownChecks(core, client, mindId, folderId)).toEqual([]);
+      expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+        kind: "ready",
+        sentences: 2,
+        findsClaims: true,
+      });
+    },
+  );
+
+  test("a sentence no reply decides isn't examined: no mark, not left out as no claim, and the next Check asks about it again (#1682)", async () => {
+    let silent = true;
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (_, call, decisions) => (silent ? withoutDecisions([PENGUINS])(call, decisions) : decisions),
+    );
+
+    expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+      kind: "checked",
+      sentences: 2,
+    });
+    expect(finds).toHaveLength(2);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY]);
+    const run = mindCheckOf(client.doc);
+    expect(run?.unexamined).toHaveLength(1);
+    expect(run?.skipped).toHaveLength(2);
+    expect(run?.skipped).not.toContain(run?.unexamined[0]);
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+      findsClaims: true,
+    });
+
+    silent = false;
+    expect(await core.checkMind(request(mindId, "changed", "again"))).toMatchObject({
+      kind: "checked",
+      sentences: 1,
+    });
+    expect(finds).toHaveLength(3);
+    expect(finds[2]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: PENGUINS }] }));
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
+  });
+
+  test("a Note checked before every sentence got a decision has its sentences that made no claim sorted once more (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp();
+    // A run before #1682 took a sentence its reply didn't list for one that makes no claim.
+    client.doc.getMap(MIND_SETTINGS_FIELD).set("mindCheck", {
+      at: "2026-10-01T09:00:00.000Z",
+      sentences: 0,
+      stop: null,
+      skipped: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+    await client.settled();
+    expect(mindCheckOf(client.doc)).toMatchObject({
+      skipped: [],
+      unexamined: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+
+    await core.checkMind(request(mindId, "changed"));
+    expect(finds[0]?.prompt).toContain(PENGUINS);
+    expect(finds[0]?.prompt).toContain(QUESTION);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    const run = mindCheckOf(client.doc);
+    expect(run?.unexamined).toEqual([]);
+    expect(run?.skipped).toContain(sentenceKey(QUESTION));
+    expect(run?.skipped).not.toContain(sentenceKey(PENGUINS));
+  });
+
+  test("the same words twice, named a claim once and left out once, are checked and not left out (#1682)", async () => {
+    const { core, client, mindId, folderId } = await setUp(undefined, (_, call, decisions) => {
+      const [, second] = numbersOf(call, MOON);
+      return second === undefined
+        ? decisions
+        : {
+            sentences: decisions.sentences.map((sentence) =>
+              sentence.number === second ? { ...sentence, parts: [] } : sentence,
+            ),
+          };
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", attrs: { id: "again" }, content: [text(MOON)] },
+    ]);
+    await client.settled();
+
+    await core.checkMind(request(mindId, "all"));
+    const marked = (await shownChecks(core, client, mindId, folderId)).map(
+      ({ sentence }) => sentence,
+    );
+    expect(marked.filter((sentence) => sentence === MOON)).toHaveLength(2);
+    expect(mindCheckOf(client.doc)?.skipped).not.toContain(sentenceKey(MOON));
+  });
+
   test("a short sentence with a shown check counts and is checked, though it makes no claim (#1909)", async () => {
     const { core, client, mindId, folderId, checks } = await setUp();
     await core.checkMind(request(mindId, "all"));
@@ -415,7 +614,7 @@ describe("Check this note", () => {
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
-  test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {
+  test("Check again renews only the edited sentences' parts, then checks them", async () => {
     const { core, client, mindId, folderId, checks, finds } = await setUp();
     await core.checkMind(request(mindId, "all"));
     const runsBefore = runsIn(checks).length;
@@ -429,7 +628,7 @@ describe("Check this note", () => {
     expect(await core.planMindCheck(mindId, "changed")).toEqual({
       kind: "ready",
       sentences: 2,
-      findsClaims: false,
+      findsClaims: true,
       inFolder: true,
       model: (await core.getSettings()).user.chatModel,
     });
@@ -437,9 +636,16 @@ describe("Check this note", () => {
       kind: "checked",
       sentences: 2,
     });
-    // Two check Runs, and the model wasn't asked again which sentences claim something.
     expect(runsIn(checks).length - runsBefore).toBe(2);
-    expect(finds).toHaveLength(1);
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(
+      JSON.stringify({
+        sentences: [
+          { number: 1, text: `Big ${MOON}` },
+          { number: 2, text: `Some ${PENGUINS}` },
+        ],
+      }),
+    );
     expect(
       (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
     ).toEqual(["unsupported", "contradicted", "unsupported"]);
@@ -487,7 +693,7 @@ describe("Check this note", () => {
     });
     await core.checkMind(request(mindId, "changed"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("the monthly cap stops the run: the claims left say “not checked: cost cap”", async () => {
@@ -577,7 +783,9 @@ describe("Check this note", () => {
       sentences: 3,
     });
     expect(finds).toHaveLength(1);
-    expect(mindCheckOf(client.doc)?.skipped).toHaveLength(3);
+    expect(mindCheckOf(client.doc)?.skipped).toEqual([sentenceKey(QUESTION), sentenceKey(memo)]);
+    expect(readOpinionSentences(client.doc).map((sentence) => sentence.text)).toEqual([OPINION]);
+    expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
@@ -744,7 +952,7 @@ describe("Check this note", () => {
     });
     await restarted.core.checkMind(request(mindId, "all", "third"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("says why there is nothing to check: no sentences; a Mind in a Folder with no Documents checks every Document (#1359)", async () => {
@@ -1023,14 +1231,7 @@ describe("Checking selected figures in one sentence", () => {
       const check = owner();
       client.doc.transact(() => {
         updateCheck(client.blocks, check.id, (current) =>
-          id === undefined
-            ? { ...current, kept: true }
-            : {
-                ...current,
-                figures: current.figures?.map((figure) =>
-                  figure.id === id ? { ...figure, kept: true } : figure,
-                ),
-              },
+          keepCheckAsView(current, id === undefined ? undefined : new Set([id])),
         );
       }, "editor");
       await client.settled();

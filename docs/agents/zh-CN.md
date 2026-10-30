@@ -99,6 +99,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
+| Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
@@ -106,6 +107,11 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
+| Part (of a sentence) | 处 | A fact or opinion piece of a sentence a check keeps on its own row. Counted with 处, for the rows and the opinions alike: "正在核对这一处…", "另外 3 处", "1 处观点未纳入核对". Not 条, which counts Claims (说法). |
+| Opinion left out | 视为观点，未纳入核对 | A row's result; the line under a check says "{count} 处观点未纳入核对 · 查看". Not 未核对, which is a claim whose check failed. |
+| Check anyway | 仍然核对 | Checks one opinion part alone. |
+| Covers (a quantified part) | 覆盖 {total} 项中的 {covered} 项 | No unit: its measure word would change with the unit, and the rows name each member. Counted with 项, never a fixed 个. |
+| Not examined | 未能判断是否为说法 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否为说法". Not 未核对, which is a claim whose check failed or hasn't run. |
 | Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |

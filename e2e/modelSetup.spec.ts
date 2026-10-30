@@ -1,4 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
@@ -7,8 +9,10 @@ import { translate } from "../src/shared/i18n";
 import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
+  ANTHROPIC_KEY,
   acceptPlainTextKeys,
   addDocuments,
+  askFirstQuestion,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -53,20 +57,6 @@ const bridge = (window: Page) => ({
       return (await core.getLibrary()).settings;
     }),
 });
-
-async function askFirstQuestion(window: Page): Promise<Locator> {
-  await newMind(window);
-  await window.getByTestId("mind-editor").focus();
-  await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  return card;
-}
-
-/** A key as a real one is shaped, for a stand-in provider: never a real key. */
-const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
 
 test("a pasted key is named by its form and works at once: the waiting Question runs, and steps 2 and 3 take one click each", async () => {
   const { app, window } = await launchApp(dataDir, {
@@ -466,8 +456,8 @@ function paints(window: Page, count = 15): Promise<void> {
 
 // A model on this computer and a cloud model Ollama forwards to ollama.com, on one server.
 const OLLAMA_MODELS = [
-  { modelId: "qwen3.5:4b", cloud: false },
-  { modelId: "gpt-oss:120b-cloud", cloud: true },
+  { modelId: "qwen3.5:4b", shown: "Qwen 3.5 4B", cloud: false },
+  { modelId: "gpt-oss:120b-cloud", shown: "gpt-oss:120b-cloud", cloud: true },
 ] as const;
 
 /** Saves `modelId` on the saved Ollama server for sorting, as the Other model form does. */
@@ -795,7 +785,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(settled.later).toEqual(opened.later);
       // The words were there from the first paint, and only the list changed under them.
       expect(opened.line).toContain(
-        translate(language, "setup.sorting.chat", { model: "qwen3.5:4b" }),
+        translate(language, "setup.sorting.chat", { model: "Qwen 3.5 4B" }),
       );
       expect(opened.line).toContain(translate(language, "setup.sorting.chat.hints"));
       expect(settled.line).toBe(opened.line);
@@ -1623,7 +1613,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  for (const { modelId, cloud } of OLLAMA_MODELS) {
+  for (const { modelId, shown, cloud } of OLLAMA_MODELS) {
     for (const chatDefault of ["the same", "another"] as const) {
       test(`a sorting choice on ${modelId}, ${cloud ? "a cloud model" : "a model on this computer"} of one Ollama server, with ${chatDefault} chat default, says what the core says of where it goes (${language})`, async () => {
         const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -1660,12 +1650,12 @@ for (const language of ["en", "zh-CN"] as const) {
               translate(language, "setup.sorting.sends", { service: told.answer.service.name }),
             );
             expect(words).not.toContain(
-              translate(language, "setup.sorting.chatHere", { model: modelId }),
+              translate(language, "setup.sorting.chatHere", { model: shown }),
             );
           } else {
             expect(told.answer?.kind).toBe("here");
             expect(words).toContain(
-              translate(language, "setup.sorting.chatHere", { model: modelId }),
+              translate(language, "setup.sorting.chatHere", { model: shown }),
             );
             expect(words).not.toContain(
               translate(language, "setup.sorting.sends", { service: "" }),
@@ -1766,6 +1756,80 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
   }
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a silent model app settles to not heard from, never to missing, and Check again finds it (${language})`, async () => {
+    // The app's probe gives up after two seconds and then asks again once; a server that holds
+    // its answer, as a loaded computer's app may, is asked a second time only after the first
+    // look ran out. Two silent looks settle the card: it says it wasn't heard from, offers no
+    // Get, and keeps Check again, which finds the app once it answers.
+    const waiting: (() => void)[] = [];
+    let answers = false;
+    let asked = 0;
+    const server = createServer((request, response) => {
+      request.resume();
+      if (request.url !== "/api/tags") {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      asked += 1;
+      const answer = () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ models: [{ name: "qwen3.5:4b", model: "qwen3.5:4b" }] }));
+      };
+      if (answers) answer();
+      else waiting.push(answer);
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const { port } = server.address() as AddressInfo;
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      examples: true,
+      ollama: `http://127.0.0.1:${port}`,
+    });
+    try {
+      await setWindowSize(app, window, 1100, 900);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const way = card.getByTestId("way-local");
+      const status = way.getByTestId("ollama-status");
+      // The first frame, before anything has been looked at.
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // A second request is the first look given up on: the card still says it is looking.
+      await expect.poll(() => asked, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+      await expect(status).toHaveAttribute("data-looking", "true");
+      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+
+      // Both looks are silent: it settles, out of looking, saying it wasn't heard from — not
+      // that the app is missing, so there is no Get, and Check again stays.
+      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 25_000 });
+      await expect(status).toHaveAttribute("data-read", "no-answer");
+      await expect(way).toContainText(translate(language, "providers.ollama.noAnswer"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
+      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
+      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
+      await expect(card.getByTestId("ollama-check-again")).toBeEnabled();
+
+      // The app answers now: Check again finds it.
+      answers = true;
+      for (const answer of waiting.splice(0)) answer();
+      await pointAndClick(window, card.getByTestId("ollama-check-again"));
+      await expect(way).toContainText(translate(language, "setup.way.local.running"), {
+        timeout: 15_000,
+      });
+    } finally {
+      await app.close();
+      server.close();
+    }
+  });
+}
+
 test("nothing at all: installing a model on this computer is offered, the example still opens, and Set up later gives the words back", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -1776,6 +1840,9 @@ test("nothing at all: installing a model on this computer is offered, the exampl
     await setWindowSize(app, window, 1100, 900);
     await interceptOpenExternal(app);
     const card = await askFirstQuestion(window);
+    // A refused address is an answer: it is not running, so Get is offered (a silent look
+    // settles to not heard from instead, with Check again and no Get).
+    await expect(card.getByTestId("ollama-status")).toHaveAttribute("data-read", "not-running");
     await expect(card.getByTestId("way-local")).toContainText("Install a model on this computer…");
     await expect(card.getByTestId("way-local")).toContainText("Needs the free Ollama app");
     await card.getByTestId("ollama-get").click();

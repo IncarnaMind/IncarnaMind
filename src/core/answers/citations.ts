@@ -59,10 +59,10 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationRecheck,
+  type CitationToRecheck,
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
-  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -446,7 +446,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
  * Checks a Citation again against its Document's current version (see
@@ -1151,6 +1151,8 @@ export function createCitationSession(
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
   const passageDocuments: string[] = [];
+  /** What the model was given of each Passage, in the order it was, with its Document. */
+  const read: { documentId: string; documentName: string; text: string }[] = [];
   const searchedDocuments: string[] = [];
   const remember = (list: string[], id: string) => {
     if (!list.includes(id)) list.push(id);
@@ -1289,11 +1291,11 @@ export function createCitationSession(
     }
     const taken = takeQuote(input, marker, options);
     if (taken.ok && !taken.record.kept) {
-      const problem = quotePlaceProblem(
-        taken.record.quote,
-        citedText(taken.record),
-        matchingFor(taken.source),
-      );
+      const problem =
+        quotePlaceProblem(taken.record.quote, citedText(taken.record), matchingFor(taken.source)) ??
+        (check(taken.record).check === "not-found"
+          ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
+          : null);
       if (problem) {
         return {
           ok: false,
@@ -1311,11 +1313,12 @@ export function createCitationSession(
         };
   }
 
-  /** `take`, for a quote with or without a marker (0 for none). */
+  /** `take`, for a quote with or without a marker (0 for none). A calculated figure's direct input keeps its supplied Location (#1979). */
   function takeQuote(
     input: QuoteInput,
     marker: number,
     options: CiteOptions,
+    relocate = true,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
@@ -1365,9 +1368,9 @@ export function createCitationSession(
       result: null,
     };
     let record: Accepted = { ...taken, location: locationFor(taken) };
-    // Structured output can't be told to fix a record (see `CiteOptions`): a quote that isn't where
-    // it names is cited where it is in its Passage, never outside it, and the check still reads it there.
-    if (options.structured && quote && check(record).check === "not-found") {
+    // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
+    // never outside it, and the check still reads it there.
+    if (relocate && quote && check(record).check === "not-found") {
       const placedAt = locateQuote(passageUnits, quote, matchingFor(source));
       if (placedAt) {
         const placed = { ...taken, range: placedAt, requested: null, unresolved: false };
@@ -1557,6 +1560,11 @@ export function createCitationSession(
               passage.pageTo,
             )
           : [];
+      const severalSections =
+        units.every((unit) => unit.kind === "section") &&
+        new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
+          .size > 1;
+      const firstMark = severalSections && units[0] ? unitMark(units[0]) : null;
       const marked =
         units.length > 1 || units.some((unit) => innerMarks(unit).length > 0)
           ? withUnitMarks(passage.text, units)
@@ -1565,16 +1573,19 @@ export function createCitationSession(
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
-      const text = foldRadicals(withCueMarks(marked, units));
+      const text = foldRadicals(withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units));
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
+      if (!measuring) {
+        read.push({ documentId: passage.documentId, documentName: passage.documentName, text });
+      }
       return {
         id,
         documentName: passage.documentName,
         date: dateOf(passage.documentId),
         range,
-        location: passageLocation(units),
+        location: severalSections ? null : passageLocation(units),
         text,
         notCited,
       };
@@ -1619,7 +1630,7 @@ export function createCitationSession(
       if (passages.length === 0) return found;
       openingGiven = true;
       return {
-        text: `No Passages match these words. The opening of “${opening.name}”, which the Mind is the working copy of, instead:\n${show(passages)}`,
+        text: `No Passages match these words. The opening of “${opening.name}”, which the Note is the working copy of, instead:\n${show(passages)}`,
         passageCount: passages.length,
         passageIds: passages.map((passage) => passage.passageId),
         ...(passages.some((passage) => passage.documentKind === "web") && {
@@ -1730,7 +1741,7 @@ export function createCitationSession(
 
     /** A quote outside the markers, read as a record is; or what the check would find wrong with it. */
     quote(input: QuoteInput, options: CiteOptions = {}): Quoted | { problem: string } {
-      const taken = takeQuote(input, 0, options);
+      const taken = takeQuote(input, 0, options, false);
       if (!taken.ok) return { problem: taken.problem };
       const problem = recordProblem(taken.record, taken.source, taken.passageUnits);
       return problem ? { problem } : quotedOf(taken.record);
@@ -1742,6 +1753,9 @@ export function createCitationSession(
 
   return {
     tools,
+
+    /** What the model was given of each Passage so far, in order, with its Document's id and name. */
+    passagesRead: (): readonly { documentId: string; documentName: string; text: string }[] => read,
 
     /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
     documentsRead: () => ({

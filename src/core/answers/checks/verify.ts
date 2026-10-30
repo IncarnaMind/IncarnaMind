@@ -20,6 +20,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
@@ -33,7 +34,9 @@ import {
   type ChatModelChoice,
   type CheckSentencesResult,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type ClaimCheckResult,
+  type ClaimPartPlan,
   type Document,
   type DocumentStatus,
   type DocumentText,
@@ -56,8 +59,15 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { createElement } from "../blocks";
 import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
-import { runChecks } from "./runChecks";
-import { everySentence, markSentence, type SelectedSentence } from "./sentences";
+import { recordOpinions } from "./opinions";
+import { pendingParts, runChecks } from "./runChecks";
+import {
+  checkText,
+  everySentence,
+  markedSentences,
+  markSentence,
+  type SelectedSentence,
+} from "./sentences";
 import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
@@ -95,6 +105,10 @@ export interface VerifyOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText?: string,
+    priorParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
@@ -142,10 +156,10 @@ function parseRequest(input: unknown) {
   };
 }
 
-function claimOf(sentence: SelectedSentence): { claim: string; context: string } | undefined {
+function claimOf(sentence: SelectedSentence): ReturnType<typeof checkText> | undefined {
   const row = tableClaim(sentence);
   if (row === "not-a-claim") return undefined;
-  return row ?? { claim: sentence.text, context: sentence.context };
+  return row ?? checkText(sentence);
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -200,6 +214,22 @@ export function createVerify(options: VerifyOptions) {
     }
   }
 
+  function sortingInput(mindId: string, verification: Verification) {
+    const sentences = content.read(mindId, (blocks) =>
+      everySentence(blocks).flatMap((sentence) => {
+        if (!(sentence.blockId in verification.pages)) return [];
+        const said = claimOf(sentence)?.claim;
+        return said !== undefined && isClaim(said) ? [{ ...sentence, said }] : [];
+      }),
+    );
+    return {
+      sentences,
+      snapshot: JSON.stringify(
+        sentences.map(({ blockId, occurrence, text, said }) => [blockId, occurrence, text, said]),
+      ),
+    };
+  }
+
   async function findClaims(
     mindId: string,
     model: ChatModelChoice | null,
@@ -212,15 +242,7 @@ export function createVerify(options: VerifyOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
-    const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks).flatMap((sentence) => {
-        if (!(sentence.blockId in verification.pages)) return [];
-        const said = claimOf(sentence)?.claim;
-        return said !== undefined && isClaim(said)
-          ? [{ blockId: sentence.blockId, text: sentence.text, said }]
-          : [];
-      }),
-    );
+    const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
       ready.prepared,
       sentences.map((each) => each.said),
@@ -228,15 +250,48 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
-    const claims = sentences
-      .filter((_, index) => found.claims.has(index))
-      .map(({ blockId, text }) => ({ blockId, text }));
+    const sorted = (sentence: (typeof sentences)[number], index: number) => {
+      const plans = found.parts.get(index);
+      return plans === undefined || sentence.said !== sentence.text
+        ? plans
+        : withFigureFacts(sentence.said, plans, sentence.figures ?? [], sentence.projection);
+    };
+    const claims = sentences.flatMap((sentence, index) => {
+      const plans = sorted(sentence, index);
+      if (!found.undecided.has(index) && !plans?.some((part) => part.kind === "fact")) return [];
+      const parts =
+        sentence.said !== sentence.text
+          ? [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }]
+          : plans === undefined
+            ? undefined
+            : [...plans];
+      return [
+        {
+          blockId: sentence.blockId,
+          text: sentence.text,
+          occurrence: sentence.occurrence,
+          ...(parts && { parts }),
+        },
+      ];
+    });
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
       const now = settings && readVerification(settings);
-      if (settings && now) writeVerification(settings, { ...now, claims });
+      if (settings && now) writeVerification(settings, { ...now, claims, sortedText: snapshot });
+      recordOpinions(
+        blocks,
+        sentences.flatMap((sentence, index) => {
+          const parts = sorted(sentence, index);
+          return sentence.said === sentence.text &&
+            parts !== undefined &&
+            !found.undecided.has(index)
+            ? [{ ...sentence, parts }]
+            : [];
+        }),
+      );
     });
-    return { kind: "found", claims: claims.length };
+    options.retainEvidence(mindId);
+    return { kind: "found", claims: verificationOf(mindId).claims?.length ?? 0 };
   }
 
   async function verifyClaims(
@@ -244,13 +299,21 @@ export function createVerify(options: VerifyOptions) {
     signal: AbortSignal,
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
-    const verification = verificationOf(mindId);
+    let verification = verificationOf(mindId);
+    if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
+      const found = await findClaims(mindId, input.model, signal);
+      if (found.kind !== "found") return found;
+      verification = verificationOf(mindId);
+    }
+    if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
+      return { kind: "cancelled" };
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
     const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
     if (empty) return empty;
     const ready = await options.prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
-    if (signal.aborted) return { kind: "cancelled" };
+    if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
+      return { kind: "cancelled" };
 
     const startedAt = options.now().toISOString();
     const claims = verification.claims;
@@ -259,9 +322,18 @@ export function createVerify(options: VerifyOptions) {
       const sentences = everySentence(blocks);
       const marked = claims.flatMap((claim) => {
         const sentence = sentences.find(
-          (each) => each.blockId === claim.blockId && each.text === claim.text,
+          (each) =>
+            each.blockId === claim.blockId &&
+            each.text === claim.text &&
+            each.occurrence === (claim.occurrence ?? 0),
         );
         if (!sentence) return [];
+        const owners = markedSentences(blocks).filter(
+          (mark) =>
+            mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
+        );
+        const previous = owners.find((mark) => mark.check.text === sentence.text)?.check.parts;
+        const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
         const marked: ClaimCheckAttributes = {
           id: randomUUID(),
           request: requestId,
@@ -282,17 +354,50 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(claim.parts && { parts: pendingParts(claim.parts, previous) }),
         };
-        // Each figure gets its own result, as the one Check gives it.
-        const figures = sentence.figures?.length ? sentence.figures : undefined;
+        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const contextualRow = said.claim !== sentence.text;
+        const row =
+          sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;
+        const rowFigures =
+          contextualRow && row instanceof Y.XmlElement && row.nodeName === "tableRow"
+            ? sentences
+                .filter(
+                  (each) =>
+                    each.element.parent instanceof Y.XmlElement &&
+                    each.element.parent.parent === row,
+                )
+                .flatMap((each) => each.figures ?? [])
+            : sentence.figures;
+        const figures = rowFigures?.length ? rowFigures : undefined;
+        const parts: readonly ClaimPartPlan[] | undefined = contextualRow
+          ? [{ kind: "fact", span: { start: 0, end: said.claim.length } }]
+          : claim.parts;
         markSentence(
           sentence.element,
           sentence.from,
           sentence.to,
-          figures ? beginFigureCheck(null, marked, figures, null) : marked,
+          figures
+            ? beginFigureCheck(
+                null,
+                marked,
+                figures,
+                null,
+                contextualRow ? undefined : sentence.projection,
+              )
+            : marked,
         );
-        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
-        return [{ id: marked.id, ...said, ...(figures && { figures }) }];
+        return [
+          {
+            id: marked.id,
+            ...said,
+            ...(parts && { parts }),
+            ...(previous && { previous }),
+            ...(priorParts && { priorParts }),
+            ...(figures && { figures }),
+          },
+        ];
       });
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
       return marked;

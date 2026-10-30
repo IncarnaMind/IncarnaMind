@@ -229,6 +229,9 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
     );
     expect(system).toMatch(/The User has added 1 Document /);
+    expect(system).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // Short: it is sent with every Question.
     expect(system.length).toBeLessThan(5000);
   });
@@ -338,7 +341,7 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
       pages: { pageFrom: 1, pageTo: 3 },
       reason: "too-many-pages",
     },
-  ])("a Citation of $name is 'not found', with the reason", async ({ pages, reason }) => {
+  ])("a unique Citation with $name is placed at its quote", async ({ pages, reason }) => {
     // Three short pages: one Passage covers them all.
     const threePages = buildPdf([
       { lines: ["Tides rise and fall twice a day."] },
@@ -357,11 +360,12 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(onlyCitation(client, answerId)).toMatchObject({
-      ...pages,
-      check: "not-found",
-      checkReason: reason,
+      pageFrom: 2,
+      pageTo: 2,
+      check: "found",
+      checkReason: null,
     });
-    expect(citeFeedback(model)).toMatch(/cite one page, or two consecutive pages/);
+    expect(citeFeedback(model)).not.toMatch(/cite one page, or two consecutive pages/);
   });
 
   test("a record that names no page, for a Passage over three pages, cites the page its quote is on", async () => {
@@ -395,7 +399,7 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     });
   });
 
-  test("a quote from another page than the one cited is 'not found'", async () => {
+  test("a unique quote from another page than the one cited is placed and found", async () => {
     const model = citingModel({
       query: "spring tides",
       records: (passages) => [
@@ -410,12 +414,12 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(onlyCitation(client, answerId)).toMatchObject({
-      pageFrom: 1,
-      pageTo: 1,
-      check: "not-found",
-      checkReason: "quote-not-on-pages",
+      pageFrom: 2,
+      pageTo: 2,
+      check: "found",
+      checkReason: null,
     });
-    expect(citeFeedback(model)).toMatch(/\[\^1\]: the quote isn't word for word on p\. 1/);
+    expect(citeFeedback(model)).not.toMatch(/\[\^1\]: the quote isn't word for word on p\. 1/);
   });
 });
 

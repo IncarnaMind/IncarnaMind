@@ -125,10 +125,13 @@ export function analysisInstructions(offered: boolean): string {
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    'You can also do in the app what the User asks of their Documents and Minds, with list_commands and run_command: rename, move to a Folder, tag, delete (to Recently deleted), export a Mind as a file, and add files from a folder ("rename these by date", "move the leases into Real estate", "tag every invoice Finance", "export this Mind as Word", "add the PDFs in ~/Downloads/deals", "把发票都加上财务标签").',
-    "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing.",
+    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, check the Note in front, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
+    '- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn\'t find, and never guess an id. If nothing matches, say so and change nothing. A command that acts on the window in front needs nothing found: list_commands with kind "window" gives its id.',
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
-    "- A Question about the Documents isn't a command: answer it. Writing into a Mind is the Minds' Tools' work.",
+    "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
+    "- Documents to group by what they are about, rather than by their names, are Organize's: run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
+    "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
+    "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
     "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
   ].join("\n");
 }
@@ -141,7 +144,7 @@ export function onScreenLine(names: readonly string[]): string {
   return `${ON_SCREEN} ${names.map((name) => `"${listedName(name)}"`).join(", ")}`;
 }
 
-const YOUR_MINDS = "The User's Minds:";
+const YOUR_MINDS = "The User's Notes:";
 
 /** The most Mind names `mindsLine` gives: the most recently changed. */
 export const LISTED_MINDS = 30;
@@ -206,7 +209,7 @@ export function askedAbout(question: {
 /** The Document the Mind in focus is the working copy of (#1036), by name; empty for none. */
 export function workingCopyNote(original: string | null): string {
   if (original === null) return "";
-  return `The Mind in <mind> is the User's working copy of the Document "${listedName(original)}", imported from it: "this document", "the file", "this résumé" ("这份文档", "这份简历") and the like mean that Document. It is among the User's Documents: never say it isn't there or couldn't be found.`;
+  return `The Note in <mind> is the User's working copy of the Document "${listedName(original)}", imported from it: "this document", "the file", "this résumé" ("这份文档", "这份简历") and the like mean that Document. It is among the User's Documents: never say it isn't there or couldn't be found.`;
 }
 
 /**
@@ -217,7 +220,7 @@ export function workingCopyNote(original: string | null): string {
 export function exampleNote(documents: readonly string[] | null): string {
   if (documents === null) return "";
   const names = documents.map((name) => `"${listedName(name)}"`).join(", ");
-  return `The Mind in <mind> is an example IncarnaMind made${names ? `, with Documents of its own (${names})` : ""}: none of it is the User's own work. Mention the example only when the Question is about it, never to say the User's Documents have nothing to do with it.`;
+  return `The Note in <mind> is an example IncarnaMind made${names ? `, with Documents of its own (${names})` : ""}: none of it is the User's own work. Mention the example only when the Question is about it, never to say the User's Documents have nothing to do with it.`;
 }
 
 /**
@@ -244,7 +247,7 @@ export function withPassageNotes(
 }
 
 const NO_MIND_TOOLS =
-  "You can't change the User's Minds (their notes) or make new ones in this chat. When the User asks you to write into a Mind or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Mind: the User can put your reply into a Mind themselves.";
+  "You can't change the User's Notes or make new ones in this chat. When the User asks you to write into a Note or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Note: the User can put your reply into a Note themselves.";
 
 /**
  * The rule each turn in the assistant follows (#1559), in the agreed words, with the Chinese
@@ -252,11 +255,11 @@ const NO_MIND_TOOLS =
  * write either, or a mix.
  */
 const TURN_RULE = [
-  "You work beside the User's page (a Mind). Each turn, decide:",
-  "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Mind with the write command: into the empty Mind in front if there is one, otherwise into a new Mind. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Mind. Never put the piece itself in your reply.",
+  "You work beside the User's page (a Note). Each turn, decide:",
+  "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Note with the write command: into the empty Note in front if there is one, otherwise into a new Note. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Note. Never put the piece itself in your reply.",
   "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
   "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
-  "- Unsure: if the request names something to produce, write it into a Mind (it can be undone); otherwise answer.",
+  "- Unsure: if the request names something to produce, write it into a Note (it can be undone); otherwise answer.",
   "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
 ].join("\n");
 
@@ -276,21 +279,21 @@ export function mindInstructions(
   return [
     TURN_RULE,
     "",
-    "The write command is create_mind for a new Mind, or add_to_mind for the empty Mind in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Mind the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
-    `- A line "${YOUR_MINDS} …" before the Question names their Minds, the most recently changed first. A name the User gives that one of their Minds has is that Mind, also when they don't call it a Mind ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Mind marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Mind has can be a Document's. A name that is neither on the line nor a Document's may still be a Mind's, as read_mind finds any Mind by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Mind in front or a new Mind, even when a Mind on the line has the same or a similar title. Change or add to a Mind on the line only when the User names it.`,
-    '- The Library is every Document the User has added (资料库：用户添加的所有文档), not a Document or a Mind named "Library". A request about "this Library" or 这个知识库 is about all of them: never ask which Library they mean (不要追问用户指的是哪个知识库); search all of them and write the requested piece into the empty Mind in front or a new Mind.',
+    "The write command is create_mind for a new Note, or add_to_mind for the empty Note in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Note the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
+    `- A line "${YOUR_MINDS} …" before the Question names their Notes, the most recently changed first. A name the User gives that one of their Notes has is that Note, also when they don't call it a Note ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Note marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Note has can be a Document's. A name that is neither on the line nor a Document's may still be a Note's, as read_mind finds any Note by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Note in front or a new Note, even when a Note on the line has the same or a similar title. Change or add to a Note on the line only when the User names it.`,
+    '- The Library is every Document the User has added (资料库：用户添加的所有文档), not a Document or a Note named "Library". A request about "this Library" or 这个知识库 is about all of them: never ask which Library they mean (不要追问用户指的是哪个知识库); search all of them and write the requested piece into the empty Note in front or a new Note.',
     "- A <tool-record> is IncarnaMind's record of what an earlier Answer's Tools really did, and what the User did with the changes since: trust it over that Answer's words, and never write one. A change the User undid or rejected is gone: don't bring it back or say it is still there. In <mind>, earlier Answers and read_mind, a Citation reads as its source and its id in brackets, like [Tides, p. 3 · C2].",
-    "- The Mind to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Mind's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Mind.",
+    "- The Note to change is the one in <mind>, unless the User names another, or means a page your <tool-record> says you made or changed earlier in this conversation: then give that Note's name in mind. If they ask to change their text but none is in <mind> and they name none, change nothing: say so, and that they can open one or ask for a new Note.",
     "- In <mind> and read_mind, [waiting change, adds: …] and [waiting change, removes: …] mark changes still waiting for the User, often your own. To change text that waits (make it longer or shorter, reword it, remove part of it), call edit_mind on it, naming its heading in part: that revises the waiting text itself. Never add a second copy. To add more from the Documents, search and cite first, then give edit_mind the section's whole new text as content.",
-    "- edit_mind's rewrite reads only the text it changes: it can't search or cite. To add facts from the Documents to the User's text, a table of them too, search and cite first, then add them with add_to_mind, cited in each table cell as in a paragraph. To make text you wrote longer from the Documents, a summary added from an Answer among it, search and cite first, then give edit_mind its whole new text as content: it replaces that text, so the Mind never holds two versions. Never write a source or an id into a Mind as text, like [Tides, p. 3 · C2]: record it with cite before the call (an id as the passage keeps that Citation) and write its marker, like [^3]. Text with a source written out is refused.",
-    '- A chart ("make a bar chart of revenue by quarter", "画一个各季度收入的柱状图"): search and cite the figures, then write them as a table into a Mind, each cell cited, and give chart with the kind the User named and a short title from their words: IncarnaMind draws it from that table, right after it. For a table already in the Mind, call add_to_mind with chart and content empty. Chart only figures the Documents state: for a series they don\'t state, say you can chart only the figures the Documents state.',
+    "- edit_mind's rewrite reads only the text it changes: it can't search or cite. To add facts from the Documents to the User's text, a table of them too, search and cite first, then add them with add_to_mind, cited in each table cell as in a paragraph. To make text you wrote longer from the Documents, a summary added from an Answer among it, search and cite first, then give edit_mind its whole new text as content: it replaces that text, so the Note never holds two versions. Never write a source or an id into a Note as text, like [Tides, p. 3 · C2]: record it with cite before the call (an id as the passage keeps that Citation) and write its marker, like [^3]. Text with a source written out is refused.",
+    '- A chart ("make a bar chart of revenue by quarter", "画一个各季度收入的柱状图"): search and cite the figures, then write them as a table into a Note, each cell cited, and give chart with the kind the User named and a short title from their words: IncarnaMind draws it from that table, right after it. For a table already in the Note, call add_to_mind with chart and content empty. Chart only figures the Documents state: for a series they don\'t state, say you can chart only the figures the Documents state.',
     ...(lastAnswer
       ? [
-          '- To put your last Answer into a Mind as it is ("add this to my notes", "make it a document", "put that in this page", "把这个加到我的笔记里", "做成文档"), give answer: true to add_to_mind for the Mind in <mind>, or to create_mind when there is none or the User asks for a new one, and nothing else: it goes in with its Citations and every Document it covered, so don\'t search again or write it anew. Write new notes about Documents only when the User asks for notes about them.',
+          '- To put your last Answer into a Note as it is ("add this to my notes", "make it a document", "put that in this page", "把这个加到我的笔记里", "做成文档"), give answer: true to add_to_mind for the Note in <mind>, or to create_mind when there is none or the User asks for a new one, and nothing else: it goes in with its Citations and every Document it covered, so don\'t search again or write it anew. Write new notes about Documents only when the User asks for notes about them.',
         ]
       : []),
     "- If a Tool says nothing was changed, say that first, in one sentence, with why, and don't make the change another way.",
-    "- What you write into a Mind follows the same rules as your replies: the language of the Question, and quotation marks only around a Document's own words.",
+    "- What you write into a Note follows the same rules as your replies: the language of the Question, and quotation marks only around a Document's own words.",
     "- Your reply after a write or an edit has no Citation markers and none of the new text, unless a Tool asks you to give its text in your reply instead.",
   ].join("\n");
 }
@@ -301,7 +304,7 @@ export function mindInstructions(
  */
 export function emptyMindNote(offered: boolean, empty: boolean): string {
   if (!offered || !empty) return "";
-  return "- The Mind in <mind> is open and still empty: it is the page the User is in. A request to write something goes into it; never say that no Mind is open.";
+  return "- The Note in <mind> is open and still empty: it is the page the User is in. A request to write something goes into it; never say that no Note is open.";
 }
 
 /**
@@ -439,8 +442,9 @@ export function notCitedNote(passages: string): string {
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
 }
 
-const RECORD =
-  'the Passage\'s id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14")';
+const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
+
+const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
 
 /**
  * Calculated figures (ADR-0021): a model's own arithmetic looks exactly like a
@@ -455,8 +459,7 @@ const CALCULATE = [
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS =
-  '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
@@ -515,7 +518,7 @@ const writeThenCite = (keeps: boolean, minds: boolean) => [
   ...(keeps ? [KEEP_CITATIONS("give cite a record")] : []),
   ...(minds
     ? [
-        "- Text you write into a Mind is the exception: call cite for it before the call that writes it.",
+        "- Text you write into a Note is the exception: call cite for it before the call that writes it.",
       ]
     : []),
   "- Write nothing before a search: only the Answer, once you have what it needs.",
@@ -547,8 +550,6 @@ export interface ListedDocuments {
 export interface LibraryDocuments {
   /** How many live Documents the Library holds: every one it lists, searchable or not. */
   total: number;
-  /** Some of them are an example IncarnaMind made's Documents, which this Answer leaves out. */
-  examples: boolean;
 }
 
 /** A Document name on one line of its own, and not too long. */
@@ -634,9 +635,6 @@ function documentNames({ total, names }: ListedDocuments): string {
   ].join("\n");
 }
 
-const EXAMPLES_LEFT_OUT =
-  "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.";
-
 /**
  * The Library's own count, when it holds more Documents than this Answer can use (#1333):
  * told only its scope's one, models said the Library held one.
@@ -679,7 +677,7 @@ export function documentInstructions(
   {
     writeFirst = false,
     minds = false,
-    library = { total: listed.total, examples: false },
+    library = { total: listed.total },
   }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
@@ -690,10 +688,7 @@ export function documentInstructions(
     bracketedAmountsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
-  const rest = [
-    ...(library.examples ? [EXAMPLES_LEFT_OUT] : []),
-    ...(library.total > listed.total ? [libraryNote(library.total, scoped)] : []),
-  ];
+  const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
   switch (mode) {
     case "no-documents":
       return "";
