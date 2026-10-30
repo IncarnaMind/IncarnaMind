@@ -1453,6 +1453,11 @@ export const en = {
   "viewer.pdf.failed": "This PDF couldn’t be opened.",
   "viewer.loading": "Opening the Document…",
   "viewer.failed": "This Document couldn’t be shown: {message}",
+  "viewer.cited.asCited": "As cited, {date}",
+  "viewer.cited.openCurrent": "Open the current version",
+  "viewer.cited.picture": "The cited place as it was: {name}",
+  "viewer.cited.textOnly": "Only the text of this version is kept, not the file’s original look.",
+  "viewer.cited.tryAgain": "Try again",
   "viewer.locked.title": "This PDF is locked",
   "viewer.locked.body":
     "Type its password to open it. It’s kept on this computer, for this PDF only.",
@@ -3643,6 +3648,7 @@ export const en = {
   "citation.remove": "Remove the Citation",
   "citation.more": "More for this Citation",
   "command.citation.open": "Open cited page",
+  "command.viewer.openCurrentVersion": "Open the current version",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
   "citation.changedAfterCited.web":

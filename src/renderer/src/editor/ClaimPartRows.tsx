@@ -20,7 +20,7 @@ import { sourceChoiceAt } from "../checks";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { useLanguage, useT } from "../i18n";
-import { openCitedFollowing, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
@@ -61,7 +61,6 @@ function PartCitation({
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
-  const mindId = useContext(MindIdContext);
   const personId = usePersonId();
   const versions = useDocumentVersions();
   const id = typeof citation.id === "string" ? citation.id : null;
@@ -81,10 +80,9 @@ function PartCitation({
   };
   const open = () => {
     if (!citation.documentId) return;
-    void openCitedFollowing(
+    void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
       { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
-      mindId,
     );
     onOpen();
   };
