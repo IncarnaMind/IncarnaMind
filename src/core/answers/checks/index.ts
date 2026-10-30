@@ -27,14 +27,22 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
-import { restsOn } from "../../../shared/claimChecks";
+import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
+import {
+  checkWithParts,
+  partWithResult,
+  pendingPart,
+  resultFromParts,
+} from "../../../shared/claimParts";
 import {
   beginFigureCheck,
   readFigureFinding,
   settleFigureCheck,
 } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
+import { readRecordCiteChoices, writeRecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
+import { namePartCitations } from "../../../shared/signOffs";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import { recordCheckUnread } from "../../../shared/unreadFiles";
 import {
@@ -43,14 +51,17 @@ import {
   type CheckContradictionsResult,
   type CheckedDocument,
   type CheckSentencesResult,
+  type ChooseRecordCiteSourceInput,
   type CitationAttributes,
   type CitedQuote,
   type ClaimCheckAction,
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
+  type ClaimCheckPart,
   type ClaimCheckResult,
   type ClaimCheckScope,
   type ClaimJudgment,
+  type ClaimPartSpan,
   type ContradictionCheckPlan,
   claimCheckActions,
   type Document,
@@ -62,6 +73,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
+import { depositionMapper } from "../../documents/deposition";
 import type { Evidence } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
@@ -78,6 +90,9 @@ import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
+import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
+import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
@@ -87,12 +102,25 @@ import {
   recordJudged,
 } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
+import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
+import { createPartCheck } from "./partCheck";
+import {
+  judgeResolvedRecordCites,
+  notJudgedError,
+  unplacedRecordCites,
+  withRecordCites,
+} from "./recordCites";
+import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
+  checkedSentences,
   checkText,
   citedQuoteOf,
+  everySentence,
   markedSentences,
   markSentence,
+  noteTextOf,
+  recordCiteParagraphs,
   selectedSentences,
   updateCheck,
 } from "./sentences";
@@ -136,6 +164,12 @@ export interface ChecksOptions
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
+  /** The Folder whose work stays inside it, or null when this Mind is not walled. */
+  walledFolder(mindId: string | null): string | null;
+  /** The wall a Document belongs to, or null when it belongs to none. */
+  walledDocument(documentId: string): string | null;
+  /** The name of that wall's Folder, or null when it belongs to none. */
+  walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
@@ -153,17 +187,18 @@ export interface ChecksOptions
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
-  resolveScope(scope: SearchScope): string[] | null;
+  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   evidence: Pick<Evidence, "scope" | "search">;
   documents: ClaimCheckDependencies["documents"] &
-    MindCheckOptions["documents"] & {
+    MindCheckOptions["documents"] &
+    Pick<RecordCiteSource, "batesHolders"> & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
       names(): readonly LiveDocument[];
     };
   engine: AnswerEngine;
-  retention: Pick<VersionRetention, "retain">;
+  retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
   editText: WrittenCheckOptions["editText"];
   now(): Date;
@@ -178,6 +213,25 @@ interface ParsedCheck {
   action: ClaimCheckAction;
   allDocuments: boolean;
   model: ChatModelChoice | null;
+  part?: { id: string; span: ClaimPartSpan };
+}
+
+function parsePart(value: unknown): ParsedCheck["part"] {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !value.id ||
+    !isRecord(value.span) ||
+    !Number.isInteger(value.span.start) ||
+    !Number.isInteger(value.span.end) ||
+    typeof value.span.start !== "number" ||
+    typeof value.span.end !== "number" ||
+    value.span.start < 0 ||
+    value.span.end <= value.span.start
+  )
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  return { id: value.id, span: { start: value.span.start, end: value.span.end } };
 }
 
 function parseStretches(value: unknown): TextStretch[] {
@@ -199,6 +253,10 @@ function parseCheck(input: unknown): ParsedCheck {
   }
   const known = claimCheckActions.find((each) => each === action);
   if (!known) throw new InvalidInputError(`Unknown check "${String(action)}".`);
+  const part = parsePart(input.part);
+  if (part && known === "contradiction-watch") {
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  }
   return {
     requestId,
     mindId: parseMindId(input.mindId),
@@ -208,6 +266,7 @@ function parseCheck(input: unknown): ParsedCheck {
     action: known,
     allDocuments: input.allDocuments === true,
     model: parseModel(input.model),
+    ...(part && { part }),
   };
 }
 
@@ -256,6 +315,7 @@ const evidenceOf = (citation: CitationAttributes | null): CitationAttributes | n
     quote: citation.quote,
     check: citation.check,
     checkReason: citation.checkReason,
+    ...(citation.id && { id: citation.id }),
   };
 
 const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason => {
@@ -265,11 +325,31 @@ const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason =>
 
 /** A result written onto its mark. */
 function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string): ClaimCheckBasis {
-  const common = { versions: result.versions, excluded: result.excluded, checkedAt: at };
+  // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
+  const { recordCites: _earlier, ...basis } = check;
+  const common = {
+    versions: result.versions,
+    excluded: result.excluded,
+    ...(result.recordCites && { recordCites: result.recordCites }),
+    checkedAt: at,
+  };
   return result.verdict === "not-checked"
-    ? { ...check, ...common, state: "not-checked", reason: result.reason, detail: result.detail }
+    ? {
+        ...basis,
+        ...common,
+        state: "not-checked",
+        reason: result.reason,
+        detail: result.detail,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        ...(result.parts && { parts: result.parts }),
+      }
     : {
-        ...check,
+        ...basis,
         ...common,
         state: result.verdict,
         reason: null,
@@ -280,6 +360,7 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
         calculation: result.calculation,
         citedCaseUnchecked: result.citedCaseUnchecked,
         citedCaseFound: result.citedCaseFound,
+        ...(result.parts && { parts: result.parts }),
       };
 }
 
@@ -287,21 +368,47 @@ function withResult(
   check: ClaimCheckAttributes,
   result: ClaimCheckResult,
   at: string,
+  sourceText = check.text,
+  priorParts: readonly ClaimCheckPart[] = check.parts ?? [],
 ): ClaimCheckAttributes {
+  // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
+  if (result.parts && sourceText !== check.text) {
+    const evidence = result.parts.flatMap((part) => part.evidence);
+    result = {
+      ...result,
+      ...resultFromParts([
+        partWithResult(
+          { span: { start: 0, end: check.text.length }, kind: "fact" },
+          result,
+          evidence,
+        ),
+      ]),
+    };
+  }
+  if (result.parts) {
+    // A mark holds no key without a value: with one, Tie out figures never saw its checks end.
+    const { recordCites: _earlier, ...basis } = check;
+    return keepRecordCites(
+      checkWithParts({ ...basis, checkedAt: at }, namePartCitations(result.parts, priorParts)),
+      result.recordCites,
+    );
+  }
   const { figures: _figures, remainder: _remainder, ...basis } = check;
   const next = withJudgment(basis, result, at);
-  if (!result.figures)
-    return check.figures
-      ? settleFigureCheck(check, (child) =>
-          result.verdict === "not-checked"
-            ? withJudgment(child, result, at)
-            : { ...child, state: "not-checked", reason: "malformed", detail: null, checkedAt: at },
-        )
-      : next;
+  const { parts: _parts, ...childBasis } = basis;
+  if (!result.figures) {
+    if (!check.figures) return next;
+    const settled = settleFigureCheck(check, (child) =>
+      result.verdict === "not-checked"
+        ? withJudgment(child, result, at)
+        : { ...child, state: "not-checked", reason: "malformed", detail: null, checkedAt: at },
+    );
+    return next.parts ? { ...settled, parts: next.parts } : settled;
+  }
   const figures = result.figures.flatMap((figure) => {
     const finding = readFigureFinding(figure);
     return finding
-      ? [{ ...withJudgment({ ...basis, id: finding.id }, figure.result, at), ...finding }]
+      ? [{ ...withJudgment({ ...childBasis, id: finding.id }, figure.result, at), ...finding }]
       : [];
   });
   if (figures.length !== result.figures.length)
@@ -320,7 +427,7 @@ function withResult(
         remainder:
           result.remainder === null
             ? null
-            : withJudgment({ ...basis, id: `${basis.id}:remainder` }, result.remainder, at),
+            : withJudgment({ ...childBasis, id: `${basis.id}:remainder` }, result.remainder, at),
       }),
     };
   const pending = check.figures.filter(
@@ -351,7 +458,7 @@ function withResult(
             remainder:
               result.remainder === null
                 ? null
-                : withJudgment(check.remainder ?? basis, result.remainder, at),
+                : withJudgment(check.remainder ?? childBasis, result.remainder, at),
           }
       : check.remainder === undefined
         ? {}
@@ -359,8 +466,88 @@ function withResult(
   };
 }
 
-const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes =>
-  settleFigureCheck(check, (basis) => ({ ...basis, state: "not-checked", reason: "stopped" }));
+const stopped = (check: ClaimCheckAttributes): ClaimCheckAttributes => {
+  const settled = settleFigureCheck(check, (basis) => ({
+    ...basis,
+    state: "not-checked",
+    reason: "stopped",
+  }));
+  if (!check.parts) return settled;
+  const parts = (settled.parts ?? check.parts).map(
+    (part): ClaimCheckPart =>
+      part.verdict === "checking"
+        ? { ...part, verdict: "not-checked", reason: "stopped", detail: null }
+        : part,
+  );
+  return withResult({ ...settled, parts }, resultFromParts(parts), check.checkedAt);
+};
+
+/**
+ * `parts`, each keeping the result it had when its check again stayed inside a wall, or came back
+ * Unsupported only because its deciding Passage is behind another wall (#1934); null when none did.
+ */
+function partsKeptInside(
+  parts: readonly ClaimCheckPart[],
+  before: readonly ClaimCheckPart[],
+  behindAnotherWall: (citation: CitationAttributes | undefined) => boolean,
+): ClaimCheckPart[] | null {
+  let kept = false;
+  const next = parts.map((part) => {
+    const prior = before.find(
+      (each) =>
+        each.kind === part.kind &&
+        each.span.start === part.span.start &&
+        each.span.end === part.span.end,
+    );
+    if (
+      !prior ||
+      prior.verdict === null ||
+      prior.verdict === "checking" ||
+      prior.verdict === "not-checked"
+    )
+      return part;
+    const deciding =
+      prior.decidingEvidence === null ? undefined : prior.evidence[prior.decidingEvidence ?? 0];
+    if (
+      (part.verdict === "not-checked" && part.reason === "kept-inside") ||
+      (part.verdict === "unsupported" && behindAnotherWall(deciding))
+    ) {
+      kept = true;
+      return prior;
+    }
+    return part;
+  });
+  return kept ? next : null;
+}
+
+function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
+  if (!isRecord(value)) throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+  const { mindId, checkId, raw, documentId, from, to } = value;
+  if (
+    typeof mindId !== "string" ||
+    !mindId ||
+    typeof checkId !== "string" ||
+    !checkId ||
+    typeof raw !== "string" ||
+    !raw ||
+    typeof documentId !== "string" ||
+    !documentId
+  )
+    throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+  if (
+    (from !== undefined && (typeof from !== "number" || !Number.isInteger(from) || from < 0)) ||
+    (to !== undefined && (typeof to !== "number" || !Number.isInteger(to) || to < 0))
+  )
+    throw new InvalidInputError({ key: "error.recordCite.spanInvalid" });
+  return {
+    mindId,
+    checkId,
+    raw,
+    documentId,
+    from: from as number | undefined,
+    to: to as number | undefined,
+  };
+}
 
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
@@ -371,20 +558,63 @@ export function createChecks(options: ChecksOptions) {
     at: string,
     blocks: Y.XmlFragment,
     mindId: string,
+    sourceText = check.text,
+    priorParts?: readonly ClaimCheckPart[],
+    previous: ClaimCheckAttributes | null = null,
   ): ClaimCheckAttributes {
+    const before = previous ?? check;
+    const behindAnotherWall = (citation: CitationAttributes | null | undefined) => {
+      const wall = citation?.documentId ? options.walledDocument(citation.documentId) : null;
+      return wall !== null && wall !== options.walledFolder(mindId);
+    };
+    if (
+      result.verdict === "not-checked" &&
+      result.reason === "kept-inside" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked"
+    ) {
+      return before;
+    }
+    if (
+      result.verdict === "unsupported" &&
+      before.state !== "checking" &&
+      before.state !== "not-checked" &&
+      behindAnotherWall(before.evidence)
+    ) {
+      return before;
+    }
+    const keptParts =
+      result.parts &&
+      before.parts &&
+      partsKeptInside(result.parts, before.parts, behindAnotherWall);
+    if (keptParts) result = resultFromParts(keptParts);
     return withResult(
       check,
-      augmentFigureFooting(blocks, result, options.documents, {
-        versions: options.watch.documentVersions(),
-        folderId: options.mindFolder(mindId),
-        scope: content.readSettings(mindId, mindScopeIn),
-      }),
+      {
+        ...result,
+        ...augmentFigureFooting(blocks, result, options.documents, {
+          versions: options.watch.documentVersions(),
+          folderId: options.mindFolder(mindId),
+          scope: content.readSettings(mindId, mindScopeIn),
+        }),
+      },
       at,
+      sourceText,
+      priorParts,
     );
   }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
-  const claimCheck = createClaimCheck(options);
+  const recordCiteDocuments = {
+    ...options.documents,
+    recordChoices: (mindId: string) => content.readSettings(mindId, readRecordCiteChoices),
+    noteParagraphs: (mindId: string) => content.read(mindId, recordCiteParagraphs),
+  };
+  const withCites = (check: ReturnType<typeof createClaimCheck>) =>
+    withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
+  const claimCheck = withCites(createPartCheck(options));
+  // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
+  const wholeCheck = withCites(createClaimCheck(options));
 
   options.consent.registry.register({
     id: "checks",
@@ -431,8 +661,9 @@ export function createChecks(options: ChecksOptions) {
    * figure's inputs included, and lets go of the rest (#79).
    */
   function retainEvidence(mindId: string): void {
-    const versions = content.read(mindId, (blocks) =>
-      markedSentences(blocks).flatMap(({ check }): RetainVersion[] =>
+    const inventory = content.read(mindId, (blocks) => {
+      const marks = markedSentences(blocks);
+      const versions = marks.flatMap(({ check }): RetainVersion[] =>
         restsOn(check).flatMap((evidence) =>
           evidence.documentId && evidence.contentHash
             ? [
@@ -446,9 +677,16 @@ export function createChecks(options: ChecksOptions) {
               ]
             : [],
         ),
-      ),
-    );
-    options.retention.retain("check-result", mindId, versions);
+      );
+      return { versions, complete: marks.every((mark) => mark.partsComplete) };
+    });
+    if (!inventory.complete) {
+      options.watch.log.warn("checks.evidenceInventoryIncomplete", { mindId });
+    }
+    options.retention.retain("check-result", mindId, [
+      ...inventory.versions,
+      ...(!inventory.complete ? options.retention.retainedBy("check-result", mindId) : []),
+    ]);
   }
 
   /** What a sentence cites, each Document named as it is now. */
@@ -501,13 +739,17 @@ export function createChecks(options: ChecksOptions) {
   function scopeOf(mindId: string, allDocuments: boolean, checked: CheckedDocument = {}) {
     const own = options.mindFolder(mindId);
     const chosen = content.readSettings(mindId, mindScopeIn);
-    const wanted = allDocuments ? null : options.searchedScope(chosen ?? folderScope(own), mindId);
+    const walled = options.walledFolder(mindId) !== null;
+    const wanted =
+      allDocuments && !walled
+        ? null
+        : options.searchedScope(allDocuments ? null : (chosen ?? folderScope(own)), mindId);
     const folderId = oneFolderOf(wanted);
     const inChosen = chosen !== null && wanted !== null && (own === null || folderId !== own);
     // An own Folder that holds no Document searches everything, as "Search all Documents" does.
     const marked: ClaimCheckScope = inChosen
       ? { folderId: own, widened: false, chosen: wanted }
-      : { folderId: own, widened: allDocuments || own !== folderId };
+      : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
     const resolved = options.scopeDocuments(wanted, mindId);
     const scope = options.evidence.scope(resolved, leftOut);
@@ -533,6 +775,32 @@ export function createChecks(options: ChecksOptions) {
     };
   }
 
+  function partOwner(blocks: Y.XmlFragment, target: NonNullable<ParsedCheck["part"]>) {
+    const marked = markedSentences(blocks).find((each) => each.check.id === target.id);
+    if (marked?.check.state === "checking") {
+      throw new InvalidInputError({ key: "error.check.partChecking" });
+    }
+    const sentence =
+      marked &&
+      everySentence(blocks).find(
+        (each) =>
+          each.element === marked.element &&
+          each.from < marked.to &&
+          each.to > marked.from &&
+          each.text === marked.check.text,
+      );
+    const opinion = marked ? null : unmarkedOpinion(blocks, target.id);
+    const parts = sentence ? marked?.check.parts : opinion?.parts;
+    const own = sentence ?? opinion;
+    const part = parts?.find(
+      (each) => each.span.start === target.span.start && each.span.end === target.span.end,
+    );
+    if (!own || !parts || !part || part.verdict === "checking") {
+      throw new InvalidInputError({ key: "error.check.partChanged" });
+    }
+    return { sentence: own, parts, check: marked?.check };
+  }
+
   async function checkSentences(
     input: ParsedCheck,
     signal: AbortSignal,
@@ -541,6 +809,22 @@ export function createChecks(options: ChecksOptions) {
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
     if (!read.ok) return { kind: read.reason };
+    if (input.part) {
+      const target = input.part;
+      content.read(mindId, (blocks) => {
+        const owner = partOwner(blocks, target);
+        if (
+          !read.sentences.some(
+            (each) =>
+              each.element === owner.sentence.element &&
+              each.from === owner.sentence.from &&
+              each.to === owner.sentence.to,
+          )
+        ) {
+          throw new InvalidInputError({ key: "error.check.partChanged" });
+        }
+      });
+    }
 
     const { empty, check } = scopeOf(mindId, input.allDocuments);
     if (empty) return empty;
@@ -558,9 +842,36 @@ export function createChecks(options: ChecksOptions) {
       const again = selectedSentences(blocks, stretches);
       if (!again.ok) return [];
       waiting = again.waiting;
-      const marked = again.sentences.map((sentence) => {
+      const owner = input.part ? partOwner(blocks, input.part) : null;
+      const marked = again.sentences.flatMap((sentence) => {
+        if (
+          owner &&
+          (sentence.element !== owner.sentence.element ||
+            sentence.from !== owner.sentence.from ||
+            sentence.to !== owner.sentence.to)
+        )
+          return [];
+        const priorOwners = markedSentences(blocks).filter(
+          (each) =>
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        );
+        const physicalPrior =
+          owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
+        const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
+        const previous = owner?.parts ?? prior?.parts;
+        const plans = previous?.map(({ span, kind }) => ({ span, kind }));
+        const parts =
+          owner?.parts.map(
+            (part): ClaimCheckPart =>
+              input.part &&
+              part.span.start === input.part.span.start &&
+              part.span.end === input.part.span.end
+                ? { ...pendingPart(part), verdict: "checking" }
+                : part,
+          ) ??
+          (plans && pendingParts(plans, previous));
         const check: ClaimCheckAttributes = {
-          id: randomUUID(),
+          id: input.part?.id ?? randomUUID(),
           request: input.requestId,
           action: input.action,
           state: "checking",
@@ -575,12 +886,13 @@ export function createChecks(options: ChecksOptions) {
           calculation: null,
           citedCaseUnchecked: false,
           citedCaseFound: false,
-          scope,
+          scope: owner?.check?.scope ?? scope,
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(parts && { parts }),
         };
-        const previous =
+        const priorFigures =
           allMarks(blocks).find(
             (mark) =>
               mark.element === sentence.element &&
@@ -588,15 +900,28 @@ export function createChecks(options: ChecksOptions) {
               mark.to > sentence.from,
           )?.check ?? null;
         const pending = sentence.figures?.length
-          ? beginFigureCheck(previous, check, sentence.figures, null)
+          ? beginFigureCheck(priorFigures, check, sentence.figures, null, sentence.projection)
           : check;
         markSentence(sentence.element, sentence.from, sentence.to, pending);
-        return {
-          id: check.id,
-          ...checkText(sentence),
-          cited: sentence.cited,
-        };
+        if (input.part) removeOpinion(blocks, input.part.id);
+        return [
+          {
+            id: check.id,
+            ...checkText(sentence),
+            cited: sentence.cited,
+            recordClaim: noteTextOf(sentence),
+            place: { blockId: sentence.blockId, from: sentence.from },
+            ...(plans && { parts: plans }),
+            ...(input.part && { only: input.part.span }),
+            ...(previous && { previous }),
+            ...((owner?.parts ?? physicalPrior?.parts) && {
+              priorParts: owner?.parts ?? physicalPrior?.parts,
+            }),
+            before: priorFigures,
+          },
+        ];
       });
+      recordOpinions(blocks, []);
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
       return marked;
     });
@@ -609,11 +934,18 @@ export function createChecks(options: ChecksOptions) {
       if (signal.aborted) break;
       const result = await claimCheck({
         claim: sentence.claim,
+        ...(sentence.projection && { projection: sentence.projection }),
         context: sentence.context,
         ...(sentence.figures && { figures: sentence.figures }),
         cited: citedNow(sentence.cited),
+        ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
+        ...("only" in sentence && sentence.only && { only: sentence.only }),
+        ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
         scope: evidenceScope,
         model: ready.prepared,
+        mindId,
+        recordClaim: sentence.recordClaim,
+        place: sentence.place,
         cacheKey: mindId,
         signal,
       });
@@ -622,7 +954,18 @@ export function createChecks(options: ChecksOptions) {
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, ready.prepared, result, at);
       const kept = content.edit(mindId, (blocks) =>
-        updateCheck(blocks, sentence.id, (check) => noteResult(check, result, at, blocks, mindId)),
+        updateCheck(blocks, sentence.id, (check) =>
+          noteResult(
+            check,
+            result,
+            at,
+            blocks,
+            mindId,
+            sentence.claim,
+            sentence.priorParts,
+            sentence.before,
+          ),
+        ),
       );
       if (kept) retainEvidence(mindId);
     }
@@ -674,8 +1017,8 @@ export function createChecks(options: ChecksOptions) {
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
     prepareQuietly,
-    claimCheck,
-    withResult,
+    claimCheck: wholeCheck,
+    withResult: noteResult,
     retainEvidence,
     track,
   });
@@ -686,7 +1029,7 @@ export function createChecks(options: ChecksOptions) {
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
     claimCheck,
-    withResult,
+    withResult: noteResult,
     retainEvidence,
     recordUnread,
     settleStopped,
@@ -801,7 +1144,7 @@ export function createChecks(options: ChecksOptions) {
       );
       // Nothing to check against: nothing backs it, and nothing is sent.
       if (options.documents.searchableCount(scope.documentIds) === 0) {
-        return {
+        const result: ClaimCheckResult = {
           verdict: "unsupported",
           evidence: null,
           says: null,
@@ -811,7 +1154,11 @@ export function createChecks(options: ChecksOptions) {
           citedCaseFound: false,
           versions: [],
           excluded: [],
+          ...unplacedRecordCites(parsed.claim),
         };
+        return resultFromParts([
+          partWithResult({ kind: "fact", span: { start: 0, end: parsed.claim.length } }, result),
+        ]);
       }
       const checksDocument =
         (parsed.checked.documentIds?.length ?? 0) + (parsed.checked.contentHashes?.length ?? 0) > 0;
@@ -825,6 +1172,130 @@ export function createChecks(options: ChecksOptions) {
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
         signal: new AbortController().signal,
       });
+    },
+
+    async chooseRecordCiteSource(value: unknown) {
+      const input = chooseInput(value);
+      const stored = content.read(input.mindId, (blocks) =>
+        checkedSentences(blocks).find(({ check }) => check.id === input.checkId),
+      );
+      if (!stored) throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      // The cites' offsets are in the sentence as the Note holds it, its Citations included.
+      const recordClaim = stored.noteText ?? stored.check.text;
+      const sameCite = (cite: { raw: string; from?: number; to?: number }) =>
+        cite.raw === input.raw &&
+        (input.from === undefined || cite.from === input.from) &&
+        (input.to === undefined || cite.to === input.to);
+      const existing = (stored.check.recordCites ?? []).filter(sameCite);
+      const cite = existing[0];
+      if (existing.length !== 1 || !cite) {
+        throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      }
+      if (!(cite.candidates ?? []).some((candidate) => candidate.id === input.documentId)) {
+        throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
+      }
+      const wanted =
+        stored.check.scope.chosen ??
+        (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
+      // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
+      const scope = options.evidence.scope(
+        options.scopeDocuments(wanted, input.mindId),
+        leftOutOf(input.mindId),
+      );
+      const document = recordCiteLibrary(options.documents, scope).documents.find(
+        (each) => each.id === input.documentId,
+      );
+      if (!document) {
+        const live = (options.documents.names?.() ?? []).some(
+          (each) => each.id === input.documentId,
+        );
+        const walled =
+          options.walledFolder(input.mindId) !== null ||
+          options.walledDocument(input.documentId) !== null;
+        throw new InvalidInputError({
+          key: live && walled ? "error.folder.wall" : "error.recordCite.documentGone",
+        });
+      }
+      // Read as the check read it: a further range of a deposition ("…, 47:1–4") has its source.
+      const read =
+        recordCiteTokens(recordClaim).find((token) => token.kind === "cite" && sameCite(token)) ??
+        null;
+      const parsed = read?.kind === "cite" ? read.result : parseRecordCite(cite.raw);
+      const resolved = resolveChosenRecordCite(
+        { ...parsed, raw: cite.raw, from: cite.from, to: cite.to },
+        document,
+        depositionMapper,
+      );
+      if (resolved.outcome !== "found") {
+        throw new InvalidInputError({ key: "error.recordCite.unresolved" });
+      }
+      const ready = await prepare(
+        stored.check.providerId && stored.check.modelId
+          ? { providerId: stored.check.providerId, modelId: stored.check.modelId }
+          : options.defaultModel(),
+      );
+      if (!ready.ok) {
+        const { result } = ready;
+        const reason = result.kind === "not-ready" ? result.readiness.reason : result.kind;
+        throw new InvalidInputError({
+          key:
+            reason === "local-mode"
+              ? "error.check.localMode"
+              : reason === "cancelled" || reason === "consent-declined"
+                ? "error.check.declined"
+                : "error.recordCite.modelNotReady",
+        });
+      }
+      const judged = await judgeResolvedRecordCites(
+        [resolved],
+        ready.prepared,
+        recordClaim,
+        new AbortController().signal,
+        options.language(),
+        stored.check.recordCites ?? [resolved],
+      );
+      if (judged.failure) throw notJudgedError(judged.failure);
+      const final = judged.recordCites[0];
+      if (!final?.location) throw new InvalidInputError({ key: "error.recordCite.unresolved" });
+      const alias = parsed.status === "parsed" ? recordCiteChoiceAlias(parsed) : null;
+      let replaced = false;
+      content.edit(input.mindId, (blocks) =>
+        updateCheck(blocks, input.checkId, (check) => {
+          if (check.text !== stored.check.text) return check;
+          const recordCites = (check.recordCites ?? []).map((each) => {
+            if (each.raw !== cite.raw || each.from !== cite.from || each.to !== cite.to) {
+              return each;
+            }
+            replaced = true;
+            return final;
+          });
+          return {
+            ...check,
+            recordCites,
+            versions:
+              final.documentId &&
+              final.contentHash &&
+              !check.versions.some((version) => version.documentId === final.documentId)
+                ? [
+                    ...check.versions,
+                    { documentId: final.documentId, contentHash: final.contentHash },
+                  ]
+                : check.versions,
+          };
+        }),
+      );
+      // The sentence was edited or checked again meanwhile: its cites are no longer these.
+      if (!replaced) throw new InvalidInputError({ key: "error.recordCite.notFound" });
+      if (alias) {
+        content.editSettings(input.mindId, (settings) =>
+          writeRecordCiteChoice(settings, alias, {
+            documentId: document.id,
+            contentHash: document.contentHash,
+          }),
+        );
+      }
+      retainEvidence(input.mindId);
+      return { cite: final };
     },
 
     /** Stops a request: its sentences not checked yet are marked "stopped", and a Note it kept is free. */

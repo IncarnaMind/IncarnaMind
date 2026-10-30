@@ -9,7 +9,7 @@ import type { PagePart } from "../../documents/extract";
 import { findTables, scannedRows, type TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
 import { paragraphsOf } from "./claims";
-import { type SelectedSentence, textOf } from "./sentences";
+import { type SelectedSentence, wordsOf } from "./sentences";
 
 /** A Block the PDF's text makes, with the page of each of its rows (one for a paragraph). */
 export interface DocumentBlock {
@@ -124,7 +124,7 @@ function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
 const cellsOf = (row: Y.XmlElement) =>
   row.toArray().map((each) => {
     const paragraph = each instanceof Y.XmlElement ? each.toArray()[0] : null;
-    return paragraph instanceof Y.XmlElement ? textOf(paragraph).trim() : "";
+    return paragraph instanceof Y.XmlElement ? wordsOf(paragraph).trim() : "";
   });
 
 const isSection = (texts: readonly string[]) =>
@@ -166,7 +166,7 @@ export function tableClaim(
   const section = rows.slice(0, rows.indexOf(row)).reverse().map(cellsOf).find(isSection)?.[0];
   const before = table.prevSibling;
   const caption =
-    before instanceof Y.XmlElement && before.nodeName !== "table" ? textOf(before).trim() : "";
+    before instanceof Y.XmlElement && before.nodeName !== "table" ? wordsOf(before).trim() : "";
   const claim = `${label ? `${label} — ` : ""}${values.join("; ")}`;
   const context = [caption, section].filter((each) => each).join("\n");
   return { claim, context: context || claim };

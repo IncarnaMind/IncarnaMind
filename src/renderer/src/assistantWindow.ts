@@ -85,7 +85,8 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor({ targets, mindId }: WindowCommandRequest): CommandContext {
+function contextFor(command: Command, { targets, mindId }: WindowCommandRequest): CommandContext {
+  if (!command.appliesTo) return { ...inFront(mindId), checked: targets };
   const [one] = targets;
   if (!one) return inFront(mindId);
   return targets.length === 1
@@ -136,7 +137,7 @@ export function startForAssistant(request: WindowCommandRequest): {
       wording: null,
     });
   }
-  const ctx = contextFor(request);
+  const ctx = contextFor(command, request);
   const label = labelOf(command, ctx, english);
   let tried: ReturnType<typeof commands.start>;
   try {
@@ -166,17 +167,17 @@ export function startForAssistant(request: WindowCommandRequest): {
     started: true,
     ended: tried.change.then(
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
+      // The core's own words, as for a suggestion that moved since it was checked (#2243).
       (error: unknown) => {
-        const described = describeError(error);
+        const { message, wording: described } = describeError(error);
         // A Check refused because another window checks the Note says so by its name, never Done.
-        const said =
-          (error instanceof TranslatableError ? error.wording : null) ?? described.wording;
+        const said = (error instanceof TranslatableError ? error.wording : null) ?? described;
         const named = said ? NAMED_REASONS[said.key] : undefined;
         const note = noteOf(ctx);
         return {
           result: {
             ran: false,
-            why: described.message,
+            why: message,
             wording: named && note !== null ? { key: named, values: { name: note } } : said,
           },
           change: undefined,

@@ -48,12 +48,16 @@ vi.mock("../../src/renderer/src/editor/healthCounts", () => ({
       from: 1,
       to: 9,
       text: "A cited claim.",
+      claim: null,
       citations: [{ attributes: {}, at: 3, pos: 9 }],
       blockId: "block-1",
       inTable: false,
       state: { kind: "to-check", fresh: true, why: "none" },
     },
   ],
+}));
+vi.mock("../../src/renderer/src/editor/opinionLocations", () => ({
+  opinionSentenceRanges: () => [],
 }));
 vi.mock("../../src/renderer/src/editor/editSelection", () => ({
   selectionForEdit: () => ({

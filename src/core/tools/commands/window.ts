@@ -13,6 +13,7 @@ import { type CheckedCommand, type CommandsHost, IN_APP } from "./run";
 
 /** What the model is told of a request for what only the User changes, and where they change it. */
 export const YOURS_SAID: Readonly<Record<Yours, string>> = {
+  wall: "Whether a Folder keeps its work inside it is the User's to change, never yours. It's in each Folder's ⋯ menu.",
   keys: "Keys and sign-ins are the User's to change, never yours. They're in Settings › Models.",
   privacy:
     "“Keep everything on this computer” (Local mode), consent and what goes to cloud services are the User's to change, never yours. They're in Settings › Privacy.",
@@ -27,8 +28,15 @@ export const YOURS_SAID: Readonly<Record<Yours, string>> = {
     "Marking text as the User's own is theirs to do, never yours. They select it and choose “Mark as mine”.",
 };
 
-/** A refusal: nothing runs, and the card under the reply says where the User changes it. */
-export const yoursChecked = (command: CommandId, yours: Yours): CheckedCommand => ({
+/**
+ * A refusal: nothing runs, and the card under the reply says where the User changes it; for a
+ * Folder's wall, `folder` is the one the request is about, which the card names and opens.
+ */
+export const yoursChecked = (
+  command: CommandId,
+  yours: Yours,
+  folder?: { id: string; name: string },
+): CheckedCommand => ({
   command,
   effects: [],
   items: [],
@@ -39,7 +47,13 @@ export const yoursChecked = (command: CommandId, yours: Yours): CheckedCommand =
   final: false,
   recording: null,
   yours,
-  run: async () => ({ done: { items: [], yours }, step: null, said: YOURS_SAID[yours] }),
+  run: async () => ({
+    done: { items: [], yours, ...(folder && { folder }) },
+    step: null,
+    said: folder
+      ? `Whether “${folder.name}” keeps its work inside it is the User's to change, never yours. It's in the Folder's ⋯ menu.`
+      : YOURS_SAID[yours],
+  }),
 });
 
 export interface WindowRun {
@@ -70,13 +84,17 @@ function targetsOf(
   });
 }
 
-/** Checks a call of a window command: what it acts on, and what its entry says it does. */
+/**
+ * Checks a call of a window command: what it acts on, and what its entry says it does. `into`:
+ * the Suggested Folder each target was checked against, which the window accepts it for alone.
+ */
 export function windowChecked(
   entry: OfferedCommand,
   ids: readonly string[],
   findable: Findable,
   context: WindowRun,
   window: CommandsHost["window"],
+  into?: ReadonlyMap<string, string | null>,
 ): CheckedCommand {
   if (entry.yours) return yoursChecked(entry.id, entry.yours);
   const items = targetsOf(entry, ids, findable);
@@ -103,7 +121,9 @@ export function windowChecked(
           toolCallId: context.toolCallId,
           run: context.runId,
           command: entry.id,
-          targets: items.map(({ kind, id }) => ({ kind, id })),
+          targets: items.map(({ kind, id }) =>
+            into?.has(id) ? { kind, id, into: into.get(id) ?? null } : { kind, id },
+          ),
           mindId: context.mindId,
           clientId,
         },

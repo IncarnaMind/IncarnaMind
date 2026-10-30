@@ -251,6 +251,10 @@ function DocumentInfo({ document }: { document: Document }) {
     "scan-images",
     assignment?.error?.wording?.key === "error.library.scanImagesOff",
   );
+  const scanImagesToAllow =
+    scanImages.route.where === "cloud" && scanImages.allowed === false
+      ? scanImages.route.service
+      : null;
   const organizeRow = useRef<HTMLElement>(null);
   const folder = useDocumentFolder(document.id);
   const linkedName = useAppStore((state) => {
@@ -346,13 +350,13 @@ function DocumentInfo({ document }: { document: Document }) {
           {assignment?.error && (
             <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
           )}
-          {scanImages && !scanImages.allowed && (
+          {scanImagesToAllow && (
             <button
               type="button"
               data-testid="info-allow-page-images"
               onClick={() =>
                 void core
-                  .allowDataFlow("scan-images", scanImages.service.id)
+                  .allowDataFlow("scan-images", scanImagesToAllow.id)
                   .then(() => organizeRow.current?.focus())
                   .catch((error: unknown) => useAppStore.getState().reportError(error))
               }

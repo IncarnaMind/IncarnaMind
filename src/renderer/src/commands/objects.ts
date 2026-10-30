@@ -1,4 +1,5 @@
 import type { LinkedFolder, TabItem } from "../../../core/api";
+import { WALL_SWITCH } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
@@ -433,6 +434,27 @@ export const folderCommands: readonly Command[] = [
       if (!id) return;
       store().openLibrary(id);
       useRequests.getState().ask({ editFolder: id });
+    },
+  },
+  {
+    id: WALL_SWITCH,
+    assistant: { never: "wall" },
+    label: "folder.keepInside",
+    hint: "folder.keepInside.hint",
+    purpose: "folder.keepInside.hint",
+    group: "main",
+    appliesTo: ["folder"],
+    checked: (ctx) => folderOf(ctx)?.keepInside === true,
+    reversible: true,
+    async run(ctx) {
+      const folder = folderOf(ctx);
+      if (!folder) return;
+      await store().editFolder(folder.id, {
+        name: folder.name,
+        description: folder.description,
+        countsOwnFiles: folder.countsOwnFiles,
+        keepInside: folder.keepInside !== true,
+      });
     },
   },
   {

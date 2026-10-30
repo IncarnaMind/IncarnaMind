@@ -1,12 +1,16 @@
 /**
  * What a Mind made to verify a document someone else wrote keeps (#97): the
  * Document it reads, the page each of its Blocks came from, and the
- * sentences found to make claims, once they are found. Like the Mind's model
- * (`mindModel.ts`) it lives in the Mind's Yjs settings, not in its Blocks, so
- * an older version keeps it as it is and the content schema stays as it is.
+ * sentences found to make claims, once they are found, each with its
+ * `occurrence` and `parts`, and the `sortedText` they were sorted from
+ * (#2002). It lives in the Mind's Yjs settings, not in its Blocks. An older
+ * version's writer drops the fields it doesn't know when it writes this
+ * record: only the content schema bump in ADR-0003's claim-parts amendment
+ * keeps those Notes from it.
  */
 import type * as Y from "yjs";
-import { MIND_SETTINGS_FIELD } from "../core/api";
+import { type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../core/api";
+import { readPartPlans } from "./claimParts";
 
 const KEY = "verification";
 
@@ -14,6 +18,8 @@ const KEY = "verification";
 export interface VerifiedClaim {
   blockId: string;
   text: string;
+  occurrence?: number;
+  parts?: ClaimPartPlan[];
 }
 
 export interface Verification {
@@ -24,6 +30,7 @@ export interface Verification {
   pages: Readonly<Record<string, number>>;
   /** The sentences that make claims, once found; null before. */
   claims: readonly VerifiedClaim[] | null;
+  sortedText?: string;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -31,11 +38,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 function claimsOf(value: unknown): VerifiedClaim[] | null {
   if (!Array.isArray(value)) return null;
-  return value.flatMap((each) =>
-    isRecord(each) && typeof each.blockId === "string" && typeof each.text === "string"
-      ? [{ blockId: each.blockId, text: each.text }]
-      : [],
-  );
+  return value.flatMap((each): VerifiedClaim[] => {
+    if (!isRecord(each) || typeof each.blockId !== "string" || typeof each.text !== "string")
+      return [];
+    const parts = readPartPlans(each.parts, each.text);
+    return [
+      {
+        blockId: each.blockId,
+        text: each.text,
+        ...(typeof each.occurrence === "number" &&
+          Number.isInteger(each.occurrence) &&
+          each.occurrence >= 0 && { occurrence: each.occurrence }),
+        ...(parts && { parts }),
+      },
+    ];
+  });
 }
 
 function pagesOf(value: unknown): Record<string, number> {
@@ -58,6 +75,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     documentName: typeof value.documentName === "string" ? value.documentName : "",
     pages: pagesOf(value.pages),
     claims: claimsOf(value.claims),
+    ...(typeof value.sortedText === "string" && { sortedText: value.sortedText }),
   };
 }
 
@@ -72,6 +90,7 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     documentName: verification.documentName,
     pages: { ...verification.pages },
     claims: verification.claims ? verification.claims.map((each) => ({ ...each })) : null,
+    ...(verification.sortedText !== undefined && { sortedText: verification.sortedText }),
   });
 }
 

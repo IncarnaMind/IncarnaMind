@@ -1,4 +1,6 @@
 import { fingerprintOfMind } from "../../../shared/mindState";
+import { OpinionMenu } from "../editor/OpinionMenu";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
@@ -15,7 +17,7 @@ import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
-import { checkSentences } from "../checks";
+import { checkSentences, useChecks } from "../checks";
 import {
   citationForm,
   useCitationFormattingFor,
@@ -637,6 +639,17 @@ function MindEditorView({
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
       {
+        id: "check-anyway",
+        label: "claim.checkAnyway",
+        icon: <CheckLineIcon className="size-3.5" />,
+        available: (current) =>
+          !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
+        run: (current) => {
+          const opinion = opinionAt(current, doc);
+          if (opinion) checkOpinion(current, mindId, doc, opinion, place);
+        },
+      },
+      {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
         icon: <CheckLineIcon className="size-3.5" />,
@@ -654,7 +667,7 @@ function MindEditorView({
         run: (current) => void markSelectionAsMine(current),
       },
     ];
-  }, [mindId, doc, hasDocuments]);
+  }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
   const editField = useMemo(
@@ -886,7 +899,9 @@ function MindEditorView({
           {wordLook && <style>{wordLook.css}</style>}
           {wordLook && <WordTableFades frame={frame} />}
           {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-          <EditorContent editor={editor} />
+          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+            <EditorContent editor={editor} />
+          </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           {!readOnly && <TableMenu editor={editor} />}

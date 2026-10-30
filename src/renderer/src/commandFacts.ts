@@ -61,7 +61,20 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
  * Where each of what only the User changes is, and the button that opens it; none for what is
  * done on each thing itself, where the line says it is.
  */
+/**
+ * What a refusal of what is the User's alone says, and its button: a Folder's wall names the Folder
+ * the request is about and opens its ⋯ menu (#1934).
+ */
+export const yoursWordsOf = (
+  what: Yours,
+  folder: CommandDone["folder"],
+): { said: MessageKey; open: MessageKey | null } =>
+  what === "wall" && folder
+    ? { said: "commands.yours.wall.named", open: "commands.yours.openFolderMenu" }
+    : YOURS_WORDS[what];
+
 export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey | null }>> = {
+  wall: { said: "commands.yours.wall", open: null },
   keys: { said: "commands.yours.keys", open: "commands.yours.openModels" },
   privacy: { said: "commands.yours.privacy", open: "commands.yours.openPrivacy" },
   approvals: { said: "commands.yours.approvals", open: "commands.yours.openPrivacy" },
@@ -216,10 +229,15 @@ export function foundText(t: Translate, found: CommandsFound): string {
 /** What one command did, `count` things: "Moved 2 Documents to “Real estate”". */
 export function doneText(
   t: Translate,
-  done: Pick<CommandDone, "command" | "items" | "into" | "file" | "window" | "yours" | "setting">,
+  done: Pick<
+    CommandDone,
+    "command" | "items" | "into" | "file" | "window" | "yours" | "folder" | "setting"
+  >,
   count = done.items.length,
 ): string {
-  if (done.yours) return t(YOURS_WORDS[done.yours].said);
+  if (done.yours) {
+    return t(yoursWordsOf(done.yours, done.folder).said, { folder: done.folder?.name ?? "" });
+  }
   if (done.window) {
     if (done.window.running) {
       return t("commands.running.window", { command: windowLabel(t, done.command) });

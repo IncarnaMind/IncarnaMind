@@ -41,6 +41,7 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   type CitationRecheck,
+  type CitationToRecheck,
   type ClaimCheckAttributes,
   type Document,
   type ExampleGroup,
@@ -49,7 +50,6 @@ import {
   type MarkedCitation,
   type Mind,
   QUESTION_BLOCK,
-  type RecheckCitationInput,
 } from "./api";
 import { EXAMPLE_SETS, type ExampleCheck, type ExampleQuote, type ExampleSet } from "./exampleSets";
 import type { Language } from "./language";
@@ -117,7 +117,7 @@ export interface ExamplesOptions {
    * Conversation, quotes one of these Documents.
    */
   citationsRelyOn(documentIds: readonly string[], exceptMindId: string): boolean;
-  cite(input: Pick<RecheckCitationInput, "documentId" | "quote">): CitationRecheck;
+  cite(input: Pick<CitationToRecheck, "documentId" | "quote">): CitationRecheck;
   /** Pushes "examples.changed". */
   changed(examples: Examples): void;
   random?(): number;

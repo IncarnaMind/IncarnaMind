@@ -73,7 +73,7 @@ describe("Opening a Citation from a step, a chart point or a check card", () => 
         location: { kind: "section", heading: "Notice", paragraphs: { from: 4, to: 4 } },
       }),
     );
-    await opened.openCitedFollowing(CITED, HOW);
+    await opened.openCitedFollowing(CITED, HOW, null);
     expect(recheckCitation).toHaveBeenCalledOnce();
     expect(openDocument).toHaveBeenCalledOnce();
     const [location] = openDocument.mock.calls[0] ?? [];
@@ -83,14 +83,14 @@ describe("Opening a Citation from a step, a chart point or a check card", () => 
 
   test("opens where it was cited when the quote is still there, and asks nothing of an unchanged Document", async () => {
     recheckCitation.mockResolvedValue(recheckOf({}));
-    await opened.openCitedFollowing(CITED, HOW);
+    await opened.openCitedFollowing(CITED, HOW, null);
     expect(openDocument.mock.calls[0]?.[0]).toMatchObject({ pageFrom: 2, pageTo: 2 });
     expect(openDocument.mock.calls[0]?.[0].citation.label).toBe("§ Notice");
 
     openDocument.mockReset();
     recheckCitation.mockReset();
     store.useAppStore.setState({ documents: [documentAt("v1")] });
-    await opened.openCitedFollowing(CITED, HOW);
+    await opened.openCitedFollowing(CITED, HOW, null);
     expect(recheckCitation).not.toHaveBeenCalled();
     expect(openDocument).toHaveBeenCalledOnce();
   });
@@ -98,7 +98,7 @@ describe("Opening a Citation from a step, a chart point or a check card", () => 
   test("still opens when the new version can't be looked at", async () => {
     recheckCitation.mockRejectedValue(new Error("no text"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await opened.openCitedFollowing(CITED, HOW);
+    await opened.openCitedFollowing(CITED, HOW, null);
     expect(openDocument).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalled();
     logged.mockRestore();

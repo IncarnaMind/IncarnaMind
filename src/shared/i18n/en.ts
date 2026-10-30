@@ -145,13 +145,6 @@ export const en = {
   "library.progress.other": "Organizing {count} Documents…",
   "library.progressWith.one": "Organizing 1 Document with {service}…",
   "library.progressWith.other": "Organizing {count} Documents with {service}…",
-  "library.progressSends.one": "Organizing 1 Document with {service} · sends its name and excerpts",
-  "library.progressSends.other":
-    "Organizing {count} Documents with {service} · sends names and excerpts",
-  "library.progressSends.full.one":
-    "Organizing 1 Document with {service}: its name, outline and short excerpts are sent",
-  "library.progressSends.full.other":
-    "Organizing {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
   "library.waiting": "{count} Documents can’t be organized yet. Show why",
   "library.count": "{count} Documents",
   "library.count.one": "1 Document",
@@ -344,6 +337,31 @@ export const en = {
   "folder.organize.empty": "The Folder has no Documents to organize.",
   "folder.tagWithAi": "Tag with AI",
   "folder.editDescription": "Edit description…",
+  "folder.keepInside": "Keep this Folder’s work inside it",
+  "folder.keepInside.hint": "Its notes use only its Documents, and other notes don’t search them",
+  "folder.wall.refusal": "This Folder keeps its work inside it.",
+  "folder.wall.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.folder.wall": "This Folder keeps its work inside it.",
+  "error.turnPlace": "This needs to know which note or conversation it’s in.",
+  "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
+  "error.folder.wallMove":
+    "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
+  "error.folder.notFiled":
+    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.paste.conversationGone":
+    "The pasted text wasn’t saved: this conversation has been deleted.",
+  "error.paste.noteGone": "The pasted text wasn’t saved: this note has been deleted.",
+  "error.folder.wallAccept":
+    "Not accepted: some suggestions would file Documents into a Folder that keeps its work inside it, and the assistant can’t do that from outside it. You can still accept them yourself in To review.",
+  "error.folder.suggestionMoved":
+    "Not accepted: a suggested Folder changed after the assistant checked it, so nothing was accepted. You can accept them yourself in To review.",
+  "error.folder.wallAcceptInside":
+    "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
+  "error.folder.keepInside": "keepInside must be true or false.",
+  "undo.folderWallOn": "“{name}” now keeps its work inside it",
+  "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
+  "folder.wall.title": "This Folder keeps its work inside it",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
   "tag.delete": "Delete",
@@ -361,6 +379,7 @@ export const en = {
   "move.done.documents": "Moved {count} Documents to {folder}",
   "move.done.items": "Moved {count} items to {folder}",
   "move.done.conversations": "Moved {count} conversations to {folder}",
+  "move.outOfWall": "It is no longer limited to that Folder’s Documents and notes.",
   "drop.moveTo": "Move to {folder}",
   "drop.moveTo.minds": "Move {count} notes to {folder}",
   "drop.moveTo.documents": "Move {count} Documents to {folder}",
@@ -832,6 +851,7 @@ export const en = {
   "claim.state.not-checked": "Not checked",
   "claim.state.needs-recheck": "Needs a look · Needs re-check",
   "claim.state.notFound": "Needs a look · Not found",
+  "claim.state.recordCite": "Needs a look · Record cite",
   "claim.why.unsupported": "Unsupported",
   "claim.why.contradicted": "Contradicted",
   "claim.why.needs-recheck": "Needs re-check",
@@ -841,7 +861,34 @@ export const en = {
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
+  "claim.recordCites.label": "Record cites in this sentence",
+  "claim.recordCites.partly": "Partly supported",
+  "claim.recordCites.choose": "Choose a Document",
+  "claim.recordCites.not-found": "Not found",
+  "claim.recordCites.covered": "Covers {covered}; does not cover {uncovered}.",
+  "claim.recordCites.covers": "Covers {covered}.",
+  "claim.recordCites.doesNotCover": "Does not cover {uncovered}.",
+  "claim.recordCites.nearby": "Nearby: {location}",
+  "claim.recordCites.chooseAction": "Choose a Document…",
+  "claim.recordCites.chooseTitle": "Choose the Document for {raw}",
+  "claim.recordCites.search": "Search Documents",
+  "claim.recordCites.noMatch": "No Documents match “{query}”.",
+  "claim.recordCites.current": "Chosen Document",
+  "claim.recordCites.choosing": "Checking the chosen Document…",
+  "checkRecord.summary.recordCites": "Record cites",
+  "checkRecord.recordCites.heading": "Record cites ({count})",
+  "checkRecord.recordCites.kind": "Record cite",
+  "checkRecord.recordCites.result.partly": "Partly",
+  "checkRecord.recordCites.result.choose": "Choose a Document",
+  "checkRecord.recordCites.column.cite": "Record cite",
+  "checkRecord.recordCites.column.passage": "Passage",
+  "checkRecord.recordCites.column.covered": "Covered",
+  "checkRecord.recordCites.column.uncovered": "Uncovered",
+  "checkRecord.recordCites.column.candidates": "Documents to choose from",
+  "checkRecord.recordCites.column.nearbyLocation": "Nearby Location",
+  "checkRecord.recordCites.column.nearbyPassage": "Passage nearby",
   "claim.addAsCitation": "Add as Citation",
+  "claim.addAllAsCitations": "Add all as Citations",
   "claim.alreadyCited": "Already cited",
   "claim.alreadyCited.open": "Already cited: open citation {number}",
   "claim.widenCitation": "Widen the Citation",
@@ -878,6 +925,8 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
+  "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.openCitation": "Open citation {number}",
   "claim.cutUnsupported": "Cut the unsupported part",
   "claim.keepAsView": "Keep as my view",
@@ -914,6 +963,20 @@ export const en = {
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
   "claim.searchWeb": "Search the web",
+  "error.check.partChecking": "This sentence is being checked. Wait for it to finish.",
+  "error.check.partChanged": "Those words have changed. Check the sentence again.",
+  "claim.usedDocumentWording": "Changed to what the Document says",
+  "claim.useDocumentWording": "Use the Document’s wording",
+  "opinions.one": "1 opinion left out",
+  "opinions.count": "{count} opinions left out",
+  "opinions.show": "Show",
+  "claim.opinion": "Left out as an opinion",
+  "claim.checkAnyway": "Check anyway",
+  "claim.part.checking": "Checking this part…",
+  "claim.parts.more": "{count} more",
+  "claim.parts.coverage": "Covers {covered} of the {total} {unit}",
+  "claim.unbackedCause": "The Documents state both, but not that one caused the other.",
+  "claim.forecast": "The Document forecasts this but doesn’t say it will happen",
   "claim.more": "More for this check",
   "claim.webSearchOff": "Turn on web search to look this up.",
   "claim.webSearchOff.action": "Open Settings",
@@ -939,6 +1002,7 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
@@ -946,6 +1010,7 @@ export const en = {
   "claim.recheck.search-scope": "The note’s Search scope has changed since.",
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
+  "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -1457,6 +1522,7 @@ export const en = {
   "viewer.docx.comment": "Comment by {author}",
 
   "location.page": "p. {range}",
+  "location.pageLines.across": "p. {fromPage}, line {fromLine}–p. {toPage}, line {toLine}",
   "location.pages": "pp. {range}",
   "location.page.withPdf.one": "{printed} · page {range} of the PDF",
   "location.page.withPdf.other": "{printed} · pages {range} of the PDF",
@@ -1723,14 +1789,27 @@ export const en = {
   "status.tagging.other": "Tagging {count} Documents…",
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
-  "status.taggingSends.one": "Tagging 1 Document with {service} · sends its name and excerpts",
-  "status.taggingSends.other":
-    "Tagging {count} Documents with {service} · sends names and excerpts",
-  "status.taggingSends.full.one":
-    "Tagging 1 Document with {service}: its name, outline and short excerpts are sent",
-  "status.taggingSends.full.other":
-    "Tagging {count} Documents with {service}: each one’s name, outline and short excerpts are sent",
-  "status.sendsScans": " (page images for scans)",
+  "status.sends":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.onThisComputer":
+    "The names and descriptions of your Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.onThisComputer":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.organize.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}. Page images of scans are included.",
+  "status.sends.organize.onThisComputer.scans":
+    "The names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer. Page images of scans are included.",
+  "status.sends.organize.text":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, go to {service}.",
+  "status.sends.organize.text.onThisComputer":
+    "For text Documents, the names and descriptions of your Folders and Tags, and each Document’s name, outline and short excerpts, stay on this computer.",
+  "status.sends.scans":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags go to {service}.",
+  "status.sends.scans.onThisComputer":
+    "For scans, page images, the Document’s name and type, and the names and descriptions of your Folders and Tags stay on this computer.",
+  "status.sends.withScans": "{text} {scans}",
   "status.taggingWaiting": "Tags need an AI model",
   "status.taggingPermission": "Tags need your OK",
   "status.taggingFailed.one": "1 Document couldn’t be tagged",
@@ -1835,6 +1914,7 @@ export const en = {
   "webPages.reason.too-many-redirects": "it redirects too many times",
   "webPages.reason.not-from-search": "the web search didn’t return it",
   "webPages.reason.local-mode": "“Keep everything on this computer” is on",
+  "webPages.reason.kept-inside": "this work stays inside its Folder, which can’t be found now",
   "webPages.localMode":
     "Not fetched: “Keep everything on this computer” is on. It would contact {site}.",
   "webPages.localMode.once": "Fetch this page once",
@@ -2869,6 +2949,9 @@ export const en = {
   "composer.label": "Ask, or say ‘write a note on…’ ({shortcut})",
   "composer.ask": "Ask (Enter)",
   "composer.scope.all": "All Documents",
+  "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
+  "composer.scope.leftOut": "All Documents · {count} Folders left out",
+  "scope.openNote": "Open a note there",
   "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
   "composer.scope.allTitle": "Searches all your Documents. Type @ to limit it",
   "composer.scope.allEmptyFolder":
@@ -3041,6 +3124,7 @@ export const en = {
   "scope.picker.empty": "No Folders, Tags or Documents match",
   "scope.picker.none": "No Documents yet. Add some to choose what to search.",
   "scope.chip.folder": "Folder “{name}”, with its sub-Folders",
+  "scope.chip.wall": "Folder “{name}” keeps its work inside it",
   "scope.chip.tag": "Documents tagged “{name}”",
   "scope.chip.document": "Document “{name}”",
   "scope.chip.deleted.folder": "Deleted Folder",
@@ -3311,6 +3395,8 @@ export const en = {
   "research.ask.library": "Library",
   "research.ask.title.one": "Save 1 web page to a new Folder",
   "research.ask.title.other": "Save {count} web pages to a new Folder",
+  "research.ask.titleInto.one": "Save 1 web page to “{folder}”",
+  "research.ask.titleInto.other": "Save {count} web pages to “{folder}”",
   "research.ask.folder": "Folder",
   "research.ask.folderNew": "{name} (new)",
   "research.ask.pages": "Pages",
@@ -3390,6 +3476,7 @@ export const en = {
   "task.status.notReady": "Its model can’t be used now",
   "task.status.stopped": "Stopped",
   "task.status.failed": "Couldn’t finish",
+  "task.problem.keptInside": "Couldn’t finish: its Folder is gone",
   "task.pause": "Pause",
   "task.resume": "Resume",
   "task.stop": "Stop",
@@ -3486,6 +3573,7 @@ export const en = {
     "The words are in several places, and nothing around them tells which.",
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
   "citation.reason.document-removed": "The Document has been deleted.",
+  "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "The quote is checked when the Answer is finished.",
   "citation.where": "{document}, {location}",
@@ -4121,6 +4209,12 @@ export const en = {
     "Needs re-check: the note’s Search scope has changed since.",
   "export.comment.sentence.needs-recheck.figures":
     "Needs re-check: checked before each of its figures was checked with its own source.",
+  "export.comment.sentence.needs-recheck.referent":
+    "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.recordCite.result": "{raw}: {outcome}",
+  "export.comment.recordCite.passage": "Passage: {passage}",
+  "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
+  "export.comment.recordCite.nearby": "Nearby suggestion: {source}\n{passage}",
   "export.html.notes": "Notes",
   "export.html.back": "Back to text",
   "export.citation.location": "{document}, {location}",
@@ -4358,6 +4452,7 @@ export const en = {
   "error.commands.noFolderName": "The command needs the Folder’s name.",
   "error.commands.noTag": "The command needs the Tag’s name.",
   "error.commands.noFolderPath": "The command needs the folder to add files from.",
+  "error.commands.nothingWaiting": "Nothing is waiting in To review.",
   "error.commands.noIds": "The command needs the Documents or notes it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
   "error.commands.exampleDocument":
@@ -4447,6 +4542,11 @@ export const en = {
   "commands.setting.exportFormat": "Export format",
   "commands.setting.meetingSystemAudio": "Record the computer’s sound too",
   "commands.setting.model": "Model for Answers",
+  "commands.yours.wall":
+    "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
+  "commands.yours.wall.named":
+    "Whether “{folder}” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+  "commands.yours.openFolderMenu": "Open the Folder’s menu",
   "commands.yours.keys":
     "Keys and sign-ins are yours to change, not mine. They’re in Settings › Models.",
   "commands.yours.privacy":
@@ -4693,7 +4793,9 @@ export const en = {
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
+  "error.library.checkedFolders": "Choose valid Suggested Folders.",
   "error.library.noClassifier": "Choose a classification model first.",
+  "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
@@ -4781,6 +4883,16 @@ export const en = {
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",
+  "error.recordCite.choiceInvalid": "The source choice is incomplete. Choose a Document again.",
+  "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
+  "error.recordCite.notFound":
+    "That record cite is no longer in the check. Check the sentence again.",
+  "error.recordCite.documentGone":
+    "That Document is no longer available. Check the cite again to choose a current Document.",
+  "error.recordCite.modelNotReady":
+    "The model needed to check this cite is not ready. Choose a model and try again.",
+  "error.recordCite.unresolved":
+    "The source could not be resolved. Choose another Document or check the cite.",
   "error.tagging.noModel": "Choose a classification model.",
   "error.tagging.place": "Choose where to tag with AI: a Folder, or Not in a Folder.",
   "error.tagging.cloudPaused": "Cloud tagging paused: “Keep everything on this computer” is on.",
@@ -6074,6 +6186,7 @@ export const en = {
   "answer.uncitedWrite":
     "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
   "answer.added": "Added to “{mind}”",
+  "answer.added.outOfWall": "Added to “{mind}” · copied out of “{folder}”",
   "answer.undoKept.one": "Kept the Block you edited",
   "answer.undoKept": "Kept {count} Blocks you edited",
   "answer.table.open": "Open as a table",
@@ -6134,6 +6247,8 @@ export const en = {
     "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+  "agents.problem.wallShared":
+    "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.chat-not-ready":

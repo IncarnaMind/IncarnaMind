@@ -34,6 +34,7 @@ import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, NotFoundError } from "../../errors";
 import type { Language } from "../../language";
+import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
 
 /** The core's calls the commands make: the same the window's own clicks make. */
@@ -94,6 +95,16 @@ export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
+  /**
+   * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
+   * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
+   */
+  allows?(
+    input: CommandInput,
+    touches: readonly CommandTouch[],
+    mindId: string | null,
+    wallId?: string | null,
+  ): void | Promise<void>;
   /** The Output location, links followed; null while none is chosen. */
   outputFolder(): Promise<string | null>;
   /**
@@ -311,7 +322,30 @@ export const mindItem = (mind: Mind, renamed?: Mind): CommandItem => ({
   ...(renamed && { renamed: mindName(renamed) }),
 });
 
-export type Checker = (input: CommandInput, host: CommandsHost) => Promise<CheckedCommand>;
+/**
+ * Where what a command adds is filed, by the Folder wall the Answer was asked behind (#1934);
+ * null: it can't be filed, so nothing is added.
+ */
+export type CommandFiling = (asked: string | null) => { folderId: string | null } | null;
+
+/**
+ * What a command declares it touches, which the Folder wall holds it to (#1934): a kind of thing it
+ * names by id, the Library it adds to, the app's settings, or the window in front.
+ */
+export type CommandTouch = CommandTarget | "library" | "settings" | "front";
+
+/** What a check knows of where the Answer was asked. */
+export interface CommandPlace {
+  filing: CommandFiling;
+  /** The Documents, Notes, Folders, Tags and deleted things on the turn's side of the wall. */
+  findable(): Promise<Findable>;
+}
+
+export type Checker = (
+  input: CommandInput,
+  host: CommandsHost,
+  place: CommandPlace,
+) => Promise<CheckedCommand>;
 
 /** What a command that reaches outside the Library changes in it: nothing its limit counts. */
 const OUTSIDE_IT = {
@@ -674,7 +708,9 @@ export const LIBRARY_CHECKERS = {
     };
   },
 
-  "documents.addFromFolder": async (input, { core }) => {
+  "documents.addFromFolder": async (input, { core }, { filing }) => {
+    const filed = filing(null);
+    if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
     const folder = await folderOnDisk(needs(input.folder, "error.commands.noFolderPath"));
     const files = await filesIn(folder, input.kinds);
     if (files.length === 0) {
@@ -692,6 +728,13 @@ export const LIBRARY_CHECKERS = {
         const result = await core.addDocuments(files.map((name) => join(folder, name)));
         const added = result.documents.filter((each) => !known.has(each.id));
         const refs = added.map((each) => ({ kind: "document" as const, id: each.id }));
+        if (filed.folderId !== null && added.length > 0) {
+          await core.moveToFolder({
+            documentIds: refs.map((ref) => ref.id),
+            mindIds: [],
+            folderId: filed.folderId,
+          });
+        }
         const already = result.documents.length - added.length;
         return {
           done: { items: added.map((each) => documentItem(each)) },

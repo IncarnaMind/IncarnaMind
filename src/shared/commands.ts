@@ -51,9 +51,11 @@ export type CommandTarget = (typeof COMMAND_TARGETS)[number];
  * What only the User changes, never the assistant (#1421), each said with where they change it:
  * keys and sign-ins; consent, Local mode and Privacy, and what leaves the computer; the
  * assistant's own approval rules; the monthly spending cap; deleting for good (ADR-0013); and
- * what is the User's own word: "Checked by me" and marking text as theirs.
+ * what is the User's own word: "Checked by me" and marking text as theirs; and whether a Folder
+ * keeps its work inside it, a confidentiality control like Privacy (#1934).
  */
 export const YOURS = [
+  "wall",
   "keys",
   "privacy",
   "approvals",
@@ -63,6 +65,12 @@ export const YOURS = [
   "authorship",
 ] as const;
 export type Yours = (typeof YOURS)[number];
+
+/** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
+export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;
+
+/** To review's Accept all: it names no ids, filing every waiting suggestion (#2243). */
+export const ACCEPT_SUGGESTIONS = "library.acceptSuggestions" satisfies CommandId;
 
 /**
  * What a command does to a recording (#1421): "starts" can turn on the microphone or the

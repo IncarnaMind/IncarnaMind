@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { MIND_SIGN_OFFS_FIELD } from "../../src/core/api";
+import { type CitationAttributes, MIND_SIGN_OFFS_FIELD } from "../../src/core/api";
+import { pendingPart } from "../../src/shared/claimParts";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import {
   addSignOff,
@@ -8,6 +9,7 @@ import {
   figureSignOffBasis,
   figureSignOffs,
   isMine,
+  namePartCitations,
   readSignOff,
   removeSignOff,
   type SignOffRecord,
@@ -147,5 +149,141 @@ describe("The User's own check marks", () => {
     expect(isMine(record({ personId: "p1" }), "p1")).toBe(true);
     expect(isMine(record({ personId: undefined }), "p1")).toBe(true);
     expect(isMine(record({ personId: "p2" }), "p1")).toBe(false);
+  });
+});
+
+describe("Note-owned part Citation identities", () => {
+  const citation: CitationAttributes = {
+    passageId: "p",
+    documentId: "d",
+    documentName: "Source",
+    contentHash: "v1",
+    pageFrom: 1,
+    pageTo: 1,
+    location: null,
+    quote: "Revenue rose 5%.",
+    check: "found",
+    checkReason: null,
+  };
+  const part = (start: number) => ({
+    ...pendingPart({ span: { start, end: start + 4 }, kind: "fact" }),
+    verdict: "supported" as const,
+    evidence: [{ ...citation, id: "unowned-model-id" }],
+  });
+
+  test("names independent receipts once, preserving only their own unchanged receipt ids", () => {
+    const parts = [part(0), part(5)];
+    const named = namePartCitations(parts);
+    const ids = named.map((each) => each.evidence[0]?.id);
+    expect(ids.every((id) => typeof id === "string" && id !== "unowned-model-id")).toBe(true);
+    expect(new Set(ids).size).toBe(2);
+    expect(namePartCitations(parts, named)).toEqual(named);
+    expect(parts[0]?.evidence[0]?.id).toBe("unowned-model-id");
+    const copy = namePartCitations(named);
+    expect(copy[0]?.evidence[0]?.id).not.toBe(ids[0]);
+    expect(copy[1]?.evidence[0]?.id).not.toBe(ids[1]);
+    const changed = namePartCitations(
+      [{ ...part(0), evidence: [{ ...citation, quote: "Other." }] }],
+      named,
+    );
+    expect(changed[0]?.evidence[0]?.id).not.toBe(ids[0]);
+  });
+
+  test.each(["Revenue rose.", "收入增长。"])(
+    "a wording edit keeps an unambiguous receipt id and its human mark as Changed: %s",
+    (words) => {
+      const before = namePartCitations([{ ...part(0), span: { start: 0, end: words.length } }]);
+      const previous = before[0]?.evidence[0];
+      if (!previous?.id) throw new Error("Missing owned Citation.");
+      const editedWords = `Updated ${words}`;
+      const next = namePartCitations(
+        [
+          {
+            ...part(0),
+            span: { start: 0, end: editedWords.length },
+            evidence: [{ ...citation, id: "unowned-provider-id" }],
+          },
+        ],
+        before,
+      );
+      const receipt = next[0]?.evidence[0];
+      expect(receipt?.id).toBe(previous.id);
+      const marked = record({
+        target: { kind: "citation", id: previous.id },
+        contentHash: citationSignOffBasis(words, previous),
+      });
+      expect(
+        signOffShown(
+          marked,
+          citationSignOffBasis(editedWords, receipt ?? citation),
+          [receipt ?? citation],
+          new Map([["d", "v1"]]),
+        ).state,
+      ).toBe("changed");
+    },
+  );
+
+  test("owned ids survive moved spans while ambiguous equal receipts never share or borrow an id", () => {
+    const before = namePartCitations([part(0), part(5)]);
+    const first = before[0];
+    const second = before[1];
+    if (!first || !second) throw new Error("Missing owned parts.");
+    const moved = [
+      { ...first, span: { start: 1, end: 7 } },
+      { ...second, span: { start: 8, end: 15 } },
+    ];
+    expect(namePartCitations(moved, before).map((each) => each.evidence[0]?.id)).toEqual(
+      before.map((each) => each.evidence[0]?.id),
+    );
+    const ambiguous = namePartCitations(
+      moved.map((each) => ({ ...each, evidence: [{ ...citation, id: "unowned-provider-id" }] })),
+      before,
+    );
+    const oldIds = new Set(before.map((each) => each.evidence[0]?.id));
+    const ids = ambiguous.map((each) => each.evidence[0]?.id);
+    expect(ids.every((id) => typeof id === "string" && !oldIds.has(id))).toBe(true);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  test("unchanged Source identity survives Location object key order after reload", () => {
+    const located: CitationAttributes = {
+      ...citation,
+      location: { kind: "page", from: 1, to: 2, printed: { from: "iv", to: "v" } },
+    };
+    const before = namePartCitations([{ ...part(0), evidence: [located] }]);
+    const reloaded: CitationAttributes = {
+      ...citation,
+      location: { printed: { to: "v", from: "iv" }, to: 2, from: 1, kind: "page" },
+    };
+    const next = namePartCitations([{ ...part(0), evidence: [reloaded] }], before);
+    expect(next[0]?.evidence[0]?.id).toBe(before[0]?.evidence[0]?.id);
+  });
+
+  test("coverage domain and each member own distinct persistent receipts", () => {
+    const parts = [
+      {
+        ...part(0),
+        coverage: {
+          unit: "sites",
+          quantifier: "all" as const,
+          complete: true,
+          domainEvidence: [citation],
+          members: [
+            { label: "A", verdict: "supported" as const, evidence: [citation] },
+            { label: "B", verdict: "supported" as const, evidence: [citation] },
+          ],
+        },
+      },
+    ];
+    const named = namePartCitations(parts);
+    const coverage = named[0]?.coverage;
+    const ids = [
+      named[0]?.evidence[0]?.id,
+      coverage?.domainEvidence[0]?.id,
+      ...(coverage?.members.map((member) => member.evidence[0]?.id) ?? []),
+    ];
+    expect(ids.every((id) => typeof id === "string")).toBe(true);
+    expect(new Set(ids).size).toBe(4);
+    expect(namePartCitations(parts, named)).toEqual(named);
   });
 });

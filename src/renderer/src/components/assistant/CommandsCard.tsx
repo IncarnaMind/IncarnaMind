@@ -2,10 +2,11 @@ import { useMemo } from "react";
 import type { CommandDone, CommandItem, ConversationAnswer } from "../../../../core/api";
 import type { Yours } from "../../../../shared/commands";
 import { keptWords, undoRun, useCommandRuns } from "../../assistantCommands";
-import { commandCallText, commandRuns, runText, undoable, YOURS_WORDS } from "../../commandFacts";
+import { commandCallText, commandRuns, runText, undoable, yoursWordsOf } from "../../commandFacts";
 import { files } from "../../core";
 import { LIBRARY_DELETED } from "../../deletedItems";
 import { showFileLabelKey } from "../../fileInfo";
+import { openFolderMenu } from "../../folderMenu";
 import { useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
@@ -55,17 +56,22 @@ export function CommandsCard({
     (call) => call.tool === "run_command" && call.status === "failed",
   );
   const yours = [
-    ...new Set(
-      answer.toolCalls.flatMap((call) => (call.command?.yours ? [call.command.yours] : [])),
-    ),
+    ...new Map(
+      answer.toolCalls.flatMap((call) => {
+        const done = call.command;
+        return done?.yours
+          ? [[`${done.yours} ${done.folder?.id ?? ""}`, { what: done.yours, folder: done.folder }]]
+          : [];
+      }),
+    ).values(),
   ];
   const { here, undone, kept } = useCommandRuns();
   const changed = runs.filter(({ done }) => done.some((each) => !each.yours));
   if (streaming || (changed.length === 0 && unrun.length === 0 && yours.length === 0)) return null;
   return (
     <section data-testid="command-changes" className="mind-changes">
-      {yours.map((what) => (
-        <YoursLine key={what} what={what} />
+      {yours.map(({ what, folder }) => (
+        <YoursLine key={`${what} ${folder?.id ?? ""}`} what={what} folder={folder} />
       ))}
       {unrun.map((call) => (
         <div key={call.id} data-testid="command-changes-unrun" className="mind-changes-head">
@@ -212,14 +218,14 @@ function openYours(what: Yours): void {
  * A request for what only the User changes (#1421): one line saying it is theirs and where it
  * is, with the one button that opens that page when it is a page. Nothing changed.
  */
-function YoursLine({ what }: { what: Yours }) {
+function YoursLine({ what, folder }: { what: Yours; folder?: CommandDone["folder"] }) {
   const t = useT();
-  const { said, open } = YOURS_WORDS[what];
+  const { said, open } = yoursWordsOf(what, folder);
   return (
     <div data-testid="command-yours" data-yours={what} className="mind-changes-head">
       <ShieldLineIcon aria-hidden="true" className="mind-changes-icon" />
       <p className="mind-changes-line">
-        <span className="mind-changes-title">{t(said)}</span>
+        <span className="mind-changes-title">{t(said, { folder: folder?.name ?? "" })}</span>
         {open !== null && (
           // The dot goes with its button when the line wraps.
           <span className="whitespace-nowrap">
@@ -227,7 +233,7 @@ function YoursLine({ what }: { what: Yours }) {
             <button
               type="button"
               data-testid="command-yours-open"
-              onClick={() => openYours(what)}
+              onClick={() => (folder ? openFolderMenu(folder.id) : openYours(what))}
               className="mind-changes-review"
             >
               {t(open)}

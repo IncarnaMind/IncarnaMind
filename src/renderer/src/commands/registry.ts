@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { WindowCommandRequest } from "../../../core/api";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
@@ -86,6 +87,11 @@ export interface CommandContext {
    * one is offered only where the menu was given it (`needsHere`).
    */
   here?: Partial<Record<CommandId, () => void>>;
+  /**
+   * What the core checked against the Folder wall for an assistant's run of a command that names
+   * no ids (To review's Accept all): it acts on these alone, never on what is in view (#2243).
+   */
+  checked?: WindowCommandRequest["targets"];
 }
 
 export interface Command {
@@ -96,6 +102,8 @@ export interface Command {
   keywords?: readonly MessageKey[];
   /** One line under its name in ⌘K, for a command whose name alone doesn't say what it is for. */
   purpose?: MessageKey;
+  /** For a switch command, whether its menu item is checked. */
+  checked?(ctx: CommandContext): boolean;
   /** What the menu says of it in a tooltip, where its label alone doesn't. */
   hint?: MessageKey;
   icon?: ComponentType<{ className?: string }>;

@@ -3,7 +3,7 @@
  * leaves out a sentence of each claim kind, how often it names one that makes no claim, and what
  * a call costs.
  */
-import { readClaimDecisions } from "../../src/core/answers/checks/claims";
+import { readClaimDecisions, readClaimParts } from "../../src/core/answers/checks/claims";
 import { CLAIM_KINDS, type ClaimKind } from "./cases";
 import type { ClaimsRequest } from "./requests";
 
@@ -59,13 +59,38 @@ export interface ClaimsSummary {
 }
 
 /** The sentences a request showed, by their numbers. */
-function shownIn(request: ClaimsRequest): Map<number, string> {
+function shownIn(request: ClaimsRequest): { sentences: Map<number, string>; parts: boolean } {
   const shown = new Map<number, string>();
+  let value: unknown;
+  try {
+    value = JSON.parse(request.asked);
+  } catch {
+    value = null;
+  }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "sentences" in value &&
+    Array.isArray(value.sentences)
+  ) {
+    for (const sentence of value.sentences) {
+      if (typeof sentence !== "object" || sentence === null) continue;
+      const { number, text } = sentence as Record<string, unknown>;
+      if (
+        typeof number === "number" &&
+        Number.isSafeInteger(number) &&
+        number > 0 &&
+        typeof text === "string"
+      )
+        shown.set(number, text);
+    }
+    return { sentences: shown, parts: true };
+  }
   for (const line of request.asked.split("\n")) {
     const match = /^\[(\d+)\] (.*)$/u.exec(line);
     if (match) shown.set(Number(match[1]), (match[2] ?? "").trim());
   }
-  return shown;
+  return { sentences: shown, parts: false };
 }
 
 export interface CallDecisions {
@@ -84,9 +109,24 @@ export function decisionsIn(requests: readonly ClaimsRequest[]): CallDecisions {
   const decided = new Map<number, boolean>();
   let read = false;
   for (const request of requests) {
-    const shown = shownIn(request);
+    const { sentences: shown, parts: rich } = shownIn(request);
     for (const [number, text] of shown) if (!texts.has(number)) texts.set(number, text);
-    const decisions = readClaimDecisions(request.reply, [...shown.keys()]);
+    const parts = rich
+      ? readClaimParts(
+          request.reply,
+          [...shown].map(([number, text]) => ({ number, text })),
+        )
+      : null;
+    const decisions = rich
+      ? parts === null
+        ? null
+        : new Map(
+            [...parts].map(([number, plans]) => [
+              number,
+              plans.some((part) => part.kind === "fact"),
+            ]),
+          )
+      : readClaimDecisions(request.reply, [...shown.keys()]);
     if (decisions === null) continue;
     read = true;
     for (const [number, decision] of decisions) {

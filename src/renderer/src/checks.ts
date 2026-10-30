@@ -15,13 +15,17 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type ClaimCheckPart,
+  type ClaimPartSpan,
   type ProviderError,
 } from "../../core/api";
+import { overlapsCitation } from "../../shared/citationOverlap";
 import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
-import { citationDecision } from "./editor/alreadyCited";
+import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import type { ShownClaim } from "./editor/claimChecks";
+import { placeInSentence, type ShownClaim } from "./editor/claimChecks";
+import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
 import { resolveProposalsIn } from "./editWithAi";
@@ -63,6 +67,7 @@ export interface LeftOut {
   count: number;
   action: ClaimCheckAction;
   allDocuments: boolean;
+  part?: { id: string; span: ClaimPartSpan };
 }
 
 interface ChecksState {
@@ -147,7 +152,12 @@ export async function checkSentences(
   {
     ranges,
     allDocuments = false,
-  }: { ranges?: readonly { from: number; to: number }[]; allDocuments?: boolean } = {},
+    part,
+  }: {
+    ranges?: readonly { from: number; to: number }[];
+    allDocuments?: boolean;
+    part?: { id: string; span: ClaimPartSpan };
+  } = {},
 ): Promise<void> {
   // An older version's mark says "find-support": it is Check against Documents now.
   const action = asked === "find-support" ? "check-against-documents" : asked;
@@ -160,7 +170,7 @@ export async function checkSentences(
   if (!selection) return;
   // The selection closes at its end, as for Edit with AI: its sentences show their marks, and the User writes on.
   const { selection: now } = editor.state;
-  if (now.from === selection.range.from && now.to === selection.range.to) {
+  if (!part && now.from === selection.range.from && now.to === selection.range.to) {
     editor.view.dispatch(
       editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
     );
@@ -178,6 +188,7 @@ export async function checkSentences(
       ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
       action,
       allDocuments,
+      ...(part && { part }),
       model: modelInUseOf(doc),
     });
   } catch (error) {
@@ -188,6 +199,7 @@ export async function checkSentences(
         void checkSentences(editor, mindId, doc, action, {
           ranges: stretches.map((each) => each.range),
           allDocuments,
+          part,
         }),
     };
   } finally {
@@ -208,6 +220,7 @@ export async function checkSentences(
       count: waiting.sentences.length,
       action,
       allDocuments,
+      ...(part && { part }),
     });
   } else if (
     result.kind !== "checked" &&
@@ -223,6 +236,7 @@ export async function checkSentences(
           void checkSentences(editor, mindId, doc, action, {
             ranges: stretches.map((each) => each.range),
             allDocuments: true,
+            part,
           }),
       ),
     );
@@ -255,6 +269,7 @@ export function acceptAndCheck(
   return checkSentences(editor, mindId, doc, leftOut.action, {
     ranges,
     allDocuments: leftOut.allDocuments,
+    part: leftOut.part,
   });
 }
 
@@ -285,9 +300,8 @@ export function removeClaimMark(editor: Editor, claim: ShownClaim): void {
   editor.view.dispatch(editor.state.tr.removeMark(claim.from, claim.to, mark));
 }
 
-/** Closing punctuation a Citation goes before: "…in the quarter [1]." */
+/** Closing punctuation a Citation goes before: "…in the quarter[1]." */
 const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
-const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u;
 
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
@@ -304,13 +318,56 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = CLOSING.exec(words)?.[0].length ?? 0;
   const at = claim.sentence.to - closing;
-  const before = words.slice(0, words.length - closing);
-  const spaced = before !== "" && !/\s$/u.test(before) && !CJK.test(before);
   const citation = type.create({ ...evidence, check: "found", checkReason: null });
   const tr = state.tr.removeMark(claim.from, claim.to, mark);
-  tr.insert(at, spaced ? [state.schema.text(" "), citation] : citation);
+  tr.insert(at, citation);
   editor.view.dispatch(tr);
   return true;
+}
+
+/**
+ * Adds each part's Passages that the sentence doesn't cite yet as Citations
+ * right after that part's words, never on the whole sentence (#2002), as one
+ * step of Undo. The sentence keeps its check: a Citation isn't part of the
+ * words a check reads, so its parts stay where they were. "changed" when the
+ * sentence no longer reads as the card showed it, and nothing was added.
+ */
+export function addPartCitations(
+  editor: Editor,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+): "added" | "nothing" | "changed" {
+  const { state } = editor;
+  const type = state.schema.nodes[CITATION_NODE];
+  if (!type) return "nothing";
+  const added: CitationAttributes[] = [];
+  const inserts: { at: number; citations: CitationAttributes[] }[] = [];
+  for (const part of parts) {
+    // A Passage cited after one part is already cited for the next, as a second add would find.
+    const citations = partDecisions(state, claim, part).flatMap(({ evidence, decision }) =>
+      decision.kind === "add" &&
+      !added.some(
+        (each) => each.documentId === evidence.documentId && overlapsCitation(each, evidence),
+      )
+        ? [evidence]
+        : [],
+    );
+    if (citations.length === 0) continue;
+    const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
+    if (!place) return "changed";
+    added.push(...citations);
+    inserts.push({ at: place.to, citations });
+  }
+  if (inserts.length === 0) return "nothing";
+  const tr = state.tr;
+  for (const { at, citations } of inserts.toSorted((a, b) => b.at - a.at)) {
+    tr.insert(
+      at,
+      citations.map((citation) => type.create({ ...citation, check: "found", checkReason: null })),
+    );
+  }
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  return "added";
 }
 
 function rewriteCitation(

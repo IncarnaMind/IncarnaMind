@@ -67,6 +67,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
 
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         pageFrom: 1,
         pageTo: 1,
@@ -75,6 +76,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     ).toMatchObject({ check: "found" });
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         pageFrom: 2,
         pageTo: 2,
@@ -100,6 +102,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     expect(storedPages(dataDir, document.id)).toEqual([`${ENGLISH_HEADING}\n${ENGLISH_SENTENCE}`]);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         pageFrom: 1,
         pageTo: 1,
@@ -418,6 +421,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     // its verdict kept. Not a third — nothing orphaned, or pointing at text that is gone.
     expect(
       await second.recheckCitation({
+        mindId: null,
         documentId: document.id,
         pageFrom: 1,
         pageTo: 1,

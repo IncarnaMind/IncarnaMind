@@ -59,11 +59,11 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationRecheck,
+  type CitationToRecheck,
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
   type QuotedWords,
-  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -447,7 +447,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
  * Checks a Citation again against its Document's current version (see
@@ -1566,6 +1566,11 @@ export function createCitationSession(
               passage.pageTo,
             )
           : [];
+      const severalSections =
+        units.every((unit) => unit.kind === "section") &&
+        new Set(units.map((unit) => JSON.stringify([unit.label?.path ?? [], unitLocation(unit)])))
+          .size > 1;
+      const firstMark = severalSections && units[0] ? unitMark(units[0]) : null;
       const marked =
         units.length > 1 || units.some((unit) => innerMarks(unit).length > 0)
           ? withUnitMarks(passage.text, units)
@@ -1574,7 +1579,7 @@ export function createCitationSession(
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
-      const text = foldRadicals(withCueMarks(marked, units));
+      const text = foldRadicals(withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units));
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
@@ -1591,7 +1596,7 @@ export function createCitationSession(
         documentName: passage.documentName,
         date: dateOf(passage.documentId),
         range,
-        location: passageLocation(units),
+        location: severalSections ? null : passageLocation(units),
         text,
         notCited,
       };

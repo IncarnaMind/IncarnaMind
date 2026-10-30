@@ -36,6 +36,7 @@ import { askOf, type CommandRename, renamesOf } from "./policy";
 import {
   type CheckedCommand,
   COMMAND_EXPORT_FORMATS,
+  type CommandFiling,
   type CommandsHost,
   parseCommandInput,
 } from "./run";
@@ -75,7 +76,11 @@ const YOURS_RULE =
 export interface CommandToolsOptions {
   host: CommandsHost;
   /** The User's Documents, Minds, Folders and Tags as they are now. */
-  findable(): Promise<Findable>;
+  findable(mindId: string | null, wallId?: string | null): Promise<Findable>;
+  /** The wall of the Conversation, when no Note is open. */
+  wallId?: string | null;
+  /** Where what a command adds is filed (#1934). */
+  filing: CommandFiling;
   /** The Mind the User is in, which `list_commands` points out. */
   focusedMindId: string | null;
   /** The saved web pages the Run's instructions name, by id: their titles are someone else's. */
@@ -210,7 +215,7 @@ export function commandTools(options: CommandToolsOptions): {
         tag: given(input.tag),
         folder: given(input.folder),
       };
-      const found = find(query, await options.findable());
+      const found = find(query, await options.findable(options.focusedMindId, options.wallId));
       options.found(toolCallId, foundOf(query, found.length));
       const [one, many] = nouns[query.kind];
       if (found.length === 0) {
@@ -320,7 +325,9 @@ export function commandTools(options: CommandToolsOptions): {
       try {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
-          findable: options.findable,
+          findable: () => options.findable(options.focusedMindId, options.wallId),
+          wallId: options.wallId,
+          filing: options.filing,
           answerId: options.answerId,
           runId: options.runId,
           toolCallId,
