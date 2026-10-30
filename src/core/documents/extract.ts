@@ -194,7 +194,6 @@ function pdfjsDataUrls() {
 /** A scan's picture larger than this many pixels isn't drawn: reading it would take too much memory. */
 const MAX_PICTURE_PIXELS = 50_000_000;
 
-/** A page's lines as pdf.js gives them, in its order, each with where it ends and its size. */
 function printedLines(items: readonly object[]): PrintedLine[] {
   const lines: PrintedLine[] = [];
   let text = "";
@@ -223,7 +222,6 @@ function printedLines(items: readonly object[]): PrintedLine[] {
   return lines;
 }
 
-/** The page's text extraction reads for the stored pages: a wrapped line joined, a line the page ended itself kept. */
 function readPageText(items: readonly object[]): PrintedText {
   return joinPrintedLines(printedLines(items));
 }
@@ -232,10 +230,8 @@ function readPageText(items: readonly object[]): PrintedText {
 const CJK_LINE_WRAP = new RegExp(`([${CJK}])[^\\S\\n]*\\n[^\\S\\n]*(?=[${CJK}])`, "gu");
 
 /**
- * A page's text for the readers built on it before the stored text took the
- * heading rule — a PDF's first pages for its metadata, the scanned-page
- * check, and the text around a table in Verify's layout: every CJK line
- * wrapped beside CJK text joined, whatever line it is on.
+ * The readers that still read a page directly predate the stored text's heading rule (#2219),
+ * so every CJK line wrapped beside CJK text is joined here, whatever line it is on.
  */
 function pageText(items: readonly object[]): string {
   let text = "";

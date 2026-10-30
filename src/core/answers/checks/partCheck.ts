@@ -16,6 +16,7 @@ import type {
   ClaimPartSpan,
 } from "../../api";
 import { slots } from "../../runs/stop";
+import { inCheck } from "./checkedText";
 import {
   type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
@@ -102,11 +103,14 @@ export function createPartCheck(
     )
       plans = [full];
     const limit = request.slots ?? slots(claimsAtOnce(request.model));
+    const sentence = request.originalClaim ?? request.claim;
     const withFigures = (found: readonly ClaimPartPlan[]) =>
       withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
-        claimsAmong(request.model, [request.claim], "own", request.signal),
+        inCheck({ sentence, part: null }, () =>
+          claimsAmong(request.model, [request.claim], "own", request.signal),
+        ),
       );
       if (sorted.kind === "cancelled") return { failed: failed("stopped") };
       if (sorted.kind === "failed") {
@@ -145,16 +149,18 @@ export function createPartCheck(
       const run = new AbortController();
       const heard: { plans?: readonly ClaimPartPlan[] | null } = {};
       const result = await limit.run(() =>
-        atomic({
-          ...request,
-          signal: AbortSignal.any([request.signal, run.signal]),
-          findParts: (text) => {
-            const named = readPartsLine(text, request.claim);
-            if (named?.length === 0) return;
-            heard.plans = named && withFigures(named);
-            if (heard.plans && whole(heard.plans) === null) run.abort();
-          },
-        }),
+        inCheck({ sentence, part: null }, () =>
+          atomic({
+            ...request,
+            signal: AbortSignal.any([request.signal, run.signal]),
+            findParts: (text) => {
+              const named = readPartsLine(text, request.claim);
+              if (named?.length === 0) return;
+              heard.plans = named && withFigures(named);
+              if (heard.plans && whole(heard.plans) === null) run.abort();
+            },
+          }),
+        ),
       );
       if (request.signal.aborted) return failed("stopped");
       if (heard.plans === undefined) return resultFromParts([partWithResult(full, result)]);
@@ -267,14 +273,23 @@ export function createPartCheck(
             });
             return;
           }
-          const result = await atomic({
-            ...request,
-            claim: request.claim.slice(plan.span.start, plan.span.end),
-            figures: figures.length ? figures : undefined,
-            projection: undefined,
-            originalClaim: request.originalClaim ?? request.claim,
-            context: [request.context, request.claim].filter(Boolean).join("\n\n"),
-          });
+          const result = await inCheck(
+            {
+              sentence,
+              part: isSentence(plan.span)
+                ? null
+                : request.claim.slice(plan.span.start, plan.span.end),
+            },
+            () =>
+              atomic({
+                ...request,
+                claim: request.claim.slice(plan.span.start, plan.span.end),
+                figures: figures.length ? figures : undefined,
+                projection: undefined,
+                originalClaim: request.originalClaim ?? request.claim,
+                context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+              }),
+          );
           parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
           if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {
             stopped ??= { reason: result.reason, detail: result.detail };

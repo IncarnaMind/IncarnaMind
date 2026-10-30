@@ -26,6 +26,7 @@ import {
 } from "../../recordCites/referents";
 import { type ResolvableRecordCiteResult, resolveRecordCites } from "../../recordCites/resolver";
 import { answerTemperature } from "../engine";
+import { inCheck } from "./checkedText";
 import { type ClaimCheckRequest, failureOf } from "./claimCheck";
 import {
   confirmPrompt,
@@ -254,7 +255,11 @@ export function withRecordCites(
     const result = await check(request);
     if (request.signal.aborted) return result;
     if (result.verdict === "not-checked" && STOPS_SENDING.has(result.reason)) return result;
-    const recordCites = await checkRecordCites(request, deps);
+    // Each cite is judged after the check proper, so the sentence it belongs to is named here (#2256).
+    const recordCites = await inCheck(
+      { sentence: request.originalClaim ?? request.claim, part: null },
+      () => checkRecordCites(request, deps),
+    );
     return recordCites.length === 0 ? result : keepRecordCites(result, recordCites);
   };
 }

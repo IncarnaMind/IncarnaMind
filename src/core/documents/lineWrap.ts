@@ -19,13 +19,11 @@ function charBefore(text: string, at: number): string {
   return text.slice(pair ? at - 2 : at - 1, at);
 }
 
-/** The first character of `line` that isn't a space, or empty. */
 function firstVisible(line: string): string {
   const at = line.search(/[^\s]/u);
   return at < 0 ? "" : charAt(line, at);
 }
 
-/** The last character of `line` that isn't a space, or empty. */
 function lastVisible(line: string): string {
   let end = line.length;
   while (end > 0 && SPACE.test(line.charAt(end - 1))) end--;

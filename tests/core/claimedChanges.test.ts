@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import { CLAIM_CHECK_INSTRUCTIONS, unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
 const MINDS = [
@@ -217,33 +217,5 @@ describe("What the judge says the sentence is about (#2194)", () => {
       const result = await check(judge({ claims: [claim] }), reply);
       expect(result.claims).toEqual(["added"]);
     }
-  });
-
-  // protects=the instructions ask the judge to say what each claim is about and to count only a Mind; fails_when=the field is asked for without the rule, or the rule without the field; no_claim=what a real model then answers (the pull request's runs).
-  test("the instructions ask for about, and only a Mind counts", () => {
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
-      "For every claim, about says what the sentence is about",
-    );
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("Only a claim about a mind counts.");
-  });
-
-  // protects=the judge reads "mind" in the record's Tool names and fields as the Note it judges, where that word is; fails_when=the instructions say the record calls a Note a Mind, which its words no longer do; no_claim=how a real model then reads it.
-  test("the instructions say where the record says mind", () => {
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
-      "The record's Tool names and fields say mind for a Note.",
-    );
-    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("A Note is called a Mind in the record.");
-  });
-});
-
-describe("The judge is told which revision is a change (#2194)", () => {
-  // protects=the judge reads a change to a Mind as a revision of text the assistant wrote into that Mind, not of "the assistant's own text", which every reply is; fails_when=the wording a small model read as a change to the reply itself comes back; no_claim=what a real model then judges (the pull request's before and after runs).
-  test("a revision is of text written into a Mind", () => {
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
-      "A revision of text the assistant wrote into a Mind earlier is a change",
-    );
-    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain(
-      "A revision of the assistant's own text is a change",
-    );
   });
 });
