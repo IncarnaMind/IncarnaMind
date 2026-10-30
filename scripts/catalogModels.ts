@@ -1,10 +1,10 @@
 /**
  * Writes src/core/providers/catalog/models.json, the catalog's model facts,
- * from models.dev's api.json (MIT), cross-checked against LiteLLM's
- * model_prices_and_context_window.json (MIT): `node scripts/catalogModels.ts`.
+ * from models.dev's api.json (MIT), checked against LiteLLM's model list (MIT),
+ * with mandatory-reasoning facts from OpenRouter: `node scripts/catalogModels.ts`.
  * It runs on a maintainer's computer, never in the app, and the app reads
  * only the file it writes. With `--models-dev <file>` and `--litellm <file>`
- * it reads copies instead of fetching them.
+ * it reads copies instead of fetching them; --openrouter reads its model-list copy.
  *
  * For each catalog provider it keeps models.dev's chat models (text in, text
  * out, a context window, and not something else by LiteLLM's mode) with
@@ -32,6 +32,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isRecord } from "../src/shared/record";
+import { openRouterReasoningFacts } from "../src/core/providers/openrouterReasoning";
 import type {
   CatalogModel,
   GeneratedProviderModels,
@@ -42,6 +44,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = join(root, "src/core/providers/catalog/models.json");
 const NOTICE_FILE = join(root, "resources/notices/model-catalog.txt");
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const LITELLM_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -230,6 +233,7 @@ function disagreements(provider: string, model: CatalogModel, entry: LiteLlmEntr
 export function generateModels(
   modelsDev: Record<string, { models?: Record<string, ModelsDevModel> }>,
   litellm: Record<string, LiteLlmEntry>,
+  openRouter: readonly Record<string, unknown>[] = [],
 ): { providers: Record<string, GeneratedProviderModels>; disagreements: string[] } {
   const providers: Record<string, GeneratedProviderModels> = {};
   const found: string[] = [];
@@ -251,7 +255,8 @@ export function generateModels(
         continue;
       }
       const facts = factsOf(modelId, model, source.prices !== false);
-      models.push(facts);
+      const listed = id === "openrouter" ? openRouter.find((each) => each.id === modelId) : undefined;
+      models.push({ ...facts, ...(listed && openRouterReasoningFacts(listed)) });
       const entry = entries.get(modelId);
       if (entry) found.push(...disagreements(id, facts, entry));
     }
@@ -318,6 +323,8 @@ function changesOf(before: CatalogModel, after: CatalogModel): string[] {
     after.structuredOutput ?? "unknown",
   );
   differ("reasoning", String(before.reasoning), String(after.reasoning));
+  differ("forced Tool choice", String(before.forcedToolChoice), String(after.forcedToolChoice));
+  differ("small-call reasoning", JSON.stringify(before.thinkingOff), JSON.stringify(after.thinkingOff));
   differ(
     "temperature",
     String(before.temperature ?? "unknown"),
@@ -423,7 +430,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     typeof generateModels
   >[0];
   const litellm = (await load("--litellm", LITELLM_URL)) as Record<string, LiteLlmEntry>;
-  const { providers, disagreements: found } = generateModels(modelsDev, litellm);
+  const listing = await load("--openrouter", OPENROUTER_URL);
+  if (!isRecord(listing) || !Array.isArray(listing.data)) throw new Error("Invalid OpenRouter model list");
+  const { providers, disagreements: found } = generateModels(modelsDev, litellm, listing.data.filter(isRecord));
   const before: Generated = existsSync(OUTPUT)
     ? (JSON.parse(readFileSync(OUTPUT, "utf8")) as { providers: Generated }).providers
     : {};
