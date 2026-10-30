@@ -116,7 +116,7 @@ async function check(
       return {
         text:
           outcome.reply ??
-          `Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
+          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
       };
     },
     {
@@ -370,7 +370,7 @@ describe("literal sentence parts", () => {
     const { result } = await check(claim, [{ kind: "fact", text: claim }], {
       [claim]: {
         quotes: [claim],
-        reply: "Verdict: supported\nEvidence: [1, 99]\nCalculation: none",
+        reply: "Verdict: supported\nAbsence: no\nEvidence: [1, 99]\nCalculation: none",
       },
     });
     expect(
@@ -466,7 +466,7 @@ describe("literal sentence parts", () => {
       const { result } = await check(claim, [{ kind: "fact", text: claim }], {
         [claim]: {
           quotes,
-          reply: `Verdict: supported\nTopic: found\nEvidence: [1, 2]\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
+          reply: `Verdict: supported\nAbsence: no\nTopic: found\nEvidence: [1, 2]\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
         },
       });
       expect(
@@ -516,7 +516,7 @@ describe("literal sentence parts", () => {
       const { result } = await check(claim, [{ kind: "fact", text: claim }], {
         [claim]: {
           quotes,
-          reply: `Verdict: supported\nTopic: found\nEvidence: [1,2,3,4]\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
+          reply: `Verdict: supported\nAbsence: no\nTopic: found\nEvidence: [1,2,3,4]\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
         },
       });
       expect(result.verdict).toBe(expected);
@@ -943,7 +943,10 @@ describe("structural part and declared-count readers", () => {
   test("a bare array is not a completed calculation", async () => {
     const claim = "The lease lasts 3 years.";
     const { result } = await check(claim, [{ kind: "fact", text: claim }], {
-      [claim]: { quotes: [claim], reply: "Verdict: supported\nEvidence: [1]\nCalculation: [1]" },
+      [claim]: {
+        quotes: [claim],
+        reply: "Verdict: supported\nAbsence: no\nEvidence: [1]\nCalculation: [1]",
+      },
     });
     expect(result.verdict).toBe("not-checked");
   });
@@ -1000,7 +1003,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
   const north = language === "en" ? "Rook operated the North branch." : "白鸦公司经营北区分店。";
   const south = language === "en" ? "Rook operated the South branch." : "白鸦公司经营南区分店。";
   const reply =
-    "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: [1, 2]\nCalculation: none";
+    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: [1, 2]\nCalculation: none";
 
   test("recovers every missing declared record in one request", async () => {
     const { result, recoveries } = await check(
@@ -1170,7 +1173,7 @@ describe.each(["en", "zh-CN"] as const)("%s declared evidence recovery", (langua
         [quantified]: {
           quotes: [],
           sourceQuotes: [north, south, domain],
-          reply: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: []\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
+          reply: `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same\nEvidence: []\nCoverage: ${JSON.stringify(coverage)}\nCalculation: none`,
           recovery: [
             { marker: 1, quote: north },
             { marker: 2, quote: south },

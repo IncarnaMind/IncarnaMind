@@ -58,6 +58,7 @@ import type {
   MarkedFigure,
 } from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
+import { declines } from "../lib/declines";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
 
@@ -96,6 +97,16 @@ export interface Expected {
   language?: "en" | "zh-CN";
   /** It asks for a figure the Documents' numbers give: a Calculated figure shows a result matching this, and the reply never says it couldn't calculate (#1444). */
   figure?: RegExp;
+  /** The reply states this figure or fact; used with a Citation requirement when the Documents state it directly. */
+  answerWith?: RegExp;
+  /** A Citation of the named Document whose exact quote supports the requested figure or fact. */
+  answerEvidence?: { document: RegExp; quote: RegExp };
+  /** It may report a search miss, never that the Document lacks the fact this expression names. */
+  noDocumentAbsence?: RegExp;
+  /** The requested metric's plain name, given to the absence judge with the request. */
+  documentAbsenceMetric?: string;
+  /** The information really is absent: the reply reports a search miss and invents nothing. */
+  searchMiss?: true;
   /**
    * The words what it writes into a Mind must use for a thing, and must not: a translation's own
    * term ("spring tides" is 大潮, never 春潮), which Kimi K2.6 lost with thinking off (#1635).
@@ -122,12 +133,14 @@ export interface RequestOutcome {
   expected: Expected;
   answer: Pick<ConversationAnswer, "text" | "toolCalls" | "steps"> & {
     citations: readonly (Pick<MarkedCitation, "documentId" | "marker"> &
-      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check">>)[];
+      Partial<Pick<MarkedCitation, "documentName" | "pageFrom" | "pageTo" | "check" | "quote">>)[];
     figures?: readonly Pick<MarkedFigure, "shown">[];
   };
   verdict: ClaimVerdict;
   /** The sentences a model judged to claim a calculation or search that didn't run; null: not judged. */
   toolVerdict?: ClaimVerdict | null;
+  /** The sentences a model judged to say the Documents lack the requested figure. */
+  absenceSentences?: readonly string[];
   /** The model is offered `calculate` (`ModelFacts.calculates`). */
   calculates?: boolean;
   /** The Mind it was asked from, by id; null or absent: none was in focus. */
@@ -184,6 +197,11 @@ export type RequestFailure =
   | { kind: "date-not-in-text"; dates: string[] }
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
   | { kind: "no-figure"; wanted: string; shown: string[] }
+  | { kind: "missing-answer-text"; wanted: string }
+  | { kind: "wrong-answer-citation" }
+  | { kind: "document-absence" }
+  | { kind: "no-search-miss" }
+  | { kind: "invented-answer" }
   | { kind: "gave-up"; said: string }
   | { kind: "term"; want: string; found: string[] }
   | { kind: "other-documents"; documents: string[] }
@@ -502,6 +520,14 @@ export function rewrittenLater(
   });
 }
 
+function clausesOf(text: string): string[] {
+  return text.split(/[\n。！？!?，；;]+|\.(?!\d)/);
+}
+
+const ASSERTED_ANSWER =
+  /(?:\b(?:was|were|is|are|equals?)\b[^.!?\n]{0,40}\d|[为是][^。！？!?\n]{0,20}\d|\b\d+(?:\.\d+)?\s*(?:days?|%|million|billion)\b|\d+(?:\.\d+)?\s*(?:元|亿元|天))/i;
+const ASSERTED_COPULA = /\b(?:was|were|is|are)\b|[为是]/i;
+
 /** The ways one request failed its guards; none when it passed. */
 export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const { expected, answer } = outcome;
@@ -607,6 +633,49 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       wanted: expected.language,
       share: chineseShare(answer.text),
     });
+  }
+  if (expected.answerWith && !expected.answerWith.test(answer.text)) {
+    failures.push({ kind: "missing-answer-text", wanted: expected.answerWith.source });
+  }
+  if (
+    expected.answerEvidence &&
+    !answer.citations.some(
+      (citation) =>
+        expected.answerEvidence?.document.test(citation.documentName ?? "") &&
+        expected.answerEvidence.quote.test(citation.quote ?? ""),
+    )
+  ) {
+    failures.push({ kind: "wrong-answer-citation" });
+  }
+  const absenceRead = outcome.answer.toolCalls.some(
+    (call) =>
+      call.tool === "read_document" && call.status === "done" && (call.resultCount ?? 0) > 0,
+  );
+  if (expected.searchMiss) {
+    if (!declines(answer.text) && !absenceRead) failures.push({ kind: "no-search-miss" });
+    const judgedAbsence = new Set(
+      (outcome.absenceSentences ?? []).flatMap((judged) =>
+        clausesOf(judged).map((clause) => clause.trim()),
+      ),
+    );
+    const invented = clausesOf(answer.text).some((sentence) => {
+      if (!sentence.trim() || declines(sentence) || /\[\^\d+\]/.test(sentence)) return false;
+      if (judgedAbsence.has(sentence.trim())) {
+        return false;
+      }
+      return (
+        ASSERTED_ANSWER.test(sentence) ||
+        ((expected.noDocumentAbsence?.test(sentence) ?? false) && ASSERTED_COPULA.test(sentence))
+      );
+    });
+    if (invented) failures.push({ kind: "invented-answer" });
+  }
+  if (
+    expected.noDocumentAbsence &&
+    (outcome.absenceSentences?.length ?? 0) > 0 &&
+    (!expected.searchMiss || !absenceRead)
+  ) {
+    failures.push({ kind: "document-absence" });
   }
   if (expected.figure) {
     const shown = (answer.figures ?? []).map((figure) => figure.shown);
@@ -738,6 +807,16 @@ export function failureLine(failure: RequestFailure): string {
       return `gives a date the Documents' text doesn't: ${failure.dates.join(", ")}`;
     case "no-figure":
       return `has no Calculated figure matching /${failure.wanted}/ (figures: ${failure.shown.length > 0 ? failure.shown.join(", ") : "none"})`;
+    case "missing-answer-text":
+      return `doesn't state the expected figure or fact /${failure.wanted}/`;
+    case "wrong-answer-citation":
+      return "doesn't cite the requested figure in its own Document";
+    case "document-absence":
+      return "states that the Document itself lacks the answer, rather than reporting only the search miss";
+    case "no-search-miss":
+      return "invents an answer instead of reporting that it wasn't found";
+    case "invented-answer":
+      return "adds an asserted answer after reporting the search miss";
     case "gave-up":
       return `says it couldn't calculate what its Citations give: “${failure.said}”`;
     case "term":
