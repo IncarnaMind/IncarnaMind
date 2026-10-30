@@ -3,17 +3,21 @@
  * two independent model judges say with one fixed prompt. Each judge's
  * verdicts go into a file of their own beside the run's, one line a Citation,
  * so judging resumes where it stopped and scoring reads them without asking
- * again. Where the judges disagree, a person settles it in `settled.json`.
- * A judge is anything that answers `judge`: a model through the app's own
- * provider code, or, to check the pipeline at no cost, a scripted stand-in.
+ * again. A verdict holds for the Citation it read, by the SHA-256 of what the
+ * judge was given, and for the prompt it was given: an Answer asked again, or
+ * a changed prompt, is judged again. Where the judges disagree, a person
+ * settles it in `settled.json`. A judge is anything that answers `judge`: a
+ * model through the app's own provider code, or, to check the pipeline at no
+ * cost, a scripted stand-in.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateText } from "ai";
 import { createAiSdkChatModel } from "../../src/core";
+import { inCurrency, promptTokensOf, reservationOf } from "../../src/core/cost/price";
 import { type ChatSettings, chatModelSpecOf } from "../lib/config";
 import { capProblem, labelOf, priceOf, usdOf } from "./cost";
-import { modelSlug, noTokens, type RunCitation, sha256, type Tokens } from "./runs";
+import { modelSlug, noTokens, type RunAnswer, type RunCitation, sha256, type Tokens } from "./runs";
 import type { FinalVerdict } from "./scorers";
 
 export type Verdict = "supported" | "not supported";
@@ -31,6 +35,9 @@ export interface Judgement {
   verdict: Verdict | "unread";
   reason: string;
   judge: string;
+  /** The SHA-256 of the `JudgeInput` it read. */
+  input: string;
+  /** The SHA-256 of the instructions it was given. */
   prompt: string;
   at: string;
   tokens: Tokens;
@@ -40,13 +47,40 @@ export interface Judgement {
 export interface Judge {
   /** "anthropic/claude-opus-5-5", or a scripted stand-in's name. */
   id: string;
-  /** The run models it may not judge: its own. */
   kind: string | null;
-  modelId: string | null;
+  /** Who made the model (`familyOf`): it may not judge that maker's models. Null for a scripted stand-in. */
+  family: string | null;
   judge(
     input: JudgeInput,
   ): Promise<{ verdict: Verdict | "unread"; reason: string; tokens: Tokens }>;
   price: ReturnType<typeof priceOf>;
+  /** The most one verdict may cost, in US dollars, every attempt at it included; 0 without a price. */
+  mostUsd(input: JudgeInput): number;
+}
+
+/** Model names by their makers; another model is its own family, by the letters its name starts with. */
+const MAKERS: readonly (readonly [RegExp, string])[] = [
+  [/^claude/, "Anthropic"],
+  [/^(?:gpt|chatgpt|codex|o\d)/, "OpenAI"],
+  [/^(?:gemini|gemma)/, "Google"],
+  [/^(?:kimi|moonshot)/, "Moonshot AI"],
+  [/^deepseek/, "DeepSeek"],
+  [/^(?:qwen|qwq)/, "Alibaba"],
+  [/^llama/, "Meta"],
+  [/^(?:mistral|mixtral|magistral|ministral|codestral|devstral)/, "Mistral AI"],
+  [/^grok/, "xAI"],
+  [/^glm/, "Zhipu AI"],
+  [/^minimax/, "MiniMax"],
+];
+
+/**
+ * Who made a model, from its id, whichever service serves it: "claude-opus-5-5"
+ * and "anthropic/claude-sonnet-5-5" are both Anthropic's. Two models of one
+ * maker are no independent judges of each other.
+ */
+export function familyOf(modelId: string): string {
+  const name = (modelId.toLowerCase().split("/").at(-1) ?? "").trim();
+  return MAKERS.find(([pattern]) => pattern.test(name))?.[1] ?? name.match(/^[a-z]+/)?.[0] ?? name;
 }
 
 /** The one prompt every model judge gets; its hash is kept with each verdict. */
@@ -94,21 +128,40 @@ export function readVerdict(text: string): { verdict: Verdict | "unread"; reason
   return { verdict: "unread", reason: text.slice(0, 200) };
 }
 
+/** A verdict is asked at most this many times when the provider fails, each a request that may bill. */
+const JUDGE_ATTEMPTS = 3;
+const JUDGE_OUTPUT_TOKENS = 400;
+
 /** A model judge, asked through the app's own provider code. Every call costs money. */
 export function modelJudge(settings: ChatSettings): Judge {
   const model = createAiSdkChatModel(chatModelSpecOf(settings));
+  const price = priceOf(settings);
   return {
     id: labelOf(settings),
     kind: settings.kind,
-    modelId: settings.modelId,
-    price: priceOf(settings),
+    family: familyOf(settings.modelId),
+    price,
+    mostUsd(input) {
+      if (!price) return 0;
+      const prompt = [{ content: JUDGE_INSTRUCTIONS }, { content: promptFor(input) }];
+      const most = reservationOf(
+        {
+          promptTokens: promptTokensOf(prompt),
+          outputTokens: JUDGE_OUTPUT_TOKENS,
+          cacheWrites: settings.kind === "anthropic",
+        },
+        price,
+        new Date(),
+      );
+      return JUDGE_ATTEMPTS * inCurrency(most, price.currency, "USD");
+    },
     async judge(input) {
       const result = await generateText({
         model,
         instructions: JUDGE_INSTRUCTIONS,
         prompt: promptFor(input),
-        maxOutputTokens: 400,
-        maxRetries: 2,
+        maxOutputTokens: JUDGE_OUTPUT_TOKENS,
+        maxRetries: JUDGE_ATTEMPTS - 1,
       });
       const usage = result.usage;
       return {
@@ -143,8 +196,9 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
   {
     id: "scripted-words",
     kind: null,
-    modelId: null,
+    family: null,
     price: null,
+    mostUsd: () => 0,
     async judge(input) {
       const wanted = terms(input.sentence);
       const passage = new Set(terms(input.passage));
@@ -160,8 +214,9 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
   {
     id: "scripted-numbers",
     kind: null,
-    modelId: null,
+    family: null,
     price: null,
+    mostUsd: () => 0,
     async judge(input) {
       const passage = input.passage.normalize("NFKC").replaceAll(",", "");
       const numbers =
@@ -187,6 +242,64 @@ export const SCRIPTED_JUDGES: readonly Judge[] = [
 export const judgementsFile = (runsDir: string, runFile: string, judge: string) =>
   join(runsDir, "judgements", `${runFile.replace(/\.json$/, "")}.${modelSlug(judge)}.jsonl`);
 
+/** The files of every judge's verdicts on a run, in the folder. */
+export function judgeFiles(runsDir: string, runFile: string): string[] {
+  const folder = join(runsDir, "judgements");
+  if (!existsSync(folder)) return [];
+  const base = runFile.replace(/\.json$/, "");
+  return readdirSync(folder)
+    .filter((name) => name.startsWith(`${base}.`) && name.endsWith(".jsonl"))
+    .sort()
+    .map((name) => join(folder, name));
+}
+
+/**
+ * Why a pair of judges leaves a run for another pair, or null when it judges
+ * it: one of them is the maker's of the run's model, or another judge has
+ * begun on the run, whose verdicts would make three.
+ */
+export function leftFor(
+  runsDir: string,
+  runFile: string,
+  modelId: string,
+  judges: readonly Judge[],
+): string | null {
+  const maker = familyOf(modelId);
+  const own = judges.find((judge) => judge.family === maker);
+  if (own) return `${own.id} is ${maker}'s, as the run's model is: judge it with another pair`;
+  const pair = new Set(judges.map((judge) => judgementsFile(runsDir, runFile, judge.id)));
+  const others = judgeFiles(runsDir, runFile).filter((path) => !pair.has(path));
+  if (others.length === 0) return null;
+  const by = others.map((path) => [...readJudgements(path).values()][0]?.judge ?? path);
+  return `${by.join(" and ")} began judging it: judge it with that pair`;
+}
+
+/** What a judge is given of a Citation of an Answer. */
+export const judgeInputOf = (
+  answer: Pick<RunAnswer, "question">,
+  citation: RunCitation,
+): JudgeInput => ({
+  question: answer.question,
+  sentence: citation.sentence,
+  quote: citation.quote,
+  documentName: citation.documentName,
+  passage: citation.passageText ?? "",
+});
+
+export const inputSha256 = (input: JudgeInput) => sha256(JSON.stringify(input));
+
+/** A verdict that holds for this input under today's prompt; undefined for none or a stale one. */
+export function currentVerdict(
+  judged: ReadonlyMap<string, Judgement>,
+  key: string,
+  input: JudgeInput,
+): Judgement | undefined {
+  const judgement = judged.get(key);
+  return judgement?.input === inputSha256(input) && judgement.prompt === PROMPT_SHA256
+    ? judgement
+    : undefined;
+}
+
 export function readJudgements(path: string): Map<string, Judgement> {
   const judged = new Map<string, Judgement>();
   if (!existsSync(path)) return judged;
@@ -207,8 +320,19 @@ export function judgementsUsd(path: string): number {
     .reduce((sum, line) => sum + ((JSON.parse(line) as Judgement).usd ?? 0), 0);
 }
 
+/** What all the judging in a runs folder has cost, every judge's and every run's, in US dollars. */
+export function judgingUsd(runsDir: string): number {
+  const folder = join(runsDir, "judgements");
+  if (!existsSync(folder)) return 0;
+  return readdirSync(folder)
+    .filter((name) => name.endsWith(".jsonl"))
+    .reduce((sum, name) => sum + judgementsUsd(join(folder, name)), 0);
+}
+
 export interface Settlement {
   verdict: Verdict;
+  /** The `input` of the Citation as `disagreements.json` lists it, so a settlement holds for that Citation only. */
+  input: string;
   /** Why, in a sentence: what the person read in the Passage. */
   why: string;
   date: string;
@@ -238,19 +362,19 @@ export function finalVerdict(
 
 export interface JudgeTask {
   key: string;
-  citation: RunCitation;
-  question: string;
+  input: JudgeInput;
 }
 
 /**
- * Has `judge` read every Citation it hasn't yet, appending each verdict as it
- * comes; stops before a call the cap couldn't cover. Gives what it spent.
+ * Has `judge` read every Citation it has no current verdict on, appending
+ * each verdict as it comes; stops before a verdict whose most the cap
+ * couldn't cover. Gives what it spent.
  */
 export async function judgeAll(
   judge: Judge,
   tasks: readonly JudgeTask[],
   path: string,
-  cap: { capUsd: number | null; spentUsd: number; perCallUsd: number },
+  cap: { capUsd: number | null; spentUsd: number },
   log: (line: string) => void,
 ): Promise<{ spentUsd: number; judged: number; stopped: string | null }> {
   const done = readJudgements(path);
@@ -258,20 +382,14 @@ export async function judgeAll(
   let judged = 0;
   for (const task of tasks) {
     // A reply that couldn't be read is asked again; the later line replaces it.
-    if (done.has(task.key) && done.get(task.key)?.verdict !== "unread") continue;
+    const current = currentVerdict(done, task.key, task.input);
+    if (current && current.verdict !== "unread") continue;
     const refused = capProblem(cap.capUsd, judge.price, spent, {
-      usd: cap.perCallUsd,
+      usd: judge.mostUsd(task.input),
       what: "the next verdict may cost up to",
     });
     if (refused) return { spentUsd: spent, judged, stopped: refused };
-    const { citation } = task;
-    const reply = await judge.judge({
-      question: task.question,
-      sentence: citation.sentence,
-      quote: citation.quote,
-      documentName: citation.documentName,
-      passage: citation.passageText ?? "",
-    });
+    const reply = await judge.judge(task.input);
     const usd = usdOf(reply.tokens, judge.price, judge.kind ?? "");
     spent += usd ?? 0;
     const line: Judgement = {
@@ -279,6 +397,7 @@ export async function judgeAll(
       verdict: reply.verdict,
       reason: reply.reason,
       judge: judge.id,
+      input: inputSha256(task.input),
       prompt: PROMPT_SHA256,
       at: new Date().toISOString(),
       tokens: reply.tokens,

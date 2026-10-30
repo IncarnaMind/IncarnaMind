@@ -2,8 +2,10 @@
  * A run of the citation benchmark: one model's Answers to the Questions asked
  * in one language, as JSON, with every Citation, its Location and the app's
  * check of it, the check of each sentence, the model and its settings, and the
- * tokens, cost and time of each Answer. The file is written again after every
- * Answer, so a run that stops is resumed from it without asking again.
+ * tokens, cost and time of each Answer. The file is written again once an
+ * Answer ends, once its Note is checked, and, for a model with a price, after
+ * every request, so a run that stops is resumed from it without asking again
+ * or losing what it spent.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -108,8 +110,13 @@ export interface CitationsRun {
   /** The Documents as this run's library read them; `pagesSha256` hashes their stored text. */
   documents: { key: string; name: string; status: string; pages: number; pagesSha256: string }[];
   answers: RunAnswer[];
-  /** What the Answers that failed and were asked again had cost, in US dollars. */
+  /**
+   * What the Answers that failed and were asked again had cost, and the work
+   * a stopped run left unfinished, in US dollars.
+   */
   retriedUsd: number;
+  /** The Question being answered or checked when the file was written, and what its requests had cost so far. */
+  inProgress?: { questionId: string; usd: number } | null;
   /** Why the run stopped before its last Question; null when it didn't. */
   stopped: { reason: string; at: string } | null;
 }
@@ -184,6 +191,11 @@ export const keptAnswers = (run: CitationsRun): RunAnswer[] =>
 export const answerUsd = (answer: Pick<RunAnswer, "usd">): number =>
   (answer.usd.answer ?? 0) + (answer.usd.check ?? 0);
 
-/** What a run has cost so far, in US dollars, the attempts asked again included. */
-export const spentUsd = (run: Pick<CitationsRun, "answers" | "retriedUsd">): number =>
-  run.answers.reduce((sum, answer) => sum + answerUsd(answer), run.retriedUsd);
+/** What a run has cost so far, in US dollars, the attempts asked again and the unfinished work included. */
+export const spentUsd = (
+  run: Pick<CitationsRun, "answers" | "retriedUsd" | "inProgress">,
+): number =>
+  run.answers.reduce(
+    (sum, answer) => sum + answerUsd(answer),
+    run.retriedUsd + (run.inProgress?.usd ?? 0),
+  );

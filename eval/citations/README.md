@@ -11,8 +11,10 @@ every Answer is scored four ways, per model and language:
   judges say with one fixed prompt; where they disagree, a person settles it, and the disagreements
   are listed.
 - **Figure right**: every figure the reference answer gives is written in the Answer, at its unit's
-  scale ("$1.88 trillion" gives 1,875.6 billion; "129.4万亿元" gives 1,294,272亿元). An Answer that
-  gives a superseded figure in place of the current one is counted apart. Deterministic.
+  scale ("$1.88 trillion" gives 1,875.6 billion; "129.4万亿元" gives 1,294,272亿元). A direction may
+  be in words ("fell 2.3%"), but a number written with a minus sign gives only a figure below zero.
+  An Answer that gives a superseded figure in place of the current one is counted apart.
+  Deterministic.
 - **With the check**: of each miss above, whether the app's check flagged it (a Citation's "Quote
   not found", or a sentence that Check this Note found unsupported or contradicted), what it let
   through, and what it got wrong itself: "Quote not found" on a quote that is there, and cited
@@ -52,26 +54,38 @@ npm run eval:citations:scan       # no key, personal data or unlisted Document i
    Each Question is asked once, in a Note of its own, on a library of the twelve Documents added as
    the app adds them (embeddings off, keyword search reranked by the built-in model, as by default).
    Then the Answer's Note is checked as Check this Note checks it, on the same model. The run file
-   is written after every Answer.
+   is written once the Answer ends, again once its Note is checked, and after every request to a
+   model with a price, so what was spent is never lost.
 3. **Judge.** Name the two judges as the chat model is named, with `INCARNAMIND_EVAL_JUDGE_*` and
-   `INCARNAMIND_EVAL_SECOND_JUDGE_*`: two models of other families than the run's. Neither may judge
-   its own model's runs, and the cap holds for them too. Their verdicts go into `judgements/`, one
-   file per run and judge, a line a Citation.
+   `INCARNAMIND_EVAL_SECOND_JUDGE_*`: models of two makers, neither the maker of the run's model
+   (Claude models don't judge a Claude run, whichever service serves them). A run is judged by one
+   pair: the command leaves a run of one of its judges' makers, or one another pair has begun, for
+   that run's own pair, and says so. Their verdicts go into `judgements/`, one file per run and
+   judge, a line a Citation, each with the SHA-256 of what the judge read and of the prompt, so an
+   Answer asked again, or a changed prompt, is judged again. The cap holds for them too: it counts
+   every verdict in `judgements/`, and each verdict is reserved at its most (its prompt, its output
+   limit, and each attempt the provider may fail) before it is asked.
 4. **Settle.** `npm run eval:citations:score` lists the Citations the judges disagree on in
-   `disagreements.json`. A person reads each Passage and writes the verdict into `settled.json`:
-   `{"<run file>": {"en-014#1": {"verdict": "supported", "why": "…", "date": "2027-01-20"}}}`.
+   `disagreements.json`. A person reads each Passage and writes the verdict into `settled.json`,
+   with the Citation's `input` as `disagreements.json` gives it, so the settlement holds for that
+   Citation only:
+   `{"<run file>": {"en-014#1": {"verdict": "supported", "input": "…", "why": "…", "date": "2027-01-20"}}}`.
 5. **Score.** `npm run eval:citations:score` writes `scores.json` and `RESULTS.md` beside the runs.
    It calls no model, so it gives the same numbers every time from the same files.
 6. **Scan.** `npm run eval:citations:scan` fails on any key (by the shapes services give them, and
    any value the shell holds under a key's name), e-mail address, phone number, home folder path or
-   Document the set doesn't list, in the set, the runs, the judgements and the results. An address
-   a Document's publisher printed in it (an author's, a court's press office) passes only by its
-   entry in `scan-allowed.json`, which names it by its SHA-256 and says why. `npm test` runs the
-   scan over `eval/citations/`.
+   Document the set doesn't list, in the set, the runs, the judgements and the results. It reads
+   each Document's text as the app does, and fails on a page with no text to read until its image
+   has been read and the reading recorded. `scan-allowed.json` holds the only exceptions, each
+   with why: an address a Document's publisher printed in it (an author's, a court's press office),
+   named by its SHA-256, which passes in that Document and in the files that quote it; and a page
+   read from its image, bound to the Document's SHA-256, so a changed file is read again. An entry
+   that matches nothing fails, and the file itself is scanned with no exceptions. `npm test` runs
+   the scan over `eval/citations/`.
 
 | Variable | Default | |
 |---|---|---|
-| `INCARNAMIND_EVAL_CITATIONS_CAP_USD` | none | The most a run, or the judging, may spend, in US dollars, its earlier spending included. Required for a model with a price. Before each Question the run reserves the most it may cost, and stops rather than pass the cap. |
+| `INCARNAMIND_EVAL_CITATIONS_CAP_USD` | none | The most a run, or the judging, may spend, in US dollars, its earlier spending included. Required for a model with a price. The run sets the app's own monthly cap to what is left of it, so each request is reserved at its most (its prompt and its output limit) and refused, unsent, when it would pass the cap; the run also stops before a Question it expects would. |
 | `INCARNAMIND_EVAL_CITATIONS_LANGUAGES` | `en,zh` | The languages to run, a run file each. |
 | `INCARNAMIND_EVAL_CITATIONS_CHECK` | `on` | `off` leaves each Answer's Note unchecked, so "with the check" reads only the Citations' own check. |
 | `INCARNAMIND_EVAL_CITATIONS_RUNS` | `eval/citations/runs` | The folder of the run files, the judgements, the settlements, the scores and the results page. |
@@ -84,12 +98,15 @@ records them.
 
 ### A run that stops
 
-A run stops before a Question the cap couldn't cover, and at a provider's answer no later Question
-gets past (a refused key, no credit, an unknown model), saying why in its file. Run the same command
-again: it keeps every Answer that finished, stopped or ran out of time, since those were paid for,
-asks again only those that failed, and counts what the failed ones cost against the cap. A run file
-made with another model, set, settings or commit isn't resumed; the command says so and asks for
-another folder.
+A run stops before a Question the cap couldn't cover, at a request the cap refused, and at a
+provider's answer no later Question gets past (a refused key, no credit, an unknown model), saying
+why in its file. The app counts its cap by the calendar month, so a run also stops before a
+Question that could run into the next month. Run the same command again: it keeps every Answer that
+finished, stopped or ran out of time, since those were paid for, asks again only those that failed,
+and counts what the failed ones, and the work under way when it stopped, cost against the cap. An
+Answer whose Note was being checked when the run stopped is kept, with its check marked unfinished.
+A run file made with another model, set, settings or commit isn't resumed; the command says so and
+asks for another folder.
 
 ### The run files
 
@@ -99,7 +116,9 @@ commit, the settings (the catalog price the cost was worked out at among them), 
 each Document's stored text hashed. For each Answer: its text, sentences, Citations (quote,
 Document, Location, the app's check of it, the Passage it names), Calculated figures, searches,
 the check of its Note sentence by sentence, the tokens of the Answer and of the check, their cost
-and their time. A provider's error is kept with any key it quotes taken out.
+and their time. `retriedUsd` is what the Answers asked again, and work a stopped run left
+unfinished, cost; `inProgress` is the Question under way when the file was written and what it had
+cost so far. A provider's error is kept with any key it quotes taken out.
 
 ## The cost
 
@@ -177,7 +196,8 @@ is fixed and a run says which version it answered.
 Twelve Documents in English and Chinese, 435 pages. Six are the real Documents #2019 added to
 `data/real`, referenced from there and not copied; six are added for this set in `documents/`. Each
 is a text PDF that the app reads; the one page without a text layer, a CIA Reading Room scan, is part
-of the library and no gold quote cites it.
+of the library and no gold quote cites it. That page, and the blank last page of the 2023 NBS
+communiqué, were read from their images for the scan (`scan-allowed.json`).
 
 | Key | File | Pages | Language | Source | Licence (read) | SHA-256 |
 |---|---|---|---|---|---|---|

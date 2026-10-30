@@ -5,34 +5,33 @@
  * It reads only the run files, the judgements, the settlements and the
  * Documents, and calls no model, so it gives the same numbers every time.
  */
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadCitationSet, readDocuments } from "./checkSet";
-import { finalVerdict, readJudgements, readSettled } from "./judges";
+import {
+  currentVerdict,
+  finalVerdict,
+  inputSha256,
+  judgeFiles,
+  judgeInputOf,
+  readJudgements,
+  readSettled,
+} from "./judges";
 import { resultsPage } from "./results";
 import { type CitationsRun, type Language, readRun, runFiles, setIdentity, sha256 } from "./runs";
-import { citationKey, type PageText, type RunScore, scoreRun } from "./scorers";
+import { citationKey, type FinalVerdict, type PageText, type RunScore, scoreRun } from "./scorers";
 
 export interface Disagreement {
   file: string;
   key: string;
+  /** What the judges read, by its SHA-256: a settlement names it. */
+  input: string;
   question: string;
   sentence: string;
   quote: string;
   document: string;
   passage: string;
   verdicts: { judge: string; verdict: string; reason: string }[];
-}
-
-/** The judges whose verdicts on a run are in the folder, by the file they are in. */
-function judgeFiles(runsDir: string, runFile: string): string[] {
-  const folder = join(runsDir, "judgements");
-  if (!existsSync(folder)) return [];
-  const base = runFile.replace(/\.json$/, "");
-  return readdirSync(folder)
-    .filter((name) => name.startsWith(`${base}.`) && name.endsWith(".jsonl"))
-    .sort()
-    .map((name) => join(folder, name));
 }
 
 const settingsLine = (run: CitationsRun) =>
@@ -98,7 +97,25 @@ export async function scoreFolder(
     judgesByRun[file] = judges;
     const [first, second] = judged;
     const own = settled[file] ?? {};
-    const verdict = (key: string) => finalVerdict(first?.get(key), second?.get(key), own[key]);
+    const inputs = new Map(
+      run.answers.flatMap((answer) =>
+        answer.citations.map((citation, index) => [
+          citationKey(answer.questionId, index),
+          judgeInputOf(answer, citation),
+        ]),
+      ),
+    );
+    // A verdict, or a person's settlement, made on another Citation under this key doesn't count.
+    const verdict = (key: string): FinalVerdict => {
+      const input = inputs.get(key);
+      if (!input) return "unjudged";
+      const settlement = own[key]?.input === inputSha256(input) ? own[key] : undefined;
+      return finalVerdict(
+        first && currentVerdict(first, key, input),
+        second && currentVerdict(second, key, input),
+        settlement,
+      );
+    };
     const score = scoreRun(
       file,
       run,
@@ -118,6 +135,7 @@ export async function scoreFolder(
         disagreements.push({
           file,
           key,
+          input: inputSha256(judgeInputOf(answer, citation)),
           question: answer.question,
           sentence: citation.sentence,
           quote: citation.quote,

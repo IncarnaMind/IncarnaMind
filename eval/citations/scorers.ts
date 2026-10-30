@@ -51,8 +51,10 @@ export function scaleOf(unit: string): number {
 }
 
 export interface WrittenNumber {
-  /** As written, without its scale word. */
+  /** As written, without its sign or its scale word. */
   value: number;
+  /** Written with a minus sign. */
+  negative: boolean;
   /** The scale word after it, or 1. */
   scale: number;
   /** Half a unit of its last written digit, at its scale: how far a correct rounding may be off. */
@@ -84,6 +86,7 @@ export function numbersIn(text: string): WrittenNumber[] {
     const decimals = digits.includes(".") ? (digits.split(".")[1]?.length ?? 0) : 0;
     found.push({
       value,
+      negative: written.startsWith("-"),
       scale,
       halfStep: (10 ** -decimals * scale) / 2,
       significant: significantDigits(digits),
@@ -101,25 +104,27 @@ const referenceDigits = (figure: Pick<GoldFigure, "value">) =>
  * the source's rounding or the number's own, with at least two significant
  * digits (or as many as the figure has). A number with no scale word may also
  * give the figure in the unit the source writes it in ("1,714.1", in
- * billions). Directions are in words ("fell", "下降"), so magnitudes are compared.
+ * billions). A direction may be in words ("fell", "下降"), so magnitudes are
+ * compared, but a minus sign written gives only a figure below zero.
  */
 export function gives(
   written: WrittenNumber,
   figure: Pick<GoldFigure, "value" | "unit" | "tolerance">,
 ): boolean {
   if (written.significant < Math.min(2, referenceDigits(figure))) return false;
+  if (written.negative && figure.value >= 0) return false;
   const scale = scaleOf(figure.unit);
   const wanted = Math.abs(figure.value) * scale;
   const near = (got: number, slack: number) =>
     Math.abs(got - wanted) <= Math.max(figure.tolerance * scale, slack) + wanted * 1e-9;
-  if (near(Math.abs(written.value) * written.scale, written.halfStep)) return true;
-  return written.scale === 1 && near(Math.abs(written.value) * scale, written.halfStep * scale);
+  if (near(written.value * written.scale, written.halfStep)) return true;
+  return written.scale === 1 && near(written.value * scale, written.halfStep * scale);
 }
 
 /** A number near enough a reference figure to be an attempt at it: at its scale, within half of it either way. */
 const attempts = (written: WrittenNumber, figure: Pick<GoldFigure, "value" | "unit">) => {
   const wanted = Math.abs(figure.value) * scaleOf(figure.unit);
-  const got = Math.abs(written.value) * written.scale;
+  const got = written.value * written.scale;
   return wanted > 0 && got >= wanted / 2 && got <= wanted * 1.5;
 };
 

@@ -3,10 +3,12 @@
  * key this shell holds, no e-mail address, phone number or home folder path,
  * in the set, the runs, the judgements and the results, and no Document but
  * those `documents.json` lists, each with its SHA-256. A Document's own text
- * is read as the app reads it; an address its publisher printed there (an
- * author's, a court's press office) is allowed only by its entry in
- * `scan-allowed.json`, which names it by its SHA-256, says why, and doesn't
- * repeat it.
+ * is read as the app reads it, and a page with no text to read fails until
+ * its image has been read and the reading recorded. `scan-allowed.json`
+ * records the exceptions: an address a Document's publisher printed there (an
+ * author's, a court's press office), named by its SHA-256 and never repeated,
+ * and each page read from its image, bound to the Document's SHA-256. Every
+ * entry must still match, and the file itself is scanned with no exceptions.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -20,7 +22,9 @@ export type FindingKind =
   | "phone"
   | "home-path"
   | "unlisted-file"
-  | "changed-document";
+  | "changed-document"
+  | "unread-page"
+  | "unused-allowance";
 
 export interface Finding {
   file: string;
@@ -31,13 +35,25 @@ export interface Finding {
   shown: string;
 }
 
-export interface Allowed {
-  /** The SHA-256 of the value as found. */
-  sha256: string;
-  kind: "email" | "phone";
-  document: string;
-  why: string;
-}
+export type Allowed =
+  | {
+      kind: "email" | "phone";
+      /** The SHA-256 of the value as found in the Document. */
+      sha256: string;
+      document: string;
+      why: string;
+    }
+  | {
+      /** A page the scan has no text for, whose image was read instead. */
+      kind: "page-read";
+      /** The Document's SHA-256 when it was read, so a changed file is read again. */
+      sha256: string;
+      document: string;
+      page: number;
+      why: string;
+    };
+
+type AllowedValue = (kind: "email" | "phone", sha256: string) => boolean;
 
 export const ALLOWED_FILE = "eval/citations/scan-allowed.json";
 
@@ -92,21 +108,21 @@ export function heldSecrets(
     .map(([, value]) => value as string);
 }
 
-/** What one text holds that may not be published; `allowed` lets through values by their SHA-256. */
+/** What one text holds that may not be published; `allowed` lets an address or a number through by its SHA-256. */
 export function scanText(
   text: string,
   file: string,
   options: {
-    allowed?: ReadonlySet<string>;
+    allowed?: AllowedValue;
     secrets?: readonly string[];
     lineOf?: (index: number) => number;
   } = {},
 ): Finding[] {
-  const allowed = options.allowed ?? new Set<string>();
+  const allowed: AllowedValue = options.allowed ?? (() => false);
   const lineOf = options.lineOf ?? ((index: number) => text.slice(0, index).split("\n").length);
   const findings: Finding[] = [];
   const add = (kind: FindingKind, value: string, index: number) => {
-    if ((kind === "email" || kind === "phone") && allowed.has(sha256(value))) return;
+    if ((kind === "email" || kind === "phone") && allowed(kind, sha256(value))) return;
     findings.push({ file, line: lineOf(index), kind, shown: hidden(value) });
   };
   for (const pattern of KEY_PATTERNS) {
@@ -188,6 +204,20 @@ export function readAllowed(root: string): Allowed[] {
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Allowed[]) : [];
 }
 
+/** A file's findings: a JSON file read with its escapes decoded, as its reader gets it. */
+function scanFile(
+  path: string,
+  file: string,
+  options: { allowed?: AllowedValue; secrets: readonly string[] },
+): Finding[] {
+  const text = readFileSync(path, "utf8");
+  if (!JSON_FILE.test(path)) return scanText(text, file, options);
+  const decoded = decodeJsonEscapes(text);
+  const lineOf = (index: number) =>
+    text.slice(0, decoded.at[index] ?? text.length).split("\n").length;
+  return scanText(decoded.text, file, { ...options, lineOf });
+}
+
 /**
  * Scans the set and every run folder: the text files as they are, each listed
  * Document through the app's processing, and every file that isn't text or a
@@ -200,7 +230,9 @@ export async function scanBenchmark(
 ): Promise<Finding[]> {
   const set = await loadCitationSet(root);
   const allowed = readAllowed(root);
-  const allowedHashes = new Set(allowed.map((entry) => entry.sha256));
+  const used = new Set<Allowed>();
+  /** The addresses and numbers a Document really prints and an entry lets through, by kind and SHA-256. */
+  const printed = new Set<string>();
   const listed = new Map(set.documents.map((document) => [join(root, document.path), document]));
   const findings: Finding[] = [];
   const shown = (path: string) => relative(root, path);
@@ -213,14 +245,38 @@ export async function scanBenchmark(
   }
   const stored = await readDocuments(root, set.documents);
   for (const document of set.documents) {
-    const units = stored.get(document.key)?.units ?? [];
-    const ownAllowed = new Set(
-      allowed.filter((entry) => entry.document === document.key).map((entry) => entry.sha256),
+    const { outcome, units } = stored.get(document.key) ?? { outcome: "missing", units: [] };
+    const own = allowed.filter((entry) => entry.document === document.key);
+    const withText = new Set(
+      units.filter((unit) => unit.text.trim() !== "").map((unit) => unit.page),
     );
+    for (let page = 1; page <= document.pages; page++) {
+      if (withText.has(page)) continue;
+      const read = own.find(
+        (entry) =>
+          entry.kind === "page-read" && entry.page === page && entry.sha256 === document.sha256,
+      );
+      if (read) used.add(read);
+      else {
+        findings.push({
+          file: document.path,
+          line: page,
+          kind: "unread-page",
+          shown: outcome === "ready" ? "no text on the page" : `processing gives ${outcome}`,
+        });
+      }
+    }
+    const printedHere: AllowedValue = (kind, hash) => {
+      const entry = own.find((each) => each.kind === kind && each.sha256 === hash);
+      if (!entry) return false;
+      used.add(entry);
+      printed.add(`${kind} ${hash}`);
+      return true;
+    };
     for (const unit of units) {
       findings.push(
         ...scanText(unit.text, document.path, {
-          allowed: ownAllowed,
+          allowed: printedHere,
           secrets,
           lineOf: () => unit.page ?? 0,
         }),
@@ -228,10 +284,22 @@ export async function scanBenchmark(
     }
   }
 
+  const allowedFile = join(root, ALLOWED_FILE);
+  if (existsSync(allowedFile)) findings.push(...scanFile(allowedFile, ALLOWED_FILE, { secrets }));
+  allowed.forEach((entry, index) => {
+    if (used.has(entry)) return;
+    findings.push({
+      file: ALLOWED_FILE,
+      line: 0,
+      kind: "unused-allowance",
+      shown: `entry ${index + 1} (${entry.kind}, ${entry.document}) matches nothing in its Document`,
+    });
+  });
+
+  const asPrinted: AllowedValue = (kind, hash) => printed.has(`${kind} ${hash}`);
   for (const folder of folders) {
     for (const path of filesUnder(folder)) {
-      if (path.endsWith(ALLOWED_FILE)) continue;
-      if (listed.has(path)) continue;
+      if (path === allowedFile || listed.has(path)) continue;
       if (!TEXT_FILE.test(path)) {
         findings.push({
           file: shown(path),
@@ -241,17 +309,7 @@ export async function scanBenchmark(
         });
         continue;
       }
-      const text = readFileSync(path, "utf8");
-      if (!JSON_FILE.test(path)) {
-        findings.push(...scanText(text, shown(path), { allowed: allowedHashes, secrets }));
-        continue;
-      }
-      const decoded = decodeJsonEscapes(text);
-      const lineOf = (index: number) =>
-        text.slice(0, decoded.at[index] ?? text.length).split("\n").length;
-      findings.push(
-        ...scanText(decoded.text, shown(path), { allowed: allowedHashes, secrets, lineOf }),
-      );
+      findings.push(...scanFile(path, shown(path), { allowed: asPrinted, secrets }));
     }
   }
   return findings;

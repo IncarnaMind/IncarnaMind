@@ -3,24 +3,41 @@
  * (#1999), each with a known hit and a known miss. No model, no network.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { type CitationQuestion, loadCitationSet } from "../../eval/citations/checkSet";
 import { capProblem, estimate, priceOf } from "../../eval/citations/cost";
 import {
+  familyOf,
   finalVerdict,
+  inputSha256,
+  type Judge,
   type Judgement,
+  judgeAll,
+  judgeInputOf,
+  judgementsFile,
   judgementsUsd,
+  judgingUsd,
+  leftFor,
+  modelJudge,
+  PROMPT_SHA256,
   readJudgements,
   readVerdict,
 } from "../../eval/citations/judges";
 import { resultsPage } from "../../eval/citations/results";
 import type { CitationsRun, RunAnswer, RunCitation } from "../../eval/citations/runs";
 import { keptAnswers, noTokens, resumeProblem, spentUsd } from "../../eval/citations/runs";
-import { decodeJsonEscapes, heldSecrets, scanText } from "../../eval/citations/scan";
+import {
+  ALLOWED_FILE,
+  type Allowed,
+  decodeJsonEscapes,
+  heldSecrets,
+  scanBenchmark,
+  scanText,
+} from "../../eval/citations/scan";
 import {
   type FinalVerdict,
   figureRight,
@@ -143,6 +160,7 @@ const judged = (verdict: Judgement["verdict"]): Judgement => ({
   verdict,
   reason: "",
   judge: "j",
+  input: "i",
   prompt: "p",
   at: "2026-10-29T00:00:00.000Z",
   tokens: noTokens(),
@@ -189,6 +207,15 @@ describe("The citation benchmark (#1999)", () => {
     });
   });
 
+  test("figure right: a minus sign written gives only a figure below zero; a direction in words gives either", () => {
+    expect(figureRight(QUESTION, answerOf("A gross cost of −1,875.6 billion."))?.right).toBe(false);
+    expect(figureRight(QUESTION, answerOf("A gross cost of -1,875.6 billion."))?.right).toBe(false);
+    const fell = { ...QUESTION, figures: [{ value: -2.3, unit: "%", tolerance: 0.05 }] };
+    expect(figureRight(fell, answerOf("Net cost fell 2.3%."))?.right).toBe(true);
+    expect(figureRight(fell, answerOf("Net cost changed by -2.3%."))?.right).toBe(true);
+    expect(figureRight(fell, answerOf("Net cost changed by -3.2%."))?.right).toBe(false);
+  });
+
   test("figure right holds for every reference answer in the set", async () => {
     const set = await loadCitationSet(ROOT);
     const wrong = set.questions
@@ -202,7 +229,12 @@ describe("The citation benchmark (#1999)", () => {
   });
 
   test("supported: agreement stands, a disagreement waits for a person, who settles it", () => {
-    const settled = { verdict: "not supported" as const, why: "w", date: "2026-10-29" };
+    const settled = {
+      verdict: "not supported" as const,
+      input: "i",
+      why: "w",
+      date: "2026-10-29",
+    };
     expect(finalVerdict(judged("supported"), judged("supported"), undefined)).toBe("supported");
     expect(finalVerdict(judged("not supported"), judged("not supported"), undefined)).toBe(
       "not supported",
@@ -305,6 +337,8 @@ describe("The citation benchmark (#1999)", () => {
     };
     expect(keptAnswers(run).map((answer) => answer.questionId)).toEqual(["en-014"]);
     expect(spentUsd(run)).toBeCloseTo(0.56);
+    // A run stopped during a Question still counts what that Question's requests cost.
+    expect(spentUsd({ ...run, inProgress: { questionId: "en-016", usd: 0.04 } })).toBeCloseTo(0.6);
     expect(resumeProblem(run, run)).toBeNull();
     const other = { ...run.model, label: "anthropic/claude-haiku-5-5" };
     expect(resumeProblem(run, { ...run, model: other })).toMatch(/it is .*'s/);
@@ -352,7 +386,8 @@ describe("The citation benchmark (#1999)", () => {
       ["phone", 3],
       ["home-path", 4],
     ]);
-    const allowed = new Set([createHash("sha256").update("someone@example.org").digest("hex")]);
+    const hash = createHash("sha256").update("someone@example.org").digest("hex");
+    const allowed = (kind: string, sha256: string) => kind === "email" && sha256 === hash;
     expect(scanText("write to someone@example.org", "file", { allowed })).toEqual([]);
     expect(heldSecrets({ SOME_API_KEY: held, PATH: "/bin:/usr/bin:/usr/local/bin" })).toEqual([
       held,
@@ -375,6 +410,147 @@ describe("The citation benchmark (#1999)", () => {
       ["api-key", 3],
       ["email", 3],
     ]);
+  });
+
+  test("a verdict holds for the Citation it read under today's prompt; a verdict is reserved at its most", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "judgements-"));
+    let calls = 0;
+    const judge: Judge = {
+      id: "test/judge",
+      kind: "anthropic",
+      family: "Test",
+      price: null,
+      mostUsd: () => 0,
+      async judge() {
+        calls++;
+        return { verdict: "supported", reason: "", tokens: noTokens() };
+      },
+    };
+    const log = () => {};
+    const free = { capUsd: null, spentUsd: 0 };
+    const path = join(folder, "run.judge.jsonl");
+    const input = judgeInputOf(answerOf("x"), citation());
+    await judgeAll(judge, [{ key: "en-014#1", input }], path, free, log);
+    await judgeAll(judge, [{ key: "en-014#1", input }], path, free, log);
+    expect(calls).toBe(1);
+    // An Answer asked again on resume puts another Citation under the same key.
+    const replaced = { ...input, sentence: "HHS reports a net cost of $1,714.4 billion." };
+    await judgeAll(judge, [{ key: "en-014#1", input: replaced }], path, free, log);
+    expect(calls).toBe(2);
+    expect(readJudgements(path).get("en-014#1")?.input).toBe(inputSha256(replaced));
+    const older = { ...judged("supported"), key: "en-014#2", input: inputSha256(input) };
+    appendFileSync(path, `${JSON.stringify({ ...older, prompt: "an older prompt" })}\n`);
+    await judgeAll(judge, [{ key: "en-014#2", input }], path, free, log);
+    expect(calls).toBe(3);
+    expect(readJudgements(path).get("en-014#2")?.prompt).toBe(PROMPT_SHA256);
+
+    const haiku = modelJudge({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "test",
+      baseUrl: null,
+      endpoint: null,
+      numCtx: null,
+      citing: null,
+    });
+    const long = { ...input, passage: input.passage.repeat(300) };
+    expect(haiku.mostUsd(long)).toBeGreaterThan(haiku.mostUsd(input) * 3);
+    const priced: Judge = { ...judge, price: haiku.price, mostUsd: haiku.mostUsd };
+    const cap = { capUsd: haiku.mostUsd(input) * 2, spentUsd: 0 };
+    const stopped = await judgeAll(priced, [{ key: "en-015#1", input: long }], path, cap, log);
+    expect(stopped.stopped).toMatch(/the next verdict may cost up to/);
+    expect(calls).toBe(3);
+  });
+
+  test("judges come from two makers, neither the run's; a run keeps the pair that began on it; the cap counts all the judging", () => {
+    expect(familyOf("claude-opus-5-5")).toBe(familyOf("anthropic/claude-sonnet-5-5"));
+    expect(familyOf("gpt-6-luna")).toBe(familyOf("o4-mini"));
+    expect(familyOf("qwen3.5:4b")).not.toBe(familyOf("deepseek-v4-pro"));
+    const judgeOf = (id: string): Judge => ({
+      id,
+      kind: "openrouter",
+      family: familyOf(id),
+      price: null,
+      mostUsd: () => 0,
+      judge: async () => ({ verdict: "supported", reason: "", tokens: noTokens() }),
+    });
+    const runs = mkdtempSync(join(tmpdir(), "runs-"));
+    const file = "anthropic-claude-haiku-5-5.en.json";
+    const claudeAndGemini = [
+      judgeOf("anthropic/claude-opus-5-5"),
+      judgeOf("google/gemini-3.1-pro-preview"),
+    ];
+    expect(leftFor(runs, file, "claude-haiku-5-5", claudeAndGemini)).toMatch(/Anthropic's/);
+    const pair = [judgeOf("openai/gpt-6.1-sol"), judgeOf("google/gemini-3.1-pro-preview")];
+    expect(leftFor(runs, file, "claude-haiku-5-5", pair)).toBeNull();
+
+    mkdirSync(join(runs, "judgements"));
+    const line = (judge: string, usd: number) =>
+      `${JSON.stringify({ ...judged("supported"), judge, usd })}\n`;
+    writeFileSync(judgementsFile(runs, file, "kimi/kimi-k2.6"), line("kimi/kimi-k2.6", 0.25));
+    expect(leftFor(runs, file, "claude-haiku-5-5", pair)).toMatch(/kimi\/kimi-k2.6 began/);
+    writeFileSync(judgementsFile(runs, "other.zh.json", "openai/gpt-6.1-sol"), line("o", 0.5));
+    expect(judgingUsd(runs)).toBeCloseTo(0.75);
+  });
+
+  test("the scan reads its allowlist with no exceptions, lets an address through only where its Document prints it, and fails a page it can't read", async () => {
+    const set = await loadCitationSet(ROOT);
+    const listed = set.documents.filter((document) =>
+      ["cia-reading-room-scan", "nbs-gdp-revision"].includes(document.key),
+    );
+    const [scanned, revision] = listed;
+    if (!scanned || !revision) throw new Error("The set has lost a Document this test reads.");
+    const root = mkdtempSync(join(tmpdir(), "scan-"));
+    for (const document of listed) {
+      mkdirSync(dirname(join(root, document.path)), { recursive: true });
+      copyFileSync(join(ROOT, document.path), join(root, document.path));
+    }
+    mkdirSync(join(root, "eval/citations/runs"), { recursive: true });
+    writeFileSync(
+      join(root, "eval/citations/documents.json"),
+      JSON.stringify({ documents: listed }),
+    );
+    writeFileSync(join(root, "eval/citations/questions.jsonl"), "");
+    const address = "someone@example.org";
+    writeFileSync(join(root, "eval/citations/runs/run.en.json"), JSON.stringify({ text: address }));
+    const key = ["sk", "ant", "api03", "x".repeat(40)].join("-");
+    const allow = (entries: Allowed[]) =>
+      writeFileSync(join(root, ALLOWED_FILE), JSON.stringify(entries, null, 2));
+    const found = async () =>
+      (await scanBenchmark(root, [join(root, "eval/citations")], [])).map(
+        ({ file, kind }) => `${file} ${kind}`,
+      );
+
+    allow([
+      {
+        kind: "email",
+        sha256: createHash("sha256").update(address).digest("hex"),
+        document: revision.key,
+        why: `planted: ${key} and ${address}`,
+      },
+    ]);
+    expect((await found()).sort()).toEqual(
+      [
+        `${ALLOWED_FILE} api-key`,
+        `${ALLOWED_FILE} email`,
+        `${ALLOWED_FILE} unused-allowance`,
+        "eval/citations/runs/run.en.json email",
+        `${scanned.path} unread-page`,
+      ].sort(),
+    );
+
+    const read = { kind: "page-read" as const, document: scanned.key, page: 1, why: "read" };
+    allow([{ ...read, sha256: revision.sha256 }]);
+    expect((await found()).sort()).toEqual(
+      [
+        `${ALLOWED_FILE} unused-allowance`,
+        "eval/citations/runs/run.en.json email",
+        `${scanned.path} unread-page`,
+      ].sort(),
+    );
+    writeFileSync(join(root, "eval/citations/runs/run.en.json"), "{}");
+    allow([{ ...read, sha256: scanned.sha256 }]);
+    expect(await found()).toEqual([]);
   });
 
   test("the results page leads with the misses, and every number in its tables links to a run", () => {

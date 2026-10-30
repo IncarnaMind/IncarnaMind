@@ -1,9 +1,14 @@
 /**
  * Asks the citation benchmark's Questions of one model through the app's own
  * Answers path, one Question at a time, each in a Note of its own, then checks
- * each Answer's Note as Check this Note does, and writes the run file after
- * every Answer. A run that stops (a crash, the cap, a refused key) is resumed
- * from its files: what was answered is never asked, or paid for, again.
+ * each Answer's Note as Check this Note does. The run file is written once an
+ * Answer ends, before its check, and after every paid request. A run that
+ * stops (a crash, the cap, a refused key) is resumed from its files: what was
+ * answered is never asked, or paid for, again, and what was spent counts.
+ *
+ * The cap holds for every request: the run sets the library's monthly cap to
+ * what is left of it, so the app's own meter reserves each request at its
+ * most before sending it and refuses one that would pass it.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -37,6 +42,7 @@ import {
   type CitationsRun,
   keptAnswers,
   type Language,
+  noTokens,
   type RunAnswer,
   type RunModel,
   readRun,
@@ -80,7 +86,15 @@ const STOPPING: ReadonlySet<ProviderErrorKind> = new Set([
   "model",
   "consent-declined",
   "local-mode",
+  "cost-cap",
+  "plan-limit",
 ]);
+
+/** What an Answer's record says of its check until the check ends, so a run stopped during it says so. */
+const CHECK_UNFINISHED: CheckRun = {
+  kind: "failed",
+  reason: "the run stopped while the Note was being checked",
+};
 
 const SCRIPTED_MODEL: RunModel = {
   kind: "ollama",
@@ -103,6 +117,16 @@ export const asEvalQuestion = (question: CitationQuestion): EvalQuestion => {
     ...(rest.length > 0 && { expectedAll: question.quotes }),
   };
 };
+
+/**
+ * Why a run with a price stops before a Question that could run into the next
+ * calendar month, or null: the app counts its cap by the month, so a request
+ * sent after the month turned would no longer count what this run spent.
+ */
+function monthEnds(questionMs: number, now = new Date()): string | null {
+  if (new Date(now.getTime() + questionMs).getMonth() === now.getMonth()) return null;
+  return "The app's cap counts by the calendar month, which ends before the next Question would: run the command again once the new month has begun.";
+}
 
 const tokensSince = (now: Tokens, before: Tokens): Tokens => ({
   requests: now.requests - before.requests,
@@ -131,30 +155,46 @@ async function withinTime<T>(
   }
 }
 
-/** Check this Note on the Answer's Note: the model names the claims, then each is checked. */
+/**
+ * Check this Note on the Answer's Note: the model names the claims, then each
+ * is checked. `stop`: why the run can't go on, when the provider or the cap
+ * stopped the check.
+ */
 async function checkNote(
   core: Core,
   mindId: string,
   question: string,
   timeoutMs: number,
-): Promise<CheckRun> {
+  secrets: readonly string[],
+): Promise<{ check: CheckRun; stop: string | null }> {
   const requestId = randomUUID();
   const cancel = () => core.cancelCheck(requestId);
   const input = { mindId, mode: "changed" as const, allDocuments: true };
+  const failed = (reason: string, stop: string | null = null) => ({
+    check: { kind: "failed" as const, reason },
+    stop,
+  });
   const found = await withinTime(
     core.findMindClaims({ ...input, requestId: `${requestId}-claims` }),
     timeoutMs,
     () => core.cancelCheck(`${requestId}-claims`),
   );
-  if (found === "timed-out") return { kind: "failed", reason: "naming the claims timed out" };
-  if (found.kind !== "found") return { kind: "failed", reason: `naming the claims: ${found.kind}` };
+  if (found === "timed-out") return failed("naming the claims timed out");
+  if (found.kind === "failed") {
+    const { kind, message } = found.error;
+    return failed(
+      `naming the claims: ${kind}`,
+      STOPPING.has(kind) ? `${kind}: ${redactMessage(message, secrets)}` : null,
+    );
+  }
+  if (found.kind !== "found") return failed(`naming the claims: ${found.kind}`);
   const checked = await withinTime(core.checkMind({ ...input, requestId }), timeoutMs, cancel);
-  if (checked === "timed-out") return { kind: "failed", reason: "the check timed out" };
-  if (checked.kind !== "checked") return { kind: "failed", reason: `the check: ${checked.kind}` };
+  if (checked === "timed-out") return failed("the check timed out");
+  if (checked.kind !== "checked") return failed(`the check: ${checked.kind}`);
   const marks = await marksOf(core, mindId);
   // A Citation stands in a mark's sentence as the object replacement character.
   const plain = (text: string) => text.replaceAll("\uFFFC", "").replace(/\s+/g, " ").trim();
-  return {
+  const check: CheckRun = {
     kind: "checked",
     sentences: marks
       .filter((mark) => plain(mark.sentence) !== question.trim() && plain(mark.sentence) !== "")
@@ -169,6 +209,7 @@ async function checkNote(
             : null,
       })),
   };
+  return { check, stop: checked.stop ? `the check stopped: ${checked.stop.reason}` : null };
 }
 
 function runAnswerOf(
@@ -272,6 +313,10 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
         `${path} can't be resumed: ${problem}. Move it away, or give the run another folder.`,
       );
     }
+    if (earlier?.inProgress) {
+      earlier.retriedUsd += earlier.inProgress.usd;
+      earlier.inProgress = null;
+    }
     const kept = earlier ? keptAnswers(earlier) : [];
     const answered = new Set(kept.map((answer) => answer.questionId));
     const questions = set.questions.filter(
@@ -289,6 +334,8 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
   }
 
   const toAsk = plan.reduce((sum, each) => sum + each.questions.length, 0);
+  // The Answer, then naming the Note's claims and checking them, each within the timeout.
+  const questionMs = 3 * config.answerTimeoutMs + 60_000;
   let spent = plan.reduce((sum, each) => sum + (each.earlier ? spentUsd(each.earlier) : 0), 0);
   const expected = estimate(ref, toAsk, { check: options.check, judges: [] });
   const refused = capProblem(options.capUsd, price, spent, {
@@ -311,7 +358,16 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
   const written = new Map(plan.map((each) => [each.language, each.path]));
   if (toAsk === 0) return written;
 
-  const recorder = createRecorder();
+  /** The run file of the Question under way, kept current after each of its requests. */
+  let under: { run: CitationsRun; path: string; since: Tokens } | null = null;
+  const recorder = createRecorder({
+    onChat: () => {
+      if (!under?.run.inProgress || !price) return;
+      under.run.inProgress.usd =
+        usdOf(tokensSince(recorder.chat, under.since), price, ref.kind) ?? 0;
+      writeRun(under.path, under.run);
+    },
+  });
   const ollamaModels = scripted
     ? { describe: async () => null, loaded: async () => null, running: async () => true }
     : evalOllamaModels(chat);
@@ -355,6 +411,11 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
         `The run doesn't start. The app's catalog has no price for ${label} at ${provider.service.name}, so its cost can't be capped.`,
       );
     }
+    if (price && options.capUsd !== null) {
+      await core.updateSettings({
+        user: { monthlyCap: { currency: "USD", amount: Math.max(0, options.capUsd - spent) } },
+      });
+    }
     const model = modelOf(chat, provider.service?.name ?? null);
     const cpu = cpus();
     const passageTexts = new Map(
@@ -394,10 +455,11 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
       };
       run.stopped = null;
       for (const question of questions) {
-        const capped = capProblem(options.capUsd, price, spent, {
-          usd: reservationUsd(ref, price, options.check),
-          what: "the next Question may cost up to",
-        });
+        const capped =
+          capProblem(options.capUsd, price, spent, {
+            usd: reservationUsd(ref, price, options.check),
+            what: "the next Question may cost up to",
+          }) ?? (price ? monthEnds(questionMs) : null);
         if (capped) {
           run.stopped = { reason: capped, at: new Date().toISOString() };
           writeRun(path, run);
@@ -406,32 +468,27 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
         }
         const askedAt = new Date().toISOString();
         const before = { ...recorder.chat };
+        run.inProgress = { questionId: question.id, usd: 0 };
+        under = { run, path, since: before };
+        writeRun(path, run);
         const answer = await askOne(library, asEvalQuestion(question), 1, config.answerTimeoutMs);
         const afterAnswer = { ...recorder.chat };
-        const checkStarted = performance.now();
-        const check: CheckRun =
-          options.check && answer.status === "done" && answer.mindId
-            ? await checkNote(core, answer.mindId, question.question, config.answerTimeoutMs)
-            : { kind: "off" };
-        const checkSeconds = (performance.now() - checkStarted) / 1000;
-        const tokens = {
-          answer: tokensSince(afterAnswer, before),
-          check: tokensSince(recorder.chat, afterAnswer),
-        };
-        const usd = {
-          answer: usdOf(tokens.answer, price, model.kind),
-          check: usdOf(tokens.check, price, model.kind),
-        };
+        const mindId = options.check && answer.status === "done" ? answer.mindId : undefined;
+        const checking = mindId !== undefined;
+        const answerTokens = tokensSince(afterAnswer, before);
         const record = runAnswerOf(
           question,
           answer,
           askedAt,
           library,
           passageTexts,
-          check,
-          tokens,
-          usd,
-          { answer: answer.seconds, check: checkSeconds },
+          checking ? CHECK_UNFINISHED : { kind: "off" },
+          { answer: answerTokens, check: noTokens() },
+          {
+            answer: usdOf(answerTokens, price, model.kind),
+            check: usdOf(noTokens(), price, model.kind),
+          },
+          { answer: answer.seconds, check: 0 },
           secrets,
         );
         const replaced = run.answers.findIndex((each) => each.questionId === question.id);
@@ -439,10 +496,37 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
           run.retriedUsd += answerUsd(run.answers[replaced] as RunAnswer);
           run.answers.splice(replaced, 1, record);
         } else run.answers.push(record);
+        run.inProgress = checking ? { questionId: question.id, usd: 0 } : null;
+        under.since = afterAnswer;
+        run.updatedAt = new Date().toISOString();
+        writeRun(path, run);
+
+        let stop =
+          record.error && STOPPING.has(record.error.kind)
+            ? `${record.error.kind}: ${record.error.message}`
+            : null;
+        if (mindId !== undefined) {
+          const checkStarted = performance.now();
+          const checked = await checkNote(
+            core,
+            mindId,
+            question.question,
+            config.answerTimeoutMs,
+            secrets,
+          );
+          record.check = checked.check;
+          record.tokens.check = tokensSince(recorder.chat, afterAnswer);
+          record.usd.check = usdOf(record.tokens.check, price, model.kind);
+          record.seconds.check = (performance.now() - checkStarted) / 1000;
+          stop = checked.stop;
+        }
+        run.inProgress = null;
+        under = null;
         run.updatedAt = new Date().toISOString();
         spent += answerUsd(record);
         recorder.transcript.length = 0;
         writeRun(path, run);
+        const { check } = record;
         const flagged =
           check.kind === "checked"
             ? check.sentences.filter(
@@ -450,17 +534,12 @@ export async function runBenchmark(options: HarnessOptions): Promise<Map<Languag
               ).length
             : 0;
         log(
-          `${question.id}: ${answer.status}, ${record.citations.length} Citations (${record.citations.filter((each) => each.check === "found").length} found), check ${check.kind}${check.kind === "checked" ? ` (${check.sentences.length} sentences, ${flagged} flagged)` : ""}, ${record.seconds.answer.toFixed(0)} + ${checkSeconds.toFixed(0)} s${price ? `, $${answerUsd(record).toFixed(4)} (spent $${spent.toFixed(2)})` : ""}`,
+          `${question.id}: ${answer.status}, ${record.citations.length} Citations (${record.citations.filter((each) => each.check === "found").length} found), check ${check.kind}${check.kind === "checked" ? ` (${check.sentences.length} sentences, ${flagged} flagged)` : ""}, ${record.seconds.answer.toFixed(0)} + ${record.seconds.check.toFixed(0)} s${price ? `, $${answerUsd(record).toFixed(4)} (spent $${spent.toFixed(2)})` : ""}`,
         );
-        if (record.error && STOPPING.has(record.error.kind)) {
-          run.stopped = {
-            reason: `${record.error.kind}: ${record.error.message}`,
-            at: new Date().toISOString(),
-          };
+        if (stop) {
+          run.stopped = { reason: stop, at: new Date().toISOString() };
           writeRun(path, run);
-          log(
-            `Stopped: the provider answered ${record.error.kind}, which no later Question gets past`,
-          );
+          log(`Stopped: ${stop}, which no later Question gets past`);
           break run;
         }
       }
