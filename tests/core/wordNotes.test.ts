@@ -32,7 +32,9 @@ import { editMind, readMind } from "../helpers/minds";
 import {
   note,
   noteMark,
+  PNG,
   paragraph,
+  picture,
   run,
   table,
   type WordFileInput,
@@ -437,6 +439,55 @@ describe("a note or page break from another file's Note", () => {
       expect(files.has("word/endnotes.xml")).toBe(false);
       expect(document.match(/<w:br w:type="page"\/>/g)).toHaveLength(2);
       expect(document.match(/<w:br w:type="column"\/>/g)).toHaveLength(1);
+    },
+  );
+  test.each([
+    ["English", "Part two.", "A's picture"],
+    ["Chinese", "第二部分。", "甲文件的图片"],
+  ])(
+    "a picture is a new image part of its own where it was pasted, and the file's own picture stays byte for byte (%s)",
+    async (_, text, alt) => {
+      const logo = paragraph(`${run("Logo:")}${picture("rIdImage", "B's logo")}`);
+      const { core, mindId, client } = await setUp({
+        body: [logo, paragraph(text)].join(""),
+        media: { rIdImage: { name: "media/image1.png", data: PNG } },
+      });
+      const fromA = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      // At the place of B's own picture, and at one B doesn't have.
+      const pasted = (source: string): JSONContent => ({
+        type: "image",
+        attrs: { src: `data:image/png;base64,${fromA.toString("base64")}`, alt, source },
+      });
+      editMind(client, (blocks) => [
+        blocks[0] as JSONContent,
+        {
+          ...(blocks[1] as JSONContent),
+          content: [...(blocks[1]?.content ?? []), pasted("w:drawing#0"), pasted("w:drawing#5")],
+        },
+      ]);
+      await client.settled();
+
+      const { files, part } = await exported(core, mindId);
+      const document = part("word/document.xml");
+      expect(files.get("word/media/image1.png")?.equals(PNG)).toBe(true);
+      expect(document).toContain(logo);
+      const added = [...files]
+        .filter(([name, data]) => name.startsWith("word/media/") && data.equals(fromA))
+        .map(([name]) => name.slice("word/".length));
+      expect(added).toHaveLength(2);
+      const relationships = part("word/_rels/document.xml.rels");
+      const where = [...document.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)]
+        .map((match) => match[0])
+        .find((each) => each.includes(text));
+      for (const name of added) {
+        const id = new RegExp(`<Relationship [^>]*Id="([^"]+)"[^>]*Target="${name}"`).exec(
+          relationships,
+        )?.[1];
+        expect(where).toContain(`r:embed="${id}"`);
+      }
     },
   );
 });

@@ -3,10 +3,11 @@
  * Each atom's XML is written once, by one occurrence: the node the import
  * read it into, wherever it is now, else the first in the paragraph it came
  * from while that paragraph is in the Mind, else the first anywhere. A copy
- * is written as its text, or a note's mark or a page break as a new one
- * (#746), except what has no id to clash (a field, an equation, a symbol, a
- * page break). So is a node whose place this file doesn't have, or has as
- * something else, which was pasted from another file's Note.
+ * is written as its text, or a note's mark, a page break or a picture as a
+ * new one (#746), except what has no id to clash (a field, an equation, a
+ * symbol, a page break). So is a node whose place this file doesn't have, or
+ * has as something else (another picture), which was pasted from another
+ * file's Note.
  * Marks that come in pairs (a bookmark's start and end, a comment's range
  * and its mark) are left out when their other half is gone, as Word would
  * repair the file. What can't be kept, someone's comment or tracked change
@@ -18,7 +19,13 @@
  */
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import { FOOTNOTE_NODE, PAGE_BREAK_NODE, type WordAtomKind, type WordExportLoss } from "../../api";
+import {
+  FOOTNOTE_NODE,
+  IMAGE_NODE,
+  PAGE_BREAK_NODE,
+  type WordAtomKind,
+  type WordExportLoss,
+} from "../../api";
 import type { Places } from "../../documents/formats/docxImport";
 import type { XmlElement } from "../../documents/formats/xml";
 import { type Counterpart, counterpartsOf } from "./mind";
@@ -88,7 +95,7 @@ export class AtomPlan {
     );
     for (const [source, all] of now) {
       const found = all.filter((each) => {
-        const fits = isAt(each.node, places.get(source));
+        const fits = isAt(each.node, places.get(source), baseAtoms.get(source)?.[0]?.node);
         if (!fits) this.foreign.add(each.node);
         return fits;
       });
@@ -191,8 +198,19 @@ export class AtomPlan {
   }
 }
 
-/** Whether `element`, at the place a note's mark or a page break names, is what it is. */
-function isAt(node: NodeJSON, element: XmlElement | undefined): boolean {
+/**
+ * Whether a note's mark, a page break or a picture is at the place it names:
+ * the file has a mark of its kind or a page break there (`element`), or the
+ * same picture (`imported`, what the import read there).
+ */
+function isAt(
+  node: NodeJSON,
+  element: XmlElement | undefined,
+  imported: NodeJSON | undefined,
+): boolean {
+  if (node.type === IMAGE_NODE) {
+    return imported?.type === IMAGE_NODE && imported.attrs?.src === node.attrs?.src;
+  }
   if (node.type === FOOTNOTE_NODE) {
     const mark = node.attrs?.endnote === true ? "w:endnoteReference" : "w:footnoteReference";
     return element?.name === mark;

@@ -244,11 +244,8 @@ export function currentTokens(
       const pending = nodePendings(node, reading);
       const source = sourceOf(node);
       if (source) {
-        // A copy of a note or a page break, or one from another file, is written as a new one.
-        const inline =
-          node.type === FOOTNOTE_NODE || node.type === PAGE_BREAK_NODE
-            ? (specialOf(node)[0] ?? null)
-            : null;
+        // A copy of a note, a page break or a picture, or one from another file, is written new.
+        const inline = specialOf(node)[0] ?? null;
         tokens.push(...marked([{ ...atom(source), inline, node }], node, pending));
       } else {
         const inlines = specialOf(node);

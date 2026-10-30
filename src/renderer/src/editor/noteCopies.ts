@@ -4,14 +4,15 @@ import { Fragment, type Node as ProseMirrorNode, Slice } from "@tiptap/pm/model"
 import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { FOOTNOTE_NODE, PAGE_BREAK_NODE } from "../../../core/api";
+import { FOOTNOTE_NODE, IMAGE_NODE, PAGE_BREAK_NODE } from "../../../core/api";
 import { wordFileOf } from "../../../shared/wordFiles";
 
-/** A Word file's note or page break: it names its place in the file. */
+/** A Word file's note, page break or picture: it names its place in the file. */
 const isPlaced = (node: ProseMirrorNode) =>
   (node.type.name === FOOTNOTE_NODE &&
     (typeof node.attrs.source === "string" || node.attrs.endnote === true)) ||
-  (node.type.name === PAGE_BREAK_NODE && typeof node.attrs.source === "string");
+  ((node.type.name === PAGE_BREAK_NODE || node.type.name === IMAGE_NODE) &&
+    typeof node.attrs.source === "string");
 
 /** The Note's Word file, by its content's hash; undefined for an editor not bound to a Note. */
 function fileOf(state: EditorState): string | null | undefined {
@@ -33,8 +34,8 @@ function withPlaces(fragment: Fragment, place: (node: ProseMirrorNode) => unknow
 }
 
 /**
- * A copy of a Word file's note or page break (#746) is a new one of the
- * User's own, as ADR-0011 has export write it. Copied, it takes the file it
+ * A copy of a Word file's note, page break or picture (#746) is a new one
+ * of the User's own, as ADR-0011 has export write it. Copied, it takes the file it
  * came from with it, by its hash before its place (places hold no space);
  * pasted or dropped into a Note of another file or of none, or while the
  * original is still in the Note, it loses its place and its being an endnote,

@@ -127,7 +127,7 @@ const shown = (editor: Editor) =>
 const placesOf = (editor: Editor) => {
   const found: unknown[] = [];
   editor.state.doc.descendants((node) => {
-    if (node.type.name === FOOTNOTE_NODE || node.type.name === PAGE_BREAK_NODE)
+    if ([FOOTNOTE_NODE, PAGE_BREAK_NODE, "image"].includes(node.type.name))
       found.push(node.attrs.source);
   });
   return found;
@@ -176,9 +176,16 @@ describe("a copy of a Word file's note", () => {
     ["English", "Mine", "From A."],
     ["Chinese", "我的", "来自甲。"],
   ])(
-    "pasted into the Note of another Word file is a footnote, and a page break a new one, their places in the first file gone (%s)",
+    "pasted into the Note of another Word file is a footnote, and a page break or a picture a new one, their places in the first file gone (%s)",
     (_, mine, fromA) => {
-      const a = noteWith([paragraph("a", text("One"), endnote("e1", fromA), pageBreak())], FILE_A);
+      const logo: JSONContent = {
+        type: "image",
+        attrs: { src: "data:image/png;base64,iVBORw0KGgo=", alt: fromA, source: "w:drawing#0" },
+      };
+      const a = noteWith(
+        [paragraph("a", text("One"), endnote("e1", fromA), pageBreak(), logo)],
+        FILE_A,
+      );
       const b = noteWith(
         [
           paragraph("b", text(mine), {
@@ -191,8 +198,9 @@ describe("a copy of a Word file's note", () => {
       paste(b, copied(a, endnoteAt(a, "e1").pos));
       const breakAt = endnoteAt(a, "e1").pos + endnoteAt(a, "e1").node.nodeSize;
       paste(b, copied(a, breakAt));
+      paste(b, copied(a, breakAt + 1));
       expect(shown(b)).toEqual(["f1 Own", `f2 ${fromA}`]);
-      expect(placesOf(b)).toEqual(["w:footnoteReference#0", null, null]);
+      expect(placesOf(b)).toEqual(["w:footnoteReference#0", null, null, null]);
     },
   );
 

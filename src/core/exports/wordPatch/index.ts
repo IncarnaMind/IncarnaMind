@@ -221,7 +221,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       node.type === FOOTNOTE_NODE ||
       node.type === PAGE_BREAK_NODE ||
       node.type === "inlineMath" ||
-      (node.type === IMAGE_NODE && !node.attrs?.source);
+      node.type === IMAGE_NODE;
     return element && special ? readInlineNodes([element], options) : [];
   };
   const textOf = (node: NodeJSON) => {
