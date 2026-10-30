@@ -53,7 +53,7 @@ import type {
 } from "../shared/analysis";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { ClaimCheckShown } from "../shared/claimChecks";
-import type { AppCommandId, AssistantCommandId } from "../shared/commands";
+import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -1086,12 +1086,14 @@ export interface UserQuestionRequest extends AnswerPlace {
   question: UserQuestion;
 }
 
-/** What the assistant finds and runs commands on (#1110). */
-export type CommandTarget = "document" | "mind";
+export type { CommandTarget, OfferedCommand, Yours };
 
-/** What `list_commands` found (#1110): how many, and what matched them, each as given. */
+/**
+ * What `list_commands` found (#1110): how many, and what matched them, each as given; for
+ * "window", how many of the window's commands act on the window in front (#1421).
+ */
 export interface CommandsFound {
-  kind: CommandTarget;
+  kind: CommandTarget | "window";
   count: number;
   by: { name?: string; tag?: string; folder?: string };
 }
@@ -1113,7 +1115,7 @@ export interface ExportMarking {
 
 /** What a call of `run_command` did (#1110), from what its command returned. */
 export interface CommandDone {
-  command: AssistantCommandId;
+  command: CommandId;
   /** The Run it was part of: one Undo takes back every change of the Run (`undoCommands`). */
   run: string;
   items: CommandItem[];
@@ -1125,6 +1127,16 @@ export interface CommandDone {
   inOutputLocation?: boolean;
   /** For a Word file: how its marking of the text IncarnaMind wrote was settled. */
   marking?: ExportMarking;
+  /**
+   * Run by the window that asked, as ⌘K runs it (#1421); `changed`: it changed something the
+   * window's Undo takes back, which then goes with the Run's other changes. `running`: it started
+   * and goes on in the window, a Check for one; this call is updated when it ends.
+   */
+  window?: { changed: boolean; running?: true };
+  /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
+  yours?: Yours;
+  /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
+  setting?: { name: string; from: string; to: string };
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */
@@ -5982,6 +5994,8 @@ export type CheckMindResult =
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
+  /** A Check of this Note is running already, asked from this window or another: none started. */
+  | { kind: "running" }
   | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
 
 /**
@@ -6576,6 +6590,13 @@ export interface AskInConversationInput {
   forcedSkill?: string | null;
   /** "Analyse data…" was chosen (#447): its Answer may run an Analysis whatever its Search scope holds. */
   analyse?: boolean;
+  /**
+   * The commands of the asking window's list the assistant may run there, as ⌘K offers them now
+   * (#1421). None or null, or no `clientId`: only the core's own.
+   */
+  commands?: OfferedCommand[] | null;
+  /** The asking window, which runs those commands: its id for as long as it is open. */
+  clientId?: string | null;
 }
 
 /** An Answer in a conversation, for regenerating or stopping it. */
@@ -6594,6 +6615,10 @@ export interface ConversationAnswerInput {
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
    */
   model?: ChatModelChoice;
+  /** Regenerating: the window's commands, as `AskInConversationInput.commands`. */
+  commands?: OfferedCommand[] | null;
+  /** Regenerating: the asking window, as `AskInConversationInput.clientId`. */
+  clientId?: string | null;
 }
 
 /** What asking in a conversation (or regenerating an Answer there) did. */
@@ -8140,7 +8165,7 @@ export type ApprovalSubject =
       tool: string;
     }
   | { kind: "skill-script"; skillId: string }
-  | { kind: "command"; command: AssistantCommandId };
+  | { kind: "command"; command: CommandId };
 
 export type ApprovalSubjectKind = ApprovalSubject["kind"];
 
@@ -8243,6 +8268,17 @@ interface ApprovalRequestBase extends AnswerPlace {
    * call asks, and the card says why. Absent when there is none.
    */
   thirdParty?: ThirdPartyReason[];
+  /**
+   * For a command of the assistant's (#1421): what its Answer read that the User didn't write, as
+   * it read it, its Documents by name, each once, and whether it heard the live Transcript. It
+   * never says which of them asked for the command. Absent: it read none of them.
+   */
+  readText?: ApprovalReadText;
+}
+
+export interface ApprovalReadText {
+  documents: string[];
+  transcript: boolean;
 }
 
 /**
@@ -8319,14 +8355,16 @@ export const COMMAND_AT_ONCE = 20;
 /**
  * What a command the assistant runs for the User would do, as its approval shows it (#1110):
  * save a Mind as a file in a folder other than the Output location; read a folder's files
- * (`files`, by name, nothing outside it) and add them to the Library; or change things inside
- * IncarnaMind that need the User's say (`reason`). `items` are the first of them, each by the
- * name the User knew it by, with `renamed` when the Conversation's commands renamed it.
+ * (`files`, by name, nothing outside it) and add them to the Library; change things inside
+ * IncarnaMind that need the User's say (`reason`); run a command of the window's that can't be
+ * taken back ("final", #1421); start a recording or turn the microphone on ("listen"); or make a
+ * folder the Output location, where files are then saved without asking ("output", #1421). `items` are the first of them, each by the name the User knew
+ * it by, with `renamed` when the Conversation's commands renamed it.
  */
 export type CommandAsk =
   | {
       kind: "change";
-      command: AppCommandId;
+      command: CommandId;
       reason: CommandAskReason;
       count: number;
       items: CommandItem[];
@@ -8344,7 +8382,14 @@ export type CommandAsk =
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
     }
-  | { kind: "add"; folder: string; files: string[] };
+  | { kind: "add"; folder: string; files: string[] }
+  | { kind: "final"; command: CommandId; items: CommandItem[] }
+  | { kind: "listen"; command: CommandId }
+  | {
+      kind: "output";
+      /** Absolute, links followed. */
+      folder: string;
+    };
 
 /** A Folder or Tag the commands of a Run made, left in place by their Undo: the User filed things in it since. */
 export interface CommandKept {
@@ -8375,6 +8420,37 @@ export interface CommandApprovalRequest extends ApprovalRequestBase {
   tool: "run_command";
   ask: CommandAsk;
 }
+
+/**
+ * A command of the window's list the assistant runs (#1421), sent to the window whose Question
+ * asked for it: that window runs it as ⌘K does, on `targets` (none: the window in front), and
+ * answers with `answerWindowCommand`.
+ */
+export interface WindowCommandRequest {
+  requestId: string;
+  answerId: string;
+  toolCallId: string;
+  /** The Run the call is part of: a change the window's Undo takes back goes with its other changes. */
+  run: string;
+  command: CommandId;
+  targets: { kind: CommandTarget; id: string }[];
+  /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
+  mindId: string | null;
+  /** The window whose Question it is, which alone runs it. */
+  clientId: string;
+}
+
+/** How a window command ended: run (`changed`: its Undo takes something back), or not. */
+export type WindowCommandEnd =
+  | { ran: true; changed: boolean }
+  | { ran: false; why: string; wording: ErrorWording | null };
+
+/**
+ * What the window says of a command it was asked to run: that it started, as soon as it has, and
+ * then how it ended; or only how it ended, when it couldn't start. Why it didn't run is in English
+ * for the model and in the interface's words (`wording`) where the window has them.
+ */
+export type WindowCommandResult = WindowCommandEnd | { started: true };
 
 // ---------------------------------------------------------------------------
 // Recently deleted (CONTEXT.md)
@@ -10945,6 +11021,17 @@ export interface CoreApi {
    */
   answerUserQuestion(requestId: string, answer: UserAnswer): Promise<void>;
   /**
+   * Says that a command the assistant asked the window to run started, then how it ended (#1421).
+   * False: the core no longer waits for it (its Answer stopped before it started, or the window
+   * didn't say it started in time), so it counts as not done.
+   */
+  answerWindowCommand(requestId: string, result: WindowCommandResult): Promise<boolean>;
+  /**
+   * The window is gone, closed or reloaded (#1421): the commands it was asked to run and hasn't
+   * answered weren't done.
+   */
+  forgetCommandWindow(input: { clientId: string }): Promise<void>;
+  /**
    * Answers an approval request. Answering one that's no longer waiting (decided
    * in another window, or its Answer stopped) does nothing. "always-allow" of a
    * Skill script ("always run") is refused unless `options.riskAccepted`: the
@@ -11431,6 +11518,8 @@ export interface CoreEvents {
   "question.asked": UserQuestionRequest;
   /** A question was answered, here or in another window, or withdrawn (null) as its Answer stopped. */
   "question.answered": { requestId: string; answer: UserAnswer | null };
+  /** The assistant runs a command of the window's list (#1421): the window that asked runs it. */
+  "command.windowRun": WindowCommandRequest;
   /**
    * The Answer event stream. The core writes each Answer into its Mind's Yjs
    * document as it streams (its text, Citations and Tool calls), so every
@@ -11784,6 +11873,8 @@ const methods: Record<CoreApiMethod, true> = {
   respondToApproval: true,
   listUserQuestions: true,
   answerUserQuestion: true,
+  answerWindowCommand: true,
+  forgetCommandWindow: true,
   listSkills: true,
   previewSkillImport: true,
   importSkill: true,

@@ -48,6 +48,7 @@ const inView = (): InView | null =>
 
 const listed = (n: number): Command => ({
   id: n === 1 ? "answer.openTable" : `answer.openTable${n}`,
+  assistant: false,
   label: (_ctx, t) => {
     const view = inView();
     return view && view.held === null && view.tables.length > 1

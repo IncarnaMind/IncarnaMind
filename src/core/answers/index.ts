@@ -88,6 +88,7 @@ import {
   type AnswerSteps,
   type AnswerToolCall,
   type AnswerUsage,
+  type ApprovalReadText,
   type AskedFrom,
   type AskedQuote,
   type AskResult,
@@ -172,6 +173,7 @@ import {
 } from "../tools";
 import { askTool } from "../tools/asks";
 import type { Findable } from "../tools/commands/find";
+import type { CommandWindow } from "../tools/commands/offered";
 import { type CommandRename, renamesIn } from "../tools/commands/policy";
 import type { CommandsHost } from "../tools/commands/run";
 import type { CommandSteps } from "../tools/commands/steps";
@@ -395,12 +397,14 @@ function mindLimit(prepared: PreparedChatModel): number {
 
 /** What Answers need of the assistant's conversations (see ../conversations). */
 export interface AnswerConversations {
+  /** Writes an ended Answer's Tool calls again, one updated since; false if it is gone. */
+  writeToolCalls(answerId: string, toolCalls: readonly AnswerToolCall[]): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
    * written, which reads `read`.
    */
   add(
-    input: Omit<QuestionInput, "onScreen">,
+    input: Omit<QuestionInput, "onScreen" | "commands">,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
@@ -415,6 +419,7 @@ export interface AnswerConversations {
     question: ConversationQuestion;
     toolCalls: AnswerToolCall[];
     onScreen: string[];
+    commands: CommandWindow | null;
     /** The model the caller chose to write it with instead of the Question's own (#1848). */
     model: ChatModelChoice | null;
   };
@@ -1008,6 +1013,8 @@ export function createAnswers(options: AnswersOptions) {
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
+      /** The asking window and its commands, which it runs for the Answer (#1421). */
+      commands?: CommandWindow | null;
       /** The calls of the Conversation's earlier Answers, oldest first: a follow-up may be answered from their searches (#1796). */
       earlierCalls?: readonly AnswerToolCall[];
     };
@@ -1697,7 +1704,45 @@ export function createAnswers(options: AnswersOptions) {
      * Commands are checked one at a time, each after the User answered the one before, so a call
      * that would take the Answer past its limit is counted after those before it.
      */
+    /** A command's call says what it did once it no longer can through the engine: after its call. */
+    const laterCall = (
+      toolCallId: string,
+      end: { done: CommandDone } | { problem: CommandProblem },
+    ) => {
+      const call = toolCalls.find((each) => each.id === toolCallId);
+      if (!call) return;
+      if ("done" in end) {
+        call.status = "done";
+        call.command = end.done;
+        delete call.commandProblem;
+        commandsDone.set(toolCallId, end.done);
+      } else {
+        call.status = "failed";
+        delete call.command;
+        call.commandProblem = end.problem;
+        commandsDone.delete(toolCallId);
+      }
+      if (!finished) {
+        announce("answer.toolCallFinished", { ...place, answerId, call: { ...call } });
+        writeSoon();
+        return;
+      }
+      options.conversations.writeToolCalls(answerId, toolCalls);
+    };
     let commandTurn: Promise<unknown> = Promise.resolve();
+    /** What the Answer read that the User didn't write, as it read it: its Documents and the live Transcript. */
+    const readText = (): { readText?: ApprovalReadText } => {
+      const documents = [
+        ...new Set(
+          session
+            .passagesRead()
+            .filter((each) => !transcripts.has(each.documentId))
+            .map((each) => each.documentName),
+        ),
+      ];
+      const transcript = transcripts.size > 0;
+      return documents.length > 0 || transcript ? { readText: { documents, transcript } } : {};
+    };
     // Whether it asks is the commands' policy's (../tools/commands/policy, #1110).
     const commandGate = (
       commands: ReturnType<typeof commandTools>,
@@ -1713,7 +1758,11 @@ export function createAnswers(options: AnswersOptions) {
       };
       callStarted(card);
       const gated = async (): Promise<string | null> => {
-        const { checked, ask: asked, readTitles } = await commands.check(toolCallId, input);
+        const {
+          checked,
+          ask: asked,
+          readTitles,
+        } = await commands.check(toolCallId, input, tainted || transcripts.size > 0);
         if (!asked) return null;
         const denied = await ask(
           {
@@ -1726,6 +1775,7 @@ export function createAnswers(options: AnswersOptions) {
             effects: checked.effects,
             tainted: tainted || readTitles,
             ...readReasons(thirdParty),
+            ...readText(),
           },
           card,
         );
@@ -2323,12 +2373,23 @@ export function createAnswers(options: AnswersOptions) {
               namesWebPage: options.documents.searchableNames(documentIds, LISTED_DOCUMENTS)
                 .webPage,
               renames: input.assistant.renames,
+              answerId,
               runId: randomUUID(),
+              offered: input.assistant.commands?.offered ?? [],
+              clientId: input.assistant.commands?.clientId ?? null,
+              language: answerLanguage(context.question),
               steps: commands.steps,
               ...(askInTray && { ask: askInTray }),
               found: (toolCallId, found) => commandsFound.set(toolCallId, found),
-              ran: (toolCallId, done) => commandsDone.set(toolCallId, done),
+              ran: (toolCallId, done) => {
+                commandsDone.set(toolCallId, done);
+                // Stopped while its window's command started, the call returns after the Answer.
+                if (finished) laterCall(toolCallId, { done });
+              },
               failed: (toolCallId, problem) => commandProblems.set(toolCallId, problem),
+              // A window's command that went on, a Check for one, ends after its call: its card
+              // says so then, while the Answer is written or after it.
+              ended: laterCall,
             })
           : null;
       const asking = asksUser ? askTool(asksUser) : null;
@@ -2738,7 +2799,11 @@ export function createAnswers(options: AnswersOptions) {
           ? {
               turnChecks,
               shownUpTo: heldBack,
-              mayEndBlank: changedAMind,
+              // A command that only acted on the window, or that is the User's alone, ends the
+              // turn: its card is the reply (#1421).
+              mayEndBlank: () =>
+                changedAMind() ||
+                [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
                 if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
@@ -3125,6 +3190,7 @@ export function createAnswers(options: AnswersOptions) {
     mind: MindToRead | null,
     onScreen: readonly string[],
     { quoted, leftOut }: { quoted: Quoted[]; leftOut: AskedQuote[] },
+    commands: CommandWindow | null,
     remake: string | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
@@ -3227,6 +3293,7 @@ export function createAnswers(options: AnswersOptions) {
         ),
         remake,
         renames: renamesIn(turn.earlier),
+        commands,
         touched: touchedIn(turn.earlier),
         earlierCalls: turn.earlier.flatMap((message) =>
           message.kind === "answer" ? message.toolCalls : [],
@@ -3520,6 +3587,7 @@ export function createAnswers(options: AnswersOptions) {
           readyMind,
           question.onScreen,
           checked,
+          question.commands,
         );
       } catch (error) {
         if (!published) options.conversations.discard(added);
@@ -3532,7 +3600,7 @@ export function createAnswers(options: AnswersOptions) {
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
-      const { answerId, question, toolCalls, onScreen, model } =
+      const { answerId, question, toolCalls, onScreen, commands, model } =
         options.conversations.questionOf(input);
       const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
@@ -3562,6 +3630,7 @@ export function createAnswers(options: AnswersOptions) {
         mind,
         onScreen,
         checkQuotes(question.quotes),
+        commands,
         remake,
       );
     },

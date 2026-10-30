@@ -308,6 +308,7 @@ import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
+import { createWindowCommands } from "./windowCommands";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -1286,6 +1287,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const questions = createQuestions(events);
+  const windowCommands = createWindowCommands(events);
 
   // Requests to one service kept apart, as its operator asks: Look up and Find sources share them.
   const paceTimers = adapters.paceTimers ?? realTimers;
@@ -1520,6 +1522,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return api;
     },
     outputFolder: async () => outputs.settings().location,
+    window: (request, signal, ended) => windowCommands.run(request, signal, ended),
     exportMind: async (mindId, format, folder, approved, marking) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
@@ -1641,13 +1644,20 @@ export function createCore(adapters: CoreAdapters): Core {
       host: commandsHost,
       findable: async () => {
         const { core } = commandsHost;
-        const [listed, mindsNow, libraryNow, tagsNow] = await Promise.all([
+        const [listed, mindsNow, libraryNow, tagsNow, deletedNow] = await Promise.all([
           core.listDocuments(),
           core.listMinds(),
           core.getLibrary(),
           core.listTags(),
+          core.listDeleted(),
         ]);
-        return { documents: listed, minds: mindsNow, library: libraryNow, tags: tagsNow };
+        return {
+          documents: listed,
+          minds: mindsNow,
+          library: libraryNow,
+          tags: tagsNow,
+          deleted: deletedNow,
+        };
       },
       steps: commandSteps,
     },
@@ -1750,6 +1760,11 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       writeAnswer: (answerId, write) => {
         const answer = conversations.writeAnswer(answerId, write);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
+      writeToolCalls: (answerId, toolCalls) => {
+        const answer = conversations.writeToolCalls(answerId, toolCalls);
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
@@ -4801,6 +4816,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listApprovalRequests: async () => approvals.requests(),
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
+    answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
+    forgetCommandWindow: async (input) =>
+      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 

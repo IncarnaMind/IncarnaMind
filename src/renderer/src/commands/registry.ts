@@ -2,10 +2,12 @@ import type { ComponentType } from "react";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
   type CommandId,
+  type CommandRecording,
   type Keys,
   MENU_COMMANDS,
   type MenuCommandId,
   type ShortcutKeys,
+  type Yours,
 } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import type { ObjectKind, ObjectRef, Translate, Undoable } from "../objects";
@@ -122,6 +124,16 @@ export interface Command {
   enabled?(ctx: CommandContext): true | { reason: MessageKey };
   /** Undone with ⌘Z, or asked about first, naming what will be lost (rule 4). */
   reversible: true | { confirm: MessageKey };
+  /**
+   * Whether the assistant may run it (#1421). Left out, it may, as ⌘K runs it, on what it acts on
+   * (`appliesTo`): it asks first when it deletes (`destructive`) or can't be taken back
+   * (`reversible`). `false`: it acts on the assistant itself, on where the keyboard is or on how
+   * the User arranges their tabs, which an Answer can't, or it waits for the User's choice in a
+   * file picker. `{ never }`: it is the User's alone; the assistant says where they change it.
+   */
+  assistant?: false | { never: Yours };
+  /** What it does to a recording, which decides whether the assistant asks first (#1421). */
+  recording?: CommandRecording;
   run(ctx: CommandContext): void | Undoable | Promise<Undoable | void>;
 }
 
@@ -166,6 +178,10 @@ export const labelOf = (command: Command, ctx: CommandContext, t: Translate): st
 
 const registered = new Map<CommandId, Command>();
 
+// What a row's own action (`here`) hands back, such as a frame's handle, is no change to undo.
+const changeOf = (done: unknown): Undoable | undefined =>
+  typeof done === "object" && done !== null ? (done as Undoable) : undefined;
+
 export const commands = {
   register(command: Command): () => void {
     if (registered.has(command.id)) throw new Error(`Two commands are called ${command.id}.`);
@@ -195,10 +211,29 @@ export const commands = {
     if (!command) throw new Error(`There is no command ${id}.`);
     const ctx = { ...NO_CONTEXT, ...given };
     if (!offered(command, ctx) || !isEnabled(command, ctx)) return undefined;
-    const done: unknown = await command.run(ctx);
-    // What a row's own action (`here`) hands back, such as a frame's handle, is no change to undo.
-    const change = typeof done === "object" && done !== null ? (done as Undoable) : undefined;
+    const change = changeOf(await command.run(ctx));
     if (change) useUndo.getState().push(change);
     return change;
+  },
+
+  /**
+   * Starts a command as `run` does, but hands back what it changed, once it ends, rather than
+   * putting it on the undo stack, for the caller to put with other changes; or why it didn't
+   * start. A command that goes on, as a Check does, has started once this returns.
+   */
+  start(
+    id: CommandId,
+    given: Partial<CommandContext> = {},
+  ):
+    | { ran: true; change: Promise<Undoable | undefined> }
+    | { ran: false; why: "not-offered" | MessageKey } {
+    const command = registered.get(id);
+    if (!command) throw new Error(`There is no command ${id}.`);
+    const ctx = { ...NO_CONTEXT, ...given };
+    if (!offered(command, ctx)) return { ran: false, why: "not-offered" };
+    const enabled = command.enabled?.(ctx) ?? true;
+    if (enabled !== true) return { ran: false, why: enabled.reason };
+    const ran = new Promise<ReturnType<Command["run"]>>((resolve) => resolve(command.run(ctx)));
+    return { ran: true, change: ran.then(changeOf) };
   },
 };
