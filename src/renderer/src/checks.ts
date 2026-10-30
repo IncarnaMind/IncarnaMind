@@ -328,18 +328,19 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
 
 /**
  * Adds each part's Passages that the sentence doesn't cite yet as Citations
- * right after that part's words, never on the whole sentence (#2174), as one
+ * right after that part's words, never on the whole sentence (#2002), as one
  * step of Undo. The sentence keeps its check: a Citation isn't part of the
- * words a check reads, so its parts stay where they were.
+ * words a check reads, so its parts stay where they were. "changed" when the
+ * sentence no longer reads as the card showed it, and nothing was added.
  */
 export function addPartCitations(
   editor: Editor,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
-): boolean {
+): "added" | "nothing" | "changed" {
   const { state } = editor;
   const type = state.schema.nodes[CITATION_NODE];
-  if (!type) return false;
+  if (!type) return "nothing";
   const added: CitationAttributes[] = [];
   const inserts: { at: number; citations: CitationAttributes[] }[] = [];
   for (const part of parts) {
@@ -354,11 +355,11 @@ export function addPartCitations(
     );
     if (citations.length === 0) continue;
     const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
-    if (!place) return false;
+    if (!place) return "changed";
     added.push(...citations);
     inserts.push({ at: place.to, citations });
   }
-  if (inserts.length === 0) return false;
+  if (inserts.length === 0) return "nothing";
   const tr = state.tr;
   for (const { at, citations } of inserts.toSorted((a, b) => b.at - a.at)) {
     tr.insert(
@@ -367,7 +368,7 @@ export function addPartCitations(
     );
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
-  return true;
+  return "added";
 }
 
 function rewriteCitation(

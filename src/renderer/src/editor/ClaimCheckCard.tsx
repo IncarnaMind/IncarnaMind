@@ -49,6 +49,7 @@ import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
+import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCitedFollowing } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
@@ -349,7 +350,10 @@ export function ClaimMark({
               partCitations={{
                 claim,
                 onAdd: (parts) => {
-                  addPartCitations(editor, claim, parts);
+                  if (addPartCitations(editor, claim, parts) === "changed")
+                    useNotices
+                      .getState()
+                      .showError(new Error(translateNow("error.check.partChanged")));
                   done(true);
                 },
                 onWiden: (part) => {

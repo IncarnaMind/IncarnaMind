@@ -1,5 +1,5 @@
 /**
- * Add as Citation on a part's row (#2174): a supported part's Passage is cited right after that
+ * Add as Citation on a part's row (#2002): a supported part's Passage is cited right after that
  * part's words, never on the whole sentence, as one step of Undo; Add all cites every part that
  * isn't cited yet, as one step; and a Passage the sentence already cites stays Already cited.
  */
@@ -192,12 +192,12 @@ for (const example of CASES)
     const end = sentence.slice(sentence.indexOf(second) + second.length);
     const between = sentence.slice(first.length, sentence.indexOf(second));
 
-    // protects=a part's Passage goes right after that part's words, the sentence keeps its check and parts, the other part still offers its add, and one Undo takes back that add alone (#2174); fails_when=the Citation lands at the sentence's end or on the whole sentence, the check is dropped, or Undo takes back more or less; no_claim=how the card lays the button out.
+    // protects=a part's Passage goes right after that part's words, the sentence keeps its check and parts, the other part still offers its add, and one Undo takes back that add alone (#2002); fails_when=the Citation lands at the sentence's end or on the whole sentence, the check is dropped, or Undo takes back more or less; no_claim=how the card lays the button out.
     test("Add as Citation on a row cites that part's words, as one Undo", () => {
       const { editor, claim, written, decisions, parts } = setUp(example);
       expect(decisions()).toEqual([["add"], ["add"]]);
 
-      expect(addPartCitations(editor, claim(), [parts[0] as ClaimCheckPart])).toBe(true);
+      expect(addPartCitations(editor, claim(), [parts[0] as ClaimCheckPart])).toBe("added");
       expect(written()).toBe(`${first}[first]${between}${second}${end}`);
       expect(claim().check.parts).toEqual(parts);
       expect(claim().shown).toEqual({ state: "supported" });
@@ -208,11 +208,11 @@ for (const example of CASES)
       expect(decisions()).toEqual([["add"], ["add"]]);
     });
 
-    // protects=Add all cites every part that isn't cited yet, each after its own words, as one step of Undo (#2174); fails_when=a Citation goes on the whole sentence, one part is missed, or Undo takes back only one; no_claim=none beyond protects.
+    // protects=Add all cites every part that isn't cited yet, each after its own words, as one step of Undo (#2002); fails_when=a Citation goes on the whole sentence, one part is missed, or Undo takes back only one; no_claim=none beyond protects.
     test("Add all cites each part after its words, as one Undo", () => {
       const { editor, claim, written, decisions, parts } = setUp(example);
 
-      expect(addPartCitations(editor, claim(), parts)).toBe(true);
+      expect(addPartCitations(editor, claim(), parts)).toBe("added");
       expect(written()).toBe(`${first}[first]${between}${second}[second]${end}`);
       expect(decisions()).toEqual([["already"], ["already"]]);
       expect(claim().shown).toEqual({ state: "supported" });
@@ -221,7 +221,17 @@ for (const example of CASES)
       expect(written()).toBe(sentence);
     });
 
-    // protects=a Passage the sentence already cites is Already cited for its part, so Add all adds only the other part's (#2174); fails_when=the same Passage is cited twice; no_claim=none beyond protects.
+    // protects=Add as Citation on a sentence that changed since its card opened adds nothing and tells the card the part changed, which it says as Use the Document's wording does (#2002); fails_when=a Citation lands on other words, or the change reads as nothing to add; no_claim=how the notice looks.
+    test("Add as Citation on a sentence that changed adds nothing and says the part changed", () => {
+      const { editor, claim, written, parts } = setUp(example);
+      const opened = claim();
+      editor.view.dispatch(editor.state.tr.insertText("X", 1));
+
+      expect(addPartCitations(editor, opened, [parts[0] as ClaimCheckPart])).toBe("changed");
+      expect(written()).toBe(`X${sentence}`);
+    });
+
+    // protects=a Passage the sentence already cites is Already cited for its part, so Add all adds only the other part's (#2002); fails_when=the same Passage is cited twice; no_claim=none beyond protects.
     test("a Passage already cited stays Already cited, and Add all adds only the rest", () => {
       const { editor, claim, written, decisions, parts } = setUp(
         example,
@@ -229,7 +239,7 @@ for (const example of CASES)
       );
       expect(decisions()).toEqual([["already"], ["add"]]);
 
-      expect(addPartCitations(editor, claim(), parts)).toBe(true);
+      expect(addPartCitations(editor, claim(), parts)).toBe("added");
       expect(written()).toBe(`${first}${between}${second}[second]${end}[first]`);
     });
   });

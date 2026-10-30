@@ -27,7 +27,7 @@ import {
 import { pdfText } from "./pdfText";
 
 /**
- * Add as Citation on a part's row (#2174): a supported part's Passage is cited right after that
+ * Add as Citation on a part's row (#2002): a supported part's Passage is cited right after that
  * part's words, never on the whole sentence, one Undo for each add; Add all cites the rest; and
  * a Word or PDF export carries each Citation where the Note has it.
  */

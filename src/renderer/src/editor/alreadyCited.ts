@@ -39,7 +39,7 @@ export function citationDecision(state: EditorState, claim: ShownClaim): Citatio
 
 /**
  * What a supported part's row offers for each Passage its check found, by the
- * sentence's rules (#2174): a part worked out by a calculation offers none.
+ * sentence's rules (#2002): a part worked out by a calculation offers none.
  */
 export function partDecisions(
   state: EditorState,

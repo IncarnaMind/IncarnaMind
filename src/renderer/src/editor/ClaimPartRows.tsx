@@ -166,7 +166,7 @@ export const citesMore = (
     partDecisions(state, claim, part).some(({ decision }) => decision.kind === "add"),
   );
 
-/** What a marked sentence's card does with the Citations of what its parts found (#2174). */
+/** What a marked sentence's card does with the Citations of what its parts found (#2002). */
 export interface PartCitations {
   claim: ShownClaim;
   onAdd(parts: readonly ClaimCheckPart[]): void;
