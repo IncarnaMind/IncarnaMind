@@ -747,6 +747,7 @@ const CURRENCY_ISO_CODES =
 
 const CURRENCY_CODES: Readonly<Record<string, string>> = {
   US$: "USD",
+  "U.S.$": "USD",
   HK$: "HKD",
   AU$: "AUD",
   A$: "AUD",
@@ -818,8 +819,9 @@ const HAN_CURRENCIES = Object.keys(CURRENCY_CODES)
   .filter((word) => /^\p{Script=Han}{2,}$/u.test(word))
   .sort((a, b) => b.length - a.length)
   .join("|");
+// "US $54m" is US$54m; a lone letter stays apart, as "A $54,000 fee" is the article.
 const CURRENCY_TOKEN = new RegExp(
-  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
+  `(?:(?<![A-Za-z])(?:(?:US|U\\.S\\.|HK|AU|CA|NZ|SG|NT|MX)[ \\u00a0]?|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
 );
 /** Currency signs before a number, and codes and names before it, with a space allowed. */
 const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
@@ -1051,7 +1053,7 @@ export function scaleExponent(word: string): number {
 
 /** The unit a currency or unit word names, with the context's "$", "元" and "¥". */
 function currencyCodes(word: string, settled: Settled): string[] {
-  const trimmed = word.trim();
+  const trimmed = word.trim().replace(/(?<=\S)[ \u00a0](?=\$$)/, "");
   if (trimmed === "$" || trimmed.toLowerCase() === "dollars") return [settled.dollar];
   if (trimmed === "元" || trimmed === "圆") return [settled.yuan];
   if (trimmed === "¥") return settled.yen;
@@ -1795,10 +1797,11 @@ function readAround(
     const codes = currencyCodes(currencyAfter.word.replace(/(.)人民币$/, "$1"), settled);
     // "新台币54,000元" is in TWD: 元 after one named currency is that currency's unit.
     const unitOfNamed = /^[元圆]$/.test(currencyAfter.word) && draft.currencies.length === 1;
-    // "¥3,500元": the word after settles the sign before.
+    // "¥3,500元" and "$54,000 AUD": the word after settles the sign before.
     if (!unitOfNamed) {
-      const settles =
-        draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code));
+      const sign = draft.currencyAt ? s.slice(draft.currencyAt.from, draft.currencyAt.to) : "";
+      const mayBe = [...draft.currencies, ...(SIGN_CURRENCIES[sign.normalize("NFKC")] ?? [])];
+      const settles = draft.currencies.length === 0 || codes.every((code) => mayBe.includes(code));
       draft.currencies = settles ? codes : [...new Set([...draft.currencies, ...codes])];
     }
     draft.currencyAt ??= currencyAfter.at;
@@ -2412,13 +2415,19 @@ export function writesMeasure(text: string, measure: string): boolean {
 // A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
 const BARE_DOLLAR = /^(?:\$|dollars?)$/i;
 const NAMES_A_DOLLAR = new RegExp(
-  `${longestFirst(Object.keys(CURRENCY_CODES).filter((word) => /\$|dollar/i.test(word)))
+  `${longestFirst(
+    Object.entries(CURRENCY_CODES)
+      .filter(([, code]) => ANY_DOLLAR.includes(code))
+      .map(([word]) => word),
+  )
     .map((word) => word.replace(/[$.]/g, "\\$&"))
     .join("|")}|(?<![A-Za-z])(?:${ANY_DOLLAR.join("|")})(?![A-Za-z])`,
   "i",
 );
 
-export const bareDollar = (figure: Figure): boolean => BARE_DOLLAR.test(signOf(figure) ?? "");
+/** Whether a figure's dollar is only its bare "$" or "dollars": "$54,000", not "$54,000 AUD". */
+export const bareDollar = (figure: Figure): boolean =>
+  BARE_DOLLAR.test(signOf(figure) ?? "") && !NAMES_A_DOLLAR.test(figure.chars.normalize("NFKC"));
 
 export const isDollar = (code: string): boolean => ANY_DOLLAR.includes(code);
 

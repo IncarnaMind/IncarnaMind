@@ -316,6 +316,158 @@ describe("Checking which dollar a bare $ is (#2226)", { timeout: 60_000 }, () =>
   });
 });
 
+const LONG_TABLE = (heading: string, rent: string) =>
+  `Item\tAmount (${heading})\n${Array.from({ length: 60 }, (_, at) => `Item ${at + 1}\t${1000 + at}`).join("\n")}\nRent\t${rent}`;
+
+describe("A dollar named beside its amount, and a plain number under a bare $ (#2226)", () => {
+  // protects=a code, a name or a country prefix beside a "$" says which dollar it is, so the amount is in that dollar and not a bare "$", while a lone letter before it ("A $54,000 fee") stays an article; a plain number whose Document writes a dollar only by a bare "$" or "dollars", in a heading the cited text lost, a unit line or another figure, is asked which dollar, and one whose Document names no currency keeps its reason; fails_when="$54,000 AUD" backs "US$54,000", "US $54m" backs "A$54m", a truly bare "$54,000" backs "US$54,000", or a plain number under a lost "Amount ($)", "All amounts are in dollars." or beside another figure's "$5,000" backs "US$"; no_claim=a real model's verdict.
+  test.each([
+    ["The fee is US$54,000.", "The fee is $54,000 AUD.", "unit", "$54,000 AUD"],
+    ["The fee is A$54,000.", "The fee is $54,000 USD.", "unit", "$54,000 USD"],
+    ["Revenue was A$54m in 2025.", "Revenue was US $54m in 2025.", "unit", "US $54m"],
+    ["租金为54,000美元。", "租金为$54,000 AUD。", "unit", "$54,000 AUD"],
+    ["The fee is US$54,000.", "The fee is $54,000.", "which dollar", "$54,000"],
+    ["The fee is A$54,000.", "A $54,000 fee is due.", "which dollar", "$54,000"],
+    [
+      "The rent is US$74,000 a year.",
+      "Rent\t74,000",
+      "which dollar",
+      "74,000",
+      LONG_TABLE("$", "74,000"),
+    ],
+    [
+      "The rent is US$54,000 a year.",
+      "The rent is 54,000 a year.",
+      "which dollar",
+      "54,000",
+      "All amounts are in dollars.\nThe rent is 54,000 a year.",
+    ],
+    [
+      "The rent is US$54,000 a year.",
+      "All amounts are in $.\nThe rent is 54,000 a year.",
+      "which dollar",
+      "54,000",
+    ],
+    [
+      "The rent is US$64,000 a year.",
+      "The rent is 64,000 a year and the bond is $5,000.",
+      "which dollar",
+      "64,000",
+    ],
+    ["Revenue was US$54m.", "Revenue\t54", "which dollar", "54", "Results ($m)\nRevenue\t54"],
+    ["The rent is US$64,000 a year.", "The rent is 64,000 a year.", "currency", "64,000"],
+  ])("%s against %j is %s", (claim, cited, kind, amount, document?: string) => {
+    expect(unitNotStated(claim, read(cited, document ?? cited))).toMatchObject({ kind, amount });
+  });
+
+  test.each([
+    ["The fee is US$54,000.", "The fee is $54,000 USD."],
+    ["The rent is A$54,000 a year.", "The rent is $54,000 AUD a year."],
+    ["Revenue was US$54m in 2025.", "Revenue was US $54m in 2025."],
+    ["The fee is US$54,000.", "The fee is $54,000 US dollars."],
+    ["The fee is US$54,000.", "The fee is U.S. $54,000."],
+    ["The fee is HK$54,000.", "The fee is HK $54,000."],
+    ["租金为54,000澳元。", "租金为$54,000 AUD。"],
+    ["费用为54,000美元。", "费用为$54,000美元。"],
+    ["The fee is $54,000.", "The fee is $54,000 USD."],
+    ["The rent is US$74,000 a year.", "Rent\t74,000", LONG_TABLE("USD", "74,000")],
+    ["The rent is $74,000 a year.", "Rent\t74,000", LONG_TABLE("$", "74,000")],
+    [
+      "The rent is US$54,000 a year.",
+      "The rent is 54,000 a year.",
+      "All amounts are in US dollars.\nThe rent is 54,000 a year.",
+    ],
+    ["The rent is US$64,000 a year.", "The rent is 64,000 a year and the bond is US$5,000."],
+    ["Revenue was US$54m.", "Revenue\t54", "Results (US$m)\nRevenue\t54"],
+    ["Revenue was $54m.", "Revenue\t54", "Results ($m)\nRevenue\t54"],
+  ])("%s against %j isn't flagged", (claim, cited, document?: string) => {
+    expect(unitNotStated(claim, read(cited, document ?? cited))).toBeNull();
+  });
+});
+
+describe("Checking a dollar named beside its amount, and a plain number under a bare $ (#2226)", {
+  timeout: 60_000,
+}, () => {
+  const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
+  const INVOICE = { name: "Invoice.txt", contents: "Invoice\nThe fee is $54,000 USD.\n" };
+  const BARE = { name: "Bare invoice.txt", contents: "Bare invoice\nThe fee is $64,000.\n" };
+  const TABLE = { name: "Table.txt", contents: `Table\n${LONG_TABLE("$", "74,000")}\n` };
+  const USD_TABLE = {
+    name: "USD table.txt",
+    contents: `USD table\n${LONG_TABLE("USD", "84,000")}\n`,
+  };
+  const RENT = {
+    name: "Rent.txt",
+    contents: "Rent\nAll amounts are in dollars.\nThe rent is 54,000 a year.\n",
+  };
+  const US_RENT = {
+    name: "US rent.txt",
+    contents: "US rent\nAll amounts are in US dollars.\nThe deposit is 44,000.\n",
+  };
+  const BOND = {
+    name: "Bond.txt",
+    contents: "Bond\nThe rent is 64,000 a year and the bond is $5,000.\n",
+  };
+  const CASES: Readonly<Record<string, readonly [{ name: string; contents: string }, Plan]>> = {
+    "The fee is US$54,000.": [INVOICE, supported("The fee is $54,000 USD")],
+    "The fee is A$54,000.": [INVOICE, supported("The fee is $54,000 USD")],
+    "The rent is A$54,000 a year.": [
+      { name: "Lease.txt", contents: "Lease\nThe rent is $54,000 AUD a year.\n" },
+      supported("The rent is $54,000 AUD a year"),
+    ],
+    "Revenue was US$54m in 2025.": [
+      { name: "Report.txt", contents: "Report\nRevenue was US $54m in 2025.\n" },
+      supported("Revenue was US $54m in 2025"),
+    ],
+    "The fee is US$64,000.": [BARE, supported("The fee is $64,000")],
+    "The rent is US$74,000 a year.": [TABLE, supported("Rent\t74,000")],
+    "The rent is US$84,000 a year.": [USD_TABLE, supported("Rent\t84,000")],
+    "The rent is US$54,000 a year.": [RENT, supported("The rent is 54,000 a year")],
+    "The deposit is US$44,000.": [US_RENT, supported("The deposit is 44,000")],
+    "The rent is US$64,000 a year.": [BOND, supported("The rent is 64,000 a year")],
+  };
+  const alone = async (claim: string, language: "en" | "zh-CN") => {
+    const found = CASES[claim];
+    if (!found) throw new Error(`No case for ${claim}`);
+    const [document, scripted] = found;
+    const { core } = await setUpWithDocuments(checkingModel({ [claim]: scripted }), [document]);
+    if (language !== "en") await core.updateSettings({ user: { language } });
+    return core.checkClaim({ claim });
+  };
+
+  // protects=through the core, in English and Chinese, with the model calling every sentence supported: "$54,000 USD", "$54,000 AUD" and "US $54m" back the dollar they name, and "$54,000 USD" doesn't back "A$54,000"; a truly bare "$64,000", a plain number under a 60-row table's "Amount ($)" heading, one under "All amounts are in dollars." and one beside another figure's "$5,000" are Unsupported, naming the Document and the amount without a currency, while "Amount (USD)" and "All amounts are in US dollars." back US$ (#2226); fails_when=any of these checks the other way or gives another reason; no_claim=a real model's verdict.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const zh = language === "zh-CN";
+    const which = (document: string, amount: string) =>
+      zh
+        ? `“${document}”写的是“${amount}”，没有注明币种`
+        : `“${document}” gives “${amount}” without saying which currency`;
+    for (const claim of [
+      "The fee is US$54,000.",
+      "The rent is A$54,000 a year.",
+      "Revenue was US$54m in 2025.",
+      "The rent is US$84,000 a year.",
+      "The deposit is US$44,000.",
+    ]) {
+      expect(await alone(claim, language), claim).toMatchObject({ verdict: "supported" });
+    }
+    expect(await alone("The fee is A$54,000.", language)).toMatchObject({
+      verdict: "unsupported",
+    });
+    for (const [claim, document, amount] of [
+      ["The fee is US$64,000.", "Bare invoice", "$64,000"],
+      ["The rent is US$74,000 a year.", "Table", "74,000"],
+      ["The rent is US$54,000 a year.", "Rent", "54,000"],
+      ["The rent is US$64,000 a year.", "Bond", "64,000"],
+    ] as const) {
+      expect(await alone(claim, language), claim).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { reason: which(document, amount) },
+      });
+    }
+  });
+});
+
 describe("A figure row's number in another currency (#1452)", () => {
   // protects=with the numbers a figure's row was bound to, an amount of the same value in another currency is found, and the same currency written another way isn't; fails_when="人民币两万元" bound to "2万美元" passes, or "US$54,000" bound to "USD 54,000" is flagged; no_claim=whether the row binds such a number, which the figure check decides.
   test.each([

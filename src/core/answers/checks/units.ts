@@ -78,6 +78,52 @@ interface Read {
   language: string | null;
 }
 
+const namedInCited = (each: Read) =>
+  (each.named ??= namedCurrencies(each.cited, each.context, each.figures));
+
+const namedInDocument = (each: Read) =>
+  (each.inDocument ??= namedCurrencies(each.text.document(), each.context, null));
+
+const named = (each: Read, code: string) =>
+  namedInCited(each).has(code) || namedInDocument(each).has(code);
+
+function namesWhich(each: Read, code: string): boolean {
+  each.which ??= namedCurrencies(each.cited, each.context, each.figures, true);
+  if (each.which.has(code)) return true;
+  each.whichInDocument ??= namedCurrencies(each.text.document(), each.context, null, true);
+  return each.whichInDocument.has(code);
+}
+
+const onNamedDollar = (each: Read, code: string) =>
+  each.figures.some((other) =>
+    readingsOf(other).some(
+      (reading) =>
+        reading.unit.kind === "currency" &&
+        reading.unit.code === code &&
+        unsaidDollars(other, reading, each.cited, each.context) === null,
+    ),
+  );
+
+/**
+ * What a cited plain number says of `figure`'s currencies, `codes`: "agrees" where its cited text
+ * or Document names one, and "which dollar" where they write a dollar only by a bare "$" or
+ * "dollars" and `figure` names which. A plain number takes a dollar only where its Document says
+ * which (#2226).
+ */
+function plainSays(
+  figure: Figure,
+  each: Read,
+  codes: ReadonlySet<string>,
+): "agrees" | "which dollar" | null {
+  const bare = bareDollar(figure);
+  const says = (code: string) =>
+    !isDollar(code) || bare || namesWhich(each, code) || onNamedDollar(each, code);
+  if ([...codes].some((code) => named(each, code) && says(code))) return "agrees";
+  if (bare || ![...codes].some(isDollar)) return null;
+  const said = [...namedInCited(each), ...namedInDocument(each)];
+  return said.some((code) => !says(code)) ? "which dollar" : null;
+}
+
 function matchesOf(found: readonly { text: CheckedText | null; start: number }[]) {
   const read = found.flatMap(({ text, start }) => (text === null ? [] : [{ text, start }]));
   return read.filter(
@@ -145,28 +191,10 @@ function givenOtherwise(
   const equal = valued(figure.value);
   if (figure.unit.kind === "currency") {
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
-    const named = (each: Read, code: string) => {
-      each.named ??= namedCurrencies(each.cited, each.context, each.figures);
-      if (each.named.has(code)) return true;
-      each.inDocument ??= namedCurrencies(each.text.document(), each.context, null);
-      return each.inDocument.has(code);
-    };
-    const namesWhich = (each: Read, code: string) => {
-      each.which ??= namedCurrencies(each.cited, each.context, each.figures, true);
-      if (each.which.has(code)) return true;
-      each.whichInDocument ??= namedCurrencies(each.text.document(), each.context, null, true);
-      return each.whichInDocument.has(code);
-    };
     const judged = equal.map((found) => {
       const { each, number, reading } = found;
-      if (reading.unit.kind === "plain") {
-        // A plain number takes a dollar only where its Document says which (#2226).
-        const backed = [...codes].some(
-          (code) =>
-            named(each, code) && (!isDollar(code) || bareDollar(figure) || namesWhich(each, code)),
-        );
-        return { found, as: backed ? "agrees" : "plain" };
-      }
+      if (reading.unit.kind === "plain")
+        return { found, as: plainSays(figure, each, codes) === "agrees" ? "agrees" : "plain" };
       if (reading.unit.kind !== "currency") return { found, as: "other" };
       const dollars = unsaidDollars(number, reading, each.cited, each.context);
       if (dollars) {
@@ -302,14 +330,19 @@ export function unitNotStated(
               same.some(({ unit }) => unit.kind === "currency")),
         ),
       );
-      if (!stated) {
-        return {
-          kind: "scale",
-          figure: figure.chars,
-          amount: sameWritten[0]?.chars ?? figure.chars,
-          matches: matchesOf(sameWritten),
-        };
-      }
+      const amount = sameWritten[0]?.chars ?? figure.chars;
+      if (!stated)
+        return { kind: "scale", figure: figure.chars, amount, matches: matchesOf(sameWritten) };
+      // "Results ($m)" over a cited "Revenue 54" gives the scale and a dollar, not which one.
+      const code = figure.unit.kind === "currency" ? figure.unit.code : null;
+      if (
+        code !== null &&
+        isDollar(code) &&
+        !bareDollar(figure) &&
+        !same.some(({ unit }) => unit.kind === "currency") &&
+        !read.some((each) => namesWhich(each, code))
+      )
+        return { kind: "which dollar", amount, matches: matchesOf(sameWritten) };
     }
     const decided = worked.some(({ start, end }) => start < figure.end && figure.start < end);
     const otherwise = decided ? null : givenOtherwise(figure, read, bound);
@@ -330,23 +363,12 @@ export function unitNotStated(
     if (same.some(({ unit }) => unit.kind !== "plain")) continue;
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
     if (codes.size === 0) continue;
-    const names = (each: Set<string>) => [...codes].some((code) => each.has(code));
-    const inCited = read.some((each) => {
-      each.named ??= namedCurrencies(each.cited, each.context, each.figures);
-      return names(each.named);
-    });
-    if (inCited) continue;
-    const inDocument = read.some((each) => {
-      each.inDocument ??= namedCurrencies(each.text.document(), each.context, null);
-      return names(each.inDocument);
-    });
-    if (inDocument) continue;
-    return {
-      kind: "currency",
-      currency: figure.currency ?? [...codes][0] ?? "",
-      amount: same[0]?.chars ?? figure.chars,
-      matches: matchesOf(same),
-    };
+    if (read.some((each) => plainSays(figure, each, codes) === "agrees")) continue;
+    const amount = same[0]?.chars ?? figure.chars;
+    const matches = matchesOf(same);
+    if (read.some((each) => plainSays(figure, each, codes) === "which dollar"))
+      return { kind: "which dollar", amount, matches };
+    return { kind: "currency", currency: figure.currency ?? [...codes][0] ?? "", amount, matches };
   }
   return null;
 }
