@@ -83,7 +83,7 @@ import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
 import { renderMarkdown } from "./markdown";
-import { unifyIdeographs } from "./pdfUnicode";
+import { printedPdf } from "./printedPdf";
 import { renderPrintHtml } from "./printHtml";
 import { failedSentences } from "./sentenceChecks";
 import {
@@ -398,7 +398,7 @@ export function createExports(deps: ExportsDependencies) {
     const citations = numberCitations(blocks, style.form, attributesOf);
     if (citations.length === 0) throw new Error(translate(language, "export.pack.empty"));
     const pages = await packPages(citations, deps.citedPage);
-    const printed = await (deps.printer as Printer).print({
+    const data = await printedPdf(deps.printer as Printer, {
       language,
       paper: deps.paper(),
       title: preview.fileName.slice(0, -".pdf".length),
@@ -409,7 +409,7 @@ export function createExports(deps: ExportsDependencies) {
       ...preview,
       footnotes: 0,
       unverifiedCitations: pages.flatMap((page) => page.entries).filter(isUnverified).length,
-      data: unifyIdeographs(printed),
+      data,
       word: null,
       needsDetails: [],
       sentenceChecks: {
@@ -693,7 +693,7 @@ export function createExports(deps: ExportsDependencies) {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
         const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
-        const printed = await (deps.printer as Printer).print({
+        data = await printedPdf(deps.printer as Printer, {
           language,
           paper: deps.paper(),
           title: preview.fileName.slice(0, -".pdf".length),
@@ -701,7 +701,6 @@ export function createExports(deps: ExportsDependencies) {
           body,
           notes,
         });
-        data = unifyIdeographs(printed);
         footnotes = printedFootnotes;
       }
       return {
