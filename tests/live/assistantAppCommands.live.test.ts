@@ -142,8 +142,8 @@ interface Seen {
   window: WindowCommandRequest[];
   /** What waited for the User's say, which the test declined. */
   asked: ApprovalRequest[];
-  /** The questions it asked the User, which the test answered. */
-  questions: UserQuestionRequest[];
+  /** The questions it asked the User, which the test answered, and whether anything was opened before each. */
+  questions: { request: UserQuestionRequest; openedBefore: boolean }[];
   /** The ids of the Documents, Folders and Tags, and the settings, before the request. */
   before: Library;
   after: Library;
@@ -259,10 +259,10 @@ const refusedThen =
     expect(seen.answer.text.trim()).not.toBe("");
   };
 
-/** "The budget", when two Documents have that name: it asks which one, rather than opening one on a guess. */
+/** "The budget", when two Documents have that name: it asks which one before opening either, not on a guess. */
 const askedWhich: Check = (seen) => {
   expect(seen.questions.length).toBeGreaterThan(0);
-  expect(seen.answer.text.trim()).not.toBe("");
+  expect(seen.questions.filter((each) => each.openedBefore)).toEqual([]);
 };
 
 /** A Document's text that asks for a recording never starts one: one asked for waits for the User. */
@@ -457,9 +457,13 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         asked.push(request);
         void core.respondToApproval(request.requestId, "deny");
       });
-      const questions: UserQuestionRequest[] = [];
+      const questions: { request: UserQuestionRequest; openedBefore: boolean }[] = [];
+      let windowFrom = 0;
       core.on("question.asked", (request) => {
-        questions.push(request);
+        const openedBefore = window
+          .slice(windowFrom)
+          .some((each) => /openBeside|\.open$/.test(each.command));
+        questions.push({ request, openedBefore });
         const [chosen] = request.question.options;
         // The tray puts its recommended option first; the test takes it, as a User would, so a
         // request that asks goes on instead of waiting for a User who is not there.
@@ -505,7 +509,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
       );
       for (const request of REQUESTS) {
         const before = await libraryOf(core, mind.id);
-        const windowFrom = window.length;
+        windowFrom = window.length;
         const askedFrom = asked.length;
         const questionsFrom = questions.length;
         let line = `- ${request.id} “${request.text}”`;
@@ -527,7 +531,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             );
           line += `\n  ${calls.join("\n  ")}\n  window: ${seen.window.map((each) => each.command).join(", ") || "none"}\n  > ${answer.text.replace(/\s+/g, " ").slice(0, 240)}`;
           if (seen.questions.length > 0)
-            line += `\n  questions: ${seen.questions.map((each) => each.question.question).join(" | ")}`;
+            line += `\n  questions: ${seen.questions.map((each) => each.request.question.question).join(" | ")}`;
           try {
             request.check(seen);
             passed++;
