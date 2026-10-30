@@ -83,9 +83,12 @@ const deletedNames = (window: Page) =>
 const undoLine = (window: Page) => window.getByTestId("undo-line");
 const noQuestion = (window: Page) => expect(window.locator("dialog[open]")).toHaveCount(0);
 const rows = (window: Page) => window.getByTestId("deleted-item");
+const exactText = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 // By its own name: where it was can be another row's name (#2238).
 const row = (window: Page, name: string) =>
-  rows(window).filter({ has: window.getByTestId("deleted-name").getByText(name, { exact: true }) });
+  rows(window).filter({
+    has: window.getByTestId("deleted-name").filter({ hasText: exactText(name) }),
+  });
 
 /** Recently deleted, at the foot of the Library page: its section, opened if it was folded. */
 async function openDeleted(window: Page): Promise<Locator> {
