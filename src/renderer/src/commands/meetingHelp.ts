@@ -35,6 +35,7 @@ const whilePanelShown = () =>
 
 const helpCommand = (kind: MeetingHelpKind, general: boolean): Command => ({
   id: `meeting.help.${kind}`,
+  assistant: false,
   label: helpLabel(kind),
   keywords: ["meetings.help.label"],
   group: "main",

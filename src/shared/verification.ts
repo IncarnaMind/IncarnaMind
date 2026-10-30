@@ -1,12 +1,18 @@
 /**
  * What a Mind made to verify a document someone else wrote keeps (#97): the
  * Document it reads, the page each of its Blocks came from, and the
- * sentences found to make claims, once they are found. Like the Mind's model
- * (`mindModel.ts`) it lives in the Mind's Yjs settings, not in its Blocks, so
- * an older version keeps it as it is and the content schema stays as it is.
+ * sentences found to make claims, once they are found, each with its
+ * `occurrence` and `parts`, and the `sortedText` they were sorted from
+ * (#2002). It lives in the Mind's Yjs settings, not in its Blocks. An older
+ * version's writer drops the fields it doesn't know when it writes this
+ * record: only the content schema bump in ADR-0003's claim-parts amendment
+ * keeps those Notes from it. A Word file verified (#110) is a Mind imported
+ * from it, whose Blocks know their place in the file instead of a page.
  */
 import type * as Y from "yjs";
-import { MIND_SETTINGS_FIELD } from "../core/api";
+import { type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../core/api";
+import { readPartPlans } from "./claimParts";
+import { wordSourceOf } from "./wordFiles";
 
 const KEY = "verification";
 
@@ -14,16 +20,24 @@ const KEY = "verification";
 export interface VerifiedClaim {
   blockId: string;
   text: string;
+  occurrence?: number;
+  parts?: ClaimPartPlan[];
 }
 
 export interface Verification {
   documentId: string;
   /** The Document's name when the Mind was made, for when it is gone. */
   documentName: string;
-  /** The page of the document each Block came from, by Block id. */
+  /** The page of the document each Block came from, by Block id; none for a Word file. */
   pages: Readonly<Record<string, number>>;
   /** The sentences that make claims, once found; null before. */
   claims: readonly VerifiedClaim[] | null;
+  /**
+   * Whether its Word export gets comments on what needs a look (#110): off until the User turns
+   * it on for this Note, since they quote the User's Documents in a file that goes back.
+   */
+  comments: boolean;
+  sortedText?: string;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -31,11 +45,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 function claimsOf(value: unknown): VerifiedClaim[] | null {
   if (!Array.isArray(value)) return null;
-  return value.flatMap((each) =>
-    isRecord(each) && typeof each.blockId === "string" && typeof each.text === "string"
-      ? [{ blockId: each.blockId, text: each.text }]
-      : [],
-  );
+  return value.flatMap((each): VerifiedClaim[] => {
+    if (!isRecord(each) || typeof each.blockId !== "string" || typeof each.text !== "string")
+      return [];
+    const parts = readPartPlans(each.parts, each.text);
+    return [
+      {
+        blockId: each.blockId,
+        text: each.text,
+        ...(typeof each.occurrence === "number" &&
+          Number.isInteger(each.occurrence) &&
+          each.occurrence >= 0 && { occurrence: each.occurrence }),
+        ...(parts && { parts }),
+      },
+    ];
+  });
 }
 
 function pagesOf(value: unknown): Record<string, number> {
@@ -58,12 +82,21 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     documentName: typeof value.documentName === "string" ? value.documentName : "",
     pages: pagesOf(value.pages),
     claims: claimsOf(value.claims),
+    comments: value.comments === true,
+    ...(typeof value.sortedText === "string" && { sortedText: value.sortedText }),
   };
 }
 
 /** The Verification of a Mind's document. */
 export const verificationOf = (doc: Y.Doc): Verification | null =>
   readVerification(doc.getMap(MIND_SETTINGS_FIELD));
+
+/**
+ * Whether a Block holds the verified document's text, not what the User wrote beside it: a PDF's
+ * Block has its page, a Word file's was imported from the file.
+ */
+export const isVerifiedBlock = (doc: Y.Doc, verification: Verification, blockId: string): boolean =>
+  blockId in verification.pages || wordSourceOf(doc, blockId) !== null;
 
 /** Records what a Mind verifies, in place of what it recorded. */
 export function writeVerification(settings: Y.Map<unknown>, verification: Verification): void {
@@ -72,6 +105,8 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     documentName: verification.documentName,
     pages: { ...verification.pages },
     claims: verification.claims ? verification.claims.map((each) => ({ ...each })) : null,
+    comments: verification.comments,
+    ...(verification.sortedText !== undefined && { sortedText: verification.sortedText }),
   });
 }
 

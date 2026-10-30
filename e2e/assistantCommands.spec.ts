@@ -7,6 +7,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -141,10 +142,7 @@ test("renaming by date, moving into a new Folder and tagging each happen at once
   const moved = await askInAssistant(window, "Move the leases into Real estate");
   const movedCard = moved.getByTestId("command-changes");
   await expect(movedCard.getByTestId("command-changes-title")).toHaveText(
-    "Moved 2 Documents to “Real estate”",
-  );
-  await expect(movedCard.getByTestId("command-changes-item").first()).toHaveText(
-    "Made the Folder “Real estate”",
+    "Made “Real estate” and moved 2 Documents into it",
   );
   await expect(window.getByTestId("sidebar")).toContainText("Real estate");
   await pointAndClick(window, movedCard.getByTestId("command-changes-undo"));
@@ -326,5 +324,223 @@ test("in Chinese, tagging says what changed in the card and the undo line, at a 
   ]);
   expect(box && box.x + box.width <= width).toBe(true);
   await screenshot(window, "commands-tagged-zh-narrow");
+  await app.close();
+});
+
+/*
+ * The assistant does what the User can in the app, from the one command list (#1421), as the
+ * prototype's Guide flow "Ask the assistant to organize files" has it.
+ */
+
+async function organizeWithTheFake(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [provider] = await core.listChatProviders();
+    if (!provider) throw new Error("No provider.");
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: false,
+    });
+  });
+}
+
+test("a Folder made and the leases moved into it are one request: the card, the undo line and ⌘Z take both back", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const answer = await askInAssistant(
+    window,
+    "Make a Folder called Leases and move the leases into it",
+  );
+
+  const card = answer.getByTestId("command-changes");
+  await expect(card.getByTestId("command-changes-title")).toHaveText(
+    "Made “Leases” and moved 2 Documents into it",
+  );
+  await expect(window.getByTestId("undo-line")).toContainText(
+    "Made “Leases” and moved 2 Documents into it",
+  );
+  await expect(window.getByTestId("sidebar")).toContainText("Leases");
+  await screenshot(window, "commands-made-moved-en");
+  await undoFrom(window, card);
+  await expect.poll(async () => (await library(window)).folders).not.toContain("Leases");
+  await expect(card.getByTestId("command-changes-undone")).toBeVisible();
+  await app.close();
+});
+
+test("open a Document beside this one splits to the right and says so in one line, with no Undo; this Note is still the one asked from", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await expect(window.getByTestId("tab-group")).toHaveCount(1);
+
+  const answer = await askInAssistant(window, "Open the Lease Mill Lane beside this one");
+
+  await expect(answer.getByTestId("command-changes-title")).toHaveText(
+    "Opened “Lease Mill Lane” beside this one",
+  );
+  await expect(answer.getByTestId("command-changes-undo")).toHaveCount(0);
+  await expect(window.getByTestId("tab-group")).toHaveCount(2);
+  await expect(window.getByTestId("tab-group").last()).toContainText("Lease Mill Lane");
+  // The Note the User asked from stays where it was.
+  await expect(window.getByTestId("tab-group").first()).toContainText("Deal notes");
+  await screenshot(window, "commands-open-beside-en");
+  const checked = await askInAssistant(window, "Check this Note");
+  // A claim the model must name is a question before a run billed per token: the reply waits for it, and says Done only after the Check runs.
+  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
+  await expect(ask).toBeVisible();
+  await expect(checked.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await expect(checked.getByTestId("command-changes-title")).toHaveText("Done: Check");
+  await app.close();
+});
+
+test("starting a recording waits for Allow, whoever asked, and Don't allow records nothing", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const card = await askAndWait(window, "Start recording a meeting");
+  await expect(card).toHaveAttribute("data-ask", "listen");
+  await expect(card).toContainText("Run “Record a meeting”?");
+  await expect(card).toContainText("It starts or changes a recording, so it waits for you.");
+  await expect(card.getByTestId("approval-always-allow")).toHaveCount(0);
+  await screenshot(window, "commands-record-asks-en");
+  await pointAndClick(window, card.getByTestId("approval-deny"));
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(answer.getByTestId("command-changes-unrun")).toHaveText(
+    "Not allowed, so nothing changed",
+  );
+  const meetings = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listMeetings()).length;
+  });
+  expect(meetings).toBe(0);
+  await app.close();
+});
+
+test("Check this Note runs the check as ⌘K does, and the reply says Done", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const answer = await askInAssistant(window, "Check this Note");
+  // The Check asks before it runs: the reply must not say Done until the User answers.
+  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
+  await expect(ask).toBeVisible();
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Done: Check");
+  await expect(answer.getByTestId("command-changes-undo")).toHaveCount(0);
+  await app.close();
+});
+
+test("Local mode is the User's: nothing changes, and one button opens Privacy", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+
+  const answer = await askInAssistant(window, "Turn on Local mode");
+
+  const line = answer.getByTestId("command-yours");
+  await expect(line).toContainText(
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.",
+  );
+  await expect(answer.getByTestId("approval-card")).toHaveCount(0);
+  await screenshot(window, "commands-yours-en");
+  await pointAndClick(window, line.getByTestId("command-yours-open"));
+  await expect(window.getByTestId("settings-page-title")).toHaveText("Privacy");
+  const localOnly = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.getEmbeddingSettings()).localOnly;
+  });
+  expect(localOnly).toBe(false);
+  await app.close();
+});
+
+test("in Chinese, Local mode's line and its button are in Chinese, and fit a narrow window", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window, "zh-CN");
+  await setWindowSize(app, window, 900, 700);
+
+  const answer = await askInAssistant(window, "打开本地模式");
+
+  const line = answer.getByTestId("command-yours");
+  await expect(line).toContainText(
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。",
+  );
+  await expect(line.getByTestId("command-yours-open")).toHaveText("打开隐私设置");
+  const [box, width] = await Promise.all([
+    line.boundingBox(),
+    window.evaluate(() => globalThis.innerWidth),
+  ]);
+  expect(box && box.x + box.width <= width).toBe(true);
+  await screenshot(window, "commands-yours-zh-narrow");
+  await app.close();
+});
+
+test("put the documents about rent together: Organize reads them, they wait in To review, and nothing moves", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setLanguage(window, "en");
+  await setWindowSize(app, window, 1440, 900);
+  // Only their text says rent: their names say nothing of it.
+  const files = [
+    ["Harbour Street.md", "# Harbour Street\n\nThe rent is 900 euros a month.\n"],
+    ["Scan 0042.md", "# Agreement\n\nThe rent is due on the first of each month.\n"],
+    ["Q3 commentary.md", "# Q3\n\nRevenue grew 4%.\n"],
+  ];
+  const paths = await Promise.all(
+    files.map(async ([name = "", text = ""]) => {
+      const path = join(sources, name);
+      await writeFile(path, text);
+      return path;
+    }),
+  );
+  await addDocuments(window, paths);
+  await organizeWithTheFake(window);
+  await newMind(window);
+
+  const answer = await askInAssistant(window, "Put the documents about rent together");
+
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Organized 3 Documents");
+  const line = answer.getByTestId("command-organize");
+  await expect(line).toContainText("2 wait in To review for “Rent”", { timeout: 30_000 });
+  const placed = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [{ assignments, groups }, documents] = await Promise.all([
+      core.getLibrary(),
+      core.listDocuments(),
+    ]);
+    const rent = groups.find((group) => group.name === "Rent");
+    return documents
+      .map((document) => {
+        const held = assignments.find((each) => each.documentId === document.id);
+        return {
+          name: document.name,
+          inRent: held?.groupId === rent?.id,
+          chosenByUser: held?.source === "user",
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+  expect(placed).toEqual([
+    { name: "Harbour Street", inRent: true, chosenByUser: false },
+    { name: "Q3 commentary", inRent: false, chosenByUser: false },
+    { name: "Scan 0042", inRent: true, chosenByUser: false },
+  ]);
+  await screenshot(window, "commands-organize-en");
+  await pointAndClick(window, line.getByTestId("command-organize-review"));
+  await expect(window.getByTestId("library-review")).toBeVisible();
   await app.close();
 });

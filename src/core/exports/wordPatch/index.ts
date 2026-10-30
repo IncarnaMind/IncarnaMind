@@ -93,6 +93,10 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
+  /** The comments on what needs a look the file holds (`Review.checkComments`). */
+  checkComments: number;
+  /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
+  footnotes: number;
 }
 
 /** The text width a section leaves, in twips, for new tables and pictures: US Letter's with 1 inch margins if it doesn't say. */
@@ -115,7 +119,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await writer.text(pkg.part);
 
   const doc = input.blocks.doc;
-  if (!doc || !wordFileOf(doc)) throw new Error("This Mind wasn't imported from a Word file.");
+  if (!doc || !wordFileOf(doc)) throw new Error("This Note wasn't imported from a Word file.");
   const reading = input.readOptions.review;
   const yOf = new Map<NodeJSON, Y.XmlElement>();
   const current = input.blocks
@@ -239,8 +243,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
         order.push(each);
       } else if (counterpart.kind === "table" && counterpart.key !== null) {
         for (const row of counterpart.node.content ?? []) {
-          for (const cell of row.content ?? [])
-            visit(counterpartsOf(cell.content ?? [], currentKey, reading));
+          const cells = (row.content ?? []).flatMap((cell) =>
+            counterpartsOf(cell.content ?? [], currentKey, reading),
+          );
+          visit(cells);
+          spreadRowSentence(cells.flatMap((each) => tokens.get(each.node) ?? []));
         }
       } else if (counterpart.kind === "other" || counterpart.kind === "table") {
         const element = yOf.get(counterpart.node);
@@ -326,7 +333,20 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   ) {
     report.notKept.push(signatureLoss);
   }
-  return { data, report, commented: review.commentedSentences() };
+  return {
+    data,
+    report,
+    commented: review.commentedSentences(),
+    checkComments: review.checkComments(),
+    footnotes: docxWriter.footnoteCount,
+  };
+}
+
+/** A row checked as one claim: every token of its cells carries its check, so its comment covers the row. */
+function spreadRowSentence(row: Token[]): void {
+  const sentence = row.find((each) => each.sentence?.row)?.sentence;
+  if (!sentence) return;
+  for (const each of row) each.sentence ??= sentence;
 }
 
 const signatureLoss: WordExportLoss = {

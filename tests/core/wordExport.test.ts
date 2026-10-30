@@ -6,7 +6,7 @@
  * styles, lists and footnotes, and what can't be kept is said before anything
  * is saved.
  */
-import { readdir, writeFile } from "node:fs/promises";
+import { readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
@@ -15,18 +15,25 @@ import {
   type Core,
   type Document,
   MIND_WORD_FIELD,
+  type RecordCiteResult,
   type UnsupportedReason,
   WORD_ATOM_NODE,
 } from "../../src/core";
 import { elements, parseXml, type XmlElement } from "../../src/core/documents/formats/xml";
+import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { quitCopyOptions } from "../../src/shared/exportOptions";
+import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
 import { recordProposalRequest } from "../../src/shared/proposals";
 import { folderScope } from "../../src/shared/searchScope";
-import { wordFileOf, wordImportProgressOf } from "../../src/shared/wordFiles";
+import {
+  recordWordImportProgress,
+  wordFileOf,
+  wordImportProgressOf,
+} from "../../src/shared/wordFiles";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
-import { acceptedParagraphs, textOf, unzip } from "../helpers/docx";
+import { acceptedParagraphs, checkWellFormed, textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import {
@@ -206,6 +213,37 @@ describe("what the Mind didn't change", () => {
       expect(document).toContain(`<w:sectPr>${sectPr}</w:sectPr>`);
     },
   );
+});
+
+describe("an export that can't be saved", () => {
+  test("says why in the interface language, whatever the file's trouble", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const { mindId, client } = await importFile(core, wordFile({ body: paragraph("Text.") }));
+
+    recordWordImportProgress(client.doc, 0, 1);
+    await client.settled();
+    await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
+      message:
+        "This note is still being imported from its Word file. Try again when the import finishes.",
+      wording: { key: "error.export.wordImporting" },
+    });
+
+    recordWordImportProgress(client.doc, 1, 1);
+    await client.settled();
+    for (const name of await readdir(join(dataDir, WORD_PACKAGES_FOLDER))) {
+      await rm(join(dataDir, WORD_PACKAGES_FOLDER, name));
+    }
+    await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
+      message:
+        "The Word file this note was imported from is missing from IncarnaMind’s data folder. Export in another format instead.",
+      wording: { key: "error.export.wordPackageMissing" },
+    });
+
+    expect(translate("en", "error.export.wordPackageMissing")).toContain("note");
+    expect(translate("zh-CN", "error.export.wordImporting")).toContain("笔记");
+    expect(translate("zh-CN", "error.export.wordPackageMissing")).toContain("笔记");
+  });
 });
 
 describe("an edited paragraph", () => {
@@ -597,7 +635,7 @@ describe("The Word copy offered when quitting follows the User's answer about ma
 describe("sentences whose check isn't good, in an imported file (#900)", () => {
   const checked = (
     value: string,
-    state: "contradicted" | "unsupported",
+    state: "supported" | "contradicted" | "unsupported",
     says: string | null,
     unsupported: UnsupportedReason | null = null,
     more: Record<string, unknown> = {},
@@ -793,6 +831,7 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
       unsupported: 0,
       needsRecheck: 0,
       commented: true,
+      comments: 2,
     });
     expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
     expect(textOf(comments)).toContain("Contradicted: The report says £182.9m.");
@@ -892,8 +931,18 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
         body: paragraph("Margins widened in 2026.") + paragraph("Costs fell in 2025."),
       });
       await core.updateSettings({ user: { language } });
-      const okoro = await core.saveTextAsDocument({ name: "Okoro agreement", text: "Notice." });
-      const adeyemi = await core.saveTextAsDocument({ name: "Adeyemi agreement", text: "Leave." });
+      const okoro = await core.saveTextAsDocument({
+        mindId: null,
+        conversationId: null,
+        name: "Okoro agreement",
+        text: "Notice.",
+      });
+      const adeyemi = await core.saveTextAsDocument({
+        mindId: null,
+        conversationId: null,
+        name: "Adeyemi agreement",
+        text: "Leave.",
+      });
       const scopeOf = (documentIds: string[]) => ({ folderIds: [], tagIds: [], documentIds });
       const inScope = (value: string, documentIds: string[]) => {
         const marked = checked(value, "unsupported", null);
@@ -959,6 +1008,104 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
     );
   });
 
+  test("a Supported imported sentence keeps every record-cite comment, the existing comments and other paragraphs", async () => {
+    const sentence = "The record supports only part of this claim.";
+    const remark = commented(0, "Lars Eklund", "Existing comment.", run(sentence));
+    const { core, bytes, mindId, client } = await setUp({
+      body: paragraph(remark.inline) + paragraph("Unchanged paragraph."),
+      comments: remark.comment,
+    });
+    const tides = await tidesDocument(core);
+    const recordCites: RecordCiteResult[] = [
+      {
+        raw: "Smith Dep. 45:3–12",
+        outcome: "supported",
+        documentId: tides.id,
+        documentName: "Tides",
+        contentHash: tides.contentHash,
+        location: {
+          kind: "page",
+          from: 4,
+          to: 4,
+          printed: { from: "45", to: "45" },
+          lines: { from: 3, to: 12 },
+        },
+        pageFrom: 4,
+        pageTo: 4,
+        passage: "The deposition supports the sentence.",
+      },
+      {
+        raw: "Dkt. 41 at 6",
+        outcome: "not-found",
+        documentId: tides.id,
+        documentName: "Tides",
+        contentHash: tides.contentHash,
+        location: { kind: "page", from: 6, to: 6 },
+        pageFrom: 6,
+        pageTo: 6,
+        passage: "The cited page concerns another event.",
+        nearby: {
+          location: { kind: "page", from: 7, to: 7, lines: { from: 5, to: 9 } },
+          pageFrom: 7,
+          pageTo: 7,
+          passage: "The point appears nearby instead.",
+        },
+      },
+      {
+        raw: "Jones Dep. 12:1–4",
+        outcome: "unsupported",
+        documentId: "a-deleted-deposition",
+        documentName: "Jones Deposition",
+        contentHash: "its-last-version",
+        location: { kind: "page", from: 2, to: 2, lines: { from: 1, to: 4 } },
+        pageFrom: 2,
+        pageTo: 2,
+        passage: "The deleted deposition's lines.",
+      },
+    ];
+    const marked = checked(sentence, "supported", null, null, { recordCites });
+    editMind(client, ([first, second]) => [
+      {
+        ...(first as JSONContent),
+        content: (first?.content ?? []).map((node) =>
+          node.type === "text" ? { ...node, marks: marked.marks } : node,
+        ),
+      },
+      second as JSONContent,
+    ]);
+    await client.settled();
+
+    const result = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+    const files = unzip(result.data);
+    const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+    const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
+
+    expect(result.sentenceChecks).toEqual({
+      contradicted: 0,
+      notFound: 0,
+      unsupported: 0,
+      needsRecheck: 0,
+      commented: true,
+      comments: 1,
+    });
+    expect([...comments.matchAll(/<w:comment /g)]).toHaveLength(2);
+    expect(textOf(comments)).toContain("Existing comment.");
+    expect(textOf(comments)).toContain("Smith Dep. 45:3–12: Supported");
+    expect(textOf(comments)).toContain("Passage: The deposition supports the sentence.");
+    expect(textOf(comments)).toContain("Dkt. 41 at 6: Not found");
+    expect(textOf(comments)).toContain("Nearby suggestion: Tides, p. 7 · lines 5–9");
+    expect(textOf(comments)).toContain("Jones Deposition, p. 2");
+    const ids = (name: string) =>
+      [...document.matchAll(new RegExp(`<w:${name} w:id="(\\d+)"`, "g"))].map((match) => match[1]);
+    expect(ids("commentRangeStart").sort()).toEqual(ids("commentRangeEnd").sort());
+    expect(ids("commentRangeStart").sort()).toEqual(ids("commentReference").sort());
+    expect(new Set(ids("commentRangeStart")).size).toBe(2);
+    const before = paragraphsIn(unzip(bytes).get("word/document.xml")?.toString("utf8") ?? "");
+    expect(paragraphsIn(document)[1]).toBe(before[1]);
+    checkWellFormed(document);
+    checkWellFormed(comments);
+  });
+
   test("with the option off the file is the one it was", async () => {
     const { core, bytes, mindId, client } = await setUp({
       body: paragraph("Halden held cash of £192.9m."),
@@ -1004,6 +1151,35 @@ describe("Blocks added, deleted and moved", () => {
     expect(part("[Content_Types].xml")).toContain(
       '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>',
     );
+  });
+
+  test("the Saved line counts the file's footnotes, the imported file's own included (#2193)", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph(
+        `${run("Text.")}<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="1"/></w:r>`,
+      ),
+      footnotes: `<w:footnote w:id="1"><w:p>${run("Old.")}</w:p></w:footnote>`,
+    });
+    const tides = await tidesDocument(core);
+    const at = (page: number): JSONContent => ({
+      ...citation(tides),
+      attrs: { ...citation(tides).attrs, pageFrom: page, pageTo: page },
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", content: [text("One. "), at(1)] },
+      { type: "paragraph", content: [text("Two. "), at(1)] },
+      { type: "paragraph", content: [text("Three. "), at(2)] },
+    ]);
+    await client.settled();
+    const result = await core.exportMind(mindId, { format: "docx" });
+    // The file's own note, then one for p. 1 and one for p. 2.
+    expect(result.footnotes).toBe(3);
+    const document = unzip(result.data).get("word/document.xml")?.toString("utf8") ?? "";
+    const ids = new Set(
+      [...document.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g)].map((match) => match[1]),
+    );
+    expect(ids.size).toBe(3);
   });
 
   test("in a citation style, a new Citation is written in the text and the Bibliography goes at the end", async () => {

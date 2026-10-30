@@ -5,6 +5,7 @@ import { mindCheckOf } from "../../../../shared/mindCheck";
 import { originOf } from "../../editor/blockOrigins";
 import { type SentencePlace, toCheckRanges } from "../../editor/healthCounts";
 import { mindEditor, whenMindEditor } from "../../editor/openEditors";
+import { opinionSentenceRanges } from "../../editor/opinionLocations";
 import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
 import { startCheck } from "../../mindCheck";
@@ -27,7 +28,12 @@ function writeRanges(editor: Editor, blocks: ReadonlySet<string>): { from: numbe
   const doc = editorDoc(editor);
   if (!doc) return [];
   const skipped = new Set(mindCheckOf(doc)?.skipped ?? []);
-  return toCheckRanges(editor.state, skipped, inWrite(editor, blocks));
+  return toCheckRanges(
+    editor.state,
+    skipped,
+    inWrite(editor, blocks),
+    opinionSentenceRanges(editor.state.doc, doc),
+  );
 }
 
 /** The claims this write still has to check, live from its Blocks; null while its Note isn't open. */

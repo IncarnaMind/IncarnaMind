@@ -23,6 +23,8 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   placement?: Placement;
   /** Where it goes, if not under (or over) `anchor`, called each time it is placed: a chart's value card (`chartCardPlace`). */
   middleware?: () => Middleware[];
+  /** Something else it keeps clear of, placed again as that changes size: a page's check badge. */
+  follows?: () => Element | null | undefined;
   /**
    * Called on Esc, wherever the focus is, or on a press outside both the
    * popover and `anchor`.
@@ -48,6 +50,7 @@ export function Popover({
   anchor,
   placement = "bottom-start",
   middleware,
+  follows,
   onDismiss,
   initialFocus,
   returnFocus = false,
@@ -64,6 +67,8 @@ export function Popover({
   focusFirst.current = initialFocus;
   const placing = useRef(middleware);
   placing.current = middleware;
+  const following = useRef(follows);
+  following.current = follows;
   const returning = useRef(returnFocus);
   returning.current = returnFocus;
   const dismissByEscape = useRef((from: Element | VirtualElement) => {
@@ -106,6 +111,9 @@ export function Popover({
       });
     };
     const stopFollowing = autoUpdate(anchor, element, place);
+    const followed = following.current?.();
+    const resized = followed ? new ResizeObserver(place) : null;
+    if (followed) resized?.observe(followed);
     openPopovers.push(element);
     /**
      * Whether an event happened in a popover opened after this one, such as
@@ -138,6 +146,7 @@ export function Popover({
     return () => {
       openPopovers.splice(openPopovers.indexOf(element), 1);
       stopFollowing();
+      resized?.disconnect();
       document.removeEventListener("pointerdown", dismissOnPressOutside, true);
       document.removeEventListener("keydown", dismissOnEscape, true);
       if (element.matches(":popover-open")) element.hidePopover();

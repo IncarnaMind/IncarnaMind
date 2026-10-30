@@ -116,6 +116,7 @@ import {
   livePassage,
   passagesBetween,
   passagesBySeq,
+  passagesCovering,
   passagesInWindow,
   textSearch,
   type WindowedPassage,
@@ -177,6 +178,7 @@ interface DocumentRow {
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
+  keywords_version: number;
   file_mtime_ms: number | null;
   created_at: string;
   updated_at: string;
@@ -213,7 +215,7 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
-  file_mtime_ms, created_at, updated_at`;
+  keywords_version, file_mtime_ms, created_at, updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -1015,8 +1017,14 @@ export function createDocuments(options: DocumentsOptions) {
       indexName(row.id, row.name);
       // A version that can't be read keeps the rows of its last good one, which still hold the
       // name from an older pipeline; its name match would then count twice (#2042).
-      if (result.outcome !== "ready" && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+      if (result.outcome !== "ready" && row.keywords_version < NAME_INDEX_CURRENT_SINCE) {
         reindexPassages(row.id);
+        // The rows are this version's now; the Passages they were built from, and so the
+        // version the next start reads the file for, are not (#2185).
+        db.run("UPDATE documents SET keywords_version = ? WHERE id = ?", [
+          BigInt(PROCESSING_VERSION),
+          row.id,
+        ]);
       }
       const at = now();
       if (result.outcome === "file-unreadable") {
@@ -1093,7 +1101,7 @@ export function createDocuments(options: DocumentsOptions) {
       // NAME_INDEX_CURRENT_SINCE, still holds its name in every Passage's row (#2042). Kept
       // windows and joined in place Passages aren't the rebuilt ones, so the words come from
       // the stored text, never from a rebuilt Passage at the same position.
-      if (unchanged && row.processing_version < NAME_INDEX_CURRENT_SINCE) {
+      if (unchanged && row.keywords_version < NAME_INDEX_CURRENT_SINCE) {
         if (passagesSame) {
           reindexPassages(
             row.id,
@@ -1156,7 +1164,7 @@ export function createDocuments(options: DocumentsOptions) {
         result.outcome === "failed" || result.parts == null ? null : JSON.stringify(result.parts);
       db.run(
         `UPDATE documents SET status = ?, page_count = ?, failure_reason = ?, failure_message = ?,
-           unread_parts = ?, processing_version = ?, embedding_model = ?,
+           unread_parts = ?, processing_version = ?, keywords_version = ?, embedding_model = ?,
            embedding_dimensions = CASE WHEN ? THEN embedding_dimensions END,
            content_hash = ?, size = ?, file_status = 'available', creation_date = ?,
            title = ?, metadata_version = ?, updated_at = ?
@@ -1169,6 +1177,7 @@ export function createDocuments(options: DocumentsOptions) {
           failure?.reason ?? null,
           failure?.message ?? null,
           parts,
+          BigInt(PROCESSING_VERSION),
           BigInt(PROCESSING_VERSION),
           unchanged ? row.embedding_model : status === "embedding" ? model.id : null,
           unchanged ? 1 : 0,
@@ -1200,14 +1209,15 @@ export function createDocuments(options: DocumentsOptions) {
    * Rewrites the keyword rows of the Documents an older version indexed, one
    * Document per job and per transaction, after the first window: the worker
    * segments each Passage's stored text off the core's thread, and the name row,
-   * the rows and the version are written together, so no word of a name is ever
-   * counted twice (#2042).
+   * the rows and the keyword version are written together, so no word of a name
+   * is ever counted twice (#2042). Its Passages, and the version that says which
+   * pipeline read them, are left as the last read left them (#2185).
    */
   function upgradeKeywordIndex(): void {
     if (closed || keywordUpgradeNext) return;
     const stale = db.all<{ id: string }>(
       `SELECT id FROM documents d
-       WHERE d.deleted_at IS NULL AND d.processing_version < ?
+       WHERE d.deleted_at IS NULL AND d.keywords_version < ?
          AND d.status IN ('ready', 'embedding', 'waiting-for-model')
          AND EXISTS (SELECT 1 FROM passages p
                      WHERE p.document_id = d.id AND p.deleted_at IS NULL)
@@ -1227,7 +1237,7 @@ export function createDocuments(options: DocumentsOptions) {
           return;
         }
         const row = find(id);
-        if (!row || row.processing_version >= NAME_INDEX_CURRENT_SINCE) continue;
+        if (!row || row.keywords_version >= NAME_INDEX_CURRENT_SINCE) continue;
         const passages = db.all<{ seq: number; text: string }>(
           `SELECT seq, text FROM passages
            WHERE document_id = ? AND deleted_at IS NULL ORDER BY position`,
@@ -1251,7 +1261,7 @@ export function createDocuments(options: DocumentsOptions) {
   function writeKeywordUpgrade(job: KeywordsJob, result: WorkerResult): void {
     if (result.outcome !== "keywords" || result.documentId !== job.documentId) return;
     const row = find(job.documentId);
-    if (!row || row.processing_version >= NAME_INDEX_CURRENT_SINCE) return;
+    if (!row || row.keywords_version >= NAME_INDEX_CURRENT_SINCE) return;
     if ((row.content_hash ?? "") !== job.contentHash) return;
     const live = new Set(
       db
@@ -1270,15 +1280,10 @@ export function createDocuments(options: DocumentsOptions) {
         db.run("DELETE FROM passages_fts WHERE rowid = ?", [BigInt(seq)]);
         db.run("INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", [BigInt(seq), keywords]);
       }
-      // A kind whose text a later pipeline still changes (a PDF before this version) stays
-      // below it, so the next start reads the Document again rather than calling it current.
-      const since = (CURRENT_SINCE as Readonly<Record<string, number>>)[found.kind];
-      db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-        BigInt(
-          since !== undefined && since > NAME_INDEX_CURRENT_SINCE
-            ? NAME_INDEX_CURRENT_SINCE
-            : PROCESSING_VERSION,
-        ),
+      // The rows are this version's; the Passages they were built from are not, and only a
+      // read can say they are (#2185).
+      db.run("UPDATE documents SET keywords_version = ? WHERE id = ?", [
+        BigInt(PROCESSING_VERSION),
         found.id,
       ]);
     });
@@ -1538,6 +1543,52 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   /**
+   * How many Units each of these Documents' current versions has, from the stored rows: no text
+   * is read. A Document with none is left out.
+   */
+  function unitCounts(documentIds: readonly string[]): Map<string, number> {
+    if (documentIds.length === 0) return new Map();
+    return new Map(
+      db
+        .all<{ id: string; units: bigint | number }>(
+          `SELECT dp.document_id AS id, count(DISTINCT dp.page) AS units FROM document_pages dp
+           JOIN documents d ON d.id = dp.document_id AND d.content_hash = dp.content_hash
+           WHERE dp.document_id IN (${documentIds.map(() => "?").join(", ")})
+             AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+           GROUP BY dp.document_id`,
+          [...documentIds],
+        )
+        .map((row) => [row.id, Number(row.units)]),
+    );
+  }
+
+  /**
+   * The Documents whose text or printed page names may hold a Bates number, from the keyword
+   * index and the page labels: one lookup for the Library, not one for each Document. The cite's
+   * own pages still decide.
+   */
+  function batesHolders(prefix: string, identifier: string): Set<string> {
+    const phrases = [" ", "", "_"].map(
+      (between) => `"${keywordText(`${prefix}${between}${identifier}`).replaceAll('"', '""')}"`,
+    );
+    const inText = db.all<{ id: string }>(
+      `SELECT DISTINCT p.document_id AS id FROM passages_fts
+       JOIN passages p ON p.seq = passages_fts.rowid
+       JOIN documents d ON d.id = p.document_id
+       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+      [phrases.join(" OR ")],
+    );
+    const inLabels = db.all<{ id: string }>(
+      `SELECT DISTINCT dp.document_id AS id FROM document_pages dp
+       JOIN documents d ON d.id = dp.document_id
+       WHERE dp.content_hash = d.content_hash AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND dp.label LIKE ?`,
+      [`%${identifier}%`],
+    );
+    return new Set([...inText, ...inLabels].map((row) => row.id));
+  }
+
+  /**
    * The text kept of Documents unlinked with their Linked folder (see
    * `CoreApi.listKeptCitationTexts`): by Document and version, in that order.
    */
@@ -1768,9 +1819,10 @@ export function createDocuments(options: DocumentsOptions) {
         [now(), BigInt(PICTURES_CURRENT_SINCE)],
       );
     }
-    // A Document with a Passage stays as of the version before this one until its keyword
-    // rows are rewritten: that runs in the background once the first window is up, one
-    // Document per transaction, so the start never waits for it (#2042).
+    // A Document with no Passage has nothing a read would add: it is this version's without
+    // one. One with a Passage keeps the version its Passages were read at, and its keyword
+    // rows are rewritten in the background once the first window is up, one Document per
+    // transaction, so the start never waits for them (#2042, #2185).
     db.run(
       `UPDATE documents SET processing_version = ?
        WHERE deleted_at IS NULL AND processing_version < ?
@@ -2282,17 +2334,17 @@ export function createDocuments(options: DocumentsOptions) {
     searchableNames(
       documentIds: readonly string[] | undefined,
       limit: number,
-    ): { total: number; names: string[]; webPage: boolean } {
+    ): { total: number; names: string[]; webPages: string[] } {
       const { where, params } = searchable(documentIds);
-      const rows = db.all<{ name: string; title: string | null; kind: string }>(
-        `SELECT d.name, d.title, d.kind FROM documents d WHERE ${where}
+      const rows = db.all<{ id: string; name: string; title: string | null; kind: string }>(
+        `SELECT d.id, d.name, d.title, d.kind FROM documents d WHERE ${where}
          ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
         [...params, BigInt(limit)],
       );
       return {
         total: searchableCount(documentIds),
         names: rows.map((row) => withTitle(row.name, row.title)),
-        webPage: rows.some((row) => row.kind === "web"),
+        webPages: rows.filter((row) => row.kind === "web").map((row) => row.id),
       };
     },
 
@@ -2386,6 +2438,7 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     pageTexts,
+    unitCounts,
 
     keptCitationTexts,
 
@@ -2428,16 +2481,9 @@ export function createDocuments(options: DocumentsOptions) {
       documentId: string,
       from: number | null,
       to: number | null,
-    ): { id: string; text: string }[] {
-      const range = from === null || to === null ? "" : "AND p.page_from <= ? AND p.page_to >= ?";
-      const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
-      return db.all<{ id: string; text: string }>(
-        `SELECT p.id, p.text FROM passages p JOIN documents d ON d.id = p.document_id
-         WHERE p.document_id = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-           AND p.content_hash = d.content_hash ${range}
-         ORDER BY p.position`,
-        [documentId, ...params],
-      );
+      overlapping = false,
+    ): (WindowedPassage & { id: string })[] {
+      return passagesCovering(db, documentId, from, to, overlapping);
     },
 
     /**
@@ -3014,6 +3060,8 @@ export function createDocuments(options: DocumentsOptions) {
         similar.length > 0 ? keywordOnlyPassages(db, lists[0] ?? [], model.id) : undefined;
       return passagesBySeq(db, fuseRankings(lists, limit, keywordOnly));
     },
+
+    batesHolders,
 
     /** See `CoreApi.searchDocumentText`. */
     searchText(query: unknown, options?: unknown): DocumentTextMatch[] {

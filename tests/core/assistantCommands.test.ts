@@ -316,6 +316,37 @@ describe("Commands inside IncarnaMind run at once, and one Undo takes back the R
     expect(shownMind(await core.getLayout("main"))).toBe(old.id);
   });
 
+  // protects=#2195's rollback: a Mind delete that fails partway puts the Mind it already deleted back in the list and on screen, as Undo does; fails_when=the rollback puts it back only in the list; no_claim=the Document delete, which is one call.
+  test("Delete Old draft and Plan: a failure on Plan puts Old draft back in the list and on screen", async () => {
+    const ids: string[] = [];
+    const model = calling(
+      () => ({ tool: "list_commands", input: { kind: "mind" } }),
+      () => ({ tool: "run_command", input: { command: "mind.delete", ids } }),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const old = await core.createMind({ title: "Old draft" });
+    const plan = await core.createMind({ title: "Plan" });
+    ids.push(old.id, plan.id);
+    await core.changeLayout("main", { type: "open", item: { kind: "mind", mindId: old.id } });
+    expect(shownMind(await core.getLayout("main"))).toBe(old.id);
+    // While the User decides, Plan goes: the delete takes Old draft, then fails on Plan.
+    core.on("approval.requested", (request) => {
+      void (async () => {
+        await core.deleteMind(plan.id);
+        await core.respondToApproval(request.requestId, "allow-once");
+      })();
+    });
+
+    const answer = await askAssistant(core, { text: "Delete Old draft and Plan", mindId: mind.id });
+
+    expect(commandCalls(answer).map((call) => [call.tool, call.status])).toEqual([
+      ["list_commands", "done"],
+      ["run_command", "failed"],
+    ]);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(old.id);
+    expect(shownMind(await core.getLayout("main"))).toBe(old.id);
+  });
+
   // protects=a command that fails is reported as failed, from what it returned, and changes nothing, and one the assistant may not run (Privacy, keys, deleting for good) is refused; fails_when=the card says done, or something changed; no_claim=the reply's words.
   test("one that fails, or isn't the assistant's to run, is failed on its card and changes nothing", async () => {
     const model = calling(
@@ -332,7 +363,7 @@ describe("Commands inside IncarnaMind run at once, and one Undo takes back the R
     ).toEqual([
       ["failed", "error.commands.noDocument"],
       // Not one of the Tool's commands: refused before anything runs.
-      ["failed", undefined],
+      ["failed", "error.commands.unknown"],
     ]);
     expect(await names(core)).toEqual(before);
     expect((await core.listDeleted()).length).toBe(0);

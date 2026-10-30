@@ -27,7 +27,7 @@ export interface Decision {
 export const FORCED_FROM = 0.6;
 
 const INSTRUCTIONS =
-  "The User is working beside their page (a Mind) and asks the assistant this. Decide what the request is.";
+  "The User is working beside their page (a Note) and asks the assistant this. Decide what the request is.";
 
 /** The three kinds, as the app's turn rule says them, the Chinese words beside the English. */
 export const ROUTES: Readonly<Record<Route, string>> = {

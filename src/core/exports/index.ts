@@ -32,6 +32,7 @@ import {
   unreadPartsCounts,
   unreadSection,
 } from "../../shared/unreadFiles";
+import { verificationOf } from "../../shared/verification";
 import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import { checkRequests, citationSentences } from "../answers/checks/sentences";
@@ -57,8 +58,9 @@ import {
   type UnreadFile,
   WORD_CHANGE_ID,
 } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import { citedPageKey } from "../citedPages";
-import { InvalidInputError, isRecord } from "../errors";
+import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import { safeFileName } from "../fileNames";
 import type { Language } from "../language";
 import {
@@ -82,7 +84,7 @@ import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
 import { renderMarkdown } from "./markdown";
-import { unifyIdeographs } from "./pdfUnicode";
+import { printedPdf } from "./printedPdf";
 import { renderPrintHtml } from "./printHtml";
 import { failedSentences } from "./sentenceChecks";
 import {
@@ -168,6 +170,9 @@ const EXTENSIONS: Readonly<Record<ExportFormat, string>> = {
  * mark a sentence does.
  */
 function exportName(mind: Mind, blocks: Y.XmlFragment): string {
+  // Someone else's file goes back to its author under its own name (#110).
+  const verified = blocks.doc ? verificationOf(blocks.doc) : null;
+  if (verified?.documentName) return verified.documentName;
   if (mind.title !== "") return mind.title;
   const { line, question } = namedLineOf(blocks);
   return withoutTrailingMarks(question || line);
@@ -239,9 +244,10 @@ interface Prepared {
 }
 
 export function createExports(deps: ExportsDependencies) {
-  const prepare = (mindId: unknown, input: unknown): Prepared => {
-    const options = parseExportOptions(input);
-    const { format, includeQuestions } = options;
+  /** `othersComments`: for someone else's file, the comment choice to write with instead of the Note's. */
+  const prepare = (mindId: unknown, input: unknown, othersComments?: boolean): Prepared => {
+    const parsed = parseExportOptions(input);
+    const { format, includeQuestions } = parsed;
     const mind = deps.mind(mindId);
     const language = deps.language();
     const { style, textLanguage } = deps.citationStyle(mind.id);
@@ -260,11 +266,11 @@ export function createExports(deps: ExportsDependencies) {
     const listed =
       (format === "docx" || format === "pdf") &&
       style.form === "numbered" &&
-      options.citationPlace === "list";
+      parsed.citationPlace === "list";
     // Footnotes go right after the word, and so do Numbered's Citations and a shared page's
     // markers; a style decides for its own (./citations), and a list's `[1]` follows a space.
     const trimBeforeCitation =
-      (style.form === "numbered" && !listed) || (format === "share-page" && options.citationCards);
+      (style.form === "numbered" && !listed) || (format === "share-page" && parsed.citationCards);
 
     const live = new Set(documents.map((document) => document.id));
     let name = mindName(mind);
@@ -287,6 +293,7 @@ export function createExports(deps: ExportsDependencies) {
       word,
       theirChanges,
       trackedChanges,
+      othersComments: noteComments,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -328,8 +335,14 @@ export function createExports(deps: ExportsDependencies) {
           : 0,
         trackedChanges:
           format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
+        othersComments: doc ? (verificationOf(doc)?.comments ?? null) : null,
       };
     });
+    // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
+    const othersFile = noteComments !== null;
+    const commentsNow = othersFile ? (othersComments ?? noteComments) : null;
+    const options: Required<ExportMindOptions> =
+      commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     const shown = withoutEmptyTitle(read);
     const withUnread = [...shown, ...unreadBlocks(unread, language, unreadNames)];
     const blocks =
@@ -341,7 +354,7 @@ export function createExports(deps: ExportsDependencies) {
       format === "source-pack"
         ? numberCitations(blocks, style.form, attributesOf).map((each) => each.footnote)
         : footnotesIn(blocks);
-    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Mind");
+    const fileStem = safeFileName(name || translate(language, "mind.untitled"), "Note");
     const listedPlace: CitationPlace | null =
       (format === "docx" || format === "pdf") && style.form === "numbered" && footnotes.length > 0
         ? (options.citationPlace ?? "footnotes")
@@ -363,6 +376,8 @@ export function createExports(deps: ExportsDependencies) {
       unreadFileNames: unreadNames,
       citationPlace: listedPlace,
       markAiText: format === "docx" ? options.markAiText === true : null,
+      othersFile,
+      othersComments: commentsNow === true,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);
@@ -397,7 +412,7 @@ export function createExports(deps: ExportsDependencies) {
     const citations = numberCitations(blocks, style.form, attributesOf);
     if (citations.length === 0) throw new Error(translate(language, "export.pack.empty"));
     const pages = await packPages(citations, deps.citedPage);
-    const printed = await (deps.printer as Printer).print({
+    const data = await printedPdf(deps.printer as Printer, {
       language,
       paper: deps.paper(),
       title: preview.fileName.slice(0, -".pdf".length),
@@ -406,8 +421,9 @@ export function createExports(deps: ExportsDependencies) {
     });
     return {
       ...preview,
+      footnotes: 0,
       unverifiedCitations: pages.flatMap((page) => page.entries).filter(isUnverified).length,
-      data: unifyIdeographs(printed),
+      data,
       word: null,
       needsDetails: [],
       sentenceChecks: {
@@ -416,6 +432,7 @@ export function createExports(deps: ExportsDependencies) {
         unsupported: 0,
         needsRecheck: 0,
         commented: false,
+        comments: 0,
       },
       trackedChanges: 0,
     };
@@ -615,11 +632,12 @@ export function createExports(deps: ExportsDependencies) {
 
     previewSharePage,
 
-    async export(mindId: unknown, options: unknown): Promise<MindExport> {
-      const prepared = prepare(mindId, options);
+    /** `othersComments`: for someone else's file, write with this comment choice, not the Note's (#110). */
+    async export(mindId: unknown, options: unknown, othersComments?: boolean): Promise<MindExport> {
+      const prepared = prepare(mindId, options, othersComments);
       const { title, preview, language, format, style, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
-        throw new Error("This copy of IncarnaMind can't make PDFs.");
+        throw new TranslatableError({ key: "error.checkRecord.noPdf" });
       }
       if (format === "source-pack") return sourcePack(prepared);
       const thin = thinEntries(
@@ -632,10 +650,11 @@ export function createExports(deps: ExportsDependencies) {
       if (format === "share-page" && prepared.options.citationCards) {
         return {
           ...preview,
+          footnotes: 0,
           data: await sharePage(prepared),
           word: null,
           needsDetails: [],
-          ...reviewOf(prepared, []),
+          ...reviewOf(prepared, [], 0),
         };
       }
       const labels = exportLabels(language);
@@ -662,19 +681,24 @@ export function createExports(deps: ExportsDependencies) {
             );
       let data: Uint8Array;
       let commented: readonly FailedSentence[] = [];
+      let checkComments = 0;
+      let footnotes = 0;
       if (format === "markdown") {
         data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
       } else if (format === "docx") {
-        ({ data, commented } = renderDocx(await withPictures(blocks, language, deps), {
-          title,
-          labels,
-          language: language === "zh-CN" ? "zh-CN" : "en-US",
-          paper: deps.paper(),
-          created: deps.now(),
-          review: reviewChoices(prepared, false),
-          font: prepared.font,
-          lineSpacing: prepared.lineSpacing,
-        }));
+        ({ data, commented, checkComments, footnotes } = renderDocx(
+          await withPictures(blocks, language, deps),
+          {
+            title,
+            labels,
+            language: language === "zh-CN" ? "zh-CN" : "en-US",
+            paper: deps.paper(),
+            created: deps.now(),
+            review: reviewChoices(prepared, false),
+            font: prepared.font,
+            lineSpacing: prepared.lineSpacing,
+          },
+        ));
       } else if (format === "html" || format === "share-page") {
         const drawn = await withPictures(blocks, language, deps);
         data = new TextEncoder().encode(
@@ -688,8 +712,8 @@ export function createExports(deps: ExportsDependencies) {
       } else {
         // Charts as Word has them: the picture, drawn at twice its size, else the table of values.
         const drawn = await withPictures(blocks, language, deps);
-        const { body, notes } = renderPrintHtml(drawn, labels);
-        const printed = await (deps.printer as Printer).print({
+        const { body, notes, footnotes: printedFootnotes } = renderPrintHtml(drawn, labels);
+        data = await printedPdf(deps.printer as Printer, {
           language,
           paper: deps.paper(),
           title: preview.fileName.slice(0, -".pdf".length),
@@ -697,14 +721,15 @@ export function createExports(deps: ExportsDependencies) {
           body,
           notes,
         });
-        data = unifyIdeographs(printed);
+        footnotes = printedFootnotes;
       }
       return {
         ...preview,
+        footnotes,
         data,
         word: null,
         needsDetails: [...thin.documents],
-        ...reviewOf(prepared, commented),
+        ...reviewOf(prepared, commented, checkComments),
       };
     },
   };
@@ -726,7 +751,7 @@ export function createExports(deps: ExportsDependencies) {
     word: NonNullable<Prepared["word"]>,
     thin: ThinEntries,
   ): Promise<MindExport> {
-    if (word.importing) throw new Error("This Mind is still being imported from its Word file.");
+    if (word.importing) throw new TranslatableError({ key: "error.export.wordImporting" });
     const { language, style, documents } = prepared;
     // A copy of the Mind as it is now: typing while the file is written doesn't change it.
     const state = deps.read(prepared.mindId, (blocks) =>
@@ -735,7 +760,7 @@ export function createExports(deps: ExportsDependencies) {
     const doc = new Y.Doc();
     try {
       if (state) Y.applyUpdate(doc, state);
-      const { data, report, commented } = await exportWordPatch({
+      const { data, report, commented, checkComments, footnotes } = await exportWordPatch({
         bytes: await deps.wordPackage(prepared.mindId),
         blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
         readOptions: prepared.readOptions,
@@ -755,10 +780,11 @@ export function createExports(deps: ExportsDependencies) {
       });
       return {
         ...prepared.preview,
+        footnotes,
         data,
         word: report,
         needsDetails: [...thin.documents],
-        ...reviewOf(prepared, commented),
+        ...reviewOf(prepared, commented, checkComments),
       };
     } finally {
       doc.destroy();
@@ -800,6 +826,7 @@ function thinEntries(
 function reviewOf(
   prepared: Prepared,
   commented: readonly FailedSentence[],
+  comments: number,
 ): Pick<MindExport, "sentenceChecks" | "trackedChanges"> {
   const asComments = prepared.format === "docx" && prepared.options.commentFailedChecks;
   const counted = asComments ? commented : prepared.failedSentences;
@@ -818,6 +845,7 @@ function reviewOf(
         counted.filter((each) => each.check === "cited-case-unchecked" && each.unsupported).length,
       needsRecheck: count("needs-recheck"),
       commented: asComments,
+      comments: asComments ? comments : 0,
     },
     trackedChanges: prepared.trackedChanges,
   };
@@ -948,7 +976,8 @@ function checkedLines(
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
   const t: Translate = (key, params) => translate(language, key, params);
   return (attributes) => {
-    const sentence = typeof attributes.id === "string" ? sentences.get(attributes.id) : undefined;
+    const sentence =
+      typeof attributes.id === "string" ? sentences.get(attributes.id)?.sentence : undefined;
     if (typeof attributes.id !== "string" || sentence === undefined) return [];
     const cited = {
       documentId: attributes.documentId ?? null,
@@ -956,10 +985,7 @@ function checkedLines(
       quote: attributes.quote ?? null,
     };
     return citationMarksNow(marks, attributes.id, sentence, cited, versions, null).map((now) =>
-      t(now.state === "checked" ? "export.checkedBy" : "export.checkedBy.changed", {
-        name: now.name ?? t("checkRecord.notRecorded"),
-        date: formatDate(now.at, language),
-      }),
+      checkedByLine(now, (at) => formatDate(at, language), t),
     );
   };
 }

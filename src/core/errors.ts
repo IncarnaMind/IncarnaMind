@@ -114,6 +114,14 @@ export class FileWriteCancelledError extends TranslatableError {
   }
 }
 
+/** Thrown when a PDF couldn't be laid out or printed: no PDF was saved, and the Output location is fine. */
+export class PdfLayoutError extends TranslatableError {
+  override name = "PdfLayoutError";
+  constructor(options?: ErrorOptions) {
+    super({ key: "error.pdf.notLaidOut" }, options);
+  }
+}
+
 /** Thrown when a new file would go inside a Linked folder the User said IncarnaMind may not add files to. */
 export class LinkedFolderWritesDeclinedError extends TranslatableError {
   override name = "LinkedFolderWritesDeclinedError";
@@ -164,6 +172,4 @@ export class EmbeddingModelNotReadyError extends Error {
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { isRecord } from "../shared/record";

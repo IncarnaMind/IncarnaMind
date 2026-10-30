@@ -16,6 +16,7 @@ import { isRecord } from "../errors";
 import { ExtractionError, extractUnits } from "./formats";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
+import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
@@ -58,6 +59,11 @@ export interface ExtractedText {
   unread: { pages: number[]; message: string; forms?: true } | null;
   /** What of the file wasn't read when the rest was (#740): a workbook's hidden sheets and rows; null when all was. */
   parts: UnreadParts | null;
+  /**
+   * PDFs: by page number, the offsets in the page's text of the newlines the
+   * page ended itself (see `joinPrintedLines`), which the wider join keeps.
+   */
+  keptBreaks?: ReadonlyMap<number, ReadonlySet<number>>;
 }
 
 /**
@@ -188,9 +194,45 @@ function pdfjsDataUrls() {
 /** A scan's picture larger than this many pixels isn't drawn: reading it would take too much memory. */
 const MAX_PICTURE_PIXELS = 50_000_000;
 
+function printedLines(items: readonly object[]): PrintedLine[] {
+  const lines: PrintedLine[] = [];
+  let text = "";
+  let right = 0;
+  let size = 0;
+  const end = () => {
+    lines.push({ text, size, right });
+    text = "";
+    right = 0;
+    size = 0;
+  };
+  for (const item of items) {
+    // Marked-content boundaries carry no text.
+    if (!("str" in item) || typeof item.str !== "string") continue;
+    text += item.str.replaceAll("\u0000", "").replace(/\r\n?/g, "\n");
+    const placed = textItemOf(item);
+    // A line set at an angle has no right end to compare, but its size still tells a heading
+    // from the text under it, so only the edge is left out.
+    if (placed && placed.str.trim() !== "") {
+      size = Math.max(size, placed.fontSize);
+      if (placed.level) right = Math.max(right, placed.x + placed.width);
+    }
+    if ("hasEOL" in item && item.hasEOL === true) end();
+  }
+  end();
+  return lines;
+}
+
+function readPageText(items: readonly object[]): PrintedText {
+  return joinPrintedLines(printedLines(items));
+}
+
 // Lines inside a paragraph of CJK text: a PDF breaks them anywhere, and the break isn't a space.
 const CJK_LINE_WRAP = new RegExp(`([${CJK}])[^\\S\\n]*\\n[^\\S\\n]*(?=[${CJK}])`, "gu");
 
+/**
+ * The readers that still read a page directly predate the stored text's heading rule (#2219),
+ * so every CJK line wrapped beside CJK text is joined here, whatever line it is on.
+ */
 function pageText(items: readonly object[]): string {
   let text = "";
   for (const item of items) {
@@ -431,6 +473,7 @@ async function extractPdf(
   try {
     const document = await task.promise;
     const pages: TextUnit[] = [];
+    const keptBreaks = new Map<number, ReadonlySet<number>>();
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
@@ -446,8 +489,9 @@ async function extractPdf(
         unread: formUnread,
       } = await readPdfPageText(page, signatures);
       if (formUnread || xfa) unreadForms.push(number);
-      const text = pageText(content.items);
-      pages.push({ page: number, kind: "page", label: null, text, anchors: null });
+      const read = readPageText(content.items);
+      if (read.kept.size > 0) keptBreaks.set(number, read.kept);
+      pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
       if (reading && (await isScanned(page, pageText(source.items), OPS))) {
         scanned.push(number);
         if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
@@ -474,7 +518,7 @@ async function extractPdf(
       pages.map((unit) => unit.text),
     );
     const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
-    return { pageCount: pages.length, units, unread, parts: null };
+    return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
     const name = error instanceof Error ? error.name : "";

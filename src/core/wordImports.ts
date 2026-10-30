@@ -61,7 +61,7 @@ import {
   type WordReview,
 } from "./documents/formats/docxPackage";
 import { packageSizeError } from "./documents/formats/zip";
-import { InvalidInputError, isRecord, MindReadOnlyError } from "./errors";
+import { InvalidInputError, isRecord, MindReadOnlyError, TranslatableError } from "./errors";
 import type { MindContent } from "./mindContent";
 import { type createMinds, parseFolderChoice } from "./minds";
 import type { Database } from "./storage";
@@ -175,6 +175,17 @@ export function createWordImports(options: WordImportsOptions) {
   const keeping = new Set<string>();
   /** Minds whose Blocks are being written now, so a Mind never has two writers. */
   const writing = new Set<string>();
+  /** The writer of each Mind's Blocks while it runs: whether it wrote every Block. */
+  const writers = new Map<string, Promise<boolean>>();
+  /** Each import going on, resumed ones from before their package is read: whether it wrote every Block. */
+  const going = new Map<string, Promise<boolean>>();
+  /** Keeps `run` for the Mind until it ends, unless another took its place meanwhile. */
+  const until = (map: Map<string, Promise<boolean>>, mindId: string, run: Promise<boolean>) => {
+    map.set(mindId, run);
+    void run.then(() => {
+      if (map.get(mindId) === run) map.delete(mindId);
+    });
+  };
   let closed = false;
   /** The file the import screen checked last, read whole, so importing it doesn't read it again. */
   let checked: ReadFile | null = null;
@@ -209,9 +220,9 @@ export function createWordImports(options: WordImportsOptions) {
 
   /**
    * Writes the import's Blocks from `from` on, a batch at a time, after those
-   * already written; marks the import complete once all are. Stops if the
-   * Mind is deleted meanwhile, and does nothing for a Mind that already has a
-   * writer.
+   * already written; marks the import complete once all are, and says whether
+   * it did. Stops if the Mind is deleted meanwhile, and does nothing for a
+   * Mind that already has a writer.
    */
   const writeBlocks = async (
     mindId: string,
@@ -219,8 +230,8 @@ export function createWordImports(options: WordImportsOptions) {
     origin: WordOrigin,
     from: number,
     first: boolean,
-  ) => {
-    if (writing.has(mindId)) return;
+  ): Promise<boolean> => {
+    if (writing.has(mindId)) return false;
     writing.add(mindId);
     try {
       const total = structure.blocks.length;
@@ -231,8 +242,10 @@ export function createWordImports(options: WordImportsOptions) {
         // Other work runs between batches.
         if (!first) await new Promise<void>((resolve) => setImmediate(resolve));
         first = false;
-        if (closed) return;
-        if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) return;
+        if (closed) return false;
+        if (!db.get("SELECT 1 FROM minds WHERE id = ? AND deleted_at IS NULL", [mindId])) {
+          return false;
+        }
         const batch = structure.blocks.slice(done, done + size);
         size = Math.min(size * 2, WORD_IMPORT_MOST);
         const written = done;
@@ -262,6 +275,7 @@ export function createWordImports(options: WordImportsOptions) {
         [at, at, mindId],
       );
       log.info("word.import.done", { blocks: total });
+      return true;
     } finally {
       writing.delete(mindId);
     }
@@ -315,10 +329,17 @@ export function createWordImports(options: WordImportsOptions) {
     structure: WordStructure,
     origin: WordOrigin,
     from: number,
-  ): Promise<void> =>
-    writeBlocks(mindId, structure, origin, from, from === 0).catch((error: unknown) => {
+  ): Promise<boolean> => {
+    const writer = writers.get(mindId);
+    if (writing.has(mindId) && writer) return writer;
+    const run = writeBlocks(mindId, structure, origin, from, from === 0).catch((error: unknown) => {
       log.error("word.import.failed", { error: error instanceof Error ? error.name : "unknown" });
+      return false;
     });
+    until(writers, mindId, run);
+    until(going, mindId, run);
+    return run;
+  };
 
   return {
     /** See `CoreApi.checkWordFile`. */
@@ -349,8 +370,14 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
-    /** See `CoreApi.importWordFile`. */
-    async import(input: unknown): Promise<ImportWordFileResult> {
+    /**
+     * See `CoreApi.importWordFile`. With `original`, the file is already in the Library as that
+     * Document, and the Mind takes its title (Verify, #110).
+     */
+    async import(
+      input: unknown,
+      original?: { documentId: string; title: string },
+    ): Promise<ImportWordFileResult> {
       if (!isRecord(input)) throw new InvalidInputError("importWordFile expects an object.");
       const path = parsePath(input.path);
       const origin = parseOrigin(input.origin);
@@ -371,12 +398,12 @@ export function createWordImports(options: WordImportsOptions) {
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       keeping.add(sha256);
       const fileName = basename(path);
-      const title = basename(fileName, extname(fileName)).trim();
+      const title = original?.title ?? basename(fileName, extname(fileName)).trim();
       let mind: Mind;
-      let documentId: string | null = null;
+      let documentId: string | null = original?.documentId ?? null;
       try {
         await keepPackage(sha256, bytes);
-        if (input.addOriginal === true)
+        if (!original && input.addOriginal === true)
           documentId = await addOriginal(path, folderId, newVersionOf);
         const at = options.now();
         mind = db.transaction(() => {
@@ -435,6 +462,20 @@ export function createWordImports(options: WordImportsOptions) {
       };
     },
 
+    /**
+     * Whether the Mind holds every Block of its Word file, once its import has stopped (done,
+     * failed or its Mind deleted); true for a Mind not imported from Word.
+     */
+    written(mindId: string): Promise<boolean> {
+      const writer = going.get(mindId);
+      if (writer) return writer;
+      const row = db.get<{ completed_at: string | null }>(
+        "SELECT completed_at FROM word_packages WHERE mind_id = ? AND deleted_at IS NULL",
+        [mindId],
+      );
+      return Promise.resolve(!row || row.completed_at !== null);
+    },
+
     /** See `CoreApi.addWordOriginal`. */
     async addOriginal(mindId: string, input: unknown): Promise<boolean> {
       const path = parsePath(input);
@@ -478,13 +519,18 @@ export function createWordImports(options: WordImportsOptions) {
             done: blocks.doc ? wordImportDone(blocks.doc) : 0,
             origin: (blocks.doc && wordOriginOf(blocks.doc)) ?? "own",
           }));
-          await start(mindId, structure, origin, done);
+          return start(mindId, structure, origin, done);
         })();
-        resumed.catch((error: unknown) => {
-          log.error("word.import.resumeFailed", {
-            error: error instanceof Error ? error.name : "unknown",
-          });
-        });
+        until(
+          going,
+          mindId,
+          resumed.catch((error: unknown) => {
+            log.error("word.import.resumeFailed", {
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            return false;
+          }),
+        );
       }
     },
 
@@ -505,9 +551,7 @@ export function createWordImports(options: WordImportsOptions) {
         log.error("word.export.packageMissing", {
           code: (error as NodeJS.ErrnoException).code ?? "unknown",
         });
-        throw new Error(
-          "The Word file this Mind was imported from is missing from IncarnaMind's data folder.",
-        );
+        throw new TranslatableError({ key: "error.export.wordPackageMissing" });
       }
     },
 
@@ -600,6 +644,11 @@ export function createWordImports(options: WordImportsOptions) {
     /** Stops writing Blocks: each import goes on from where it got to at the next start. */
     close(): void {
       closed = true;
+    },
+
+    /** Whether imports have stopped for a quit, to go on at the next start. */
+    isClosed(): boolean {
+      return closed;
     },
 
     /** Removes the kept packages no Mind keeps any longer, and files a quit left half written. */

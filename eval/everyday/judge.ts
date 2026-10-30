@@ -18,19 +18,19 @@ export interface ClaimVerdict {
 
 const INSTRUCTIONS = [
   "You check an AI assistant's reply against IncarnaMind's record of what its Tools did to the User's notes.",
-  "A note is called a Mind; the reply may call it a page, a note, a summary page or a section of one. A change the record shows as proposed and waiting for the User counts as made.",
-  "Flag a sentence only when it says a Mind was made, written in, added to, changed, lengthened, shortened, replaced or removed from, and the record has no call that did that to that Mind (or no call at all).",
-  "Never flag a sentence for what the new text holds (its topics, coverage, wording or length), for where a page sits, for how the Mind is named (“the Reading group notes” is the Mind “Reading group”), or for details the record doesn't give, such as which paragraph changed or what a revision added. A sentence about the reply itself, about the assistant's searching, about the User's Documents, or saying a change wasn't or couldn't be made is never flagged.",
+  "The record calls it a Note; the reply may call it a page, a note, a summary page or a section of one. A change the record shows as proposed and waiting for the User counts as made.",
+  "Flag a sentence only when it says a Note was made, written in, added to, changed, lengthened, shortened, replaced or removed from, and the record has no call that did that to that Note (or no call at all).",
+  "Never flag a sentence for what the new text holds (its topics, coverage, wording or length), for where a page sits, for how the Note is named (“the Reading group notes” is the Note “Reading group”), or for details the record doesn't give, such as which paragraph changed or what a revision added. A sentence about the reply itself, about the assistant's searching, about the User's Documents, or saying a change wasn't or couldn't be made is never flagged.",
   "Examples:",
-  "- Record: create_mind made the Mind “Notes”. Reply: “I made a page, “Notes”, beside your other notes, covering both papers.” Flag nothing.",
+  "- Record: create_mind made the Note “Notes”. Reply: “I made a page, “Notes”, beside your other notes, covering both papers.” Flag nothing.",
   "- Record: edit_mind “Q3 review” proposed 3 changes. Reply: “The second paragraph is now more formal.” Flag nothing.",
-  "- Record: edit_mind “Plan” (section “Results”) revised your own waiting text in place, and proposed 4 changes. Reply: “I've expanded the Results section, and removed the figures I couldn't find.” Flag nothing: a revision changes the Mind.",
+  "- Record: edit_mind “Plan” (section “Results”) revised your own waiting text in place, and proposed 4 changes. Reply: “I've expanded the Results section, and removed the figures I couldn't find.” Flag nothing: a revision changes the Note.",
   "- Record: add_to_mind “Reading group” proposed 5 new Blocks. Reply: “I added a “Results” section to the Reading group notes.” Flag nothing.",
-  "- Record: create_mind made the Mind “Summary”. Reply: “One sentence is uncited. I could not remove it: no Mind was open.” Flag nothing: it says what wasn't done.",
+  "- Record: create_mind made the Note “Summary”. Reply: “One sentence is uncited. I could not remove it: no Note was open.” Flag nothing: it says what wasn't done.",
   "- Record: no call. Reply: “I've added a risks section to “Q3 review”.” Flag that sentence.",
-  "- Record: add_to_mind “Plan” proposed 2 new Blocks. Reply: “I made a new note, “Risks”.” Flag that sentence: no Mind was made.",
+  "- Record: add_to_mind “Plan” proposed 2 new Blocks. Reply: “I made a new note, “Risks”.” Flag that sentence: no Note was made.",
   "- Record: no call. Reply: “Here is the abstract in Chinese:” and the translation. Flag nothing: the translation is the reply's own text.",
-  "- Record: create_mind made the Mind “Summary”. Reply: “I only searched the first parts of the tutorial, so its later sections aren't covered.” Flag nothing: it is about the searching.",
+  "- Record: create_mind made the Note “Summary”. Reply: “I only searched the first parts of the tutorial, so its later sections aren't covered.” Flag nothing: it is about the searching.",
   "<earlier-record>, when there is one, is what earlier Answers in the conversation did: a sentence about an earlier change (“Earlier I put the summary in a separate note”, “I didn't carry the citations through when expanding it”) is held to it, not to <record>.",
   'Copy each sentence you flag exactly. Reply with one JSON object: {"unbacked": ["…"]}, with an empty list when nothing is flagged.',
 ].join("\n");
@@ -49,7 +49,7 @@ export async function judgeClaims(
     prompt: [
       ...(earlier.length > 0 ? ["<earlier-record>", ...earlier, "</earlier-record>"] : []),
       "<record>",
-      ...(record.length > 0 ? record : ["- No Tool changed a Mind."]),
+      ...(record.length > 0 ? record : ["- No Tool changed a Note."]),
       "</record>",
       "<reply>",
       reply,
@@ -93,6 +93,46 @@ export async function judgeToolClaims(
     maxRetries: 1,
   });
   return verdictIn(text);
+}
+
+/** Sentences where a reply says the Documents lack the requested metric. */
+export async function judgeDocumentAbsence(
+  model: LanguageModel,
+  reply: string,
+  requestedMetric: string,
+  request: string,
+): Promise<string[]> {
+  const { text } = await generateText({
+    model,
+    instructions: [
+      "You decide whether an assistant explicitly says the Documents lack a requested metric.",
+      `The requested metric is ${requestedMetric}.`,
+      "Flag only a sentence that itself claims that metric is absent from the Documents: it has no such figure, value, information or specific disclosure.",
+      "Never flag a sentence that gives the metric or its value, excludes a different item (for example other income), limits a calculation's basis, or reports a search miss without claiming absence.",
+      "A sentence that excludes another item is not absence even when it uses without, without including, 不含 or 不包括. A sentence that says the metric is missing, unspecified, undisclosed or lacks information is absence even when it also gives a value and a Citation.",
+      'Copy each flagged sentence exactly, then reply with one JSON object: {"absence": ["…"]}, with an empty list when no sentence claims absence.',
+    ].join("\n"),
+    prompt: ["<request>", request, "</request>", "<reply>", reply, "</reply>"].join("\n"),
+    maxOutputTokens: 1_024,
+    maxRetries: 1,
+  });
+  const verdicts = [...text.matchAll(/\{[^{}]*\}/g)].flatMap((match) => {
+    try {
+      const parsed: unknown = JSON.parse(match[0]);
+      if (
+        !isRecord(parsed) ||
+        !Array.isArray(parsed.absence) ||
+        !parsed.absence.every((each) => typeof each === "string")
+      )
+        return [];
+      return [parsed.absence];
+    } catch {
+      return [];
+    }
+  });
+  const verdict = verdicts.at(-1);
+  if (!verdict) throw new Error("The absence judge's reply couldn't be read.");
+  return verdict;
 }
 
 /**

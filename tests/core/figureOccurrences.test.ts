@@ -21,7 +21,16 @@ function selected(element: Y.XmlElement, from = 0, to = textOf(element).length):
   const text = textOf(element);
   const id = element.getAttribute("id");
   if (typeof id !== "string") throw new Error("Missing fixture paragraph id");
-  return { element, blockId: id, from, to, text: text.slice(from, to), context: text, cited: [] };
+  return {
+    element,
+    blockId: id,
+    occurrence: 0,
+    from,
+    to,
+    text: text.slice(from, to),
+    context: text,
+    cited: [],
+  };
 }
 
 const paragraph = (id: string, ...content: NodeJSON[]): NodeJSON => ({
@@ -46,6 +55,17 @@ test.each([
   ).toEqual(starts);
   expect(new Set(figures.map((each) => each.id)).size).toBe(2);
   expect(figuresInSentence(sentence)).toEqual(figures);
+});
+
+test.each([
+  ["Revenue fell 12% (Smith Dep. 45:3–12; Ex. 7 at 3).", ["12%"]],
+  ["Sales were $5 million (ECF No. 41 at 5; Compl. ¶ 14; PL-000123).", ["$5 million"]],
+  ["收入下降 12%（Smith Dep. 45:3–12）。", ["12%"]],
+] as const)("a record cite's numbers say where, not how much: %s", (value, shown) => {
+  const blocks = stored(paragraph("p1", text(value)));
+  const element = blocks.get(0);
+  if (!(element instanceof Y.XmlElement)) throw new Error("Missing fixture paragraph");
+  expect(figuresInSentence(selected(element)).map((each) => each.reading.chars)).toEqual(shown);
 });
 
 const calc = (id: string): NodeJSON =>

@@ -2,6 +2,7 @@ import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tipt
 import { type KeyboardEvent, type PointerEvent, useEffect, useRef } from "react";
 import { COMPARISON_ROW_NODE, COMPARISON_TABLE_NODE } from "../../../core/api";
 import { moveRow, openRowDocument, removeRow, stepRow } from "../comparisonRows";
+import { comparisonCellsInTable } from "../comparisonSelection";
 import type { ComparisonRowHandle, RowProblem } from "../comparisonTableState";
 import {
   comparisonRowHandles,
@@ -12,6 +13,7 @@ import { OpenBesideLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 import { rowShows } from "./comparisonRowCounts";
 import { useMindId } from "./mindContext";
 
@@ -220,6 +222,16 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
               className="comparison-row-menu"
               tabIndex={-1}
               testId="comparison-row"
+              foot={
+                <ComparisonRefillEstimate
+                  handle={handle}
+                  mode="refill"
+                  scope="row"
+                  requested={comparisonCellsInTable(handle, false).filter(
+                    (cell) => cell.documentId === documentId,
+                  )}
+                />
+              }
             />
           </span>
         )}

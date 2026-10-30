@@ -2,11 +2,17 @@
  * A scripted model that checks claims (#96, #97) as its plans say, and names
  * a verified document's claims: those it has a plan for.
  */
-
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
+import { listedSentences } from "./claimSentences";
+
+export { listedSentences } from "./claimSentences";
+
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
+import { recordCiteTokens } from "../../src/core/recordCites/parser";
 import { readFigures } from "../../src/shared/figures";
+import { comparableSentence } from "../../src/shared/sentences";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -26,6 +32,8 @@ export interface Plan {
   /** The line of the quote's Passage that states that number's unit, as the model gives it. */
   unitQuote?: string;
   says?: string;
+  /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
+  absence?: boolean | null;
   /** Its reply instead, once it has searched; given the call, for one that names its figures. */
   reply?: ScriptedReply | ((call: ModelCall) => ScriptedReply);
   /** What it says when asked to confirm a contradiction it found. */
@@ -116,16 +124,11 @@ export const sentenceOf = (call: ModelCall) => {
   return SENTENCE.exec(text)?.[1] ?? "";
 };
 
-/** The numbers of the listed sentences ("[3] …") that have a plan. */
-/** Each listed sentence's decision: a claim when there is a plan for it. */
-function plannedDecisions(prompt: string, plans: Record<string, Plan>): Record<string, string> {
-  return Object.fromEntries(
-    prompt.split("\n").flatMap((line) => {
-      const listed = /^\[(\d+)\] (.*)$/.exec(line);
-      if (listed?.[1] === undefined || listed[2] === undefined) return [];
-      return [[listed[1], listed[2] in plans ? "claim" : "no"]];
-    }),
-  );
+function plannedParts(prompt: string, plans: Record<string, Plan>) {
+  return listedSentences(prompt).map(({ number, text }) => ({
+    number,
+    parts: text in plans ? [{ kind: "fact", text }] : [],
+  }));
 }
 
 /** The strict judgement's instructions, which ask for the sentence's detail and the quote's before the word. */
@@ -173,20 +176,20 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  const verdict = `Verdict: ${plan.verdict}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const verdict = `Verdict: ${plan.verdict}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id }) => ({
+      const items = figures.map(({ id, reading }) => ({
         id,
         verdict: "unsupported",
         scope: "same",
         topic: "not found",
         roles: "same",
         says: null,
-        reading: null,
+        reading,
         relation: "equals",
         source: null,
         calculation: null,
@@ -246,18 +249,40 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
  * contradiction, the plan's judgement; asked once more for the deciding
  * Passage, `evidence` (none by default).
  */
+/** A plan's judgement as the record-cite judgement words it (src/core/answers/checks/prompt.ts). */
+const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsupported" } as const;
+
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
+    const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
+    // A record cite's judgement reads the sentence as the Note holds it: a Citation left out of a
+    // plan's words leaves no space before the stop there.
+    const tidy = (text: string) => text.replace(/\s+([.,;:!?。，；：！？])/gu, "$1");
+    const plan =
+      plans[sentence] ??
+      Object.entries(plans).find(
+        ([claim]) =>
+          tidy(
+            comparableSentence(
+              recordClaimFacts(
+                claim,
+                recordCiteTokens(claim).filter((token) => token.kind === "cite"),
+              ),
+            ),
+          ) === tidy(sentence),
+      )?.[1];
     if (call.system.startsWith("You sort the sentences")) {
-      return { text: JSON.stringify(plannedDecisions(call.prompt, plans)) };
+      return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
-      return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };
+      return { text: plan?.part ?? "" };
     }
     if (call.system.startsWith("Compare a sentence")) {
-      const plan = plans[SENTENCE.exec(call.prompt)?.[1] ?? ""];
       if (plan?.strict && isStrict(call)) return plan.strict;
+      if (call.system.includes("exact Passage a record cite names")) {
+        return { text: `Judgement: ${RECORD_WORDS[plan?.judgement ?? "conflict"]}` };
+      }
       return { text: plan?.judgement ?? "conflict" };
     }
     return { text: evidence };

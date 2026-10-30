@@ -6,8 +6,10 @@ import {
   type ClaimCheckNow,
   claimCheckShown,
   figureCheckShown,
+  keepRecordCites,
   saysNotFound,
 } from "../shared/claimChecks";
+import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
 import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
@@ -62,12 +64,17 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   personId?: string | null;
 }
 
+/** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
+const keepingRecordCites = (checked: ClaimCheckResult, worked: ClaimCheckResult) =>
+  keepRecordCites(worked, checked.recordCites);
+
 export function augmentFigureFooting(
   blocks: Y.XmlFragment,
   result: ClaimCheckResult,
   documents: SourceDocuments,
   now?: Omit<ClaimCheckNow, "text">,
 ): ClaimCheckResult {
+  if (result.parts) result = keepingRecordCites(result, resultFromParts(result.parts));
   if (!result.figures?.length) return result;
   const occurrences = figuresInMind(blocks);
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
@@ -117,11 +124,25 @@ export function augmentFigureFooting(
     }
     return { ...figure, footing, sourceFooting };
   });
-  return {
+  if (result.parts) {
+    const updated = new Map(figures.map((figure) => [figure.id, figure]));
+    return keepingRecordCites(
+      result,
+      resultFromParts(
+        result.parts.map((part) => ({
+          ...part,
+          ...(part.figures && {
+            figures: part.figures.map((figure) => updated.get(figure.id) ?? figure),
+          }),
+        })),
+      ),
+    );
+  }
+  return keepingRecordCites(result, {
     ...aggregateFigureResults(figures, result.remainder),
     figures,
     remainder: result.remainder,
-  };
+  });
 }
 
 function sourceFigure(input: FigureInput, units: readonly UnitText[]): Figure | null {
