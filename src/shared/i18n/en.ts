@@ -6057,7 +6057,7 @@ export const en = {
   "steps.live.seconds": "{seconds}s",
   "steps.label": "Steps",
   "steps.scope.all": "All Documents",
-  "steps.scope.named": "{name}",
+  "steps.scope.named": "“{name}”",
   "steps.scope.files": "{count} files",
   "steps.scope.more": "{scope} +{count}",
   "answer.actions": "Answer actions",

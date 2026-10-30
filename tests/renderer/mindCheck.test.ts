@@ -149,6 +149,7 @@ describe("Asking before checking against Documents added since", () => {
     const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     await startMindCheck("mind", "added");
     expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
 });
@@ -243,6 +244,7 @@ describe("Check this note", () => {
     expect(setCheckProblem).not.toHaveBeenCalled();
     expect(useMindCheck.getState().unchanged.mind).toBe(true);
     expect(setCheckCardOpen).toHaveBeenCalledWith("tab", true);
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
   });
 
   test("with nothing changed but Documents added since, it asks about those instead of saying nothing changed", async () => {
@@ -263,6 +265,7 @@ describe("Check this note", () => {
     expect(bridge.planMindCheck.mock.calls).toEqual([["mind", "changed", false]]);
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "changed" }));
     expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
   });
 
   test("a Note with no claim says so, not that nothing changed", async () => {
@@ -696,6 +699,7 @@ describe("Check every sentence again", () => {
     const { startMindCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
     await startMindCheck("mind", "all");
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "all" }));
+    expect(bridge.cancelCheck).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
 });

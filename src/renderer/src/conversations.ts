@@ -9,6 +9,7 @@ import type {
   ConversationMessage,
   ConversationQuestion,
   ReadyQuestion,
+  SearchScope,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
@@ -41,6 +42,11 @@ interface ConversationsState {
   messages: readonly ConversationMessage[];
   /** A Question on its way to the core, shown at once until the core has it. */
   asking: string | null;
+  /**
+   * What that Question reads: the Note it is asked in, if any, and what it searches. The line
+   * while it waits names these, never the Note in focus (#2245).
+   */
+  askingReads: { mindId: string | null; scope: SearchScope | null } | null;
   /** What that Question is about in its Mind (#565); "" when it is about nothing. */
   askingQuote: string;
   /** The words selected in Documents that Question is about. */
@@ -56,6 +62,7 @@ export const useConversations = create<ConversationsState>()(() => ({
   openId: null,
   messages: [],
   asking: null,
+  askingReads: null,
   askingQuote: "",
   askingQuotes: [],
   stopWanted: false,
@@ -89,7 +96,7 @@ core.on("conversation.message", (message) => {
     messages:
       at === -1 ? [...messages, message] : messages.map((each, i) => (i === at ? message : each)),
     // The Question is shown as the core has it now.
-    ...(message.kind === "question" && { asking: null }),
+    ...(message.kind === "question" && { asking: null, askingReads: null }),
   });
 });
 
@@ -130,7 +137,13 @@ function unfold(): void {
 
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
-  useConversations.setState({ openId: null, messages: [], asking: null, sought: null });
+  useConversations.setState({
+    openId: null,
+    messages: [],
+    asking: null,
+    askingReads: null,
+    sought: null,
+  });
 }
 
 /** Shows a conversation in the assistant, at one of its Answers (flashed) if given. */
@@ -141,6 +154,7 @@ export async function openConversation(conversationId: string, answerId?: string
       openId: conversationId,
       messages,
       asking: null,
+      askingReads: null,
       sought: answerId ?? null,
     });
     unfold();
@@ -231,6 +245,7 @@ export async function askInAssistant(
   const key = composerKey(input.mindId);
   useConversations.setState({
     asking: input.text,
+    askingReads: { mindId: input.mindId, scope: input.scope ?? null },
     askingQuote: input.mindId ? (input.focus?.selection ?? "") : "",
     askingQuotes: input.quotes ?? [],
     stopWanted: false,
@@ -275,7 +290,7 @@ export async function askInAssistant(
     settleAsk(key, null, error);
     return false;
   } finally {
-    useConversations.setState({ asking: null, stopWanted: false });
+    useConversations.setState({ asking: null, askingReads: null, stopWanted: false });
   }
 }
 
