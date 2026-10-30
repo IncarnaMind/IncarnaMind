@@ -26,12 +26,20 @@ import type {
   UnsupportedReason,
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
-import { citationAttributesOf, parseQuotedWords } from "./citations";
+import {
+  citationAttributesOf,
+  citationState,
+  type LiveDocument,
+  parseQuotedWords,
+  shownDocumentName,
+} from "./citations";
 import { readClaimFacetPeriod } from "./dates";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
+import { periodInEvidence } from "./statedPeriods";
+import { normaliseText } from "./text";
 
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "refused",
@@ -195,16 +203,60 @@ function boundary(text: string, at: number): boolean {
 export function readClaimFacet(value: unknown): ClaimFacet | null {
   if (!isRecord(value)) return null;
   if (value.kind === "source") {
-    if (Object.keys(value).some((key) => key !== "kind" && key !== "selectedDocumentId"))
-      return null;
-    const id = value.selectedDocumentId;
-    if (id === undefined) return { kind: "source" };
     if (
-      typeof id !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+      Object.keys(value).some(
+        (key) => !["kind", "selectedDocumentId", "named", "candidates"].includes(key),
+      )
     )
       return null;
-    return { kind: "source", selectedDocumentId: id };
+    const uuid = (id: unknown): id is string =>
+      typeof id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const id = value.selectedDocumentId;
+    if (id !== undefined && !uuid(id)) return null;
+    let named: ClaimPartSpan | undefined;
+    if (value.named !== undefined) {
+      if (!isRecord(value.named)) return null;
+      const { start, end } = value.named;
+      if (
+        Object.keys(value.named).some((key) => key !== "start" && key !== "end") ||
+        typeof start !== "number" ||
+        typeof end !== "number" ||
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        start < 0 ||
+        end <= start
+      )
+        return null;
+      named = { start, end };
+    }
+    let candidates: { documentId: string; citationId?: string }[] | undefined;
+    if (value.candidates !== undefined) {
+      if (!Array.isArray(value.candidates) || !named) return null;
+      candidates = [];
+      const seen = new Set<string>();
+      for (const candidate of value.candidates) {
+        if (
+          !isRecord(candidate) ||
+          Object.keys(candidate).some((key) => key !== "documentId" && key !== "citationId") ||
+          !uuid(candidate.documentId) ||
+          (candidate.citationId !== undefined && !uuid(candidate.citationId)) ||
+          seen.has(candidate.documentId)
+        )
+          return null;
+        seen.add(candidate.documentId);
+        candidates.push({
+          documentId: candidate.documentId,
+          ...(candidate.citationId !== undefined && { citationId: candidate.citationId }),
+        });
+      }
+    }
+    return {
+      kind: "source",
+      ...(id !== undefined && { selectedDocumentId: id }),
+      ...(named && { named }),
+      ...(candidates && { candidates }),
+    };
   }
   if (value.kind === "speaker") return Object.keys(value).length === 1 ? { kind: "speaker" } : null;
   if (value.kind === "time") {
@@ -256,6 +308,15 @@ export function readPartPlans(value: unknown, sentence: string): ClaimPartPlan[]
     if (each.kind !== "fact" && each.kind !== "opinion") return null;
     const facet = each.facet === undefined ? undefined : readClaimFacet(each.facet);
     if (facet === null || (facet !== undefined && each.kind !== "fact")) return null;
+    if (
+      facet?.kind === "source" &&
+      facet.named &&
+      (facet.named.start < start ||
+        facet.named.end > to ||
+        !boundary(sentence, facet.named.start) ||
+        !boundary(sentence, facet.named.end))
+    )
+      return null;
     const nested =
       start < end &&
       each.kind === "fact" &&
@@ -1264,4 +1325,70 @@ export function keepCheckAsView(
     ...(whole && part.remainder && { remainder: { ...part.remainder, kept: true as const } }),
   }));
   return checkWithParts(check, parts);
+}
+
+export function readClaimPartTarget(value: unknown): { id: string; span: ClaimPartSpan } | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !value.id ||
+    !isRecord(value.span) ||
+    typeof value.span.start !== "number" ||
+    typeof value.span.end !== "number" ||
+    !Number.isInteger(value.span.start) ||
+    !Number.isInteger(value.span.end) ||
+    value.span.start < 0 ||
+    value.span.end <= value.span.start
+  )
+    return null;
+  return { id: value.id, span: { start: value.span.start, end: value.span.end } };
+}
+
+export function attributionCorrection(
+  check: Pick<ClaimCheckAttributes, "text">,
+  part: ClaimCheckPart,
+  documents: readonly LiveDocument[],
+) {
+  if (part.verdict !== "unsupported") return null;
+  const own = partCitations(part).filter(
+    (citation) =>
+      typeof citation.quote === "string" &&
+      citation.quote.trim() !== "" &&
+      citationState(citation, documents).check === "found",
+  );
+  if (own.length === 0) return null;
+  if (part.facet?.kind === "time") {
+    const period = readClaimFacetPeriod(part.facet.period);
+    return period &&
+      periodInEvidence(
+        period,
+        own.flatMap((citation) => citation.quote ?? []),
+      )
+      ? { kind: "time" as const, period }
+      : null;
+  }
+  const facet = part.facet;
+  if (facet?.kind !== "source" || !facet.named || !facet.candidates) return null;
+  const named = check.text.slice(facet.named.start, facet.named.end);
+  const key = (text: string) => normaliseText(text).toLocaleLowerCase();
+  const candidates = facet.candidates.filter((candidate) => {
+    const name = shownDocumentName({ documentId: candidate.documentId }, documents);
+    return name !== null && key(name) === key(named);
+  });
+  if (
+    facet.selectedDocumentId !== undefined
+      ? !candidates.some((candidate) => candidate.documentId === facet.selectedDocumentId)
+      : facet.candidates.length > 1 || candidates.length !== facet.candidates.length
+  )
+    return null;
+  const ids = new Set(own.map((citation) => citationState(citation, documents).documentId));
+  const documentId = ids.size === 1 ? [...ids][0] : null;
+  const document = documentId ? shownDocumentName({ documentId }, documents) : null;
+  return ids.size === 1 &&
+    documentId &&
+    ids.has(documentId) &&
+    document &&
+    key(document) !== key(named)
+    ? { kind: "source" as const, documentId, document }
+    : null;
 }

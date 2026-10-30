@@ -30,6 +30,9 @@
 import { randomUUID } from "node:crypto";
 import { streamText } from "ai";
 import type * as Y from "yjs";
+import type { LiveDocument } from "../../shared/citations";
+import { attributionCorrection, readClaimPartTarget } from "../../shared/claimParts";
+import { formatClaimFacetPeriod } from "../../shared/dates";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -39,11 +42,14 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
+import { partOwner } from "../answers/checks";
+import { wordsOf } from "../answers/checks/sentences";
 import { createWindowBudget } from "../answers/window";
 import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ChatReadiness,
+  type CheckSentencesInput,
   type EditAction,
   type EditWithAiResult,
   type ExternalService,
@@ -141,6 +147,7 @@ export interface EditsOptions {
   localOnly(): boolean;
   /** A Citation's attributes checked again now, or null when its check comes out the same. */
   recheck(attributes: Attributes): Attributes | null;
+  liveDocuments(): readonly LiveDocument[];
   /** Says where a request writes next in a Mind as its changes come in (#202); null once it has stopped. */
   writing(mindId: string, place: WritingPlace | null): void;
   /** A Checkpoint just before an edit that applies at once writes (#113). */
@@ -153,6 +160,7 @@ interface Ask {
   mindId: string;
   action: EditAction;
   instruction: string;
+  part?: CheckSentencesInput["part"];
   model: ChatModelChoice | null;
   requested?: RequestedChange;
 }
@@ -220,6 +228,9 @@ function parseInput(input: unknown): ParsedInput {
     throw new InvalidInputError(`Unknown Edit with AI action "${String(action)}".`);
   }
   const words = typeof instruction === "string" ? instruction.trim() : "";
+  const part = input.part === undefined ? undefined : readClaimPartTarget(input.part);
+  if (part === null || (part && action !== "follow-citation" && action !== "cut-unsupported"))
+    throw new InvalidInputError({ key: "error.check.partChanged" });
   if (
     (action === "translate" || action === "instruction" || action === "cut-unsupported") &&
     words === ""
@@ -240,6 +251,7 @@ function parseInput(input: unknown): ParsedInput {
     text,
     action: action as EditAction,
     instruction: words,
+    ...(part && { part }),
     model: parseModel(model),
   };
 }
@@ -279,6 +291,24 @@ function takeBack(doc: Y.Doc, blocks: Y.XmlFragment, proposalId: string) {
     taken.region = takeBackForRegenerate(blocks, proposalId);
   });
   return taken.region;
+}
+
+function validatePartSelection(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  part: NonNullable<CheckSentencesInput["part"]>,
+) {
+  const owner = partOwner(blocks, part);
+  if (
+    from.blockId !== owner.sentence.blockId ||
+    to.blockId !== owner.sentence.blockId ||
+    from.offset > owner.sentence.from ||
+    to.offset < owner.sentence.to ||
+    wordsOf(owner.sentence.element, from.offset, to.offset).trim() !== owner.sentence.text.trim()
+  )
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  return owner;
 }
 
 /**
@@ -512,7 +542,55 @@ export function createEdits(options: EditsOptions) {
       throw error;
     }
     if (signal.aborted) return { kind: "cancelled" };
-    return (await rewrite(prepared, ask, draft, signal, hooks)).result;
+    if (ask.part && hooks.requestId) validateCurrentPart(ask.part, draft.selection, ask.mindId);
+    return (await rewrite(prepared, canonicalPartAsk(ask, draft.selection), draft, signal, hooks))
+      .result;
+  }
+
+  function validateCurrentPart(
+    part: NonNullable<CheckSentencesInput["part"]>,
+    selection: Selection,
+    mindId: string,
+  ): void {
+    const first = selection.segments[0];
+    const last = selection.segments.at(-1);
+    const fromId = first?.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const toId = last?.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (!first || !last || typeof fromId !== "string" || typeof toId !== "string")
+      throw new InvalidInputError({ key: "error.check.partChanged" });
+    content.read(mindId, (blocks) =>
+      validatePartSelection(
+        blocks,
+        { blockId: fromId, offset: first.from },
+        { blockId: toId, offset: last.to },
+        part,
+      ),
+    );
+  }
+
+  function canonicalPartAsk(ask: Ask, selection: Selection): Ask {
+    const target = ask.part;
+    if (!target || ask.action !== "follow-citation") return ask;
+    const blocks = selection.segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+    if (!blocks) throw new InvalidInputError({ key: "error.check.partChanged" });
+    const owner = partOwner(blocks, target);
+    const part = owner.parts.find(
+      (row) => row.span.start === target.span.start && row.span.end === target.span.end,
+    );
+    if (!part) throw new InvalidInputError({ key: "error.check.partChanged" });
+    if (part.facet?.kind !== "source" && part.facet?.kind !== "time")
+      return { ...ask, instruction: "" };
+    const correction = attributionCorrection(
+      { text: owner.sentence.text },
+      part,
+      options.liveDocuments(),
+    );
+    if (!correction) throw new InvalidInputError({ key: "error.check.partChanged" });
+    const instruction =
+      correction.kind === "source"
+        ? `Change only the attribution to ${JSON.stringify(correction.document)}, keeping every factual claim unchanged.`
+        : `Anchor the sentence to ${formatClaimFacetPeriod(correction.period, "en")} and adjust the tense, keeping every factual claim unchanged.`;
+    return { ...ask, instruction };
   }
 
   /**
@@ -568,6 +646,7 @@ export function createEdits(options: EditsOptions) {
       createdAt: options.now().toISOString(),
       action: ask.action,
       instruction: ask.instruction,
+      ...(ask.part && { part: ask.part }),
       ...(ask.requested && { requested: ask.requested }),
     };
     const mine = (mind: Y.XmlFragment) =>
@@ -615,6 +694,19 @@ export function createEdits(options: EditsOptions) {
      */
     const step = (write: () => boolean): void => {
       if (refused) return;
+      if (!wrote && ask.part && requestId) {
+        try {
+          validateCurrentPart(ask.part, selection, mindId);
+          if (canonicalPartAsk(ask, selection).instruction !== ask.instruction) {
+            refused = true;
+            return;
+          }
+        } catch (error) {
+          if (!(error instanceof InvalidInputError)) throw error;
+          refused = true;
+          return;
+        }
+      }
       let changed = false;
       fork.transact(() => {
         changed = write();
@@ -745,10 +837,18 @@ export function createEdits(options: EditsOptions) {
     from: TextPlace,
     to: TextPlace,
     action: EditAction,
+    part?: CheckSentencesInput["part"],
   ): { ok: true; draft: Draft } | Extract<ReadResult, { ok: false }> {
     const base = content.state(mindId);
     const fork = docOf(base);
-    const read = readSelection(fork.getXmlFragment(MIND_CONTENT_FIELD), from, to, action);
+    const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
+    try {
+      if (part) validatePartSelection(blocks, from, to, part);
+    } catch (error) {
+      fork.destroy();
+      throw error;
+    }
+    const read = readSelection(blocks, from, to, action, part);
     if (!read.ok) {
       fork.destroy();
       return read;
@@ -757,7 +857,7 @@ export function createEdits(options: EditsOptions) {
   }
 
   async function edit(input: ParsedInput, signal: AbortSignal): Promise<EditWithAiResult> {
-    const read = readForEdit(input.mindId, input.from, input.to, input.action);
+    const read = readForEdit(input.mindId, input.from, input.to, input.action, input.part);
     if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
     const { draft } = read;
     try {
@@ -789,8 +889,16 @@ export function createEdits(options: EditsOptions) {
       // Taken back in the copy: in the Mind, only once the new changes come, or none are needed.
       const region = takeBack(fork, blocks, input.proposalId);
       if (!region) return { kind: "changed" };
-      const { from, to } = region;
-      const read = readSelection(blocks, from, to, made.action);
+      let { from, to } = region;
+      if (made.part) {
+        if (pendingProposals(blocks).some((each) => each.request === ref.request))
+          return { kind: "has-proposals" };
+        const owner = partOwner(blocks, made.part);
+        from = { blockId: owner.sentence.blockId, offset: owner.sentence.from };
+        to = { blockId: owner.sentence.blockId, offset: owner.sentence.to };
+        validatePartSelection(blocks, from, to, made.part);
+      }
+      const read = readSelection(blocks, from, to, made.action, made.part);
       if (!read.ok) return { kind: read.reason === "has-proposals" ? "has-proposals" : "changed" };
       /** The change goes: there is no change to make now. */
       const withdraw = () => {
@@ -806,6 +914,7 @@ export function createEdits(options: EditsOptions) {
           mindId: input.mindId,
           action: made.action,
           instruction: made.instruction ?? "",
+          ...(made.part && { part: made.part }),
           model: input.model,
         },
         { mindId: input.mindId, base, fork, selection: read.selection },

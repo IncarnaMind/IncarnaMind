@@ -1,17 +1,23 @@
 import type { Editor } from "@tiptap/core";
+import { formatClaimFacetPeriod } from "../../../shared/dates";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
+import { attributionAt, correctAttribution } from "../attributionCorrections";
 import {
   checkSentences,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
+  setSourceChoice,
+  sourceChoiceAt,
   useChecks,
 } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
+import { openMindEditors } from "../editor/openEditors";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
+import { languageNow } from "../i18n";
 import { startMindCheck } from "../mindCheck";
 import {
   applyDocumentWording,
@@ -32,7 +38,7 @@ import {
   unsupportedAt,
 } from "../unsupportedFixes";
 import { noteHandle } from "./handles";
-import type { Command } from "./registry";
+import type { Command, CommandContext } from "./registry";
 
 /** The Mind last written in, while it has text selected to check and no check of it runs. */
 function withSentences() {
@@ -111,7 +117,87 @@ function withOpinion() {
   return opinion ? { ...note, opinion } : null;
 }
 
+function withAttribution(kind: "source" | "time", ctx: CommandContext) {
+  const note = noteHandle.current;
+  if (!note || !fixesFree(note.mindId)) return null;
+  const row = attributionAt(
+    note.editor,
+    kind,
+    ctx.focus?.kind === "check" ? ctx.focus.id : undefined,
+  );
+  return row ? { ...note, ...row } : null;
+}
+
+function withSourceChoice(ctx: CommandContext) {
+  const note = noteHandle.current;
+  if (!note || !fixesFree(note.mindId)) return null;
+  const row = sourceChoiceAt(
+    note.editor,
+    note.mindId,
+    ctx.focus?.kind === "check" ? ctx.focus.id : undefined,
+  );
+  return row ? { ...note, ...row } : null;
+}
+
+function correctionCommand(kind: "source" | "time"): Command {
+  const id = kind === "source" ? "check.correctSource" : "check.correctPeriod";
+  return {
+    id,
+    label(ctx, t) {
+      const focused = ctx.focus;
+      const row =
+        focused?.kind === "check"
+          ? openMindEditors()
+              .flatMap((editor) => attributionAt(editor, kind, focused.id) ?? [])
+              .at(0)
+          : withAttribution(kind, ctx);
+      const correction = row?.correction;
+      return correction?.kind === "source"
+        ? t("claim.source.changeTo", { document: correction.document })
+        : correction?.kind === "time"
+          ? t("claim.time.changeTo", {
+              period: formatClaimFacetPeriod(correction.period, languageNow()),
+            })
+          : t("claim.useDocumentWording");
+    },
+    group: "main",
+    reversible: true,
+    when: (ctx) => ctx.here?.[id] !== undefined || withAttribution(kind, ctx) !== null,
+    run(ctx) {
+      const here = ctx.here?.[id];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withAttribution(kind, ctx);
+      if (at) void correctAttribution(at.editor, at.mindId, at.doc, at.claim, at.part);
+    },
+  };
+}
+
 export const checkCommands: readonly Command[] = [
+  {
+    id: "check.chooseSource",
+    label: "claim.source.choose",
+    group: "main",
+    reversible: true,
+    when: (ctx) => ctx.here?.["check.chooseSource"] !== undefined || withSourceChoice(ctx) !== null,
+    run(ctx) {
+      const here = ctx.here?.["check.chooseSource"];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withSourceChoice(ctx);
+      if (!at) return;
+      setCheckCardOpen(at.place, false);
+      setClaimFocus(at.place, null);
+      setOpenClaim(at.place, at.claim.check.id);
+      setSourceChoice(at.place, { id: at.claim.check.id, span: at.part.span });
+    },
+  },
+  correctionCommand("source"),
+  correctionCommand("time"),
   {
     id: "check.anyway",
     label: "claim.checkAnyway",

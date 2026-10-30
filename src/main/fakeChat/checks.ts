@@ -15,6 +15,7 @@
 
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
+import { attributionReply } from "./attribution";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import { lastUserText, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
@@ -77,6 +78,8 @@ export const PARTLY_UNCITED = [
  * Offered calculate, a sentence that states a multiple has it worked out first.
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
+  const fixture = attributionReply(prompt);
+  if (fixture) return fixture;
   // The sentence is in the first message: the check may have been asked to search again since.
   const first = userText(prompt.find((message) => message.role === "user"));
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(first)?.[1] ?? "";

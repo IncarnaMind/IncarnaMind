@@ -13,6 +13,7 @@ import {
   ANSWER_BLOCK,
   type ChatReadiness,
   type EditAction,
+  type EditWithAiInput,
   type EditWithAiResult,
   type ProviderError,
 } from "../../core/api";
@@ -196,6 +197,7 @@ export async function requestEdit(
   instruction?: string,
   range?: { from: number; to: number },
   from?: "menu",
+  part?: EditWithAiInput["part"],
 ): Promise<boolean> {
   const selection = selectionForEdit(editor.state, range);
   if (!selection || editor.isDestroyed || useEdits.getState().pending[mindId]) return false;
@@ -227,6 +229,7 @@ export async function requestEdit(
       to: selection.to,
       text: selection.text,
       action,
+      ...(part && { part }),
       ...(instruction !== undefined && { instruction }),
       model: modelInUseOf(doc),
     });
@@ -241,7 +244,16 @@ export async function requestEdit(
     watch.movedOn(),
     result,
     async () => {
-      await requestEdit(editor, mindId, doc, action, instruction, range ?? selection.range, from);
+      await requestEdit(
+        editor,
+        mindId,
+        doc,
+        action,
+        instruction,
+        range ?? selection.range,
+        from,
+        part,
+      );
     },
     applying,
   );

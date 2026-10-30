@@ -1,4 +1,5 @@
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../core/answers/claimedChanges";
+import { attributionParts } from "./attribution";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -28,7 +29,14 @@ export function fakeClaims(
     !Array.isArray(input.sentences)
   )
     return null;
-  const sentences: { number: number; parts: { kind: "fact" | "opinion"; text: string }[] }[] = [];
+  const sentences: {
+    number: number;
+    parts: {
+      kind: "fact" | "opinion";
+      text: string;
+      facet?: { kind: "source" | "speaker" | "time" };
+    }[];
+  }[] = [];
   for (const sentence of input.sentences as unknown[]) {
     if (
       typeof sentence !== "object" ||
@@ -40,6 +48,11 @@ export function fakeClaims(
     )
       return null;
     const { number, text } = sentence;
+    const fixture = attributionParts(text);
+    if (fixture) {
+      sentences.push({ number, parts: fixture });
+      continue;
+    }
     if (/[?？]$|thank|谢/i.test(text)) {
       sentences.push({ number, parts: [] });
       continue;

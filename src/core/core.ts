@@ -2275,6 +2275,7 @@ export function createCore(adapters: CoreAdapters): Core {
     consent,
     localOnly: () => embedding.localOnly(),
     recheck: (attributes) => recheckKept(documents, attributes),
+    liveDocuments: () => documents.names(),
     writing: (mindId, place) => events.emit("mind.writing", { mindId, place }),
     checkpoint: (mindId) => {
       checkpoints.save(mindId, "accept");

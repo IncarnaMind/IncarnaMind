@@ -12,7 +12,7 @@ import type {
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
-import { coverageCount } from "../../../shared/claimParts";
+import { attributionCorrection, coverageCount } from "../../../shared/claimParts";
 import { formatClaimFacetPeriod } from "../../../shared/dates";
 import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
@@ -248,6 +248,7 @@ function PartRow({
   onCheck,
   onUseWording,
   onChooseSource,
+  onChangeSource,
   onChangePeriod,
   onOpen,
   working,
@@ -265,6 +266,7 @@ function PartRow({
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
   onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangeSource?(part: ClaimCheckPart): void;
   onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   lookedIn: string;
@@ -310,13 +312,21 @@ function PartRow({
     !stale &&
     !checking &&
     part.facet?.kind === "source" &&
+    part.facet.candidates !== undefined &&
+    (part.facet.candidates.length > 1 || part.facet.selectedDocumentId !== undefined) &&
     (part.verdict === "unsupported" ||
       (part.verdict === "supported" && part.facet.selectedDocumentId !== undefined)) &&
     onChooseSource;
   const changePeriod =
     !stale && !checking && part.verdict === "unsupported" && period && onChangePeriod;
+  const correction =
+    !stale && !checking && onChangeSource
+      ? attributionCorrection({ text }, part, documents ?? [])
+      : null;
+  const sourceWording = correction?.kind === "source" ? correction.document : null;
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
+  const chooseButton = useRef<HTMLButtonElement>(null);
   const reason =
     part.verdict === "not-checked" && part.reason
       ? t(`claim.reason.${part.reason}`, { detail: part.detail ?? "" })
@@ -416,6 +426,7 @@ function PartRow({
       {citations && <PartCiting citing={citing} citations={citations} onOpen={onOpen} />}
       {chooseSource && (
         <button
+          ref={chooseButton}
           type="button"
           data-testid="claim-part-choose-source"
           className="citation-card-action"
@@ -432,6 +443,16 @@ function PartRow({
           onClick={() => changePeriod(part)}
         >
           {t("claim.time.changeTo", { period })}
+        </button>
+      )}
+      {sourceWording && (
+        <button
+          type="button"
+          data-testid="claim-part-change-source"
+          className="citation-card-action"
+          onClick={() => onChangeSource?.(part)}
+        >
+          {t("claim.source.changeTo", { document: sourceWording })}
         </button>
       )}
       {wording && (
@@ -455,13 +476,21 @@ function PartRow({
           {t("claim.checkAnyway")}
         </button>
       )}
-      {((omitted && !checking) || wording) && (
+      {((omitted && !checking) || wording || sourceWording || changePeriod || chooseSource) && (
         <ObjectMenu
           target={target}
           label={t("claim.more")}
           here={{
             ...(omitted && !checking && { "check.anyway": () => onCheck(part.span) }),
             ...(wording && { "check.useDocumentWording": () => onUseWording?.(part) }),
+            ...(sourceWording && { "check.correctSource": () => onChangeSource?.(part) }),
+            ...(changePeriod && { "check.correctPeriod": () => onChangePeriod?.(part) }),
+            ...(chooseSource && {
+              "check.chooseSource": () => {
+                const anchor = chooseButton.current;
+                if (anchor) chooseSource(part, anchor);
+              },
+            }),
           }}
           className={`${rowActionButtonClass} claim-part-menu`}
           align="end"
@@ -479,6 +508,7 @@ export function ClaimPartRows({
   onCheck,
   onUseWording,
   onChooseSource,
+  onChangeSource,
   onChangePeriod,
   onOpen,
   working,
@@ -494,6 +524,7 @@ export function ClaimPartRows({
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
   onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangeSource?(part: ClaimCheckPart): void;
   onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   scope?: ClaimCheckScope;
@@ -580,6 +611,7 @@ export function ClaimPartRows({
             onCheck={onCheck}
             onUseWording={onUseWording}
             onChooseSource={onChooseSource}
+            onChangeSource={onChangeSource}
             onChangePeriod={onChangePeriod}
             onOpen={onOpen}
             working={working}

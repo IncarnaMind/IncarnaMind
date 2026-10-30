@@ -517,8 +517,9 @@ export type ProposalRequest =
       requested?: RequestedChange;
       /** Absent on requests made before #94: their changes can't be regenerated. */
       action?: EditAction;
-      /** What the User asked for ("translate", "instruction"); "" for none. */
+      /** What the User asked to change; "" for none. */
       instruction?: string;
+      part?: CheckSentencesInput["part"];
       /** Why the model changed the text, in its few words (#202); absent when it didn't say. */
       reason?: string;
     })
@@ -5413,11 +5414,14 @@ export interface EditWithAiInput {
    */
   text: string;
   action: EditAction;
+  /** Limits row receipts to this part; the selection still covers its whole current sentence. */
+  part?: CheckSentencesInput["part"];
   /**
    * For "translate", the language to translate into, as the User would name
    * it ("English", "简体中文"); for "instruction", what the User asked for;
    * for "cut-unsupported", the part the check found unsupported
-   * (`UnsupportedReason.uncovered`).
+   * (`UnsupportedReason.uncovered`); for "follow-citation", the explicit
+   * correction to apply using the checked Source.
    */
   instruction?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
@@ -5623,7 +5627,12 @@ export interface ClaimFacetPeriod {
 }
 
 export type ClaimFacet =
-  | { kind: "source"; selectedDocumentId?: string }
+  | {
+      kind: "source";
+      selectedDocumentId?: string;
+      named?: ClaimPartSpan;
+      candidates?: { documentId: string; citationId?: string }[];
+    }
   | { kind: "speaker" }
   | { kind: "time"; period?: ClaimFacetPeriod };
 

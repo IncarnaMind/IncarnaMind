@@ -1,0 +1,25 @@
+.claim-source-picker [role="option"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 20px 16px;
+  height: auto;
+  gap: 0 8px;
+  padding: 8px;
+}
+
+.claim-source-picker [role="option"] > span:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.claim-source-picker [role="option"] > span:nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+  max-width: none;
+  line-height: 16px;
+}
+
+.claim-source-picker [role="option"] > span:nth-child(3) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}

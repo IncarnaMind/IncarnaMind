@@ -90,6 +90,12 @@ describe.each(["valid", "missing"] as const)("Same-Run attribution: %s facet res
                       text: row.qualifier,
                       kind: row.kind,
                       ...(row.kind === "source" && { sourceName: row.sourceName }),
+                      ...(row.kind === "speaker" && {
+                        claimedSpeaker: row.language === "en" ? "Nora" : "诺拉",
+                        actualSpeaker: row.language === "en" ? "Nora" : "诺拉",
+                        actualSpeakerNamed: true,
+                        speakerOrigin: "quote",
+                      }),
                       occurrence: 1,
                       verdict: "supported",
                       scope: "same",

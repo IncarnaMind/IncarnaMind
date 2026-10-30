@@ -10,6 +10,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
+  type CheckSentencesInput,
   type CheckSentencesResult,
   CITATION_NODE,
   type CitationAttributes,
@@ -24,12 +25,14 @@ import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import { placeInSentence, type ShownClaim } from "./editor/claimChecks";
+import { placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
 import { resolveProposalsIn } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
+import { sourceFacetChoices } from "./sourceFacets";
+import { useAppStore } from "./store";
 
 /** Why a check gave no marks, or what it left out, for the check badge's card. */
 export type CheckProblem =
@@ -81,6 +84,7 @@ interface ChecksState {
   openClaim: Readonly<Record<string, string>>;
   /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
   focusClaim: Readonly<Record<string, string>>;
+  sourceChoice: Readonly<Record<string, NonNullable<CheckSentencesInput["part"]>>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -90,6 +94,7 @@ export const useChecks = create<ChecksState>()(() => ({
   cardOpen: {},
   openClaim: {},
   focusClaim: {},
+  sourceChoice: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -122,6 +127,65 @@ export const setCheckCardOpen = (place: string, open: boolean) =>
 export const setOpenClaim = (place: string, id: string | null) => setFor("openClaim", place, id);
 
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
+
+export const setSourceChoice = (place: string, target: NonNullable<CheckSentencesInput["part"]>) =>
+  setFor("sourceChoice", place, target);
+
+export function clearSourceChoice(
+  place: string,
+  target: NonNullable<CheckSentencesInput["part"]>,
+): void {
+  const current = useChecks.getState().sourceChoice[place];
+  if (
+    current?.id === target.id &&
+    current.span.start === target.span.start &&
+    current.span.end === target.span.end
+  )
+    setFor("sourceChoice", place, null);
+}
+
+export function sourceChoiceAt(editor: Editor, mindId: string, objectId?: string) {
+  if (editor.isDestroyed || !editor.isEditable || useChecks.getState().running[mindId]) return null;
+  const state = useAppStore.getState();
+  const folderId = state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
+  const { from, to } = editor.state.selection;
+  const matches = shownClaims(editor.state).flatMap((claim) => {
+    if (claim.shown.state === "needs-recheck" || claim.shown.state === "checking") return [];
+    return (claim.check.parts ?? []).flatMap((part) => {
+      const facet = part.facet;
+      if (
+        facet?.kind !== "source" ||
+        (part.verdict !== "unsupported" &&
+          !(part.verdict === "supported" && facet.selectedDocumentId !== undefined))
+      )
+        return [];
+      const range = placeInSentence(editor.state, claim, {
+        from: part.span.start,
+        to: part.span.end,
+      });
+      if (!range) return [];
+      if (objectId !== undefined) {
+        if (objectId !== `${claim.check.id}:${part.span.start}:${part.span.end}`) return [];
+      } else if (from < range.from || to > range.to) return [];
+      const choices = sourceFacetChoices(
+        claim.check,
+        part,
+        {
+          documents: state.documents,
+          folders: state.folders,
+          tags: state.tags,
+          groups: state.library?.groups,
+          assignments: state.library?.assignments,
+        },
+        folderId,
+      );
+      return choices && (choices.choices.length > 1 || facet.selectedDocumentId !== undefined)
+        ? [{ claim, part }]
+        : [];
+    });
+  });
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
 
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {

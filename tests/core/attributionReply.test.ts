@@ -6,6 +6,12 @@ const source = (text: string, more: Record<string, unknown> = {}) => ({
   text,
   kind: "source",
   ...(more.kind === undefined || more.kind === "source" ? { sourceName: text } : {}),
+  ...(more.kind === "speaker" && {
+    claimedSpeaker: "张三",
+    actualSpeaker: "张三",
+    actualSpeakerNamed: true,
+    speakerOrigin: "quote",
+  }),
   occurrence: 1,
   verdict: "supported",
   scope: "same",

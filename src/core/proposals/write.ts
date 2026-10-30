@@ -52,6 +52,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type BlockKind,
   CHART_NODE,
+  type CheckSentencesInput,
   CITATION_NODE,
   type EditAction,
   FOOTNOTE_NODE,
@@ -318,6 +319,7 @@ export function readSelection(
   from: TextPlace,
   to: TextPlace,
   action?: EditAction,
+  part?: CheckSentencesInput["part"],
 ): ReadResult {
   const all = textBlocks(blocks);
   const first = all.findIndex(
@@ -402,14 +404,17 @@ export function readSelection(
     const markers = new Map<number, string>();
     for (const owner of owners) {
       if (owner.element !== element || !owner.partsComplete) continue;
+      if (part && owner.check.id !== part.id) continue;
       const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
       if (typeof blockId !== "string") continue;
       const current = sentenceOf(element, blockId, owner, new Map());
       if (current.text !== owner.check.text || !current.projection) continue;
-      for (const part of owner.check.parts ?? []) {
-        const range = inlineRange(current.projection, part.span.start, part.span.end);
+      for (const row of owner.check.parts ?? []) {
+        if (part && (row.span.start !== part.span.start || row.span.end !== part.span.end))
+          continue;
+        const range = inlineRange(current.projection, row.span.start, row.span.end);
         if (!range || range.from < start || range.to > end) continue;
-        for (const receipt of partCitations(part)) {
+        for (const receipt of partCitations(row)) {
           const id = "id" in receipt ? receipt.id : null;
           if (typeof id !== "string") continue;
           const entry = receipts?.get(id);

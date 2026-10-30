@@ -279,6 +279,7 @@ async function checkWith(options: {
     now: () => new Date("2026-10-29T12:00:00.000Z"),
     language: () => "en",
     walledDocument: () => null,
+    walledFolder: () => null,
     walledFolderName: () => null,
     engine: {
       async *generate(request) {

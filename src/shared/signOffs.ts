@@ -183,9 +183,26 @@ export function namePartCitations(
         each.span.start === part.span.start &&
         each.span.end === part.span.end,
     );
+    const evidence = name(part.evidence, old?.evidence ?? []);
+    const facet =
+      part.facet?.kind === "source" && part.facet.candidates
+        ? {
+            ...part.facet,
+            candidates: part.facet.candidates.map(({ documentId }) => {
+              const own = evidence.filter(
+                (citation) => citation.documentId === documentId && citation.check === "found",
+              );
+              return {
+                documentId,
+                ...(own.length === 1 && own[0]?.id && { citationId: own[0].id }),
+              };
+            }),
+          }
+        : part.facet;
     return {
       ...part,
-      evidence: name(part.evidence, old?.evidence ?? []),
+      ...(facet && { facet }),
+      evidence,
       ...(part.coverage && {
         coverage: {
           ...part.coverage,

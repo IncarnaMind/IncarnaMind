@@ -26,15 +26,18 @@ import { comparableSentence } from "../../../shared/sentences";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
+import { correctAttribution } from "../attributionCorrections";
 import {
   addAsCitation,
   addPartCitations,
   checkAgain,
+  clearSourceChoice,
   closeOpenClaim,
   removeClaimMark,
   replaceCitation,
   setClaimFocus,
   setOpenClaim,
+  sourceChoiceAt,
   useChecks,
   widenCitation,
 } from "../checks";
@@ -53,6 +56,7 @@ import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCitedFollowing } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
+import { chooseSourceFacet } from "../sourceFacetActions";
 import { useAppStore } from "../store";
 import {
   applyDocumentWording,
@@ -79,12 +83,13 @@ import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
-import { claimPartRows, type ShownClaim } from "./claimChecks";
+import { claimPartRows, type ShownClaim, shownClaims } from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
+import { SourceFacetPicker } from "./SourceFacetPicker";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -158,6 +163,27 @@ export function ClaimMark({
   const pinned = useChecks((store) => store.openClaim[place] === id);
   const requestedFocus = useChecks((store) => store.focusClaim[place] === id);
   const [peeking, setPeeking] = useState(false);
+  const [sourceChoice, setSourceChoice] = useState<{
+    part: ClaimCheckPart;
+    anchor: HTMLElement;
+  } | null>(null);
+  const sourceRequest = useChecks((store) => store.sourceChoice[place]);
+  const requestedSource =
+    pinned && sourceRequest?.id === id
+      ? sourceChoiceAt(
+          editor,
+          mindId,
+          [id, sourceRequest.span.start, sourceRequest.span.end].join(":"),
+        )?.part
+      : null;
+  const picker = pinned
+    ? (sourceChoice ??
+      (requestedSource && button ? { part: requestedSource, anchor: button } : null))
+    : null;
+  useEffect(() => {
+    if (!pinned && sourceChoice) setSourceChoice(null);
+    if (sourceRequest?.id === id && !requestedSource) clearSourceChoice(place, sourceRequest);
+  }, [pinned, sourceChoice, sourceRequest, requestedSource, place, id]);
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const card = useRef<HTMLDivElement>(null);
@@ -189,7 +215,9 @@ export function ClaimMark({
     closeOpenClaim(place, id);
     setClaimFocus(place, null);
     setPeeking(false);
-  }, [place, id]);
+    setSourceChoice(null);
+    if (sourceRequest?.id === id) clearSourceChoice(place, sourceRequest);
+  }, [place, id, sourceRequest]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const takeFirstAction = useCallback(() => {
@@ -197,8 +225,8 @@ export function ClaimMark({
     setClaimFocus(place, null);
   }, [place, button]);
   useEffect(() => {
-    if (requestedFocus) openedByKeyboard.current = true;
-  }, [requestedFocus]);
+    if (requestedFocus || requestedSource) openedByKeyboard.current = true;
+  }, [requestedFocus, requestedSource]);
   /** The focus fell out of the card when its action went, and waits on the mark for the next one (#2002). */
   const parked = useRef(false);
   // Another card can take this one's place without dismissing it: a later mouse opening must not steal the focus.
@@ -310,6 +338,7 @@ export function ClaimMark({
             middleware={() => claimCardPlace(button)}
             follows={() => badgeCorner(button)}
             onDismiss={(how) => {
+              if (picker) return;
               if (how === "escape" && openedByKeyboard.current) returnToNote();
               dismiss();
             }}
@@ -377,15 +406,23 @@ export function ClaimMark({
                 applyDocumentWording(editor, claim, part);
                 done(true);
               }}
-              onChooseSource={onChooseSource}
-              onChangePeriod={
-                onChangePeriod
-                  ? (part) => {
-                      onChangePeriod(part);
-                      done(true);
-                    }
-                  : undefined
+              onChooseSource={
+                onChooseSource ??
+                ((part, anchor) => {
+                  if (sourceRequest?.id === id) clearSourceChoice(place, sourceRequest);
+                  setOpenClaim(place, id);
+                  setSourceChoice({ part, anchor });
+                })
               }
+              onChangeSource={(part) => {
+                void correctAttribution(editor, mindId, doc, claim, part);
+                done(true);
+              }}
+              onChangePeriod={(part) => {
+                if (onChangePeriod) onChangePeriod(part);
+                else void correctAttribution(editor, mindId, doc, claim, part);
+                done(true);
+              }}
               onCheckPart={(span) => {
                 const opinion = opinionChecks(editor, doc).find(
                   (each) =>
@@ -439,6 +476,43 @@ export function ClaimMark({
           </Popover>,
           document.body,
         )}
+      {picker && (
+        <SourceFacetPicker
+          anchor={picker.anchor}
+          mindId={mindId}
+          check={claim.check}
+          part={picker.part}
+          onClose={() => {
+            setSourceChoice(null);
+            if (sourceRequest?.id === id) clearSourceChoice(place, sourceRequest);
+          }}
+          onCheckAgain={() => {
+            setSourceChoice(null);
+            if (sourceRequest?.id === id) clearSourceChoice(place, sourceRequest);
+            void checkAgain(editor, mindId, doc, claim);
+          }}
+          onChoose={(documentId) => {
+            setSourceChoice(null);
+            if (sourceRequest?.id === id) clearSourceChoice(place, sourceRequest);
+            const keyboard = openedByKeyboard.current;
+            void chooseSourceFacet(editor, mindId, doc, claim, picker.part, documentId).then(() => {
+              if (editor.isDestroyed || useChecks.getState().openClaim[place] !== id) return;
+              const fresh = shownClaims(editor.state).find(
+                (each) =>
+                  each.sentence.from === claim.sentence.from &&
+                  each.sentence.text === claim.sentence.text &&
+                  each.check.parts?.some(
+                    (part) =>
+                      part.facet?.kind === "source" && part.facet.selectedDocumentId === documentId,
+                  ),
+              );
+              if (!fresh) return;
+              setOpenClaim(place, fresh.check.id);
+              if (keyboard) setClaimFocus(place, fresh.check.id);
+            });
+          }}
+        />
+      )}
     </>
   );
 }
@@ -557,6 +631,7 @@ function ClaimCard({
   onCheckPart,
   onUseWording,
   onChooseSource,
+  onChangeSource,
   onChangePeriod,
   onOpen,
   onFix,
@@ -591,6 +666,7 @@ function ClaimCard({
   onCheckPart(span: ClaimPartSpan): void;
   onUseWording(part: ClaimCheckPart): void;
   onChooseSource?(part: ClaimCheckPart, anchor: HTMLElement): void;
+  onChangeSource?(part: ClaimCheckPart): void;
   onChangePeriod?(part: ClaimCheckPart): void;
   onOpen(): void;
   onFix(): void;
@@ -748,6 +824,7 @@ function ClaimCard({
             onCheck={onCheckPart}
             onUseWording={onUseWording}
             onChooseSource={onChooseSource}
+            onChangeSource={onChangeSource}
             onChangePeriod={onChangePeriod}
             scope={check.scope}
             citations={partCitations}

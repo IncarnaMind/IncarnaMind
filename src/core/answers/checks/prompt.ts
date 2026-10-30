@@ -144,6 +144,7 @@ const PARTS_FIRST = [
 const FACET_REPLY = [
   'For each factual facet in Parts, append one Facets: JSON line: {"items":[{"text":"its exact literal words","kind":"source","sourceName":"the named title copied from those words","occurrence":1,"verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"evidence":[1]}]}. Include every requested facet once, including unsupported ones, using its one-based occurrence in the full original assertion. Only a source row has sourceName; speaker/time rows omit it. Ordinary Verdict/Figures results judge the governing factual assertion; these facet results separately judge its attribution or time in that same original context, using quotes recorded in this Run. Do not run another check or invent a Citation.',
   "A source facet checks the named Document, never merely the same fact in another Document. A speaker facet checks the named person and their words; an anonymous speaker label establishes no named person. Wrong or ambiguous attribution is unsupported, not contradicted. Keep an explicitly reversed surrounding context with the original factual judgment.",
+  'For each speaker facet give claimedSpeaker (the exact name in its literal words), actualSpeaker (the speaker the evidence attributes those words to), actualSpeakerNamed (true for a named person, false for an anonymous role or numbered voice), and speakerOrigin:"cue" or "quote". Use cue for the Transcript voice actually saying the assertion; use quote when the checked quote explicitly attributes reported words to a different person, or names the speaker in Document prose. Read the full assertion and reported-speech context: a narrator mentioning Li is not automatically Li saying those words. An anonymous voice does not prove a named identity. Source/time rows omit these speaker fields.',
   'For time facets additionally give time:"present", "this-year", "last-year" or "explicit", according to the original words, and period:{"start":"YYYY-MM-DD","end":"YYYY-MM-DD","precision":"day|month|quarter|year"} only when that facet\'s own checked quote states it. Bounds are inclusive calendar dates. Never use a file date or another row\'s period. Missing stated period is unsupported. A present-time statement needs a begun period still open or ended within twelve calendar months of the Check date, with no newer scoped Document giving another value. Search for an applicable newer statement in the same Run and cite it; do not assume absence without looking. This/last year means the Check calendar year/previous year, and a fiscal year counts as the year it ends.',
 ].join("\n");
 
@@ -214,6 +215,7 @@ export function claimPrompt(input: {
   claim: string;
   originalClaim?: string;
   parts?: readonly ClaimPartPlan[];
+  sourceContext?: readonly ClaimPartPlan[];
   sourceDocuments?: readonly { id: string; name: string }[];
   context?: string;
   cited?: readonly { documentName: string; quote: string }[];
@@ -226,6 +228,17 @@ export function claimPrompt(input: {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
   const original = input.originalClaim ?? input.claim;
+  const sourceChoices = (input.sourceContext ?? []).flatMap((part) => {
+    const facet = part.facet;
+    if (facet?.kind !== "source" || !facet.selectedDocumentId) return [];
+    const document = input.sourceDocuments?.find((each) => each.id === facet.selectedDocumentId);
+    return document ? [{
+      span: part.span,
+      text: original.slice(part.span.start, part.span.end),
+      document: document.id,
+      documentName: document.name,
+    }] : [];
+  });
   const facets = (input.parts ?? []).flatMap((part) => {
     if (!part.facet) return [];
     const text = original.slice(part.span.start, part.span.end);
@@ -255,6 +268,14 @@ export function claimPrompt(input: {
     ...(original !== input.claim
       ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
       : []),
+    ...(sourceChoices.length > 0 ? [
+      "The User's source choices in the original assertion:",
+      "<source-choices>",
+      JSON.stringify(sourceChoices),
+      "</source-choices>",
+      "These identify only the literal source prefixes shown. Use a choice only for an assertion your own judgment says that prefix governs; never apply it to an unrelated assertion. Use its exact document token for search_documents' document. The evidence scope is unchanged. These are context, not additional facet targets or verdicts.",
+      "",
+    ] : []),
     ...(facets.length > 0
       ? [
           "Judge these exact facet targets in that complete assertion, in this same Run:",

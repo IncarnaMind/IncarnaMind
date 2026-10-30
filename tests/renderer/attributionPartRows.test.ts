@@ -173,7 +173,14 @@ describe.each(CASES)("attribution rows in $language", (sample) => {
 
   test("passes the original source part and button anchor to its chooser", async () => {
     const source = {
-      ...part(sample.source, sample.source, { kind: "source" }),
+      ...part(sample.source, sample.source, {
+        kind: "source",
+        named: { start: 0, end: sample.source.length },
+        candidates: [
+          { documentId: "ceae82c7-42b3-4c37-bf00-39b2e1abdf9f" },
+          { documentId: "f6e23066-e90e-486f-886c-5ec91f563506" },
+        ],
+      }),
       verdict: "unsupported" as const,
     };
     const choose = vi.fn();

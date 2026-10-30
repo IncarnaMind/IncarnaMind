@@ -28,6 +28,7 @@ import {
   type RecordAiUseInput,
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
+import { readClaimPartTarget } from "./claimParts";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -642,11 +643,15 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
   }
   if (source !== "edit-with-ai") return null;
   const action = editActions.find((each) => each === record.action);
+  const part = record.part === undefined ? undefined : readClaimPartTarget(record.part);
+  if (part === null || (part && action !== "follow-citation" && action !== "cut-unsupported"))
+    return null;
   return {
     ...made,
     source,
     ...(action && { action }),
     ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+    ...(part && { part }),
     ...(isText(record.reason) && { reason: record.reason }),
     ...(requested && { requested }),
   };

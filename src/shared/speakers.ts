@@ -34,6 +34,11 @@ const KEYS: Readonly<Record<string, MessageKey>> = {
 
 export const speakerKey = (speaker: string): MessageKey | null => KEYS[speaker] ?? null;
 
+export function isNamedSpeaker(speaker: string | null): boolean {
+  const name = speaker?.trim() ?? "";
+  return name !== "" && speakerKey(name) === null && !THEIRS.test(name) && !ROOM.test(name);
+}
+
 export function speakerName(
   speaker: string,
   t: (key: MessageKey, params?: MessageParams) => string,

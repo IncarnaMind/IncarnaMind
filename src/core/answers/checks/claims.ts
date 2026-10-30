@@ -226,7 +226,10 @@ function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[
       facet === null ||
       (facet !== undefined &&
         (kind !== "fact" ||
-          (facet.kind === "source" && facet.selectedDocumentId !== undefined) ||
+          (facet.kind === "source" &&
+            (facet.selectedDocumentId !== undefined ||
+              facet.named !== undefined ||
+              facet.candidates !== undefined)) ||
           (facet.kind === "time" && facet.period !== undefined)))
     )
       return null;

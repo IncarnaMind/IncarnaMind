@@ -25,13 +25,15 @@
 import { generateText } from "ai";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import type { LiveDocument } from "../../../shared/citations";
-import { partWithResult } from "../../../shared/claimParts";
+import { partWithResult, readPartPlans } from "../../../shared/claimParts";
 import { formatClaimFacetPeriod } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
 import { sentenceSpans } from "../../../shared/sentences";
+import { speakerName } from "../../../shared/speakers";
+import { normaliseText } from "../../../shared/text";
 import type {
   CheckedVersion,
   CheckFigure,
@@ -113,6 +115,7 @@ import {
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 import { sourceAttribution, sourceNameIn } from "./sourceAttribution";
+import { speakerAttribution } from "./speakerAttribution";
 import { inCurrentPeriodWindow, periodInEvidence } from "./statedPeriod";
 import { type BoundNumber, unitNotStated } from "./units";
 
@@ -122,6 +125,7 @@ export interface ClaimCheckDependencies {
   now(): Date;
   /** The wall a Document belongs to, or null when it belongs to none. */
   walledDocument(documentId: string): string | null;
+  walledFolder(mindId: string | null): string | null;
   /** The name of that wall's Folder, or null when it belongs to none. */
   walledFolderName(documentId: string): string | null;
   engine: AnswerEngine;
@@ -149,6 +153,7 @@ export interface ClaimCheckRequest {
   figureIds?: readonly string[];
   // A legal prefix can govern later literal parts without being repeated in them (#2002).
   originalClaim?: string;
+  sourceContext?: readonly ClaimPartPlan[];
   figures?: readonly CheckFigure[];
   context?: string;
   cited?: readonly CheckedCitation[];
@@ -382,13 +387,39 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         .filter(
           (document) =>
             !scope.excluded.has(document.id) &&
-            (documentIds ? documentIds.has(document.id) : deps.walledDocument(document.id) === null),
+            (documentIds
+              ? documentIds.has(document.id)
+              : deps.walledDocument(document.id) === null),
         )
         .flatMap((document) =>
           document.name === undefined
             ? []
-            : [{ id: document.id, name: displayName({ name: document.name, title: document.title }) }],
+            : [
+                {
+                  id: document.id,
+                  name: displayName({ name: document.name, title: document.title }),
+                  title: document.title,
+                },
+              ],
         );
+    const sourceContext = () => {
+      const original = request.originalClaim ?? request.claim;
+      const plans = readPartPlans(request.sourceContext ?? request.parts ?? [], original) ?? [];
+      if (!plans.some((part) => part.facet?.kind === "source" && part.facet.selectedDocumentId))
+        return [];
+      const live = sourceDocuments();
+      const wall = deps.walledFolder(request.cacheKey ?? null);
+      const key = (text: string) => normaliseText(text).toLocaleLowerCase();
+      return plans.filter((part) => {
+        const facet = part.facet;
+        if (facet?.kind !== "source" || !facet.selectedDocumentId) return false;
+        const chosen = live.find((document) => document.id === facet.selectedDocumentId);
+        if (!chosen || deps.walledDocument(chosen.id) !== wall) return false;
+        return facet.named
+          ? key(original.slice(facet.named.start, facet.named.end)) === key(chosen.name)
+          : sourceNameIn(original.slice(part.span.start, part.span.end), chosen.name);
+      });
+    };
     const outsideCited = (request.cited ?? []).flatMap((citation) => {
       const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
       if (!source || deps.walledDocument(source.documentId) === null) return [];
@@ -419,7 +450,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
       documentNamed: (name) => {
         const selected = new Set(
-          (request.parts ?? []).flatMap((part) =>
+          sourceContext().flatMap((part) =>
             part.facet?.kind === "source" && part.facet.selectedDocumentId
               ? [part.facet.selectedDocumentId]
               : [],
@@ -816,6 +847,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
+    const sourceChoices = sourceContext();
     for await (const event of deps.engine.generate({
       instructions: (mode, options) =>
         checkInstructions(
@@ -834,7 +866,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             ...request,
             citedShown,
             language: deps.language(),
-            sourceDocuments: sourceDocuments(),
+            sourceContext: sourceChoices,
+            sourceDocuments: sourceChoices.length > 0
+              ? sourceDocuments().filter((document) =>
+                deps.walledDocument(document.id) === deps.walledFolder(request.cacheKey ?? null),
+              )
+              : [],
             ...(Number.isFinite(checkedAt.getTime()) && { checkedAt: checkedAt.toISOString() }),
           }),
         },
@@ -916,8 +953,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               (left) => left.reason === "own-file" || left.reason === "checked-document",
             ),
           };
-          const unavailable = (reason: ClaimCheckFailure) =>
-            partWithResult(plan, { verdict: "not-checked", reason, detail: null, ...base });
+          const unavailable = (reason: ClaimCheckFailure, evidence: readonly Citation[] = []) =>
+            partWithResult(
+              plan,
+              { verdict: "not-checked", reason, detail: null, ...base },
+              evidence,
+            );
           const unsupported = (reason: string, found: boolean): ClaimJudgment => ({
             verdict: "unsupported",
             evidence: null,
@@ -935,10 +976,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           const catalog = sourceDocuments();
           const selectedDocumentId =
             plan.facet?.kind === "source" ? plan.facet.selectedDocumentId : undefined;
-          if (
-            selectedDocumentId &&
-            !catalog.some((document) => document.id === selectedDocumentId)
-          )
+          if (selectedDocumentId && !catalog.some((document) => document.id === selectedDocumentId))
             return partWithResult(
               { ...plan, facet: { kind: "source" } },
               unsupported(translate(deps.language(), "claim.source.chooseAgain"), false),
@@ -961,7 +999,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               evidence: citations,
             });
             if (!source) return unavailable("malformed");
-            canonicalPlan = { ...plan, facet: source.facet };
+            if (!source.named) return unavailable("malformed");
+            canonicalPlan = {
+              ...plan,
+              facet: {
+                ...source.facet,
+                named: {
+                  start: plan.span.start + source.named.start,
+                  end: plan.span.start + source.named.end,
+                },
+                candidates: source.candidates.map((candidate) => ({documentId: candidate.id})),
+              },
+            };
             if (source.outcome === "choose-again")
               judged = unsupported(translate(deps.language(), "claim.source.chooseAgain"), false);
             else if (source.outcome === "ambiguous")
@@ -990,6 +1039,42 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             }
           }
           if (judged.verdict === "not-checked") return unavailable(judged.reason);
+          if (plan.facet?.kind === "speaker") {
+            const speaker = speakerAttribution({
+              words: (request.originalClaim ?? request.claim).slice(plan.span.start, plan.span.end),
+              claimedSpeaker: parsed.claimedSpeaker,
+              actualSpeaker: parsed.actualSpeaker,
+              actualSpeakerNamed: parsed.actualSpeakerNamed,
+              speakerOrigin: parsed.speakerOrigin,
+              proofs: citations.map((citation) => ({
+                citation,
+                units: scoped.pageTexts(
+                  citation.documentId,
+                  citation.contentHash,
+                  citation.pageFrom,
+                  citation.pageTo,
+                ),
+              })),
+            });
+            if (!speaker) return unavailable("no-evidence", citations);
+            if (speaker.outcome) {
+              if (!evidence) return unavailable("no-evidence");
+              judged = unsupported(
+                translate(
+                  deps.language(),
+                  speaker.outcome === "unknown" ? "claim.speaker.unknown" : "claim.speaker.other",
+                  {
+                    document: evidence.documentName,
+                    speaker: speakerName(speaker.speaker, (key, params) =>
+                      translate(deps.language(), key, params),
+                    ),
+                    claimed: parsed.claimedSpeaker ?? "",
+                  },
+                ),
+                true,
+              );
+            }
+          }
           if (plan.facet?.kind === "time") {
             if (!evidence) return unavailable("no-evidence");
             if (!Number.isFinite(checkedAt.getTime())) return unavailable("malformed");

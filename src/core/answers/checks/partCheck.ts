@@ -290,7 +290,11 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         return previous?.facet?.kind === "source" && previous.facet.selectedDocumentId !== undefined
           ? {
               ...plan,
-              facet: { ...plan.facet, selectedDocumentId: previous.facet.selectedDocumentId },
+              facet: {
+                ...previous.facet,
+                ...plan.facet,
+                selectedDocumentId: previous.facet.selectedDocumentId,
+              },
             }
           : plan;
       }),
@@ -314,6 +318,9 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       plans = restored;
     }
     const planned = plans;
+    const sourceContext = planned.filter(
+      (plan) => plan.facet?.kind === "source" && plan.facet.selectedDocumentId !== undefined,
+    );
     const primary = whole(planned);
     if (
       primary &&
@@ -321,7 +328,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       request.only === undefined &&
       request.figureIds === undefined
     ) {
-      const result = await limit.run(() => atomic({ ...request, parts: plans }));
+      const result = await limit.run(() => atomic({ ...request, parts: plans, sourceContext }));
       return family(planned, primary, result);
     }
     // What the User didn't ask about leaves its opinions out, as Check this Note does.
@@ -440,6 +447,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
                       sameClaimPart(part, plan) || facets.some((facet) => facet.plan === part),
                   )
                 : [plan],
+            sourceContext,
             findParts: undefined,
             figures: requestedFigures.length ? requestedFigures : undefined,
             projection: undefined,

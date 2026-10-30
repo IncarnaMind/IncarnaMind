@@ -102,6 +102,12 @@ describe("Attribution through the public Note check", () => {
                           text: row.qualifier,
                           kind: row.kind,
                           ...(row.kind === "source" && { sourceName: row.heading }),
+                          ...(row.kind === "speaker" && {
+                            claimedSpeaker: row.language === "en" ? "Nora" : "诺拉",
+                            actualSpeaker: row.language === "en" ? "Nora" : "诺拉",
+                            actualSpeakerNamed: true,
+                            speakerOrigin: "quote",
+                          }),
                           occurrence: 1,
                           verdict: "supported",
                           scope: "same",
@@ -223,6 +229,25 @@ describe("Attribution through the public Note check", () => {
       if (!saved) throw new Error("The original sentence has no canonical check mark.");
       expect(saved.text).toBe(row.claim);
       expect(saved.state).toBe("supported");
+      const sourceReceiptId = saved.parts
+        ?.find((part) => part.facet?.kind === "source")
+        ?.evidence.find((citation) => citation.documentId === document.id)?.id;
+      if (row.kind === "source" && !sourceReceiptId)
+        throw new Error("The source candidate has no canonical owned Citation id.");
+      const sourceMetadata =
+        row.kind === "source"
+          ? {
+              named: {
+                start: row.claim.indexOf(row.heading),
+                end: row.claim.indexOf(row.heading) + row.heading.length,
+              },
+              candidates: [{ documentId: document.id, citationId: sourceReceiptId }],
+            }
+          : {};
+      if (row.kind === "source") {
+        expect(row.claim.indexOf(row.heading)).toBeGreaterThanOrEqual(0);
+        expect(row.claim.lastIndexOf(row.heading)).toBe(row.claim.indexOf(row.heading));
+      }
       expect(
         saved.parts?.map((part) => ({
           text: saved.text.slice(part.span.start, part.span.end),
@@ -234,7 +259,7 @@ describe("Attribution through the public Note check", () => {
         {
           text: row.qualifier,
           span: { start: 0, end: row.qualifier.length },
-          facet: { kind: row.kind },
+          facet: { kind: row.kind, ...sourceMetadata },
           verdict: "supported",
         },
         {

@@ -21,6 +21,7 @@
  */
 
 import { appliedEditReply } from "./appliedEdits";
+import { attributionEdit } from "./attribution";
 import { PARTLY } from "./checks";
 import { type Prompt, SHORTEN, SLOWLY, type StreamPart, USAGE } from "./prompt";
 
@@ -109,6 +110,8 @@ export function fakeEdit(prompt: Prompt): { text: string; slow: boolean; holds: 
 
 /** The scripted Edit with AI's new text for `passage`, or its explanation. */
 function editedText(action: string, passage: string, asked: string): string {
+  const fixture = action === "follow-citation" ? attributionEdit(passage, asked) : null;
+  if (fixture !== null) return fixture;
   switch (action) {
     case "shorten":
       return passage.replace(FILLER, "");

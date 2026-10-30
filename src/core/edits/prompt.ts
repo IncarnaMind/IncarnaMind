@@ -57,6 +57,7 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
     case "follow-citation":
       return [
         ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
+        ...(instruction ? [`Apply this correction: ${instruction}`] : []),
         "Change the passage so it agrees with that, altering only the words the new wording changes. Keep every other word, mark and marker exactly as it is, in its place.",
       ].join(" ");
     case "cut-unsupported":

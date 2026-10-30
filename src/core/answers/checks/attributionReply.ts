@@ -8,6 +8,10 @@ import { sourceNameIn } from "./sourceAttribution";
 export interface AttributionReply extends ReadVerdict {
   evidence: number[];
   sourceName?: string;
+  claimedSpeaker?: string;
+  actualSpeaker?: string;
+  actualSpeakerNamed?: boolean;
+  speakerOrigin?: "cue" | "quote";
   period?: ClaimFacetPeriod;
   time?: "present" | "this-year" | "last-year" | "explicit";
 }
@@ -92,6 +96,35 @@ export function readAttributionReply(
     if (item.kind === "source") {
       if (sourceName === undefined || !sourceNameIn(text, sourceName)) continue;
     } else if (Object.hasOwn(item, "sourceName")) continue;
+    let speaker:
+      | Pick<
+          AttributionReply,
+          "claimedSpeaker" | "actualSpeaker" | "actualSpeakerNamed" | "speakerOrigin"
+        >
+      | undefined;
+    if (item.kind === "speaker") {
+      if (
+        typeof item.claimedSpeaker !== "string" ||
+        item.claimedSpeaker.trim() === "" ||
+        typeof item.actualSpeaker !== "string" ||
+        item.actualSpeaker.trim() === "" ||
+        typeof item.actualSpeakerNamed !== "boolean" ||
+        (item.speakerOrigin !== "cue" && item.speakerOrigin !== "quote") ||
+        !sourceNameIn(text, item.claimedSpeaker)
+      )
+        continue;
+      speaker = {
+        claimedSpeaker: item.claimedSpeaker,
+        actualSpeaker: item.actualSpeaker,
+        actualSpeakerNamed: item.actualSpeakerNamed,
+        speakerOrigin: item.speakerOrigin,
+      };
+    } else if (
+      ["claimedSpeaker", "actualSpeaker", "actualSpeakerNamed", "speakerOrigin"].some((key) =>
+        Object.hasOwn(item, key),
+      )
+    )
+      continue;
     const time = item.kind === "time" ? timeOf(item.time) : undefined;
     if (item.kind === "time" && time === undefined) continue;
     const period = time === undefined ? null : readClaimFacetPeriod(item.period);
@@ -102,6 +135,7 @@ export function readAttributionReply(
       ...parsed,
       evidence: parsed.evidence,
       ...(sourceName !== undefined && { sourceName }),
+      ...speaker,
       ...(time && { time }),
       ...(period && { period }),
     };

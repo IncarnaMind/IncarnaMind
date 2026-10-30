@@ -32,6 +32,7 @@ import {
   checkWithParts,
   partWithResult,
   pendingPart,
+  readClaimPartTarget,
   readPartPlans,
   resultFromParts,
   sameClaimPart,
@@ -204,20 +205,9 @@ interface ParsedCheck {
 
 function parsePart(value: unknown): ParsedCheck["part"] {
   if (value === undefined) return undefined;
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    !value.id ||
-    !isRecord(value.span) ||
-    !Number.isInteger(value.span.start) ||
-    !Number.isInteger(value.span.end) ||
-    typeof value.span.start !== "number" ||
-    typeof value.span.end !== "number" ||
-    value.span.start < 0 ||
-    value.span.end <= value.span.start
-  )
-    throw new InvalidInputError({ key: "error.check.partChanged" });
-  return { id: value.id, span: { start: value.span.start, end: value.span.end } };
+  const part = readClaimPartTarget(value);
+  if (!part) throw new InvalidInputError({ key: "error.check.partChanged" });
+  return part;
 }
 
 function parseStretches(value: unknown): TextStretch[] {
@@ -488,6 +478,32 @@ function partsKeptInside(
   return kept ? next : null;
 }
 
+export function partOwner(blocks: Y.XmlFragment, target: NonNullable<ParsedCheck["part"]>) {
+  const marked = markedSentences(blocks).find((each) => each.check.id === target.id);
+  if (marked?.check.state === "checking") {
+    throw new InvalidInputError({ key: "error.check.partChecking" });
+  }
+  const sentence =
+    marked &&
+    everySentence(blocks).find(
+      (each) =>
+        each.element === marked.element &&
+        each.from < marked.to &&
+        each.to > marked.from &&
+        each.text === marked.check.text,
+    );
+  const opinion = marked ? null : unmarkedOpinion(blocks, target.id);
+  const parts = sentence ? marked?.check.parts : opinion?.parts;
+  const own = sentence ?? opinion;
+  const part = parts?.find(
+    (each) => each.span.start === target.span.start && each.span.end === target.span.end,
+  );
+  if (!own || !parts || !part || part.verdict === "checking") {
+    throw new InvalidInputError({ key: "error.check.partChanged" });
+  }
+  return { sentence: own, parts, check: marked?.check };
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
 
@@ -705,32 +721,6 @@ export function createChecks(options: ChecksOptions) {
       empty: searchable === 0 ? empty() : null,
       check: { scope, marked, wanted },
     };
-  }
-
-  function partOwner(blocks: Y.XmlFragment, target: NonNullable<ParsedCheck["part"]>) {
-    const marked = markedSentences(blocks).find((each) => each.check.id === target.id);
-    if (marked?.check.state === "checking") {
-      throw new InvalidInputError({ key: "error.check.partChecking" });
-    }
-    const sentence =
-      marked &&
-      everySentence(blocks).find(
-        (each) =>
-          each.element === marked.element &&
-          each.from < marked.to &&
-          each.to > marked.from &&
-          each.text === marked.check.text,
-      );
-    const opinion = marked ? null : unmarkedOpinion(blocks, target.id);
-    const parts = sentence ? marked?.check.parts : opinion?.parts;
-    const own = sentence ?? opinion;
-    const part = parts?.find(
-      (each) => each.span.start === target.span.start && each.span.end === target.span.end,
-    );
-    if (!own || !parts || !part || part.verdict === "checking") {
-      throw new InvalidInputError({ key: "error.check.partChanged" });
-    }
-    return { sentence: own, parts, check: marked?.check };
   }
 
   async function checkSentences(

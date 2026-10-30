@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { sourceAttribution, sourceNameIn } from "../../src/core/answers/checks/sourceAttribution";
+import {
+  sourceAttribution,
+  sourceNameIn,
+  sourceNameSpan,
+} from "../../src/core/answers/checks/sourceAttribution";
 import type { CitationAttributes } from "../../src/core/api";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { createTempDataFolder, manualClock } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const A = "00000000-0000-4000-8000-000000000001";
 const B = "00000000-0000-4000-8000-000000000002";
@@ -41,8 +49,13 @@ describe.each(CASES)(
       { id: A, name: sourceName },
       { id: C, name: other },
     ];
+    const named = {
+      start: words.indexOf(sourceName),
+      end: words.indexOf(sourceName) + sourceName.length,
+    };
     test("passes only the unique exact title with its actual quote owner", () => {
       expect(sourceAttribution({ words, sourceName, documents, evidence: [citation(A)] })).toEqual({
+        named,
         facet: { kind: "source" },
         outcome: null,
         candidates: [{ id: A, name: sourceName }],
@@ -65,19 +78,20 @@ describe.each(CASES)(
           evidence: [citation(C, other)],
         }),
       ).toEqual({
+        named,
         facet: { kind: "source" },
-        outcome: "missing",
+        outcome: "other",
         candidates: [],
-        document: null,
+        document: { id: C, name: other },
       });
     });
-    test("does not accept a longer catalogue title as a fuzzy match", () => {
+    test("a longer title needs its own checked binding, never fuzzy-first selection", () => {
       expect(
         sourceAttribution({
           words,
           sourceName,
           documents: [{ id: C, name: `${sourceName} appendix` }],
-          evidence: [citation(C)],
+          evidence: [],
         })?.outcome,
       ).toBe("missing");
     });
@@ -93,6 +107,7 @@ describe.each(CASES)(
           evidence: [citation(B)],
         }),
       ).toEqual({
+        named,
         facet: { kind: "source" },
         outcome: "ambiguous",
         candidates: [
@@ -115,6 +130,7 @@ describe.each(CASES)(
           evidence: [citation(B)],
         }),
       ).toEqual({
+        named,
         facet: { kind: "source", selectedDocumentId: B },
         outcome: null,
         candidates: [
@@ -161,6 +177,7 @@ describe.each(CASES)(
             evidence: [citation(A)],
           }),
         ).toEqual({
+          named,
           facet: { kind: "source" },
           outcome: "choose-again",
           candidates: [{ id: A, name: sourceName }],
@@ -290,6 +307,298 @@ describe("normalized Source names keep original lexical boundaries", () => {
         sourceName: name,
         documents: [{ id: A, name }],
         evidence: [citation(A)],
+      })?.outcome,
+    ).toBeNull();
+  });
+});
+
+describe("descriptive references use only their checked scoped owner", () => {
+  test.each([
+    ["The lease says", "lease", "Employment agreement"],
+    ["该租约规定", "租约", "劳动协议"],
+  ])("a descriptive %s can bind the scoped checked Document", (words, sourceName, title) => {
+    expect(
+      sourceAttribution({
+        words,
+        sourceName,
+        documents: [{ id: B, name: title }],
+        evidence: [citation(B)],
+      }),
+    ).toEqual({
+      named: {
+        start: words.indexOf(sourceName),
+        end: words.indexOf(sourceName) + sourceName.length,
+      },
+      facet: { kind: "source" },
+      outcome: null,
+      candidates: [],
+      document: { id: B, name: title },
+    });
+    expect(
+      sourceAttribution({ words, sourceName, documents: [{ id: B, name: title }], evidence: [] })
+        ?.outcome,
+    ).toBe("missing");
+  });
+  test.each([
+    ["According to the 2024 Annual Report", "2024 Annual Report", "Annual Report 2023"],
+    ["据2024年报", "2024年报", "2023年度报告"],
+  ])("a number in %s cannot be borrowed from another title", (words, sourceName, title) => {
+    expect(
+      sourceAttribution({
+        words,
+        sourceName,
+        documents: [{ id: B, name: title }],
+        evidence: [citation(B)],
+      }),
+    ).toMatchObject({ outcome: "other", candidates: [], document: { id: B, name: title } });
+  });
+  test.each([
+    ["According to the March 2024 report", "March 2024 report", "The statement covers April 2024."],
+    ["据2024年3月报告", "2024年3月报告", "这份说明覆盖2024年4月。"],
+  ])("full date semantics in %s do not collapse to numeric sets", (words, sourceName, quote) => {
+    expect(
+      sourceAttribution({
+        words,
+        sourceName,
+        documents: [{ id: B, name: "Monthly statement" }],
+        evidence: [{ ...citation(B), quote }],
+      }),
+    ).toMatchObject({ outcome: "other", document: { id: B, name: "Monthly statement" } });
+  });
+  test("mixed checked Document owners cannot become a first-Citation binding", () => {
+    expect(
+      sourceAttribution({
+        words: "The lease says",
+        sourceName: "lease",
+        documents: [
+          { id: A, name: "Employment agreement" },
+          { id: B, name: "Property agreement" },
+        ],
+        evidence: [citation(A), citation(B)],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("public Core descriptive Source attribution", () => {
+  test.each([
+    {
+      language: "en",
+      words: "The lease says",
+      sourceName: "lease",
+      fact: "the tenant may terminate.",
+      title: "Employment agreement",
+      quote: "The tenant may terminate.",
+      expected: "supported",
+    },
+    {
+      language: "zh-CN",
+      words: "该租约规定",
+      sourceName: "租约",
+      fact: "承租人可以解约。",
+      title: "劳动协议",
+      quote: "承租人可以解约。",
+      expected: "supported",
+    },
+    {
+      language: "en",
+      words: "According to the 2024 Annual Report",
+      sourceName: "2024 Annual Report",
+      fact: "revenue was £12 million.",
+      title: "Annual Report 2023",
+      quote: "In 2023, revenue was £12 million.",
+      expected: "unsupported",
+    },
+    {
+      language: "zh-CN",
+      words: "据2024年报",
+      sourceName: "2024年报",
+      fact: "营收为1200万元。",
+      title: "2023年度报告",
+      quote: "2023年，营收为1200万元。",
+      expected: "unsupported",
+    },
+  ] as const)("$language $sourceName binds only its actual checked Source", async (row) => {
+    const claim = `${row.words}${row.language === "en" ? ", " : "，"}${row.fact}`;
+    const frames: ModelCall[] = [];
+    const model = scriptedModel((call) => {
+      frames.push(call);
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return {
+          text: `Parts: ${JSON.stringify([
+            { kind: "fact", text: row.words, facet: { kind: "source" } },
+            { kind: "fact", text: row.fact },
+          ])}`,
+          calls: [{ tool: "search_documents", input: { query: row.quote } }],
+        };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = shownPassages(search.text).find((candidate) =>
+          candidate.text.includes(row.quote),
+        );
+        if (!passage)
+          throw new Error("The descriptive Source fixture's actual quote was not found.");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: passage.id, quote: row.quote }] },
+            },
+          ],
+        };
+      }
+      return {
+        text: [
+          "Verdict: supported",
+          "Scope: none, same",
+          "Topic: found",
+          "Roles: none, same",
+          "Calculation: none",
+          "Evidence: [1]",
+          `${row.quote} [^1]`,
+          `Facets: ${JSON.stringify({ items: [{ text: row.words, sourceName: row.sourceName, kind: "source", occurrence: 1, verdict: "supported", scope: "same", topic: "found", roles: "same", says: row.quote, evidence: [1] }] })}`,
+        ].join("\n"),
+      };
+    });
+    const { core } = await setUpWithDocuments(model, [], {
+      now: manualClock("2026-10-30T12:00:00.000Z").now,
+    });
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, automatic: false });
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), `${row.title}.md`, row.quote),
+    ]);
+    if (!document) throw new Error("The descriptive Source fixture Document was not imported.");
+    await core.updateSettings({ user: { language: row.language } });
+    const before = model.doStreamCalls.length + model.doGenerateCalls.length;
+    const result = await core.checkClaim({
+      claim,
+      scope: { folderIds: [], tagIds: [], documentIds: [document.id] },
+    });
+    expect(result.verdict).toBe(row.expected);
+    const source = result.parts?.find((part) => part.facet?.kind === "source");
+    expect(source).toMatchObject({
+      verdict: row.expected,
+      evidence: [
+        {
+          documentId: document.id,
+          contentHash: document.contentHash,
+          quote: row.quote,
+          check: "found",
+        },
+      ],
+    });
+    expect(result.parts?.find((part) => !part.facet)?.verdict).toBe("supported");
+    expect(model.doStreamCalls.length + model.doGenerateCalls.length - before).toBe(3);
+    expect(frames).toHaveLength(3);
+  });
+});
+
+describe("named Source offset utility", () => {
+  test.each([
+    ["The lease says", "lease", 4, 9],
+    ["😀据《ＡＴＬＡＳ》", "Atlas", 4, 9],
+    ["据《e\u0301tude》", "étude", 2, 8],
+    ["Atlastic then Atlas", "Atlas", 14, 19],
+  ] as const)("returns the actual raw named title in %s", (words, name, start, end) => {
+    expect(sourceNameSpan(words, name)).toEqual({ start, end });
+  });
+  test("keeps ANY matching semantics for repeated speaker/name proof", () => {
+    expect(sourceNameIn("Atlas and Atlas", "Atlas")).toBe(true);
+    expect(sourceNameSpan("Atlas and Atlas", "Atlas")).toBeNull();
+    expect(
+      sourceAttribution({
+        words: "Atlas and Atlas",
+        sourceName: "Atlas",
+        documents: [{ id: A, name: "Atlas" }],
+        evidence: [citation(A)],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("descriptive number and title witnesses", () => {
+  test.each([
+    ["the 20% statement", "20% statement", "Coverage was 20.0%.", null],
+    ["the 20% statement", "20% statement", "Coverage was 25%.", "other"],
+    ["the 100% statement", "100% statement", "The ratio was 1.", "other"],
+    ["the US$10 report", "US$10 report", "The amount was GBP10.", "other"],
+    ["the US$1 million report", "US$1 million report", "The amount was USD1,000,000.", null],
+  ] as const)("checks own base value and unit: %s / %s", (words, sourceName, quote, outcome) => {
+    expect(
+      sourceAttribution({
+        words,
+        sourceName,
+        documents: [{ id: B, name: "Budget statement" }],
+        evidence: [{ ...citation(B), quote }],
+      })?.outcome,
+    ).toBe(outcome);
+  });
+  test("an actual title may witness descriptive dates without becoming an exact display candidate", () => {
+    expect(
+      sourceAttribution({
+        words: "the March 2024 report says",
+        sourceName: "March 2024 report",
+        documents: [{ id: B, name: "Board pack", title: "March 2024 report" }],
+        evidence: [citation(B)],
+      }),
+    ).toMatchObject({ outcome: null, candidates: [], document: { id: B, name: "Board pack" } });
+  });
+  test("a hidden old title never rescues a renamed remembered UUID", () => {
+    expect(
+      sourceAttribution({
+        words: "According to Atlas",
+        sourceName: "Atlas",
+        selectedDocumentId: B,
+        documents: [{ id: B, name: "Renamed report", title: "Atlas" }],
+        evidence: [citation(B)],
+      }),
+    ).toMatchObject({
+      outcome: "choose-again",
+      facet: { kind: "source" },
+      candidates: [],
+      document: null,
+    });
+  });
+  test("a descriptive row requires an actual checked quote, not an empty or failed receipt", () => {
+    for (const invalid of [
+      { ...citation(B), check: "not-found" as const },
+      { ...citation(B), quote: null },
+      { ...citation(B), quote: "" },
+    ]) {
+      expect(
+        sourceAttribution({
+          words: "The lease says",
+          sourceName: "lease",
+          documents: [{ id: B, name: "Employment agreement" }],
+          evidence: [invalid],
+        }),
+      ).toBeNull();
+    }
+  });
+});
+
+describe("descriptive reference readings stay strict", () => {
+  test("an unresolved currency symbol cannot select its first numeric reading", () => {
+    expect(
+      sourceAttribution({
+        words: "the ¥10 report says",
+        sourceName: "¥10 report",
+        documents: [{ id: B, name: "Budget statement" }],
+        evidence: [{ ...citation(B), quote: "The amount was CNY10." }],
+      })?.outcome,
+    ).toBe("other");
+  });
+  test.each([
+    ["the 1 March 2024 report says", "1 March 2024 report"],
+    ["据2024年3月1日报告", "2024年3月1日报告"],
+  ])("the same complete date can be stated in another format: %s", (words, sourceName) => {
+    expect(
+      sourceAttribution({
+        words,
+        sourceName,
+        documents: [{ id: B, name: "Daily statement" }],
+        evidence: [{ ...citation(B), quote: "On 2024-03-01, the rate was 5%." }],
       })?.outcome,
     ).toBeNull();
   });

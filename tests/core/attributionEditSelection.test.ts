@@ -14,14 +14,20 @@ import {
   type EditAction,
   type EditCause,
   type EditWithAiInput,
+  type EditWithAiResult,
   MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
 } from "../../src/core/api";
 import { editPrompt } from "../../src/core/edits/prompt";
 import { proposeRewrite, readSelection } from "../../src/core/proposals/write";
 import { selectionForEdit } from "../../src/renderer/src/editor/editSelection";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { checkWithParts, partCitations } from "../../src/shared/claimParts";
-import { recordProposalRequest, resolveProposals } from "../../src/shared/proposals";
+import {
+  proposalRequestOf,
+  recordProposalRequest,
+  resolveProposals,
+} from "../../src/shared/proposals";
 import { namePartCitations } from "../../src/shared/signOffs";
 import { editorExtensions, headlessEditor } from "../helpers/editor";
 import { readMind } from "../helpers/minds";
@@ -35,6 +41,7 @@ const CASES = [
     claim: "According to Residents, Nora lives in Oslo.",
     fact: "Nora lives in Oslo.",
     replacement: "According to the Register",
+    corrected: "According to the Register[1], Nora lives in Oslo.",
     source: "Register",
     quote: "Nora lives in Oslo.",
   },
@@ -45,6 +52,7 @@ const CASES = [
     claim: "根据旧名册，诺拉住在奥斯陆。",
     fact: "诺拉住在奥斯陆。",
     replacement: "根据居民登记",
+    corrected: "根据居民登记[1]，诺拉住在奥斯陆。",
     source: "居民登记",
     quote: "诺拉住在奥斯陆。",
   },
@@ -55,6 +63,7 @@ const CASES = [
     claim: "Currently, the rate is 5%.",
     fact: "the rate is 5%.",
     replacement: "In March 2024",
+    corrected: "In March 2024[1], the rate was 5%.",
     source: "Facility letter",
     quote: "As at March 2024, the rate was 5%.",
   },
@@ -65,6 +74,7 @@ const CASES = [
     claim: "目前，利率为5%。",
     fact: "利率为5%。",
     replacement: "2024 年 3 月",
+    corrected: "2024 年 3 月[1]，利率为5%。",
     source: "贷款函",
     quote: "截至2024年3月，利率为5%。",
   },
@@ -182,8 +192,86 @@ function fixture(row: (typeof CASES)[number], inline: boolean, action?: EditActi
   );
   const read = readSelection(blocks, input.from, input.to, action);
   if (!read.ok) throw new Error(`The Core could not read the selected qualifier: ${read.reason}`);
-  return { doc, blocks, input, selection: read.selection, owned, parts };
+  return { doc, blocks, input, selection: read.selection, owned, parts, check };
 }
+
+test.each(CASES)("$language $kind targets one row while editing its full assertion", (row) => {
+  const { doc, blocks, input, owned, parts, check } = fixture(row, false, "follow-citation");
+  const first = parts[0];
+  if (!first) throw new Error("The fixture has no qualifier row.");
+  const part = { id: check.id, span: first.span };
+  const read = readSelection(
+    blocks,
+    input.from,
+    { ...input.to, offset: row.claim.length },
+    input.action,
+    part,
+  );
+  if (!read.ok) throw new Error(`The full assertion could not be read: ${read.reason}`);
+  expect.soft(read.selection.plain).toBe(row.claim);
+  expect.soft(read.selection.citations.map((citation) => citation.id)).toEqual([owned.id]);
+  const instruction =
+    row.kind === "source"
+      ? `Use ${owned.documentName} as the attribution.`
+      : "State March 2024 and adjust the tense.";
+  expect
+    .soft(
+      editPrompt({
+        action: input.action,
+        instruction,
+        passage: read.selection.text,
+        context: read.selection.context,
+        quotes: [row.quote],
+      }),
+    )
+    .toContain(instruction);
+  recordProposalRequest(doc, input.requestId, {
+    source: "edit-with-ai",
+    action: input.action,
+    instruction,
+    part,
+    providerId: "scripted",
+    modelId: "scripted",
+    createdAt: "2026-10-29T12:00:00.000Z",
+  });
+  expect.soft(proposalRequestOf(doc, input.requestId)).toMatchObject({ part });
+});
+
+test.each(CASES)("$language $kind keeps physical Citations when row receipts are scoped", (row) => {
+  const { blocks, input, parts, check, owned } = fixture(row, true, "follow-citation");
+  const first = parts[0];
+  if (!first) throw new Error("The qualifier row is missing.");
+  const read = readSelection(
+    blocks,
+    input.from,
+    { ...input.to, offset: row.claim.length + 1 },
+    input.action,
+    { id: check.id, span: first.span },
+  );
+  if (!read.ok) throw new Error(`The full cited assertion could not be read: ${read.reason}`);
+  expect(read.selection.citations.map((citation) => citation.id)).toEqual([owned.id]);
+  expect(read.selection.citedElements).toHaveLength(1);
+});
+
+test.each([
+  null,
+  {},
+  { id: "check", span: { start: -1, end: 5 } },
+  { id: "check", span: { start: 0, end: "5" } },
+])("malformed stored row targets never become unscoped requests: %j", (part) => {
+  const doc = new Y.Doc();
+  onTestFinished(() => doc.destroy());
+  const request = randomUUID();
+  doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD).set(request, {
+    source: "edit-with-ai",
+    action: "follow-citation",
+    part,
+    providerId: "scripted",
+    modelId: "scripted",
+    createdAt: "2026-10-29T12:00:00.000Z",
+  });
+  expect(proposalRequestOf(doc, request)).toBeNull();
+});
 
 describe.each([
   { inline: false, name: "uncited ordinary part receipt", action: "follow-citation" },
@@ -309,6 +397,7 @@ describe.each(["improve", undefined] as const)(
 );
 
 let editingDocument: Y.Doc | null = null;
+let activeEdit: ((input: EditWithAiInput) => Promise<EditWithAiResult>) | null = null;
 afterAll(() => vi.unstubAllGlobals());
 const listeners = new Map<string, Set<(payload: unknown) => void>>();
 const bridge = {
@@ -330,12 +419,16 @@ const bridge = {
   async unwatchComparisonMind() {},
   async closeMind() {},
   async recordAiUse() {},
+  async editWithAi(input: EditWithAiInput) {
+    if (!activeEdit) throw new Error("The edit fixture has no request handler.");
+    return activeEdit(input);
+  },
 };
 
 test.each(CASES)(
   "$language $kind applies its Citation and words through one offered Undo",
   async (row) => {
-    const { doc, blocks, input, owned } = fixture(row, false, "follow-citation");
+    const { doc, blocks, input, owned, parts, check } = fixture(row, false, "follow-citation");
     editingDocument = doc;
     const document = new DOMParser().parseFromString(
       "<!doctype html><html><head></head><body></body></html>",
@@ -360,7 +453,7 @@ test.each(CASES)(
       fontSize: "",
       fontFamily: "",
     }));
-    const { startApplying, finishApplying } = await import("../../src/renderer/src/appliedEdits");
+    const { requestEdit } = await import("../../src/renderer/src/editWithAi");
     const { openMindCopy, flushMindUpdates } = await import("../../src/renderer/src/mindCopies");
     const { AppliedEditLine, appliedLineIn } = await import(
       "../../src/renderer/src/editor/appliedEditLine"
@@ -394,52 +487,76 @@ test.each(CASES)(
     editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
     const original = editor.state.doc.toJSON();
     expect(undoStackOf(editor)?.undoStack).toHaveLength(0);
-    editor.commands.setTextSelection({ from: 1, to: 1 + row.literal.length });
+    editor.commands.setTextSelection({ from: 1, to: 1 + row.claim.length });
     const selected = selectionForEdit(editor.state);
     if (!selected) throw new Error("The bound editor did not select the qualifier.");
-    const read = readSelection(blocks, selected.from, selected.to, input.action);
-    if (!read.ok) throw new Error(`The edit selection was rejected: ${read.reason}`);
-    const applying = startApplying(editor, input.mindId, input.requestId);
-    if (!applying) throw new Error("The editor could not start applying the edit.");
-    const request = randomUUID();
-    const cause: EditCause = { requestId: input.requestId, request, apply: true };
-    const emit = (update: Uint8Array) => {
-      for (const listener of listeners.get("mind.update") ?? []) {
-        listener({ mindId: input.mindId, update, cause });
+    const first = parts[0];
+    if (!first) throw new Error("The qualifier row is missing.");
+    const part = { id: check.id, span: first.span };
+    const instruction =
+      row.kind === "source"
+        ? `Use ${owned.documentName}.`
+        : "State March 2024 and adjust the tense.";
+    activeEdit = async (actual) => {
+      expect(actual.part).toEqual(part);
+      expect(actual.text).toBe(row.claim);
+      expect(actual.instruction).toBe(instruction);
+      const read = readSelection(blocks, actual.from, actual.to, actual.action, actual.part);
+      if (!read.ok) throw new Error(`The edit selection was rejected: ${read.reason}`);
+      expect(read.selection.citations).toHaveLength(1);
+      const request = randomUUID();
+      const cause: EditCause = { requestId: actual.requestId, request, apply: true };
+      const emit = (update: Uint8Array) => {
+        for (const listener of listeners.get("mind.update") ?? []) {
+          listener({ mindId: actual.mindId, update, cause });
+        }
+      };
+      doc.on("update", emit);
+      let proposals = 0;
+      try {
+        doc.transact(() => {
+          recordProposalRequest(doc, request, {
+            source: "edit-with-ai",
+            action: actual.action,
+            instruction: actual.instruction,
+            part: actual.part,
+            providerId: "scripted",
+            modelId: "scripted",
+            createdAt: "2026-10-29T12:00:00.000Z",
+          });
+          proposals = proposeRewrite(read.selection, row.corrected, request, randomUUID).proposals
+            .length;
+        });
+      } finally {
+        doc.off("update", emit);
       }
-    };
-    doc.on("update", emit);
-    doc.transact(() =>
-      recordProposalRequest(doc, request, {
-        source: "edit-with-ai",
-        action: input.action,
-        instruction: "",
-        providerId: "scripted",
-        modelId: "scripted",
-        createdAt: "2026-10-29T12:00:00.000Z",
-      }),
-    );
-    let proposals = 0;
-    doc.transact(() => {
-      proposals = proposeRewrite(read.selection, `${row.replacement}[1]`, request, randomUUID)
-        .proposals.length;
-    });
-    doc.off("update", emit);
-    expect(proposals).toBeGreaterThan(0);
-    expect(
-      await finishApplying(applying, {
+      expect(proposals).toBeGreaterThan(0);
+      return {
         kind: "proposed",
         request,
         proposals,
         droppedCitations: 0,
         outOfDate: 0,
         stateVector: Y.encodeStateVector(doc),
-      }),
-    ).toMatchObject({ applied: { paragraphs: 1 } });
+      };
+    };
+    onTestFinished(() => {
+      activeEdit = null;
+    });
+    expect(
+      await requestEdit(
+        editor,
+        input.mindId,
+        local,
+        input.action,
+        instruction,
+        selected.range,
+        undefined,
+        part,
+      ),
+    ).toBe(true);
     expect(appliedLineIn(editor.state)?.kind).toBe("applied");
-    expect(editor.state.doc.textContent).toBe(
-      row.replacement + row.claim.slice(row.literal.length),
-    );
+    expect(editor.state.doc.textContent).toBe(row.corrected.replace("[1]", ""));
     const citations: Record<string, unknown>[] = [];
     editor.state.doc.descendants((node) => {
       if (node.type.name === "citation") citations.push(node.attrs);
@@ -454,6 +571,5 @@ test.each(CASES)(
     expect(editor.state.doc.toJSON()).toEqual(original);
     expect(readMind({ blocks }).toJSON()).toEqual(original);
     expect(useUndo.getState().done).toHaveLength(0);
-    applying.forget();
   },
 );

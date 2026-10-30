@@ -26,6 +26,7 @@ import { APICallError, StreamProviderError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
+import { attributionConfirm, attributionPreamble } from "./attribution";
 import { isCell } from "./cells";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
@@ -87,6 +88,7 @@ const overloadedOnce = new Set<string>();
  * doesn't return null answers it.
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
+  attributionConfirm,
   fakePlan,
   fakeResearchTags,
   fakeClaims,
@@ -259,6 +261,15 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
         : edit
           ? editParts(edit.text)
           : replyParts(prompt, tools ?? []);
+      const fixture = attributionPreamble(prompt);
+      if (!edit && fixture)
+        parts.splice(
+          1,
+          0,
+          { type: "text-start", id: "attribution-parts" },
+          { type: "text-delta", id: "attribution-parts", delta: fixture },
+          { type: "text-end", id: "attribution-parts" },
+        );
       // A check of a sentence that says "slowly" reports slowly too, as a Question asked slowly
       // does, so a spec can open its card while the check still runs.
       const checked = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(lastUserText(prompt))?.[1] ?? "";

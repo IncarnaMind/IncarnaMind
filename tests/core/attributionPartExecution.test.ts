@@ -496,9 +496,21 @@ describe("literal facets and saved source choices", () => {
         mindId: setup.mind.id,
         mode: "all",
       });
-      expect(setup.owner().parts?.find((part) => part.facet)?.facet).toEqual({
+      const sourcePart = setup.owner().parts?.find((part) => part.facet?.kind === "source");
+      const receiptId = sourcePart?.evidence.find(
+        (citation) => citation.documentId === document.id,
+      )?.id;
+      const name = row.facets.find((facet) => facet.kind === "source")?.sourceName;
+      if (!name || !receiptId)
+        throw new Error("The selected source has no literal name or canonical owned receipt.");
+      const named = { start: row.claim.indexOf(name), end: row.claim.indexOf(name) + name.length };
+      expect(named.start).toBeGreaterThanOrEqual(0);
+      expect(row.claim.lastIndexOf(name)).toBe(named.start);
+      expect(sourcePart?.facet).toEqual({
         kind: "source",
         selectedDocumentId: document.id,
+        named,
+        candidates: [{ documentId: document.id, citationId: receiptId }],
       });
     },
   );
