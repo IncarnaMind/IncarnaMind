@@ -75,6 +75,7 @@ import { filingFolder, hasSearchScope, NO_SCOPE, searchScopeOf } from "../../sha
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unrunToolNotes } from "../../shared/unrunTools";
+import { webHostOf } from "../../shared/webAddresses";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults } from "../analysis/markers";
 import { analysisTool } from "../analysis/tool";
@@ -108,6 +109,7 @@ import {
   type ConversationQuestion,
   type CoreEventName,
   type CoreEvents,
+  type DocumentKind,
   type Effect,
   type ExternalService,
   type FigureRetry,
@@ -782,6 +784,8 @@ export interface DocumentsForAnswers
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<WindowedPassage[]>;
+  /** A saved web page's address, as it was read; null for a file, or a Document unknown here. */
+  webAddress(documentId: string): string | null;
 }
 
 interface Quoted {
@@ -1730,18 +1734,44 @@ export function createAnswers(options: AnswersOptions) {
       options.conversations.writeToolCalls(answerId, toolCalls);
     };
     let commandTurn: Promise<unknown> = Promise.resolve();
-    /** What the Answer read that the User didn't write, as it read it: its Documents and the live Transcript. */
+    /**
+     * What the Answer read that the User didn't write, as it read it: its Documents, its web pages
+     * by host, the Connectors whose results it read, and the live Transcript. A web page is never
+     * named by its title (#2240): a page writes its own title, so an injected one could pass for
+     * the User's file on this card; its host is the part it can't write.
+     */
     const readText = (): { readText?: ApprovalReadText } => {
+      /** Each Document read, once, with its kind and, for a web page, its address. */
+      const read = new Map<string, { name: string; kind: DocumentKind; address: string | null }>();
+      for (const each of session.passagesRead()) {
+        if (transcripts.has(each.documentId) || read.has(each.documentId)) continue;
+        read.set(each.documentId, {
+          name: each.documentName,
+          kind: each.kind,
+          address: each.kind === "web" ? options.documents.webAddress(each.documentId) : null,
+        });
+      }
+      // A web page is never its title, even one whose address has gone: it is left out rather
+      // than named as a Document the User wrote.
       const documents = [
+        ...new Set([...read.values()].flatMap((each) => (each.kind === "web" ? [] : [each.name]))),
+      ];
+      const webPages = [...read.values()].flatMap((each) =>
+        each.kind === "web" && each.address !== null ? [webHostOf(each.address)] : [],
+      );
+      const connectors = [
         ...new Set(
-          session
-            .passagesRead()
-            .filter((each) => !transcripts.has(each.documentId))
-            .map((each) => each.documentName),
+          toolCalls.flatMap((call) =>
+            call.source === "connector" && call.status === "done" && call.connector
+              ? [call.connector.name]
+              : [],
+          ),
         ),
       ];
       const transcript = transcripts.size > 0;
-      return documents.length > 0 || transcript ? { readText: { documents, transcript } } : {};
+      return documents.length > 0 || webPages.length > 0 || connectors.length > 0 || transcript
+        ? { readText: { documents, webPages, connectors, transcript } }
+        : {};
     };
     // Whether it asks is the commands' policy's (../tools/commands/policy, #1110).
     const commandGate = (

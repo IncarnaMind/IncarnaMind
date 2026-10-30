@@ -146,9 +146,17 @@ interface Sending {
 }
 
 export function createMindCheck(options: MindCheckOptions) {
-  /** The Notes a Check is running on now. */
-  const checking = new Set<string>();
+  /**
+   * The Note each Check request keeps from its planning until it runs or is dropped, and the
+   * window that keeps it (#2240).
+   */
+  const checking = new Map<string, { requestId: string; clientId: string | null }>();
   const { content } = options;
+
+  const release = (requestId: string) => {
+    for (const [mindId, held] of checking)
+      if (held.requestId === requestId) checking.delete(mindId);
+  };
 
   const modelOf = (mindId: string): ChatModelChoice | null =>
     options.modelInUse(
@@ -578,11 +586,17 @@ export function createMindCheck(options: MindCheckOptions) {
       if (options.isRunning(parsed.requestId)) {
         throw new InvalidInputError({ key: "error.mindCheck.request" });
       }
+      // Planning holds the Note too: two requests can't both name claims and ask (#2240).
+      const held = checking.get(parsed.mindId);
+      if (held && held.requestId !== parsed.requestId) return { kind: "running" };
+      const planning = held === undefined;
+      if (planning) checking.set(parsed.mindId, { requestId: parsed.requestId, clientId: null });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
         return await findClaims(parsed, tracked.signal);
       } finally {
         tracked.done();
+        if (planning) release(parsed.requestId);
       }
     },
 
@@ -593,6 +607,40 @@ export function createMindCheck(options: MindCheckOptions) {
       return [...addedSince(id)].map(([checkId, documentIds]) => ({ checkId, documentIds }));
     },
 
+    /** See `CoreApi.holdMindCheck`. */
+    holdMindCheck(input: unknown): boolean {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.mindCheck.request" });
+      const { requestId } = input;
+      if (typeof requestId !== "string" || requestId === "") {
+        throw new InvalidInputError({ key: "error.mindCheck.request" });
+      }
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      if (options.isRunning(requestId)) {
+        throw new InvalidInputError({ key: "error.mindCheck.request" });
+      }
+      const held = checking.get(mindId);
+      if (held && held.requestId !== requestId) return false;
+      checking.set(mindId, {
+        requestId,
+        clientId:
+          typeof input.clientId === "string" && input.clientId !== "" ? input.clientId : null,
+      });
+      return true;
+    },
+
+    /** See `CoreApi.forgetCheckWindow`. */
+    forgetCheckWindow(clientId: unknown): void {
+      if (typeof clientId !== "string" || clientId === "") {
+        throw new InvalidInputError({ key: "error.mindCheck.request" });
+      }
+      for (const [mindId, held] of checking)
+        if (held.clientId === clientId) checking.delete(mindId);
+    },
+
+    /** Frees the Note a request kept, whether or not it ran (#2240). */
+    release,
+
     /** See `CoreApi.checkMind`. */
     async checkMind(input: unknown): Promise<CheckMindResult> {
       const parsed = parseCheckMind(input);
@@ -600,15 +648,18 @@ export function createMindCheck(options: MindCheckOptions) {
       if (options.isRunning(parsed.requestId)) {
         throw new InvalidInputError({ key: "error.mindCheck.request" });
       }
-      // One Check of a Note at a time, whichever window or request asks for it.
-      if (checking.has(parsed.mindId)) return { kind: "running" };
-      checking.add(parsed.mindId);
+      // One Check of a Note at a time, from its planning to its end, whichever window asks (#2240).
+      const held = checking.get(parsed.mindId);
+      if (held && held.requestId !== parsed.requestId) return { kind: "running" };
+      // The run holds the Note now, not the window: a window gone frees only a planned Check.
+      checking.set(parsed.mindId, { requestId: parsed.requestId, clientId: null });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
         return await check(parsed, tracked.signal);
       } finally {
         tracked.done();
-        checking.delete(parsed.mindId);
+        if (checking.get(parsed.mindId)?.requestId === parsed.requestId)
+          checking.delete(parsed.mindId);
       }
     },
   };

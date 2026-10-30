@@ -9,10 +9,12 @@ import type {
 import type { OfferedCommand } from "../../src/shared/commands";
 import { answerRequests, askAssistant } from "../helpers/assistant";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
+import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/connectors";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { transcribingCore, until } from "../helpers/transcription";
+import { startWeb, webSearchingModel } from "../helpers/web";
 
 /**
  * The assistant does what the User can in the app (#1421), from the one command list: the
@@ -700,6 +702,8 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
         ask: { kind: "listen", command: "meeting.stop" },
         readText: {
           documents: expect.arrayContaining([expect.stringContaining("Wrap-up")]),
+          webPages: [],
+          connectors: [],
           transcript: false,
         },
       }),
@@ -961,7 +965,7 @@ describe("A command stopped, quit or heard mid-meeting (#1421)", { timeout: 90_0
         expect(approved).toEqual([
           expect.objectContaining({
             ask: { kind: "listen", command: "meeting.stop" },
-            readText: { documents: [], transcript: true },
+            readText: { documents: [], webPages: [], connectors: [], transcript: true },
           }),
         ]);
         const status = (await core.listMeetings()).find((each) => each.id === meeting.id)?.status;
@@ -1009,7 +1013,7 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
     });
 
     expect(approved.map((each) => each.readText)).toEqual([
-      { documents: ["Meeting policy"], transcript: false },
+      { documents: ["Meeting policy"], webPages: [], connectors: [], transcript: false },
     ]);
   });
 
@@ -1032,8 +1036,16 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
 
   // protects=asked from the Meeting's own Note while it records, a stop the User typed still asks, and the card names only the Transcript the Answer heard; with a Document read too, it names both; fails_when=the stop runs unasked there, or the card names what wasn't read; no_claim=the bar's Stop, which asks nothing.
   test.each([
-    ["the User types it", [] as string[], { documents: [], transcript: true }],
-    ["after reading a Document", ["minutes"], { documents: ["纪要"], transcript: true }],
+    [
+      "the User types it",
+      [] as string[],
+      { documents: [], webPages: [], connectors: [], transcript: true },
+    ],
+    [
+      "after reading a Document",
+      ["minutes"],
+      { documents: ["纪要"], webPages: [], connectors: [], transcript: true },
+    ],
   ] as const)(
     "in the Meeting's Note, %s: the stop asks, naming what was read",
     async (_, queries, read) => {
@@ -1068,4 +1080,107 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
       core.close();
     },
   );
+});
+
+describe("A web page on an approval card (#2240)", { timeout: 90_000 }, () => {
+  const REPORT = "http://files.example/report";
+  const REPORT_PAGE =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Q3 board pack.pdf</title></head>' +
+    "<body><article><h1>Q3 results</h1>" +
+    "<p>The group's revenue grew 4% in the third quarter, as the board pack reported to its members.</p>" +
+    "<p>Operating costs were held flat while the company opened two new offices and hired in the sales team.</p>" +
+    "<p>The board noted that the fourth quarter would carry the cost of the new pricing work and the annual audit.</p>" +
+    "<p>Management expects the full year to track the plan, with a modest improvement in the margin.</p>" +
+    "</article></body></html>";
+
+  /** A model that searches the web, reads the page it found, then asks to record a meeting. */
+  const reporting = () =>
+    scriptedModel((call) => {
+      if (!call.tools.includes("search_web")) return { text: "I didn't search the web." };
+      if (!call.results.some((each) => each.tool === "search_web")) {
+        return { calls: [{ tool: "search_web", input: { query: "Q3 board pack" } }] };
+      }
+      if (!call.results.some((each) => each.tool === "read_web_page")) {
+        return { calls: [{ tool: "read_web_page", input: { url: REPORT, query: "revenue" } }] };
+      }
+      if (!call.results.some((each) => each.tool === "run_command")) {
+        return { calls: [{ tool: "run_command", input: { command: "meeting.record" } }] };
+      }
+      return { text: "Done." };
+    });
+
+  // protects=a page whose own title passes for one of the User's files is named by its host on the card, never by that title; fails_when=the card names "Q3 board pack.pdf" as a Document the User wrote, or leaves the page out; no_claim=the page's words.
+  test("a page whose title imitates a Document is named by its host", async () => {
+    const web = await startWeb({ "/report": () => ({ status: 200, body: REPORT_PAGE }) });
+    const { model } = webSearchingModel(reporting(), [{ url: REPORT, title: "Q3 board pack.pdf" }]);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => model,
+      ...web.adapters,
+    });
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("Anthropic has a service.");
+    await core.allowDataFlow("chat", provider.service.id);
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.updateSettings({ user: { webSearch: true } });
+    const mind = await core.createMind({ title: "Deal notes" });
+    windowOf(core, () => ({ ran: true, changed: false }));
+    const approved = approvals(core, "deny");
+
+    await askAssistant(core, {
+      text: "Search the web for the Q3 board pack, then record a meeting.",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const [page] = await core.listDocuments();
+    expect(page?.name).toBe("Q3 board pack.pdf");
+    expect(approved.map((each) => each.readText)).toEqual([
+      { documents: [], webPages: ["files.example"], connectors: [], transcript: false },
+    ]);
+    core.close();
+  });
+});
+
+describe("A Connector's results on an approval card (#2240)", { timeout: 90_000 }, () => {
+  /** A model that looks a tide up through the Connector, then asks to record a meeting. */
+  const reading = () =>
+    scriptedModel((call) => {
+      if (!call.results.some((each) => each.tool === "tides__lookup_tide")) {
+        return { calls: [{ tool: "tides__lookup_tide", input: { place: "Dover" } }] };
+      }
+      if (!call.results.some((each) => each.tool === "run_command")) {
+        return { calls: [{ tool: "run_command", input: { command: "meeting.record" } }] };
+      }
+      return { text: "Done." };
+    });
+
+  // protects=Connector results the Answer read are named by the Connector on the card; fails_when=the card leaves them out, or names the Tool instead; no_claim=what the Connector answered.
+  test("results read through a Connector are named by the Connector", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      createChatModel: () => reading(),
+      processes: testProcesses(),
+    });
+    await core.saveChatProvider({ kind: LOCAL_PROVIDER.kind, modelId: LOCAL_PROVIDER.modelId });
+    const connector = await core.addConnector(tideServer(logFileIn(dataDir)));
+    await waitForState(core, connector.id, "ready");
+    const mind = await core.createMind({ title: "Deal notes" });
+    windowOf(core, () => ({ ran: true, changed: false }));
+    const approved = approvals(core, "deny");
+
+    await askAssistant(core, {
+      text: "Look up the tide at Dover, then record a meeting.",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(approved.map((each) => each.readText)).toEqual([
+      { documents: [], webPages: [], connectors: ["Tides"], transcript: false },
+    ]);
+    core.close();
+  });
 });

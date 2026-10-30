@@ -4489,8 +4489,12 @@ export const en = {
   "commands.ask.readText": "This Answer read text you didn’t write: {what}.",
   "commands.ask.readText.document": "“{name}”",
   "commands.ask.readText.documents": "{count} Documents",
+  "commands.ask.readText.webPage": "a web page on {host}",
+  "commands.ask.readText.webPages": "{count} web pages",
+  "commands.ask.readText.connector": "results from {connector}",
   "commands.ask.readText.transcript": "this meeting’s Transcript",
-  "commands.ask.readText.both": "{documents} and {transcript}",
+  "commands.ask.readText.and": "and",
+  "commands.ask.readText.comma": ",",
   "commands.ask.output.title": "Save new files in “{folder}”?",
   "commands.ask.output.text":
     "It becomes your Output location, where the assistant saves files without asking.",

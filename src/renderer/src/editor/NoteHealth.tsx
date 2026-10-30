@@ -587,7 +587,9 @@ export function HealthCard({
           <ProblemLine testId="checks-problem" className="mind-health-line" action={close}>
             {problem.kind === "only-cited"
               ? t("checks.problem.only-cited.folder", { folder: folderName ?? "" })
-              : t(`checks.problem.${problem.kind}`)}
+              : problem.kind === "running"
+                ? t("mindCheck.alreadyChecking")
+                : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
       <UnreadFilesLine

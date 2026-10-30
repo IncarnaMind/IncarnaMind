@@ -79,25 +79,47 @@ const WHOLE_LINES = new Set<MessageKey>([
   "commands.window.alreadyChecking",
 ]);
 
+/** The separator between two pieces of text in the interface language (see `useGap`). */
+type Gap = (before: string, after: string) => string;
+
 /**
- * What an Answer read that the User didn't write, on the approval of a command it asks about: one
- * Document by its name, more by their number, and this meeting's Transcript. It never says which
- * of them asked for the command.
+ * What an Answer read that the User didn't write, on the approval of a command it asks about, in
+ * the order it read them: Documents by name, web pages by host, the Connectors whose results it
+ * read, and this meeting's Transcript; null when it lists nothing, and the card says its general
+ * line instead. A web page is never named by its title, which it writes itself (#2240). It never
+ * says which of them asked for the command.
  */
-export function readTextLine(t: Translate, read: ApprovalReadText): string {
-  const [only] = read.documents;
-  const documents =
-    read.documents.length === 1 && only !== undefined
-      ? t("commands.ask.readText.document", { name: only })
+export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): string | null {
+  const [document] = read.documents;
+  const [page] = read.webPages;
+  const parts = [
+    ...(read.documents.length === 1 && document !== undefined
+      ? [t("commands.ask.readText.document", { name: document })]
       : read.documents.length > 1
-        ? t("commands.ask.readText.documents", { count: read.documents.length })
-        : null;
-  const transcript = read.transcript ? t("commands.ask.readText.transcript") : null;
-  const what =
-    documents && transcript
-      ? t("commands.ask.readText.both", { documents, transcript })
-      : (documents ?? transcript ?? "");
-  return t("commands.ask.readText", { what });
+        ? [t("commands.ask.readText.documents", { count: read.documents.length })]
+        : []),
+    ...(read.webPages.length === 1 && page !== undefined
+      ? [t("commands.ask.readText.webPage", { host: page })]
+      : read.webPages.length > 1
+        ? [t("commands.ask.readText.webPages", { count: read.webPages.length })]
+        : []),
+    ...read.connectors.map((connector) => t("commands.ask.readText.connector", { connector })),
+    ...(read.transcript ? [t("commands.ask.readText.transcript")] : []),
+  ];
+  return parts.length === 0 ? null : t("commands.ask.readText", { what: joined(t, gap, parts) });
+}
+
+/** The kinds as one list: "A, B and C"; in Chinese "A、B和C". */
+function joined(t: Translate, gap: Gap, parts: readonly string[]): string {
+  const [first = "", ...rest] = parts;
+  if (rest.length === 0) return first;
+  const comma = t("commands.ask.readText.comma");
+  const and = t("commands.ask.readText.and");
+  const before = [first, ...rest.slice(0, -1)].reduce(
+    (text, part) => text + comma + gap(comma, part) + part,
+  );
+  const last = rest.at(-1) ?? "";
+  return `${before}${gap(before, and)}${and}${gap(and, last)}${last}`;
 }
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */

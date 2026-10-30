@@ -306,6 +306,72 @@ describe("Check this note", () => {
     });
   });
 
+  // protects=two Check requests that begin planning at once: the second is refused before it names any claim, so no second question is asked and one run starts; fails_when=both plan and both may ask; no_claim=which request the model names claims for.
+  test("two Checks in the planning window: the second is refused, and one runs", async () => {
+    const { core, mindId, finds } = await setUp();
+
+    const first = core.findMindClaims(request(mindId, "all", "first-window"));
+    const second = core.findMindClaims(request(mindId, "all", "second-window"));
+
+    expect(await second).toEqual({ kind: "running" });
+    expect(await first).toMatchObject({ kind: "found" });
+    expect(finds).toHaveLength(1);
+    expect(await core.checkMind(request(mindId, "all", "first-window"))).toMatchObject({
+      kind: "checked",
+      sentences: 3,
+    });
+  });
+
+  // protects=a stopped Check keeps its Note until it has unwound: a Check asked the moment it is stopped starts none, and the Note is free after; fails_when=the next Check starts over the stopped one's work; no_claim=what the stopped Check writes.
+  test("a stopped Check keeps its Note until it unwinds", async () => {
+    const { core, mindId } = await setUp();
+
+    const first = core.checkMind(request(mindId, "all", "stopped"));
+    await core.cancelCheck("stopped-all");
+    expect(await core.checkMind(request(mindId, "all", "over"))).toEqual({ kind: "running" });
+    expect(await first).toEqual({ kind: "cancelled" });
+    expect(await core.checkMind(request(mindId, "all", "after"))).toMatchObject({
+      kind: "checked",
+    });
+  });
+
+  // protects=a window's Check keeps its Note from planning until it runs: a second window's Check is refused before it plans, and the Note is free once the Check runs, is dropped, or its window goes; fails_when=another window plans or runs meanwhile, or the Note stays kept; no_claim=what the Check finds.
+  test("a planned Check keeps its Note until it runs, is dropped, or its window goes", async () => {
+    const { core, mindId, finds } = await setUp();
+    const planned = request(mindId, "all", "planned");
+
+    expect(
+      await core.holdMindCheck({
+        requestId: planned.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(false);
+
+    // A window gone frees a Check still being planned, never one that is running.
+    const running = core.checkMind(planned);
+    await core.forgetCheckWindow({ clientId: "first-window" });
+    expect(await core.checkMind(request(mindId, "all", "while-running"))).toEqual({
+      kind: "running",
+    });
+    expect(await running).toMatchObject({ kind: "checked", sentences: 3 });
+    expect(
+      await core.holdMindCheck({ requestId: "after", mindId, clientId: "second-window" }),
+    ).toBe(true);
+    await core.cancelCheck("after");
+    expect(await core.holdMindCheck({ requestId: "third", mindId, clientId: "first-window" })).toBe(
+      true,
+    );
+    await core.forgetCheckWindow({ clientId: "first-window" });
+    expect(
+      await core.holdMindCheck({ requestId: "later", mindId, clientId: "second-window" }),
+    ).toBe(true);
+    expect(finds).toHaveLength(1);
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {

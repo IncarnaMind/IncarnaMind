@@ -45,3 +45,15 @@ export function typedAddresses(text: string): { line: string; address: string | 
     .filter(Boolean)
     .map((line) => ({ line, address: normaliseAddress(line) }));
 }
+
+/**
+ * The host an address names, without "www.": what a web page is called where it must not be
+ * believed by its own title, as on an approval card (#2240).
+ */
+export function webHostOf(address: string): string {
+  try {
+    return new URL(address).hostname.replace(/^www\./, "");
+  } catch {
+    return address;
+  }
+}

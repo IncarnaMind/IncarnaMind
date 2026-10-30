@@ -9,6 +9,8 @@ const bridge = vi.hoisted(() => ({
   checkContradictions: vi.fn<CoreBridge["checkContradictions"]>(),
   checkSentences: vi.fn<CoreBridge["checkSentences"]>(),
   findMindClaims: vi.fn<CoreBridge["findMindClaims"]>(),
+  holdMindCheck: vi.fn<CoreBridge["holdMindCheck"]>(),
+  cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
 }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
 vi.mock("../../src/renderer/src/store", () => ({
@@ -95,6 +97,8 @@ beforeEach(async () => {
   bridge.planContradictionCheck.mockResolvedValue({ kind: "no-folder" });
   bridge.estimateRun.mockResolvedValue(estimate);
   bridge.checkMind.mockResolvedValue({ kind: "cancelled" });
+  bridge.holdMindCheck.mockResolvedValue(true);
+  bridge.cancelCheck.mockResolvedValue(undefined);
   bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
   watchRecord.current = { stop: null };
   const { useMindCheck } = await import("../../src/renderer/src/mindCheck");
@@ -381,6 +385,77 @@ describe("Check this note", () => {
     expect(bridge.checkMind).toHaveBeenCalledOnce();
     expect(bridge.checkSentences).not.toHaveBeenCalled();
     expect(bridge.checkContradictions).not.toHaveBeenCalled();
+  });
+});
+
+describe("A Check another window runs or plans", () => {
+  test("a Note another window keeps is refused before this window plans", async () => {
+    bridge.holdMindCheck.mockResolvedValue(false);
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckCardOpen, setCheckProblem } = await import("../../src/renderer/src/checks");
+
+    expect(await startCheck("mind")).toEqual({ kind: "running" });
+    expect(bridge.planMindCheck).not.toHaveBeenCalled();
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+    expect(setCheckProblem).toHaveBeenCalledWith("mind", { kind: "running" });
+    expect(setCheckCardOpen).toHaveBeenCalledWith("tab", true);
+  });
+
+  test("the core's running result is handed back, so a window's card never says Done", async () => {
+    bridge.checkMind.mockResolvedValue({ kind: "running" });
+    const { startCheck } = await import("../../src/renderer/src/mindCheck");
+
+    expect(await startCheck("mind")).toEqual({ kind: "running" });
+    expect(bridge.holdMindCheck).toHaveBeenCalledOnce();
+  });
+
+  test("a question keeps the Note until the User answers: Check runs that request", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    const { startMindCheck, confirmCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    await startMindCheck("mind", "changed");
+    const asking = useMindCheck.getState().asking.mind;
+    expect(asking?.requestId).toEqual(expect.any(String));
+
+    await confirmCheck("mind");
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: asking?.requestId }),
+    );
+  });
+
+  test("Not now frees the Note its question kept", async () => {
+    bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+    const { dismissMindCheck, startMindCheck, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    await startMindCheck("mind", "changed");
+    const requestId = useMindCheck.getState().asking.mind?.requestId;
+    dismissMindCheck("mind");
+
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+    expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
+  });
+
+  test("the assistant's Check says it is already checking, and a Check that runs does not", async () => {
+    const { checkFromAssistant } = await import("../../src/renderer/src/mindCheck");
+    bridge.holdMindCheck.mockResolvedValue(false);
+    await expect(checkFromAssistant("mind")).rejects.toMatchObject({
+      wording: { key: "mindCheck.alreadyChecking" },
+    });
+
+    bridge.holdMindCheck.mockResolvedValue(true);
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
+    await expect(checkFromAssistant("mind")).resolves.toBeUndefined();
   });
 });
 

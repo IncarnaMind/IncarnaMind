@@ -22,6 +22,7 @@ import type {
   MindCheckRun,
   TextStretch,
 } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
@@ -34,6 +35,7 @@ import {
   useChecks,
   withCheckAll,
 } from "./checks";
+import { clientId } from "./clientId";
 import { checkContradictionsNow, dismissContradictions, watchSentencesNow } from "./contradictions";
 import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
@@ -54,6 +56,8 @@ interface MindCheckState {
 }
 
 interface Asking {
+  /** The request that keeps the Note from its planning until the User answers this question. */
+  requestId: string;
   mode: CheckMindMode;
   allDocuments: boolean;
   /** The sentences the run will check: the one count the badge shows (#1909). */
@@ -93,7 +97,8 @@ const OPEN_WAIT_MS = 10_000;
 
 export const useMindCheck = create<MindCheckState>()(() => ({ asking: {}, unchanged: {} }));
 
-export const dismissMindCheck = (mindId: string) =>
+/** Forgets the Note's question in this window; a Check it keeps the Note for is left alone. */
+function clearAsk(mindId: string): void {
   useMindCheck.setState((state) => {
     const asking = { ...state.asking };
     const unchanged = { ...state.unchanged };
@@ -101,6 +106,27 @@ export const dismissMindCheck = (mindId: string) =>
     delete unchanged[mindId];
     return { asking, unchanged };
   });
+}
+
+/** Not now: the question goes, and the Note is free for another window's Check. */
+export function dismissMindCheck(mindId: string): void {
+  void freeAskedNote(mindId);
+}
+
+/** Forgets the Note's question, and waits until the Note it kept is free. */
+async function freeAskedNote(mindId: string): Promise<void> {
+  const asking = useMindCheck.getState().asking[mindId];
+  clearAsk(mindId);
+  if (asking) await releaseHold(asking.requestId);
+}
+
+async function releaseHold(requestId: string): Promise<void> {
+  try {
+    await core.cancelCheck(requestId);
+  } catch (error) {
+    console.warn(`Couldn't free the Note a Check kept while it was planned (${requestId}).`, error);
+  }
+}
 
 export function showCheckCard(mindId: string): void {
   const tab = frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged());
@@ -139,7 +165,7 @@ export async function checkMind(
   { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
-  dismissMindCheck(mindId);
+  await freeAskedNote(mindId);
   dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
@@ -237,16 +263,32 @@ export interface Planned {
   watch: { claims: number } | null;
 }
 
-/** Shows the Note, plans the run, and says in place if it can't. */
-async function start(mindId: string, planned: () => Promise<Planned>): Promise<void> {
+/** How a Check the window started ended: its result, "error", or null when it asked first or sent nothing. */
+type CheckOutcome = CheckMindResult | "error" | null;
+
+/**
+ * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
+ * place if it can't or another window checks it.
+ */
+async function start(mindId: string, planned: () => Promise<Planned>): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
-  if (useChecks.getState().running[mindId]) return;
+  if (useChecks.getState().running[mindId]) return null;
+  // An earlier question about this Note, and the Note with it, gives way first.
+  await freeAskedNote(mindId);
+  const requestId = crypto.randomUUID();
   try {
+    if (!(await core.holdMindCheck({ requestId, mindId, clientId }))) {
+      setCheckProblem(mindId, { kind: "running" });
+      showCheckCard(mindId);
+      return { kind: "running" };
+    }
     const { mode, allDocuments, plan, watch } = await planned();
-    await askOrCheck(mindId, { mode, allDocuments, watch }, plan);
+    return await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan);
   } catch (error) {
+    await releaseHold(requestId);
     setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
+    return "error";
   }
 }
 
@@ -255,7 +297,7 @@ export function startMindCheck(
   mindId: string,
   mode: CheckMindMode,
   { allDocuments = false }: { allDocuments?: boolean } = {},
-): Promise<void> {
+): Promise<CheckOutcome> {
   return start(
     mindId,
     async (): Promise<Planned> => ({
@@ -308,14 +350,23 @@ async function fullWatchNeeded(mindId: string, watch: { claims: number }): Promi
 }
 
 /** The one Check: everything the Note can be checked for, in one press. */
-export const startCheck = (mindId: string): Promise<void> =>
+export const startCheck = (mindId: string): Promise<CheckOutcome> =>
   start(mindId, () => planCheckThisMind(mindId));
 
+/**
+ * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
+ * again. A Note another window checks, or is planning to, starts none, and its card says so.
+ */
+export async function checkFromAssistant(mindId: string, everySentence = false): Promise<void> {
+  const outcome = everySentence ? await startMindCheck(mindId, "all") : await startCheck(mindId);
+  if (outcome !== null && outcome !== "error" && outcome.kind === "running")
+    throw new TranslatableError({ key: "mindCheck.alreadyChecking" });
+}
+
 /** Check, in the card's question before a run billed per token. */
-export function confirmCheck(mindId: string): Promise<void> {
+export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
-  if (!asking) return Promise.resolve();
-  return runCheck(mindId, asking);
+  if (asking) await runCheck(mindId, asking.requestId, asking);
 }
 
 /**
@@ -323,12 +374,11 @@ export function confirmCheck(mindId: string): Promise<void> {
  * against the Folder's other Documents, under one running state whose Stop
  * takes whichever part runs. A problem with the model, or a stop, ends both.
  */
-async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
-  if (useChecks.getState().running[mindId]) return;
-  dismissMindCheck(mindId);
+async function runCheck(mindId: string, requestId: string, run: CheckToRun): Promise<CheckOutcome> {
+  if (useChecks.getState().running[mindId]) return null;
+  clearAsk(mindId);
   dismissCheckProblem(mindId);
   dismissContradictions(mindId);
-  const requestId = crypto.randomUUID();
   // Recorded before the sentences are read: reading waits for an editor that may not be open
   // yet, and a second press during that wait must find the run already on (#1941).
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
@@ -336,7 +386,8 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
-    const stopped = endsCheck(await checkMindNow(mindId, run.mode, run.allDocuments, requestId));
+    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId);
+    const stopped = endsCheck(result);
     if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
       setCheckRunning(mindId, { requestId: watchRequest, action: "contradiction-watch" });
@@ -345,6 +396,7 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
         await watchSentencesNow(mindId, watchRequest, toCheck.cited, toCheck.model);
       }
     }
+    return result;
   } finally {
     setCheckRunning(mindId, null);
   }
@@ -355,16 +407,23 @@ async function runCheck(mindId: string, run: CheckToRun): Promise<void> {
  * run checks at once when nothing is billed per token and no claim is to be
  * named; the rest ask first, once the claims are named.
  */
-async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan): Promise<void> {
+async function askOrCheck(
+  mindId: string,
+  requestId: string,
+  run: CheckToRun,
+  plan: MindCheckPlan,
+): Promise<CheckOutcome> {
   if (plan.kind === "unchanged") {
-    dismissMindCheck(mindId);
+    clearAsk(mindId);
+    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     useMindCheck.setState((state) => ({ unchanged: { ...state.unchanged, [mindId]: true } }));
     showCheckCard(mindId);
-    return;
+    return null;
   }
   if (plan.kind !== "ready") {
-    dismissMindCheck(mindId);
+    clearAsk(mindId);
+    await releaseHold(requestId);
     dismissCheckProblem(mindId);
     setCheckProblem(
       mindId,
@@ -372,12 +431,12 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
         ? { kind: "no-claims" }
         : withCheckAll(plan, again(mindId, run.mode, true)),
     );
-    return;
+    return null;
   }
   if (run.mode === "changed" && !plan.findsClaims && plan.sentences < ASK_FROM) {
-    return runCheck(mindId, run);
+    return runCheck(mindId, requestId, run);
   }
-  dismissMindCheck(mindId);
+  clearAsk(mindId);
   dismissCheckProblem(mindId);
   const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
   const extra =
@@ -397,13 +456,14 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
       return null;
     });
   if (estimated && estimated.billing !== "per-token" && !plan.findsClaims) {
-    return runCheck(mindId, run);
+    return runCheck(mindId, requestId, run);
   }
   const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   useMindCheck.setState((state) => ({
     asking: {
       ...state.asking,
       [mindId]: {
+        requestId,
         mode: run.mode,
         allDocuments: run.allDocuments,
         count: plan.sentences,
@@ -414,4 +474,5 @@ async function askOrCheck(mindId: string, run: CheckToRun, plan: MindCheckPlan):
       },
     },
   }));
+  return null;
 }

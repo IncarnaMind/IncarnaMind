@@ -5953,6 +5953,15 @@ export interface CheckMindInput {
   model?: ChatModelChoice | null;
 }
 
+/** A Note kept for one Check from its planning until it runs or is dropped (#2240). */
+export interface HoldMindCheckInput {
+  /** The request that plans and runs the Check; `cancelCheck` drops its hold. */
+  requestId: string;
+  mindId: string;
+  /** The window holding it: the core frees the Note if that window goes before the Check runs. */
+  clientId: string;
+}
+
 /** What `checkMind` would send, before it sends anything, so a cloud model's estimate can show first. */
 export type MindCheckPlan =
   | {
@@ -8269,15 +8278,21 @@ interface ApprovalRequestBase extends AnswerPlace {
    */
   thirdParty?: ThirdPartyReason[];
   /**
-   * For a command of the assistant's (#1421): what its Answer read that the User didn't write, as
-   * it read it, its Documents by name, each once, and whether it heard the live Transcript. It
-   * never says which of them asked for the command. Absent: it read none of them.
+   * For a command of the assistant's (#1421, #2240): what its Answer read that the User didn't
+   * write, as it read it: its Documents by name, its web pages by host (never by title: a page
+   * writes its own, and could pass for the User's file), the Connectors whose results it read,
+   * and whether it heard the live Transcript. Each once, in the order read. It never says which
+   * of them asked for the command. Absent: it read none of them.
    */
   readText?: ApprovalReadText;
 }
 
 export interface ApprovalReadText {
   documents: string[];
+  /** Web pages read, by host, one entry for each page. */
+  webPages: string[];
+  /** The Connectors whose results the Answer read, in the order it first read them. */
+  connectors: string[];
   transcript: boolean;
 }
 
@@ -10651,6 +10666,17 @@ export interface CoreApi {
     allDocuments?: boolean,
   ): Promise<MindCheckPlan>;
   /**
+   * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it
+   * (#2240), so a second window's Check is refused before it plans and asks. False: another
+   * request keeps it.
+   */
+  holdMindCheck(input: HoldMindCheckInput): Promise<boolean>;
+  /**
+   * The window is gone (#2240): a Note its Check was being planned on, and hadn't run, is free
+   * again for another window's Check.
+   */
+  forgetCheckWindow(input: { clientId: string }): Promise<void>;
+  /**
    * The first step of "Check this Mind" (#973): the model names the claims
    * among the sentences `checkMind` would send, so the ask before the run
    * counts and prices them exactly. What it named is kept, and `checkMind`
@@ -11756,6 +11782,8 @@ const methods: Record<CoreApiMethod, true> = {
   planContradictionCheck: true,
   checkContradictions: true,
   planMindCheck: true,
+  holdMindCheck: true,
+  forgetCheckWindow: true,
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
