@@ -8,6 +8,7 @@ import { catalogFacts } from "../../src/core/providers/catalog";
 import type { Price } from "../../src/core/providers/catalog/types";
 import { type AttributionDryRow, runAttributionCases } from "./adapter";
 import {
+  ATTRIBUTION_FULL_CASES,
   ATTRIBUTION_PILOT_CASES,
   ATTRIBUTION_PILOT_MODELS,
   type AttributionPilotPlan,
@@ -38,9 +39,41 @@ function priceOf(value: unknown): Price {
 }
 
 test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
-  "explicitly funded three-case attribution pilot",
+  "explicitly funded attribution measurement",
   async () => {
     const root = resolve(__dirname, "../..");
+    const phase = process.env.INCARNAMIND_ATTRIBUTION_PHASE ?? "dry";
+    const pilotReceipts =
+      phase === "full"
+        ? (() => {
+            let refs: { path: string; sha256: string }[];
+            try {
+              refs = JSON.parse(process.env.INCARNAMIND_ATTRIBUTION_PILOT_RECEIPTS ?? "null");
+              if (
+                !Array.isArray(refs) ||
+                refs.length !== 2 ||
+                refs.some(
+                  (ref) =>
+                    typeof ref !== "object" ||
+                    ref === null ||
+                    typeof ref.path !== "string" ||
+                    ref.path === "" ||
+                    typeof ref.sha256 !== "string" ||
+                    !/^[a-f0-9]{64}$/.test(ref.sha256),
+                )
+              )
+                throw new Error();
+            } catch {
+              throw new Error(
+                "Two hashed candidate pilot report paths are required for full execution.",
+              );
+            }
+            return refs.map((ref) => ({
+              bytes: readFileSync(ref.path, "utf8"),
+              sha256: ref.sha256,
+            }));
+          })()
+        : [];
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
     const model = ATTRIBUTION_PILOT_MODELS.find(
       (id) => id === process.env.INCARNAMIND_ATTRIBUTION_MODEL,
@@ -60,7 +93,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
         "vitest.config.ts",
       ) + git("diff", "HEAD", "--", "src", "tests/helpers", "vitest.config.ts");
     const plan: AttributionPilotPlan = {
-      phase: process.env.INCARNAMIND_ATTRIBUTION_PHASE ?? "dry",
+      phase,
       arm,
       model,
       capUSD: Number(process.env.INCARNAMIND_ATTRIBUTION_CAP_USD ?? "NaN"),
@@ -71,7 +104,10 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
       sourceHead: git("rev-parse", "HEAD").trim(),
       sourceDiffSHA256: sha256(sourceChanges),
       fixtureSHA256,
-      caseIds: ATTRIBUTION_PILOT_CASES,
+      caseIds: phase === "full" ? ATTRIBUTION_FULL_CASES : ATTRIBUTION_PILOT_CASES,
+      ...(phase === "full" && {
+        pilotReceiptHashes: pilotReceipts.map((receipt) => receipt.sha256),
+      }),
       sharedHashes: {
         adapter: sha256(readFileSync(join(root, "eval/attribution/adapter.ts"), "utf8")),
         scorer: sha256(readFileSync(join(root, "eval/attribution/scoring.ts"), "utf8")),
@@ -111,6 +147,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     if (!facts?.maxOutput) throw new Error("The model's documented output limit is unavailable.");
     const budget = createAttributionPilotBudget({
       plan,
+      pilotReceipts,
       ledgerPath,
       price: priceOf(rates.price),
       reservationPrice: priceOf(rates.reservationPrice),
@@ -126,7 +163,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     const directory = join(
       root,
       "test-results/attribution-eval",
-      `${new Date().toISOString().replace(/[:.]/g, "-")}-${arm}-${model}-pilot`,
+      `${new Date().toISOString().replace(/[:.]/g, "-")}-${arm}-${model}-${phase}`,
     );
     mkdirSync(directory, { recursive: true });
     const manifest = {
@@ -141,7 +178,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     };
     writeFileSync(join(directory, "manifest.json"), `${encode(manifest)}\n`);
     const rows = new Map<string, AttributionDryRow>(
-      ATTRIBUTION_PILOT_CASES.map((id) => [
+      plan.caseIds.map((id) => [
         id,
         {
           id,
@@ -158,7 +195,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
     try {
       const result = await runAttributionCases({
         arm,
-        mode: "pilot",
+        mode: phase === "full" ? "full" : "pilot",
         model,
         provider: { kind: "anthropic", modelId: model, apiKey: key },
         createChatModel: (spec) => {
@@ -166,7 +203,7 @@ test.skipIf(!process.env.INCARNAMIND_ATTRIBUTION_PHASE)(
             throw new Error("The pilot attempted an unapproved provider or model.");
           return createAiSdkChatModel(spec);
         },
-        caseIds: ATTRIBUTION_PILOT_CASES,
+        caseIds: plan.caseIds,
         hooks: {
           prepare: budget.hooks.prepare,
           before(request, params) {

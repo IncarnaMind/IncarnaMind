@@ -314,7 +314,7 @@ export async function runAttributionDry(options: {
 
 export async function runAttributionCases(options: {
   arm: "before" | "after";
-  mode: "dry" | "pilot";
+  mode: "dry" | "pilot" | "full";
   model: string;
   createChatModel: ChatModelFactory;
   provider: SaveChatProviderInput;
