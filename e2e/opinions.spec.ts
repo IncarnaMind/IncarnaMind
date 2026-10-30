@@ -751,6 +751,7 @@ for (const language of ["en", "zh-CN"] as const) {
           documentName: verified.name,
           pages: { attributed: 1, "pure-verify": 1 },
           claims: [{ blockId: "attributed", text: words.attributed }],
+          comments: false,
         });
         await setContent(window, [
           paragraph(
@@ -787,6 +788,7 @@ for (const language of ["en", "zh-CN"] as const) {
             documentName: verified.name,
             pages: { "pure-verify": 1 },
             claims: [],
+            comments: false,
           });
           await applySettings(window, Array.from(Y.encodeStateAsUpdate(verifySettings)));
           const pureVerify = await checkCard(window);

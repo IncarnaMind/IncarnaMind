@@ -135,18 +135,23 @@ export function exportLabels(language: Language): ExportLabels {
         return done(t("export.comment.sentence.ownWorkings"));
       }
       if (sentence.check === "contradicted") {
-        if (sentence.says) {
-          return done(t("export.comment.sentence.contradicted", { says: sentence.says }));
-        }
-        return done(
-          sentence.worked
+        const said = sentence.says
+          ? t("export.comment.sentence.contradicted", { says: sentence.says })
+          : sentence.worked
             ? t(
                 sentence.worked.relation
                   ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
                   : "export.comment.sentence.contradicted.worked",
                 sentence.worked,
               )
-            : t("export.comment.sentence.contradicted.plain"),
+            : t("export.comment.sentence.contradicted.plain");
+        return done(
+          sentence.quoted
+            ? t("export.comment.sentence.quoted", {
+                said: said.replace(/[.。]$/u, ""),
+                ...sentence.quoted,
+              })
+            : said,
         );
       }
       if (sentence.nearest) {

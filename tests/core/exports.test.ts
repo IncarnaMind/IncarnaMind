@@ -450,6 +450,8 @@ describe("exporting a Mind", () => {
       unreadFileNames: false,
       citationPlace: "footnotes",
       markAiText: false,
+      othersFile: false,
+      othersComments: false,
     });
   });
 

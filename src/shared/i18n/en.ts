@@ -505,6 +505,7 @@ export const en = {
   "redo.refused": "Couldn’t do it again: {reason}",
   "undo.folderGone": "“{name}” is deleted",
   "undo.restoreFolder": "Restore {name}",
+  "undo.tryAgain": "Try again",
   "undo.title": "Undo ({shortcut})",
   "line.actionKeys": "{label} ({keys})",
 
@@ -1144,12 +1145,12 @@ export const en = {
   "mindCheck.ask.claims.all": "Check this note’s {count} claims against your Documents?",
   "mindCheck.check": "Check",
   "mindCheck.cancel": "Not now",
-  "verify.command": "Check someone else’s PDF…",
+  "verify.command": "Check someone else’s file…",
   "verify.command.keywords":
-    "verify check PDF someone else’s claims fact-check received draft another person",
-  "verify.command.purpose": "Check the claims in a PDF someone else wrote",
-  "verify.pick.title": "Check someone else’s PDF",
-  "verify.pick.filter": "PDF documents",
+    "verify check PDF Word docx someone else’s claims fact-check received draft another person counterparty",
+  "verify.command.purpose": "Check the claims in a file someone else wrote",
+  "verify.pick.title": "Check someone else’s file",
+  "verify.pick.filter": "PDF and Word documents",
   "verify.refused.unreadable": "Couldn’t read that PDF.",
   "verify.refused.no-text": "That PDF has no text to check. If it’s a scan, it couldn’t be read.",
   "verify.mindTitle": "Checking: {name}",
@@ -3954,8 +3955,10 @@ export const en = {
   "export.citedCitations.other": "{count} Citations",
   "export.citedDocuments.one": "1 Document",
   "export.citedDocuments.other": "{count} Documents",
-  "export.commentFailedChecks": "Comment on checks that failed",
-  "export.commentFailedChecks.hint": "Quote not found, Contradicted, Unsupported or Needs re-check",
+  "export.commentFailedChecks": "Comment on what needs a look",
+  "export.commentFailedChecks.hint":
+    "Contradicted, Unsupported, Not found, Quote not found or Needs re-check",
+  "export.commentFailedChecks.hint.others": "Comments quote your Documents and name them",
   "export.unreadNames": "Name the files",
   "export.unreadNames.hint":
     "The section about what couldn’t be read lists the files by name. Off, it says how many.",
@@ -4143,15 +4146,24 @@ export const en = {
   "export.changed.leave": "Word files now leave the text IncarnaMind wrote unmarked",
   "export.changed.footnotes": "Citations now go in footnotes",
   "export.changed.list": "Citations now go in a list at the end",
+  "export.rewritten.added.one": "Added 1 check comment to “{name}”",
+  "export.rewritten.added": "Added {count} check comments to “{name}”",
+  "export.rewritten.removed": "Removed the check comments from “{name}”",
+  "export.rewritten.copy.one":
+    "Added 1 check comment to a copy, “{name}”, because “{changed}” changed after it was saved",
+  "export.rewritten.copy":
+    "Added {count} check comments to a copy, “{name}”, because “{changed}” changed after it was saved",
   "export.record.doneIn": "Saved “{name}” and its CSV in {folder}",
   "export.changeFolder": "Change folder…",
   "export.parts.separator": ", ",
   "export.parts.last": " and ",
-  "export.commented": "{list}, as comments",
-  "export.commented.contradicted": "{count} Contradicted",
-  "export.commented.notFound": "{count} Not found",
-  "export.commented.unsupported": "{count} Unsupported",
-  "export.commented.recheck": "{count} Needs re-check",
+  "export.checkComments.one": "1 check comment",
+  "export.checkComments": "{count} check comments",
+  "export.checkComments.off": "Check comments off",
+  "export.checkComments.ask":
+    "Comment on what needs a look? Comments quote your Documents and name them.",
+  "export.checkComments.add": "Comment",
+  "export.checkComments.leave": "Leave them out",
   "export.tracked.one": "1 change waiting, as tracked changes",
   "export.tracked": "{count} changes waiting, as tracked changes",
   "export.unmarked.one": "{list} sentence went out unmarked",
@@ -4211,6 +4223,7 @@ export const en = {
   "export.comment.sentence.contradicted.worked.at least":
     "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
+  "export.comment.sentence.quoted": "{said} (“{quote}”, {source})",
   "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
   "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
   "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",
@@ -4388,6 +4401,21 @@ export const en = {
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
   "error.verify.noPath": "Choose the document to verify.",
+  "error.export.checkComments": "That isn’t a choice of check comments IncarnaMind can read.",
+  "error.export.rewrite.notThisNote":
+    "That file wasn’t exported from this note, so this note can’t write it again.",
+  "error.export.rewrite.notSaved":
+    "“{name}” wasn’t saved by IncarnaMind since it opened, so it can’t be written again. Export the note again.",
+  "error.export.rewrite.gone":
+    "“{name}” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
+  "error.export.rewrite.locked":
+    "“{name}” can’t be changed: it may be read-only or open in another app. Close it there, or export the note again.",
+  "error.export.restore.copyGone": "The copy was deleted, so there’s nothing to put back.",
+  "error.export.restore.nothing": "There is nothing to put back in “{name}”.",
+  "error.export.restore.changed":
+    "“{name}” was changed after it was written, so it wasn’t put back.",
+  "error.verify.notAllRead":
+    "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
   "error.contradictions.request":
     "That isn’t a check for contradictions that IncarnaMind can read.",

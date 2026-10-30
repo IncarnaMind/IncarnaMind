@@ -73,6 +73,8 @@ For each file it runs these steps, and prints one line per file:
 
 After the files, a fixture made for it (headings, paragraphs and a table) is exported for review and opened in LibreOffice, which accepts every change in it with a Basic macro (in its temporary profile) and saves its text: that text's words, paragraph by paragraph, must be the Mind's with every change accepted.
 
+A file someone else wrote, with their tracked insertion and their comment on a claim, is verified (#110) with the scripted model: its export, with each Unsupported and Contradicted claim as IncarnaMind's comment, must pass step 1's checks and open in LibreOffice (its PDF kept as `verified-report.pdf`).
+
 A Mind of to-dos (nested, one done, one empty) is exported to Word, opened in LibreOffice and imported again: its nesting is the indent, and every box and its text comes back as text, not a to-do, since Word has no to-do.
 
 LibreOffice is found as `INCARNAMIND_SOFFICE`, then `soffice`, then `libreoffice` on the PATH. When it isn't there the LibreOffice steps are skipped and say so, unless `INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1`, which CI sets: then a missing LibreOffice fails the run.
