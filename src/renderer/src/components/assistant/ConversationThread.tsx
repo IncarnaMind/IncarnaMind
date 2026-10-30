@@ -94,11 +94,10 @@ export function ConversationThread({
   const focusedMindName = focusedMindId
     ? (focusedMind && mindName(focusedMind)) || t("mind.untitled")
     : null;
+  const exampleIds = exampleMindIds({ examples, otherExamples });
   // The example is never a target of Add to note (#1940): a note of the User's own is.
   const addTarget =
-    focusedMindId !== null && !exampleMindIds({ examples, otherExamples }).includes(focusedMindId)
-      ? focusedMindName
-      : null;
+    focusedMindId !== null && !exampleIds.includes(focusedMindId) ? focusedMindName : null;
   const mindEmpty = useReadMindEmpty(focusedMindId);
   const nextScope = useNextScope(focusedMindId);
   // While the Mind's meeting records, the assistant listens to its live transcript (#144). A
@@ -109,11 +108,14 @@ export function ConversationThread({
         meeting.mindId === focusedMindId && isLive(meeting) && meeting.kind === "meeting",
     ),
   );
-  // Until the first Question is asked, the card's ready Question is the next one, and it reads
-  // no Note: an empty conversation names what it reads, as the line while it waits does (#2245).
+  // Until the first Question is asked, the card in the example Note offers the next one, and it
+  // reads no Note: an empty conversation names what it reads, as the line while it waits does
+  // (#2245). Another Note in focus means the composer's Question is next.
   const ready = useAppStore((state) => state.readyQuestion);
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
   const readyAhead =
+    focusedMindId !== null &&
+    exampleIds.includes(focusedMindId) &&
     ready !== null &&
     ready.scope !== null &&
     progress !== undefined &&
