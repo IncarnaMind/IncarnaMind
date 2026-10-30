@@ -9,19 +9,26 @@ const FIND_CLAIMS =
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
-/** The numbers of the listed sentences ("[3] …") that claim something: all but questions, thanks and opinions. */
-export function fakeClaims(options: GenerateOptions): string | null {
+/**
+ * Each listed sentence's ("[3] …") decision: a claim, but for questions, thanks and opinions.
+ * `undecidedLast`: the reply says nothing of the last sentence listed.
+ */
+export function fakeClaims(
+  options: GenerateOptions,
+  { undecidedLast = false }: { undecidedLast?: boolean } = {},
+): string | null {
   if (!findsClaims(options)) return null;
-  const claims = lastUserText(options.prompt)
+  const decisions = lastUserText(options.prompt)
     .split("\n")
     .flatMap((line) => {
       const listed = /^\[(\d+)\] (.*)$/.exec(line);
-      return listed?.[2] === undefined ||
-        /[?？]$|thank|谢|\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(listed[2])
-        ? []
-        : [Number(listed[1])];
+      if (listed?.[1] === undefined || listed[2] === undefined) return [];
+      const claim = !/[?？]$|thank|谢|\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(
+        listed[2],
+      );
+      return [[listed[1], claim ? "claim" : "no"]];
     });
-  return JSON.stringify({ claims });
+  return JSON.stringify(Object.fromEntries(undecidedLast ? decisions.slice(0, -1) : decisions));
 }
 
 export const checksChangeClaims = (options: GenerateOptions): boolean =>
@@ -32,6 +39,6 @@ export function fakeChangeClaims(options: GenerateOptions): string | null {
   const reply = /<reply>\n([\s\S]*)\n<\/reply>/.exec(lastUserText(options.prompt))?.[1] ?? "";
   const unmade = /I've added a risks section|我已经把风险部分/.test(reply);
   return JSON.stringify({
-    claims: unmade ? [{ sentence: reply, kind: "added", backed: false }] : [],
+    claims: unmade ? [{ sentence: reply, kind: "added", about: "mind", backed: false }] : [],
   });
 }

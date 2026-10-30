@@ -6,9 +6,12 @@ import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { giveUpWaiting, useModelSetup } from "../../modelSetup";
+import { ollamaRead } from "../../ollamaRead";
 import { useAppStore } from "../../store";
+import { useTranscriptionServicesRead } from "../../transcriptionServices";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemLine } from "../ProblemLine";
+import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, hintClass } from "../ui";
 import { ChatGptMark } from "./ChatGptMark";
 import {
@@ -24,7 +27,7 @@ import { KeyEntry } from "./KeyEntry";
 import { OllamaAction, OllamaProgress, type Ollama as OllamaState, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { SendsLine } from "./SendsLine";
-import { SetupSteps } from "./SetupSteps";
+import { SetupCard, SetupSteps } from "./SetupSteps";
 
 const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
@@ -35,7 +38,22 @@ const CLAUDE_DOWNLOAD = "https://claude.ai/download";
  * is the consent for it (#718), so no dialog is added here.
  */
 export function ModelSetupCard() {
-  return useModelSetup((state) => state.ready) ? <SetupSteps /> : <ChooseAnAi />;
+  const ready = useModelSetup((state) => state.ready);
+  const t = useT();
+  // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
+  // that was read, and never redraw as a later read lands (#2147).
+  const services = useTranscriptionServicesRead(ready, true);
+  if (!ready || services.state === "loading") return <ChooseAnAi />;
+  if (services.state === "ready") return <SetupSteps />;
+  return (
+    <SetupCard>
+      <ReadProblem
+        words={t("setup.services.failed")}
+        read={services}
+        testId="setup-services-problem"
+      />
+    </SetupCard>
+  );
 }
 
 function ChooseAnAi() {
@@ -57,7 +75,6 @@ function ChooseAnAi() {
         console.error("The saved chat providers couldn't be listed for the setup card.", error),
       );
   }, []);
-  const running = ollama.status?.running;
   const card = useRef<HTMLElement>(null);
   // It takes the composer's place, or opens from the steps card: either way the focus comes in.
   useEffect(() => {
@@ -122,7 +139,7 @@ function ChooseAnAi() {
                 <ClaudePlanWay onUseKey={useKeyInstead} />
               </>
             )}
-            <LocalWay ollama={ollama} running={running === true} />
+            <LocalWay ollama={ollama} />
             {!localOnly && (
               <details
                 open={others}
@@ -212,17 +229,33 @@ function ChatGptPlanWay({
 
 /**
  * A model on this computer (#545): used at once when Ollama runs and has a model, else its app
- * is opened to install one. It says what it costs and that nothing leaves.
+ * is opened to install one. It says what it costs and that nothing leaves. Before the probe
+ * answers it says it is looking; a look that ran out of time, twice, settles to saying it wasn't
+ * heard from with Check again, and neither says the app is missing (#2196, #2224).
  */
-function LocalWay({ ollama, running }: { ollama: OllamaState; running: boolean }) {
+function LocalWay({ ollama }: { ollama: OllamaState }) {
   const t = useT();
+  const read = ollamaRead(ollama);
   return (
     <div data-testid="way-local" className="flex flex-col items-start gap-1.5 px-2 py-1.5">
       <span className="text-ui font-semibold text-ink">
-        {t(running ? "setup.way.local" : "setup.way.local.install")}
+        {t(read === "not-running" ? "setup.way.local.install" : "setup.way.local")}
       </span>
-      <span data-testid="ollama-status" className="text-[13px] leading-5 text-ink-secondary">
-        {t(running ? "setup.way.local.running" : "setup.way.local.notRunning")}
+      <span
+        data-testid="ollama-status"
+        data-read={read}
+        data-looking={read === "looking" || undefined}
+        className="text-[13px] leading-5 text-ink-secondary"
+      >
+        {t(
+          read === "looking"
+            ? "providers.ollama.checking"
+            : read === "no-answer"
+              ? "providers.ollama.noAnswer"
+              : read === "running"
+                ? "setup.way.local.running"
+                : "setup.way.local.notRunning",
+        )}
       </span>
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />

@@ -59,10 +59,10 @@ import {
   type CitationCheck,
   type CitationCheckReason,
   type CitationRecheck,
+  type CitationToRecheck,
   type CitedSelection,
   MAX_CITED_PAGES,
   type QuotedWords,
-  type RecheckCitationInput,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -361,6 +361,24 @@ export interface AnswerDocuments {
   documentNamed?(name: string): string | null;
 }
 
+/**
+ * The Document among `documents` a model named for a search: by its name as listed, else one
+ * whose name holds the name given or is held in it. Null for none.
+ */
+export function documentNamedAmong(
+  documents: readonly { id: string; name: string }[],
+  name: string,
+): string | null {
+  const key = (text: string) => text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const wanted = key(name.replace(/\s*\(“[^”]*”\)\s*$/, ""));
+  return (
+    documents.find((each) => key(each.name) === wanted)?.id ??
+    documents.find((each) => key(each.name).includes(wanted) || wanted.includes(key(each.name)))
+      ?.id ??
+    null
+  );
+}
+
 /** What re-checking a Citation against the current version needs from Documents. */
 export interface RecheckDocuments {
   /** The current version of a live Document; null if it was deleted. */
@@ -428,7 +446,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<RecheckCitationInput, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
  * Checks a Citation again against its Document's current version (see
@@ -1116,7 +1134,8 @@ export interface CitationSessionEvents {
  * Question context shows, which a record names by id to keep one as it is.
  */
 export function createCitationSession(
-  documents: AnswerDocuments,
+  documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
+    Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
   events: CitationSessionEvents,
   opening?: { documentId: string; name: string; passages(): WindowedPassage[] },
   ids?: ContextCitations,
@@ -1131,6 +1150,13 @@ export function createCitationSession(
   /** Records naming no Passage the model was given, or no marker: as given, and why. */
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
+  const passageDocuments: string[] = [];
+  /** What the model was given of each Passage, in the order it was, with its Document. */
+  const read: { documentId: string; documentName: string; text: string }[] = [];
+  const searchedDocuments: string[] = [];
+  const remember = (list: string[], id: string) => {
+    if (!list.includes(id)) list.push(id);
+  };
   let openingGiven = false;
   /** Markers in the final text, in order of first appearance, and those that had no record. */
   const finalMarkers: number[] = [];
@@ -1265,11 +1291,11 @@ export function createCitationSession(
     }
     const taken = takeQuote(input, marker, options);
     if (taken.ok && !taken.record.kept) {
-      const problem = quotePlaceProblem(
-        taken.record.quote,
-        citedText(taken.record),
-        matchingFor(taken.source),
-      );
+      const problem =
+        quotePlaceProblem(taken.record.quote, citedText(taken.record), matchingFor(taken.source)) ??
+        (check(taken.record).check === "not-found"
+          ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
+          : null);
       if (problem) {
         return {
           ok: false,
@@ -1287,11 +1313,12 @@ export function createCitationSession(
         };
   }
 
-  /** `take`, for a quote with or without a marker (0 for none). */
+  /** `take`, for a quote with or without a marker (0 for none). A calculated figure's direct input keeps its supplied Location (#1979). */
   function takeQuote(
     input: QuoteInput,
     marker: number,
     options: CiteOptions,
+    relocate = true,
   ): Extract<Taken, { ok: true }> | { ok: false; problem: string } {
     const named = typeof input.passage === "string" ? input.passage : "";
     const kept = ids?.get(named);
@@ -1341,9 +1368,9 @@ export function createCitationSession(
       result: null,
     };
     let record: Accepted = { ...taken, location: locationFor(taken) };
-    // Structured output can't be told to fix a record (see `CiteOptions`): a quote that isn't where
-    // it names is cited where it is in its Passage, never outside it, and the check still reads it there.
-    if (options.structured && quote && check(record).check === "not-found") {
+    // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
+    // never outside it, and the check still reads it there.
+    if (relocate && quote && check(record).check === "not-found") {
       const placedAt = locateQuote(passageUnits, quote, matchingFor(source));
       if (placedAt) {
         const placed = { ...taken, range: placedAt, requested: null, unresolved: false };
@@ -1488,7 +1515,7 @@ export function createCitationSession(
     within?: readonly string[],
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel> {
-    const found = await documents.search(query, signal, within, options);
+    const found = await find(query, signal, within, options);
     if (found.length === 0) {
       return { text: "No Passages in the User's Documents match this search.", passageCount: 0 };
     }
@@ -1504,11 +1531,18 @@ export function createCitationSession(
     };
   }
 
+  function find(...args: Parameters<AnswerDocuments["search"]>) {
+    if (!documents.search)
+      throw new Error("Document search is unavailable in this Citation session.");
+    return documents.search(...args);
+  }
+
   /**
    * The Passages as the model reads them, each under the id it cites it by.
    * `measuring`: only to count what showing them would send, so nothing is recorded as shown.
    */
   function show(found: readonly WindowedPassage[], measuring = false): string {
+    if (!measuring) for (const passage of found) remember(passageDocuments, passage.documentId);
     let unseen = 0;
     const dates = new Map<string, DocumentDate | null>();
     const dateOf = (documentId: string) => {
@@ -1538,6 +1572,9 @@ export function createCitationSession(
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
+      if (!measuring) {
+        read.push({ documentId: passage.documentId, documentName: passage.documentName, text });
+      }
       return {
         id,
         documentName: passage.documentName,
@@ -1553,6 +1590,8 @@ export function createCitationSession(
 
   const tools: AnswerTools = {
     get documentCount() {
+      if (!documents.searchableCount)
+        throw new Error("Document count is unavailable in this Citation session.");
       return documents.searchableCount();
     },
 
@@ -1561,6 +1600,8 @@ export function createCitationSession(
       signal?: AbortSignal,
       options?: AnswerSearchOptions,
     ): Promise<SearchResultForModel> {
+      if (!documents.search)
+        throw new Error("Document search is unavailable in this Citation session.");
       // The same words over another Document are a new search.
       const same = sameSearch(options?.document ? `${options.document}\n${query}` : query);
       if (searched.has(same)) return { text: SEARCHED_ALREADY, passageCount: 0 };
@@ -1574,6 +1615,7 @@ export function createCitationSession(
             passageCount: 0,
           };
         }
+        remember(searchedDocuments, id);
         within = [id];
       }
       const found = await search(query, signal, within, options);
@@ -1583,7 +1625,7 @@ export function createCitationSession(
       if (passages.length === 0) return found;
       openingGiven = true;
       return {
-        text: `No Passages match these words. The opening of “${opening.name}”, which the Mind is the working copy of, instead:\n${show(passages)}`,
+        text: `No Passages match these words. The opening of “${opening.name}”, which the Note is the working copy of, instead:\n${show(passages)}`,
         passageCount: passages.length,
         passageIds: passages.map((passage) => passage.passageId),
         ...(passages.some((passage) => passage.documentKind === "web") && {
@@ -1673,6 +1715,16 @@ export function createCitationSession(
     return record ? toCitation(record, record.result) : null;
   };
 
+  /** The Documents the Answer's final Citations name, in the order they first appear. */
+  const citedDocuments = () => {
+    const ids: string[] = [];
+    for (const marker of new Set(finalMarkers)) {
+      const record = records.get(marker);
+      if (record && !ids.includes(record.source.documentId)) ids.push(record.source.documentId);
+    }
+    return ids;
+  };
+
   /** Quotes for calculated figures' inputs (./calculations). */
   const quotes = {
     /** An input keeps its recorded Location: moving it could substitute another revision (#1979). */
@@ -1684,7 +1736,7 @@ export function createCitationSession(
 
     /** A quote outside the markers, read as a record is; or what the check would find wrong with it. */
     quote(input: QuoteInput, options: CiteOptions = {}): Quoted | { problem: string } {
-      const taken = takeQuote(input, 0, options);
+      const taken = takeQuote(input, 0, options, false);
       if (!taken.ok) return { problem: taken.problem };
       const problem = recordProblem(taken.record, taken.source, taken.passageUnits);
       return problem ? { problem } : quotedOf(taken.record);
@@ -1696,6 +1748,16 @@ export function createCitationSession(
 
   return {
     tools,
+
+    /** What the model was given of each Passage so far, in order, with its Document's id and name. */
+    passagesRead: (): readonly { documentId: string; documentName: string; text: string }[] => read,
+
+    /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
+    documentsRead: () => ({
+      cited: citedDocuments(),
+      passages: [...passageDocuments],
+      searched: [...searchedDocuments],
+    }),
 
     /**
      * Searches one Document, whatever the Answer's Search scope: a web page
@@ -1717,7 +1779,7 @@ export function createCitationSession(
 
     /** Searches the Answer's Search scope as its search Tool does, for Passages to `show`. */
     find: (query: string, signal?: AbortSignal, options?: AnswerSearchOptions) =>
-      documents.search(query, signal, undefined, options),
+      find(query, signal, undefined, options),
 
     quotes,
 

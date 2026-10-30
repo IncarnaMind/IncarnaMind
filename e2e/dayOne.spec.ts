@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
+  askInAssistant,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -13,6 +14,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
 } from "./app";
 
 /**
@@ -35,8 +37,20 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { documents: "Documents", tags: "Tags" },
-  "zh-CN": { documents: "文档", tags: "标签" },
+  en: {
+    documents: "Documents",
+    tags: "Tags",
+    notes: "Notes",
+    examples: "Examples",
+    exampleNote: "Draft: credit committee paper",
+  },
+  "zh-CN": {
+    documents: "文档",
+    tags: "标签",
+    notes: "笔记",
+    examples: "示例",
+    exampleNote: "授信委员会报告（草稿）",
+  },
 } as const;
 
 const PDFS = ["Tides.pdf", "Seabirds.pdf", "Ledger.pdf"];
@@ -127,6 +141,73 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a Note from an Answer is counted under Notes, apart from Documents (${language})`, async () => {
+    test.setTimeout(180_000);
+    const words = WORDS[language];
+    const path = join(sources, "Tides.pdf");
+    await writeFile(
+      path,
+      buildPdf([{ lines: ["The Moon raises two bulges of water on the Earth."] }]),
+    );
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+    });
+    await setWindowSize(app, window, 900, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await addFiles(window, [path]);
+
+    // The note is written from an Answer, as a newcomer does: one Note and one Document.
+    const answer = await askInAssistant(window, "How do tides rise?");
+    await answer.getByTestId("answer-write-note").click();
+    await expect(answer.getByTestId("answer-added-undo")).toBeVisible();
+    await expect(window.getByTestId("notes-section").getByTestId("mind-row")).toHaveCount(1);
+
+    // Each heading counts the rows under it: the Note is not counted as a Document.
+    const notes = window.getByTestId("notes-section");
+    await expect(notes.getByTestId("notes-title")).toContainText(words.notes);
+    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(notes.getByTestId("mind-row")).toHaveCount(1);
+    const documents = window.getByTestId("not-in-a-folder-section");
+    await expect(documents.getByTestId("not-in-a-folder-title")).toContainText(words.documents);
+    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(documents.getByTestId("document-list-item")).toHaveCount(1);
+    await expect(documents.getByTestId("mind-row")).toHaveCount(0);
+    // Still day one: the example has folded to its Note's own name under its own heading, and the Library waits.
+    const example = window.getByTestId("example-section");
+    await expect(example.getByTestId("example-title")).toContainText(words.examples);
+    const exampleRow = example.getByTestId("mind-row");
+    await expect(exampleRow).toHaveCount(1);
+    await expect(exampleRow.getByTestId("row-text")).toHaveText(words.exampleNote);
+    await expect(documents.getByTestId("mind-row")).toHaveCount(0);
+    await expect(window.getByTestId("open-library")).toHaveCount(0);
+    await shot(window, `day-one-note-${language}-900`);
+
+    // The counts hold at 1,600 px, and the Note is in ⌘K.
+    await setWindowSize(app, window, 1600, 1000);
+    await expect(notes.getByTestId("sidebar-section-count")).toHaveText("1");
+    await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
+    await shot(window, `day-one-note-${language}-1600`);
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    const noteTitle = "Your Documents answer this";
+    await window.keyboard.type(noteTitle);
+    await expect(
+      window
+        .locator('[data-testid="palette-group"][data-group="notes"]')
+        .getByTestId("palette-item")
+        .filter({ hasText: noteTitle }),
+    ).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("palette")).toHaveCount(0);
+    await app.close();
+  });
+}
+
 test("Tags are never named until one exists, then they are a Library filter", async () => {
   test.setTimeout(180_000);
   const paths = await threePdfs();
@@ -199,7 +280,7 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   await window.getByTestId("show-more-documents").click();
   // The User's eight: the example's own Documents have folded to one Example row (#1944).
   await expect(window.getByTestId("document-list-item")).toHaveCount(8);
-  await expect(window.getByTestId("example-row")).toHaveCount(1);
+  await expect(window.getByTestId("example-section").getByTestId("mind-row")).toHaveCount(1);
   const last = window.getByTestId("document-list-item").last();
   await last.getByTestId("open-document").focus();
   await window.keyboard.press("ArrowDown");
@@ -410,14 +491,24 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
     // As an earlier version left it: waiting to be filed, and never worked on again.
     const exampleId = await first.window.evaluate(async (id) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.restoreAssignment(id, {
-        groupId: null,
-        source: "automatic",
-        suggested: false,
-        status: "pending",
-        error: null,
-        model: null,
-      });
+      // Organize leaves the example's Documents alone, so it has no assignment to put back.
+      const held = (await core.getLibrary()).assignments.find((each) => each.documentId === id);
+      if (held) throw new Error("The example has an assignment already.");
+      await core.restoreAssignment(
+        id,
+        {
+          assignment: {
+            groupId: null,
+            source: "automatic",
+            suggested: false,
+            status: "pending",
+            error: null,
+            model: null,
+          },
+          tagging: null,
+        },
+        { assignment: null, tagging: null },
+      );
       return id;
     }, example.id);
     await first.app.close();

@@ -35,11 +35,14 @@
  * marker (#1344). One that says "search twice" (搜两次) searches once more after its first
  * search, as a model does whose first Passages fall short. One that asks how much something
  * grew (增长) has the growth from the first two numbers of its quote calculated, and writes it
- * with its marker.
+ * with its marker; one that also asks for a share (占比) gets the earlier number's share of the
+ * later one as a second figure.
  * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
  * paragraph pointing to an earlier Answer, and one about "home working"
  * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
  * unless the instructions say that Mind is an example.
+ * One that asks about the minutes (纪要) searches only the first listed Document whose name says
+ * so, by that name, as a model that takes a name for one Document does (#1512).
  * Before its search it reasons, a line that quotes the Question, as a model
  * that thinks does; given the Question's search before its first call (#1633),
  * it answers from those Passages and reasons on that call. A Question asked
@@ -51,6 +54,7 @@
  * by saying which.
  */
 
+import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
 import {
   FORTY_CITATIONS,
@@ -476,6 +480,13 @@ const BY_QUARTER = /\bby quarter\b|按季度/i;
 const BY_QUARTER_CHINESE = /分季度/;
 const IN_MILLIONS = /\bin millions\b/i;
 
+const MINUTES = /\bminutes\b|纪要/i;
+
+function minutesNamed(prompt: Prompt, question: string): string | undefined {
+  if (!MINUTES.test(question)) return undefined;
+  return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
+}
+
 const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
 const HOME_WORKING = /\bhome working\b|居家办公/i;
 
@@ -589,9 +600,10 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
   const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
   if (searches.length === 0) {
+    const minutes = minutesNamed(prompt, question);
     return {
       tool: "search_documents",
-      input: { query: question },
+      input: { query: question, ...(minutes && { document: minutes }) },
       reasoning: reasoningFor(question),
     };
   }
@@ -635,6 +647,7 @@ function answerFrom(
   }
   if (tools.includes("calculate") && /\bgrow|增长/i.test(question)) {
     const calculated = toolResults(prompt, "calculate");
+    const share = /\bshare\b|占比/i.test(question);
     if (calculated.length === 0) {
       const inputs = [1, 2].map((position) => ({
         name: `n${position}`,
@@ -645,14 +658,24 @@ function answerFrom(
       return {
         tool: "calculate",
         input: {
-          figures: [{ marker: 1, label: "Growth", inputs, formula: "n1 / n2 - 1", as: "percent" }],
+          figures: [
+            { marker: 1, label: "Growth", inputs, formula: "n1 / n2 - 1", as: "percent" },
+            ...(share
+              ? [{ marker: 2, label: "Share", inputs, formula: "n2 / n1", as: "percent" }]
+              : []),
+          ],
         },
       };
     }
     if (calculated.at(-1)?.startsWith("Recorded [=1]")) {
-      return {
-        text: /增长/.test(question) ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all.",
-      };
+      const chinese = /增长/.test(question);
+      if (share)
+        return {
+          text: chinese
+            ? "增长了[=1][^1]，上年为本年的[=2][^1]。"
+            : "It grew [=1] [^1], and the earlier year was [=2] of the later one [^1].",
+        };
+      return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
     }
   }
   const firstPassage = passagesIn(searches.at(-1) ?? "")[0];

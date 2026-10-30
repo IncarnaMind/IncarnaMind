@@ -2,7 +2,12 @@ import { useState } from "react";
 import type { SearchScope } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import type { ScopeKind } from "../../../shared/searchScope";
-import { DocumentLineIcon, FolderLineIcon, TagLineIcon } from "../components/lineIcons";
+import {
+  DocumentLineIcon,
+  FolderLineIcon,
+  LockLineIcon,
+  TagLineIcon,
+} from "../components/lineIcons";
 import { useT } from "../i18n";
 import { DELETED_NAMES, type ScopeChip, scopeChips } from "../scope";
 import { useAppStore } from "../store";
@@ -87,11 +92,17 @@ export function ScopeChips({
         const goesBack = back !== undefined && chips.length === 1;
         const remove = goesBack ? back.label : t("scope.chip.remove", { name });
         const own = !deleted && chip.kind === "folder" && chip.id === ownFolderId;
+        const walled =
+          !deleted &&
+          chip.kind === "folder" &&
+          groups?.some((group) => group.id === chip.id && group.keepInside === true) === true;
         const title = deleted
           ? t("scope.chip.deleted")
-          : own
-            ? t(ownCount === 1 ? "scope.chip.own.one" : "scope.chip.own", { count: ownCount })
-            : t(CHIP_TITLES[chip.kind], { name });
+          : walled
+            ? t("scope.chip.wall", { name })
+            : own
+              ? t(ownCount === 1 ? "scope.chip.own.one" : "scope.chip.own", { count: ownCount })
+              : t(CHIP_TITLES[chip.kind], { name });
         const label = deleted ? (
           <>
             <s className="truncate">{name}</s>
@@ -114,10 +125,11 @@ export function ScopeChips({
             data-id={chip.id}
             data-deleted={deleted ? "true" : undefined}
             data-own={own ? "true" : undefined}
+            data-walled={walled ? "true" : undefined}
             title={title}
             className={`scope-chip ${deleted ? "scope-chip--deleted" : ""}`}
           >
-            {onChange ? (
+            {onChange && !walled ? (
               <button
                 type="button"
                 data-testid="scope-chip-change"
@@ -131,22 +143,26 @@ export function ScopeChips({
               </button>
             ) : (
               <>
+                {walled && <LockLineIcon className="scope-chip-icon" />}
                 {label}
+                {walled && <span className="sr-only">{title}</span>}
                 {emptyHint}
               </>
             )}
-            <button
-              type="button"
-              data-testid="scope-chip-remove"
-              aria-label={remove}
-              title={remove}
-              // Keep the cursor where it is.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => (goesBack ? back.onBack() : onRemove(chip.kind, chip.id))}
-              className="scope-chip-remove"
-            >
-              <RemoveIcon className="size-2.5" />
-            </button>
+            {!walled && (
+              <button
+                type="button"
+                data-testid="scope-chip-remove"
+                aria-label={remove}
+                title={remove}
+                // Keep the cursor where it is.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => (goesBack ? back.onBack() : onRemove(chip.kind, chip.id))}
+                className="scope-chip-remove"
+              >
+                <RemoveIcon className="size-2.5" />
+              </button>
+            )}
           </li>
         );
       })}

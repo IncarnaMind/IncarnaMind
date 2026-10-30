@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useSelection } from "../selection";
 import { useAppStore } from "../store";
-import { MoreLineIcon } from "./lineIcons";
+import { CheckLineIcon, MoreLineIcon } from "./lineIcons";
 import { rowActionButtonClass } from "./sidebarRows";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "./ui";
 import { openMenuFromRightClick, usePopoverMenu } from "./usePopoverMenu";
@@ -30,6 +30,9 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   citation: "citation",
   chart: "chart",
   comparisonColumn: "comparison-column",
+  comparisonCell: "comparison-cell",
+  comparisonTable: "comparison-table",
+  comparisonRow: "comparison-row",
   answer: "answer",
   check: "check",
   block: "block",
@@ -80,7 +83,7 @@ export function useObjectMenu(
   return {
     buttonProps: key !== null ? { "data-object-menu": key } : {},
     rowProps: {
-      "data-object-row": "",
+      "data-object-row": key ?? "",
       onContextMenu(event: MouseEvent<HTMLElement>) {
         const row = event.currentTarget;
         // Not from a menu or picker drawn from this row but sitting elsewhere in the page, nor an inner row's.
@@ -175,7 +178,7 @@ export function ObjectMenu({
   /** Beside the menu while it is open, outside it: the submenus of items in `more`. */
   aside?: (close: () => void) => ReactNode;
   /** Below everything, after a rule, and kept in view while the menu scrolls. */
-  foot?: ReactNode;
+  foot?: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const t = useT();
   const { kind, id } = target;
@@ -231,14 +234,17 @@ export function ObjectMenu({
       return <div key={`rule-${index}`} className={menuRuleClass} />;
     }
     const { command, enabled } = entry;
+    const checked = command.checked?.(ctx);
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
     return (
+      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
         key={command.id}
         type="button"
-        role="menuitem"
+        role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+        aria-checked={checked}
         data-testid={command.id}
         aria-disabled={enabled === true ? undefined : true}
         aria-description={hint}
@@ -246,6 +252,11 @@ export function ObjectMenu({
         onClick={() => run(entry)}
         className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
       >
+        {checked !== undefined && (
+          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
+            {checked && <CheckLineIcon className="size-4" />}
+          </span>
+        )}
         <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
         {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
       </button>
@@ -291,7 +302,7 @@ export function ObjectMenu({
           // A long menu scrolls; its foot stays in view, covering the menu's bottom padding.
           <div className="sticky -bottom-1 -mb-1 bg-sheet pb-1">
             <div className={menuRuleClass} />
-            {foot}
+            {typeof foot === "function" ? foot(menu.close) : foot}
           </div>
         )}
       </div>

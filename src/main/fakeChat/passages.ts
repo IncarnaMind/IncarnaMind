@@ -45,6 +45,8 @@ export function recordFor(
   passage: ShownPassage,
   question: string,
   marker: number,
+  /** Breaks a tie between lines that share as many words. */
+  prefer: (line: string) => boolean = () => false,
 ): { record: Record<string, unknown>; shared: number; quoted: string | null } | null {
   const words = question
     .toLowerCase()
@@ -70,7 +72,7 @@ export function recordFor(
   lines.forEach(({ line }, index) => {
     if (!line) return;
     const shared = words.filter((word) => line.toLowerCase().includes(word)).length;
-    if (shared > best) {
+    if (shared > best || (shared === best && prefer(line) && !prefer(lines[chosen]?.line ?? ""))) {
       best = shared;
       chosen = index;
     }

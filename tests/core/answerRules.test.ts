@@ -220,13 +220,10 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     "with %s, give the Library's count when it holds more Documents than the Answer can use (#1333)",
     (mode) => {
       const listed = { total: 1, names: ["Harbour lease"] };
-      const library = { total: 3, examples: true };
+      const library = { total: 3 };
       const text = documentInstructions(mode, listed, "", false, false, false, { library });
       expect(text).toContain(
         "The User's Library holds 3 Documents, and this Answer can use 1 of them",
-      );
-      expect(text).toContain(
-        "Documents of an example IncarnaMind made are in the Library too, and aren't the User's own work: leave them out.",
       );
       expect(text).toContain("Never say the Library holds fewer Documents than 3.");
       expect(text).toContain(
@@ -234,7 +231,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
       );
 
       const scoped = documentInstructions(mode, listed, "", true, false, false, {
-        library: { total: 3, examples: false },
+        library: { total: 3 },
       });
       expect(scoped).toContain(
         "The User limited this Question to 1 Document of the 3 in their Library",
@@ -248,7 +245,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
         false,
         false,
         false,
-        { library: { total: 3, examples: false } },
+        { library: { total: 3 } },
       );
       expect(all).toContain("The User has added 3 Documents");
       expect(all).not.toContain("Library holds");

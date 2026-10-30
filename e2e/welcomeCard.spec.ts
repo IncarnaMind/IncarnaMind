@@ -4,7 +4,6 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
-  addFilesLabel,
   askInAssistant,
   assistantAnswers,
   confirmLink,
@@ -139,7 +138,7 @@ for (const language of ["en", "zh-CN"] as const) {
           }
         };
 
-        // 1 Add your files, from the card's title with the keyboard.
+        // 1 Add your Documents, from the card's title with the keyboard.
         await expect(step(window, "files")).toHaveAttribute("data-state", "open");
         await expect(step(window, "question")).toHaveAttribute("data-state", "later");
         await expect(step(window, "citation")).toHaveAttribute("data-state", "later");
@@ -155,17 +154,19 @@ for (const language of ["en", "zh-CN"] as const) {
         before.push(await height());
         expectOne(before, `${language} ${width} px, up to step 2`);
 
-        // The example folds to one row, and Undo takes that back.
-        await expect(window.getByTestId("example-open")).toBeVisible();
+        // The example folds to its Note's row, and Undo takes that back.
+        const exampleRow = () =>
+          window.getByTestId("example-section").getByTestId("mind-list-item");
+        await expect(exampleRow()).toBeVisible();
         await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
         await window.keyboard.press("ControlOrMeta+z");
-        await expect(window.getByTestId("example-open")).toHaveCount(0);
+        await expect(exampleRow()).toHaveCount(0);
         await expect(sidebar.getByTestId("document-list-item")).toHaveCount(0);
 
         // Back in, then 2 Ask, from the card's title with the keyboard.
         await window.getByTestId("add-documents-input").setInputFiles([harbours]);
         await expect(step(window, "question")).toHaveAttribute("data-state", "open");
-        await expect(window.getByTestId("example-open")).toBeVisible();
+        await expect(exampleRow()).toBeVisible();
         const askTitle = step(window, "question").getByTestId("first-open-step-do");
         await askTitle.focus();
         await window.keyboard.press("Enter");
@@ -256,7 +257,9 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
   try {
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
-    await expect(window.getByTestId("example-open")).toBeVisible({ timeout: 20_000 });
+    await expect(window.getByTestId("example-section").getByTestId("mind-list-item")).toBeVisible({
+      timeout: 20_000,
+    });
     const sidebar = window.getByTestId("sidebar");
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
 
@@ -266,7 +269,7 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
       if (mindId) await bridge.deleteMind(mindId);
     });
     // The one row goes with its Mind: its Documents and its Linked folder row stay reachable.
-    await expect(window.getByTestId("example-open")).toHaveCount(0);
+    await expect(window.getByTestId("example-section")).toHaveCount(0);
     await expect(sidebar.getByTestId("document-list-item")).toHaveCount(3);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
   } finally {
@@ -275,7 +278,7 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
   }
 });
 
-test("the Example row's ⋯, a right-click and Shift+F10 open the examples' menu (#1944)", async () => {
+test("the Examples heading's ⋯ and the keyboard open the examples' menu, and the row's ⋯ is the Note's own (#1944, #1942)", async () => {
   const sources = await createDataFolder();
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
@@ -283,33 +286,35 @@ test("the Example row's ⋯, a right-click and Shift+F10 open the examples' menu
   try {
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
-    const row = window.getByTestId("example-row");
-    await expect(row).toBeVisible({ timeout: 20_000 });
+    const example = window.getByTestId("example-section");
+    await expect(example).toBeVisible({ timeout: 20_000 });
+    await expect(example.getByTestId("mind-row").getByTestId("row-text")).toHaveText(
+      "Draft: credit committee paper",
+    );
     const menu = window.getByTestId("examples-actions");
+    const button = example.getByTestId("examples-menu");
 
-    await row.hover();
-    await pointAndClick(window, row.getByTestId("examples-menu"));
+    await example.getByTestId("example-section-heading").hover();
+    await pointAndClick(window, button);
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
     await expect(menu.getByTestId("examples-remove")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
 
-    const box = await row.boundingBox();
-    if (!box) throw new Error("The Example row isn't laid out.");
-    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
-    await window.mouse.move(x, y, { steps: 4 });
-    await window.mouse.click(x, y, { button: "right" });
-    await expect(menu).toBeVisible();
-    await window.keyboard.press("Escape");
-    await expect(menu).toBeHidden();
-
-    await row.getByTestId("example-open").focus();
-    await window.keyboard.press("Shift+F10");
+    // The keyboard reaches the heading's menu too.
+    await button.focus();
+    await window.keyboard.press("Enter");
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
+
+    // The row keeps its own ⋯, the Note's menu, without the examples' actions.
+    await pointAndClick(window, example.getByTestId("mind-menu"));
+    await expect(window.getByTestId("mind-actions")).toBeVisible();
+    await expect(window.getByTestId("mind-actions").getByTestId("examples-remove")).toHaveCount(0);
+    await window.keyboard.press("Escape");
   } finally {
     await app.close();
     await removeDataFolder(sources);
@@ -760,12 +765,12 @@ const TITLES = {
   en: {
     citation: "Check a Citation",
     question: "Ask",
-    files: "Add your files",
+    files: "Add your Documents",
   },
-  "zh-CN": { citation: "核对一条引用", question: "提问", files: "添加你的文件" },
+  "zh-CN": { citation: "核对一条引用", question: "提问", files: "添加你的文档" },
 } as const;
 
-test("Ask a question and Add your files do their step on a click, Enter or Space at any time, and doing it alone ticks nothing (#1489)", async () => {
+test("Ask a question and Add your Documents do their step on a click, Enter or Space at any time, and doing it alone ticks nothing (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 900, 900);
   await cancelFilePicker(app);
@@ -816,7 +821,7 @@ test("Ask a question and Add your files do their step on a click, Enter or Space
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Add files or a folder… is under step 1 from the start, and what is added ticks step 1 alone, in ${language} (#1574)`, async () => {
+  test(`Add files… and Link a folder… are under step 1 from the start, and what is added ticks step 1 alone, in ${language} (#1574)`, async () => {
     const sources = await createDataFolder();
     const notes = join(sources, "Harbour notes.md");
     await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
@@ -830,11 +835,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(step(window, "question")).toHaveAttribute("data-state", "later");
 
       const add = files.getByTestId("first-open-add-files");
-      await expect(add).toHaveText(addFilesLabel(language));
+      await expect(add).toHaveText(language === "en" ? "Add files…" : "添加文件…");
+      await expect(files.getByTestId("first-open-link-folder")).toHaveText(
+        language === "en" ? "Link a folder…" : "添加关联文件夹…",
+      );
       await expect(files).toContainText(
         language === "en"
-          ? "Your files stay where they are. IncarnaMind reads them on this computer."
-          : "你的文件留在原处，IncarnaMind 在这台电脑上读取它们。",
+          ? "Reading your files on this computer. They stay where they are."
+          : "在这台电脑上读取你的文件，文件留在原处。",
       );
       const [cardBox, title, addBox] = await Promise.all([
         card.boundingBox(),
@@ -879,7 +887,7 @@ test("a folder linked on the first step ticks step 1 alone (#1574)", async () =>
     const files = step(window, "files");
     await expect(files).toHaveAttribute("data-state", "open");
     await interceptOpenDialog(app, sources);
-    await pointAndClick(window, files.getByTestId("first-open-add-files"));
+    await pointAndClick(window, files.getByTestId("first-open-link-folder"));
     await confirmLink(window.getByTestId("link-folder-dialog"));
     await expect(files).toHaveAttribute("data-state", "done", { timeout: 20_000 });
     await expect(step(window, "question")).toHaveAttribute("data-state", "open");

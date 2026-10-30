@@ -74,6 +74,8 @@ export function CheckBadge(props: {
   mindId: string;
   verification: Verification | null;
   quiet: boolean;
+  /** How many figures the note's Figure schedule lists. */
+  figures: number;
 }) {
   return props.verification ? (
     <VerifyBadge {...props} verification={props.verification} />
@@ -87,17 +89,24 @@ function MindBadge({
   doc,
   mindId,
   quiet,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   quiet: boolean;
+  figures: number;
 }) {
   const t = useT();
   const checkedAll = useMindCheckRun(doc);
   const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
-  const health = useHealth(editor, skipped);
+  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
+  const unexamined = useMemo(
+    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
+    [unexaminedKeys],
+  );
+  const health = useHealth(editor, skipped, unexamined);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
@@ -130,7 +139,14 @@ function MindBadge({
       onStop={() => stopCheck(mindId)}
     >
       <p className="check-card-title">{t("health.label")}</p>
-      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
+      <HealthCard
+        editor={editor}
+        doc={doc}
+        mindId={mindId}
+        health={health}
+        state={state}
+        figures={figures}
+      />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
       <CheckActions doc={doc} mindId={mindId} askingMind={askingMind} />

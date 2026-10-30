@@ -712,6 +712,49 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ],
       ["1.2亿", [f("1.2亿", 120000000, { scale: "亿" })]],
       ["41.2%", [f("41.2%", 0.412, { unit: "%" })]],
+      ["一万二", [f("一万二", 12000)]],
+      ["租金三千五百元", [f("三千五百元", 3500, { unit: "CNY" })]],
+    ],
+  },
+  {
+    name: "a Chinese amount, in words or mixed, read as one amount (#2189)",
+    context: ZH,
+    cases: [
+      ["两万", [f("两万", 20000, { scale: "万" })]],
+      ["三千五百", [f("三千五百", 3500)]],
+      ["一万二", [f("一万二", 12000)]],
+      ["十二万", [f("十二万", 120000, { scale: "万" })]],
+      ["两千万", [f("两千万", 20000000, { scale: "万" })]],
+      ["人民币两万元", [f("人民币两万元", 20000, { unit: "CNY", scale: "万" })]],
+      ["贰万元整", [f("贰万元整", 20000, { unit: "CNY", scale: "万" })]],
+      ["二〇〇", [f("二〇〇", 200)]],
+      ["2万5千元", [f("2万5千元", 25000, { unit: "CNY", scale: "万" })]],
+      ["1万2千5百元", [f("1万2千5百元", 12500, { unit: "CNY", scale: "万" })]],
+      ["人民币2亿5000万元", [f("人民币2亿5000万元", 250000000, { unit: "CNY", scale: "亿" })]],
+      ["3.5万元", [f("3.5万元", 35000, { unit: "CNY", scale: "万" })]],
+      ["2万5千米", [f("2万", 20000, { scale: "万" }), f("5千米", 5, { unit: "千米" })]],
+      ["两万半", [f("两万半", 25000, { scale: "万" })]],
+      ["一亿半。", [f("一亿半", 150000000, { scale: "亿" })]],
+      ["三千半", [f("三千半", 3500)]],
+      ["两千半导体", [f("两千", 2000)]],
+      ["两万半元", [f("两万半元", 25000, { unit: "CNY", scale: "万" })]],
+      ["两万半人民币", [f("两万半人民币", 25000, { unit: "CNY", scale: "万" })]],
+      ["两万半左右", [f("两万半左右", 25000, { scale: "万", approx: true })]],
+      ["负两万元", [f("负两万元", -20000, { unit: "CNY", scale: "万" })]],
+    ],
+  },
+  {
+    name: "a number in an address, a room or a clause is no amount (#2189)",
+    context: ZH,
+    cases: [
+      ["明川路14号2室", [f("2室", 2, { unit: "室" })]],
+      ["5号楼2单元301室", [f("2单元", 2, { unit: "单元" }), f("301室", 301, { unit: "室" })]],
+      ["住在3楼", [f("3楼", 3, { unit: "楼" })]],
+      ["共20层", [f("20层", 20, { unit: "层" })]],
+      ["见3章", [f("3章", 3, { unit: "章" })]],
+      ["第3条第2款", []],
+      ["第三章", []],
+      ["两室一厅", []],
     ],
   },
   {
@@ -926,6 +969,7 @@ describe("what an ambiguous figure could be", () => {
       scaleWord: null,
       unit: { kind: "plain" },
       decimals: 2,
+      precision: 0.01,
     });
     expect(stated).toEqual({
       value: 1523405600,
@@ -933,6 +977,7 @@ describe("what an ambiguous figure could be", () => {
       scaleWord: "万",
       unit: { kind: "currency", code: "CNY" },
       decimals: 2,
+      precision: 100,
     });
     expect(readings("41.2", { ...ZH, header: "单位：%" }, "scale")?.at(-1)).toEqual({
       value: 0.412,
@@ -940,6 +985,7 @@ describe("what an ambiguous figure could be", () => {
       scaleWord: null,
       unit: { kind: "percent" },
       decimals: 1,
+      precision: 0.001,
     });
     expect(
       readings("1,482.6", { ...EN, header: "(in millions of U.S. dollars)" }, "scale")?.at(-1),
@@ -949,6 +995,7 @@ describe("what an ambiguous figure could be", () => {
       scaleWord: "millions",
       unit: { kind: "currency", code: "USD" },
       decimals: 1,
+      precision: 100000,
     });
   });
 
@@ -960,6 +1007,7 @@ describe("what an ambiguous figure could be", () => {
       scaleWord: "100million",
       unit: { kind: "currency", code: "USD" },
       decimals: 2,
+      precision: 1000000,
     });
     expect(
       readings("1.5", { ...EN, header: "Unit: 10 thousand yuan" }, "scale")?.at(-1)?.value,
@@ -987,8 +1035,22 @@ describe("what an ambiguous figure could be", () => {
 
   test("points may be percentage points or an index's", () => {
     expect(readings("3 points", EN, "points")).toEqual([
-      { value: 3, scale: 1, scaleWord: null, unit: { kind: "other", word: "points" }, decimals: 0 },
-      { value: 0.03, scale: 1, scaleWord: null, unit: { kind: "points" }, decimals: 0 },
+      {
+        value: 3,
+        scale: 1,
+        scaleWord: null,
+        unit: { kind: "other", word: "points" },
+        decimals: 0,
+        precision: 1,
+      },
+      {
+        value: 0.03,
+        scale: 1,
+        scaleWord: null,
+        unit: { kind: "points" },
+        decimals: 0,
+        precision: 0.01,
+      },
     ]);
   });
 });
@@ -1044,6 +1106,43 @@ describe("stated units", () => {
     expect(asHeader("Revenue was 10 million")).toEqual([]);
     expect(asHeader("a total of 100 million shares")).toEqual([]);
     expect(stated("100million USD", EN)).toEqual([]);
+  });
+
+  test("an amount's own compound scale states nothing: “4,979.6百万元” holds “万元” but is a figure", () => {
+    expect(stated("营业收入为人民币4,979.6百万元，上年同期为人民币4,860.0百万元。", ZH)).toEqual(
+      [],
+    );
+    expect(stated("分部收入（单位：人民币百万元）", ZH)).toMatchObject([
+      { scale: 1000000, unit: { kind: "currency", code: "CNY" } },
+    ]);
+  });
+
+  test("a heading's currency alone in brackets states it: “2026 sales (£)”, “Amount (USD)”", () => {
+    expect(stated("Region\t2026 sales (£)", EN)).toEqual([
+      { chars: "(£)", scale: 1, scaleWord: null, unit: { kind: "currency", code: "GBP" } },
+    ]);
+    expect(stated("Amount (USD)", EN)).toMatchObject([
+      { chars: "(USD)", scale: 1, unit: { kind: "currency", code: "USD" } },
+    ]);
+    expect(stated("Revenue (£m)", EN)).toMatchObject([{ scale: 1000000, unit: { code: "GBP" } }]);
+    expect(stated("Sales (see note 3)", EN)).toEqual([]);
+  });
+
+  test("a heading's or a row's own scale and unit words state them: “Unit: million tonnes”, “thousand tonnes”", () => {
+    const tonnes = (scale: number, chars: string) => ({
+      chars,
+      scale,
+      scaleWord: chars.split(" ")[0],
+      unit: { kind: "other", word: "tonnes" },
+    });
+    expect(stated("Unit: million tonnes", EN)).toEqual([tonnes(1000000, "million tonnes")]);
+    expect(stated("Cost\t70\t78\tthousand tonnes", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Cost | 70 | 78 | million tonnes", EN)).toEqual([
+      tonnes(1000000, "million tonnes"),
+    ]);
+    expect(stated("Output (thousand tonnes)", EN)).toEqual([tonnes(1000, "thousand tonnes")]);
+    expect(stated("Output reached 78 million tonnes", EN)).toEqual([]);
+    expect(stated("A million people came", EN)).toEqual([]);
   });
 
   test("a Chinese header states a scale and a currency", () => {

@@ -66,10 +66,10 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     await ask(core, "Make a new note from the Launch plan and the Meeting notes.");
 
     expect(lastSent(model)).toBe(
-      `The User's Minds: "Launch plan", "Meeting notes"\n\nMake a new note from the Launch plan and the Meeting notes.`,
+      `The User's Notes: "Launch plan", "Meeting notes"\n\nMake a new note from the Launch plan and the Meeting notes.`,
     );
     expect(instructionsOf(model)).toContain(
-      "A name the User gives that one of their Minds has is that Mind",
+      "A name the User gives that one of their Notes has is that Note",
     );
     expect(instructionsOf(model)).toContain("The Library is every Document the User has added");
     expect(instructionsOf(model)).toContain('A request about "this Library" or 这个知识库');
@@ -87,7 +87,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     await ask(core, "What can you do?");
 
     const newest = Array.from({ length: 30 }, (_, index) => `"Mind ${31 - index}"`);
-    expect(lastSent(model)).toBe(`The User's Minds: ${newest.join(", ")}\n\nWhat can you do?`);
+    expect(lastSent(model)).toBe(`The User's Notes: ${newest.join(", ")}\n\nWhat can you do?`);
   });
 
   // protects=a Mind only an Answer wrote in is named as a source from an earlier Answer, not passed off as the User's own writing, and loses that mark once the User writes in it; fails_when=it is missing, or the mark stays after the User writes; no_claim=what a real model does with the line, which eval/minds measures.
@@ -111,7 +111,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     await ask(core, "Write a launch brief.");
     await ask(core, "What can you do?");
     expect(lastSent(model)).toBe(
-      `The User's Minds: "Launch brief" (from an earlier Answer), "Project plan"\n\nWhat can you do?`,
+      `The User's Notes: "Launch brief" (from an earlier Answer), "Project plan"\n\nWhat can you do?`,
     );
 
     const brief = (await core.listMinds()).find((mind) => mind.title === "Launch brief");
@@ -120,7 +120,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     writeMind(briefClient, [note("My own words.")]);
     await briefClient.settled();
     await ask(core, "What can you do?");
-    expect(lastSent(model)).toMatch(/^The User's Minds: "Launch brief", "Project plan"\n\n/);
+    expect(lastSent(model)).toMatch(/^The User's Notes: "Launch brief", "Project plan"\n\n/);
   });
 
   // protects=a Mind of AI text that no Answer added, as a Meeting's notes filled after Stop, stays on the line, so the User can name it as they name any Mind (#1790); fails_when=it is left out; no_claim=what a real model does with it, which eval/minds measures.
@@ -141,7 +141,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
 
     await ask(core, "What can you do?");
 
-    expect(lastSent(model)).toBe(`The User's Minds: "Acme pricing call"\n\nWhat can you do?`);
+    expect(lastSent(model)).toBe(`The User's Notes: "Acme pricing call"\n\nWhat can you do?`);
   });
 
   // protects=a model that can't call the Minds' Tools gets no Mind names, and no search rewrite is asked because of them, so the names never reach the quick-tasks model or a search query (#1790); fails_when=any request carries the line; no_claim=none beyond protects.
@@ -165,7 +165,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     expect(offered.length).toBeGreaterThan(0);
     expect(without.length).toBeGreaterThan(0);
     for (const call of without) {
-      expect(`${call.system}\n${call.prompt}`).not.toContain("The User's Minds:");
+      expect(`${call.system}\n${call.prompt}`).not.toContain("The User's Notes:");
       expect(call.system).not.toContain("You turn a Question from the User's notebook");
     }
   });
@@ -179,7 +179,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     await ask(core, "Shorten the decisions.", notes.id);
 
     expect(lastSent(model)).toMatch(
-      /(?:^|\n\n)The User's Minds: "Meeting notes"\n\nShorten the decisions\.$/,
+      /(?:^|\n\n)The User's Notes: "Meeting notes"\n\nShorten the decisions\.$/,
     );
   });
 

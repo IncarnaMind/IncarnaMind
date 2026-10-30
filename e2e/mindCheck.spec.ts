@@ -178,6 +178,61 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a sentence the model says nothing of is counted as not examined and stays to check; the next Check examines it (${language})`, async () => {
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      // The scripted model says nothing of the last sentence it is shown when it names the claims.
+      await connectLocalChatModel(window, "fake-model-claims-undecided");
+      await setLanguage(window, language);
+      await setWindowSize(app, window, 900, 800);
+      await addDocuments(window, [join(sources, "Tides.pdf")]);
+      await mindWrittenBefore(window, "Tide note", [
+        { note: `${CLAIMS[1]} ${CLAIMS[2]} ${CLAIMS[4]}` },
+      ]);
+      await window.getByTestId("mind-list-item").filter({ hasText: "Tide note" }).click();
+      await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+      const card = window.getByTestId("check-card");
+      await pointAndClick(
+        window,
+        card.getByTestId("mind-check-ask").getByTestId("mind-check-check"),
+      );
+      await mindCheckFinished(window, 2);
+      const checked = card.getByTestId("health-checked-all");
+      await expect(checked).toContainText(translate(language, "health.unexamined.one"));
+      await expect(card.getByTestId("health-toCheck")).toContainText(
+        translate(language, "health.toCheck.one"),
+      );
+      for (const width of [900, 1600]) {
+        await setWindowSize(app, window, width, 800);
+        await expect(checked).toBeVisible();
+        const line = await checked.boundingBox();
+        const shown = await card.boundingBox();
+        if (!line || !shown) throw new Error("The card's result line isn't drawn.");
+        expect(line.x).toBeGreaterThanOrEqual(shown.x);
+        expect(line.x + line.width).toBeLessThanOrEqual(shown.x + shown.width);
+        await screenshot(window, `mind-check-unexamined-${language}-${width}`);
+      }
+
+      // With a model that decides every sentence, Check examines the one left and the line goes.
+      await connectLocalChatModel(window);
+      const again = (await checkCard(window)).getByTestId("badge-check-mind");
+      await pointAndClick(window, again);
+      await pointAndClick(
+        window,
+        card.getByTestId("mind-check-ask").getByTestId("mind-check-check"),
+      );
+      await mindCheckFinished(window, 3);
+      await expect(checked).not.toContainText(translate(language, "health.unexamined.one"));
+      await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 /**
  * A model billed per token, whose requests the cost meter counts, with the checks allowed to use it.
  * A monthly cap is set, so a run under a dollar still shows its estimate (#1941).
@@ -525,10 +580,21 @@ test("the line that says nothing changed goes when a Document is edited, moved o
 
   // Each change leaves checks to make, so the line goes and the button says how many; checking them brings it back.
   const checkedAgain = async () => {
+    await checkCard(window);
     await pointAndClick(window, check);
     await expect(check).toHaveAttribute("title", "Nothing changed", { timeout: 20_000 });
-    await pointAndClick(window, check);
-    await expect(unchanged).toBeVisible();
+    // The press that planned may have found nothing changed itself: the line is on, and a second
+    // press would only say it again.
+    if (await unchanged.isVisible()) return;
+    // Otherwise it checked, and a finished check never says "nothing changed": only a press on
+    // what that left can say it, so press again, waiting each check out, and open the card again
+    // if one closed it.
+    await expect(async () => {
+      await checkCard(window);
+      await pointAndClick(window, check);
+      await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
+      await expect(unchanged).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
   };
   await pointAndClick(window, check);
   await expect(unchanged).toBeVisible();

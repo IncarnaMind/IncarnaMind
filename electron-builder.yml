@@ -12,6 +12,9 @@ directories:
   output: dist
   buildResources: build
 
+# Gives the Windows speech package the app's ONNX Runtime library (#2152); see the script.
+afterPack: ./scripts/afterPack.mjs
+
 # Only the bundled app goes in. The production dependencies in node_modules are added
 # automatically; the rest of the repo (sources, tests, the sample PDFs in data/) stays out.
 # electron-builder arranges them itself, and a direct dependency's version wins the top
@@ -80,8 +83,9 @@ asarUnpack:
   # app.asar (src/main/platform.ts points sandbox-runtime at this copy).
   - "**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/**"
 
-# No spaces in file names, and the architecture in every name: the auto-updater tells the
-# Apple silicon and Intel macOS downloads apart by it.
+# No spaces in file names, and the architecture in every name: on a signed build for an Intel
+# Mac the auto-updater never takes a file named arm64, so it isn't replaced by one that can't run
+# (#2199).
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
 mac:
@@ -113,15 +117,15 @@ mac:
     - "!**/node_modules/**/*.{ts,mts,cts,tsx}"
     - "!**/node_modules/**/*.mdx"
     - "!**/node_modules/**/coverage/**"
-    # The arm64 and x64 apps are built separately: each keeps its own architecture.
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/{linux,win32}{,/**}"
-    - "!**/node_modules/onnxruntime-node/bin/napi-v*/darwin/!(${arch}){,/**}"
-    # The release workflow puts the other macOS architecture's speech package beside this one.
-    - "!**/node_modules/sherpa-onnx-darwin-!(${arch}){,/**}"
-  # The zip is what auto-update downloads; the dmg is what people install from.
+  # The zip is what auto-update downloads; the dmg is what people install from. Apple silicon
+  # only: onnxruntime-node has no Intel macOS library since 1.24, so Macs with an Intel processor
+  # aren't supported (#2199).
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
   # Signing uses the Developer ID certificate in CSC_LINK when it's set. Notarization
   # runs after signing when Apple credentials are in the environment (APPLE_ID, or
   # APPLE_API_KEY). The release workflow ad-hoc signs instead when there's no certificate.

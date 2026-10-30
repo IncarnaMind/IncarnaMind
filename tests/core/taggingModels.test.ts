@@ -335,6 +335,81 @@ describe("Automatic picks the model that tags", () => {
   });
 });
 
+describe("The core says where the saved choice goes", () => {
+  const saveChoice = async (core: Core, choice: { providerId: string; modelId: string }) =>
+    core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "chat", choice },
+    });
+  const savedAnswer = async (core: Core) => (await core.getTaggingModels()).saved;
+
+  test("none while Automatic is the setting", async () => {
+    const { core } = await start();
+    await core.saveChatProvider({ kind: "anthropic", apiKey: "key", modelId: "claude-sonnet-5-5" });
+    expect(await savedAnswer(core)).toBeNull();
+  });
+
+  // The destination is the saved model's own route, not its provider's: one Ollama server holds
+  // a model on this computer and a cloud model that Ollama forwards to ollama.com.
+  const models = [
+    { name: "a model on this computer", modelId: "qwen3.5:4b", goes: { kind: "here" } },
+    {
+      name: "an Ollama cloud model the User typed",
+      modelId: "gpt-oss:120b-cloud",
+      goes: { kind: "service", service: { id: "https://ollama.com" } },
+    },
+  ] as const;
+  for (const { name, modelId, goes } of models) {
+    for (const chatDefault of ["the same", "another"] as const) {
+      test(`${name} on an Ollama server, with ${chatDefault} chat default: ${goes.kind === "here" ? "here" : "ollama.com"}`, async () => {
+        const { core } = await start({ localModels: async () => ["qwen3.5:4b"] });
+        const ollama = await core.saveChatProvider({ kind: "ollama", modelId });
+        await saveChoice(core, { providerId: ollama.id, modelId });
+        if (chatDefault === "another") {
+          await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+        }
+        expect(await savedAnswer(core)).toMatchObject({
+          classifier: { kind: "chat", choice: { providerId: ollama.id, modelId } },
+          destination: goes,
+        });
+        // What the core registers for tagging names the same service.
+        const flows = await core.listRegisteredDataFlows();
+        const tagging = flows.find((flow) => flow.id === "tagging");
+        if (goes.kind === "service") {
+          expect(tagging?.services.map((each) => each.flow.service.id)).toContain(goes.service.id);
+        }
+      });
+    }
+  }
+
+  test("a model on a cloud provider that isn't a role or the default goes to that provider", async () => {
+    const { core } = await start();
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+    await saveChoice(core, { providerId: anthropic.id, modelId: "claude-sonnet-5-5" });
+    await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+    expect(await savedAnswer(core)).toMatchObject({
+      destination: { kind: "service", service: { id: ANTHROPIC } },
+    });
+  });
+
+  test("unknown when its provider is gone", async () => {
+    const { core } = await start();
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+    await saveChoice(core, { providerId: anthropic.id, modelId: "claude-sonnet-5-5" });
+    await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+    await core.deleteChatProvider(anthropic.id);
+    expect(await savedAnswer(core)).toMatchObject({ destination: { kind: "unknown" } });
+  });
+});
+
 describe("Which model each quick call uses", () => {
   test("an Answer's search query and its translation go to the quick-tasks model; the Answer to its own", async () => {
     const { core, calls, answers, specs } = await start();

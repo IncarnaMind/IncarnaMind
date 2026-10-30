@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type * as Y from "yjs";
 import type {
   AskedQuote,
   ConversationAnswer,
@@ -32,11 +33,10 @@ import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
-import { useTipRoom } from "../../tips";
 import { SearchIcon } from "../icons";
 import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
 import { AddToMindPicker } from "./AddToMindPicker";
-import { TipRoom, WritingLine } from "./AnswerActions";
+import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
 import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
 import { MeetingStarters } from "./MeetingStarters";
@@ -61,7 +61,13 @@ const SOUGHT_MS = 1600;
  * being written while the User is at its foot, and brings an Answer a link
  * back led to into view, flashed.
  */
-export function ConversationThread({ focusedMindId }: { focusedMindId: string | null }) {
+export function ConversationThread({
+  focusedMindId,
+  focusedDoc,
+}: {
+  focusedMindId: string | null;
+  focusedDoc: Y.Doc | null;
+}) {
   const t = useT();
   const messages = useConversations((state) => state.messages);
   const asking = useConversations((state) => state.asking);
@@ -114,7 +120,6 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
   // A Research topic asked, or a Task started, grows it too; a Task's every step doesn't move it.
   const started = tasks.length;
   const askedAt = plan?.askedAt;
-  const tipRoomOpen = useTipRoom("add-answer", null);
   useThreadScroll(log, {
     asking: asking !== null,
     holdOff: sought !== null,
@@ -213,6 +218,7 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
             sought={message.id === sought}
             keeping={keeping}
             askedAgain={askedAgain.get(message.id)}
+            doc={focusedDoc}
           />
         );
       })}
@@ -281,7 +287,6 @@ export function ConversationThread({ focusedMindId }: { focusedMindId: string | 
               ) : undefined
             }
           />
-          {focusedMindId !== null && tipRoomOpen && <TipRoom />}
         </div>
       )}
       {picking && (

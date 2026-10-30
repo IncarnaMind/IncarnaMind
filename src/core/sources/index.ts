@@ -42,7 +42,7 @@ import { fillReference, linkReference, writeUnlinkedReference } from "../referen
 import type { Secrets } from "../secrets";
 import { createSendGate } from "../sendGate";
 import type { Database } from "../storage";
-import type { Tool } from "../tools";
+import type { Tool, ToolTurn } from "../tools";
 import { cfrId, parseCfr, parseUsc, uscId } from "./citations";
 import { downloadOpenPdf, fileOf } from "./fullText";
 import { gatedHttp, SourceError, type SourceHttp } from "./http";
@@ -617,12 +617,12 @@ export function createSources(options: SourcesOptions) {
      * The Tool an Answer can call: none in local mode, or when the User
      * declined every provider that searches.
      */
-    tools(): Tool[] {
+    tools(turn: ToolTurn): Tool[] {
       if (options.localOnly()) return [];
       const searching = providers.filter(
         (each) => each.search && consent.status("find-sources", each.service) !== "declined",
       );
-      return searching.length > 0 ? [sourcesTool(search, searching)] : [];
+      return searching.length > 0 ? [sourcesTool(search, searching, turn)] : [];
     },
 
     /** See `CoreApi.addFoundSource`. */

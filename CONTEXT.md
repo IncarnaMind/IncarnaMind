@@ -35,7 +35,7 @@ What an Answer is generated from: in a Note, every Block above its Question, exc
 _Avoid_: prompt, history
 
 **Search scope**:
-The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none.
+The Folders, Tags and individual Documents that a Question's Document search is limited to, resolved when the Question is asked: a Document filed into a Folder since is in it, one filed out is not. A Question in a Folder's Note starts with the Folder as its Search scope while the Folder holds a Document, and with every Document while it holds none; the User can remove the Folder; a Question with no Search scope searches all Documents. The Search scope the User sets in a Note's composer stays with the Note, and checks of its sentences look there too; text added from an Answer brings its Question's Search scope to a Note that has none. A Folder with **Keep this Folder's work inside it** is the exception: its own Notes cannot widen past it, and every other Note leaves its Documents and Notes out, including an All Documents search. Automatic and suggested Organize filings count only once the User accepts them.
 _Avoid_: filter, context
 
 ### The assistant
@@ -45,7 +45,7 @@ The one place in each window where the User asks Questions and reads their Answe
 _Avoid_: chat panel, thread, copilot, bot
 
 **Conversation**:
-The assistant's history of one exchange: its messages, each a Question or an Answer, in order. It belongs to the Folder of the Note its first Question was asked from, or to none; each Question records the Note it was asked from. A Conversation is not a Note: it is listed only in the assistant's History, never in the sidebar or a tab, and exists once it has a Question. New chat starts one.
+The assistant's history of one exchange: its messages, each a Question or an Answer, in order. It belongs to the Folder of the Note its first Question was asked from, or to none; each Question records the Note it was asked from. A Conversation is not a Note: it is listed only in the assistant's History, never in the sidebar or a tab, and exists once it has a Question. New chat starts one. A Conversation follows the User between Notes, but it never carries earlier turns across a work wall.
 _Avoid_: chat (except in "New chat"), thread, session
 
 ### Documents
@@ -94,6 +94,10 @@ _Avoid_: source, reference
 A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
 _Avoid_: computed figure, calculated citation, derived number, formula
 
+**Figure schedule**:
+The figures shown in a Note, each beside its source value, Citation, difference and result from the Note's one Check; calculated figures can be opened to see their Inputs, and totals show whether their parts add up.
+_Avoid_: second check, audit table
+
 **Input**:
 A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency, when only a heading does), a cell of a sheet (the number it stores, not the one it shows rounded), or a range of a sheet or CSV, in the version of its Document it was read from.
 _Avoid_: argument, variable, source
@@ -131,11 +135,11 @@ A PDF of the pages a Note cites, made from Export options: a cover list, then on
 _Avoid_: evidence bundle, appendix, bundle
 
 **Folder**:
-A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder.
+A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default; deleting a Folder moves its Documents and Notes to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
 _Avoid_: project (in the interface), group (a Folder's former name; a Group is now a column of tabs), collection, category
 
 **Not in a Folder**:
-The one place for every Document and Note in no Folder. A Note there searches all Documents.
+The one place for every Document and Note in no Folder. A Note there searches every Document except those inside a work wall.
 _Avoid_: Unsorted, Uncategorised, Inbox
 
 **Suggested Folder**:
@@ -210,7 +214,7 @@ _Avoid_: default Skill, system Skill
 ### Changes
 
 **Proposal**:
-A change to a Note, made by the AI or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes from the assistant".
+A change to a Note, made by the AI or brought in from another person's Word file, that waits for the User to accept or reject it. Until it is accepted it does not count as part of the Note, though the assistant reads every one as a change (the AI's as waiting, another person's with who made each) and exports show another person's, and it is out of date once the text it changes has changed. The assistant revises its own while they wait, rather than adding a second version. Each Proposal is one change in one place (the words it removes and those it adds there, or a whole Block), accepted or rejected on its own; one request, such as an Edit with AI, can make several. The interface calls them changes: "3 changes waiting".
 _Avoid_: suggestion, edit, draft, diff
 
 **AI text**:
@@ -258,6 +262,10 @@ _Avoid_: nothing says this, missing, not in your Documents
 **Contradicted**:
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
 _Avoid_: wrong, conflict, false
+
+**Not examined**:
+A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
+_Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
 
 **Needs re-check**:
 A check result whose sentence, evidence or scope has changed since it was made, so it is no longer known to hold.

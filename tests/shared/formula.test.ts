@@ -1064,6 +1064,17 @@ describe("a power of ten that changes an amount's scale (#577)", () => {
     expect(worked("rev / 10000", [rev]).value).toBeCloseTo(120_345.67, 6);
   });
 
+  // protects=a Chinese statement's 百万元 converted to 亿元 by "/ 100", and 千元 to 万元 by "/ 10", are found as scale changes; fails_when=the formula records a figure a hundred times too small; no_claim=English scales, whose steps are a thousand.
+  test("one written Chinese scale moved onto another, 百万 onto 亿, is one", () => {
+    const millions = underHeader("nd", "5,704", "单位：人民币百万元");
+    expect(changes("nd / 100", [millions])).toEqual([
+      { text: "nd / 100", amount: "nd", exponent: -2, from: "百万" },
+    ]);
+    const thousands = underHeader("c", "31,000", "单位：千元");
+    expect(changes("c / 10", [thousands]).map((each) => each.exponent)).toEqual([-1]);
+    expect(changes("nd / 10", [millions])).toEqual([]);
+  });
+
   // protects=a power of ten that makes a rate per so many of something, a percent's 100 and other numbers stay allowed; fails_when=a per-10,000 or per-1,000 rate, a share times 10000, or a division by 4 is taken for a change of scale; no_claim=every way a rate could be written.
   test("a rate per so many, a share, and other numbers aren't", () => {
     for (const formula of [

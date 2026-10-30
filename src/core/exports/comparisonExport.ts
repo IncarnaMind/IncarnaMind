@@ -5,10 +5,11 @@
  */
 import { deflateRawSync } from "node:zlib";
 import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
+import { comparisonQuestionsOf, comparisonTitleOf } from "../../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
-import { mindName } from "../../shared/naming";
 import { readableQuoteText } from "../../shared/readableQuote";
-import { findBlock } from "../answers/blocks";
+import { comparisonCellContent, comparisonCellMarksNow, signOffsOf } from "../../shared/signOffs";
+import { findBlock, nodeOf } from "../answers/blocks";
 import { type CitationAttributes, COMPARISON_TABLE_NODE } from "../api";
 import { NotFoundError } from "../errors";
 import { safeFileName } from "../fileNames";
@@ -34,6 +35,8 @@ export interface ComparisonWorkbook {
   fileName: string;
   data: Uint8Array;
   unverifiedCitations: number;
+  /** The columns left out of the file, for the app to say so. */
+  hiddenColumns: number;
 }
 
 export function createComparisonExport(deps: ComparisonExportDependencies) {
@@ -48,10 +51,18 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
       const documents = deps.liveDocuments();
       const kept = deps.keptCitationTexts();
       const live = new Set(documents.map((document) => document.id));
+      const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
       const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+      let hiddenColumns = 0;
+      let title = "";
       const reading = deps.read(mind.id, (fragment) => {
         const table = findBlock(fragment, COMPARISON_TABLE_NODE, tableId)?.element;
         if (!table) return null;
+        title = comparisonTitleOf(table.getAttributes()) || t("comparison.title");
+        hiddenColumns = comparisonQuestionsOf(table.getAttributes()).filter(
+          (question) => question.hidden === true,
+        ).length;
+        const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
         const options: ReadOptions = {
           includeQuestions: false,
           footnote: (attributes) => {
@@ -63,6 +74,15 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
           trimBeforeFootnote: true,
           comparisonText: t,
           documentRemoved: (documentId) => !live.has(documentId),
+          leaveOutHiddenColumns: true,
+          cellSignOffs: (target, cell) =>
+            comparisonCellMarksNow(
+              marks,
+              target,
+              comparisonCellContent(nodeOf(cell)),
+              versions,
+              null,
+            ),
           // A table still waiting as a change is exported as it is shown.
           review: reviewReading(fragment),
         };
@@ -71,6 +91,8 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
       if (!reading) throw new NotFoundError({ key: "error.comparison.notFound" });
       const { book, unverified } = comparisonBook({
         reading,
+        title: title || t("comparison.title"),
+        language,
         textLanguage: deps.citationStyle(mind.id).textLanguage,
         t,
         facts: (footnote) => {
@@ -85,11 +107,12 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
           };
         },
       });
-      const name = safeFileName(mindName(mind) || t("mind.untitled"), "Mind");
+      const name = safeFileName(title || t("comparison.title"), t("comparison.title"));
       return {
         fileName: `${name}.xlsx`,
         data: writeXlsx(book, deflateRawSync, { author: "IncarnaMind", created: deps.now() }),
         unverifiedCitations: unverified,
+        hiddenColumns,
       };
     },
   };

@@ -10,32 +10,31 @@ import type { CommandId } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
-import { addFilesLabel } from "../addFilesAction";
 import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { type CommandContext, commands, offered } from "../commands/registry";
 import { composerKey } from "../composer";
-import { askReadyQuestion, useConversations } from "../conversations";
+import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from "../conversations";
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
-import { CheckMarkIcon } from "../editor/icons";
 import { goToMistake } from "../editor/mistakeMark";
 import { useLanguage, useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
+import { readyRowOf } from "../readyRow";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
-import { ProblemLine } from "./ProblemLine";
+import { LineAction, ProblemLine } from "./ProblemLine";
 import { SLOT, Slotted } from "./Slotted";
+import { STEP_BUTTON_CLASS, StepNumber, type StepState } from "./StepNumber";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 import { buttonStyle } from "./ui";
 
 type StepKey = "citation" | "question" | "files";
-type StepState = "open" | "later" | "done";
 
 const STEPS: readonly StepKey[] = ["files", "question", "citation"];
 
@@ -71,29 +70,6 @@ const CARD_PADDING = "px-3.5 pt-3.5 pb-2.5";
 
 const HERE: CommandContext = { selection: [], focus: null, surface: "mind" };
 
-function Mark({ number, state }: { number: number; state: StepState }) {
-  if (state === "done") {
-    return (
-      <span
-        aria-hidden="true"
-        className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-success text-white"
-      >
-        <CheckMarkIcon check="found" className="size-2.5" />
-      </span>
-    );
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none font-bold ${
-        state === "open" ? "bg-ink text-white" : "border-[1.5px] border-tab-divider text-ink-meta"
-      }`}
-    >
-      {number}
-    </span>
-  );
-}
-
 function Step({
   step,
   number,
@@ -126,9 +102,9 @@ function Step({
           aria-label={action}
           title={action}
           onClick={onDo}
-          className="group -mx-1.5 -my-0.5 flex items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left hover:bg-chip"
+          className={`${STEP_BUTTON_CLASS} items-center`}
         >
-          <Mark number={number} state={state} />
+          <StepNumber number={number} state={state} />
           <span className={`${tone} group-hover:text-ink`}>
             {t(`firstOpen.step.${step}.${state === "done" ? "done" : "title"}`)}
           </span>
@@ -146,7 +122,8 @@ function Step({
 export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const t = useT();
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
-  const pickDocumentsOrFolder = useAppStore((state) => state.pickDocumentsOrFolder);
+  const pickDocuments = useAppStore((state) => state.pickDocuments);
+  const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
   const ready = useAppStore((state) => state.readyQuestion);
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
@@ -156,6 +133,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   // Note's composer key is another, so that problem would never be seen there.
   const problem = useAnswers((state) => state.blocked[composerKey(null)]);
   const asking = useConversations((state) => state.asking !== null);
+  const askingReady = useReadyAsk((state) => state.asking);
+  const readyWaiting = useReadyAsk((state) => state.waitingFor);
   const writing = useAnswers((state) => state.writing.size > 0);
   // The newest of the User's own Documents still being read: the row says so while it waits.
   const reading = useAppStore((state) => {
@@ -233,7 +212,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             number={1}
             state={stateOf("files")}
             live={live}
-            onDo={() => void pickDocumentsOrFolder()}
+            onDo={() => void pickDocuments()}
           >
             {live && unread.length > 0 ? (
               <UnreadFilesLine files={unread} testId="first-open-unread" />
@@ -247,10 +226,18 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
                 ref={live ? addFiles : undefined}
                 type="button"
                 data-testid={only("first-open-add-files")}
-                onClick={() => void pickDocumentsOrFolder()}
+                onClick={() => void pickDocuments()}
                 className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
               >
-                {t(addFilesLabel())}
+                {t("startGuide.documents.addFiles")}
+              </button>
+              <button
+                type="button"
+                data-testid={only("first-open-link-folder")}
+                onClick={() => void addLinkedFolder()}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("startGuide.documents.linkFolder")}
               </button>
             </div>
             {live && skipped.length > 0 && (
@@ -271,6 +258,9 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </p>
             <ReadyLine
               question={ready?.question ?? null}
+              waitingFor={ready?.waitingFor ?? null}
+              pressedFor={askingReady ? readyWaiting : null}
+              asking={live && askingReady}
               reading={reading}
               unread={unread}
               testId={only("first-open-ready")}
@@ -401,6 +391,9 @@ function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLEleme
 
 function ReadyLine({
   question,
+  waitingFor,
+  pressedFor,
+  asking,
   reading,
   unread,
   testId,
@@ -409,6 +402,9 @@ function ReadyLine({
   onAsk,
 }: {
   question: string | null;
+  waitingFor: string | null;
+  pressedFor: string | null;
+  asking: boolean;
   reading: string | null;
   unread: ReturnType<typeof useUnreadFiles>;
   testId: string | undefined;
@@ -418,18 +414,59 @@ function ReadyLine({
 }) {
   const t = useT();
   const room = useRef<HTMLDivElement>(null);
+  const stopRef = useRef<HTMLButtonElement>(null);
+  const askRef = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(asking);
+  const row = readyRowOf({
+    question,
+    waitingFor,
+    asking,
+    pressedFor,
+    reading,
+    unread: unread.length,
+    busy,
+  });
+  // The pressed button goes as the wait starts and comes back if it stops: the focus goes with it.
+  useEffect(() => {
+    if (asking === wasAsking.current) return;
+    wasAsking.current = asking;
+    if (asking) stopRef.current?.focus();
+    else if (row.kind === "question") askRef.current?.focus();
+  }, [asking, row.kind]);
   const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
   const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
   let line: ReactNode;
-  if (question !== null)
+  if (row.kind === "waiting")
+    line = (
+      <>
+        <span
+          data-testid={testId === undefined ? undefined : `${testId}-waiting`}
+          role="status"
+          title={row.document}
+          className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
+        >
+          {t("firstOpen.step.question.reading", { document: row.document })}
+        </span>
+        <LineAction
+          action={{
+            label: t("firstOpen.step.question.stop"),
+            testId: testId === undefined ? undefined : `${testId}-stop`,
+            onClick: stopReadyAsk,
+          }}
+          ref={stopRef}
+        />
+      </>
+    );
+  else if (row.kind === "question")
     line = (
       <>
         <button
+          ref={askRef}
           type="button"
           data-testid={testId}
           aria-label={label}
           title={label}
-          disabled={busy}
+          disabled={row.disabled}
           onClick={onAsk}
           // A button keeps its size in a row; this one gives way so its line can cut, not overflow.
           style={{ flexShrink: 1, minWidth: 0 }}
@@ -444,18 +481,21 @@ function ReadyLine({
         </span>
       </>
     );
-  else if (reading !== null)
+  else if (row.kind === "reading")
     line = (
-      <span title={reading} className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary">
-        {t("firstOpen.step.question.reading", { document: reading })}
+      <span
+        title={row.document}
+        className="min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
+      >
+        {t("firstOpen.step.question.reading", { document: row.document })}
       </span>
     );
-  else if (unread.length > 0)
+  else if (row.kind === "unread")
     line =
       testId === undefined ? (
         // The unseen states hold the line's height; the line the User can act on is the live one.
         <span className="truncate text-[13px] leading-5 text-ink-secondary">
-          {t(unread.length === 1 ? "unread.count.one" : "unread.count", { count: unread.length })}
+          {t(row.count === 1 ? "unread.count.one" : "unread.count", { count: row.count })}
         </span>
       ) : (
         <UnreadFilesLine files={unread} testId={`${testId}-unread`} />
@@ -468,7 +508,12 @@ function ReadyLine({
     );
   return (
     <div ref={room} className="flex min-w-0 flex-col gap-1">
-      <div className="flex min-h-7 min-w-0 items-center gap-x-3">{line}</div>
+      <div
+        data-testid={testId === undefined ? undefined : `${testId}-row`}
+        className="flex min-h-7 min-w-0 items-center gap-x-3"
+      >
+        {line}
+      </div>
       {problem && (
         <AskProblem
           problem={problem}

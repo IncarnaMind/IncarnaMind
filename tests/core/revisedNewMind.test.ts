@@ -212,7 +212,7 @@ describe("A new Mind the assistant revised in the same Answer", { timeout: 30_00
     await askAssistant(core, { text: "What is in it?", conversationId: answer.conversationId });
 
     expect(next).toContain(
-      "- create_mind: made the Mind “Launch brief” and proposed 5 changes, none waiting any more; 3 markers had no Citation recorded with cite, so they were left out",
+      "- create_mind: made the Note “Launch brief” and proposed 5 changes, none waiting any more; 3 markers had no Citation recorded with cite, so they were left out",
     );
     expect(next).not.toContain("empty");
   });

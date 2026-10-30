@@ -295,7 +295,7 @@ function AssistantMain({
           scrolled.current = event.currentTarget.scrollTop;
         }}
       >
-        <ConversationThread focusedMindId={mind?.mindId ?? null} />
+        <ConversationThread focusedMindId={mind?.mindId ?? null} focusedDoc={mind?.doc ?? null} />
       </div>
       <div
         ref={onComposerSlot}

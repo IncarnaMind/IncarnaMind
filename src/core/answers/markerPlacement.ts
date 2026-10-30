@@ -35,7 +35,6 @@ import {
 } from "../../shared/answerSentences";
 import { FIGURE_MARKER, figureMarkerEnd, type PlacedFigure } from "../../shared/figureMarkers";
 import { delimiterRow, looksLikeTable, tableCellRanges } from "../../shared/markdownTables";
-import type { AnswerEngineEvent, AnswerTools } from "./engine";
 
 /** What placing a marker needs of a Citation record. */
 export interface MarkerRecord {
@@ -344,35 +343,6 @@ export function withMissingMarkers(
       accepted(record.marker),
   );
   return usable.length === 0 ? { text: answer, placed: [] } : placeMissingMarkers(answer, usable);
-}
-
-/** Engine events that change the Answer's text from `from` to `to`: what follows their common start is replaced. */
-export function* textEdits(from: string, to: string): Generator<AnswerEngineEvent> {
-  let common = 0;
-  while (common < from.length && common < to.length && from[common] === to[common]) common++;
-  if (from.length > common) yield { type: "text-retracted", length: from.length - common };
-  if (to.length > common) yield { type: "text-delta", text: to.slice(common) };
-}
-
-/**
- * Where the engine handles a finished Answer's records: the edits that put in
- * the markers the model left out of `text` for records the core took (see
- * `AnswerTools.hasRecord`), and how many it put in. Returns the text with them.
- */
-export function* missingMarkerEvents(
-  text: string,
-  records: readonly MarkerRecord[],
-  tools: Pick<AnswerTools, "hasRecord">,
-): Generator<AnswerEngineEvent, string> {
-  const { text: placed, placed: markers } = withMissingMarkers(
-    text,
-    records,
-    (marker) => tools.hasRecord?.(marker) ?? false,
-  );
-  if (markers.length === 0) return text;
-  yield* textEdits(text, placed);
-  yield { type: "markers-placed", count: markers.length };
-  return placed;
 }
 
 /**

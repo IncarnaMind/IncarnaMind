@@ -1,6 +1,7 @@
 import type { BlockOrigin } from "../../../core/api";
 import { MENU_COMMANDS } from "../../../shared/commands";
 import { signInAgain } from "../chatGptSignIn";
+import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
@@ -9,6 +10,7 @@ import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
+import { tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
@@ -35,6 +37,7 @@ import { evidenceCommands } from "./evidence";
 import { exampleCommands } from "./examples";
 import { exportCommands } from "./exports";
 import { feedbackCommands } from "./feedback";
+import { figureCommands, figureScheduleCommands } from "./figures";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
@@ -136,6 +139,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "word.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "wordImport.command",
     group: "main",
     reversible: true,
@@ -143,6 +148,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "verify.document",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "verify.command",
     purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
@@ -169,6 +176,8 @@ const appCommands: readonly Command[] = [
   ...languageCommands,
   ...answerCommands,
   ...citationCommands,
+  ...figureCommands,
+  ...figureScheduleCommands,
   ...tabCommands,
   ...meetingCommands,
   ...meetingHelpCommands,
@@ -197,6 +206,7 @@ const appCommands: readonly Command[] = [
   ...paletteCommands,
   {
     id: "chatgpt.continue",
+    assistant: { never: "keys" },
     label: "chatgpt.continue",
     group: "main",
     reversible: true,
@@ -208,6 +218,7 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "claude.signIn",
+    assistant: { never: "keys" },
     label: "claudePlan.signIn",
     group: "main",
     reversible: true,
@@ -302,6 +313,17 @@ const appCommands: readonly Command[] = [
     run: () => homeNextHandle.current?.run(),
   },
   {
+    id: "mind.tieOut",
+    label: "figures.command",
+    group: "main",
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindShown(ctx);
+      if (mindId) return tieOutFigures(mindId);
+    },
+  },
+  {
     id: "mind.check",
     label: "mindCheck.command",
     purpose: "mindCheck.command.purpose",
@@ -311,6 +333,12 @@ const appCommands: readonly Command[] = [
     // It changes no words: its marks go with Check again, or when the sentence is edited.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    enabled: (ctx) => {
+      const mindId = mindShown(ctx);
+      return mindId && useChecks.getState().running[mindId]
+        ? { reason: "mindCheck.alreadyChecking" }
+        : true;
+    },
     run: (ctx) => {
       const mindId = mindShown(ctx);
       if (mindId) return startCheck(mindId);
@@ -372,6 +400,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "references.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "references.import.menu",
     group: "file",
     // The import is taken back with Undo.
@@ -385,6 +415,7 @@ const appCommands: readonly Command[] = [
   {
     // Suggest as I write (#282): on asks for consent first, as the switch in Settings does.
     id: "suggestions.toggle",
+    assistant: { never: "privacy" },
     label: (_ctx, t) =>
       t(
         useAppStore.getState().settings?.user.suggestWhileWriting

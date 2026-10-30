@@ -4,12 +4,9 @@ import { addNamesItsMind } from "../../answerAdd";
 import { copyAnswer } from "../../answerEditors";
 import { shortcutLabel } from "../../commands/keymap";
 import { useDismissOnEscape } from "../../escapeDismiss";
-import { useOwnMinds } from "../../home";
-import { isExampleAnswer } from "../../homeNextStep";
 import { useT } from "../../i18n";
 import { saidInLine } from "../../lineNames";
-import { allExamples, useAppStore } from "../../store";
-import { closeTip, offerTip, releaseTip, useTipRoom, useTipShown } from "../../tips";
+import { useAppStore } from "../../store";
 import { useAnswerLine, useUndo } from "../../undo";
 import {
   CheckLineIcon,
@@ -18,7 +15,6 @@ import {
   MindLineIcon,
   PlusLineIcon,
 } from "../lineIcons";
-import { Tip } from "../Tip";
 import { useGoesBy } from "../UndoLine";
 
 /** How long "Copied" says so. */
@@ -78,88 +74,42 @@ export function AnswerActions({
     () => canKeep && !streaming && focusedMindName !== null && addNamesItsMind(answer, mindEmpty),
     [canKeep, streaming, focusedMindName, answer, mindEmpty],
   );
-  const room = useTipRoom("add-answer", answer.id);
-  const first = useRef(!useAppStore.getState().settings?.device.gettingStarted.askedOwn);
-  const noOwnNote = useOwnMinds().length === 0;
-  const exampleIds = useAppStore((state) =>
-    allExamples(state)
-      .map((each) => each.answerId)
-      .join("|"),
-  );
-  const eligible =
-    first.current && noOwnNote && !isExampleAnswer(answer, new Set(exampleIds.split("|")));
-  const tipWanted = room && canKeep && eligible && answer.status === "done";
-  // Only an Answer seen being written gets the tip: one opened later, from History, doesn't.
-  const [watched, setWatched] = useState(streaming);
-  useEffect(() => {
-    if (streaming) setWatched(true);
-  }, [streaming]);
-  const offered = useRef(false);
-  useEffect(() => {
-    if (!streaming && watched && tipWanted && !offered.current) {
-      offered.current = true;
-      offerTip("add-answer", answer.id);
-    }
-  }, [streaming, watched, tipWanted, answer.id]);
-  const tipShown = useTipShown("add-answer", answer.id);
-  useEffect(() => () => releaseTip("add-answer", answer.id), [answer.id]);
-  const tipVisible = tipShown && eligible;
-  useEffect(() => {
-    if (tipShown && (added || !eligible)) closeTip("add-answer");
-  }, [added, tipShown, eligible]);
-  const keepsRoom =
-    tipVisible || (watched && room && eligible && (streaming || answer.status === "done"));
-  // Once kept, the line stays until a later Question takes it back: closing the tip or adding the
-  // Answer must not slide the Answer.
-  const [kept, setKept] = useState(false);
-  if (keepsRoom && !kept) setKept(true);
-  const holdsRoom = kept || keepsRoom;
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), COPIED_MS);
     return () => clearTimeout(timer);
   }, [copied]);
 
-  if (streaming) {
-    return (
-      <>
-        <WritingLine />
-        {holdsRoom && <TipRoom />}
-      </>
-    );
-  }
+  if (streaming) return <WritingLine />;
 
   if (added) {
     const said = saidInLine(t, added.said);
     return (
-      <>
-        <div
-          data-testid="answer-added"
-          className="assistant-answer-actions assistant-answer-actions--added"
+      <div
+        data-testid="answer-added"
+        className="assistant-answer-actions assistant-answer-actions--added"
+      >
+        <CheckLineIcon aria-hidden="true" className="size-3.5 shrink-0 text-ink-secondary" />
+        <span role="status" title={said.fullMessage} className="assistant-answer-added">
+          {said.message}
+        </span>
+        <span aria-hidden="true">·</span>
+        <button
+          ref={undoButton}
+          type="button"
+          data-testid="answer-added-undo"
+          aria-label={t("move.undoLabel", { message: said.fullMessage ?? said.message })}
+          onClick={() => {
+            useUndo
+              .getState()
+              .undo()
+              .catch((error: unknown) => useAppStore.getState().reportError(error));
+          }}
+          className="assistant-answer-action"
         >
-          <CheckLineIcon aria-hidden="true" className="size-3.5 shrink-0 text-ink-secondary" />
-          <span role="status" title={said.fullMessage} className="assistant-answer-added">
-            {said.message}
-          </span>
-          <span aria-hidden="true">·</span>
-          <button
-            ref={undoButton}
-            type="button"
-            data-testid="answer-added-undo"
-            aria-label={t("move.undoLabel", { message: said.fullMessage ?? said.message })}
-            onClick={() => {
-              useUndo
-                .getState()
-                .undo()
-                .catch((error: unknown) => useAppStore.getState().reportError(error));
-            }}
-            className="assistant-answer-action"
-          >
-            {t("move.undo")}
-          </button>
-        </div>
-        {holdsRoom && <TipRoom />}
-      </>
+          {t("move.undo")}
+        </button>
+      </div>
     );
   }
 
@@ -238,62 +188,26 @@ export function AnswerActions({
     </span>
   );
   return (
-    <>
-      {/* biome-ignore lint/a11y/useSemanticElements: an Answer's buttons, named together; a fieldset is for a form's. */}
-      <div
-        role="group"
-        aria-label={t("answer.actions")}
-        data-testid="answer-actions"
-        data-named={named || undefined}
-        className="assistant-answer-actions"
-      >
-        {answer.status === "stopped" && (
-          <span data-testid="answer-stopped" className="assistant-answer-status">
-            {t("answer.status.stopped")}
-          </span>
-        )}
-        {canKeep && (
-          <>
-            {writeButton}
-            {addButtons}
-            {copyButton}
-          </>
-        )}
-      </div>
-      {holdsRoom && (
-        <TipRoom>
-          {tipVisible && (
-            <Tip
-              id="add-answer"
-              onClose={() => {
-                closeTip("add-answer");
-                addButton.current?.focus();
-              }}
-            >
-              <button
-                type="button"
-                data-testid="tip-write-note"
-                onClick={() => {
-                  closeTip("add-answer");
-                  onWriteNote();
-                }}
-                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-              >
-                {t("tip.addAnswer")}
-              </button>
-            </Tip>
-          )}
-        </TipRoom>
+    // biome-ignore lint/a11y/useSemanticElements: an Answer's buttons, named together; a fieldset is for a form's.
+    <div
+      role="group"
+      aria-label={t("answer.actions")}
+      data-testid="answer-actions"
+      data-named={named || undefined}
+      className="assistant-answer-actions"
+    >
+      {answer.status === "stopped" && (
+        <span data-testid="answer-stopped" className="assistant-answer-status">
+          {t("answer.status.stopped")}
+        </span>
       )}
-    </>
-  );
-}
-
-/** The line a tip takes under an Answer's actions, kept before the tip comes so the thread doesn't move. */
-export function TipRoom({ children }: { children?: ReactNode }) {
-  return (
-    <div data-testid="tip-room" className="assistant-answer-tip-room">
-      {children}
+      {canKeep && (
+        <>
+          {writeButton}
+          {addButtons}
+          {copyButton}
+        </>
+      )}
     </div>
   );
 }

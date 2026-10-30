@@ -677,6 +677,56 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(assignments.find((each) => each.documentId === page?.id)?.groupId).toBe(folder.id);
   });
 
+  test("started behind a Folder wall, it files its pages and its new draft Note in that Folder (#1934)", async () => {
+    const seen: ModelCall[] = [];
+    const { core, folder, mind, asked } = await setUp(researcher(seen));
+    await core.updateLibraryGroup(folder.id, {
+      name: "Grocers",
+      description: "",
+      keepInside: true,
+    });
+    const task = await started(
+      core,
+      startInput(mind.id, folder.id, { writeInto: { newMind: true } }),
+    );
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    expect(done.status).toBe("done");
+    expect(asked).toEqual([
+      expect.objectContaining({ taskId: task.id, title: "Save 1 web page to “Grocers”" }),
+    ]);
+    const { groups, assignments } = await core.getLibrary();
+    expect(groups.map((each) => each.name)).toEqual(["Grocers"]);
+    const page = (await core.listDocuments()).find((each) => each.kind === "web");
+    expect(assignments.find((each) => each.documentId === page?.id)?.groupId).toBe(folder.id);
+    const draft = (await core.listMinds()).find((each) => each.id === done.review?.mindId);
+    expect(draft?.id).not.toBe(mind.id);
+    expect(draft?.folderId).toBe(folder.id);
+  });
+
+  test("started behind a Folder wall that is gone by the time it files, it makes nothing and says why (#1934)", async () => {
+    const seen: ModelCall[] = [];
+    const { core, folder, mind } = await setUp(researcher(seen), {
+      onAsk: (each) => each.deleteLibraryGroup(folder.id),
+    });
+    await core.updateLibraryGroup(folder.id, {
+      name: "Grocers",
+      description: "",
+      keepInside: true,
+    });
+    const before = (await core.listMinds()).map((each) => each.id);
+    const task = await started(
+      core,
+      startInput(mind.id, folder.id, { writeInto: { newMind: true } }),
+    );
+    const failed = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    expect(failed).toMatchObject({ status: "failed", problem: "kept-inside", review: null });
+    const { groups } = await core.getLibrary();
+    expect(groups).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.id)).toEqual(before);
+  });
+
   test("Tell it…: two messages told during a step are read at the next one together, in the order they were told, once each", async () => {
     const seen: ModelCall[] = [];
     let release = () => {};

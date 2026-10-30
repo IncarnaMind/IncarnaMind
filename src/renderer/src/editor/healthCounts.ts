@@ -13,18 +13,22 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
+  CALCULATED_FIGURE_NODE,
+  CHART_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
+import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
   type CheckedSentence,
   checkedSentence,
   type KeptMark,
   keptOn,
 } from "../../../shared/claimChecks";
+import { readFigures } from "../../../shared/figures";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { isClaim, sentenceSpans } from "../../../shared/sentences";
@@ -51,7 +55,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * `checkable`: every claim a check reads, to check, checking or covered;
  * `supported`: the covered claims a check found supported, the ones with no
  * Citation among them; `checkedAt`: the newest check among the claims one
- * covers, for "Checked {time}" (D266).
+ * covers, for "Checked {time}"; `unexamined`: the parts of `toCheck`
+ * the last whole-Mind check didn't examine, since no reply said whether they
+ * make a claim (#1682).
  */
 export interface NoteHealth {
   found: number[];
@@ -72,16 +78,14 @@ export interface NoteHealth {
   checkable: number;
   supported: number;
   checkedAt: string | null;
+  unexamined: number[];
 }
 
+/** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
+const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
+
 /** Blocks whose text isn't counted. */
-const UNCOUNTED: ReadonlySet<string> = new Set([
-  "question",
-  "heading",
-  "codeBlock",
-  "blockMath",
-  "chart",
-]);
+const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
 
 /** Words or a node a change adds: not the Mind's until it is accepted. */
 const proposed = (node: ProseMirrorNode) =>
@@ -93,6 +97,8 @@ export interface SentenceInput {
   claims: readonly ShownClaim[];
   /** The last whole-Mind check found these sentences make no claim, by `sentenceKey`. */
   skipped?: ReadonlySet<string>;
+  /** The last whole-Mind check couldn't tell whether these make a claim, by `sentenceKey`. */
+  unexamined?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
 }
@@ -103,6 +109,7 @@ export interface NoteHealthInput extends SentenceInput {
 
 /** One sentence a check reads, where it is and how it counts. */
 export interface SentencePlace {
+  kind?: "chart";
   /** The whole sentence's first and last characters in the document. */
   from: number;
   to: number;
@@ -134,6 +141,33 @@ function eachSentence(
   const kept = input.kept ?? [];
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
+    if (node.type.name === CHART_NODE) {
+      const chart = readChart(node.attrs);
+      if (chartPoints(chart).length === 0) return false;
+      const text = chartCheckText(chart);
+      const from = pos;
+      const to = pos + node.nodeSize;
+      const claim =
+        input.claims.find((claim) => claim.kind === "chart" && claim.from === from) ?? null;
+      visit({
+        kind: "chart",
+        from,
+        to,
+        text,
+        claim,
+        citations: [],
+        blockId: node.attrs[BLOCK_ID_ATTRIBUTE],
+        inTable: false,
+        state: checkedSentence({
+          text,
+          hasFigures: true,
+          check: claim?.shown ?? null,
+          skipped: false,
+          kept: keptOn(kept, { from, to, text }),
+        }),
+      });
+      return false;
+    }
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
@@ -144,13 +178,20 @@ function eachSentence(
         : [],
     );
     const table = inTable(doc, pos);
-    for (const span of sentenceSpans(text)) {
+    const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
+    for (const span of sentenceSpans(
+      text,
+      figures.map(({ at }) => at),
+    )) {
       const from = starts[span.from] ?? pos;
       const to = ends[span.to - 1] ?? from;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const words = text.slice(span.from, span.to);
       const state = checkedSentence({
         text: words,
+        hasFigures:
+          figures.some(({ at }) => at >= span.from && at < span.to) ||
+          (MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0),
         check: claim?.shown ?? null,
         skipped: skipped.has(sentenceKey(words)),
         kept: keptOn(kept, { from, to, text: words }),
@@ -188,8 +229,10 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     checkable: 0,
     supported: 0,
     checkedAt: null,
+    unexamined: [],
   };
-  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state }) => {
+  const unexamined = input.unexamined ?? new Set<string>();
+  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
     const missing: number[] = [];
     for (const citation of citations) {
       const check = input.citationCheck(citation.attributes);
@@ -204,6 +247,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       health.toCheck.push(from);
       if (state.why === "failed") health.failed.push(from);
       else if (state.why === "recheck") health.recheck.push(from);
+      if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;
     }
@@ -232,7 +276,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     else if (contradicted) health.contradicted.push(from);
     else {
       health.supported++;
-      if (isClaim(text) && citations.length === 0) health.noCitation.push(from);
+      if (kind !== "chart" && isClaim(text) && citations.length === 0) health.noCitation.push(from);
     }
     if (unsupported || contradicted || missing.length > 0) {
       health.lookClaims.push(from);
