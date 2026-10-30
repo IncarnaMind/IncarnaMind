@@ -209,9 +209,13 @@ test("a small pack, two Chinese Markdown Documents cited seven times in two sect
   await exportFromMenu(window, "source-pack");
   const result = window.getByTestId("export-result");
   const done = result.getByTestId("export-done");
-  await expect(done).toHaveText(savedLine(`${BRIEF} - 引用页面合集.pdf`, out, "zh-CN"), {
-    timeout: 30_000,
-  });
+  await expect(done.getByTestId("export-saved")).toHaveText(
+    savedLine(`${BRIEF} - 引用页面合集.pdf`, out, "zh-CN"),
+    {
+      timeout: 30_000,
+    },
+  );
+  await expect(done.getByTestId("export-unchecked")).toHaveText("未核对");
   await expect(result.getByTestId("export-problem")).toHaveCount(0);
   await expectSmallPack((await done.getAttribute("title")) ?? "", "文档和位置");
 

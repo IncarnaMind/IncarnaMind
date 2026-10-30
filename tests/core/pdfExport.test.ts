@@ -169,6 +169,7 @@ describe("exporting a Mind to PDF", () => {
     expect(exported).toMatchObject({
       fileName: "Tides 潮汐.pdf",
       citations: 5,
+      footnotes: 5,
       unverifiedCitations: 2,
       questions: 0,
     });
