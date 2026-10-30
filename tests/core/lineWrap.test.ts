@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { joinCjkLineWraps, onlyCjkLineWrapChange } from "../../src/core/documents/lineWrap";
+import {
+  isWrappedLine,
+  joinCjkLineWraps,
+  joinPrintedLines,
+  onlyCjkLineWrapChange,
+} from "../../src/core/documents/lineWrap";
 import { normaliseText } from "../../src/shared/text";
 
 describe("CJK PDF line wraps", () => {
@@ -75,5 +80,91 @@ describe("CJK PDF line wraps", () => {
     expect(onlyCjkLineWrapChange("배송비 7\n월부터", "배송비 7 월부터")).toBe(true);
     expect(onlyCjkLineWrapChange("배송비는\n증가했습니다", "배송비는증가했습니다")).toBe(true);
     expect(onlyCjkLineWrapChange("월부터", "월 부터")).toBe(false);
+  });
+});
+
+describe("a line the page ended itself", () => {
+  const line = (text: string, right: number, size = 11) => ({ text, right, size });
+
+  test("a heading ends short of the line under it, which a wrapped line never does", () => {
+    expect(
+      isWrappedLine(
+        line("北桥社区信托志愿者手册", 193),
+        line("志愿者每次值班前都要在前台签到。", 248),
+      ),
+    ).toBe(false);
+  });
+
+  test("a wrapped line's next line stays under where it ended", () => {
+    expect(
+      isWrappedLine(
+        line("志愿者每次值班前都要在前台签到，并由", 270),
+        line("值班组长复核当天的记录。", 204),
+      ),
+    ).toBe(true);
+  });
+
+  test("a heading in a size of its own is no wrap, however far it reaches", () => {
+    expect(
+      isWrappedLine(
+        line("北桥社区信托志愿者手册的说明与使用", 400, 16),
+        line("志愿者每次值班前都要在前台签到。", 280),
+      ),
+    ).toBe(false);
+  });
+
+  test("beside Hangul, Latin or a number only the size tells, and a wrap may reach farther", () => {
+    expect(
+      isWrappedLine(
+        line("배송비는 증가했습니다. 7", 226),
+        line("월부터 물류비가 감소했습니다.", 248),
+      ),
+    ).toBe(true);
+  });
+
+  test("a blank line is no wrap", () => {
+    expect(isWrappedLine(line("甲", 80), line("", 0))).toBe(false);
+  });
+
+  test("a heading no wider than its sentence, in the same size, cannot be told from a wrap", () => {
+    expect(isWrappedLine(line("北桥社区信托志愿者手册", 193), line("请勿吸烟。", 120))).toBe(true);
+  });
+
+  test("the page's text names the newline it ended itself, and the wider join keeps that break", () => {
+    const { text, kept } = joinPrintedLines([
+      line("北桥社区信托志愿者手册", 193),
+      line("志愿者每次值班前都要在前台签到，并由", 270),
+      line("值班组长复核当天的记录。", 204),
+    ]);
+    expect(text).toBe(
+      "北桥社区信托志愿者手册\n志愿者每次值班前都要在前台签到，并由值班组长复核当天的记录。",
+    );
+    expect([...kept]).toEqual([11]);
+    expect(joinCjkLineWraps(text, kept)).toBe(text);
+    expect(joinCjkLineWraps(text)).toBe(
+      "北桥社区信托志愿者手册志愿者每次值班前都要在前台签到，并由值班组长复核当天的记录。",
+    );
+  });
+
+  test("a kept break is one newline, not every line that reads the same", () => {
+    const { text, kept } = joinPrintedLines([
+      line("7", 92, 20),
+      line("月是单位。", 127, 11),
+      line("7", 83, 11),
+      line("月起收入增长。", 149, 11),
+    ]);
+    expect(text).toBe("7\n月是单位。\n7\n月起收入增长。");
+    expect([...kept]).toEqual([1]);
+    expect(joinCjkLineWraps(text, kept)).toBe("7\n月是单位。\n7月起收入增长。");
+  });
+
+  test("a repeated line beside a blank line keeps only the break the page chose there", () => {
+    const { text, kept } = joinPrintedLines([
+      line("7", 92, 20),
+      line("", 0),
+      line("7", 83, 11),
+      line("月", 94, 11),
+    ]);
+    expect(joinCjkLineWraps(text, kept)).toBe("7\n\n7月");
   });
 });

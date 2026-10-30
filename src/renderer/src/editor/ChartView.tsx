@@ -1,6 +1,14 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tiptap/react";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { BLOCK_ID_ATTRIBUTE, type CitationCheck } from "../../../core/api";
 import { chartLegend } from "../../../shared/chartLayout";
@@ -51,6 +59,7 @@ import {
   withKind,
 } from "./chartCommands";
 import { type ChartHandle, chartHandles } from "./chartHandles";
+import { MindIdContext } from "./mindContext";
 import { Popover } from "./Popover";
 
 /** As a Citation's card: the pointer rests a moment before it shows, and may leave a moment before it goes. */
@@ -162,6 +171,7 @@ function checksOf(states: readonly (CitationState | null)[]): {
 
 /** A chart in a Mind (#436), as on the design canvas's Chart boards. */
 export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewProps) {
+  const mindId = useContext(MindIdContext);
   const t = useT();
   const language = useLanguage();
   const chart = useMemo(() => readChart(node.attrs), [node.attrs]);
@@ -357,6 +367,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
         label: location ? formatLocation(location, t) : null,
         from: place?.groupId,
       },
+      mindId,
     );
   };
   const events: PointEvents = {

@@ -34,6 +34,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
       name: "Research",
       description: "",
       countsOwnFiles: false,
+      keepInside: false,
       createdAt: "",
       updatedAt: "",
     },

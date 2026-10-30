@@ -5,11 +5,7 @@ import { DATABASE_FILE, type Document } from "../../src/core";
 import { keywordText } from "../../src/core/documents/keywords";
 import { joinCjkLineWraps } from "../../src/core/documents/lineWrap";
 import { buildPassages } from "../../src/core/documents/passages";
-import {
-  CURRENT_SINCE,
-  NAME_INDEX_CURRENT_SINCE,
-  PROCESSING_VERSION,
-} from "../../src/core/documents/processing";
+import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
@@ -176,6 +172,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     expect(found.map((result) => result.documentId)).toContain(chinese.id);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: chinese.id,
         pageFrom: 1,
         pageTo: 1,
@@ -184,6 +181,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     ).toMatchObject({ check: "found" });
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: korean.id,
         pageFrom: 1,
         pageTo: 1,
@@ -193,6 +191,7 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     // The old pipeline joined a Hangul-Hangul line and the new one does too: a quote across it stays.
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: korean.id,
         pageFrom: 1,
         pageTo: 1,
@@ -345,11 +344,14 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     const first = startCore(dataDir);
     const [document] = (await addAndProcess(first, [path])) as [Document];
     first.close();
-    // Back to what a pipeline before the keyword index left: version 14 and the break kept.
+    // Back to what a pipeline before the keyword index left: version 14, its rows to rewrite,
+    // and the break kept.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       db.transaction(() => {
-        db.run("UPDATE documents SET processing_version = 14 WHERE id = ?", [document.id]);
+        db.run("UPDATE documents SET processing_version = 14, keywords_version = 0 WHERE id = ?", [
+          document.id,
+        ]);
         db.run(
           "UPDATE document_pages SET text = replace(text, ?, ?) WHERE document_id = ? AND deleted_at IS NULL",
           ["7月起", "7\n月起", document.id],
@@ -371,20 +373,34 @@ describe("CJK line-wrap re-reading", { timeout: 30_000 }, () => {
     await rename(path, `${path}.away`);
     const second = startCore(dataDir);
     await waitForProcessing(second, [document.id]);
+    // The read that failed rebuilt the rows it kept: the Passages are still 14's, the rows
+    // this version's. Hand the rewrite rows an older version wrote, to see what it does.
+    const older = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      older.run("UPDATE documents SET keywords_version = 0 WHERE id = ?", [document.id]);
+    } finally {
+      older.close();
+    }
     second.upgradeKeywordIndex();
     // The keyword job must not call the text current: the wider pipeline hasn't read it yet.
-    expect(NAME_INDEX_CURRENT_SINCE).toBeLessThan(CURRENT_SINCE.pdf);
     await vi.waitFor(
       () =>
         expect(
-          queryDatabase<{ processing_version: number }>(
+          queryDatabase<{ keywords_version: number }>(
             dataDir,
-            "SELECT processing_version FROM documents WHERE id = ?",
+            "SELECT keywords_version FROM documents WHERE id = ?",
             [document.id],
           ),
-        ).toEqual([{ processing_version: NAME_INDEX_CURRENT_SINCE }]),
+        ).toEqual([{ keywords_version: PROCESSING_VERSION }]),
       { timeout: 30_000 },
     );
+    expect(
+      queryDatabase<{ processing_version: number }>(
+        dataDir,
+        "SELECT processing_version FROM documents WHERE id = ?",
+        [document.id],
+      ),
+    ).toEqual([{ processing_version: 14 }]);
     second.close();
 
     await rename(`${path}.away`, path);

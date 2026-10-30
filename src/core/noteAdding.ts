@@ -35,11 +35,11 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   type ChatModelChoice,
-  type CitationRecheck,
   PROPOSAL_ATTRIBUTE,
   type ProposalAttribute,
   type ProposalRequest,
   type RecheckCitationInput,
+  type RecheckResult,
   type RecordAiUseInput,
   type SearchScope,
 } from "./api";
@@ -51,9 +51,10 @@ export interface NoteAddingOptions {
   content: MindContent;
   /** Throws unless the Mind exists and can be written to; returns its id. */
   requireMind(mindId: unknown): string;
-  recheck(input: RecheckCitationInput): CitationRecheck;
+  recheck(input: RecheckCitationInput): RecheckResult;
   /** The Search scope the Question of the Answer Blocks came from was asked with; null for none. */
-  askedScope(origin: BlockOrigin): SearchScope | null;
+  /** The Search scope the Answer at `origin` was asked with, as the Mind `mindId` may keep it. */
+  askedScope(origin: BlockOrigin, mindId: string): SearchScope | null;
   mindFolder(mindId: string): string | null;
   /** Keeps what the AI put into a Mind in the record of AI use. */
   recordAiUse(inputs: RecordAiUseInput[]): void;
@@ -144,10 +145,12 @@ export function createNoteAdding(options: NoteAddingOptions) {
       const model: ChatModelChoice | null = isChatModelChoice(input.model) ? input.model : null;
       const proposed = input.proposed === true;
       const blocks = asGenerated(
-        await recheckCitations(citedTables(withoutIds(parsed)), options.recheck),
+        await recheckCitations(citedTables(withoutIds(parsed)), (each) =>
+          options.recheck({ ...each, mindId }),
+        ),
       );
       const request = randomUUID();
-      const asked = origin ? options.askedScope(origin) : null;
+      const asked = origin ? options.askedScope(origin, mindId) : null;
       const folderId = options.mindFolder(mindId);
 
       const blockIds = content.edit(mindId, (note) => {
@@ -202,7 +205,9 @@ export function createNoteAdding(options: NoteAddingOptions) {
       made: ProposalRequest,
     ): Promise<{ proposalId: string; changes: number }> {
       const blocks = asGenerated(
-        await recheckCitations(citedTables(withoutIds(given)), options.recheck),
+        await recheckCitations(citedTables(withoutIds(given)), (each) =>
+          options.recheck({ ...each, mindId }),
+        ),
       );
       return content.edit(mindId, (note) => {
         const earlier = proposalsOf(note, request);

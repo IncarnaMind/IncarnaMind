@@ -14,13 +14,17 @@ npm run dist         # the installers for the current system; never published
 1. Set the version, commit it and tag it: `npm version 1.2.3`. This updates `package.json` and `package-lock.json`, commits, and creates the tag `v1.2.3`.
 2. Push the commit and the tag: `git push && git push origin v1.2.3`.
 3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
-   - for macOS, a dmg and a zip, each for Apple silicon and Intel;
+   - for macOS, a dmg and a zip for Apple silicon. Macs with an Intel processor aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
    - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
    - the `latest*.yml` files that auto-update reads.
 
-   Before its upload, each build also loads every engine module in the app its runner runs (Apple silicon on macOS: the Intel app isn't checked, and the run warns that it uploads unchecked, #2199), the way the app runs them (`e2e/packaged/engines.packaged.ts`, #1239): the speech engine, OCR, embeddings, the reranker, ONNX Runtime, the OS sandbox and Python. A module that doesn't load fails that build, which names the module and uploads nothing. On macOS the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`). A check that fails on one system leaves the other systems' uploads as they are. Never publish a draft without the files of all three: an engine that fails on one system is most likely broken on the others too.
+   Before its upload, each build also loads every engine module in its app, the way the app runs them (`e2e/packaged/engines.packaged.ts`, #1239): the speech engine, OCR, embeddings, the reranker, ONNX Runtime, the OS sandbox and Python. A module that doesn't load fails that build, which names the module and uploads nothing. On macOS the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`). A check that fails on one system leaves the other systems' uploads as they are. Never publish a draft without the files of all three: an engine that fails on one system is most likely broken on the others too.
 4. Review the draft, edit its notes (ending with the code signing policy line, see below), try the installers, and click **Publish release**. Installed apps only see an update once its release is published.
+
+   Every release's notes start with this line, right under the pre-release line, since an Intel Mac with an earlier build is sent to the release's page by its update dialog (#2199):
+
+   > **The Mac app needs Apple silicon (M1 or later).** The build for Macs with an Intel processor couldn't search your Documents or read scanned pages, 0.1.0-alpha.5 included, so it's no longer made. On an Intel Mac, your Notes and Documents stay where they are.
 
 After the first release is published, follow the comment in `README.md` (and the one its Chinese counterpart mirrors): add the release badge.
 

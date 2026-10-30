@@ -823,6 +823,7 @@ describe("Moves and renames", { timeout: 30_000 }, () => {
     ).toBe(document.id);
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         quote: "Spring tides happen at new moon",
         pageFrom: null,

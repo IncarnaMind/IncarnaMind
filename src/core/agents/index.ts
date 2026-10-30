@@ -264,6 +264,19 @@ export function createAgents(options: AgentsOptions) {
     return value;
   };
 
+  const assertFoldersCanShare = (folderIds: readonly string[]) => {
+    if (folderIds.length < 2) return;
+    const walled = options.access
+      .folders()
+      .find((folder) => folder.keepInside === true && folderIds.includes(folder.id));
+    if (walled) {
+      throw new AgentRefusedError(
+        "outside-scope",
+        say("agents.problem.wallShared", { folder: walled.name }),
+      );
+    }
+  };
+
   const parseFolders = (value: unknown): string[] => {
     if (value === undefined) return [];
     if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
@@ -272,6 +285,7 @@ export function createAgents(options: AgentsOptions) {
     const live = new Set(options.access.folders().map((folder) => folder.id));
     const unknown = value.find((id) => id !== NOT_IN_A_FOLDER_ID && !live.has(id));
     if (unknown !== undefined) throw new NotFoundError({ key: "error.folder.notFound" });
+    assertFoldersCanShare(value as string[]);
     return [...new Set(value as string[])];
   };
 
@@ -332,10 +346,12 @@ export function createAgents(options: AgentsOptions) {
     }
     touch(pairing.id);
     const live = new Set(options.access.folders().map((folder) => folder.id));
+    const folderIds = pairing.folderIds.filter((id) => id === NOT_IN_A_FOLDER_ID || live.has(id));
+    assertFoldersCanShare(folderIds);
     return {
       id: pairing.id,
       name: pairing.name,
-      folderIds: pairing.folderIds.filter((id) => id === NOT_IN_A_FOLDER_ID || live.has(id)),
+      folderIds,
     };
   };
 

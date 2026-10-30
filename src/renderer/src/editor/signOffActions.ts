@@ -18,6 +18,9 @@ import {
   checkedByMe,
   citationElementId,
   citationSignOffBasis,
+  comparisonCellContent,
+  comparisonCellSignOff,
+  comparisonCellTarget,
   figureSignOffBasis,
   figureSignOffSources,
   removeSignOff,
@@ -61,6 +64,9 @@ export function currentSigner(): Signer | null {
   return { name: settings.author, personId };
 }
 
+export const personIdNow = (): string | null =>
+  useAppStore.getState().settings?.user.personId ?? madePersonId;
+
 /** The User's person id, or null before their first mark. */
 export function usePersonId(): string | null {
   return useAppStore((state) => state.settings?.user.personId ?? madePersonId);
@@ -87,6 +93,27 @@ export function useSignOffs(doc: Y.Doc | null): readonly SignOffRecord[] {
     return () => map.unobserve(read);
   }, [doc]);
   return records;
+}
+
+/** The mark a comparison cell shows now, against its Answer as `cell` has it; null when no one marked it. */
+export function useComparisonCellSignOff(
+  tableId: string,
+  documentId: string,
+  questionId: string,
+  cell: ProseMirrorNode | null,
+): SignOffNow | null {
+  const { records } = useContext(SignOffsContext);
+  const personId = usePersonId();
+  const versions = useDocumentVersions();
+  return cell
+    ? comparisonCellSignOff(
+        records,
+        comparisonCellTarget(tableId, documentId, questionId),
+        comparisonCellContent(cell.toJSON()),
+        versions,
+        personId,
+      )
+    : null;
 }
 
 /** Each live Document's version now, by id: a source quoted at an older one has changed. */
@@ -169,11 +196,11 @@ export function useSignOffCounts(editor: Editor): { checked: number; changed: nu
 }
 
 /** The live Documents' versions now, by id. */
-const liveVersions = () =>
+export const liveVersions = (): ReadonlyMap<string, string> =>
   new Map(useAppStore.getState().documents.map((each) => [each.id, each.contentHash]));
 
 /** A mark made now: on what it rests on now, and its sources' versions now. */
-const markBy = (
+export const markBy = (
   target: SignOffTarget,
   contentHash: string,
   sources: readonly { documentId?: string | null }[],
@@ -190,7 +217,7 @@ const markBy = (
 });
 
 /** Makes `change` to the Note's marks one step of the note's Undo, with its line. */
-function inEditor(editor: Editor, change: (doc: Y.Doc) => void, said: WordsInLine): void {
+export function inEditor(editor: Editor, change: (doc: Y.Doc) => void, said: WordsInLine): void {
   const doc = noteDocOf(editor);
   if (!doc || !editor.isEditable) return;
   undoStackOf(editor)?.addToScope(doc.getMap(MIND_SIGN_OFFS_FIELD));

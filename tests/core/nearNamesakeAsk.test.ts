@@ -124,7 +124,7 @@ describe("A change to a Mind with a close namesake (#1865)", { timeout: 30_000 }
 
     expect(changedIn(answer)).toEqual([]);
     expect(answer.toolCalls.map((call) => call.mindProblem?.kind)).toEqual(["not-picked"]);
-    expect(answer.text).toContain("the User didn't say which of these Minds they meant");
+    expect(answer.text).toContain("the User didn't say which of these Notes they meant");
   });
 
   // protects=the Mind in focus, and one already changed earlier in the conversation, are changed at once with no question, so a request about the page in front or a follow-up never asks; fails_when=either asks; no_claim=none beyond protects.

@@ -58,7 +58,7 @@ function objectShown(item: TabItem | undefined): ObjectRef | null {
 }
 
 /** What the tab in front shows, as an object. */
-const objectInFront = () => objectShown(currentTabOf(useAppStore.getState().layout)?.item);
+export const objectInFront = () => objectShown(currentTabOf(useAppStore.getState().layout)?.item);
 
 /** A tab's Mind or Document is what ⌘K acts on, not the tab: its Rename and Move to… are the object's. */
 function underTab(focus: ObjectRef | null): ObjectRef | null {

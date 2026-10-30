@@ -205,18 +205,36 @@ let core: Core | undefined;
 
 /** The window that watches each comparison table's Mind, by the content it came from. */
 const comparisonClients = new Map<number, string>();
+/** The window that asked the assistant, by the content it came from: it runs the Answer's commands. */
+const commandClients = new Map<number, string>();
+const ASKS_IN_A_WINDOW = new Set<string>(["askInConversation", "regenerateConversationAnswer"]);
+
+/** The window's page is gone: the commands the assistant asked it to run won't be done there (#1421). */
+function forgetCommandWindow(contentsId: number): void {
+  const clientId = commandClients.get(contentsId);
+  if (!clientId) return;
+  commandClients.delete(contentsId);
+  core
+    ?.forgetCommandWindow({ clientId })
+    .catch((error: unknown) => logger.exception("app.commandWindowForgotten", error));
+}
 
 // Any window that shows a Note can watch its comparison tables: when it is gone, the core
 // stops waiting for it.
 app.on("browser-window-created", (_event, created) => {
   const contentsId = created.webContents.id;
   created.on("closed", () => {
+    forgetCommandWindow(contentsId);
     const clientId = comparisonClients.get(contentsId);
     if (!clientId) return;
     comparisonClients.delete(contentsId);
     core
       ?.forgetComparisonWindow({ clientId })
       .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
+  });
+  created.webContents.on("render-process-gone", () => forgetCommandWindow(contentsId));
+  created.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) forgetCommandWindow(contentsId);
   });
 });
 let startupComplete = false;
@@ -293,6 +311,9 @@ function exposeCore(core: Core): void {
         typeof input.clientId === "string"
       ) {
         comparisonClients.set(event.sender.id, input.clientId);
+      }
+      if (ASKS_IN_A_WINDOW.has(method) && isRecord(input) && typeof input.clientId === "string") {
+        commandClients.set(event.sender.id, input.clientId);
       }
       return Reflect.apply(core[method], core, args) as Promise<unknown>;
     });

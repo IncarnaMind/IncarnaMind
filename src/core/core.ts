@@ -41,7 +41,14 @@ import { resolveProposals, restoreRevised, targetHash } from "../shared/proposal
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
-import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
+import {
+  folderScope,
+  hasSearchScope,
+  holdsText,
+  mindSearchScope,
+  NO_SCOPE,
+  type ScopeKind,
+} from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
@@ -90,6 +97,7 @@ import {
   type CoreApi,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
+  type DeletedItem,
   type Document,
   type DocumentStatus,
   type EmbeddingModelStatus,
@@ -111,12 +119,15 @@ import {
   type OwnFileKind,
   type ProviderError,
   type ReadyQuestion,
+  type RecheckCitationInput,
+  type RecheckResult,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
   type Task,
+  type TurnPlace,
   type UnlockDocumentInput,
   type UnreadFile,
   type Unsubscribe,
@@ -183,7 +194,7 @@ import {
   TranslatableError,
 } from "./errors";
 import { type AnyEventListener, createEventHub } from "./events";
-import { createExamples } from "./examples";
+import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
@@ -296,7 +307,7 @@ import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
-import type { CommandsHost, MarkingSettled } from "./tools/commands/run";
+import { type CommandsHost, type MarkingSettled, same } from "./tools/commands/run";
 import { createCommandSteps } from "./tools/commands/steps";
 import { createWebSearch, WEB_SEARCH_SENDS } from "./tools/web";
 import { createPublicFetch } from "./tools/web/fetcher";
@@ -311,6 +322,7 @@ import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
+import { createWindowCommands } from "./windowCommands";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -427,6 +439,14 @@ export interface Core extends CoreApi, CoreEventSource {
 
 /** How long a Question asked during a call waits for the live transcript's newest lines to be indexed (#144). */
 const LIVE_TRANSCRIPT_WAIT_MS = 3_000;
+
+/**
+ * How long asking the example's ready Question waits for its Documents to be read (#2218): long
+ * for a large file on a slow disk, short enough that a read that never ends says so.
+ */
+const EXAMPLE_READY_WAIT_MS = 20_000;
+
+const EXAMPLE_READY_LOOK_MS = 100;
 
 const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 
@@ -1281,6 +1301,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const questions = createQuestions(events);
+  const windowCommands = createWindowCommands(events);
 
   // Requests to one service kept apart, as its operator asks: Look up and Find sources share them.
   const paceTimers = adapters.paceTimers ?? realTimers;
@@ -1367,12 +1388,123 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
-  const resolveScope = (scope: SearchScope) =>
-    resolveSearchScope(scope, {
+  const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
+    const walled = new Set(
+      library
+        .folders()
+        .filter((folder) => folder.keepInside)
+        .map((folder) => folder.id),
+    );
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    if (own !== null && walled.has(own)) return folderScope(own);
+    return { ...scope, folderIds: scope.folderIds.filter((id) => !walled.has(id)) };
+  };
+  const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
+    const wanted = scope ?? NO_SCOPE;
+    const walled = library.folders().filter((folder) => folder.keepInside);
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const ownWall = own !== null && walled.some((folder) => folder.id === own);
+    const wallIds = wanted.folderIds.filter((id) => walled.some((folder) => folder.id === id));
+    const explicitFolderScope =
+      mindId === null &&
+      wallIds.length === 1 &&
+      wanted.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
+      wanted.tagIds.length === 0 &&
+      wanted.documentIds.length === 0;
+    if (ownWall || explicitFolderScope) {
+      return resolveSearchScope(ownWall ? constrainedScope(wanted, mindId) : wanted, {
+        folderTree: (folderId) => folders.subtree(folderId),
+        organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+        documentIds: (filter) => documents.ids(filter),
+      });
+    }
+    const constrained = constrainedScope(wanted, mindId);
+    if (!ownWall && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
+    const resolved = resolveSearchScope(constrained, {
       folderTree: (folderId) => folders.subtree(folderId),
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
+    if (ownWall || walled.length === 0) return resolved;
+    const excluded = new Set(walledDocuments());
+    return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
+  };
+  const folderIdsInScope = (folderIds: readonly string[]) =>
+    folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
+      ? [...folderIds]
+      : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
+  const walledFolderId = (folderId: string | null): string | null => {
+    if (folderId === null || folderId === NOT_IN_A_FOLDER_ID) return null;
+    return library.folders().find((folder) => folder.id === folderId)?.keepInside === true
+      ? folderId
+      : null;
+  };
+  // The fingerprints of the files IncarnaMind writes (#80).
+  const ownFiles = createOwnFiles(db, now);
+  // Behind a wall: filed in it, or a file IncarnaMind wrote from one of its Notes, wherever that
+  // file was indexed again (a Linked folder holding the Output location).
+  const behindWall = (folderId: string) => [
+    ...library.allDocumentIds(folderId),
+    ...ownFiles.writtenFrom([folderId]),
+  ];
+  const wallOfDocument = (documentId: string) =>
+    library
+      .folders()
+      .find((folder) => folder.keepInside && behindWall(folder.id).includes(documentId));
+  const walledDocument = (documentId: string): string | null =>
+    wallOfDocument(documentId)?.id ?? null;
+  const walledDocuments = (): string[] =>
+    library
+      .folders()
+      .filter((folder) => folder.keepInside)
+      .flatMap((folder) => behindWall(folder.id));
+  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted walled Folder's own. */
+  const deletedWall = (item: DeletedItem): string | null =>
+    item.kind === "folder"
+      ? library.snapshot().deletedGroups.some((group) => group.id === item.id && group.keepInside)
+        ? item.id
+        : null
+      : walledFolderId(item.groupId);
+  const walledFolderName = (documentId: string): string | null =>
+    wallOfDocument(documentId)?.name ?? null;
+  const folderOfNote = (mindId: string | null): string | null =>
+    mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+  /** A Note and a conversation as the API takes them: an id or null each, neither left out. */
+  const parseTurnPlace = (input: unknown): TurnPlace => {
+    const idOf = (value: unknown) => {
+      if (value === null) return null;
+      if (typeof value === "string" && value !== "") return value;
+      throw new InvalidInputError({ key: "error.turnPlace" });
+    };
+    const place = isRecord(input) ? input : {};
+    return { mindId: idOf(place.mindId), conversationId: idOf(place.conversationId) };
+  };
+  /**
+   * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
+   * Note's Folder, else the conversation's, judged against today's walls (#1934).
+   */
+  const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
+    if (mindId !== null) return walledFolder(mindId);
+    if (conversationId === null) return null;
+    return walledFolderId(conversations.get(conversationId).folderId);
+  };
+  const walledFolder = (mindId: string | null): string | null => {
+    const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    return walledFolderId(folderId);
+  };
+  /**
+   * The one place deciding where the assistant files what it makes (#1934): work behind the wall
+   * `wallId` files it in that Folder, whatever Folder was `asked`; work outside every wall never
+   * files it in a walled Folder. Null: it can't be filed, so nothing may be made, as when the
+   * wall's Folder is gone or the turn's wall isn't known.
+   */
+  const filedWithin = (
+    wallId: string | null,
+    asked: string | null,
+  ): { folderId: string | null } | null => {
+    if (wallId === null) return { folderId: walledFolderId(asked) === null ? asked : null };
+    return library.folders().some((folder) => folder.id === wallId) ? { folderId: wallId } : null;
+  };
   const unscopedDocuments = (mindId: string | null): string[] | null => {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
@@ -1392,14 +1524,23 @@ export function createCore(adapters: CoreAdapters): Core {
   const scopeDocuments = (
     scope: SearchScope | null,
     mindId: string | null = null,
-  ): string[] | null =>
-    scope && hasSearchScope(scope) ? resolveScope(scope) : unscopedDocuments(mindId);
+  ): string[] | null => {
+    if (scope && hasSearchScope(scope)) return resolveScope(scope, mindId);
+    const unscoped = unscopedDocuments(mindId);
+    const resolved = resolveScope(NO_SCOPE, mindId);
+    if (resolved === null) return unscoped;
+    if (unscoped === null) return resolved;
+    const own = new Set(unscoped);
+    return resolved.filter((id) => own.has(id));
+  };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const wall = walledFolderId(folderId);
+    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
-        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [])
+        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }, mindId) ?? [])
         .some(holdsText);
     const searched = mindSearchScope(
       scope ?? { folderIds: [], tagIds: [], documentIds: [] },
@@ -1514,7 +1655,50 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
+    allows: async (input, touches, mindId, wallOverride) => {
+      const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
+      const refuse = () => {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      };
+      // Default deny: an id that is one of the kinds the command declares must be on the turn's
+      // side of the wall. One that is none of them names nothing to reach, and the command itself
+      // says it isn't found.
+      const deleted = touches.includes("deleted") ? await commandsHost.core.listDeleted() : [];
+      const wallOf = (id: string): string | null | undefined => {
+        for (const kind of touches) {
+          if (kind === "mind" && mindExists(id)) return walledFolder(id);
+          if (kind === "document" && documents.getMany([id]).length > 0) {
+            return walledDocument(id);
+          }
+          if (kind === "folder" && library.folders().some((folder) => folder.id === id)) {
+            return walledFolderId(id);
+          }
+          if (kind === "tag" && tags.list().some((tag) => tag.id === id)) return null;
+          const item = kind === "deleted" ? deleted.find((each) => each.id === id) : undefined;
+          if (item) return deletedWall(item);
+        }
+        return undefined;
+      };
+      for (const id of input.ids) {
+        const wall = wallOf(id);
+        if (wall !== undefined && wall !== wallId) refuse();
+      }
+      // With no ids it sorts every Document in no Folder: outside work, never a walled turn's.
+      if (input.command === "documents.organize" && input.ids.length === 0 && wallId !== null) {
+        refuse();
+      }
+      // A move files what it moves, so it goes where `filedWithin` would file it or not at all: a
+      // walled turn's only into its wall, never into a Folder the move makes (#1934).
+      if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
+        const target =
+          library.folders().find((folder) => same(folder.name, input.folder ?? ""))?.id ?? null;
+        if (filedWithin(wallId, target)?.folderId !== target) {
+          throw new InvalidInputError({ key: "error.folder.wallMove" });
+        }
+      }
+    },
     outputFolder: async () => outputs.settings().location,
+    window: (request, signal, ended) => windowCommands.run(request, signal, ended),
     exportMind: async (mindId, format, folder, approved, marking) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
@@ -1540,6 +1724,7 @@ export function createCore(adapters: CoreAdapters): Core {
         name: exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
+        fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
       await rememberExportChoices(exported, oneOff);
@@ -1628,21 +1813,44 @@ export function createCore(adapters: CoreAdapters): Core {
               }),
           ),
       },
-      { kind: "sources", tools: async () => sources.tools() },
+      { kind: "sources", tools: async (_signal, turn) => sources.tools(turn) },
     ],
     connectorsNeedingSignIn: () => connectors.needingSignIn(),
     web: webSearch,
     commands: {
       host: commandsHost,
-      findable: async () => {
+      findable: async (mindId: string | null, wallOverride?: string | null) => {
         const { core } = commandsHost;
-        const [listed, mindsNow, libraryNow, tagsNow] = await Promise.all([
+        const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
+        const [listed, mindsNow, libraryNow, tagsNow, deletedNow] = await Promise.all([
           core.listDocuments(),
           core.listMinds(),
           core.getLibrary(),
           core.listTags(),
+          core.listDeleted(),
         ]);
-        return { documents: listed, minds: mindsNow, library: libraryNow, tags: tagsNow };
+        const allowed = wallId
+          ? resolveSearchScope(folderScope(wallId), {
+              folderTree: (folderId) => folders.subtree(folderId),
+              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+              documentIds: (filter) => documents.ids(filter),
+            })
+          : resolveScope(NO_SCOPE, mindId);
+        // Only what is on the turn's side of the wall can be found, named or offered (#1934).
+        const shown = allowed === null ? null : new Set(allowed);
+        const onSide = (wall: string | null) => wall === wallId;
+        return {
+          documents: shown === null ? listed : listed.filter((document) => shown.has(document.id)),
+          minds: mindsNow.filter((mind) => onSide(walledFolder(mind.id))),
+          library: {
+            groups: libraryNow.groups.filter((group) => onSide(walledFolderId(group.id))),
+            assignments: libraryNow.assignments.filter(
+              (each) => shown === null || shown.has(each.documentId),
+            ),
+          },
+          tags: wallId === null ? tagsNow : [],
+          deleted: deletedNow.filter((item) => onSide(deletedWall(item))),
+        };
       },
       steps: commandSteps,
     },
@@ -1720,8 +1928,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true) => {
-        const added = conversations.add(input, answerModel, read);
+      add: (input, answerModel, read, emit = true, askedIn) => {
+        const added = conversations.add(input, answerModel, read, askedIn);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -1748,11 +1956,20 @@ export function createCore(adapters: CoreAdapters): Core {
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
+      writeToolCalls: (answerId, toolCalls) => {
+        const answer = conversations.writeToolCalls(answerId, toolCalls);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
     },
     resolveScope,
     workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    walledFolder,
+    walledFolderId,
+    walledDocuments,
+    filedWithin,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
     unscopedDocuments,
     interfaceLanguage: () => settings.get().language,
@@ -1785,7 +2002,12 @@ export function createCore(adapters: CoreAdapters): Core {
       live: (ids) => documents.getMany(ids),
       searchableCount: (ids) => documents.searchableCount(ids),
     },
-    evidence: (ids) => evidence.scope(ids).documentIds ?? [...ids],
+    evidence: (ids, mindId) => {
+      const allowed =
+        resolveScope({ folderIds: [], tagIds: [], documentIds: [...ids] }, mindId) ?? [];
+      const permitted = ids.filter((id) => allowed.includes(id));
+      return evidence.scope(permitted).documentIds ?? [...permitted];
+    },
     checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
@@ -1857,6 +2079,9 @@ export function createCore(adapters: CoreAdapters): Core {
     searchedScope,
     mindExists,
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
+    walledFolder,
+    walledFolderId,
+    filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
     moveMind: (mindId, folderId) => {
@@ -1872,6 +2097,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     library: {
       folderExists: (folderId) => library.folders().some((folder) => folder.id === folderId),
+      folderName: (folderId) =>
+        library.folders().find((folder) => folder.id === folderId)?.name ?? null,
       folderNames: () => library.folders().map((folder) => folder.name),
       createFolder: (name, description) => library.create({ name, description }).id,
       file: (documentIds, folderId) => {
@@ -2171,6 +2398,9 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     },
     mindFolder: (mindId) => minds.get(mindId).folderId,
+    walledFolder,
+    walledDocument,
+    walledFolderName,
     searchedScope,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
@@ -2202,15 +2432,37 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
+  /**
+   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
+   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
+   * for a Citation made before the wall (#1934).
+   */
+  const recheckIn = (input: RecheckCitationInput): RecheckResult => {
+    const wall = walledDocument(input.documentId);
+    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
+      return recheckCitation(documents, input);
+    }
+    return { keptInside: walledFolderName(input.documentId) ?? "" };
+  };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({
     content,
     requireMind: (mindId) => writableMind(mindId).id,
-    recheck: (input) => recheckCitation(documents, input),
-    askedScope: ({ from }) =>
-      from.artifactKind === "conversation"
-        ? conversations.askedScope(from.artifactId, from.anchor.messageId)
-        : null,
+    recheck: recheckIn,
+    askedScope: ({ from }, mindId) => {
+      const asked =
+        from.artifactKind === "conversation"
+          ? conversations.askedScope(from.artifactId, from.anchor.messageId)
+          : null;
+      // A Note outside a wall never takes a walled Folder or Document into its scope (#1934).
+      if (asked === null || walledFolder(mindId) !== null) return asked;
+      const walled = new Set(walledDocuments());
+      return {
+        ...asked,
+        folderIds: asked.folderIds.filter((id) => walledFolderId(id) === null),
+        documentIds: asked.documentIds.filter((id) => !walled.has(id)),
+      };
+    },
     mindFolder: (mindId) => minds.get(mindId).folderId,
     recordAiUse: (inputs) => void aiUse.record(inputs),
     now: () => adapters.now?.() ?? new Date(),
@@ -2230,11 +2482,9 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
   });
 
-  // The fingerprints of the files IncarnaMind writes (#80). A Document already indexed with
-  // the same bytes is marked at once, and every window hears of it.
-  const ownFiles = createOwnFiles(db, now);
-  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind) => {
-    const marked = ownFiles.record(data, kind);
+  // A Document already indexed with the same bytes is marked at once, and every window hears of it.
+  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind, folderId: string | null) => {
+    const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
   const exportDependencies: ExportsDependencies = {
@@ -2436,15 +2686,19 @@ export function createCore(adapters: CoreAdapters): Core {
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
-  /** Saves an export in the Output location, as the window's save: what went wrong is a result, not an error. */
+  /**
+   * Saves an export in the Output location, as the window's save: what went wrong is a result, not
+   * an error. `from`: the Note it was written from, whose Folder wall it stays behind; null for none.
+   */
   const saveExport = async (
     name: string,
     data: Uint8Array,
+    from: string | null,
     after: () => void = () => undefined,
     ownFile: OwnFileKind = "export",
   ): Promise<SavedExport> => {
     try {
-      const file = await outputs.save({ name, data, ownFile });
+      const file = await outputs.save({ name, data, ownFile, fromFolder: folderOfNote(from) });
       after();
       return { status: "saved", file };
     } catch (error) {
@@ -3301,9 +3555,37 @@ export function createCore(adapters: CoreAdapters): Core {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
       own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
-      example: examples.exampleReady(),
+      example: examples.readyQuestion(),
       language: settings.get().language,
     });
+  };
+  const stopReadyWaits = new Set<() => void>();
+  /**
+   * The example's ready Answer as it can be written now, waiting while a Document it cites is
+   * read, so pressing the card's button answers instead of doing nothing (#2218). `stopped`: Stop
+   * came first, so its Answer says Stopped; `timedOut`: the read hadn't finished in time.
+   */
+  const whenExampleReady = async (): Promise<{
+    state: ExampleReadyState;
+    stopped: boolean;
+    timedOut: boolean;
+  }> => {
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+    };
+    stopReadyWaits.add(stop);
+    try {
+      const deadline = Date.now() + (adapters.exampleReadyWaitMs ?? EXAMPLE_READY_WAIT_MS);
+      for (;;) {
+        const state = examples.readyState();
+        if (stopped || state.kind !== "reading") return { state, stopped, timedOut: false };
+        if (Date.now() >= deadline) return { state, stopped, timedOut: true };
+        await new Promise((settle) => setTimeout(settle, EXAMPLE_READY_LOOK_MS));
+      }
+    } finally {
+      stopReadyWaits.delete(stop);
+    }
   };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
@@ -3740,16 +4022,26 @@ export function createCore(adapters: CoreAdapters): Core {
     version: adapters.agents?.version ?? "0.0.0",
     access: {
       say: (key, params) => translate(settings.get().language, key, params),
-      folders: () => library.folders().map((folder) => ({ id: folder.id, name: folder.name })),
+      folders: () =>
+        library.folders().map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          keepInside: folder.keepInside,
+        })),
+      foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
-        const folders = folderIds.filter((id) => id !== NOT_IN_A_FOLDER_ID);
+        const only = walledFolderId(folderIds.length === 1 ? (folderIds[0] ?? null) : null);
+        if (only !== null) return library.documentIds(only);
+        const allowed = folderIdsInScope(folderIds);
+        const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =
           folders.length === 0
             ? []
             : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
-        return folders.length === folderIds.length
-          ? filed
-          : [...new Set([...filed, ...library.unfiledDocumentIds()])];
+        if (!allowed.includes(NOT_IN_A_FOLDER_ID)) return filed;
+        const walled = new Set(walledDocuments());
+        const unfiled = library.unfiledDocumentIds().filter((id) => !walled.has(id));
+        return [...new Set([...filed, ...unfiled])];
       },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
@@ -3879,15 +4171,29 @@ export function createCore(adapters: CoreAdapters): Core {
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
-      const ready = examples.readyAnswer();
-      if (!ready) {
-        throw new InvalidInputError({ key: "error.examples.reading" });
+      const { state, stopped, timedOut } = await whenExampleReady();
+      if (state.kind === "unreadable") {
+        throw new InvalidInputError({
+          key: "error.examples.unreadable",
+          values: { document: state.document },
+        });
       }
+      if (state.kind === "gone") {
+        throw new InvalidInputError({
+          key: "error.examples.gone",
+          values: { document: state.document },
+        });
+      }
+      if (state.kind === "absent") throw new InvalidInputError({ key: "error.examples.absent" });
+      if (timedOut) throw new InvalidInputError({ key: "error.examples.reading" });
+      const example = examples.readyQuestion();
+      const mindId = state.kind === "ready" ? state.mindId : examples.status().mindId;
+      if (!example || !mindId) throw new InvalidInputError({ key: "error.examples.absent" });
       const { turn } = conversations.add(
         {
           conversationId: null,
-          text: ready.question,
-          mind: { id: ready.mindId, folderId: minds.get(ready.mindId).folderId },
+          text: example.question,
+          mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
           model: null,
@@ -3897,10 +4203,11 @@ export function createCore(adapters: CoreAdapters): Core {
         },
         null,
         null,
+        () => minds.get(mindId).folderId ?? "",
       );
       const answer = conversations.writeAnswer(turn.answer.id, {
-        text: ready.answer,
-        citations: ready.citations,
+        text: state.kind === "ready" && !stopped ? state.answer : "",
+        citations: state.kind === "ready" && !stopped ? state.citations : [],
         figures: [],
         analyses: [],
         toolCalls: [],
@@ -3908,12 +4215,19 @@ export function createCore(adapters: CoreAdapters): Core {
         textOrigin: null,
         read: null,
         steps: { sentAt: null, finishedAt: now(), phases: [], reasoning: null, example: true },
-        outcome: { status: "done", error: null },
+        outcome: { status: stopped ? "stopped" : "done", error: null },
       });
       events.emit("conversation.message", turn.question);
       events.emit("conversation.message", answer ?? turn.answer);
       conversationsChanged();
-      return { conversationId: turn.conversation.id, answerId: turn.answer.id };
+      return {
+        conversationId: turn.conversation.id,
+        answerId: turn.answer.id,
+        stopped,
+      };
+    },
+    stopExampleReadyQuestion: async () => {
+      for (const stop of [...stopReadyWaits]) stop();
     },
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {
@@ -3935,12 +4249,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readMindContents: async (mindIds) => {
       if (!Array.isArray(mindIds)) {
-        throw new InvalidInputError("A list of Mind ids must be an array.");
+        throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
-          throw new InvalidInputError("A Mind id must be text.");
+          throw new InvalidInputError("A Note id must be text.");
         }
         try {
           minds.get(mindId);
@@ -4082,10 +4396,13 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     keepWebPageLook: async (documentId) => webPages.keepLook(documentId),
     fetchWebPageAgain: async (documentId, options) => webPages.fetchAgain(documentId, options),
+    wallOfTurn: async (input) => turnWall(parseTurnPlace(input)),
     saveTextAsDocument: async (input) => {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
       }
+      const filed = filedWithin(turnWall(parseTurnPlace(input)), null);
+      if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");
       mkdirSync(folder, { recursive: true });
@@ -4098,6 +4415,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const { documents: added } = await documents.add([join(folder, name)]);
       const saved = added[0];
       if (!saved) throw new InvalidInputError("The text couldn't be saved.");
+      if (filed.folderId !== null) library.assign(saved.id, filed.folderId);
       return saved;
     },
     listDocuments: async (options) => {
@@ -4208,12 +4526,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const page = (value: unknown) =>
         typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
-      return recheckCitation(documents, {
+      // Left out, the Note can't be judged, so it is never taken as one outside a wall.
+      if (input.mindId !== null && typeof input.mindId !== "string") {
+        throw new InvalidInputError({ key: "error.citation.recheckNote" });
+      }
+      return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        mindId: input.mindId,
       });
     },
     citeSelection: async (input) => {
@@ -4639,7 +4962,7 @@ export function createCore(adapters: CoreAdapters): Core {
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);
-      const mindIds = parseIds(input.mindIds, "The Minds to move");
+      const mindIds = parseIds(input.mindIds, "The Notes to move");
       const documentIds = parseIds(input.documentIds, "The Documents to move");
       const conversationIds = parseIds(input.conversationIds, "The conversations to move");
       // All or none: every one is checked before anything moves.
@@ -4812,6 +5135,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listApprovalRequests: async () => approvals.requests(),
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
+    answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
+    forgetCommandWindow: async (input) =>
+      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 
@@ -4875,7 +5201,7 @@ export function createCore(adapters: CoreAdapters): Core {
       // never needed for the file itself: a copy saved while storage refuses every write (#1119)
       // still goes out.
       try {
-        recordOwnFile(exported.data, ownFileOf(options));
+        recordOwnFile(exported.data, ownFileOf(options), folderOfNote(mindId));
         recordExport(options);
       } catch (error) {
         console.error("export: the file couldn't be noted as IncarnaMind's", error);
@@ -4987,6 +5313,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const saved = await saveExport(
         fileName,
         data,
+        typeof mindId === "string" ? mindId : null,
         () => recordExport(options),
         ownFileOf(options),
       );
@@ -5008,7 +5335,7 @@ export function createCore(adapters: CoreAdapters): Core {
       for (const { format, make } of await checkRecord.files(mindId)) {
         try {
           const { fileName, data } = await make();
-          const result = await saveExport(fileName, data);
+          const result = await saveExport(fileName, data, mindId);
           if (result.status !== "saved") return result;
           saved.push({ format, file: result.file });
         } catch (error) {
@@ -5042,7 +5369,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const name = translate(settings.get().language, "figures.exportName", {
         name: schedule.name,
       });
-      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
+      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes, mindId);
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
@@ -5050,12 +5377,16 @@ export function createCore(adapters: CoreAdapters): Core {
         ref.mindId,
         ref.tableId,
       );
-      const saved = await saveExport(fileName, data);
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
       return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);
-      return saveExport(fileName, data);
+      return saveExport(fileName, data, null);
     },
     formatCitations: (request) => citationStyles.format(request),
     getMindCitationStyle: async (mindId) => mindCitationStyle(minds.get(mindId).id),

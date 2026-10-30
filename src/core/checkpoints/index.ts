@@ -319,9 +319,7 @@ export function createCheckpoints(options: CheckpointsOptions) {
     restore(mindInput: unknown, checkpointId: unknown): RestoredCheckpoint {
       const mindId = options.requireMind(mindInput);
       if (content.contentVersion(mindId) > CONTENT_SCHEMA_VERSION) {
-        throw new MindReadOnlyError(
-          "A newer version of IncarnaMind wrote this Mind. Update IncarnaMind to edit it.",
-        );
+        throw new MindReadOnlyError({ key: "error.mind.newerVersionEdit" });
       }
       const old = docOfCheckpoint(mindId, checkpointId);
       const preview = docOf(content.storedState(mindId));

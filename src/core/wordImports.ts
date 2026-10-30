@@ -61,7 +61,7 @@ import {
   type WordReview,
 } from "./documents/formats/docxPackage";
 import { packageSizeError } from "./documents/formats/zip";
-import { InvalidInputError, isRecord, MindReadOnlyError } from "./errors";
+import { InvalidInputError, isRecord, MindReadOnlyError, TranslatableError } from "./errors";
 import type { MindContent } from "./mindContent";
 import { type createMinds, parseFolderChoice } from "./minds";
 import type { Database } from "./storage";
@@ -551,9 +551,7 @@ export function createWordImports(options: WordImportsOptions) {
         log.error("word.export.packageMissing", {
           code: (error as NodeJS.ErrnoException).code ?? "unknown",
         });
-        throw new Error(
-          "The Word file this Mind was imported from is missing from IncarnaMind's data folder.",
-        );
+        throw new TranslatableError({ key: "error.export.wordPackageMissing" });
       }
     },
 

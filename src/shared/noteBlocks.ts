@@ -9,9 +9,9 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
-  type CitationRecheck,
+  type CitationToRecheck,
   NOTE_BLOCK_TYPES,
-  type RecheckCitationInput,
+  type RecheckResult,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
@@ -80,7 +80,7 @@ export function withoutIds(blocks: readonly NodeJSON[]): NodeJSON[] {
 }
 
 /** What checking a Citation again gives, sync or async (the core's own, or over IPC). */
-export type Recheck = (input: RecheckCitationInput) => CitationRecheck | Promise<CitationRecheck>;
+export type Recheck = (input: CitationToRecheck) => RecheckResult | Promise<RecheckResult>;
 
 const unit = (value: unknown): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
@@ -119,8 +119,9 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       pageTo: unit(attrs.pageTo) ?? pageFrom,
       contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
     });
-    // A deleted Document: the check made when it was cited stands, as the badge shows it.
-    if (checked.contentHash === null) return node;
+    // Kept inside a wall the Note is outside, nothing was read; or a deleted Document: either way
+    // the check made when it was cited stands, as the badge shows it.
+    if ("keptInside" in checked || checked.contentHash === null) return node;
     const quoted = checked.inQuotedVersion;
     if (quoted !== undefined) {
       if (quoted === null) return node;

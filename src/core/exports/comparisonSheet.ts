@@ -6,10 +6,12 @@
  * to the cell citing it, and the User's column widths come along in characters.
  */
 import { comparisonNameOf } from "../../shared/comparisons";
+import { formatDate } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { CitationCheck } from "../api";
+import { checkedByLine } from "../checkRecord/labels";
 import type { Language } from "../language";
-import type { ComparisonReading } from "../mindText";
+import type { ComparisonCellReading, ComparisonReading } from "../mindText";
 import { type Block, type Footnote, footnotesIn, type Inline } from "../mindText";
 import { figureCell } from "./figureCells";
 import type { SheetBook, SheetCell, SheetRow } from "./sheets";
@@ -26,11 +28,23 @@ export interface ComparisonSheetInput {
   reading: ComparisonReading;
   /** The table's own name, which its sheet is called. */
   title: string;
+  /** The interface's language, which writes the days in the cells' notes. */
+  language: Language;
   /** The language the Mind is written in, which settles how its Answers write numbers. */
   textLanguage: Language;
   t(key: MessageKey, params?: MessageParams): string;
   facts(footnote: Footnote): CitationFacts;
 }
+
+/** Whoever opens the file isn't "you": a mark names the person who made it, and when. */
+const markNotes = (
+  cell: ComparisonCellReading,
+  { t, language }: ComparisonSheetInput,
+): string[] => [
+  ...(cell.edited ? [t("export.excel.edited")] : []),
+  ...(cell.signOffs ?? []).map((now) => checkedByLine(now, (at) => formatDate(at, language), t)),
+  ...(cell.kind === "answer" && cell.failure ? [cell.failure] : []),
+];
 
 const CHECK_WORDS: Readonly<Record<CitationCheck, MessageKey>> = {
   found: "aiStatement.citations.found",
@@ -132,14 +146,30 @@ export function comparisonBook(input: ComparisonSheetInput): {
     row.cells.forEach((cell, at) => {
       const question = reading.questions[at];
       if (!question) return;
-      if (cell.kind === "empty") return;
+      const marks = markNotes(cell, input);
+      if (cell.kind === "empty") {
+        if (marks.length > 0) {
+          cells.push({
+            column: question.id,
+            value: { kind: "text", text: "" },
+            note: marks.join("\n\n"),
+            wrap: true,
+          });
+        }
+        return;
+      }
       if (cell.kind === "words") {
-        cells.push({ column: question.id, value: { kind: "text", text: cell.text }, wrap: true });
+        cells.push({
+          column: question.id,
+          value: { kind: "text", text: cell.text },
+          ...(marks.length > 0 && { note: marks.join("\n\n") }),
+          wrap: true,
+        });
         return;
       }
       const text = blocksText(cell.content);
       const figure = figureCell(text, input.textLanguage);
-      const notes: string[] = figure ? [t("export.excel.asWritten", { text })] : [];
+      const notes = [...marks, ...(figure ? [t("export.excel.asWritten", { text })] : [])];
       for (const footnote of footnotesIn(cell.content)) {
         const facts = input.facts(footnote);
         if (footnote.unverified) unverified++;
