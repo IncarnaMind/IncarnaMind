@@ -47,6 +47,7 @@ import type { createEventHub } from "../events";
 import { parseIds, parseMindId } from "../minds";
 import { givesStructuredOutput } from "../providers/capabilities";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import {
   continuationOf,
   numbersBacked,
@@ -88,8 +89,6 @@ const MIN_RELEVANCE = 0.5;
 const MIN_MATCHED_WORDS = 2;
 const MIN_MATCHED_SHARE = 1 / 3;
 const MATCHED_WORDS_ENOUGH = 3;
-/** The reply's cap: one short sentence and a quote, as JSON. */
-const OUTPUT_TOKENS = 400;
 /** A request that takes longer than this (a local model loading) gives nothing. */
 const REQUEST_TIMEOUT_MS = 30_000;
 /** How many suggestions given are remembered, so accepting one can say what it was. */
@@ -266,7 +265,7 @@ export function createSuggestions(options: SuggestionsOptions) {
         model: prepared.model,
         instructions: SUGGESTION_INSTRUCTIONS,
         prompt,
-        maxOutputTokens: OUTPUT_TOKENS,
+        maxOutputTokens: outputTokens("suggestion"),
         maxRetries: 0,
         abortSignal,
       });
@@ -278,7 +277,7 @@ export function createSuggestions(options: SuggestionsOptions) {
           instructions: SUGGESTION_INSTRUCTIONS,
           prompt,
           output: Output.object({ schema: suggestionSchema, name: "suggestion" }),
-          maxOutputTokens: OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("suggestion"),
           maxRetries: 0,
           abortSignal,
         });
@@ -298,7 +297,7 @@ export function createSuggestions(options: SuggestionsOptions) {
     const budget = createWindowBudget(prepared.window);
     let room = budget.roomBeside(
       [SUGGESTION_INSTRUCTIONS, suggestionPrompt(paragraph, [])],
-      OUTPUT_TOKENS,
+      outputTokens("suggestion"),
     );
     const kept: FoundPassage[] = [];
     for (const passage of passages) {

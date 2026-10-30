@@ -339,9 +339,6 @@ function fromModelMessages(messages: readonly ModelMessage[]): RunMessage[] {
 const LAST_STEP_NOTE =
   "You can make no more calls, and none can record a Citation now. Write the Answer now from what has been read, without Citation markers, and say plainly what you didn't check. Don't write a call, and don't say what you would do next.";
 
-/** The most the last step may write, its thinking included, unless the model's own most is less. */
-const LAST_STEP_TOKENS = 8_000;
-
 /** What a call on the last step is answered with: it isn't made. */
 const NO_MORE_CALLS =
   "No more calls are allowed: that was the last step. Write the Answer now from what has been read, and say plainly what you didn't check.";
@@ -471,6 +468,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       if (!write)
         return {
           ...(messages && { messages }),
+          maxOutputTokens: request.outputTokens.step,
           // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
           ...(stepNumber === 0 &&
             request.firstTool &&
@@ -485,7 +483,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
           { role: "user" as const, content: LAST_STEP_NOTE },
         ],
         ...((noRoom || !request.lastStep?.keepTools) && { toolChoice: "none" as const }),
-        maxOutputTokens: Math.min(LAST_STEP_TOKENS, request.lastStep?.tokens ?? LAST_STEP_TOKENS),
+        maxOutputTokens: request.outputTokens.last,
       };
     },
     abortSignal: signal,

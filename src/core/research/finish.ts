@@ -22,6 +22,7 @@ import type {
 } from "../api";
 import { isRecord } from "../errors";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { RECORD_PREFIX } from "../runs/journal";
 import { runStopOf } from "../runs/stop";
@@ -188,7 +189,7 @@ async function tagPages(
         pages.map((page) => page.name),
         existing.map((tag) => tag.name),
       ),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: outputTokens("research-tags"),
       maxRetries: 1,
       abortSignal: AbortSignal.any([signal, AbortSignal.timeout(TAG_TIMEOUT_MS)]),
     });

@@ -8,11 +8,8 @@ import { describe, expect, test } from "vitest";
 import type { Core, CoreEvents } from "../../src/core";
 import { estimateTokens } from "../../src/core/answers/context";
 import { markedSentence } from "../../src/core/answers/markerPlacement";
-import {
-  nearestExcerpt,
-  OUTPUT_TOKENS_PER_RECORD,
-  parseCorrections,
-} from "../../src/core/answers/quoteRetry";
+import { nearestExcerpt, parseCorrections } from "../../src/core/answers/quoteRetry";
+import { outputTokens } from "../../src/core/providers/outputLimits";
 import { translate } from "../../src/shared/i18n";
 import { askAndFinish, setUpWithDocuments } from "../helpers/citations";
 import {
@@ -123,7 +120,7 @@ describe("A small local model's quotes the check doesn't find", () => {
     expect(prompt).toContain(SPRING);
     expect(prompt).toContain(NEAP);
     expect(retry?.body.format).toMatchObject({ type: "object" });
-    expect(retry?.body.options).toMatchObject({ num_predict: OUTPUT_TOKENS_PER_RECORD });
+    expect(retry?.body.options).toMatchObject({ num_predict: outputTokens("quote-retry", 1) });
   });
 
   test("a new quote the check still doesn't find is dropped: the record keeps its own, not found", async () => {
@@ -195,7 +192,7 @@ describe("A small local model's quotes the check doesn't find", () => {
     expect(prompt).toContain("[^2] is on this sentence");
     expect(prompt).not.toContain("[^3]");
     expect(retries(ollama)[0]?.body.options).toMatchObject({
-      num_predict: 2 * OUTPUT_TOKENS_PER_RECORD,
+      num_predict: outputTokens("quote-retry", 2),
     });
     expect(finished.citations).toMatchObject([
       { quote: "Spring tides come at new and full moon", check: "not-found" },

@@ -88,6 +88,7 @@ import {
   textBlocks,
 } from "../proposals/write";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { inFlow } from "../timing/flows";
@@ -375,13 +376,16 @@ function editCall(
     }),
   });
   // The reply is about as long as the passage; a translation into Chinese can count more.
-  let maxOutputTokens = Math.min(16_000, Math.max(1_024, Math.ceil(selection.characters * 1.5)));
+  let maxOutputTokens = Math.min(
+    outputTokens("edit"),
+    Math.max(1_024, Math.ceil(selection.characters * 1.5)),
+  );
   if (prepared.window) {
     const budget = createWindowBudget(prepared.window);
     const expected = explain ? 512 : Math.ceil(budget.tokens(selection.text) * 1.5) + 64;
     if (expected > prepared.window.outputTokens) return null;
     if (budget.roomBeside([instructions, prompt], expected) < 0) return null;
-    maxOutputTokens = prepared.window.outputTokens;
+    maxOutputTokens = Math.min(outputTokens("edit"), prepared.window.outputTokens);
   }
   return { instructions, prompt, maxOutputTokens };
 }

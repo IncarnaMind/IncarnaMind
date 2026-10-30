@@ -6,6 +6,7 @@
 import { generateText } from "ai";
 import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { slots } from "../../runs/stop";
 import { answerTemperature } from "../engine";
@@ -57,7 +58,7 @@ export async function claimsAmong(
           instructions: whose === "own" ? FIND_OWN_CLAIMS_INSTRUCTIONS : FIND_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: 4_000,
+          maxOutputTokens: outputTokens("find-claims"),
           maxRetries: 1,
           abortSignal: sorting,
         });
