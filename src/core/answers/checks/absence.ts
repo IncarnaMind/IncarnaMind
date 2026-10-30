@@ -16,7 +16,11 @@ import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature, parseRecords } from "../engine";
 import { replyJson } from "../quoteRetry";
-import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
+import type {
+  AtomicClaimCheckResult,
+  ClaimCheckDependencies,
+  ClaimCheckRequest,
+} from "./claimCheck";
 import { absenceFigureResults } from "./figureChecks";
 import { readsAsRefusal } from "./prompt";
 
@@ -111,6 +115,40 @@ function wholeScope(
   return reading.length === 0 || unreadUnit ? null : reading;
 }
 
+/**
+ * One window of a pick read whole (#1554), by Document: its Passages and the Units they are on;
+ * null when a Unit couldn't be read.
+ */
+function windowScope(
+  window: NonNullable<ClaimCheckRequest["window"]>,
+  documents: ClaimCheckDependencies["documents"],
+): WholeReading[] | null {
+  const byDocument = new Map<string, (typeof window)[number][]>();
+  for (const passage of window) {
+    byDocument.set(passage.documentId, [...(byDocument.get(passage.documentId) ?? []), passage]);
+  }
+  const reading = [...byDocument].map(([documentId, passages]): WholeReading => {
+    const pages = passages.flatMap(({ pageFrom, pageTo }) =>
+      pageFrom === null ? [] : [pageFrom, pageTo ?? pageFrom],
+    );
+    const units = documents.pageTexts(
+      documentId,
+      passages[0]?.contentHash ?? "",
+      pages.length > 0 ? Math.min(...pages) : null,
+      pages.length > 0 ? Math.max(...pages) : null,
+    );
+    return { documentId, passages, units };
+  });
+  const unreadUnit = reading.some(({ units }) =>
+    units.some(
+      (unit) =>
+        unit.label?.scan?.unread === true ||
+        unit.label?.figures?.some((figure) => figure.unread === true),
+    ),
+  );
+  return reading.length === 0 || unreadUnit ? null : reading;
+}
+
 export async function checkAbsence({
   request,
   documents,
@@ -121,10 +159,16 @@ export async function checkAbsence({
   fits,
   notChecked,
   failedCheck,
-}: AbsenceContext): Promise<ClaimCheckResult | null> {
-  const { model, signal } = request;
+}: AbsenceContext): Promise<AtomicClaimCheckResult | null> {
+  const { model, signal, window } = request;
   // A readable part is not the whole scope: anything failed, missing or unread stops Supported.
-  const reading = fits ? wholeScope(request, documents) : null;
+  // A pick read whole is judged one window at a time: the absence holds only when every window
+  // holds it, which its read decides (./wholeRead).
+  const reading = window
+    ? windowScope(window, documents)
+    : fits
+      ? wholeScope(request, documents)
+      : null;
   if (!reading) return notChecked("absence-read-limit");
 
   const readDocuments: ClaimReadDocument[] = [];
@@ -187,9 +231,15 @@ export async function checkAbsence({
     absence = judgment("contradicted", evidence);
   } else return notChecked("malformed");
   const figures = request.figures ?? [];
-  if (figures.length === 0) return absence;
   const absent = typeof value.absent === "string" ? value.absent : null;
-  return absenceFigureResults(request.claim, figures, absence, absent);
+  const result =
+    figures.length === 0 ? absence : absenceFigureResults(request.claim, figures, absence, absent);
+  if (!window) return result;
+  return {
+    ...result,
+    readPassages: window.map((passage) => passage.passageId),
+    ...(value.absence === "holds" && { absenceHeld: true }),
+  };
 }
 
 /**

@@ -250,6 +250,8 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
   coverage?: ClaimPartCoverage;
   /** In a whole-read window: the Passages that reached the model in the request it answered. */
   readPassages?: readonly string[];
+  /** In a whole-read window: the absence the sentence states holds in this window's text. */
+  absenceHeld?: true;
 };
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
@@ -737,7 +739,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const absenceFor = async (
       absence: AbsenceAnswer,
       searched: ClaimCheckResult["verdict"],
-    ): Promise<ClaimCheckResult | null> => {
+    ): Promise<AtomicClaimCheckResult | null> => {
       // A search that found and cited the thing contradicts its absence as any sentence is
       // contradicted: the whole read decides only whether search may say Supported.
       if (searched === "contradicted") return null;

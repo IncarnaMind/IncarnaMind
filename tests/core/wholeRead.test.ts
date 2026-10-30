@@ -20,7 +20,7 @@ import {
   type Plan,
   sentenceOf,
 } from "../helpers/checks";
-import { type SourceFile, setUpWithDocuments } from "../helpers/citations";
+import { type SourceFile, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextEvent } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import type { MindClient } from "../helpers/mindClient";
@@ -1281,5 +1281,131 @@ describe("A whole read the User replaced", () => {
     await older;
 
     expect(await onlyMark(client)).toMatchObject({ request: "ordinary", state: "supported" });
+  });
+});
+
+const ABSENT = [
+  {
+    language: "en" as const,
+    sentence: "The lease has no break clause.",
+    absent: "break clause",
+    line: (page: number, line: number) =>
+      `Page ${page} line ${line} has ordinary lease words on rent and repairs.`,
+    clause: "Either party may end this lease early with three months' notice.",
+  },
+  {
+    language: "zh-CN" as const,
+    sentence: "租约中没有提前解约条款。",
+    absent: "提前解约条款",
+    line: (page: number, line: number) => `第${page}页第${line}行是关于租金和维修的普通条款。`,
+    clause: "任何一方提前三个月通知即可提前解除本租约。",
+  },
+];
+
+describe("Check against a Document, on a sentence that says something is absent", () => {
+  /** A pick of `pages` pages, the clause on `clauseOn` if any, read whole on a cloud model. */
+  async function readAbsence(
+    example: (typeof ABSENT)[number],
+    pages: number,
+    clauseOn: number | null,
+  ) {
+    const calls: ModelCall[] = [];
+    const judged: string[] = [];
+    const plan = { [example.sentence]: { verdict: "unsupported" as const, absence: true } };
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, plan);
+      },
+      {
+        generate: (call) => {
+          if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
+          judged.push(call.prompt);
+          const holding = shownPassages(call.prompt).find((each) =>
+            each.text.includes(example.clause),
+          );
+          return {
+            text: JSON.stringify(
+              holding
+                ? {
+                    absent: example.absent,
+                    absence: "contained",
+                    citations: [{ marker: 1, passage: holding.id, quote: example.clause }],
+                  }
+                : { absent: example.absent, absence: "holds" },
+            ),
+          };
+        },
+      },
+    );
+    const lease = buildPdf(
+      Array.from({ length: pages }, (_, page) => {
+        const lines = Array.from({ length: 30 }, (_, line) =>
+          page + 1 === clauseOn && line === 14 ? example.clause : example.line(page + 1, line + 1),
+        );
+        return example.language === "zh-CN" ? { chineseLines: lines } : { lines };
+      }),
+    );
+    const result = await setUpWithDocuments(model, [{ name: "Lease.pdf", contents: lease }]);
+    const { core, client, mind, documents } = result;
+    await core.updateSettings({ user: { language: example.language } });
+    const block = paragraph(text(example.sentence));
+    writeMind(client, [block]);
+    await client.settled();
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    const input = await readInput(
+      core,
+      mind.id,
+      block,
+      example.sentence,
+      within([documents[0]?.id ?? ""]),
+      undefined,
+      { model: chosen },
+    );
+    const planned = await core.planDocumentCheck({
+      mindId: mind.id,
+      ...whole(block, example.sentence.length),
+      within: within([documents[0]?.id ?? ""]),
+      model: chosen,
+    });
+    if (planned.kind !== "ready" || planned.estimate?.billing !== "per-token") {
+      throw new Error("The read has no per-token estimate.");
+    }
+    await core.checkSentences({ ...input, plan: planned.id });
+    return { check: await onlyMark(client), calls, judged, estimate: planned.estimate.calls };
+  }
+
+  test.each(ABSENT)(
+    "a 60-page pick without it settles the absence as Supported, every page read ($language)",
+    async (example) => {
+      const { check, judged } = await readAbsence(example, 60, null);
+      expect(check).toMatchObject({ action: "check-against-document", state: "supported" });
+      expect(check.read).toEqual({ pages: 60, of: 60 });
+      expect(check.readDocuments?.[0]?.locations.length).toBe(60);
+      expect(judged.length).toBeGreaterThan(0);
+      for (const prompt of judged) expect(prompt).not.toContain(example.clause);
+    },
+  );
+
+  test.each(ABSENT)(
+    "a 60-page pick with it on page 47 is Contradicted, quoting page 47 ($language)",
+    async (example) => {
+      const { check } = await readAbsence(example, 60, 47);
+      expect(check.state).toBe("contradicted");
+      expect(check.evidence).toMatchObject({ quote: example.clause, pageFrom: 47 });
+    },
+  );
+
+  test.each(ABSENT)("a short pick sends what its estimate says ($language)", async (example) => {
+    const { check, calls, judged, estimate } = await readAbsence(example, 12, null);
+    expect(check.state).toBe("supported");
+    expect(calls.length + judged.length).toBe(estimate);
   });
 });

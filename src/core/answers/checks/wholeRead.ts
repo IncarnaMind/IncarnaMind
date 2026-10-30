@@ -8,6 +8,7 @@ import { sameScope } from "../../../shared/searchScope";
 import type {
   ChatModelChoice,
   CheckedVersion,
+  ClaimReadDocument,
   Document,
   DocumentCheckPlan,
   DocumentCheckProgress,
@@ -91,6 +92,19 @@ const coverageOf = (passages: ToRead["passages"], received: ReadonlySet<string>)
 };
 
 const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode"]);
+
+/** The Documents the windows of a read read whole, each once with every Location read. */
+function readDocumentsOf(results: readonly AtomicClaimCheckResult[]): ClaimReadDocument[] {
+  const documents = new Map<string, ClaimReadDocument>();
+  for (const each of results.flatMap((result) => result.readDocuments ?? [])) {
+    const earlier = documents.get(each.documentId);
+    documents.set(
+      each.documentId,
+      earlier ? { ...earlier, locations: [...earlier.locations, ...each.locations] } : each,
+    );
+  }
+  return [...documents.values()];
+}
 
 export function windowTokens(model: Pick<PreparedChatModel, "window"> | null): number {
   const window = model?.window;
@@ -222,6 +236,7 @@ export function createWholeRead(options: WholeReadOptions) {
       let unjudged: AtomicClaimCheckResult | null = null;
       let found: AtomicClaimCheckResult | null = null;
       let last: AtomicClaimCheckResult | null = null;
+      const held: AtomicClaimCheckResult[] = [];
       for (const window of windows) {
         if (!planned()) {
           return dropped({
@@ -239,6 +254,10 @@ export function createWholeRead(options: WholeReadOptions) {
         for (const each of result.excluded) excluded.set(each.documentId, each);
         reading.pages = coverageOf(read.passages, received);
         report();
+        if (result.verdict === "supported" && result.absenceHeld) {
+          held.push(result);
+          continue;
+        }
         if (result.verdict === "supported" || result.verdict === "contradicted") {
           return ended(result, true);
         }
@@ -255,6 +274,20 @@ export function createWholeRead(options: WholeReadOptions) {
           found = result;
         }
         last = result;
+      }
+      const lastHeld = held[held.length - 1];
+      if (lastHeld && held.length === windows.length) {
+        // What a sentence says is absent is absent only when no page of the pick holds it.
+        if (reading.pages !== read.pages) {
+          return ended({
+            verdict: "not-checked",
+            reason: "absence-read-limit",
+            detail: null,
+            versions: [],
+            excluded: [],
+          });
+        }
+        return ended({ ...lastHeld, readDocuments: readDocumentsOf(held) }, true);
       }
       const final = unjudged ?? found ?? last;
       if (!final) throw new Error("A whole read had no window to read.");

@@ -219,8 +219,13 @@ export async function checkSentences(
     part?: { id: string; span: ClaimPartSpan };
   } = {},
 ): Promise<void> {
-  // An older version's mark says "find-support": it is Check against Documents now.
-  const action = asked === "find-support" ? "check-against-documents" : asked;
+  // An older version's mark says "find-support": it is Check against Documents now. A whole
+  // read's action with no pick, as the health line's Check against all Documents sends it, is
+  // the ordinary check.
+  const action =
+    asked === "find-support" || (asked === "check-against-document" && !within)
+      ? "check-against-documents"
+      : asked;
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
   const stretches = (ranges ?? [editor.state.selection]).flatMap((range) => {
     const read = selectionForEdit(editor.state, range);
