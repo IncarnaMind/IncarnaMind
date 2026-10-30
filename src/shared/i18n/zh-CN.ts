@@ -4119,7 +4119,7 @@ export const zhCN = {
   "error.system.full": "磁盘已满。",
   "error.system.diskError": "磁盘无法写入。",
   "error.system.busy": "另一个程序正在使用 IncarnaMind 的数据。",
-  "error.system.fileBusy": "有个文件正被另一个程序打开。",
+  "error.system.fileBusy": "有文件已在另一个程序中打开，请先关闭它再重试。",
   "error.system.gone": "这个文件或文件夹已不存在。",
   "error.system.nameTooLong": "文件名太长，文件系统无法使用。",
   "error.system.exists": "已有同名的文件或文件夹。",

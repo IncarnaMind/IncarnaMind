@@ -272,11 +272,19 @@ describe("A model no list names, or one in a flow no list admits it to", {
     await answerEnded(fixing.core, turn.answerId);
 
     const claiming = "I've added the summary to the note.";
+    // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
+    const kinds = ["made", "added", "changed", "removed"] as const;
     const reasked = scriptedModel(
       (call: ModelCall): ScriptedReply => ({
         text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
       }),
-      { generate: (call) => claimCheckReply(call, [{ sentence: claiming, kind: "added" }]) },
+      {
+        generate: (call) =>
+          claimCheckReply(
+            call,
+            kinds.map((kind) => ({ sentence: claiming, kind })),
+          ),
+      },
     );
     const asking = await setUpWithDocuments(reasked, [TIDES]);
     const claimed = await asking.core.askInConversation({

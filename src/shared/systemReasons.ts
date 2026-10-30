@@ -5,7 +5,6 @@
  */
 import type { MessageKey } from "./i18n";
 
-/** Why a file couldn't be written, in a few words: a key, and the file the system's text names. */
 export interface SaveReason {
   key: MessageKey;
   values?: Readonly<Record<string, string>>;
@@ -17,14 +16,13 @@ interface SystemFailure {
   sentence: MessageKey;
   /** What a save's line says after "Couldn't save:". */
   reason: MessageKey;
-  /** Whether `reason` names the file the system's text names; `unnamed` says it when there is none. */
   namesFile?: boolean;
   unnamed?: MessageKey;
 }
 
 const SYSTEM_FAILURES: readonly SystemFailure[] = [
   {
-    match: /\b(EACCES|EPERM|EROFS)\b/,
+    match: /^E(?:ACCES|PERM|ROFS):/,
     sentence: "error.system.notAllowed",
     reason: "export.failed.readOnly",
   },
@@ -34,12 +32,12 @@ const SYSTEM_FAILURES: readonly SystemFailure[] = [
     reason: "export.failed.dataNotWritable",
   },
   {
-    match: /\b(ENOSPC|EDQUOT)\b|database or disk is full/,
+    match: /^E(?:NOSPC|DQUOT):|database or disk is full/,
     sentence: "error.system.full",
     reason: "export.failed.full",
   },
   {
-    match: /\bEIO\b|disk I\/O error/,
+    match: /^EIO:|disk I\/O error/,
     sentence: "error.system.diskError",
     reason: "export.failed.diskError",
   },
@@ -49,44 +47,44 @@ const SYSTEM_FAILURES: readonly SystemFailure[] = [
     reason: "export.failed.busy",
   },
   {
-    match: /\bEBUSY\b/,
+    match: /^EBUSY:/,
     sentence: "error.system.fileBusy",
     reason: "export.failed.fileBusy",
     namesFile: true,
     unnamed: "export.failed.fileBusyUnnamed",
   },
   {
-    match: /\b(ENOENT|ENOTDIR)\b/,
+    match: /^E(?:NOENT|NOTDIR):/,
     sentence: "error.system.gone",
     reason: "export.failed.gone",
   },
   {
-    match: /\bENAMETOOLONG\b/,
+    match: /^ENAMETOOLONG:/,
     sentence: "error.system.nameTooLong",
     reason: "export.failed.nameTooLong",
   },
   {
-    match: /\bEEXIST\b/,
+    match: /^EEXIST:/,
     sentence: "error.system.exists",
     reason: "export.failed.exists",
   },
   {
-    match: /\bEISDIR\b/,
+    match: /^EISDIR:/,
     sentence: "error.system.isFolder",
     reason: "export.failed.isFolder",
   },
   {
-    match: /\b(EMFILE|ENFILE)\b/,
+    match: /^E(?:MFILE|NFILE):/,
     sentence: "error.system.tooManyFiles",
     reason: "export.failed.tooManyFiles",
   },
   {
-    match: /\bEXDEV\b/,
+    match: /^EXDEV:/,
     sentence: "error.system.otherDevice",
     reason: "export.failed.otherDevice",
   },
   {
-    match: /\bEFBIG\b/,
+    match: /^EFBIG:/,
     sentence: "error.system.tooBig",
     reason: "export.failed.tooBig",
   },
@@ -117,7 +115,11 @@ const fileIn = (text: string): string | null => {
   const target = (arrow >= 0 ? text.slice(arrow + 4) : text).trim();
   const quoted = /(['"])([\s\S]*)\1/.exec(target);
   const path = quoted?.[2]?.trim();
-  const name = path?.split(/[\\/]/).pop()?.trim();
+  if (!path) return null;
+  const name = path
+    .split(path.startsWith("/") ? "/" : /[\\/]/)
+    .pop()
+    ?.trim();
   return name ? name : null;
 };
 
