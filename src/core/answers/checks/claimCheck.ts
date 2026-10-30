@@ -1021,9 +1021,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let verdict =
       readVerdict(reply) ??
       (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
-    const checked = request.figures?.length
-      ? []
-      : calculated(request.claim, figures, stated, figureContext);
+    const checked =
+      request.figures?.length || confirmationFailure || invalidInput || pending.size > 0
+        ? []
+        : calculated(request.claim, figures, stated, figureContext);
     const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
     const replies = readAttributionReply(reply, request.originalClaim ?? request.claim, facetPlans);
     const evidenceVerdict = request.figures?.length ? readVerdict(verdictText) : verdict;
@@ -1406,7 +1407,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         const evidence =
           cited ??
-          (verdict.verdict === "contradicted" && missing.length === 0
+          (verdict.verdict === "contradicted"
             ? await askForEvidence(request, verdict, session, signal)
             : null);
         if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);

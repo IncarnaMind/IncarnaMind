@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { markedSentences } from "../../src/core/answers/checks/sentences";
+import { requestedFigures } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 
 const CASES = [
@@ -209,3 +212,147 @@ describe.each(CASES)("$language same-Run declared Citation repair", (row) => {
     },
   );
 });
+
+test.each([
+  {
+    language: "en",
+    name: "Agreement",
+    qualifier: "According to Agreement",
+    fact: "the Company pays the Employee rent of 950 per month.",
+    identity: "This is the Agreement.",
+    quote: "The Employee pays the Company rent of 950 per month.",
+    number: "950",
+    separator: ", ",
+  },
+  {
+    language: "zh-CN",
+    name: "劳动合同",
+    qualifier: "据劳动合同",
+    fact: "甲方每月向乙方支付租金1500元。",
+    identity: "这是一份劳动合同。",
+    quote: "乙方每月向甲方支付租金1500元。",
+    number: "1500元",
+    separator: "，",
+  },
+] as const)(
+  "$language a recovered facet marker does not suppress the native sentence's own legacy quote",
+  async (row) => {
+    const claim = `${row.qualifier}${row.separator}${row.fact}`;
+    const repairs: GenerateCall[] = [];
+    const comparisons: GenerateCall[] = [];
+    const nativeIds = new Set<string>();
+    const model = scriptedModel(
+      (call) => {
+        if (!call.results.some((result) => result.tool === "search_documents"))
+          return {
+            text: `Parts: ${JSON.stringify([
+              { kind: "fact", text: row.qualifier, facet: { kind: "source" } },
+              { kind: "fact", text: row.fact },
+            ])}`,
+            calls: [{ tool: "search_documents", input: { query: row.quote } }],
+          };
+        const figures = requestedFigures(call);
+        for (const figure of figures) nativeIds.add(figure.id);
+        return {
+          text: [
+            "Verdict: contradicted",
+            "Absence: no",
+            "Scope: none, same",
+            "Topic: found",
+            "Roles: payer and payee are reversed, differs",
+            `${row.quote} [^1]`,
+            `Figures: ${JSON.stringify({
+              items: figures.map((figure) => ({
+                id: figure.id,
+                verdict: "contradicted",
+                scope: "same",
+                topic: "found",
+                roles: "differs",
+                says: null,
+                reading: figure.reading,
+                relation: "equals",
+                source: { citation: 1, number: row.number },
+                calculation: null,
+              })),
+              remainder: null,
+            })}`,
+            `Facets: ${JSON.stringify({
+              items: [
+                {
+                  text: row.qualifier,
+                  kind: "source",
+                  sourceName: row.name,
+                  occurrence: 1,
+                  verdict: "supported",
+                  scope: "same",
+                  topic: "found",
+                  roles: "same",
+                  says: null,
+                  evidence: [7],
+                },
+              ],
+            })}`,
+          ].join("\n"),
+        };
+      },
+      {
+        generate(call) {
+          if (call.system.startsWith("Compare a sentence")) {
+            comparisons.push(call);
+            return { text: "conflict" };
+          }
+          if (!call.system.startsWith("You checked a sentence"))
+            throw new Error("The native fixture received an unexpected provider request.");
+          repairs.push(call);
+          const labelled = call.prompt.includes("Missing Citation markers: [7]");
+          const quote = labelled ? row.identity : row.quote;
+          const passage = [
+            ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
+          ].find((each) => each[2]?.includes(quote));
+          if (!passage?.[1]) throw new Error("The native repair did not receive its own quote.");
+          const record = { passage: passage[1], quote };
+          return {
+            text: JSON.stringify(labelled ? { citations: [{ marker: 7, ...record }] } : record),
+          };
+        },
+      },
+    );
+    const { core, client, mind } = await setUpWithDocuments(model, [], {
+      now: manualClock("2026-10-29T12:00:00.000Z").now,
+    });
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, automatic: false });
+    const folder = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(folder, `${row.name}.md`, `${row.identity}\n\n${row.quote}\n`),
+    ]);
+    await core.updateSettings({ user: { language: row.language } });
+    const blockId = "native-marker-roles";
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: blockId }, content: [{ type: "text", text: claim }] },
+    ]);
+    await client.settled();
+    await core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-documents",
+      from: { blockId, offset: 0 },
+      to: { blockId, offset: claim.length },
+    });
+    await client.settled();
+    const owner = markedSentences(client.blocks)[0]?.check;
+    expect(nativeIds.size).toBe(1);
+    expect(owner?.parts?.find((part) => part.facet)?.evidence[0]).toMatchObject({
+      quote: row.identity,
+      check: "found",
+    });
+    expect(owner?.parts?.find((part) => !part.facet)?.verdict).toBe("contradicted");
+    expect(owner?.state).toBe("contradicted");
+    expect(repairs).toHaveLength(2);
+    expect(repairs.map((call) => call.prompt.includes("Missing Citation markers:"))).toEqual([
+      true,
+      false,
+    ]);
+    expect(comparisons).toHaveLength(2);
+  },
+);
