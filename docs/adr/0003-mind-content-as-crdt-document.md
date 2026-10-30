@@ -143,3 +143,10 @@ A comparison table has a **title** of its own, its name in the title line and th
 
 - **Content schema version 33** adds `title` on the table node: at most 120 characters on one line, the User's name for it, kept with the Note and copied with it. An older version's editor writes the table back without it when it changes the table, so it opens these Notes read-only. Older content is version 33 content as it is.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a comparison cell records a hand edit and its refill (2026-10-29, #1836)
+
+A comparison cell says when the User changed its Answer by hand, and which refill may write it, so a refill never writes over a newer edit or a newer refill. People's "Checked by me" marks on cells are records in the Note's sign-off map, as for Citations and figures (#1933): a change to the cell's Answer, or a newer version of the Document it cites, shows a mark as checked before it changed, and the mark is never taken off by the change.
+
+- **Content schema version 34** adds `edited` (the User changed the Answer by hand) and `fillId` (the refill pass allowed to write the cell) on the cell node, and sign-off records of kind `cell`, by table, Document and Question. An older version's editor writes the cell back without the two attributes when it changes it, so it opens these Notes read-only. Older content is version 34 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

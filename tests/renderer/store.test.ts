@@ -12,6 +12,7 @@ import {
   type WindowLayout,
 } from "../../src/core/api";
 import type { Translate } from "../../src/renderer/src/objects";
+import { translate } from "../../src/shared/i18n";
 import { isFreed } from "../helpers/freed";
 import { undoLines } from "../helpers/undoLines";
 
@@ -102,17 +103,18 @@ const movedDocument = (
   };
 };
 
+const researchGroup = (keepInside = false) => ({
+  id: "g",
+  name: "Research",
+  description: "",
+  countsOwnFiles: false,
+  keepInside,
+  createdAt: "",
+  updatedAt: "",
+});
+
 const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
-  groups: [
-    {
-      id: "g",
-      name: "Research",
-      description: "",
-      countsOwnFiles: false,
-      createdAt: "",
-      updatedAt: "",
-    },
-  ],
+  groups: [researchGroup()],
   deletedGroups: [],
   assignments,
   settings: {
@@ -327,6 +329,94 @@ describe("changes the User can take back", () => {
   });
 
   const top = () => useUndo.getState().done.at(-1);
+
+  test("a Folder wall is undone and redone with its other fields intact", async () => {
+    const group = researchGroup(false);
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: true });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    expect(said(top())).toBe("“Research” now keeps its work inside it");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已开启“Research”只在本文件夹内工作",
+    );
+
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [{ ...group, keepInside: true }] },
+    });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: false });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: false,
+    });
+    expect(said(top())).toBe("“Research” no longer keeps its work inside it");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已关闭“Research”只在本文件夹内工作",
+    );
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("updateLibraryGroup").mockResolvedValue({ ...group, keepInside: true });
+    await useAppStore.getState().editFolder("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+    await useUndo.getState().undo();
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: false,
+    });
+    await useUndo.getState().redo();
+    expect(method("updateLibraryGroup")).toHaveBeenLastCalledWith("g", {
+      name: group.name,
+      description: group.description,
+      countsOwnFiles: group.countsOwnFiles,
+      keepInside: true,
+    });
+  });
+
+  test("moving out of a walled Folder says what changed", async () => {
+    const group = researchGroup(true);
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("moveToFolder").mockResolvedValue({
+      folderId: null,
+      minds: [],
+      documents: [movedDocument("a", "g", filed, null)],
+      conversations: [],
+    });
+    await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+  });
+
+  test("making a Folder with an item from a walled Folder says it moved out", async () => {
+    const group = researchGroup(true);
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("createLibraryGroup").mockResolvedValue({ ...researchGroup(), id: "n", name: "New" });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "n",
+      minds: [],
+      documents: [movedDocument("a", "g", filed, "n")],
+      conversations: [],
+    });
+    await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
+    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+  });
 
   test("a rename says so, is undone by the old name and done again by the new", async () => {
     method("renameMind").mockResolvedValue({ ...mind, title: "Budget" });
@@ -807,6 +897,7 @@ describe("making a Folder", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };
@@ -1294,6 +1385,7 @@ describe("an undo line keeps only what it shows", () => {
     name: "Untitled Folder",
     description: "",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   };

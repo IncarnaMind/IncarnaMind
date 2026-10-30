@@ -14,7 +14,7 @@ import { useAppStore } from "../../store";
 import { taskOffers } from "../../taskActions";
 import { needsYou } from "../../taskGroups";
 import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tasks";
-import { stepLine, taskName } from "../../taskText";
+import { failedLine, stepLine, taskName } from "../../taskText";
 import { CheckLineIcon } from "../lineIcons";
 import { MetaLine } from "../MetaLine";
 
@@ -44,7 +44,7 @@ function useMinutes(since: string, until: string | null): number {
 function headLine(task: Task, minutes: number, t: Translate): string[] {
   const time = t("task.minutes", { count: minutes });
   if (task.status === "done") return [t("task.progress.doneIn", { time })];
-  if (task.status === "failed") return [t("task.status.failed")];
+  if (task.status === "failed") return [failedLine(task, t)];
   if (task.status === "stopped") return [t("task.status.stopped")];
   const progress = task.progress;
   if (!progress || progress.total === 0) return [time];

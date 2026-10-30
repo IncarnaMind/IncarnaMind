@@ -16,6 +16,7 @@ import {
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
@@ -203,7 +204,11 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const { core } = await startWithExamples();
     const made = await core.offerExamples();
     const mindId = made?.mindId as string;
-    expect((await core.readyQuestion())?.question).toBe("What leverage does the agreement allow?");
+    await vi.waitFor(async () =>
+      expect((await core.readyQuestion())?.question).toBe(
+        "What leverage does the agreement allow?",
+      ),
+    );
     const answerEvents = vi.fn();
     core.on("answer.started", answerEvents);
     core.on("answer.finished", answerEvents);
@@ -289,7 +294,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     const core = startCore(await createTempDataFolder());
     expect(await core.readyQuestion()).toBeNull();
     await expect(core.askExampleReadyQuestion()).rejects.toThrow(
-      "The example’s Documents are still being read. Try again in a moment.",
+      "The example isn’t there any more. Add a file of your own to ask about it.",
     );
     expect(await core.listConversations()).toEqual([]);
   });
@@ -498,13 +503,14 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     );
     for (const citation of after) {
       expect(
-        (
+        checkedResult(
           await core.recheckCitation({
+            mindId: null,
             documentId: citation.documentId,
             pageFrom: citation.pageFrom,
             pageTo: citation.pageTo,
             quote: citation.quote,
-          })
+          }),
         ).check,
       ).toBe("found");
     }

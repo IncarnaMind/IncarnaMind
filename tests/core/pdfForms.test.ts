@@ -87,11 +87,18 @@ test.each([false, true])(
     for (const quote of expected) {
       expect(text).toContain(quote);
       expect(
-        await core.recheckCitation({ documentId: document.id, pageFrom: 1, pageTo: 1, quote }),
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          pageFrom: 1,
+          pageTo: 1,
+          quote,
+        }),
       ).toMatchObject({ check: "found" });
     }
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: document.id,
         pageFrom: 1,
         pageTo: 1,
@@ -172,6 +179,7 @@ test("a raster copy of the filled form goes through page rendering and the OCR i
   );
   expect(
     await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       pageFrom: 1,
       pageTo: 1,
@@ -379,6 +387,7 @@ test("reading a scanned template preserves widgets and anchors, including kept p
   expect(field?.quad).toHaveLength(8);
   expect(
     await core.recheckCitation({
+      mindId: null,
       documentId: document.id,
       pageFrom: 1,
       pageTo: 1,

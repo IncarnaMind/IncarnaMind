@@ -13,6 +13,7 @@ import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
 import { openDatabase } from "../../src/core/storage";
 import { cellNumber } from "../../src/shared/units";
+import { checkedResult } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
@@ -175,7 +176,7 @@ describe("through the core", { timeout: 30_000 }, () => {
       await writeSourceFile(sources, "Revenue.csv", "Item,Share\nWest,4.2%\n"),
     ])) as [Document, Document];
     const quote = { documentId: book.id, quote: "West £350,200 4.2%", pageFrom: 1, pageTo: 1 };
-    const checked = await first.recheckCitation(quote);
+    const checked = checkedResult(await first.recheckCitation({ ...quote, mindId: null }));
     expect(checked.check).toBe("found");
     first.close();
 
@@ -217,7 +218,7 @@ describe("through the core", { timeout: 30_000 }, () => {
 
     expect(second.readCellNumber(book.id, "Revenue", "C2")).toBe(0.04213);
     // The Passages are built again, so the Citation's Passage is a new one.
-    expect(await second.recheckCitation(quote)).toEqual({
+    expect(checkedResult(await second.recheckCitation({ ...quote, mindId: null }))).toEqual({
       ...checked,
       passageId: expect.any(String),
     });

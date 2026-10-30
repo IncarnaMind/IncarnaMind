@@ -10,7 +10,7 @@ import type {
   ChatModelChoice,
   ComparisonFillRequest,
   ComparisonResult,
-  ComparisonTableRef,
+  ComparisonStopRequest,
   Document,
   RunEstimate,
 } from "../../core/api";
@@ -246,7 +246,7 @@ export async function fillComparisonTable(ref: ComparisonFillRequest): Promise<v
   }
 }
 
-export function stopComparisonTable(ref: ComparisonTableRef): void {
+export function stopComparisonTable(ref: ComparisonStopRequest): void {
   core.stopComparisonTable(ref).catch(report);
 }
 

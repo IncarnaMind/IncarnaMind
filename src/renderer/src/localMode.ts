@@ -1,3 +1,4 @@
+import { modelName } from "../../shared/modelName";
 import { core } from "./core";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
@@ -38,7 +39,7 @@ export async function localModeChosen(
   useAppStore.setState({ embedding });
   if (embedding.localOnly === wasOn) return;
   const now = embedding.localOnly;
-  const using = now ? model : undefined;
+  const using = now && model ? modelName(model, { kind: "ollama" }) : undefined;
   useUndo.getState().push({
     said: (t) =>
       using

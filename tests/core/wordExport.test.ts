@@ -6,7 +6,7 @@
  * styles, lists and footnotes, and what can't be kept is said before anything
  * is saved.
  */
-import { readdir, writeFile } from "node:fs/promises";
+import { readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
@@ -19,11 +19,17 @@ import {
   WORD_ATOM_NODE,
 } from "../../src/core";
 import { elements, parseXml, type XmlElement } from "../../src/core/documents/formats/xml";
+import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { quitCopyOptions } from "../../src/shared/exportOptions";
+import { translate } from "../../src/shared/i18n";
 import { setMindScope } from "../../src/shared/mindScope";
 import { recordProposalRequest } from "../../src/shared/proposals";
 import { folderScope } from "../../src/shared/searchScope";
-import { wordFileOf, wordImportProgressOf } from "../../src/shared/wordFiles";
+import {
+  recordWordImportProgress,
+  wordFileOf,
+  wordImportProgressOf,
+} from "../../src/shared/wordFiles";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { acceptedParagraphs, textOf, unzip } from "../helpers/docx";
@@ -206,6 +212,37 @@ describe("what the Mind didn't change", () => {
       expect(document).toContain(`<w:sectPr>${sectPr}</w:sectPr>`);
     },
   );
+});
+
+describe("an export that can't be saved", () => {
+  test("says why in the interface language, whatever the file's trouble", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const { mindId, client } = await importFile(core, wordFile({ body: paragraph("Text.") }));
+
+    recordWordImportProgress(client.doc, 0, 1);
+    await client.settled();
+    await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
+      message:
+        "This note is still being imported from its Word file. Try again when the import finishes.",
+      wording: { key: "error.export.wordImporting" },
+    });
+
+    recordWordImportProgress(client.doc, 1, 1);
+    await client.settled();
+    for (const name of await readdir(join(dataDir, WORD_PACKAGES_FOLDER))) {
+      await rm(join(dataDir, WORD_PACKAGES_FOLDER, name));
+    }
+    await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
+      message:
+        "The Word file this note was imported from is missing from IncarnaMind’s data folder. Export in another format instead.",
+      wording: { key: "error.export.wordPackageMissing" },
+    });
+
+    expect(translate("en", "error.export.wordPackageMissing")).toContain("note");
+    expect(translate("zh-CN", "error.export.wordImporting")).toContain("笔记");
+    expect(translate("zh-CN", "error.export.wordPackageMissing")).toContain("笔记");
+  });
 });
 
 describe("an edited paragraph", () => {
@@ -892,8 +929,18 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
         body: paragraph("Margins widened in 2026.") + paragraph("Costs fell in 2025."),
       });
       await core.updateSettings({ user: { language } });
-      const okoro = await core.saveTextAsDocument({ name: "Okoro agreement", text: "Notice." });
-      const adeyemi = await core.saveTextAsDocument({ name: "Adeyemi agreement", text: "Leave." });
+      const okoro = await core.saveTextAsDocument({
+        mindId: null,
+        conversationId: null,
+        name: "Okoro agreement",
+        text: "Notice.",
+      });
+      const adeyemi = await core.saveTextAsDocument({
+        mindId: null,
+        conversationId: null,
+        name: "Adeyemi agreement",
+        text: "Leave.",
+      });
       const scopeOf = (documentIds: string[]) => ({ folderIds: [], tagIds: [], documentIds });
       const inScope = (value: string, documentIds: string[]) => {
         const marked = checked(value, "unsupported", null);

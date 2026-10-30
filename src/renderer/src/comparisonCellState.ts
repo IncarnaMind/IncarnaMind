@@ -37,9 +37,15 @@ interface ComparisonCellState {
 
 const keyOf = (ref: CellRef) => comparisonCellKey(ref.tableId, ref.documentId, ref.questionId);
 
+/** Brings the focus back to a cell a frame later, unless the User is typing in it by then. */
 function focus(ref: CellRef | null): void {
   if (!ref) return;
-  requestAnimationFrame(() => comparisonCellHandles.get(keyOf(ref))?.anchor.focus());
+  requestAnimationFrame(() => {
+    const anchor = comparisonCellHandles.get(keyOf(ref))?.anchor;
+    const active = document.activeElement;
+    if (!anchor || (active instanceof HTMLInputElement && anchor.contains(active))) return;
+    anchor.focus();
+  });
 }
 
 export const useComparisonCells = create<ComparisonCellState>()((set, get) => ({

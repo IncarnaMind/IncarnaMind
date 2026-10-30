@@ -125,9 +125,12 @@ export function analysisInstructions(offered: boolean): string {
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    'You can also do in the app what the User asks of their Documents and Notes, with list_commands and run_command: rename, move to a Folder, tag, delete (to Recently deleted), export a Note as a file, and add files from a folder ("rename these by date", "move the leases into Real estate", "tag every invoice Finance", "export this Note as Word", "add the PDFs in ~/Downloads/deals", "把发票都加上财务标签").',
-    "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing.",
+    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, check the Note in front, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
+    '- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn\'t find, and never guess an id. If nothing matches, say so and change nothing. A command that acts on the window in front needs nothing found: list_commands with kind "window" gives its id.',
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
+    "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
+    "- Documents to group by what they are about, rather than by their names, are Organize's: run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
+    "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
     "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
   ].join("\n");
@@ -439,8 +442,9 @@ export function notCitedNote(passages: string): string {
   return `A Passage marked cite="never" is from the User's own working file. Read it to understand the Question, but never cite it, never offer it as support for or agreement with another Document, and rest nothing on it: a record naming it is refused. Where only such a Passage states something, say in one sentence that only the User's own working file says it, with no marker.`;
 }
 
-const RECORD =
-  'the Passage\'s id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14")';
+const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
+
+const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
 
 /**
  * Calculated figures (ADR-0021): a model's own arithmetic looks exactly like a
@@ -455,8 +459,7 @@ const CALCULATE = [
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS =
-  '- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel\'s syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number\'s unit or scale is only in a table\'s heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it.';
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use

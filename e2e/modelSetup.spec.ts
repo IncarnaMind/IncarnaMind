@@ -456,8 +456,8 @@ function paints(window: Page, count = 15): Promise<void> {
 
 // A model on this computer and a cloud model Ollama forwards to ollama.com, on one server.
 const OLLAMA_MODELS = [
-  { modelId: "qwen3.5:4b", cloud: false },
-  { modelId: "gpt-oss:120b-cloud", cloud: true },
+  { modelId: "qwen3.5:4b", shown: "Qwen 3.5 4B", cloud: false },
+  { modelId: "gpt-oss:120b-cloud", shown: "gpt-oss:120b-cloud", cloud: true },
 ] as const;
 
 /** Saves `modelId` on the saved Ollama server for sorting, as the Other model form does. */
@@ -785,7 +785,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(settled.later).toEqual(opened.later);
       // The words were there from the first paint, and only the list changed under them.
       expect(opened.line).toContain(
-        translate(language, "setup.sorting.chat", { model: "qwen3.5:4b" }),
+        translate(language, "setup.sorting.chat", { model: "Qwen 3.5 4B" }),
       );
       expect(opened.line).toContain(translate(language, "setup.sorting.chat.hints"));
       expect(settled.line).toBe(opened.line);
@@ -1613,7 +1613,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  for (const { modelId, cloud } of OLLAMA_MODELS) {
+  for (const { modelId, shown, cloud } of OLLAMA_MODELS) {
     for (const chatDefault of ["the same", "another"] as const) {
       test(`a sorting choice on ${modelId}, ${cloud ? "a cloud model" : "a model on this computer"} of one Ollama server, with ${chatDefault} chat default, says what the core says of where it goes (${language})`, async () => {
         const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -1650,12 +1650,12 @@ for (const language of ["en", "zh-CN"] as const) {
               translate(language, "setup.sorting.sends", { service: told.answer.service.name }),
             );
             expect(words).not.toContain(
-              translate(language, "setup.sorting.chatHere", { model: modelId }),
+              translate(language, "setup.sorting.chatHere", { model: shown }),
             );
           } else {
             expect(told.answer?.kind).toBe("here");
             expect(words).toContain(
-              translate(language, "setup.sorting.chatHere", { model: modelId }),
+              translate(language, "setup.sorting.chatHere", { model: shown }),
             );
             expect(words).not.toContain(
               translate(language, "setup.sorting.sends", { service: "" }),
