@@ -108,15 +108,16 @@ export function useTabStripFit(
       }, WHEEL_QUIET_MS);
     };
     // Scrolls that aren't the wheel's (a focus, a script, a screen reader) settle on whole tabs
-    // too, keeping whole the tab they brought into view: settled by the nearest start alone it
-    // could end as the faded part of a name, and the cut's change of width would bring the shown
-    // tab back over it. The strip follows the shown tab again only if it is still in view.
+    // too, keeping whole the tab most in view: settled by the nearest start alone it could end as
+    // the faded part of a name, and the cut's change of width would bring the shown tab back over
+    // it. The strip follows the shown tab again only while it is in view.
     const onScrollEnd = () => {
       if (wheelTimer !== undefined) return;
       const view = element.getBoundingClientRect();
+      const tabs = Array.from(element.querySelectorAll(':scope > [role="tab"]'));
       let keep = -1;
       let most = 0;
-      element.querySelectorAll(':scope > [role="tab"]').forEach((tab, index) => {
+      tabs.forEach((tab, index) => {
         const at = tab.getBoundingClientRect();
         const seen = Math.min(at.right, view.right) - Math.max(at.left, view.left);
         if (seen > most + 0.5) {

@@ -130,7 +130,9 @@ function problemsOf(window: Page, shownInView: boolean): Promise<string[]> {
           needAfter = Math.max(fade, text.left - box.left + seen);
         if (inside) {
           whole++;
-          wholeWidth += box.width;
+          // A shown tab counts at its least width: it narrows to make the room (#2244).
+          const shownNow = tab.getAttribute("aria-selected") === "true";
+          wholeWidth += shownNow ? Math.min(box.width, 132) : box.width;
         }
         if (tab.getAttribute("aria-selected") === "true") {
           shown++;
