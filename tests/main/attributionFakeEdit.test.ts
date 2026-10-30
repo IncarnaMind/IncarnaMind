@@ -57,15 +57,23 @@ function checkPrompt(
 test.each(Object.entries(ATTRIBUTION_SMOKE))(
   "%s Source fixture preserves both physical and ordinary receipt markers",
   (_language, row) => {
-    const passage = row.wrong
-      .replace(row.wrongWords, `${row.wrongWords} [2]`)
-      .replace(/([.。])$/, "[1]$1");
-    const result = attributionEdit(
-      passage,
-      `Change only the attribution to ${JSON.stringify(row.actualName)}, keeping every factual claim unchanged.`,
-    );
-    expect(result?.replace(/\s*\[\d+\]/g, "")).toBe(row.corrected);
-    expect(result?.match(/\[\d+\]/g)).toEqual(["[2]", "[1]"]);
+    const instruction = `Change only the attribution to ${JSON.stringify(row.actualName)}, keeping every factual claim unchanged.`;
+    for (const markers of [
+      ["[2]", "[1]"],
+      ["[1]", "[2]"],
+    ]) {
+      const passage = row.wrong
+        .replace(row.wrongWords, `${row.wrongWords} ${markers[0]}`)
+        .replace(/([.。])$/, `${markers[1]}$1`);
+      const result = attributionEdit(passage, instruction);
+      expect(result?.replace(/\[\d+\]/g, "")).toBe(row.corrected);
+      expect(result?.match(/\[\d+\]/g)).toEqual(markers);
+    }
+    expect(attributionEdit(row.wrong, instruction)).toBe(row.corrected);
+    expect(
+      attributionEdit(row.wrong.replace(row.wrongFact, row.sourceFact), instruction),
+    ).toBeNull();
+    expect(attributionEdit(`${row.wrong} ${row.sourceFact}`, instruction)).toBeNull();
   },
 );
 
@@ -181,7 +189,7 @@ test.each(Object.entries(ATTRIBUTION_SMOKE))(
       ]);
       if (!reply) throw new Error("The complete correction request was not recognized.");
       const text = readEditReply(reply.text, passage);
-      expect(text.replace(/\s*\[\d+\]/g, "")).toBe(sample.expected);
+      expect(text.replace(/\[\d+\]/g, "")).toBe(sample.expected);
       expect(text.match(/\[\d+\]/g)).toEqual(["[2]", "[1]"]);
     }
   },

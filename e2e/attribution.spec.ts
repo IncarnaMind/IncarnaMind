@@ -86,7 +86,12 @@ async function noteText(window: Page): Promise<string> {
 
 function citationsIn(node: JSONContent): Partial<CitationAttributes>[] {
   return node.type === "citation" && node.attrs
-    ? [citationAttributesOf(node.attrs)]
+    ? [
+        {
+          ...citationAttributesOf(node.attrs),
+          id: typeof node.attrs.id === "string" ? node.attrs.id : null,
+        },
+      ]
     : (node.content ?? []).flatMap(citationsIn);
 }
 

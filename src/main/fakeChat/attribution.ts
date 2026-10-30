@@ -303,10 +303,10 @@ export function attributionConfirm(options: GenerateOptions): string | null {
 export function attributionEdit(passage: string, instruction: string): string | null {
   for (const row of Object.values(ATTRIBUTION_SMOKE)) {
     if (
-      passage.includes(row.wrongWords) &&
+      passage.replace(/\s*\[\d+\]/g, "") === row.wrong &&
       instruction.includes(`Change only the attribution to ${JSON.stringify(row.actualName)}`)
     )
-      return passage.replace(row.wrongWords, row.correctedWords);
+      return `${row.corrected}${(passage.match(/\[\d+\]/g) ?? []).join("")}`;
     if (
       passage.replace(/\s*\[\d+\]/g, "") === row.stale &&
       instruction.includes("Anchor the sentence to March 2023")
