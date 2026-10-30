@@ -217,6 +217,101 @@ function boundary(text: string, at: number): boolean {
 }
 
 /**
+ * How much of one sentence's check a Note stores (#2220): its parts, the receipts of each, the
+ * members of a quantified part, and the length of each quote. A check past a count keeps what is
+ * there as a reference — the row, its Document and place, its result, and the first words of its
+ * quote — so a card, the check record and Undo still list every part and receipt, and the rest of
+ * the words stay the Document's, at the place the receipt names.
+ */
+export const CHECK_PARTS_AT_MOST = 8;
+export const CHECK_RECEIPTS_AT_MOST = 4;
+export const CHECK_MEMBERS_AT_MOST = 12;
+export const CHECK_QUOTE_CHARS_AT_MOST = 200;
+/** The words a receipt kept as a reference names itself by; the rest is the Document's. */
+export const CHECK_REFERENCE_QUOTE_CHARS = 80;
+
+/** `quote` cut to at most `chars`, at a word boundary when one is near it, with an ellipsis. */
+function cutQuote(quote: string, chars: number): string {
+  if (quote.length <= chars) return quote;
+  let end = chars - 1;
+  if (!boundary(quote, end)) end -= 1;
+  const space = Math.max(
+    quote.lastIndexOf(" ", end),
+    quote.lastIndexOf("\t", end),
+    quote.lastIndexOf("\n", end),
+  );
+  if (space > end - 32) end = space;
+  return `${quote.slice(0, end).trimEnd()}…`;
+}
+
+const withQuote = (citation: CitationAttributes, chars: number): CitationAttributes =>
+  citation.quote === null ? citation : { ...citation, quote: cutQuote(citation.quote, chars) };
+
+/**
+ * `parts` as a check stores them: a part past the parts bound, a receipt past its part's receipts
+ * bound, and a member past the members bound keep a reference quote instead of the whole copy.
+ * Idempotent, so a check kept as the User's view is stored as it was.
+ */
+export function boundedCheckParts(parts: readonly ClaimCheckPart[]): ClaimCheckPart[] {
+  return parts.map((part, index) => {
+    const pastParts = index >= CHECK_PARTS_AT_MOST;
+    const receipt = (citation: CitationAttributes, at: number): CitationAttributes =>
+      withQuote(
+        citation,
+        !pastParts && at < CHECK_RECEIPTS_AT_MOST
+          ? CHECK_QUOTE_CHARS_AT_MOST
+          : CHECK_REFERENCE_QUOTE_CHARS,
+      );
+    return {
+      ...part,
+      evidence: part.evidence.map(receipt),
+      ...(part.unsupported?.quoted && {
+        unsupported: {
+          ...part.unsupported,
+          quoted: withQuote(part.unsupported.quoted, CHECK_QUOTE_CHARS_AT_MOST),
+        },
+      }),
+      ...(part.coverage && {
+        coverage: {
+          ...part.coverage,
+          domainEvidence: part.coverage.domainEvidence.map(receipt),
+          members: part.coverage.members.map((member, memberIndex) => {
+            const kept = !pastParts && memberIndex < CHECK_MEMBERS_AT_MOST;
+            return {
+              ...member,
+              evidence: member.evidence.map((citation, at) =>
+                withQuote(
+                  citation,
+                  kept && at < CHECK_RECEIPTS_AT_MOST
+                    ? CHECK_QUOTE_CHARS_AT_MOST
+                    : CHECK_REFERENCE_QUOTE_CHARS,
+                ),
+              ),
+            };
+          }),
+        },
+      }),
+    };
+  });
+}
+
+/** A mark without parts, with its quote bounded as `boundedCheckParts` bounds a part's. */
+export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
+  return {
+    ...check,
+    ...(check.evidence && {
+      evidence: withQuote(check.evidence, CHECK_QUOTE_CHARS_AT_MOST),
+    }),
+    ...(check.unsupported?.quoted && {
+      unsupported: {
+        ...check.unsupported,
+        quoted: withQuote(check.unsupported.quoted, CHECK_QUOTE_CHARS_AT_MOST),
+      },
+    }),
+  };
+}
+
+/**
  * The parts of `sentence`, in order and apart, but for a fact inside the opinion before it: a
  * number the writer's view surrounds (`withFigureFacts`). Null when they aren't parts of it.
  */
@@ -1157,14 +1252,15 @@ export function checkWithParts(
   check: ClaimCheckAttributes,
   parts: readonly ClaimCheckPart[],
 ): ClaimCheckAttributes {
-  const projected = resultFromParts(parts);
-  const pending = parts.some(
+  const kept = boundedCheckParts(parts);
+  const projected = resultFromParts(kept);
+  const pending = kept.some(
     (part) =>
       part.verdict === "checking" ||
       part.figures?.some((figure) => figure.result.verdict === "checking") ||
       part.remainder?.verdict === "checking",
   );
-  const stored = (pending ? [...parts] : (projected.parts ?? [])).map((part) => ({
+  const stored = (pending ? [...kept] : (projected.parts ?? [])).map((part) => ({
     ...part,
     ...(part.figures && {
       figures: part.figures.map((figure) => ({
@@ -1183,8 +1279,13 @@ export function checkWithParts(
       ? { verdict: "checking", versions: projected.versions, excluded: projected.excluded }
       : projected,
   );
+  // What a figure's own data adds back to a part's receipts is bounded too (#2220).
+  const boundedStored = (stored: ClaimCheckAttributes): ClaimCheckAttributes => ({
+    ...boundedCheck(stored),
+    parts: boundedCheckParts(stored.parts ?? []),
+  });
   const native = stored.flatMap((part) => part.figures ?? []);
-  if (native.length === 0) return { ...parent, parts: stored };
+  if (native.length === 0) return boundedStored({ ...parent, parts: stored });
   const figures = native.map((figure) => {
     const { result: _result, ...finding } = figure;
     return { ...finding, ...storedJudgment({ ...basis, id: figure.id }, figure.result) };
@@ -1205,7 +1306,7 @@ export function checkWithParts(
   );
   const remainderMetadata =
     remainderOwners.length === 1 && remainderOwners[0] ? judgmentMetadata(remainderOwners[0]) : {};
-  return {
+  return boundedStored({
     ...parent,
     parts: stored,
     figures,
@@ -1222,7 +1323,7 @@ export function checkWithParts(
               { ...projected.remainder, ...remainderMetadata },
             ),
     }),
-  };
+  });
 }
 
 export function keepCheckAsView(
