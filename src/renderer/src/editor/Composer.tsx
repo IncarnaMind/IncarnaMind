@@ -495,7 +495,8 @@ export function Composer({
     if (!isLongPaste(pasted)) return;
     event.preventDefault();
     setSaveProblem(null);
-    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted }] });
+    const place = { mindId: source?.mindId ?? mindId, conversationId };
+    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted, place }] });
   };
 
   const withoutPaste = (paste: Paste) => draft.pastes.filter((each) => each.id !== paste.id);
@@ -509,7 +510,10 @@ export function Composer({
     element?.focus();
   };
 
-  /** Keeps the paste as a Document and adds it to the Search scope, so Answers can cite it. */
+  /**
+   * Keeps the paste as a Document, filed where it was pasted, and adds it to the Search scope while
+   * the composer is still there, so Answers can cite it.
+   */
   const savePaste = async (paste: Paste) => {
     setSaveProblem(null);
     const first = paste.text.split("\n").find((line) => line.trim() !== "") ?? "";
@@ -517,19 +521,25 @@ export function Composer({
       const saved = await core.saveTextAsDocument({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
-        mindId: source?.mindId ?? mindId,
-        conversationId,
+        ...paste.place,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);
+      const pastes = now.pastes.filter((each) => each.id !== paste.id);
+      // A Note decides the place when one is open; with none, the conversation does.
+      const here =
+        paste.place.mindId === (source?.mindId ?? mindId) &&
+        (paste.place.mindId !== null || paste.place.conversationId === conversationId);
       const nowScope = mindSearchScope(composer.draft(scopeKey).scope, folderId, folderHolds);
       const ids = scopeIds(nowScope, "document");
-      update({
-        pastes: now.pastes.filter((each) => each.id !== paste.id),
-        scope: ids.includes(saved.id)
-          ? composer.draft(scopeKey).scope
-          : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
-      });
+      if (!here) update({ pastes });
+      else
+        update({
+          pastes,
+          scope: ids.includes(saved.id)
+            ? composer.draft(scopeKey).scope
+            : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
+        });
     } catch (error) {
       // The core words why it refused, as for a deleted conversation; a disk error gets the general line.
       const { wording } = describeError(error);

@@ -20,6 +20,8 @@ let asked: {
   fail(error: unknown): void;
 }[] = [];
 let reported: unknown[] = [];
+/** Where the composer asked the core to save each paste. */
+let savedAt: unknown[] = [];
 /** What the scope chip said at each commit: "" while none shows. */
 let frames: string[] = [];
 
@@ -47,8 +49,13 @@ beforeEach(async () => {
       asked.push({ place, answer: resolve, fail: reject }),
     );
   // The conversation was deleted in another window just before the paste was saved.
-  const saveTextAsDocument = () =>
-    Promise.reject(errorForWindow(new NotFoundError({ key: "error.paste.conversationGone" })));
+  savedAt = [];
+  const saveTextAsDocument = (input: TurnPlace) => {
+    savedAt.push({ mindId: input.mindId, conversationId: input.conversationId });
+    return Promise.reject(
+      errorForWindow(new NotFoundError({ key: "error.paste.conversationGone" })),
+    );
+  };
   // Every other call stays unanswered: the composer's other parts wait, as on a slow start.
   const bridge = new Proxy(
     { on: () => () => undefined, wallOfTurn, saveTextAsDocument },
@@ -186,6 +193,38 @@ describe("the composer's scope while the core works out the turn's wall", () => 
   });
 });
 
+/** Chooses Save as a Document in the paste's menu. */
+async function savePaste() {
+  // The browser shows the popover; this DOM can't, so the menu hears that it opens.
+  const menu = container.querySelector<HTMLElement>('[data-testid="composer-paste-menu"]');
+  if (!menu) throw new Error("The paste has no menu.");
+  Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
+  const opens = Object.assign(new Event("beforetoggle"), { newState: "open" });
+  await act(async () => menu.dispatchEvent(opens));
+  await act(async () =>
+    container.querySelector<HTMLElement>('[data-testid="paste-save"]')?.click(),
+  );
+}
+
+describe("a long paste is saved where it was pasted", () => {
+  test("pasted in a walled conversation, it is saved there after the composer moved to another", async () => {
+    await showComposer();
+    const input = container.querySelector('[data-testid="composer-input"]');
+    if (!input) throw new Error("The composer has no field.");
+    const pasted = Object.assign(new Event("paste", { bubbles: true }), {
+      clipboardData: { getData: () => "x\n".repeat(40) },
+    });
+    await act(async () => input.dispatchEvent(pasted));
+    expect(container.querySelectorAll('[data-testid="composer-paste"]')).toHaveLength(1);
+    const { useConversations } = await import("../../src/renderer/src/conversations");
+    await act(() => useConversations.setState({ openId: "outside" }));
+
+    await savePaste();
+
+    expect(savedAt).toEqual([{ mindId: null, conversationId: "walled" }]);
+  });
+});
+
 describe("a long paste the core won't save", () => {
   for (const [language, words] of [
     ["en", "The pasted text wasn’t saved: this conversation has been deleted."],
@@ -195,20 +234,12 @@ describe("a long paste the core won't save", () => {
       const { useAppStore } = await import("../../src/renderer/src/store");
       const { useComposer } = await import("../../src/renderer/src/composer");
       useAppStore.setState({ settings: { language, device: {}, user: {} } } as never);
+      const place = { mindId: null, conversationId: "walled" };
       useComposer
         .getState()
-        .update("assistant", { pastes: [{ id: "p1", text: "x\n".repeat(40) }] });
+        .update("assistant", { pastes: [{ id: "p1", text: "x\n".repeat(40), place }] });
       await showComposer();
-      const click = (testId: string) =>
-        container.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.click();
-
-      // The browser shows the popover; this DOM can't, so the menu hears that it opens.
-      const menu = container.querySelector<HTMLElement>('[data-testid="composer-paste-menu"]');
-      if (!menu) throw new Error("The paste has no menu.");
-      Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
-      const opens = Object.assign(new Event("beforetoggle"), { newState: "open" });
-      await act(async () => menu.dispatchEvent(opens));
-      await act(async () => click("paste-save"));
+      await savePaste();
 
       expect(
         container.querySelector('[data-testid="composer-paste-save-failed"]')?.textContent,

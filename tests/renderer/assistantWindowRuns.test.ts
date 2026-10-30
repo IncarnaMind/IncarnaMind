@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { WindowCommandRequest } from "../../src/core/api";
+import { ACCEPT_SUGGESTIONS } from "../../src/shared/commands";
 
 /*
  * The window's half of a command the assistant runs (#1421): it tells the core the command
@@ -10,6 +11,7 @@ import type { WindowCommandRequest } from "../../src/core/api";
 const heard = vi.hoisted(() => ({
   handlers: new Map<string, (payload: unknown) => void>(),
   answers: [] as { requestId: string; result: unknown }[],
+  accepted: [] as unknown[][],
 }));
 
 vi.mock("../../src/renderer/src/core", () => ({
@@ -22,6 +24,10 @@ vi.mock("../../src/renderer/src/core", () => ({
       answerWindowCommand: async (requestId: string, result: unknown) => {
         heard.answers.push({ requestId, result });
         return true;
+      },
+      acceptAssignments: async (...args: unknown[]) => {
+        heard.accepted.push(args);
+        return [];
       },
     },
     { get: (target, name) => Reflect.get(target, name) ?? (async () => undefined) },
@@ -126,6 +132,73 @@ describe("The window says a command started, then how it ended (#1421)", () => {
       heard.handlers.get("command.windowRun")?.({ ...request("test.noIds"), targets: checked });
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
       expect(run.mock.calls[0]?.[0]).toMatchObject({ checked, selection: [] });
+    } finally {
+      remove();
+      heard.answers.length = 0;
+    }
+  });
+
+  // protects=To review's Accept all, run for the assistant, accepts what the core checked, for the Folder each was checked against (#2243); fails_when=it accepts every suggestion the window's lists hold when it runs; no_claim=the core's own check of those Folders.
+  test("Accept all accepts only the suggestions the core checked, for the Folders it checked", async () => {
+    const { suggestionCommands } = await import("../../src/renderer/src/commands/suggestions");
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useLibraryFolds } = await import("../../src/renderer/src/libraryFolds");
+    const acceptAll = suggestionCommands.find((each) => each.id === ACCEPT_SUGGESTIONS);
+    if (!acceptAll) throw new Error("Accept all isn't a command.");
+    const waiting = (documentId: string, groupId: string) => ({
+      documentId,
+      groupId,
+      source: "automatic",
+      suggested: true,
+      status: "classified",
+    });
+    useAppStore.setState({
+      documents: [
+        { id: "memo", name: "Memo", tagging: null },
+        { id: "late", name: "Late", tagging: null },
+      ],
+      library: { groups: [], assignments: [waiting("memo", "general"), waiting("late", "a")] },
+    } as never);
+    useLibraryFolds.setState({ reviewShown: true });
+    const remove = registry.commands.register(acceptAll);
+    try {
+      heard.handlers.get("command.windowRun")?.({
+        ...request(ACCEPT_SUGGESTIONS),
+        targets: [{ kind: "document", id: "memo", into: "general" }],
+      });
+      await vi.waitFor(() => expect(heard.accepted).toHaveLength(1));
+      expect(heard.accepted[0]).toEqual([["memo"], { memo: "general" }]);
+    } finally {
+      remove();
+      heard.answers.length = 0;
+      heard.accepted.length = 0;
+    }
+  });
+
+  // protects=a window command that fails with the core's words passes those words back, for the assistant's card in the interface's language (#2243); fails_when=the card gets only the raw error text; no_claim=which commands fail.
+  test("a command that fails with the core's words passes them back", async () => {
+    const { NotFoundError } = await import("../../src/core/errors");
+    const { errorForWindow } = await import("../../src/shared/errorWording");
+    const remove = registry.commands.register({
+      id: "test.refused",
+      label: "mind.open",
+      group: "main",
+      reversible: true,
+      run: () =>
+        Promise.reject(errorForWindow(new NotFoundError({ key: "error.folder.suggestionMoved" }))),
+    });
+    try {
+      heard.handlers.get("command.windowRun")?.(request("test.refused"));
+      await vi.waitFor(() =>
+        expect(heard.answers.at(-1)?.result).toMatchObject({
+          ran: false,
+          wording: { key: "error.folder.suggestionMoved" },
+        }),
+      );
+      const said = heard.answers.at(-1)?.result as { why: string };
+      expect(said.why).toBe(
+        "Not accepted: a suggested Folder changed after the assistant checked it, so nothing was accepted. You can accept them yourself in To review.",
+      );
     } finally {
       remove();
       heard.answers.length = 0;
