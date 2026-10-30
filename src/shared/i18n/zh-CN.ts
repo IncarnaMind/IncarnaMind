@@ -4398,6 +4398,8 @@ export const zhCN = {
   "commands.ask.readText.documents": "{count} 个文档",
   "commands.ask.readText.webPage": "{host}上的一个网页",
   "commands.ask.readText.webPages": "{count} 个网页",
+  "commands.ask.readText.webPageTitle": "{host}上一个网页的标题",
+  "commands.ask.readText.webPageTitles": "{count} 个网页标题",
   "commands.ask.readText.webSearch": "网页搜索结果",
   "commands.ask.readText.connector": "{connector}返回的内容",
   "commands.ask.readText.connectors": "{count} 个连接器返回的内容",

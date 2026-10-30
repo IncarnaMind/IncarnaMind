@@ -34,6 +34,7 @@ const input = (more: Partial<ReadInput> = {}): ReadInput => ({
 const empty = {
   documents: [],
   webPages: [],
+  webPageTitles: [],
   webSearchResults: false,
   connectors: [],
   scriptOutput: false,
@@ -160,8 +161,8 @@ describe("What the approval card names (#2240)", () => {
     ).toBe(false);
   });
 
-  // protects=a saved page's title is named by its host, never quoted as a Document name; fails_when=the title's own words reach the card as a name; no_claim=what the page says of itself.
-  test("a saved page's title is named by its host, never by the title it wrote", () => {
+  // protects=a page read and its title names the page once, as a web page; fails_when=the title adds a second entry or an unnamed bucket; no_claim=the page and its title.
+  test("a saved page read and its title is one web page, never a title", () => {
     const kinds = readKinds(
       input({
         reads: [read("w1", "Q3 Report.pdf", "web")],
@@ -169,12 +170,12 @@ describe("What the approval card names (#2240)", () => {
         webAddress: () => "https://files.example/report",
       }),
     );
-    expect(kinds.webPages).toEqual(["files.example"]);
-    expect(kinds.documents).toEqual([]);
+    expect(kinds).toEqual({ ...empty, webPages: ["files.example"] });
+    expect(kinds.webPageTitles).toEqual([]);
     expect(JSON.stringify(kinds)).not.toContain("Q3 Report.pdf");
   });
 
-  // protects=a page read and its title name the page once, and nothing becomes other text; fails_when=the title adds a duplicate page or an unnamed bucket; no_claim=the page and its title.
+  // protects=a Run reading only a saved page and its title shows no other text; fails_when=the title adds an unnamed bucket; no_claim=the page and its title.
   test("a Run reading only a saved page and its title shows no other text", () => {
     expect(
       readKinds(
@@ -183,12 +184,12 @@ describe("What the approval card names (#2240)", () => {
           titlesRead: ["w1"],
           webAddress: () => "https://files.example/report",
         }),
-      ),
-    ).toEqual({ ...empty, webPages: ["files.example"] });
+      ).otherText,
+    ).toBe(false);
   });
 
-  // protects=a title whose page was never read still names that page by its host; fails_when=the title alone is other text or a quoted Document; no_claim=what list_commands showed.
-  test("a saved page's title alone names its page by its host", () => {
+  // protects=a title whose page was never read names that page's title by its host, never other text and never a quoted Document; fails_when=the title is other text, a Document, or a read page; no_claim=what list_commands showed.
+  test("a saved page's title alone is its own kind, by its host", () => {
     expect(
       readKinds(
         input({
@@ -201,9 +202,20 @@ describe("What the approval card names (#2240)", () => {
     ).toEqual({
       ...empty,
       documents: ["Budget"],
-      webPages: ["files.example"],
+      webPageTitles: ["files.example"],
       connectors: ["Tides"],
     });
+  });
+
+  test("three pages' titles are three titles, by host", () => {
+    expect(
+      readKinds(
+        input({
+          titlesRead: ["w1", "w2", "w3"],
+          webAddress: (id) => `https://${id}.example/report`,
+        }),
+      ).webPageTitles,
+    ).toEqual(["w1.example", "w2.example", "w3.example"]);
   });
 
   test("a title whose page has no address is other text", () => {

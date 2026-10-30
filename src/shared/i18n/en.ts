@@ -4593,6 +4593,8 @@ export const en = {
   "commands.ask.readText.documents": "{count} Documents",
   "commands.ask.readText.webPage": "a web page on {host}",
   "commands.ask.readText.webPages": "{count} web pages",
+  "commands.ask.readText.webPageTitle": "the title of a web page on {host}",
+  "commands.ask.readText.webPageTitles": "{count} web page titles",
   "commands.ask.readText.webSearch": "web search results",
   "commands.ask.readText.connector": "results from {connector}",
   "commands.ask.readText.connectors": "results from {count} Connectors",

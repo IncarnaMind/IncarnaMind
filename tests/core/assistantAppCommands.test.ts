@@ -703,6 +703,7 @@ describe("A request goes on to its end, and nothing records unasked (#1421)", {
         readText: {
           documents: expect.arrayContaining([expect.stringContaining("Wrap-up")]),
           webPages: [],
+          webPageTitles: [],
           webSearchResults: false,
           connectors: [],
           scriptOutput: false,
@@ -971,6 +972,7 @@ describe("A command stopped, quit or heard mid-meeting (#1421)", { timeout: 90_0
             readText: {
               documents: [],
               webPages: [],
+              webPageTitles: [],
               webSearchResults: false,
               connectors: [],
               scriptOutput: false,
@@ -1027,6 +1029,7 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
       {
         documents: ["Meeting policy"],
         webPages: [],
+        webPageTitles: [],
         webSearchResults: false,
         connectors: [],
         scriptOutput: false,
@@ -1061,6 +1064,7 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
       {
         documents: [],
         webPages: [],
+        webPageTitles: [],
         webSearchResults: false,
         connectors: [],
         scriptOutput: false,
@@ -1074,6 +1078,7 @@ describe("A stop's card names what the Answer read, never a guess (#1421)", {
       {
         documents: ["纪要"],
         webPages: [],
+        webPageTitles: [],
         webSearchResults: false,
         connectors: [],
         scriptOutput: false,
@@ -1177,6 +1182,7 @@ describe("A web page on an approval card (#2240)", { timeout: 90_000 }, () => {
       {
         documents: [],
         webPages: ["files.example"],
+        webPageTitles: [],
         // The search that found the page read its result titles too.
         webSearchResults: true,
         connectors: [],
@@ -1226,6 +1232,7 @@ describe("A Connector's results on an approval card (#2240)", { timeout: 90_000 
       {
         documents: [],
         webPages: [],
+        webPageTitles: [],
         webSearchResults: false,
         connectors: ["Tides"],
         scriptOutput: false,
@@ -1303,7 +1310,8 @@ describe("A saved page's title on an approval card (#2240)", { timeout: 90_000 }
       {
         documents: ["Budget"],
         // The page was never read: its title alone names it, by its host.
-        webPages: ["files.example"],
+        webPages: [],
+        webPageTitles: ["files.example"],
         webSearchResults: false,
         connectors: ["Tides"],
         scriptOutput: false,
@@ -1369,6 +1377,7 @@ describe("A web search's results on an approval card (#2240)", { timeout: 90_000
       {
         documents: [],
         webPages: [],
+        webPageTitles: [],
         webSearchResults: true,
         connectors: ["Tides"],
         scriptOutput: false,

@@ -23,6 +23,8 @@ export interface ReadKinds {
   documents: string[];
   /** One host per web page read. */
   webPages: string[];
+  /** One host per page whose title alone reached the Run, never its text. */
+  webPageTitles: string[];
   webSearchResults: boolean;
   /** One entry per Connector whose results were read, by its id. */
   connectors: string[];
@@ -148,20 +150,20 @@ export function readKinds(input: ReadInput): ReadKinds {
       if (webPages.length === 0 && !webSearchResults) otherText = true;
     } else otherText = true;
   }
-  // A title is its page's, named by host as a read page is, never by the title it wrote itself.
+  // A title is its page's, named by its host, never by the title the page wrote itself. A page
+  // read too is a web page only: it counts once, at the most of it the Run was given.
+  const webPageTitles: string[] = [];
   for (const documentId of input.titlesRead) {
     if (namedPages.has(documentId)) continue;
     const source = input.webAddress(documentId);
     const host = source === null ? null : webHostOf(source);
     if (host === null) otherText = true;
-    else {
-      webPages.push(host);
-      namedPages.add(documentId);
-    }
+    else webPageTitles.push(host);
   }
   return {
     documents,
     webPages,
+    webPageTitles,
     webSearchResults,
     connectors: [...connectors.values()],
     scriptOutput,

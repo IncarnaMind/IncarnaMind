@@ -283,6 +283,8 @@ test("the card names a Document, a web page by host and a Connector, in English 
     await expect(line).toContainText("a web page on files.example");
     await expect(line).toContainText("results from Tides");
     await expect(line).not.toContainText("other text");
+    // The page's text was read too, so it counts once, as a web page, never as a title.
+    await expect(line).not.toContainText("the title of a web page");
     await shot(window, card, "approval-read-text-kinds-en");
 
     await setLanguage(window, "zh-CN");
@@ -291,6 +293,7 @@ test("the card names a Document, a web page by host and a Connector, in English 
     await expect(line).toContainText("files.example 上的一个网页");
     await expect(line).toContainText("Tides 返回的内容");
     await expect(line).not.toContainText("其他内容");
+    await expect(line).not.toContainText("网页的标题");
     await shot(window, card, "approval-read-text-kinds-zh");
   } finally {
     await app.close();

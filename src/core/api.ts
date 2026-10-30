@@ -8487,14 +8487,17 @@ interface ApprovalRequestBase extends AnswerPlace {
 
 /**
  * What an approval card names the Answer read (#2240). A web page is its host, never its
- * title: a page writes its own, and could pass for the User's file. Other text is every read the
- * kinds here cannot name, so a kind added later is still on the card.
+ * title: a page writes its own, and could pass for the User's file. A page whose title alone
+ * reached the Answer is its title, by host; a page both title and text reached is a web page.
+ * Other text is every read the kinds here cannot name, so a kind added later is still on the card.
  */
 export interface ApprovalReadText {
   /** One entry per Document, by its id: two Documents with one name are two. */
   documents: string[];
   /** Web pages read, by host, one entry for each page. */
   webPages: string[];
+  /** Pages whose title alone was seen, by host, one entry for each page. */
+  webPageTitles: string[];
   /** Web search's results, Find sources' included. */
   webSearchResults: boolean;
   /** One entry per Connector whose results the Answer read, by its id. */

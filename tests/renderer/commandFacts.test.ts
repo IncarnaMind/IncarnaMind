@@ -118,6 +118,7 @@ describe("What the assistant's commands did, in words (#1421)", () => {
   const read = (what: Partial<ApprovalReadText>): ApprovalReadText => ({
     documents: [],
     webPages: [],
+    webPageTitles: [],
     webSearchResults: false,
     connectors: [],
     scriptOutput: false,
@@ -133,6 +134,8 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     const same = read({ documents: ["Q3 board pack.pdf", "Q3 board pack.pdf"] });
     const page = read({ webPages: ["files.example"] });
     const pages = read({ webPages: ["files.example", "news.example"] });
+    const title = read({ webPageTitles: ["files.example"] });
+    const titles = read({ webPageTitles: ["files.example", "news.example", "court.example"] });
     const search = read({ webSearchResults: true });
     const connector = read({ connectors: ["Gmail"] });
     const connectors = read({ connectors: ["Gmail", "飞书"] });
@@ -152,6 +155,12 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     );
     expect(readTextLine(en, pages, enGap)).toBe(
       "This Answer read text you didn’t write: 2 web pages.",
+    );
+    expect(readTextLine(en, title, enGap)).toBe(
+      "This Answer read text you didn’t write: the title of a web page on files.example.",
+    );
+    expect(readTextLine(en, titles, enGap)).toBe(
+      "This Answer read text you didn’t write: 3 web page titles.",
     );
     expect(readTextLine(en, search, enGap)).toBe(
       "This Answer read text you didn’t write: web search results.",
@@ -175,6 +184,10 @@ describe("What the assistant's commands did, in words (#1421)", () => {
       "这次回答读过不是你写的内容：files.example 上的一个网页。",
     );
     expect(readTextLine(zh, pages, zhGap)).toBe("这次回答读过不是你写的内容：2 个网页。");
+    expect(readTextLine(zh, title, zhGap)).toBe(
+      "这次回答读过不是你写的内容：files.example 上一个网页的标题。",
+    );
+    expect(readTextLine(zh, titles, zhGap)).toBe("这次回答读过不是你写的内容：3 个网页标题。");
     expect(readTextLine(zh, search, zhGap)).toBe("这次回答读过不是你写的内容：网页搜索结果。");
     expect(readTextLine(zh, connector, zhGap)).toBe(
       "这次回答读过不是你写的内容：Gmail 返回的内容。",
@@ -186,7 +199,7 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(readTextLine(zh, heard, zhGap)).toBe("这次回答读过不是你写的内容：本次会议的转写稿。");
   });
 
-  // protects=the kinds join as the design's worked example says, in this order: Documents, web pages, web search results, Connectors, a script's output, the Transcript, other text; two take "and"/和, more take commas and a last "and" or 、 and a last 和; fails_when=a comma is missing or doubled, or 和 comes too early; no_claim=what the core read.
+  // protects=the kinds join as the design's worked example says, in this order: Documents, web pages, web page titles, web search results, Connectors, a script's output, the Transcript, other text; two take "and"/和, more take commas and a last "and" or 、 and a last 和; fails_when=a comma is missing or doubled, or 和 comes too early; no_claim=what the core read.
   test("kinds joined in the card's order", () => {
     const worked = read({
       documents: ["Q3 board pack.pdf", "Minutes"],
@@ -213,6 +226,18 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     );
     expect(readTextLine(zh, all, zhGap)).toBe(
       "这次回答读过不是你写的内容：“Q3 board pack.pdf”、files.example 上的一个网页、网页搜索结果、Gmail 返回的内容、脚本的输出、本次会议的转写稿和其他内容。",
+    );
+    const titled = read({
+      documents: ["Budget"],
+      webPages: ["files.example", "news.example"],
+      webPageTitles: ["a.example", "b.example", "c.example"],
+      connectors: ["Tides"],
+    });
+    expect(readTextLine(en, titled, enGap)).toBe(
+      "This Answer read text you didn’t write: “Budget”, 2 web pages, 3 web page titles and results from Tides.",
+    );
+    expect(readTextLine(zh, titled, zhGap)).toBe(
+      "这次回答读过不是你写的内容：“Budget”、2 个网页、3 个网页标题和 Tides 返回的内容。",
     );
   });
 
@@ -241,6 +266,13 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     );
     expect(readTextLine(zh, imitating, zhGap)).toBe(
       "这次回答读过不是你写的内容：q3-board-pack.pdf.example 上的一个网页。",
+    );
+    const titled = read({ webPageTitles: ["q3-board-pack.pdf.example"] });
+    expect(readTextLine(en, titled, enGap)).toBe(
+      "This Answer read text you didn’t write: the title of a web page on q3-board-pack.pdf.example.",
+    );
+    expect(readTextLine(zh, titled, zhGap)).toBe(
+      "这次回答读过不是你写的内容：q3-board-pack.pdf.example 上一个网页的标题。",
     );
   });
 

@@ -102,14 +102,15 @@ type Gap = (before: string, after: string) => string;
 
 /**
  * What an Answer read that the User didn't write, on the approval of a command it asks about, in
- * the order the card names them: Documents, web pages by host (never by the titles they write,
- * #2240), web search's results, Connectors, a script's output, the Transcript, and other text for
- * anything the rest cannot name. Other text alone is the bare sentence, with no list. Null when
- * nothing is left to show.
+ * the order the card names them: Documents, web pages by host, pages whose title alone was seen
+ * (never the title they write, #2240), web search's results, Connectors, a script's output, the
+ * Transcript, and other text for anything the rest cannot name. Other text alone is the bare
+ * sentence, with no list. Null when nothing is left to show.
  */
 export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): string | null {
   const [document] = read.documents;
   const [page] = read.webPages;
+  const [pageTitle] = read.webPageTitles;
   const [connector] = read.connectors;
   const parts = [
     ...(read.documents.length === 1 && document !== undefined
@@ -121,6 +122,11 @@ export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): st
       ? [t("commands.ask.readText.webPage", { host: page })]
       : read.webPages.length > 1
         ? [t("commands.ask.readText.webPages", { count: read.webPages.length })]
+        : []),
+    ...(read.webPageTitles.length === 1 && pageTitle !== undefined
+      ? [t("commands.ask.readText.webPageTitle", { host: pageTitle })]
+      : read.webPageTitles.length > 1
+        ? [t("commands.ask.readText.webPageTitles", { count: read.webPageTitles.length })]
         : []),
     ...(read.webSearchResults ? [t("commands.ask.readText.webSearch")] : []),
     ...(read.connectors.length === 1 && connector !== undefined

@@ -612,8 +612,13 @@ describe("A Check another window runs or plans", () => {
     const done = checkFromAssistant("mind");
     await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
     const requestId = useMindCheck.getState().asking.mind?.requestId;
-    await expect(confirmCheck("mind")).rejects.toThrow("The watch couldn’t start.");
+    await confirmCheck("mind");
     await expect(done).rejects.toThrow("The watch couldn’t start.");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    expect(setCheckProblem).toHaveBeenCalledWith(
+      "mind",
+      expect.objectContaining({ kind: "failed" }),
+    );
     expect(bridge.cancelCheck).toHaveBeenCalledWith(requestId);
   });
 
