@@ -343,6 +343,9 @@ describe("why a file couldn't be saved", () => {
     ["disk I/O error", "export.failed.diskError"],
     ["database is locked", "export.failed.busy"],
     ["database is busy", "export.failed.busy"],
+    ["EBUSY: resource busy or locked, open '/x/EACCES.docx'", "export.failed.fileBusy"],
+    ["EBUSY: resource busy or locked, open '/x/EIO.docx'", "export.failed.fileBusy"],
+    ["EBUSY: resource busy or locked, open '/x/database is locked.docx'", "export.failed.fileBusy"],
     ["ENOENT: no such file or directory, open '/gone/a.docx'", "export.failed.gone"],
     ["ENOTDIR: not a directory, open '/Tides.docx/a'", "export.failed.gone"],
     ["ENAMETOOLONG: name too long, open '/x/a.docx'", "export.failed.nameTooLong"],
@@ -369,6 +372,10 @@ describe("why a file couldn't be saved", () => {
       "Tides 2.docx",
     );
     expect(named("EBUSY: resource busy or locked, open '/导出/潮汐.docx'")).toBe("潮汐.docx");
+    expect(named("EBUSY: resource busy or locked, open '/x/EACCES.docx'")).toBe("EACCES.docx");
+    expect(named("EBUSY: resource busy or locked, open '/Users/x/My\\Notes.docx'")).toBe(
+      "My\\Notes.docx",
+    );
     expect(named("EBUSY: resource busy or locked, open '/exports/Sam's draft.docx'")).toBe(
       "Sam's draft.docx",
     );
@@ -385,6 +392,17 @@ describe("why a file couldn't be saved", () => {
         "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Sam's draft.docx'",
       ),
     ).toBe("Sam's draft.docx");
+    expect(named("EBUSY: resource busy or locked, open '/x/database is locked.docx'")).toBe(
+      "database is locked.docx",
+    );
+    expect(named("EBUSY: resource busy or locked, open '/x/Plan -> \"v2\".docx'")).toBe(
+      'Plan -> "v2".docx',
+    );
+    expect(
+      named(
+        "EBUSY: resource busy or locked, rename '/Users/x/.4f1a.partial' -> '/Users/x/Plan -> \"v2\".docx'",
+      ),
+    ).toBe('Plan -> "v2".docx');
     expect(saveFailureReason("EBUSY: resource busy or locked")).toEqual({
       key: "export.failed.fileBusyUnnamed",
     });

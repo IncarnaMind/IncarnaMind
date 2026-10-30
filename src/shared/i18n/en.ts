@@ -4295,7 +4295,7 @@ export const en = {
   "error.system.full": "The disk is full.",
   "error.system.diskError": "The disk couldn’t be written to.",
   "error.system.busy": "Another program is using IncarnaMind’s data.",
-  "error.system.fileBusy": "A file is open in another program.",
+  "error.system.fileBusy": "A file is open in another program, so close it and try again.",
   "error.system.gone": "That file or folder isn’t there any more.",
   "error.system.nameTooLong": "That name is too long for the file system.",
   "error.system.exists": "A file or folder with that name is already there.",
