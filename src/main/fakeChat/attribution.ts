@@ -222,7 +222,9 @@ export function attributionReply(prompt: Prompt): Reply | null {
   }
   const quotes =
     kind === "source"
-      ? [row.firstQuote, row.secondQuote, row.wrongFact]
+      ? sentence === row.source
+        ? [row.firstQuote, row.secondQuote]
+        : [row.wrongFact]
       : kind === "speaker"
         ? [row.spoken]
         : [row.staleQuote, row.noPeriodQuote, row.recentQuote];
@@ -235,7 +237,8 @@ export function attributionReply(prompt: Prompt): Reply | null {
     .map((citation, index) => ({ ...citation, marker: index + 1 }));
   const quote = citations[0]?.quote;
   const passage = citations[0]?.passage;
-  if (!quote || !passage) return { text: "Verdict: unsupported\nCalculation: none\nEvidence: []" };
+  if (!quote || !passage)
+    return { text: "Verdict: unsupported\nAbsence: no\nCalculation: none\nEvidence: []" };
   if (toolResults(prompt, "cite").length === 0) return { tool: "cite", input: { citations } };
   const contradicted = quote === row.secondQuote;
   const verdict = contradicted ? "contradicted" : "supported";
@@ -271,6 +274,7 @@ export function attributionReply(prompt: Prompt): Reply | null {
       "Scope: none, same",
       "Topic: found",
       "Roles: none, same",
+      "Absence: no",
       "Calculation: none",
       "Evidence: [1]",
       `${quote} [^1]`,
@@ -303,10 +307,11 @@ export function attributionEdit(passage: string, instruction: string): string | 
       instruction.includes(`Change only the attribution to ${JSON.stringify(row.actualName)}`)
     )
       return passage.replace(row.wrongWords, row.correctedWords);
-    const before = row.stale.slice(0, row.stale.indexOf("5%"));
-    const after = row.anchored.slice(0, row.anchored.indexOf("5%"));
-    if (passage.includes(before) && instruction.includes("Anchor the sentence to March 2023"))
-      return passage.replace(before, after);
+    if (
+      passage.replace(/\s*\[\d+\]/g, "") === row.stale &&
+      instruction.includes("Anchor the sentence to March 2023")
+    )
+      return `${row.anchored}${(passage.match(/\[\d+\]/g) ?? []).join("")}`;
   }
   return null;
 }

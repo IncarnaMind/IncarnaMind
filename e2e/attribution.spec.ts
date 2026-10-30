@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { Editor, JSONContent } from "@tiptap/core";
 import * as Y from "yjs";
-import { type ClaimCheckAttributes, type CoreBridge, MIND_CONTENT_FIELD } from "../src/core/api";
+import {
+  type CitationAttributes,
+  type ClaimCheckAttributes,
+  type CoreBridge,
+  MIND_CONTENT_FIELD,
+} from "../src/core/api";
+import { citationAttributesOf } from "../src/shared/citations";
 import { readClaimCheck } from "../src/shared/claimChecks";
 import { formatClaimFacetPeriod } from "../src/shared/dates";
 import { translate } from "../src/shared/i18n";
@@ -27,15 +33,16 @@ import {
 } from "./fixtures/attribution";
 
 async function readCheck(window: Page): Promise<ClaimCheckAttributes | null> {
-  return window.getByTestId("mind-editor").evaluate((dom) => {
+  const value = await window.getByTestId("mind-editor").evaluate((dom) => {
     const editor = (dom as unknown as { editor: Editor }).editor;
-    let check: ClaimCheckAttributes | null = null;
+    let check: unknown = null;
     editor.state.doc.descendants((node) => {
       const mark = node.marks.find((mark) => mark.type.name === "claimCheck");
-      if (mark) check = mark.attrs as ClaimCheckAttributes;
+      if (mark) check = mark.attrs;
     });
     return check;
   });
+  return readClaimCheck(value);
 }
 
 async function savedCheck(window: Page, mindId: string) {
@@ -71,10 +78,48 @@ async function documentJSON(window: Page): Promise<JSONContent> {
     .evaluate((dom) => (dom as unknown as { editor: Editor }).editor.getJSON());
 }
 
+async function noteText(window: Page): Promise<string> {
+  return window
+    .getByTestId("mind-editor")
+    .evaluate((dom) => (dom as unknown as { editor: Editor }).editor.state.doc.textContent);
+}
+
+function citationsIn(node: JSONContent): Partial<CitationAttributes>[] {
+  return node.type === "citation" && node.attrs
+    ? [citationAttributesOf(node.attrs)]
+    : (node.content ?? []).flatMap(citationsIn);
+}
+
+function expectCitationsKept(before: JSONContent, after: JSONContent) {
+  const originals = citationsIn(before);
+  const current = citationsIn(after);
+  expect(originals).toHaveLength(1);
+  expect(current.length).toBeGreaterThanOrEqual(originals.length);
+  expect(current.every((citation) => typeof citation.id === "string" && citation.id !== "")).toBe(
+    true,
+  );
+  expect(new Set(current.map((citation) => citation.id)).size).toBe(current.length);
+  for (const original of originals) {
+    expect(original.documentId).toEqual(expect.any(String));
+    expect(original.contentHash).toEqual(expect.any(String));
+    expect(original.quote).toEqual(expect.any(String));
+    expect(current.find((citation) => citation.id === original.id)).toEqual(original);
+    expect(
+      current.every(
+        (citation) =>
+          citation.documentId === original.documentId &&
+          citation.contentHash === original.contentHash &&
+          citation.quote === original.quote,
+      ),
+    ).toBe(true);
+  }
+}
+
 async function checkedNote(window: Page, language: AttributionLanguage, text: string) {
   await newMind(window);
   await window.keyboard.insertText(text);
   await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+  await pointAndClick(window, window.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   await expect.poll(async () => (await readCheck(window))?.state).not.toBeUndefined();
   await expect.poll(async () => (await readCheck(window))?.state).not.toBe("checking");
   await expect(window.getByTestId("badge-stop")).toHaveCount(0);
@@ -265,25 +310,36 @@ for (const language of ["en", "zh-CN"] as const) {
           .poll(async () => (await readCheck(window))?.parts?.find((part) => !part.facet)?.verdict)
           .toBe("contradicted");
         const chosen = await readCheck(window);
+        await expect(
+          window.locator('.mind-foot-badge .check-badge-mark[data-part="contradicted"]'),
+        ).toBeVisible();
         await shot(window, "source-chosen");
         expect(chosen?.parts?.find((part) => part.facet?.kind === "source")?.facet).toMatchObject({
           selectedDocumentId: documents.group,
         });
         expect(await savedCheck(window, mindId)).toEqual(chosen);
+        await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+        await pointAndClick(window, window.getByTestId("undo-action").last());
+        await expect.poll(() => readCheck(window)).toEqual(before);
+        expect(await savedCheck(window, mindId)).toEqual(before);
         await window.keyboard.press("Escape");
         await openClaim(window);
-        await pointAndClick(
-          window,
-          window.getByTestId("claim-card").getByTestId("claim-check-again"),
-        );
-        await expect.poll(async () => (await readCheck(window))?.request).not.toBe(chosen?.request);
+        await pointAndClick(window, source.getByTestId("claim-part-choose-source"));
+        await pointAndClick(window, second);
+        await expect.poll(async () => (await readCheck(window))?.state).toBe("contradicted");
+        await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+        const beforeAgain = await readCheck(window);
+        await window.keyboard.press("Escape");
+        await window.getByTestId("mind-editor").evaluate((dom) => {
+          (dom as unknown as { editor: Editor }).editor.commands.focus("start");
+        });
+        await expect(window.getByTestId("mind-editor")).toBeFocused();
+        await runCommand(window, "mind.checkEverySentence", translate(language, "mindCheck.every"));
+        await expect.poll(async () => (await readCheck(window))?.request).not.toBe(beforeAgain?.request);
         await expect.poll(async () => (await readCheck(window))?.state).toBe("contradicted");
         expect(
           (await readCheck(window))?.parts?.find((part) => part.facet?.kind === "source")?.facet,
         ).toMatchObject({ selectedDocumentId: documents.group });
-        await pointAndClick(window, window.getByTestId("undo-action").last());
-        await expect.poll(() => readCheck(window)).toEqual(before);
-        expect(await savedCheck(window, mindId)).toEqual(before);
       } finally {
         await setup.close();
       }
@@ -298,12 +354,14 @@ for (const language of ["en", "zh-CN"] as const) {
         const source = facetRow(window, "source");
         await expect(source).toHaveAttribute("data-verdict", "unsupported");
         const fact = window.locator('[data-testid="claim-part"]:not([data-facet])');
+        await expect(fact).toHaveAttribute("data-verdict", "supported");
         await pointAndClick(window, fact.getByTestId("claim-part-add-citation"));
         await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(1);
         await window.keyboard.press("Escape");
         await openClaim(window);
         const before = await documentJSON(window);
         const label = translate(language, "claim.source.changeTo", { document: row.actualName });
+        await expect(source.getByTestId("claim-part-change-source")).toHaveText(label);
         if (width === 900) {
           await pointAndClick(window, source.getByTestId("claim-part-change-source"));
         } else {
@@ -315,9 +373,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await source.focus();
           await runCommand(window, "check.correctSource", label);
         }
-        await expect(window.getByTestId("mind-editor")).toContainText(row.corrected);
-        await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(1);
-        await pointAndClick(window, window.getByTestId("undo-action").last());
+        await expect.poll(() => noteText(window)).toBe(row.corrected);
+        expectCitationsKept(before, await documentJSON(window));
+        await pointAndClick(window, window.getByTestId("applied-undo").first());
         await expect.poll(() => documentJSON(window)).toEqual(before);
       } finally {
         await setup.close();
@@ -405,10 +463,10 @@ for (const language of ["en", "zh-CN"] as const) {
             window.getByTestId("check-actions").getByRole("menuitem", { name: label, exact: true }),
           );
         }
-        await expect(window.getByTestId("mind-editor")).toContainText(row.anchored);
+        await expect.poll(() => noteText(window)).toBe(row.anchored);
         await shot(window, "time-anchored");
-        await expect(window.getByTestId("mind-editor").getByTestId("citation")).toHaveCount(1);
-        await pointAndClick(window, window.getByTestId("undo-action").last());
+        expectCitationsKept(before, await documentJSON(window));
+        await pointAndClick(window, window.getByTestId("applied-undo").first());
         await expect.poll(() => documentJSON(window)).toEqual(before);
       } finally {
         await setup.close();
