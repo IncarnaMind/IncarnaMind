@@ -3,7 +3,7 @@ import { act, type ComponentType, createElement, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Conversation, LibrarySnapshot, TurnPlace } from "../../src/core/api";
-import { NotFoundError } from "../../src/core/errors";
+import { InvalidInputError, NotFoundError } from "../../src/core/errors";
 import { errorForWindow } from "../../src/shared/errorWording";
 
 /*
@@ -14,7 +14,12 @@ import { errorForWindow } from "../../src/shared/errorWording";
 
 let root: Root | null = null;
 let container: HTMLElement;
-let asked: { place: TurnPlace; answer(wall: string | null): void }[] = [];
+let asked: {
+  place: TurnPlace;
+  answer(wall: string | null): void;
+  fail(error: unknown): void;
+}[] = [];
+let reported: unknown[] = [];
 /** What the scope chip said at each commit: "" while none shows. */
 let frames: string[] = [];
 
@@ -36,8 +41,11 @@ beforeEach(async () => {
   const window = document.defaultView;
   asked = [];
   frames = [];
+  reported = [];
   const wallOfTurn = (place: TurnPlace) =>
-    new Promise<string | null>((resolve) => asked.push({ place, answer: resolve }));
+    new Promise<string | null>((resolve, reject) =>
+      asked.push({ place, answer: resolve, fail: reject }),
+    );
   // The conversation was deleted in another window just before the paste was saved.
   const saveTextAsDocument = () =>
     Promise.reject(errorForWindow(new NotFoundError({ key: "error.paste.conversationGone" })));
@@ -105,10 +113,11 @@ beforeEach(async () => {
   > as LibrarySnapshot;
   useAppStore.setState({
     documents: [],
-    minds: [],
+    minds: [{ id: "walled-note", folderId: "a" }],
     library,
     skills: [],
     settings: { language: "en", device: {}, user: {} },
+    reportError: (error: unknown) => reported.push(error),
   } as never);
 });
 
@@ -207,4 +216,64 @@ describe("a long paste the core won't save", () => {
       expect(container.querySelectorAll('[data-testid="composer-paste"]')).toHaveLength(1);
     });
   }
+});
+
+describe("the turn's wall as the composer asks the core for it", () => {
+  /** Each value the hook gave, render by render. */
+  let seen: (string | null | undefined)[] = [];
+
+  async function showPlace(place: TurnPlace) {
+    const { useTurnWall } = await import("../../src/renderer/src/turnWall");
+    const Probe = ({ at }: { at: TurnPlace }) => {
+      seen.push(useTurnWall(at));
+      return null;
+    };
+    await act(() => root?.render(createElement(Probe, { at: place })));
+  }
+
+  const fail = async (error: unknown) => {
+    const last = asked.at(-1);
+    if (!last) throw new Error("Nothing asked the core.");
+    await act(async () => last.fail(error));
+  };
+
+  test("from a walled Note to a conversation and back, no render gives the wall of the place before", async () => {
+    seen = [];
+    const note = { mindId: "walled-note", conversationId: "outside" };
+    const chat = { mindId: null, conversationId: "outside" };
+    await showPlace(note);
+    expect(seen.every((each) => each === undefined)).toBe(true);
+    await answer("a");
+    expect(seen.at(-1)).toBe("a");
+
+    seen = [];
+    await showPlace(chat);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((each) => each === undefined)).toBe(true);
+    await answer(null);
+    expect(seen.at(-1)).toBeNull();
+
+    seen = [];
+    await showPlace(note);
+    expect(seen.every((each) => each === undefined)).toBe(true);
+    await answer("a");
+    expect(seen.at(-1)).toBe("a");
+    expect(asked.map((each) => each.place)).toEqual([note, chat, note]);
+  });
+
+  test("a conversation deleted meanwhile leaves the wall unknown, with no notice", async () => {
+    seen = [];
+    await showPlace({ mindId: null, conversationId: "walled" });
+    await fail(errorForWindow(new NotFoundError({ key: "error.conversation.notFound" })));
+    expect(seen.every((each) => each === undefined)).toBe(true);
+    expect(reported).toEqual([]);
+  });
+
+  test("any other failure is reported, and the wall stays unknown", async () => {
+    seen = [];
+    await showPlace({ mindId: null, conversationId: "walled" });
+    await fail(errorForWindow(new InvalidInputError({ key: "error.turnPlace" })));
+    expect(seen.every((each) => each === undefined)).toBe(true);
+    expect(reported).toHaveLength(1);
+  });
 });

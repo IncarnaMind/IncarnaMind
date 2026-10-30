@@ -55,8 +55,9 @@ export const suggestionCommands: readonly Command[] = [
       useLibraryFolds.getState().reviewShown &&
       waitingIds().length > 0,
     reversible: true,
-    async run() {
-      return (await acceptSuggestions(waitingIds())) ?? undefined;
+    async run(ctx) {
+      const ids = ctx.checked ? ctx.checked.map((each) => each.id) : waitingIds();
+      return (await acceptSuggestions(ids)) ?? undefined;
     },
   },
 ];

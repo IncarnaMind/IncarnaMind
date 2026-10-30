@@ -15,6 +15,7 @@ import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/mo
 const FILES = [
   { name: "Client A lease.txt", contents: "Client A settlement offer: 2.5 million zeta.\n" },
   { name: "General memo.txt", contents: "The general memo has no offer in it.\n" },
+  { name: "Late filing.txt", contents: "A filing Organize sorts while the assistant runs.\n" },
 ];
 
 const entry = (id: OfferedCommand["id"], label: string, more: Partial<OfferedCommand> = {}) => ({
@@ -64,14 +65,18 @@ async function setUp() {
   const memo = await core.createMind({ title: "Client A privileged memo", folderId: folderA.id });
   await core.deleteMind(memo.id);
   const windowAsked: WindowCommandRequest[] = [];
+  /** What lands in the Library after the check, just before the window runs the command. */
+  let meanwhile = async () => {};
   core.on("command.windowRun", (request) => {
     windowAsked.push(request);
     void (async () => {
-      // As the window runs it: every suggestion waiting in To review.
+      await meanwhile();
+      // As the window runs it: what the core checked, of what is still waiting.
       if (request.command === ACCEPT_SUGGESTIONS) {
         const { assignments } = await core.getLibrary();
-        const waiting = assignments.filter((each) => each.suggested);
-        await core.acceptAssignments(waiting.map((each) => each.documentId));
+        const waiting = new Set(assignments.filter((a) => a.suggested).map((a) => a.documentId));
+        const checked = request.targets.map((each) => each.id);
+        await core.acceptAssignments(checked.filter((id) => waiting.has(id)));
       }
       await core.answerWindowCommand(request.requestId, { ran: true, changed: true });
     })();
@@ -90,9 +95,27 @@ async function setUp() {
       .flatMap((call) => call.results.map((each) => each.text))
       .join("\n");
   };
-  const general = setup.documents.find((each) => each.name.startsWith("General"));
-  if (!general) throw new Error("The memo wasn't added.");
-  return { core, folderA, noteA, memo, lease, general, outside: setup.mind, windowAsked, ask };
+  const named = (start: string) => {
+    const found = setup.documents.find((each) => each.name.startsWith(start));
+    if (!found) throw new Error(`${start} wasn't added.`);
+    return found;
+  };
+  const landing = (run: () => Promise<void>) => {
+    meanwhile = run;
+  };
+  return {
+    core,
+    folderA,
+    noteA,
+    memo,
+    lease,
+    general: named("General"),
+    late: named("Late"),
+    outside: setup.mind,
+    windowAsked,
+    ask,
+    landing,
+  };
 }
 
 const walled = async (core: Core, folderId: string) =>
@@ -234,6 +257,31 @@ describe("Accept all suggested Folders goes through the same door as a move", ()
       "Client A lease: filed",
       "General memo: filed",
     ]);
+  });
+
+  test("a suggestion that lands after the check is never filed with the rest", async () => {
+    const s = await setUp();
+    const general = await s.core.createLibraryGroup({ name: "General", description: "" });
+    await suggest(s.core, s.general.id, general.id);
+    s.landing(() => suggest(s.core, s.late.id, s.folderA.id));
+
+    await s.ask(s.outside.id, [acceptAll]);
+
+    expect(s.windowAsked.map((each) => each.targets.map((target) => target.id))).toEqual([
+      [s.general.id],
+    ]);
+    expect(await heldIn(s.core, general.id)).toEqual(["General memo: filed"]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual([
+      "Client A lease: filed",
+      "Late filing: waiting",
+    ]);
+  });
+
+  test("with nothing waiting it says so, and asks the window for nothing", async () => {
+    const s = await setUp();
+    expect(await s.ask(s.outside.id, [acceptAll])).toContain("Nothing is waiting in To review.");
+    expect(translate("zh-CN", "error.commands.nothingWaiting")).toMatch(/待确认/);
+    expect(s.windowAsked).toEqual([]);
   });
 
   test("from inside the wall, a suggestion for another Folder keeps every one waiting", async () => {

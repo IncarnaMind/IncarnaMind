@@ -120,9 +120,10 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
         throw error;
       }
       // A page saved on the other side of a wall is read again, never reused: its Citation would
-      // name a Folder this turn can't see (#2243).
+      // name a Folder this turn can't see (#2243). A save under way is shared only with turns on
+      // this side, never with the User's own save, which may file it behind a wall.
       const result = await options.savePage(address, fetcher.fetch, {
-        key: wallId ?? "",
+        key: `wall:${wallId ?? "none"}`,
         reusable: (documentId) => options.walledDocument(documentId) === wallId,
       });
       if (result.outcome === "failed") return { outcome: "failed", reason: result.failure.reason };

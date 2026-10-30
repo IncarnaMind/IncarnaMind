@@ -142,7 +142,7 @@ function parseSaveInput(input: unknown): SaveWebPageInput {
 
 /**
  * Which page saved already a save may give back: only those `reusable` takes. A save under way is
- * shared only with saves of the same `key`; "" shares it with saves that have no rule too.
+ * shared only with saves of the same `key`, never with one that has no rule.
  */
 export interface PageReuse {
   key: string;
@@ -472,7 +472,7 @@ export function createWebPages(options: WebPagesOptions) {
       if (options.localOnly?.() && html === undefined && !fetch && !localModeOnce) {
         return Promise.resolve(heldInLocalMode(address));
       }
-      return once(reuse?.key ? `${reuse.key}\n${address}` : address, async () => {
+      return once(reuse ? `${reuse.key}\n${address}` : address, async () => {
         try {
           return await withPage(await pageFor(address, html, fetch), async (page) => {
             const meanwhile = documentAtAddress(db, address, reuse?.reusable);

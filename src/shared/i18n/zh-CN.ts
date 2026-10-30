@@ -4203,6 +4203,7 @@ export const zhCN = {
   "error.commands.noFolderName": "命令缺少文件夹名称。",
   "error.commands.noTag": "命令缺少标签名称。",
   "error.commands.noFolderPath": "命令缺少要从中添加文件的文件夹。",
+  "error.commands.nothingWaiting": "“待确认”中没有要接受的推荐。",
   "error.commands.noIds": "命令缺少要处理的文档或笔记。",
   "error.commands.noDocument": "没有 id 为 {id} 的文档。",
   "error.commands.exampleDocument":

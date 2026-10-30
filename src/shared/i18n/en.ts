@@ -4391,6 +4391,7 @@ export const en = {
   "error.commands.noFolderName": "The command needs the Folder’s name.",
   "error.commands.noTag": "The command needs the Tag’s name.",
   "error.commands.noFolderPath": "The command needs the folder to add files from.",
+  "error.commands.nothingWaiting": "Nothing is waiting in To review.",
   "error.commands.noIds": "The command needs the Documents or notes it acts on.",
   "error.commands.noDocument": "There is no Document with the id {id}.",
   "error.commands.exampleDocument":

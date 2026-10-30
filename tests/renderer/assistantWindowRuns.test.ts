@@ -110,4 +110,25 @@ describe("The window says a command started, then how it ended (#1421)", () => {
       remove();
     }
   });
+
+  // protects=a command that names no ids acts only on what the core checked against the Folder wall (#2243); fails_when=it acts on what the window's own lists hold when it runs; no_claim=what the core checks.
+  test("a command that names no ids is given what the core checked, and nothing else", async () => {
+    const run = vi.fn();
+    const remove = registry.commands.register({
+      id: "test.noIds",
+      label: "mind.open",
+      group: "main",
+      reversible: true,
+      run,
+    });
+    try {
+      const checked = [{ kind: "document" as const, id: "memo" }];
+      heard.handlers.get("command.windowRun")?.({ ...request("test.noIds"), targets: checked });
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+      expect(run.mock.calls[0]?.[0]).toMatchObject({ checked, selection: [] });
+    } finally {
+      remove();
+      heard.answers.length = 0;
+    }
+  });
 });

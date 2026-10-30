@@ -8,8 +8,14 @@
 import { readFileSync } from "node:fs";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, ChatProvider, CoreAdapters, PageLook } from "../../src/core";
-import { keptInsideName } from "../../src/renderer/src/walls";
+import type {
+  AnswerToolCall,
+  ChatProvider,
+  CitationAttributes,
+  Core,
+  CoreAdapters,
+  PageLook,
+} from "../../src/core";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { askAndFinish, onlyCitation, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -70,6 +76,24 @@ function researcher(): MockLanguageModelV4 {
   });
 }
 
+/** Called each time the test web serves the tea page. */
+let servingTea = () => {};
+
+/** Whether the core keeps a Citation inside a wall, seen from `mindId`: it then names that Folder. */
+async function keptInside(core: Core, cited: CitationAttributes, mindId: string) {
+  const { documentId, pageFrom, pageTo, quote, contentHash } = cited;
+  if (documentId === null || quote === null) throw new Error("The Citation has no quote.");
+  const result = await core.recheckCitation({
+    documentId,
+    pageFrom,
+    pageTo,
+    quote,
+    contentHash,
+    mindId,
+  });
+  return "keptInside" in result ? result.keptInside : null;
+}
+
 /** A core with `model` on Anthropic, Questions allowed to go there, web search on and allowed. */
 async function setUp(
   model: MockLanguageModelV4,
@@ -77,7 +101,10 @@ async function setUp(
   overrides: Partial<CoreAdapters> = {},
 ) {
   const web = await startWeb({
-    "/tea": () => ({ status: 200, body: fixture("article.html") }),
+    "/tea": () => {
+      servingTea();
+      return { status: 200, body: fixture("article.html") };
+    },
     "/members": () => ({ status: 200, body: fixture("login.html") }),
   });
   const dataDir = await createTempDataFolder();
@@ -307,7 +334,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     const fetched = () => web.heard.filter((each) => each === "encyclopedia.example/tea").length;
     const ask = async (on: typeof client, mindId: string) => {
       const { answerId } = await askAndFinish(core, on, mindId, "Search the web: tea in Europe?");
-      return onlyCitation(on, answerId).documentId;
+      return onlyCitation(on, answerId);
     };
 
     const insideCited = await ask(insideClient, inside.id);
@@ -315,16 +342,94 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     const again = await ask(insideClient, inside.id);
 
     expect(fetched()).toBe(2);
-    expect(outsideCited).not.toBe(insideCited);
-    expect(again).toBe(insideCited);
+    expect(outsideCited.documentId).not.toBe(insideCited.documentId);
+    expect(again.documentId).toBe(insideCited.documentId);
     const library = await core.getLibrary();
     const folderOf = (id: unknown) =>
       library.assignments.find((each) => each.documentId === id)?.groupId;
-    expect(folderOf(insideCited)).toBe(walled.id);
-    expect(folderOf(outsideCited)).toBe(folder.id);
-    // What each Citation's card would say: no Folder it isn't in.
-    expect(keptInsideName(library, String(outsideCited), folder.id)).toBeNull();
-    expect(keptInsideName(library, String(insideCited), walled.id)).toBeNull();
+    expect(folderOf(insideCited.documentId)).toBe(walled.id);
+    expect(folderOf(outsideCited.documentId)).toBe(folder.id);
+    // No Citation names a Folder it isn't in.
+    expect(await keptInside(core, outsideCited, mind.id)).toBeNull();
+    expect(await keptInside(core, insideCited, inside.id)).toBeNull();
+  });
+
+  test("an outside turn never shares the User's save under way of the same page into a walled Folder", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetching = () => {};
+    const userFetching = new Promise<void>((resolve) => {
+      fetching = resolve;
+    });
+    // The User's own fetch waits until the turn has fetched the page for itself, then fails.
+    const userFetch = async (): Promise<never> => {
+      fetching();
+      await held;
+      throw new TypeError("fetch failed");
+    };
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(
+      model,
+      {},
+      { webPages: { fetch: userFetch } },
+    );
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    servingTea = release;
+
+    const users = core.saveWebPage({ address: TEA, folderId: walled.id });
+    await userFetching;
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "Search the web: tea in Europe?",
+    );
+
+    expect((await users).outcome).toBe("failed");
+    const cited = onlyCitation(client, answerId);
+    const { assignments } = await core.getLibrary();
+    expect(assignments.find((each) => each.documentId === cited.documentId)?.groupId).toBe(
+      folder.id,
+    );
+    expect(await keptInside(core, cited, mind.id)).toBeNull();
+  });
+
+  test("an outside turn reads a page again that the User saved into a walled Folder before", async () => {
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, folder, mind, client } = await setUp(model);
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const users = await core.saveWebPage({
+      address: TEA,
+      html: fixture("article.html"),
+      folderId: walled.id,
+    });
+    if (users.outcome !== "saved") throw new Error("The User's page wasn't saved.");
+
+    const { answerId } = await askAndFinish(
+      core,
+      client,
+      mind.id,
+      "Search the web: tea in Europe?",
+    );
+
+    const cited = onlyCitation(client, answerId);
+    expect(cited.documentId).not.toBe(users.document.id);
+    const { assignments } = await core.getLibrary();
+    const folderOf = (id: unknown) => assignments.find((each) => each.documentId === id)?.groupId;
+    expect(folderOf(users.document.id)).toBe(walled.id);
+    expect(folderOf(cited.documentId)).toBe(folder.id);
   });
 
   test("isn't offered while the switch is off, in Local mode, for a Question that doesn't ask for the web, or with a provider that has no web search", async () => {

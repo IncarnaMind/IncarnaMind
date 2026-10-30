@@ -86,6 +86,11 @@ export interface CommandContext {
    * one is offered only where the menu was given it (`needsHere`).
    */
   here?: Partial<Record<CommandId, () => void>>;
+  /**
+   * What the core checked against the Folder wall for an assistant's run of a command that names
+   * no ids (To review's Accept all): it acts on these alone, never on what is in view (#2243).
+   */
+  checked?: readonly ObjectRef[];
 }
 
 export interface Command {

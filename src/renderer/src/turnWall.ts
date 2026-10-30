@@ -9,8 +9,12 @@ import type { TurnPlace } from "../../core/api";
 import { useConversations, useOpenConversation } from "./conversations";
 import { core } from "./core";
 import { MindIdContext } from "./editor/mindContext";
+import { describeError } from "./errors";
 import { useAppStore } from "./store";
 import { keptInsideName } from "./walls";
+
+/** How the core says the Note or conversation a Question would be asked in is deleted. */
+const GONE: ReadonlySet<string> = new Set(["error.mind.notFound", "error.conversation.notFound"]);
 
 /**
  * The walled Folder of a Question asked at `place`: null outside every wall, undefined until the
@@ -38,9 +42,12 @@ export function useTurnWall({ mindId, conversationId }: TurnPlace): string | nul
       (wall) => {
         if (current) setAnswer({ asked, wall });
       },
-      // A Note or conversation deleted in another window: the composer waits until it moves on.
-      (error: unknown) =>
-        console.error(`The wall of a Question asked at ${asked} isn't known.`, error),
+      (error: unknown) => {
+        // A Note or conversation deleted in another window: the composer waits until it moves on.
+        if (GONE.has(describeError(error).wording?.key ?? "")) {
+          console.error(`The wall of a Question asked at ${asked} isn't known.`, error);
+        } else useAppStore.getState().reportError(error);
+      },
     );
     return () => {
       current = false;

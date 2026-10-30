@@ -83,7 +83,8 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor({ targets, mindId }: WindowCommandRequest): CommandContext {
+function contextFor(command: Command, { targets, mindId }: WindowCommandRequest): CommandContext {
+  if (!command.appliesTo) return { ...inFront(mindId), checked: targets };
   const [one] = targets;
   if (!one) return inFront(mindId);
   return targets.length === 1
@@ -134,7 +135,7 @@ export function startForAssistant(request: WindowCommandRequest): {
       wording: null,
     });
   }
-  const ctx = contextFor(request);
+  const ctx = contextFor(command, request);
   const label = labelOf(command, ctx, english);
   let tried: ReturnType<typeof commands.start>;
   try {

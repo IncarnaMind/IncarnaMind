@@ -7,6 +7,7 @@
  * (./policy). An entry the window marks as the User's alone is never run.
  */
 import {
+  ACCEPT_SUGGESTIONS,
   type CommandId,
   type CommandTarget,
   type OfferedCommand,
@@ -211,6 +212,20 @@ export function commandEffects(input: Record<string, unknown>): Effect[] {
   }
 }
 
+/**
+ * The live Documents waiting in a suggested Folder, as To review lists them, and what names them;
+ * refused when none waits. A suggestion counts as behind its Folder's wall, which the gate holds
+ * it to, though a Note there doesn't search it yet: so they are named here, not by what is found.
+ */
+async function waitingSuggestions(host: CommandsHost): Promise<{ ids: string[]; named: Findable }> {
+  const [library, listed] = await Promise.all([host.core.getLibrary(), host.core.listDocuments()]);
+  const waiting = new Set(library.assignments.filter((a) => a.suggested).map((a) => a.documentId));
+  const documents = listed.filter((each) => waiting.has(each.id));
+  if (documents.length === 0) throw new InvalidInputError({ key: "error.commands.nothingWaiting" });
+  const named = { documents, minds: [], library, tags: [], deleted: [] };
+  return { ids: documents.map((each) => each.id), named };
+}
+
 /** The Folder a request for a wall's switch is about: the one it names, the Note's, or the only walled one. */
 async function wallAskedAbout(
   input: CommandInput,
@@ -252,17 +267,25 @@ export async function checkCommand(
   if (input.command === WALL_SWITCH) {
     return yoursChecked(WALL_SWITCH, "wall", await wallAskedAbout(input, host, context.mindId));
   }
-  const entry = context.offered.find((each) => each.id === input.command);
+  const offered = context.offered.find((each) => each.id === input.command);
+  // Accept all names no ids: it acts on the suggestions waiting now, which the wall gate checks
+  // and the window then accepts alone, so one that lands meanwhile isn't filed unchecked (#2243).
+  const acceptAll = offered?.id === ACCEPT_SUGGESTIONS && offered.yours === null;
+  const waiting = acceptAll ? await waitingSuggestions(host) : null;
+  const call = waiting ? { ...input, ids: waiting.ids } : input;
+  const entry: OfferedCommand | undefined =
+    acceptAll && offered ? { ...offered, on: ["document"] } : offered;
   // Every command, the core's and the window's, is held to the Folder wall first, by what it
   // declares it touches (#1934); one the gate can't place is refused there.
-  const touches: CommandTouch[] = isCoreCommand(input.command)
-    ? [CORE_COMMANDS[input.command].on]
+  const touches: CommandTouch[] = isCoreCommand(call.command)
+    ? [CORE_COMMANDS[call.command].on]
     : entry
       ? (entry.on ?? ["front"])
       : [];
-  await host.allows?.(input, touches, context.mindId, context.wallId);
+  await host.allows?.(call, touches, context.mindId, context.wallId);
   if (entry && (entry.yours !== null || !isCoreCommand(entry.id))) {
-    return windowChecked(entry, input.ids, await context.findable(), context, host.window);
+    const findable = waiting?.named ?? (await context.findable());
+    return windowChecked(entry, call.ids, findable, context, host.window);
   }
   if (isCoreCommand(input.command)) {
     const command: CoreCommand = CORE_COMMANDS[input.command];

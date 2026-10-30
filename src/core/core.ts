@@ -1681,6 +1681,21 @@ export function createCore(adapters: CoreAdapters): Core {
         }
         return undefined;
       };
+      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
+      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
+      if (input.command === ACCEPT_SUGGESTIONS) {
+        const suggested = new Map(
+          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
+        );
+        const crossing = input.ids.some((id) => {
+          const into = suggested.get(id) ?? null;
+          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
+        });
+        if (crossing) {
+          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
+          throw new InvalidInputError({ key });
+        }
+      }
       for (const id of input.ids) {
         const wall = wallOf(id);
         if (wall !== undefined && wall !== wallId) refuse();
@@ -1696,20 +1711,6 @@ export function createCore(adapters: CoreAdapters): Core {
           library.folders().find((folder) => same(folder.name, input.folder ?? ""))?.id ?? null;
         if (filedWithin(wallId, target)?.folderId !== target) {
           throw new InvalidInputError({ key: "error.folder.wallMove" });
-        }
-      }
-      // Accept all names no ids: it files every waiting suggestion in its suggested Folder, so each
-      // goes through the same door as a move (#2243).
-      if (input.command === ACCEPT_SUGGESTIONS) {
-        const crossing = library
-          .snapshot()
-          .assignments.some(
-            (each) =>
-              each.suggested && filedWithin(wallId, each.groupId)?.folderId !== each.groupId,
-          );
-        if (crossing) {
-          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
-          throw new InvalidInputError({ key });
         }
       }
     },
