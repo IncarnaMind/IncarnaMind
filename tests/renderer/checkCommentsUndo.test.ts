@@ -122,8 +122,11 @@ describe("Undo of Change in someone else's Word file", () => {
       expect(await now()).toEqual(plain);
       expect(useUndo.getState().done).toHaveLength(0);
 
+      // Redo dates its comments when it writes them, so only what the file holds is the same.
       await useUndo.getState().redo();
-      expect(await now()).toEqual(on);
+      const redone = await now();
+      expect(ours(redone.bytes)).toBe(true);
+      expect(redone).toMatchObject({ choice: true, line: "3 check comments" });
       await useUndo.getState().undo();
       expect(await now()).toEqual(plain);
       expect(bridge.reported).toEqual([]);
