@@ -8,12 +8,15 @@
 import type { LanguageModelV4Prompt, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
+import { checkNow } from "../../src/core/answers/checks/checkedText";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { type HandedPassage, passagesIn } from "./passagesHanded";
 
 export interface WatchedRequest {
   /** What the request is for, by its instructions: the check's Run, or a judgement after it. */
   kind: string;
+  /** The sentence's part the request checks, as the check named it; null for the whole sentence. */
+  part: string | null;
   /** The searches the Run made before this request, in order. */
   queries: string[];
   handed: HandedPassage[];
@@ -102,12 +105,14 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
 
   function start(prompt: LanguageModelV4Prompt) {
     const { system, asked, queries, handed } = read(prompt);
-    // A request that names several sentences (finding the claims) is no sentence's. Two sets may
-    // share a sentence: it is one sentence here.
+    // The check tags every request it makes with its sentence and part; one that names
+    // sentences itself (finding the claims) is no sentence's, and is read from its words.
+    const checked = checkNow();
     const named = [...new Set(sentences)].filter((sentence) => asked.includes(sentence));
     const [sentence] = named;
     const request: WatchedRequest = {
       kind: kindOf(system),
+      part: checked?.part ?? null,
       queries,
       handed,
       reply: "",
@@ -117,7 +122,8 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       outputTokens: 0,
       ms: 0,
     };
-    if (request.kind === "claims") claims.push({ request, asked });
+    if (checked) watched.set(checked.sentence, [...(watched.get(checked.sentence) ?? []), request]);
+    else if (request.kind === "claims") claims.push({ request, asked });
     else if (named.length === 1 && sentence !== undefined) {
       watched.set(sentence, [...(watched.get(sentence) ?? []), request]);
     }
