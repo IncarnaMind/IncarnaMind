@@ -2385,27 +2385,32 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
   energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
 };
 
-// A symbol states its measure only where it belongs to a figure or a unit line, and on a unit line only as the whole name there: a word can hide it ("don't", 克服, 单位：克林工厂).
-const UNIT_AFTER_NUMBER = `${NUMBER_CHAR.source}[ \\u00a0]?(?:[/⁄][ \\u00a0]?)?`;
-const symbolPattern = (symbols: string) =>
-  symbols
-    .split("|")
-    .map((symbol) => (/^[A-Za-z]$/.test(symbol) ? `${symbol}(?![A-Za-z])` : symbol))
-    .join("|");
+// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", 克服, 单位：克林工厂, 27m3).
+const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
+const WHOLE_NAME = `(?!${HAN})`;
+// A Latin symbol stands alone: a letter, an apostrophe or a Han character beside it makes it a word, and a digit after it a product ("27m3").
+const latinSymbol = (symbol: string) => `(?<![\\p{L}'’ʼ])${symbol}(?![\\p{L}\\p{N}])`;
+// NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
+const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?(?:[/⁄][ \\u00a0]?)?`;
+const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
+const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
+const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
+// After a slash, a lone numeral or a label, a Han symbol must be the whole name ("元/吨", "一吨", "单位为吨").
+const hanSymbol = (symbol: string) =>
+  [
+    `${HAN_AFTER_FIGURE}${symbol}`,
+    `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
+    `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
+  ].join("|");
 
 const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
   const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
-  const symbol = symbolPattern(symbols);
-  if (!symbol) return new RegExp(word, "i");
-  return new RegExp(
-    [
-      word,
-      `${UNIT_AFTER_NUMBER}(?:${symbol})`,
-      `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]?)?(?:${symbol})(?:[ \\u00a0]*[/⁄][ \\u00a0]*[^)）\\n]{0,4})?\\s*[)）]`,
-      `(?:(?:金额|货币|数量)?单位|(?<![A-Za-z])units?)\\s*[:：]?\\s*(?:${symbol})(?![\\u3400-\\u9fff\\uf900-\\ufaff])`,
-    ].join("|"),
-    "i",
-  );
+  const singles = symbols.split("|").filter(Boolean);
+  const latin = singles.filter((symbol) => /^[A-Za-z]$/.test(symbol)).map(latinSymbol);
+  const han = singles.filter((symbol) => !/^[A-Za-z]$/.test(symbol)).map(hanSymbol);
+  return new RegExp([word, ...latin, ...han].join("|"), "iu");
 };
 
 // The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
