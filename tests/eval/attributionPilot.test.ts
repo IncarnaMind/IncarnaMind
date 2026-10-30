@@ -1,6 +1,11 @@
 import { mkdirSync, readFileSync, rmdirSync } from "node:fs";
 import { join } from "node:path";
-import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from "@ai-sdk/provider";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import type {
+  LanguageModelV4Message,
+  LanguageModelV4StreamPart,
+  LanguageModelV4Usage,
+} from "@ai-sdk/provider";
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { expect, test } from "vitest";
@@ -677,4 +682,112 @@ test("response kind and model diagnostics retain neither response headers nor cu
     "finish",
   ]);
   expect(attributionPilotJSON(observed.requests)).not.toContain("synthetic-private-payload");
+});
+
+test("only Anthropic message-start metadata is admitted without altering the history", async () => {
+  const cost = await budget();
+  const model = mock();
+  const observed = observeAttribution(() => model, cost.hooks);
+  const prompt: LanguageModelV4Message[] = [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "custom",
+          kind: "anthropic.message_start",
+          providerOptions: {
+            anthropic: {
+              id: "synthetic-message",
+              model: "claude-sonnet-5-5",
+              usage: { input_tokens: 9000000 },
+            },
+          },
+        },
+        { type: "text", text: "Synthetic reply." },
+      ],
+    },
+  ];
+  await observed.factory(spec).doGenerate({ prompt });
+  expect(model.doGenerateCalls[0]?.prompt).toEqual(prompt);
+  expect(cost.snapshot().entries[0]).toMatchObject({ status: "settled", chargedUSD: 0.0000377 });
+});
+
+test.each(["anthropic.container_upload", "another.text"] as const)(
+  "other custom content still refuses: %s",
+  async (kind) => {
+    const cost = await budget();
+    const model = mock();
+    await expect(
+      observeAttribution(() => model, cost.hooks)
+        .factory(spec)
+        .doGenerate({
+          prompt: [{ role: "assistant", content: [{ type: "custom", kind }] }],
+        }),
+    ).rejects.toThrow("input part custom");
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(cost.snapshot().stopKind).toBe("unpriced-request");
+  },
+);
+
+test("the installed SDK omits message-start metadata from outbound stream bytes", async () => {
+  const bodies: string[] = [];
+  const model = createAnthropic({
+    apiKey: "synthetic-local-only",
+    fetch: async (_input, init) => {
+      bodies.push(String(init?.body));
+      return Response.json(
+        {
+          type: "error",
+          error: { type: "invalid_request_error", message: "Synthetic byte capture." },
+        },
+        { status: 400 },
+      );
+    },
+  })("claude-sonnet-5-5");
+  const content: Extract<LanguageModelV4Message, { role: "assistant" }>["content"] = [
+    {
+      type: "custom",
+      kind: "anthropic.message_start",
+      providerOptions: {
+        anthropic: {
+          id: "synthetic-message",
+          model: "claude-sonnet-5-5",
+          usage: { input_tokens: 1 },
+        },
+      },
+    },
+    { type: "text", text: "Synthetic reply." },
+    {
+      type: "tool-call",
+      toolCallId: "search-1",
+      toolName: "search_documents",
+      input: { query: "Synthetic query" },
+    },
+  ];
+  const prompt: LanguageModelV4Message[] = [
+    { role: "user", content: [{ type: "text", text: "Synthetic assertion." }] },
+    { role: "assistant", content },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "search-1",
+          toolName: "search_documents",
+          output: { type: "text", value: "Synthetic Passage." },
+        },
+      ],
+    },
+  ];
+  await expect(model.doStream({ prompt, maxOutputTokens: 128000 })).rejects.toThrow(
+    "Synthetic byte capture",
+  );
+  content.shift();
+  await expect(model.doStream({ prompt, maxOutputTokens: 128000 })).rejects.toThrow(
+    "Synthetic byte capture",
+  );
+  expect(bodies).toHaveLength(2);
+  expect(Buffer.from(bodies[1] ?? "")).toEqual(Buffer.from(bodies[0] ?? ""));
+  expect(bodies[0]).not.toContain("anthropic.message_start");
+  expect(bodies[0]).not.toContain("synthetic-message");
 });

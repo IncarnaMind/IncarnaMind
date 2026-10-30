@@ -144,6 +144,8 @@ function promptByteBound(
     inspect(message.providerOptions);
     if (typeof message.content !== "string")
       for (const part of message.content) {
+        // The Anthropic SDK drops its stream-start metadata from history (#2003).
+        if (part.type === "custom" && part.kind === "anthropic.message_start") continue;
         if (!["text", "reasoning", "tool-call", "tool-result"].includes(part.type))
           throw new Error(`The attribution pilot cannot price input part ${part.type}.`);
         if (part.type === "tool-result" && part.output.type === "content")
