@@ -31,7 +31,7 @@ export function useTabStripFit(
     let wheelTimer: ReturnType<typeof setTimeout> | undefined;
     let frame: number | undefined;
 
-    const place = (reveal: boolean, byUser = false) => {
+    const place = (reveal: boolean, afterScroll = false, keep = -1) => {
       const tabs = Array.from(element.querySelectorAll<HTMLElement>(':scope > [role="tab"]'));
       const shown = tabs.findIndex((tab) => tab.dataset.tabId === shownId);
       const was = element.scrollLeft;
@@ -66,16 +66,17 @@ export function useTabStripFit(
       // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
       // scroll or on who asked, so every place agrees and the strip comes to rest.
       if (shown >= 0) {
+        const room = element.offsetWidth + spare.offsetWidth - END_GAP;
         const alone = fitFrom(0, shown);
         if (alone.squeezed && alone.first === shown && alone.last === shown) {
           // Narrowed to its least width (`data-squeezed` in styles.css), it makes the room. The
-          // room is taken here, free of the cut, so the width holds wherever the strip rests.
-          element.dataset.squeezed = "";
-          const room = element.offsetWidth + spare.offsetWidth - END_GAP;
+          // room is taken before, free of the cut and the narrowing, so the width holds wherever
+          // the strip rests.
           element.style.setProperty("--tab-room", `${room}px`);
+          element.dataset.squeezed = "";
         }
       }
-      const result = fitFrom(was, reveal ? shown : -1);
+      const result = fitFrom(was, reveal ? shown : keep);
       if (result.run !== null) {
         element.style.setProperty("--tab-run", `${result.run}px`);
         element.style.setProperty("--tab-run-gap", `${result.gap}px`);
@@ -84,7 +85,8 @@ export function useTabStripFit(
         element.scrollLeft = result.scrollLeft;
       }
       if (reveal) following = true;
-      else if (byUser) following = shown < 0 || (shown >= result.first && shown <= result.last);
+      else if (afterScroll)
+        following = shown < 0 || (shown >= result.first && shown <= result.last);
     };
 
     const placeLater = () => {
@@ -105,10 +107,24 @@ export function useTabStripFit(
         place(false, true);
       }, WHEEL_QUIET_MS);
     };
-    // Scrolls that aren't the User's (a focus, a script) settle on whole tabs too, but they
-    // don't say the User looked away from the shown tab.
+    // Scrolls that aren't the wheel's (a focus, a script, a screen reader) settle on whole tabs
+    // too, keeping whole the tab they brought into view: settled by the nearest start alone it
+    // could end as the faded part of a name, and the cut's change of width would bring the shown
+    // tab back over it. The strip follows the shown tab again only if it is still in view.
     const onScrollEnd = () => {
-      if (wheelTimer === undefined) place(false);
+      if (wheelTimer !== undefined) return;
+      const view = element.getBoundingClientRect();
+      let keep = -1;
+      let most = 0;
+      element.querySelectorAll(':scope > [role="tab"]').forEach((tab, index) => {
+        const at = tab.getBoundingClientRect();
+        const seen = Math.min(at.right, view.right) - Math.max(at.left, view.left);
+        if (seen > most + 0.5) {
+          most = seen;
+          keep = index;
+        }
+      });
+      place(false, true, keep);
     };
 
     // The shown tab is the strip's keyboard stop: focused, or a key pressed on it (End on the last
