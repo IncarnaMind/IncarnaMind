@@ -315,6 +315,15 @@ export function KeyLineIcon(props: IconProps) {
   );
 }
 
+/** What only the User changes (#1421): a shield, as the prototype draws it. */
+export function ShieldLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M12 3 5 6v5.5c0 4.3 2.9 8 7 9.5 4.1-1.5 7-5.2 7-9.5V6l-7-3Z" />
+    </LineIcon>
+  );
+}
+
 export function SortLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>

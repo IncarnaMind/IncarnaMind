@@ -1,48 +1,166 @@
 /**
- * What the assistant's commands did (#1110), in the words of their rows, their card and the
- * undo line: from what each call returned, never from the reply. Only data and words.
+ * What the assistant's commands did (#1110, #1421), in the words of their rows, their card and
+ * the undo line: from what each call returned, never from the reply. Only data and words.
  */
 import type {
   AnswerToolCall,
+  ApprovalReadText,
   CommandDone,
   CommandsFound,
   ConversationAnswer,
 } from "../../core/api";
-import { ASSISTANT_COMMANDS, type AssistantCommandId } from "../../shared/commands";
-import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { type CommandId, isCommandId, type Yours } from "../../shared/commands";
+import { isMessageKey, type MessageKey, type MessageParams } from "../../shared/i18n";
+import { commands, labelOf } from "./commands/registry";
 import { folderName } from "./linkedFolders";
 import type { Translate } from "./objects";
 
-/** Each command's words once done: for one thing, then for several. */
-const DONE: Readonly<Record<Exclude<AssistantCommandId, "mind.export">, [MessageKey, MessageKey]>> =
-  {
-    "document.rename": ["commands.done.rename.document.one", "commands.done.rename.document"],
-    "mind.rename": ["commands.done.rename.mind.one", "commands.done.rename.mind"],
-    "document.moveTo": ["commands.done.moveTo.document.one", "commands.done.moveTo.document"],
-    "mind.moveTo": ["commands.done.moveTo.mind.one", "commands.done.moveTo.mind"],
-    "document.tags": ["commands.done.tags.one", "commands.done.tags"],
-    "document.delete": ["commands.done.delete.document.one", "commands.done.delete.document"],
-    "mind.delete": ["commands.done.delete.mind.one", "commands.done.delete.mind"],
-    "documents.addFromFolder": ["commands.done.add.one", "commands.done.add"],
-  };
+/** The core's commands' words once done: for one thing, then for several. */
+const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
+  "document.rename": ["commands.done.rename.document.one", "commands.done.rename.document"],
+  "mind.rename": ["commands.done.rename.mind.one", "commands.done.rename.mind"],
+  "document.moveTo": ["commands.done.moveTo.document.one", "commands.done.moveTo.document"],
+  "mind.moveTo": ["commands.done.moveTo.mind.one", "commands.done.moveTo.mind"],
+  "document.tags": ["commands.done.tags.one", "commands.done.tags"],
+  "document.delete": ["commands.done.delete.document.one", "commands.done.delete.document"],
+  "mind.delete": ["commands.done.delete.mind.one", "commands.done.delete.mind"],
+  "documents.addFromFolder": ["commands.done.add.one", "commands.done.add"],
+  "documents.organize": ["commands.done.organize.one", "commands.done.organize"],
+  "folder.rename": ["commands.done.rename.folder.one", "commands.done.rename.folder"],
+  "folder.delete": ["commands.done.delete.folder.one", "commands.done.delete.folder"],
+  "tag.rename": ["commands.done.rename.tag.one", "commands.done.rename.tag"],
+  "tag.delete": ["commands.done.delete.tag.one", "commands.done.delete.tag"],
+  "deleted.restore": ["commands.done.restore.one", "commands.done.restore"],
+};
 
-const RUNNING: Readonly<Record<AssistantCommandId, MessageKey>> = {
+/** A move into a Folder the command made: "Made “Leases” and moved 3 Documents into it". */
+const MADE_AND_MOVED: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
+  "document.moveTo": ["commands.done.madeMoved.document.one", "commands.done.madeMoved.document"],
+  "mind.moveTo": ["commands.done.madeMoved.mind.one", "commands.done.madeMoved.mind"],
+};
+
+const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "document.rename": "commands.running.rename",
   "mind.rename": "commands.running.rename",
+  "folder.rename": "commands.running.rename",
+  "tag.rename": "commands.running.rename",
   "document.moveTo": "commands.running.moveTo",
   "mind.moveTo": "commands.running.moveTo",
   "document.tags": "commands.running.tags",
   "document.delete": "commands.running.delete",
   "mind.delete": "commands.running.delete",
+  "folder.delete": "commands.running.delete",
+  "tag.delete": "commands.running.delete",
   "mind.export": "commands.running.export",
   "documents.addFromFolder": "commands.running.add",
+  "documents.organize": "commands.running.organize",
+  "deleted.restore": "commands.running.restore",
 };
 
-const isCommand = (value: string): value is AssistantCommandId =>
-  Object.hasOwn(ASSISTANT_COMMANDS, value);
+/**
+ * Where each of what only the User changes is, and the button that opens it; none for what is
+ * done on each thing itself, where the line says it is.
+ */
+export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey | null }>> = {
+  keys: { said: "commands.yours.keys", open: "commands.yours.openModels" },
+  privacy: { said: "commands.yours.privacy", open: "commands.yours.openPrivacy" },
+  approvals: { said: "commands.yours.approvals", open: "commands.yours.openPrivacy" },
+  spending: { said: "commands.yours.spending", open: "commands.yours.openGeneral" },
+  permanent: { said: "commands.yours.permanent", open: "commands.yours.openDeleted" },
+  signOff: { said: "commands.yours.signOff", open: null },
+  authorship: { said: "commands.yours.authorship", open: null },
+};
+
+/** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
+const WHOLE_LINES = new Set<MessageKey>([
+  "commands.window.unanswered",
+  "commands.window.closed",
+  "commands.window.unfinished",
+  "commands.window.alreadyChecking",
+]);
+
+/**
+ * What an Answer read that the User didn't write, on the approval of a command it asks about: one
+ * Document by its name, more by their number, and this meeting's Transcript. It never says which
+ * of them asked for the command.
+ */
+export function readTextLine(t: Translate, read: ApprovalReadText): string {
+  const [only] = read.documents;
+  const documents =
+    read.documents.length === 1 && only !== undefined
+      ? t("commands.ask.readText.document", { name: only })
+      : read.documents.length > 1
+        ? t("commands.ask.readText.documents", { count: read.documents.length })
+        : null;
+  const transcript = read.transcript ? t("commands.ask.readText.transcript") : null;
+  const what =
+    documents && transcript
+      ? t("commands.ask.readText.both", { documents, transcript })
+      : (documents ?? transcript ?? "");
+  return t("commands.ask.readText", { what });
+}
+
+/** A setting's name as Settings shows it, by the name the assistant's command gives it. */
+const SETTING_NAMES: Readonly<Record<string, MessageKey>> = {
+  language: "settings.language",
+  motion: "settings.motion",
+  taskNotifications: "settings.taskNotifications",
+  authorName: "settings.authorName",
+  newNoteFont: "commands.setting.newNoteFont",
+  newNoteTextSize: "commands.setting.newNoteTextSize",
+  exportFormat: "commands.setting.exportFormat",
+  leaveOutOwnFiles: "evidence.settings.switch",
+  keepWebPageLook: "webPages.add.keepLook",
+  meetingSystemAudio: "commands.setting.meetingSystemAudio",
+  meetingPanel: "meetings.callHelp.show",
+  meetingPanelHidden: "meetings.settings.hidden",
+  model: "commands.setting.model",
+  outputLocation: "outputLocation.title",
+};
+
+/** A setting's value in the interface's words, where it has them; a name or a folder as it is. */
+const VALUE_WORDS: Readonly<Record<string, MessageKey>> = {
+  on: "commands.value.on",
+  off: "commands.value.off",
+  none: "commands.value.none",
+  system: "commands.value.system",
+  default: "commands.value.default",
+  reduced: "settings.motion.reduced",
+  serif: "mindStyle.font.serif",
+  mono: "mindStyle.font.mono",
+  small: "mindStyle.size.small",
+  large: "mindStyle.size.large",
+  en: "commands.value.en",
+  "zh-CN": "commands.value.zh",
+};
+
+const valueText = (t: Translate, value: string) => {
+  const key = VALUE_WORDS[value] ?? `export.format.${value}`;
+  return isMessageKey(key) ? t(key) : value;
+};
+
+/** A note's style as the core says it, "serif, large": its font, then its text size. */
+const styleText = (t: Translate, style: string) =>
+  style
+    .split(", ")
+    .map((part) => valueText(t, part))
+    .join(t("commands.value.and"));
+
+/** A command of the window's list by its name in the interface language; its id if it is gone. */
+function windowLabel(t: Translate, id: CommandId): string {
+  const command = commands.get(id);
+  if (!command) return id;
+  try {
+    return labelOf(command, { selection: [], focus: null, surface: "palette" }, t);
+  } catch (error) {
+    console.error(`The command ${id} couldn't say its name.`, error);
+    return id;
+  }
+}
 
 /** "Found 3 Documents · named “Northwind”", or that none matched. */
 export function foundText(t: Translate, found: CommandsFound): string {
+  if (found.kind === "window") return t("commands.found.window");
   const head =
     found.count === 0
       ? t(`commands.found.none.${found.kind}`)
@@ -60,18 +178,58 @@ export function foundText(t: Translate, found: CommandsFound): string {
 /** What one command did, `count` things: "Moved 2 Documents to “Real estate”". */
 export function doneText(
   t: Translate,
-  done: Pick<CommandDone, "command" | "items" | "into" | "file">,
+  done: Pick<CommandDone, "command" | "items" | "into" | "file" | "window" | "yours" | "setting">,
   count = done.items.length,
 ): string {
+  if (done.yours) return t(YOURS_WORDS[done.yours].said);
+  if (done.window) {
+    if (done.window.running) {
+      return t("commands.running.window", { command: windowLabel(t, done.command) });
+    }
+    const [first] = done.items;
+    if ((done.command === "mind.openBeside" || done.command === "document.openBeside") && first) {
+      return t("commands.done.openedBeside", { name: first.name });
+    }
+    return t("commands.done.window", { command: windowLabel(t, done.command) });
+  }
   if (done.command === "mind.export") {
     return done.file
       ? t("commands.done.export", { file: done.file.name, folder: folderName(done.file.folder) })
       : t("commands.done.none");
   }
+  if (done.setting) {
+    const { name, to } = done.setting;
+    if (done.command === "mind.citationStyle" || done.command === "mind.style") {
+      return t(
+        done.command === "mind.citationStyle"
+          ? "commands.done.citationStyle"
+          : "commands.done.style",
+        {
+          name: done.items[0]?.name ?? "",
+          value: done.command === "mind.style" ? styleText(t, to) : to,
+        },
+      );
+    }
+    const setting = SETTING_NAMES[name];
+    return t("commands.done.setting", {
+      setting: setting ? t(setting) : name,
+      value: name === "outputLocation" ? folderName(to) : valueText(t, to),
+    });
+  }
+  if (done.command === "folder.new" || done.command === "tag.new") {
+    const name = done.into?.name ?? done.items[0]?.name ?? "";
+    return t(done.command === "folder.new" ? "commands.made.folder" : "commands.made.tag", {
+      name,
+    });
+  }
   if (count === 0) return t("commands.done.none");
   const into = done.into?.name ?? "";
   const params: MessageParams = { count, folder: into, tag: into };
-  const [one, many] = DONE[done.command];
+  const made =
+    done.into?.made && done.into.kind === "folder" ? MADE_AND_MOVED[done.command] : undefined;
+  const words = made ?? DONE[done.command];
+  if (!words) return t("commands.done.window", { command: windowLabel(t, done.command) });
+  const [one, many] = words;
   return t(count === 1 ? one : many, params);
 }
 
@@ -87,9 +245,37 @@ export function commandRuns(
   return [...runs].map(([run, done]) => ({ run, done }));
 }
 
-/** Whether Undo takes anything back: a file saved stays saved. */
+/** Whether Undo takes anything back: a file saved stays saved, and what only showed changes nothing. */
 export const undoable = (done: readonly CommandDone[]): boolean =>
-  done.some((each) => each.command !== "mind.export" && each.items.length > 0);
+  done.some((each) => {
+    if (each.yours) return false;
+    if (each.window) return each.window.changed;
+    if (each.setting) return true;
+    return each.command !== "mind.export" && each.items.length > 0;
+  });
+
+const isMove = (done: CommandDone) =>
+  done.command === "document.moveTo" || done.command === "mind.moveTo";
+
+/**
+ * A Folder made, then things moved into it, said as one: "Made “Leases” and moved 3 Documents
+ * into it", as a move that makes its Folder says it.
+ */
+function madeThenMoved(done: readonly CommandDone[]): CommandDone[] {
+  const made = new Set(
+    done.flatMap((each) => (each.command === "folder.new" && each.into ? [each.into.id] : [])),
+  );
+  const movedInto = new Set(
+    done.flatMap((each) => (isMove(each) && each.into ? [each.into.id] : [])),
+  );
+  return done
+    .filter((each) => !(each.command === "folder.new" && each.into && movedInto.has(each.into.id)))
+    .map((each) =>
+      isMove(each) && each.into && made.has(each.into.id)
+        ? { ...each, into: { ...each.into, made: true } }
+        : each,
+    );
+}
 
 /**
  * What a Run's commands did, those alike counted together:
@@ -97,11 +283,13 @@ export const undoable = (done: readonly CommandDone[]): boolean =>
  */
 export function runText(t: Translate, done: readonly CommandDone[]): string {
   const groups = new Map<string, { done: CommandDone; count: number }>();
-  for (const each of done) {
+  for (const each of madeThenMoved(done)) {
     const key =
       each.command === "mind.export"
         ? `${each.command} ${each.file?.path ?? ""}`
-        : `${each.command} ${each.into?.id ?? ""}`;
+        : each.window || each.setting || each.yours
+          ? `${each.command} ${each.items.map((item) => item.id).join(" ")} ${each.setting?.name ?? ""} ${each.yours ?? ""}`
+          : `${each.command} ${each.into?.id ?? ""}`;
     const group = groups.get(key);
     if (group) group.count += each.items.length;
     else groups.set(key, { done: each, count: each.items.length });
@@ -118,8 +306,19 @@ const field = (call: AnswerToolCall, name: string): string => {
 export function commandCallText(t: Translate, call: AnswerToolCall): string {
   if (call.tool === "list_commands") {
     if (call.found) return foundText(t, call.found);
+    const kind = field(call, "kind");
     return t(
-      field(call, "kind") === "mind" ? "commands.finding.mind" : "commands.finding.document",
+      kind === "mind"
+        ? "commands.finding.mind"
+        : kind === "folder"
+          ? "commands.finding.folder"
+          : kind === "tag"
+            ? "commands.finding.tag"
+            : kind === "deleted"
+              ? "commands.finding.deleted"
+              : kind === "window"
+                ? "commands.finding.window"
+                : "commands.finding.document",
     );
   }
   if (call.command) return doneText(t, call.command);
@@ -127,11 +326,23 @@ export function commandCallText(t: Translate, call: AnswerToolCall): string {
   if (call.status === "failed") {
     const problem = call.commandProblem;
     if (!problem) return t("commands.notRun");
+    if (problem.wording && WHOLE_LINES.has(problem.wording.key)) {
+      const values = problem.wording.values ?? {};
+      return t(problem.wording.key, {
+        ...values,
+        ...(isCommandId(values.command) && { command: windowLabel(t, values.command) }),
+      });
+    }
     const reason = problem.wording
       ? t(problem.wording.key, problem.wording.values)
       : problem.message;
     return t("commands.failed", { reason });
   }
   const command = field(call, "command");
-  return t(isCommand(command) ? RUNNING[command] : "commands.running");
+  if (!isCommandId(command)) return t("commands.running");
+  const running = RUNNING[command];
+  if (running) return t(running);
+  return commands.get(command)
+    ? t("commands.running.window", { command: windowLabel(t, command) })
+    : t("commands.running");
 }

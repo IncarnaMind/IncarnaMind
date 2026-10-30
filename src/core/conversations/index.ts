@@ -60,6 +60,7 @@ import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
 import { isChatModelChoice } from "../settings";
 import type { Database, SqlValue } from "../storage";
+import { type CommandWindow, parseCommandWindow } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
 
@@ -74,6 +75,8 @@ export interface QuestionInput {
   focus: MindFocus | null;
   /** The Documents open on screen, by id, the focused group's first; not kept with the Question. */
   onScreen: string[];
+  /** The asking window and its commands (#1421); not kept with the Question. */
+  commands: CommandWindow | null;
   quotes: AskedQuote[];
   scope: SearchScope | null;
   model: ChatModelChoice | null;
@@ -553,6 +556,22 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
   read?.partial ? 1 : 0,
 ];
 
+/** A call whose window's command was still going on: it didn't finish. */
+function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const done = call.command;
+  if (!done?.window?.running) return call;
+  const { command: _done, ...rest } = call;
+  return {
+    ...rest,
+    status: "failed",
+    commandProblem: {
+      command: done.command,
+      message: `IncarnaMind closed while ${done.command} was still going on, so it didn't finish.`,
+      wording: { key: "commands.window.unfinished", values: { command: done.command } },
+    },
+  };
+}
+
 export function createConversations(db: Database, now: () => string) {
   /** The state before each conversation's first unpublished turn, shared by overlapping turns. */
   const pendingTurns = new Map<string, { updatedAt: string; answerIds: Set<string> }>();
@@ -734,6 +753,24 @@ export function createConversations(db: Database, now: () => string) {
   });
 
   /**
+   * A window's command still going on when an earlier run of the app ended, a Check for one,
+   * never says how it ended (#1421): its call says it didn't finish.
+   */
+  db.transaction(() => {
+    for (const row of db.all<{ id: string; tool_calls: string }>(
+      `SELECT id, tool_calls FROM conversation_messages
+       WHERE kind = 'answer' AND tool_calls LIKE '%"running":true%'`,
+    )) {
+      const calls = storedList<AnswerToolCall>(row.tool_calls).map(unfinished);
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(calls),
+        now(),
+        row.id,
+      ]);
+    }
+  });
+
+  /**
    * Calls `add` with every Citation kept by an Answer of a conversation not
    * deleted permanently: its own, and those its calculated figures' inputs read.
    */
@@ -878,6 +915,7 @@ export function createConversations(db: Database, now: () => string) {
         mind,
         focus: mind ? where : null,
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseCommandWindow(input.clientId, input.commands),
         quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
         model: model ?? null,
@@ -894,7 +932,7 @@ export function createConversations(db: Database, now: () => string) {
      * its conversation's Folder; left out, it isn't recorded.
      */
     add(
-      input: Omit<QuestionInput, "onScreen">,
+      input: Omit<QuestionInput, "onScreen" | "commands">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
       askedIn?: (conversationFolderId: string | null) => string,
@@ -1070,6 +1108,7 @@ export function createConversations(db: Database, now: () => string) {
       /** The Tool calls the Answer made, as it stands before it is written again. */
       toolCalls: AnswerToolCall[];
       onScreen: string[];
+      commands: CommandWindow | null;
       /** The model to write it with instead of the Question's own, when the caller chose one. */
       model: ChatModelChoice | null;
     } {
@@ -1093,6 +1132,7 @@ export function createConversations(db: Database, now: () => string) {
         question: toQuestion(question),
         toolCalls: storedList<AnswerToolCall>(answer.tool_calls),
         onScreen: parseOnScreen(input.onScreen),
+        commands: parseCommandWindow(input.clientId, input.commands),
         model: input.model ?? null,
       };
     },
@@ -1191,6 +1231,21 @@ export function createConversations(db: Database, now: () => string) {
         );
         if (outcome) indexMessage(row.seq, write.text, write.figures);
       });
+      return toAnswer(storedMessage(answerId));
+    },
+
+    /** Writes an ended Answer's Tool calls again; null when it is gone. */
+    writeToolCalls(
+      answerId: string,
+      toolCalls: readonly AnswerToolCall[],
+    ): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer") return null;
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(toolCalls),
+        now(),
+        answerId,
+      ]);
       return toAnswer(storedMessage(answerId));
     },
 
