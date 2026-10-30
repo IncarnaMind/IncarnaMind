@@ -335,7 +335,9 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
       request.figureIds === undefined
     ) {
       const result = await limit.run(() =>
-        inCheck({ sentence, part: null }, () => atomic({ ...request, parts: plans, sourceContext })),
+        inCheck({ sentence, part: null }, () =>
+          atomic({ ...request, parts: plans, sourceContext }),
+        ),
       );
       return family(planned, primary, result);
     }
@@ -455,7 +457,8 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
             () =>
               atomic({
                 ...request,
-                claim: index < 0 ? request.claim : request.claim.slice(plan.span.start, plan.span.end),
+                claim:
+                  index < 0 ? request.claim : request.claim.slice(plan.span.start, plan.span.end),
                 parts:
                   index === first?.index
                     ? planned.filter(

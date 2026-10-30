@@ -335,7 +335,9 @@ for (const language of ["en", "zh-CN"] as const) {
         });
         await expect(window.getByTestId("mind-editor")).toBeFocused();
         await runCommand(window, "mind.checkEverySentence", translate(language, "mindCheck.every"));
-        await expect.poll(async () => (await readCheck(window))?.request).not.toBe(beforeAgain?.request);
+        await expect
+          .poll(async () => (await readCheck(window))?.request)
+          .not.toBe(beforeAgain?.request);
         await expect.poll(async () => (await readCheck(window))?.state).toBe("contradicted");
         expect(
           (await readCheck(window))?.parts?.find((part) => part.facet?.kind === "source")?.facet,

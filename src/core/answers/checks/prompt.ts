@@ -273,6 +273,17 @@ export function claimPrompt(input: {
     ...(original !== input.claim
       ? ["The complete original assertion:", `<assertion>\n${original}\n</assertion>`, ""]
       : []),
+    ...(original !== input.claim && input.parts?.some((part) => part.facet === undefined)
+      ? [
+          "The literal parts checked here, at their UTF-16 positions in that assertion:",
+          JSON.stringify(
+            input.parts
+              .filter((part) => part.facet === undefined)
+              .map(({ span }) => ({ span, text: original.slice(span.start, span.end) })),
+          ),
+          "",
+        ]
+      : []),
     ...(sourceChoices.length > 0
       ? [
           "The User's source choices in the original assertion:",

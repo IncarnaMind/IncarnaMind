@@ -398,6 +398,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
     const { scope, signal } = request;
     const checkedAt = deps.now();
+    const checkingOnlyFacets =
+      request.parts !== undefined &&
+      request.parts.length > 0 &&
+      request.parts.every((part) => part.facet !== undefined);
     const documentIds = scope.documentIds === null ? null : new Set(scope.documentIds);
     const sourceDocuments = () =>
       deps.documents
@@ -800,6 +804,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       absence: AbsenceAnswer,
       searched: ClaimCheckResult["verdict"],
     ): Promise<ClaimCheckResult | null> => {
+      if (checkingOnlyFacets) return null;
       // A search that found and cited the thing contradicts its absence as any sentence is
       // contradicted: the whole read decides only whether search may say Supported.
       if (searched === "contradicted") return null;
@@ -812,6 +817,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (signal.aborted) return notChecked("stopped");
       return checkAbsence({
         request,
+        prompt,
         documents: deps.documents,
         session,
         versions: read,
@@ -830,8 +836,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const confirmations = new Map<string, Promise<boolean>>();
     let confirmationFailure: ProviderError | null = null;
     const requiresCalculation = async (verdict: ReadVerdict | null): Promise<boolean> => {
-      if (request.parts?.length && request.parts.every((part) => part.facet !== undefined))
-        return false;
+      if (checkingOnlyFacets) return false;
       if (!calculating || !verdict) return false;
       session.check();
       const checked = calculated(request.claim, figures, stated, figureContext);
@@ -899,6 +904,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let failed: ProviderError | null = null;
     let finished = false;
     const sourceChoices = sourceContext();
+    const prompt = claimPrompt({
+      ...request,
+      citedShown,
+      language: deps.language(),
+      sourceContext: sourceChoices,
+      sourceDocuments:
+        sourceChoices.length > 0
+          ? sourceDocuments().filter(
+              (document) =>
+                deps.walledDocument(document.id) === deps.walledFolder(request.cacheKey ?? null),
+            )
+          : [],
+      ...(Number.isFinite(checkedAt.getTime()) && { checkedAt: checkedAt.toISOString() }),
+    });
     for await (const event of deps.engine.generate({
       instructions: (mode, options) =>
         checkInstructions(
@@ -913,21 +932,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       messages: [
         {
           role: "user",
-          content: claimPrompt({
-            ...request,
-            citedShown,
-            language: deps.language(),
-            sourceContext: sourceChoices,
-            sourceDocuments:
-              sourceChoices.length > 0
-                ? sourceDocuments().filter(
-                    (document) =>
-                      deps.walledDocument(document.id) ===
-                      deps.walledFolder(request.cacheKey ?? null),
-                  )
-                : [],
-            ...(Number.isFinite(checkedAt.getTime()) && { checkedAt: checkedAt.toISOString() }),
-          }),
+          content: prompt,
         },
       ],
       question: request.claim,
@@ -1465,7 +1470,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       }
     }
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
-    if (absence) return absence;
+    if (absence) return { ...absence, ...(facetParts && { facetParts }) };
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
     const byCalculation: ClaimCheckResult | null = worked

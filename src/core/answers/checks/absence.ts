@@ -22,6 +22,7 @@ import { readsAsRefusal } from "./prompt";
 
 interface AbsenceContext {
   request: ClaimCheckRequest;
+  prompt: string;
   documents: ClaimCheckDependencies["documents"];
   session: ReturnType<typeof createCitationSession>;
   versions: Map<string, string>;
@@ -42,10 +43,7 @@ interface WholeReading {
   units: ReturnType<AnswerDocuments["pageTexts"]>;
 }
 
-type ScopeRecords = Pick<
-  ClaimCheckDependencies["documents"],
-  "searchableBySize" | "unitCounts"
-> &
+type ScopeRecords = Pick<ClaimCheckDependencies["documents"], "searchableBySize" | "unitCounts"> &
   Partial<Pick<ClaimCheckDependencies["documents"], "getMany" | "names">>;
 
 /** The scope's Documents are all whole and current: none failed, missing or partly read. */
@@ -114,6 +112,7 @@ function wholeScope(
 
 export async function checkAbsence({
   request,
+  prompt,
   documents,
   session,
   versions,
@@ -143,13 +142,15 @@ export async function checkAbsence({
       }),
     });
   }
-  const whole = reading.map(({ passages }) => session.show(passages)).join("\n\n");
+  const whole = reading
+    .map(({ documentId, passages }) => `Document ${JSON.stringify(documentId)}:\n${session.show(passages)}`)
+    .join("\n\n");
   let reply: string;
   try {
     const { text } = await generateText({
       model: model.model,
       instructions: WHOLE_READ,
-      prompt: `<sentence>\n${request.claim}\n</sentence>\n\n${whole}`,
+      prompt: `${prompt}\n\n${whole}`,
       temperature: answerTemperature(model.capabilities.facts.temperature),
       maxOutputTokens: 400,
       maxRetries: 1,
