@@ -4,6 +4,7 @@ import type { ClaimCheckResult, ClaimFacetPeriod } from "../../src/core/api";
 import { formatClaimFacetPeriod } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { listedSentences } from "../helpers/claimSentences";
 import { createTempDataFolder, manualClock } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -75,6 +76,7 @@ type TimeOptions = {
   at?: string;
   period?: unknown;
   neighbor?: { title: string; quote: string };
+  overlap?: true;
 };
 
 async function setUp(row: TimeCase, options: TimeOptions = {}) {
@@ -85,62 +87,83 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
     (row.language === "en" ? "The base rate is currently 5%." : "基准利率目前为5%。");
   const declared = Object.hasOwn(options, "period") ? options.period : (row.period ?? null);
   const quotes = [row.quote, ...(options.neighbor ? [options.neighbor.quote] : [])];
-  const wire = [
+  const repaired = [
     { kind: "fact", text: qualifier, facet: { kind: "time" } },
     { kind: "fact", text: "5%" },
   ];
-  const model = scriptedModel((call) => {
-    frames.push(call);
-    const searched = call.results.find((result) => result.tool === "search_documents");
-    if (!searched)
-      return {
-        text: `Parts: ${JSON.stringify(wire)}`,
-        calls: [
-          {
-            tool: "search_documents",
-            input: { query: row.language === "en" ? "base rate" : "基准利率" },
-          },
-        ],
-      };
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const citations = quotes.map((quote, at) => {
-        const passage = shownPassages(searched.text).find((each) => each.text.includes(quote));
-        if (!passage)
-          throw new Error(`The time check did not find its actual rate quote: ${quote}`);
-        return { marker: at + 1, passage: passage.id, quote };
-      });
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
-    return {
-      text: [
-        "Verdict: supported",
-        "Scope: none, same",
-        "Topic: found",
-        "Absence: no",
-        "Roles: none, same",
-        "Calculation: none",
-        `Evidence: ${JSON.stringify(quotes.map((_, at) => at + 1))}`,
-        `${row.quote} [^1]`,
-        `Facets: ${JSON.stringify({
-          items: [
+  const wire = options.overlap
+    ? [repaired[0], { kind: "fact", text: claim.replace(/[.。]$/u, "") }]
+    : repaired;
+  let sorts = 0;
+  const model = scriptedModel(
+    (call) => {
+      frames.push(call);
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched)
+        return {
+          text: `Parts: ${JSON.stringify(wire)}`,
+          calls: [
             {
-              text: qualifier,
-              kind: "time",
-              occurrence: 1,
-              verdict: "supported",
-              scope: "same",
-              topic: "found",
-              roles: "same",
-              says: row.quote,
-              evidence: [1],
-              time: options.time ?? "present",
-              ...(declared !== undefined && { period: declared }),
+              tool: "search_documents",
+              input: { query: row.language === "en" ? "base rate" : "基准利率" },
             },
           ],
-        })}`,
-      ].join("\n"),
-    };
-  });
+        };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const citations = quotes.map((quote, at) => {
+          const passage = shownPassages(searched.text).find((each) => each.text.includes(quote));
+          if (!passage)
+            throw new Error(`The time check did not find its actual rate quote: ${quote}`);
+          return { marker: at + 1, passage: passage.id, quote };
+        });
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return {
+        text: [
+          "Verdict: supported",
+          "Scope: none, same",
+          "Topic: found",
+          "Absence: no",
+          "Roles: none, same",
+          "Calculation: none",
+          `Evidence: ${JSON.stringify(quotes.map((_, at) => at + 1))}`,
+          `${row.quote} [^1]`,
+          `Facets: ${JSON.stringify({
+            items: [
+              {
+                text: qualifier,
+                kind: "time",
+                occurrence: 1,
+                verdict: "supported",
+                scope: "same",
+                topic: "found",
+                roles: "same",
+                says: row.quote,
+                evidence: [1],
+                time: options.time ?? "present",
+                ...(declared !== undefined && { period: declared }),
+              },
+            ],
+          })}`,
+        ].join("\n"),
+      };
+    },
+    {
+      generate: (call) => {
+        if (!call.system.startsWith("You sort the sentences"))
+          throw new Error("The time check made an unexpected request.");
+        sorts++;
+        return {
+          text: JSON.stringify({
+            sentences: listedSentences(call.prompt).map(({ number }) => ({
+              number,
+              parts: repaired,
+            })),
+          }),
+        };
+      },
+    },
+  );
   const clock = manualClock(options.at ?? "2026-10-29T12:00:00.000Z");
   const { core } = await setUpWithDocuments(model, [], { now: clock.now });
   const { settings } = await core.getLibrary();
@@ -166,7 +189,9 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
     const before = model.doStreamCalls.length + model.doGenerateCalls.length;
     const frameStart = frames.length;
     const result = await core.checkClaim({ claim });
-    expect(model.doStreamCalls.length + model.doGenerateCalls.length - before).toBe(3);
+    expect(model.doStreamCalls.length + model.doGenerateCalls.length - before).toBe(
+      options.overlap ? 4 : 3,
+    );
     expect(frames.slice(frameStart).map((call) => call.results.map(({ tool }) => tool))).toEqual([
       [],
       ["search_documents"],
@@ -181,7 +206,7 @@ async function setUp(row: TimeCase, options: TimeOptions = {}) {
     );
     return result;
   };
-  return { check, clock, claim, qualifier, document, frames };
+  return { check, clock, claim, qualifier, document, frames, sorts: () => sorts };
 }
 
 function timePart(result: ClaimCheckResult) {
@@ -277,6 +302,27 @@ test.each([
       facet: { kind: "time" },
     });
     expect(result.parts?.find((part) => !part.facet)?.verdict).toBe("supported");
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "an ordinary target overlapping the time words is repaired, never judged (%s)",
+  async (language) => {
+    const row = CASES.find((row) => row.language === language && row.expected === "supported");
+    if (!row?.period) throw new Error("Missing recent rate fixture");
+    const setup = await setUp(row, { overlap: true });
+    const result = await setup.check();
+    expect(setup.sorts()).toBe(1);
+    expect(result.verdict).not.toBe("supported");
+    expect(timePart(result)).toMatchObject({
+      verdict: "supported",
+      facet: { kind: "time", period: row.period },
+    });
+    const ordinary = result.parts?.find((part) => !part.facet);
+    const words = setup.claim.slice(ordinary?.span.start, ordinary?.span.end);
+    expect(words).toContain("5%");
+    expect(words).not.toContain(setup.qualifier);
+    expect(ordinary).toMatchObject({ verdict: "not-checked", reason: "malformed" });
   },
 );
 

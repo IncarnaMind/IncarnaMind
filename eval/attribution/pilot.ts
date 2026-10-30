@@ -18,6 +18,7 @@ export const ATTRIBUTION_PILOT_CASES = ["N01-en", "C03-zh-CN", "T02-en"] as cons
 export const ATTRIBUTION_PILOT_CAP_USD = 2;
 export const ATTRIBUTION_FULL_CAP_USD = 3.75;
 export const ATTRIBUTION_FULL_SETTLED_STOP_USD = 2.8;
+export const ATTRIBUTION_FOCUSED_RUN_STOP_USD = 0.02;
 export const ATTRIBUTION_FULL_CASES = frozen.cases.map((sample) => sample.id);
 export const ATTRIBUTION_PILOT_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"] as const;
 export const ATTRIBUTION_RECOVERY_CASES = {
@@ -453,14 +454,16 @@ type Ledger = {
     originalLedgerSHA256: string;
     caseIds: Record<PilotModel, readonly string[]>;
   };
-  focusedLineage?: {
-    sourceHead: string;
-    sharedHashes: AttributionPilotHashes;
-    priorEntryCount: number;
-    priorChargedUSD: number;
-    priorLedgerSHA256: string;
-    caseIds: typeof ATTRIBUTION_FOCUSED_CASES;
-  };
+  focusedLineage?: FocusedLineage;
+  laterFocusedLineages?: FocusedLineage[];
+};
+type FocusedLineage = {
+  sourceHead: string;
+  sharedHashes: AttributionPilotHashes;
+  priorEntryCount: number;
+  priorChargedUSD: number;
+  priorLedgerSHA256: string;
+  caseIds: typeof ATTRIBUTION_FOCUSED_CASES;
 };
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -633,8 +636,10 @@ export function createAttributionPilotBudget(options: {
       throw new Error("The attribution pilot ledger is invalid or its ceiling changed.");
     if (recovering) {
       const lineage = value.recoveryLineage;
-      const focused = value.focusedLineage;
-      const bound = plan.phase === "recovery" ? lineage : focused;
+      const chain = value.focusedLineage
+        ? [value.focusedLineage, ...(value.laterFocusedLineages ?? [])]
+        : [];
+      const bound = plan.phase === "recovery" ? lineage : chain.at(-1);
       const digest = (item: unknown) =>
         createHash("sha256").update(JSON.stringify(item)).digest("hex");
       if (
@@ -653,7 +658,12 @@ export function createAttributionPilotBudget(options: {
         value.chargedUSD < lineage.originalChargedUSD
       )
         throw new Error("The recovery ledger lineage does not match.");
-      const { recoveryLineage: _lineage, focusedLineage: _focused, ...prior } = value;
+      const {
+        recoveryLineage: _lineage,
+        focusedLineage: _focused,
+        laterFocusedLineages: _later,
+        ...prior
+      } = value;
       const entries = value.entries.slice(0, lineage.originalEntryCount);
       const original = {
         ...prior,
@@ -667,29 +677,39 @@ export function createAttributionPilotBudget(options: {
       )
         throw new Error("Recovery cannot clear or change the original spend history.");
       if (plan.phase === "focused") {
-        if (
-          !focused ||
-          digest(focused) !== plan.focused?.lineageSHA256 ||
-          JSON.stringify(focused.caseIds) !== JSON.stringify(ATTRIBUTION_FOCUSED_CASES) ||
-          !Number.isSafeInteger(focused.priorEntryCount) ||
-          focused.priorEntryCount < lineage.originalEntryCount ||
-          focused.priorEntryCount > value.entries.length ||
-          !finite(focused.priorChargedUSD) ||
-          value.chargedUSD < focused.priorChargedUSD
-        )
+        if (!bound || digest(bound) !== plan.focused?.lineageSHA256)
           throw new Error("The focused ledger lineage does not match.");
-        const { focusedLineage: _bound, ...before } = value;
-        const earlier = value.entries.slice(0, focused.priorEntryCount);
-        if (
-          earlier.some((entry) => !settledEntry(entry)) ||
-          digest({
-            ...before,
-            entries: earlier,
-            chargedUSD: focused.priorChargedUSD,
-            stopKind: null,
-          }) !== focused.priorLedgerSHA256
-        )
-          throw new Error("A focused check cannot clear or change earlier spend history.");
+        const { focusedLineage: _first, laterFocusedLineages: _rest, ...base } = value;
+        let floor = lineage.originalEntryCount;
+        for (const [at, link] of chain.entries()) {
+          const before =
+            at === 0
+              ? base
+              : {
+                  ...base,
+                  focusedLineage: chain[0],
+                  ...(at > 1 && { laterFocusedLineages: chain.slice(1, at) }),
+                };
+          const earlier = value.entries.slice(0, link.priorEntryCount);
+          if (
+            JSON.stringify(link.caseIds) !== JSON.stringify(ATTRIBUTION_FOCUSED_CASES) ||
+            !Number.isSafeInteger(link.priorEntryCount) ||
+            link.priorEntryCount < floor ||
+            link.priorEntryCount > value.entries.length ||
+            !finite(link.priorChargedUSD) ||
+            value.chargedUSD < link.priorChargedUSD ||
+            chain.some((other, index) => index !== at && other.sourceHead === link.sourceHead) ||
+            earlier.some((entry) => !settledEntry(entry)) ||
+            digest({
+              ...before,
+              entries: earlier,
+              chargedUSD: link.priorChargedUSD,
+              stopKind: null,
+            }) !== link.priorLedgerSHA256
+          )
+            throw new Error("A focused check cannot clear or change earlier spend history.");
+          floor = link.priorEntryCount;
+        }
       }
     }
     return value;
@@ -754,7 +774,7 @@ export function createAttributionPilotBudget(options: {
         options.reservationPrice,
         new Date(),
       );
-      let refusal: "settled-spend" | "recovery-case" | null;
+      let refusal: "settled-spend" | "recovery-case" | "focused-spend" | null;
       try {
         refusal = update((ledger) => {
           if (ledger.stopKind || ledger.entries.some(attempted))
@@ -772,6 +792,15 @@ export function createAttributionPilotBudget(options: {
           if (plan.phase !== "pilot" && settled > ATTRIBUTION_FULL_SETTLED_STOP_USD) {
             ledger.stopKind = "settled-spend";
             return "settled-spend" as const;
+          }
+          const runSettled = ledger.entries.reduce(
+            (sum, entry) =>
+              sum + (entry.run === run && entry.status === "settled" ? entry.chargedUSD : 0),
+            0,
+          );
+          if (plan.phase === "focused" && runSettled > ATTRIBUTION_FOCUSED_RUN_STOP_USD) {
+            ledger.stopKind = "focused-spend";
+            return "focused-spend" as const;
           }
           if (ledger.chargedUSD + maximumUSD > ledger.capUSD)
             throw new Error("The attribution pilot ceiling cannot fund this request.");

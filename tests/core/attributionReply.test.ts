@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { readAttributionReply } from "../../src/core/answers/checks/attributionReply";
+import { checkInstructions } from "../../src/core/answers/checks/prompt";
 import type { ClaimPartPlan } from "../../src/core/api";
 
 const source = (text: string, more: Record<string, unknown> = {}) => ({
@@ -385,3 +386,27 @@ describe("transient exact source title", () => {
     ).toMatchObject({ sourceName });
   });
 });
+
+test.each([
+  { words: "currently", claim: "The office is currently open." },
+  { words: "目前", claim: "办公室目前开放。" },
+])(
+  "the instructions' time-row example is a supported, period-only reply: $words",
+  ({ words, claim }) => {
+    const instructions = checkInstructions("tools", "en", "", false, false, true, true);
+    const example = [
+      ...instructions.matchAll(/Facets: (\{"items":\[\{"text":"([^"]+)".*?\}\]\})/g),
+    ].find((match) => match[2] === words)?.[1];
+    if (!example) throw new Error(`The instructions lost their ${words} time-row example.`);
+    const start = claim.indexOf(words);
+    const parsed = readAttributionReply(`Facets: ${example}`, claim, [
+      { kind: "fact", span: { start, end: start + words.length }, facet: { kind: "time" } },
+    ]);
+    expect(parsed[0]).toMatchObject({
+      verdict: "supported",
+      evidence: [1],
+      time: "present",
+      period: { start: "2024-06-01", end: "2024-06-30", precision: "month" },
+    });
+  },
+);

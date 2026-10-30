@@ -1107,3 +1107,112 @@ test.each([2.7, 2.8])(
     }
   },
 );
+
+const laterHead = "9".repeat(40);
+const laterHashes = { ...hashes, host: "a".repeat(64), entry: "b".repeat(64) };
+async function laterFocusedOptions(tamper?: (ledger: Record<string, unknown>) => void) {
+  const config = await focusedOptions();
+  const [historical] = config.recovered.entries;
+  if (!historical) throw new Error("Missing original entry.");
+  const checked = {
+    ...config.ledger,
+    chargedUSD: config.ledger.chargedUSD + 0.005,
+    entries: [
+      ...config.ledger.entries,
+      {
+        ...historical,
+        id: "focused-id",
+        run: "focused-run",
+        arm: "after",
+        sourceHead: focusedHead,
+        caseId: "T07-en",
+        chargedUSD: 0.005,
+      },
+    ],
+  };
+  const link = {
+    sourceHead: laterHead,
+    sharedHashes: laterHashes,
+    priorEntryCount: checked.entries.length,
+    priorChargedUSD: checked.chargedUSD,
+    priorLedgerSHA256: sealed(checked).sha256,
+    caseIds: ATTRIBUTION_FOCUSED_CASES,
+  };
+  const ledger: Record<string, unknown> = { ...checked, laterFocusedLineages: [link] };
+  tamper?.(ledger);
+  writeFileSync(config.ledgerPath, JSON.stringify(ledger));
+  return {
+    ...config,
+    plan: {
+      ...config.plan,
+      pins: { ...pins, after: laterHead },
+      sourceHead: laterHead,
+      sharedHashes: laterHashes,
+      expectedSharedHashes: laterHashes,
+      focused: { lineageSHA256: sealed(link).sha256 },
+    },
+    checked,
+  };
+}
+
+test("a later focused check admits only the newest head and keeps every earlier link", async () => {
+  const config = await laterFocusedOptions();
+  const bytes = readFileSync(config.ledgerPath, "utf8");
+  const guard = createAttributionPilotBudget(config);
+  expect(guard.stopped()).toBe(false);
+  expect(guard.snapshot().entries).toEqual(config.checked.entries);
+  expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  const first = await focusedOptions();
+  expect(() =>
+    createAttributionPilotBudget({
+      ...config,
+      plan: { ...config.plan, focused: first.plan.focused },
+    }),
+  ).toThrow();
+});
+
+test.each(["first head", "first charge", "earlier entry"] as const)(
+  "a later focused check refuses a changed %s",
+  async (change) => {
+    const config = await laterFocusedOptions((ledger) => {
+      const first = ledger.focusedLineage as { sourceHead: string; priorChargedUSD: number };
+      const entries = ledger.entries as { caseId: string }[];
+      if (change === "first head") first.sourceHead = laterHead;
+      else if (change === "first charge") first.priorChargedUSD = 0.2;
+      else if (entries[2]) entries[2].caseId = "C06-en";
+    });
+    const bytes = readFileSync(config.ledgerPath, "utf8");
+    expect(() => createAttributionPilotBudget(config)).toThrow();
+    expect(readFileSync(config.ledgerPath, "utf8")).toBe(bytes);
+  },
+);
+
+test("a focused run stops before the next request once its own settled spend passes $0.02", async () => {
+  const config = await focusedOptions();
+  const guard = createAttributionPilotBudget(config);
+  const model = new MockLanguageModelV4({
+    doGenerate: async () => ({
+      content: [{ type: "text", text: "Costly." }],
+      warnings: [],
+      finishReason: { unified: "stop", raw: undefined },
+      usage: {
+        inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 60000, text: 60000, reasoning: undefined },
+      },
+    }),
+  });
+  const observed = observeAttribution(() => model, guard.hooks);
+  observed.setCase("T07-en");
+  const wrapped = observed.factory({
+    kind: "anthropic",
+    modelId: config.plan.model,
+    apiKey: null,
+    baseUrl: null,
+  });
+  await wrapped.doGenerate({ prompt: [], maxOutputTokens: 128000 });
+  await expect(wrapped.doGenerate({ prompt: [], maxOutputTokens: 300 })).rejects.toThrow(
+    "focused-spend",
+  );
+  expect(model.doGenerateCalls).toHaveLength(1);
+  expect(guard.snapshot().stopKind).toBe("focused-spend");
+});
