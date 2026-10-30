@@ -7,42 +7,8 @@
  * unit says it is a figure: a percent, money, a month or a date.
  */
 
-const UNITS: ReadonlyMap<string, number> = new Map(
-  [
-    "zero",
-    "one",
-    "two",
-    "three",
-    "four",
-    "five",
-    "six",
-    "seven",
-    "eight",
-    "nine",
-    "ten",
-    "eleven",
-    "twelve",
-    "thirteen",
-    "fourteen",
-    "fifteen",
-    "sixteen",
-    "seventeen",
-    "eighteen",
-    "nineteen",
-  ].map((word, value) => [word, value]),
-);
-const TENS: ReadonlyMap<string, number> = new Map(
-  ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"].map((word, at) => [
-    word,
-    (at + 2) * 10,
-  ]),
-);
-const SCALES: ReadonlyMap<string, number> = new Map([
-  ["thousand", 1e3],
-  ["million", 1e6],
-  ["billion", 1e9],
-  ["trillion", 1e12],
-]);
+import { figuresOf, INTEGER_WORDS, SCALES, TENS, UNITS } from "../../shared/numberWords";
+
 const ORDINALS: ReadonlyMap<string, number> = new Map([
   ...[
     "first",
@@ -88,90 +54,12 @@ const grouped = (value: number): string =>
   value >= 1000 ? String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : String(value);
 
 const DIGIT_WORD = "zero|one|two|three|four|five|six|seven|eight|nine";
-const START_WORD = `${[...UNITS.keys()].join("|")}|${[...TENS.keys()].join("|")}`;
-const NUMBER_WORD = `${START_WORD}|hundred|${[...SCALES.keys()].join("|")}`;
 // "one hundred and twenty-eight thousand", "nine point three", "six percent". A run starts at a
 // number, never at a scale word alone ("a few million", "several hundred", "a million reasons").
 const RUN = new RegExp(
-  `\\b(?:${START_WORD})(?:[ -](?:${NUMBER_WORD})|(?<=hundred|thousand|million|billion|trillion) and (?:${NUMBER_WORD}))*(?: point(?: (?:${DIGIT_WORD}))+(?: (?:${[...SCALES.keys()].join("|")}))?)?(?: (?:percent|percentage|per cent))?(?![A-Za-z-])`,
+  `\\b${INTEGER_WORDS}(?: point(?: (?:${DIGIT_WORD}))+(?: (?:${[...SCALES.keys()].join("|")}))?)?(?: (?:percent|percentage|per cent))?(?![A-Za-z-])`,
   "gi",
 );
-
-type Kind = "unit" | "teen" | "tens" | "hundred" | "scale";
-const kindOf = (each: string): Kind =>
-  each === "hundred"
-    ? "hundred"
-    : SCALES.has(each)
-      ? "scale"
-      : TENS.has(each)
-        ? "tens"
-        : (UNITS.get(each) ?? 0) >= 10
-          ? "teen"
-          : "unit";
-
-/** Whether `next` goes on the number `last` ended with, as "twenty" goes before "eight" and "eight" before "hundred". */
-function goesOn(last: Kind | null, next: Kind): boolean {
-  if (last === null || last === "scale") return true;
-  if (last === "tens") return next === "unit" || next === "hundred" || next === "scale";
-  if (last === "unit" || last === "teen") return next === "hundred" || next === "scale";
-  return next !== "hundred";
-}
-
-interface Figure {
-  value: number;
-  /** The one million, billion or trillion the number ends with, kept as a word: "18.4 million". */
-  word: string | null;
-  scaled: boolean;
-  /** The number words are exactly "one" to "nine", which running speech uses as words. */
-  small: boolean;
-}
-
-/** The numbers a run of number words says: "four hundred twelve" is one, "four five" is two. */
-function figuresOf(words: readonly string[]): Figure[] {
-  const out: Figure[] = [];
-  let total = 0;
-  let current = 0;
-  let last: Kind | null = null;
-  let scaled = false;
-  let count = 0;
-  let scales = 0;
-  let lastScale = "";
-  const close = () => {
-    if (count > 0) {
-      out.push({
-        value: total + current,
-        word:
-          scales === 1 && last === "scale" && (SCALES.get(lastScale) ?? 0) >= 1e6
-            ? lastScale
-            : null,
-        scaled,
-        small: count === 1 && last === "unit" && total + current < 10,
-      });
-    }
-    total = 0;
-    current = 0;
-    last = null;
-    scaled = false;
-    count = 0;
-    scales = 0;
-  };
-  for (const each of words) {
-    const kind = kindOf(each);
-    if (!goesOn(last, kind)) close();
-    if (kind === "hundred") current = (current || 1) * 100;
-    else if (kind === "scale") {
-      total += (current || 1) * (SCALES.get(each) ?? 1);
-      current = 0;
-      scaled = true;
-      scales++;
-      lastScale = each;
-    } else current += TENS.get(each) ?? UNITS.get(each) ?? 0;
-    last = kind;
-    count++;
-  }
-  close();
-  return out;
-}
 
 /** A year said as two numbers after a word that leads one in: "in twenty twenty-five", "since nineteen ninety-nine". */
 const YEAR = new RegExp(

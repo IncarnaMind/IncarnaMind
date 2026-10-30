@@ -3,13 +3,17 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import {
   type CheckRecordFormat,
   type CitationCheck,
   type ClaimCheckAttributes,
   type Document,
   GENERATED_MARK,
+  PROPOSAL_ATTRIBUTE,
 } from "../../src/core";
+import { setProposal } from "../../src/core/proposals/write";
+import { pendingPart } from "../../src/shared/claimParts";
 import { addSignOff, citationSignOffBasis } from "../../src/shared/signOffs";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -907,3 +911,53 @@ describe("Saving a check record", () => {
     expect((await setup.core.openMind(setup.mind.id)).state).toEqual(before);
   });
 });
+
+test.each(["paragraph", "blockquote"])(
+  "waiting %s Citations and part receipts stay out of the check record until accepted",
+  async (kind) => {
+    const setup = await setUp();
+    const { client, tides, localModel } = setup;
+    const words = "The Moon pulls the sea.";
+    const check = checked(tides, words, "supported", localModel);
+    if (!check.evidence) throw new Error("Missing receipt fixture.");
+    check.parts = [
+      {
+        ...pendingPart({ span: { start: 0, end: words.length }, kind: "fact" }),
+        verdict: "supported",
+        evidence: [{ ...check.evidence, id: "waiting-receipt" }],
+      },
+    ];
+    const inline = citation(tides, "found");
+    const waiting = paragraph(
+      "waiting",
+      text(words.slice(0, -1), { type: "claimCheck", attrs: check }),
+      { ...inline, attrs: { ...inline.attrs, id: "waiting-inline" } },
+      text(".", { type: "claimCheck", attrs: check }),
+    );
+    writeMind(client, [
+      kind === "blockquote" ? { type: kind, content: [waiting] } : waiting,
+      paragraph(
+        "accepted",
+        text("Accepted "),
+        { ...inline, attrs: { ...inline.attrs, id: "accepted-inline" } },
+        text("."),
+      ),
+    ]);
+    const top = client.blocks.toArray()[0];
+    if (!(top instanceof Y.XmlElement)) throw new Error("Missing proposed block.");
+    setProposal(top, { id: "change", request: "request", kind: "insert" });
+    await client.settled();
+    const citations = async () =>
+      rowsOf(readFileSync((await saveRecord(setup, "csv")).path, "utf8")).filter(
+        (row) => row.Kind === "Citation",
+      );
+    const visible = await citations();
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.Sentence).toContain("Accepted");
+    top.removeAttribute(PROPOSAL_ATTRIBUTE);
+    await client.settled();
+    const accepted = await citations();
+    expect(accepted).toHaveLength(3);
+    expect(accepted.filter((row) => row.Sentence === words)).toHaveLength(2);
+  },
+);

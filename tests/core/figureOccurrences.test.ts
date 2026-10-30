@@ -21,7 +21,16 @@ function selected(element: Y.XmlElement, from = 0, to = textOf(element).length):
   const text = textOf(element);
   const id = element.getAttribute("id");
   if (typeof id !== "string") throw new Error("Missing fixture paragraph id");
-  return { element, blockId: id, from, to, text: text.slice(from, to), context: text, cited: [] };
+  return {
+    element,
+    blockId: id,
+    occurrence: 0,
+    from,
+    to,
+    text: text.slice(from, to),
+    context: text,
+    cited: [],
+  };
 }
 
 const paragraph = (id: string, ...content: NodeJSON[]): NodeJSON => ({
