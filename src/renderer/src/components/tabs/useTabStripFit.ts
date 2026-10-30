@@ -35,7 +35,7 @@ export function useTabStripFit(
       const tabs = Array.from(element.querySelectorAll<HTMLElement>(':scope > [role="tab"]'));
       const shown = tabs.findIndex((tab) => tab.dataset.tabId === shownId);
       const was = element.scrollLeft;
-      const fitFrom = (scrollLeft: number, bring: number) => {
+      const measured = () => {
         const box = element.getBoundingClientRect();
         const offset = element.scrollLeft - box.left;
         return fitStrip({
@@ -54,24 +54,20 @@ export function useTabStripFit(
           room: element.offsetWidth + spare.offsetWidth,
           endGap: END_GAP,
           fade: FADE_PX,
-          scrollLeft,
-          shown: bring,
+          scrollLeft: was,
+          shown: reveal ? shown : -1,
         });
       };
       // Tabs size to the strip they are in, so they are measured with it free of its cut.
       element.style.removeProperty("--tab-run");
       element.style.removeProperty("--tab-run-gap");
       delete element.dataset.squeezed;
-      // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
-      // scroll or on who asked, so every place agrees and the strip comes to rest.
-      if (shown >= 0) {
-        const alone = fitFrom(0, shown);
-        if (alone.squeezed && alone.first === shown && alone.last === shown) {
-          // Narrowed to its least width (`data-squeezed` in styles.css), it makes the room.
-          element.dataset.squeezed = "";
-        }
+      let result = measured();
+      if (result.squeezed && shown >= 0 && result.first === shown && result.last === shown) {
+        // Narrowed to its least width (`data-squeezed` in styles.css), the shown tab makes the room.
+        element.dataset.squeezed = "";
+        result = measured();
       }
-      const result = fitFrom(was, reveal ? shown : -1);
       if (result.run !== null) {
         element.style.setProperty("--tab-run", `${result.run}px`);
         element.style.setProperty("--tab-run-gap", `${result.gap}px`);
