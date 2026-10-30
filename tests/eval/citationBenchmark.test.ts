@@ -448,18 +448,22 @@ describe("The citation benchmark (#1999)", () => {
     expect(kinds("write to someone@example.org")).toEqual(["email"]);
   });
 
-  test("the scan reads a long unbroken run of letters in linear time", () => {
-    const run = (length: number) => "ab1.".repeat(length / 4);
-    const timeOf = (text: string) => {
-      const started = performance.now();
-      scanText(text, "file");
-      return performance.now() - started;
-    };
-    timeOf(run(10_000));
-    const small = Math.min(...[0, 1, 2].map(() => timeOf(run(100_000))));
-    const large = Math.min(...[0, 1, 2].map(() => timeOf(run(1_000_000))));
-    // Ten times the text takes about ten times as long; a quadratic rule would take a hundred.
-    expect(large).toBeLessThan(small * 40);
+  test("the scan reads a long unbroken run of letters in linear time", { timeout: 5_000 }, () => {
+    const run = "ab1.".repeat(5_000 / 4);
+    // The same 20 KB read as four short texts and as one long one, the best of five each.
+    const timeOf = (texts: readonly string[]) =>
+      Math.min(
+        ...[0, 1, 2, 3, 4].map(() => {
+          const started = performance.now();
+          for (const text of texts) scanText(text, "file");
+          return performance.now() - started;
+        }),
+      );
+    timeOf([run]);
+    const short = timeOf([run, run, run, run]);
+    const long = timeOf([run.repeat(4)]);
+    // Linear, the two take about as long; a quadratic rule takes four times as long on the long one.
+    expect(long).toBeLessThan(short * 2.5);
   });
 
   test("a deny-list is read from outside the repository and fails when it is missing or empty", () => {
