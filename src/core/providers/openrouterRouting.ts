@@ -1,5 +1,6 @@
 import { wrapLanguageModel } from "ai";
 import { isRecord, TranslatableError } from "../errors";
+import { catalogProviderOfKind } from "./catalog";
 import type { ChatLanguageModel } from "./models";
 
 /** OpenRouter's forced-choice filter can reject an endpoint that implements the Tool (#2248). */
@@ -8,6 +9,7 @@ export function withOpenRouterRouting(
   baseUrl: string,
   fetcher: typeof globalThis.fetch,
 ): ChatLanguageModel {
+  const policy = catalogProviderOfKind("openrouter")?.request?.body?.provider;
   return wrapLanguageModel({
     model,
     middleware: {
@@ -21,7 +23,11 @@ export function withOpenRouterRouting(
         const url = `${baseUrl.replace(/\/$/, "")}/models/${model.modelId.split("/").map(encodeURIComponent).join("/")}/endpoints`;
         let result: unknown;
         try {
-          const response = await fetcher(url, { signal: params.abortSignal });
+          const signal = AbortSignal.any([
+            ...(params.abortSignal ? [params.abortSignal] : []),
+            AbortSignal.timeout(5_000),
+          ]);
+          const response = await fetcher(url, { signal });
           if (!response.ok)
             throw new Error(`OpenRouter endpoint lookup failed (${response.status}).`);
           result = await response.json();
@@ -62,7 +68,7 @@ export function withOpenRouterRouting(
             openrouter: {
               ...params.providerOptions?.openrouter,
               provider: {
-                data_collection: "deny",
+                ...(isRecord(policy) ? policy : {}),
                 require_parameters: false,
                 only: [...new Set(capable.map((endpoint) => String(endpoint.tag)))],
                 allow_fallbacks: false,

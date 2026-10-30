@@ -1,6 +1,7 @@
 import { generateText, jsonSchema, Output, streamText, tool } from "ai";
 import { afterEach, expect, test, vi } from "vitest";
 import { isRecord } from "../../src/core/errors";
+import * as catalog from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { searchWeb } from "../../src/core/providers/webSearch";
 import { createAiSdkRunEngine } from "../../src/core/runs/aiSdkEngine";
@@ -20,7 +21,10 @@ const endpoint = {
 };
 const makeModel = (id = "anthropic/claude-haiku-5.5") =>
   createAiSdkChatModel({ kind: "openrouter", baseUrl: null, apiKey: "test-key", modelId: id });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 function server(
   endpoints: unknown[] = [endpoint],
@@ -129,6 +133,65 @@ const policy = {
   only: ["capable"],
   allow_fallbacks: false,
 };
+
+test("forced routing preserves additional catalog privacy restrictions", async () => {
+  const provider = catalog.catalogProviderOfKind("openrouter");
+  if (!provider) throw Error("Missing OpenRouter catalog entry");
+  vi.spyOn(catalog, "catalogProviderOfKind").mockReturnValue({
+    ...provider,
+    request: {
+      ...provider.request,
+      body: { provider: { data_collection: "deny", require_parameters: true, zdr: true } },
+    },
+  });
+  const { sent } = server();
+  await generateText({
+    model: makeModel(),
+    prompt: "Record",
+    tools: { cite },
+    toolChoice: { type: "tool", toolName: "cite" },
+    maxRetries: 0,
+  });
+  expect(sent[0]).toMatchObject({ provider: { ...policy, zdr: true } });
+});
+
+test.each(["timeout", "cancel"] as const)(
+  "endpoint lookup stops on %s without sending a prompt",
+  async (why) => {
+    const deadline = new AbortController();
+    const caller = new AbortController();
+    const timer = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+    let waiting: AbortSignal | null = null;
+    const fetched = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      waiting = init?.signal ?? null;
+      return new Promise<Response>((_resolve, reject) => {
+        waiting?.addEventListener("abort", () => reject(waiting?.reason), { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetched);
+    const stopped = generateText({
+      model: makeModel(),
+      prompt: "Never send this",
+      tools: { cite },
+      toolChoice: { type: "tool", toolName: "cite" },
+      maxRetries: 0,
+      ...(why === "cancel" && { abortSignal: caller.signal }),
+    });
+    const failure = expect(stopped).rejects.toMatchObject(
+      why === "timeout"
+        ? { wording: { key: "error.provider.openrouterCapabilities" } }
+        : { name: "AbortError" },
+    );
+    await vi.waitFor(() => expect(fetched).toHaveBeenCalled());
+    const reason = new DOMException("Stopped", why === "cancel" ? "AbortError" : "TimeoutError");
+    if (why === "cancel") caller.abort(reason);
+    else deadline.abort(reason);
+    expect(timer).toHaveBeenCalledWith(5_000);
+    await failure;
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.calls[0]?.[0]).toMatch(/\/endpoints$/);
+  },
+);
 
 // protects=forced choices keep their Tool and privacy/capability restrictions; fails_when=strict routing still refuses Claude or the fallback can reach an endpoint without Tools; no_claim=real provider acceptance.
 test.each(["en", "zh-CN"] as const)(
