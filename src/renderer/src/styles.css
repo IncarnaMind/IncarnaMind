@@ -4185,6 +4185,8 @@
   .mind-editor:not(.assistant-answer-text) .node-citation::before {
     content: "\202F";
     font-size: 0;
+    /* With the line's own height it would sit on the baseline and make a set line taller. */
+    line-height: 0;
   }
   .mind-editor
     :is(.node-citation, .node-citation + .ProseMirror-separator)
