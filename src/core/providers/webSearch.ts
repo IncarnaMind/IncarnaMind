@@ -1,7 +1,7 @@
 /**
  * Web search through the provider of the model an Answer is asked with
- * (#128): Anthropic's web search tool, and OpenAI's Responses `web_search`,
- * which the ChatGPT plan's route takes too (../../shared/webSearch).
+ * (#128): Anthropic's, OpenAI's (also the ChatGPT plan's) and OpenRouter's
+ * bounded server search (../../shared/webSearch).
  *
  * A search is one request with the provider's tool forced and used once: the
  * provider runs it and returns the pages it found. Only their addresses,
@@ -10,10 +10,8 @@
  *
  * Not built for the other first-class providers (checked 2026-10-12):
  * Google's terms for grounding with Google Search forbid storing grounded
- * results or showing them with other content; OpenRouter's `web_search`
- * server tool takes its settings in a shape its AI SDK provider doesn't send,
- * and can't be forced; Qwen's search isn't in its AI SDK provider; Ollama's is
- * a separate API on an Ollama account; DeepSeek and SiliconFlow have none.
+ * results or showing them with other content; Qwen's search isn't in its AI SDK
+ * provider; Ollama's is a separate API on an Ollama account; DeepSeek and SiliconFlow have none.
  */
 import { jsonSchema, streamText, tool } from "ai";
 import { normaliseAddress } from "../../shared/webAddresses";
@@ -47,8 +45,8 @@ const INSTRUCTIONS =
 /**
  * Each provider's web search tool, by its id in the AI SDK, its settings
  * there (used once a request), and what one search costs on top of its
- * tokens (claude.com/pricing and openai.com/api/pricing, checked 2026-10-12:
- * $10 per 1,000 searches each). The pages the provider reads count as input tokens.
+ * tokens. OpenRouter's Exa search costs $7 per 1,000; the others cost $10
+ * (the providers' pricing pages, checked 2026-10-30). Pages read also count as input tokens.
  */
 const SEARCH_TOOLS: Partial<
   Record<ChatProviderKind, { id: `${string}.${string}`; args: Record<string, unknown>; fee: Money }>
@@ -60,6 +58,18 @@ const SEARCH_TOOLS: Partial<
   },
   openai: { id: "openai.web_search", args: {}, fee: { currency: "USD", amount: 0.01 } },
   chatgpt: { id: "openai.web_search", args: {}, fee: { currency: "USD", amount: 0.01 } },
+  openrouter: {
+    id: "openrouter.web_search",
+    args: {
+      parameters: {
+        engine: "exa",
+        max_uses: 1,
+        max_results: MAX_RESULTS,
+        max_total_results: MAX_RESULTS,
+      },
+    },
+    fee: { currency: "USD", amount: 0.007 },
+  },
 };
 
 /** What one search costs with a provider of this kind; undefined for one with no web search. */
@@ -133,9 +143,14 @@ export async function searchWeb(
         inputSchema: jsonSchema({ type: "object" }),
       }),
     },
-    toolChoice: { type: "tool", toolName: TOOL },
+    toolChoice: kind === "openrouter" ? "auto" : { type: "tool", toolName: TOOL },
     maxOutputTokens: OUTPUT_TOKENS,
-    providerOptions: { openai: { maxToolCalls: 1 } },
+    // OpenRouter executes search without returning a Tool-call part; keep its forced choice on
+    // the wire without the SDK requiring a client-visible call (#2248).
+    providerOptions:
+      kind === "openrouter"
+        ? { openrouter: { tool_choice: "required" } }
+        : { openai: { maxToolCalls: 1 } },
     abortSignal: signal,
     // Errors arrive as stream parts; don't also log them.
     onError: () => undefined,

@@ -423,6 +423,7 @@ describe("Small calls skip thinking", () => {
     ["glm", "glm-4.7-flash", "thinking", { type: "disabled" }],
     ["siliconflow", "Qwen/Qwen3-8B", "enable_thinking", false],
     ["openrouter", "openai/gpt-6-luna", "reasoning", { effort: "none" }],
+    ["openrouter", "anthropic/claude-haiku-5.5", "reasoning", { effort: "none" }],
     ["xai", "grok-4.3", "reasoning", { effort: "none" }],
     // On the Organize evaluation, GPT-6 Luna tagged as well with reasoning off.
     ["openai", "gpt-6-luna", "reasoning", { effort: "none" }],
@@ -436,6 +437,14 @@ describe("Small calls skip thinking", () => {
 
   test("GLM-5.3 can't turn thinking off, so it is not asked to", async () => {
     expect((await bodyOf("glm", "glm-5.3-flash", "off")).thinking).toBeUndefined();
+  });
+
+  // protects=mandatory reasoning uses the catalog's lowest accepted effort; fails_when=Sonnet is sent none; no_claim=reasoning quality.
+  test("OpenRouter's mandatory-reasoning model uses its catalog effort for a small call", async () => {
+    expect(await bodyOf("openrouter", "anthropic/claude-sonnet-5.5", "off")).toMatchObject({
+      reasoning: { effort: "low" },
+      provider: { data_collection: "deny", require_parameters: true },
+    });
   });
 
   test.each(["gpt-6.1-sol", "gpt-6-astra", "gpt-5", "gpt-5-nano", "gpt-5-2025-08-07"])(

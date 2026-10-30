@@ -97,6 +97,12 @@ export const OVERRIDES: CatalogOverrides = {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
       "gpt-3.5-turbo": { tools: true },
     },
+    openrouter: {
+      // Its OpenRouter listing requires reasoning and names low as the lowest effort (#2248).
+      "anthropic/claude-sonnet-5.5": {
+        thinkingOff: { openrouter: { reasoning: { effort: "low" } } },
+      },
+    },
     google: {
       "gemini-3.8-flash": {
         price: {

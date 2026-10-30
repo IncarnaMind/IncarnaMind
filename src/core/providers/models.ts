@@ -28,6 +28,7 @@ import { createCopilotChatModel } from "./copilot/requests";
 import { endpointUrl } from "./kinds";
 import { createOllamaChatModel } from "./ollamaChat";
 import { DEFAULT_OLLAMA_SETTINGS, type OllamaModelSettings } from "./ollamaModels";
+import { withOpenRouterRouting } from "./openrouterRouting";
 import { withCacheBreakpoints } from "./promptCache";
 import { withOptionsOver, withoutStorage } from "./responsesStore";
 import type { RequestTransform } from "./signedFetch";
@@ -327,12 +328,16 @@ function providerModel(spec: ChatModelSpec): ChatLanguageModel {
     case "openrouter":
       // "strict" asks for streamed token usage; the body carries the provider's routing
       // preferences (no providers that keep or train on prompts).
-      return createOpenRouter({
-        apiKey: requireKey(spec),
-        baseURL: hostedUrl(spec),
-        compatibility: "strict",
-        extraBody: catalogProviderOfKind("openrouter")?.request?.body ?? {},
-      })(spec.modelId);
+      return withOpenRouterRouting(
+        createOpenRouter({
+          apiKey: requireKey(spec),
+          baseURL: hostedUrl(spec),
+          compatibility: "strict",
+          extraBody: catalogProviderOfKind("openrouter")?.request?.body ?? {},
+        })(spec.modelId),
+        hostedUrl(spec),
+        globalThis.fetch,
+      );
     case "siliconflow":
     case "openai-compatible": {
       const provider = catalogProviderOf(spec.kind, spec.catalogId);
