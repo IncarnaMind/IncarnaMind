@@ -82,10 +82,17 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(prompt)?.[1] ?? "";
   const contradicted = prompt.includes("Break clause");
   const verdict = contradicted ? "contradicted" : "supported";
+  const said = ABSENCE_WORDS.exec(sentence);
   const judged = JSON.stringify({
-    verdict,
-    // The whole sentence stands for what it says is absent: its figures go with the absence.
-    absent: sentence,
+    // What follows the absence word is what the sentence says is absent; it says nothing more.
+    absent: said
+      ? sentence
+          .slice(said.index + said[0].length)
+          .replace(/[.。]$/u, "")
+          .trim()
+      : "",
+    absence: contradicted ? "contained" : "holds",
+    rest: "none",
     citations: contradicted
       ? [
           {

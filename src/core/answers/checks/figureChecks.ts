@@ -212,35 +212,50 @@ export function figureResultsOf(
 
 /**
  * A whole read's result for a sentence with figures. A figure inside what the sentence says is
- * absent (`absent`, the read's copy of those words) is decided with the absence: it takes the
- * read's judgment. Every other figure keeps its own row from the read's Figures line. The
- * read's judgment of the whole sentence stands beside them, so the sentence is never Supported
- * when any part is not; its words aren't shown again as a part of their own.
+ * absent (`absent`, the read's copy of those words, a proper part of the sentence) is decided
+ * with the absence: it takes the absence's own result and evidence, never another part's. Every
+ * other figure keeps its own row from the read's Figures line. The sentence's other words are
+ * its remainder, judged as the absence and the rest together (`read.sentence`), so the sentence
+ * is Supported only when every part is. Every row keeps the Documents the read went through.
  */
 export function wholeReadResults(
   claim: string,
   requested: readonly CheckFigure[],
   rows: readonly FigureCheckResult[],
-  judgment: ClaimJudgment,
+  read: { absence: ClaimJudgment; sentence: ClaimJudgment },
   absent: string | null,
 ): ClaimCheckResult {
   const count = (text: string, part: string) => text.split(part).length - 1;
-  const inAbsent = (figure: CheckFigure) =>
+  const bare = (text: string) => text.trim().replace(/[.。!！?？]+$/u, "");
+  const part =
     absent !== null &&
-    absent.trim() !== "" &&
     claim.includes(absent) &&
+    bare(absent) !== "" &&
+    bare(absent) !== bare(claim);
+  const inAbsent = (figure: CheckFigure) =>
+    part &&
+    absent !== null &&
     count(absent, figure.reading.chars) > 0 &&
     count(absent, figure.reading.chars) === count(claim, figure.reading.chars);
+  const { versions, excluded, readDocuments } = read.sentence;
+  const unread: ClaimJudgment = {
+    verdict: "not-checked",
+    reason: "malformed",
+    detail: null,
+    versions,
+    excluded,
+  };
   const figures = requested.map((figure): FigureCheckResult => {
+    if (inAbsent(figure)) return { ...finding(figure), result: read.absence };
     const row = rows.find((each) => each.id === figure.id);
-    return inAbsent(figure) || !row ? { ...finding(figure), result: judgment } : row;
+    return row
+      ? { ...row, result: readDocuments ? { ...row.result, readDocuments } : row.result }
+      : { ...finding(figure), result: unread };
   });
-  const sentence = aggregateFigureResults(figures, judgment);
   return {
-    ...sentence,
-    ...(judgment.readDocuments && { readDocuments: judgment.readDocuments }),
+    ...aggregateFigureResults(figures, read.sentence),
     figures,
-    remainder: null,
+    remainder: read.sentence,
   };
 }
 

@@ -144,19 +144,22 @@ export async function checkAbsence({
   const [judged, ...figureLines] = reply.split(/\r?\n(?=\s*Figures:)/i);
   const value = await replyJson(judged ?? "");
   if (!isRecord(value)) return notChecked("malformed");
-  const verdict = value.verdict;
-  if (verdict !== "supported" && verdict !== "contradicted" && verdict !== "unsupported")
-    return notChecked("malformed");
   const citations = parseRecords(value.citations ?? []);
   if (citations.length > 0) {
     const recorded = session.tools.cite(citations);
     if (!recorded.startsWith("Recorded")) return notChecked("no-evidence");
     session.check();
   }
-  const evidence = citations.length > 0 ? session.finalCitation(1) : null;
-  if (evidence && evidence.check !== "found") return notChecked("no-evidence");
-  if (verdict === "contradicted" && !evidence) return notChecked("no-evidence");
-  const judgment: ClaimJudgment =
+  const found = (marker: number) => {
+    const citation = citations.some((each) => each.marker === marker)
+      ? session.finalCitation(marker)
+      : null;
+    return citation?.check === "found" ? citation : null;
+  };
+  const judgment = (
+    verdict: "supported" | "contradicted" | "unsupported",
+    evidence: Citation | null,
+  ): ClaimJudgment =>
     verdict === "unsupported"
       ? {
           verdict,
@@ -178,27 +181,64 @@ export async function checkAbsence({
           ...citedCase(evidence),
           ...facts(),
         };
-  if (figures.length === 0) return judgment;
+  let absence: ClaimJudgment;
+  if (value.absence === "holds") absence = judgment("supported", null);
+  else if (value.absence === "contained") {
+    const evidence = found(1);
+    if (!evidence) return notChecked("no-evidence");
+    absence = judgment("contradicted", evidence);
+  } else return notChecked("malformed");
+  const rest = restOfSentence(value.rest, found(2), judgment);
+  if (rest === undefined) return notChecked("malformed");
+  const sentence = [absence, ...(rest ? [rest] : [])];
+  const worst =
+    sentence.find((part) => part.verdict === "contradicted") ??
+    sentence.find((part) => part.verdict === "unsupported") ??
+    rest ??
+    absence;
+  if (figures.length === 0) return worst;
   const rows = await figureRows(figureLines.join("\n"));
   const absent = typeof value.absent === "string" ? value.absent : null;
-  return wholeReadResults(request.claim, figures, rows, judgment, absent);
+  return wholeReadResults(request.claim, figures, rows, { absence, sentence: worst }, absent);
+}
+
+/**
+ * What the read says of the sentence beyond its absence: null when it says nothing more,
+ * undefined when the reply gives no answer that can be read. Supported only on a found
+ * Citation (`evidence`): the absence holding backs nothing else. Parts of a sentence (#2174)
+ * will check this rest on their own.
+ */
+function restOfSentence(
+  rest: unknown,
+  evidence: Citation | null,
+  judgment: (
+    verdict: "supported" | "contradicted" | "unsupported",
+    evidence: Citation | null,
+  ) => ClaimJudgment,
+): ClaimJudgment | null | undefined {
+  if (rest === "none") return null;
+  if (rest === "supported" || rest === "contradicted")
+    return evidence ? judgment(rest, evidence) : judgment("unsupported", null);
+  if (rest === "unsupported") return judgment("unsupported", null);
+  return undefined;
 }
 
 /**
  * The whole read judges the whole sentence, not only its absence: a read that asked only whether
- * the absent thing is there approved whatever else the sentence said (#1443).
+ * the absent thing is there approved whatever else the sentence said (#1443). The absence and the
+ * rest of the sentence are answered apart, each with its own evidence, so neither borrows the
+ * other's.
  */
 export function wholeReadInstructions(figures: boolean): string {
   return [
-    "Read the whole Documents and judge the whole sentence against them: what it says is absent, and everything else it says.",
-    'Reply with one JSON object on one line: {"verdict":"supported","absent":"the sentence\'s own words for what it says is absent","citations":[{"marker":1,"passage":"P1","quote":"the exact words"}]}.',
-    "- supported: the whole text does not contain what the sentence says is absent, and states everything else it says;",
-    "- contradicted: the text contains what the sentence says is absent, or gives another value for anything else it says; citation 1 quotes the words that show it;",
-    "- unsupported: otherwise.",
+    "Read the whole Documents and judge the sentence against them in two parts: what it says is absent, and the rest of what it says.",
+    'Reply with one JSON object on one line: {"absent":"the sentence\'s own words for what it says is absent","absence":"holds","rest":"none","citations":[{"marker":1,"passage":"P1","quote":"the exact words"}]}.',
+    '- absence: "holds" when the whole text does not contain what the sentence says is absent; "contained" when it does, and citation 1 quotes the words that contain it.',
+    '- rest: "none" when the sentence says nothing besides its absence; otherwise "supported" when the text states it, or "contradicted" when it gives another value, with citation 2 quoting those words; else "unsupported".',
     "Copy each quote exactly from one Passage, as one unbroken stretch. A Passage outside the whole text is never evidence.",
     ...(figures
       ? [
-          `Then one last line: Figures: and one JSON object shaped ${FIGURES_SHAPE}, giving every requested id once. A figure inside what the sentence says is absent takes the verdict above, with source null. Any other figure names the citation and the number as its quote writes it; calculation is null; remainder is null.`,
+          `Then one last line: Figures: and one JSON object shaped ${FIGURES_SHAPE}, giving every requested id once. A figure inside what the sentence says is absent takes the absence's verdict (supported when it holds), with source null. Any other figure names its citation (2 or later) and the number as its quote writes it; calculation is null; remainder is null.`,
         ]
       : []),
   ].join("\n");
