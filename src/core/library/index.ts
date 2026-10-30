@@ -1371,7 +1371,20 @@ export function createLibrary(options: {
       };
     },
     // A new request id makes a run already under way for these Documents stale.
-    accept(input: unknown): AssignmentChange[] {
+    accept(input: unknown, checked?: unknown): AssignmentChange[] {
+      if (checked !== undefined) {
+        if (!isRecord(checked))
+          throw new InvalidInputError({ key: "error.library.checkedFolders" });
+        // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
+        // that moved to another Folder since it was checked is never accepted unchecked.
+        const ids: readonly unknown[] = Array.isArray(input) ? input : [];
+        const moved = ids.some((id) => {
+          if (typeof id !== "string") return false;
+          const now = assignment(id);
+          return now?.suggested === 1 && now.group_id !== (checked[id] ?? null);
+        });
+        if (moved) throw new InvalidInputError({ key: "error.folder.suggestionMoved" });
+      }
       return review(input, (row) =>
         db.run(
           "UPDATE document_groups SET source = 'user', suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
