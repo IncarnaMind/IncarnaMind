@@ -757,6 +757,19 @@ test.each([undefined, false])(
   },
 );
 
+test("a model that cannot force Tools still cannot settle a figure without recorded evidence", async () => {
+  const { result } = await checkWith({
+    forcedToolChoice: false,
+    figures: [target("f1", "£20", "Revenue in 2024")],
+    citesWhenAsked: true,
+    quotes: [],
+    text: reply([
+      { ...item(), source: { citation: 1, number: "£20", reading: null, unitQuote: null } },
+    ]),
+  });
+  expect(result.verdict).toBe("not-checked");
+});
+
 test.each([
   { named: "5704", verdict: "supported" },
   { named: "5,704", verdict: "supported" },
