@@ -879,6 +879,8 @@ export const zhCN = {
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
   "claim.unsupported.scale.uncovered": "{figure} 的币种、单位或量级",
   "claim.unsupported.unit": "文档写的是{amount}，不是{figure}。",
+  "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
+  "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
   "claim.openCitation": "打开引用 {number}",
   "claim.cutUnsupported": "删去无依据的部分",
   "claim.keepAsView": "保留为我的观点",
