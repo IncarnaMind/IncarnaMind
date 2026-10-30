@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import type { ChatModelFactory, ClaimCheckResult } from "../../src/core";
+import type { ChatModelFactory, ClaimCheckResult, SaveChatProviderInput } from "../../src/core";
 import { listedSentences, sentenceOf } from "../../tests/helpers/checks";
 import { createTempDataFolder, startCore } from "../../tests/helpers/core";
 import { addAndProcess } from "../../tests/helpers/documents";
@@ -64,10 +64,21 @@ function failure(error: unknown) {
   return { name, status: record(error) ? count(error.statusCode) : null };
 }
 
-export function observeAttribution(inner: ChatModelFactory) {
+type AttributionParams = Parameters<
+  NonNullable<LanguageModelMiddleware["wrapGenerate"]>
+>[0]["params"];
+
+export interface AttributionObserverHooks {
+  prepare?(params: AttributionParams): AttributionParams;
+  before?(request: AttributionRequest, params: AttributionParams): void;
+  failed?(error: unknown): void;
+  settled?(request: AttributionRequest): void;
+}
+
+export function observeAttribution(inner: ChatModelFactory, hooks: AttributionObserverHooks = {}) {
   const requests: AttributionRequest[] = [];
   let caseId: string | null = null;
-  type Params = Parameters<NonNullable<LanguageModelMiddleware["wrapGenerate"]>>[0]["params"];
+  type Params = AttributionParams;
   function start(mode: AttributionRequest["mode"], params: Params) {
     const messages = params.prompt.map((message) => ({
       role: message.role,
@@ -133,9 +144,11 @@ export function observeAttribution(inner: ChatModelFactory) {
   }
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
+    transformParams: async ({ params }) => hooks.prepare?.(params) ?? params,
     wrapGenerate: async ({ doGenerate, params }) => {
       const { request, end } = start("generate", params);
       try {
+        hooks.before?.(request, params);
         const result = await doGenerate();
         request.reply = result.content
           .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -145,16 +158,20 @@ export function observeAttribution(inner: ChatModelFactory) {
         );
         request.usage = attributionUsage(result.usage);
         end("complete");
+        hooks.settled?.(request);
         return result;
       } catch (error) {
+        hooks.failed?.(error);
         request.error = failure(error);
         end(request.error.name === "AbortError" ? "aborted" : "error");
+        hooks.settled?.(request);
         throw error;
       }
     },
     wrapStream: async ({ doStream, params }) => {
       const { request, end } = start("stream", params);
       try {
+        hooks.before?.(request, params);
         const result = await doStream();
         const reader = result.stream.getReader();
         let cancelled = false;
@@ -167,6 +184,7 @@ export function observeAttribution(inner: ChatModelFactory) {
                 if (cancelled) return;
                 if (next.done) {
                   if (request.status === "running") end("missing-usage");
+                  hooks.settled?.(request);
                   controller.close();
                   return;
                 }
@@ -177,29 +195,36 @@ export function observeAttribution(inner: ChatModelFactory) {
                 if (part.type === "finish") {
                   request.usage = attributionUsage(part.usage);
                   end("complete");
+                  hooks.settled?.(request);
                 }
                 if (part.type === "error") {
+                  hooks.failed?.(part.error);
                   request.error = failure(part.error);
                   end("error");
                 }
                 controller.enqueue(part);
               } catch (error) {
                 if (cancelled) return;
+                hooks.failed?.(error);
                 request.error = failure(error);
                 end(request.error.name === "AbortError" ? "aborted" : "error");
+                hooks.settled?.(request);
                 controller.error(error);
               }
             },
             async cancel(reason) {
               cancelled = true;
               if (request.status === "running") end("aborted");
+              hooks.settled?.(request);
               await reader.cancel(reason);
             },
           }),
         };
       } catch (error) {
+        hooks.failed?.(error);
         request.error = failure(error);
         end(request.error.name === "AbortError" ? "aborted" : "error");
+        hooks.settled?.(request);
         throw error;
       }
     },
@@ -239,9 +264,6 @@ export async function runAttributionDry(options: {
   onCase?: (row: AttributionDryRow, requests: readonly AttributionRequest[]) => Promise<void>;
 }) {
   requireAttributionDry(options.mode);
-  const bytes = await readFile(new URL("./cases.json", import.meta.url), "utf8");
-  if (hash(bytes) !== ATTRIBUTION_SHA256)
-    throw new Error("The frozen attribution fixture hash changed.");
   const model = scriptedModel(
     (call) => ({
       text: `Parts: ${JSON.stringify([{ kind: "fact", text: sentenceOf(call) }])}\nVerdict: unsupported\nCalculation: none\nEvidence: []`,
@@ -260,7 +282,39 @@ export async function runAttributionDry(options: {
           : { text: "same" },
     },
   );
-  const observed = observeAttribution(() => model);
+  return runAttributionCases({
+    ...options,
+    mode: "dry",
+    model: "scripted/local-model",
+    createChatModel: () => model,
+    provider: { kind: "ollama", modelId: "local-model" },
+  });
+}
+
+export async function runAttributionCases(options: {
+  arm: "before" | "after";
+  mode: "dry" | "pilot";
+  model: string;
+  createChatModel: ChatModelFactory;
+  provider: SaveChatProviderInput;
+  caseIds?: readonly string[];
+  hooks?: AttributionObserverHooks;
+  stopped?: () => boolean;
+  onCase?: (row: AttributionDryRow, requests: readonly AttributionRequest[]) => Promise<void>;
+}) {
+  const bytes = await readFile(new URL("./cases.json", import.meta.url), "utf8");
+  if (hash(bytes) !== ATTRIBUTION_SHA256)
+    throw new Error("The frozen attribution fixture hash changed.");
+  const selected = options.caseIds
+    ? options.caseIds.map((id) => {
+        const sample = frozen.cases.find((sample) => sample.id === id);
+        if (!sample) throw new Error("An attribution case ID is not in the frozen set.");
+        return sample;
+      })
+    : frozen.cases;
+  if (new Set(selected.map((sample) => sample.id)).size !== selected.length)
+    throw new Error("Attribution case IDs must be unique.");
+  const observed = observeAttribution(options.createChatModel, options.hooks);
   const dataDir = await createTempDataFolder();
   const sourcesDir = await createTempDataFolder();
   const core = startCore(dataDir, {
@@ -269,7 +323,7 @@ export async function runAttributionDry(options: {
   });
   const { settings } = await core.getLibrary();
   await core.saveLibrarySettings({ ...settings, automatic: false });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  await core.saveChatProvider(options.provider);
   const documents = new Map<string, string>();
   const metadata = [];
   for (const source of frozen.sources) {
@@ -298,7 +352,7 @@ export async function runAttributionDry(options: {
     });
   }
   const results = new Map<string, ClaimCheckResult>();
-  const rows: AttributionDryRow[] = frozen.cases.map((sample) => ({
+  const rows: AttributionDryRow[] = selected.map((sample) => ({
     id: sample.id,
     language: sample.language,
     status: "not-executed",
@@ -307,7 +361,8 @@ export async function runAttributionDry(options: {
     requests: [],
     error: null,
   }));
-  for (const [index, sample] of frozen.cases.entries()) {
+  for (const [index, sample] of selected.entries()) {
+    if (options.stopped?.()) break;
     const row = rows[index];
     if (!row) throw new Error("The frozen attribution case inventory changed.");
     const input = attributionInput(frozen, sample, documents);
@@ -369,7 +424,7 @@ export async function runAttributionDry(options: {
       ).length,
     };
   });
-  const facets = frozen.cases.flatMap((sample) =>
+  const facets = selected.flatMap((sample) =>
     sample.gold.facetTargets.map((target) => {
       const part = results
         .get(sample.id)
@@ -391,17 +446,19 @@ export async function runAttributionDry(options: {
   return {
     manifest: {
       arm: options.arm,
-      mode: "dry",
-      model: "scripted/local-model",
-      qualityMeasurement: false,
+      mode: options.mode,
+      model: options.model,
+      qualityMeasurement: options.mode !== "dry",
       fixtureSHA256: ATTRIBUTION_SHA256,
       checkAtISO: frozen.checkAtISO,
-      caseCount: frozen.cases.length,
+      caseCount: selected.length,
+      frozenCaseCount: frozen.cases.length,
+      selectedCaseIds: selected.map((sample) => sample.id),
       sourceCount: frozen.sources.length,
       profileCount: frozen.profiles.length,
       scope: "standalone-public-checkClaim",
-      paidEnabled: false,
-      knownExternalCostUSD: 0,
+      paidEnabled: options.mode === "pilot",
+      knownExternalCostUSD: options.mode === "dry" ? 0 : null,
       pricedForecast: null,
     },
     rows,
