@@ -4730,6 +4730,8 @@ export const en = {
   "error.provider.urlExtras":
     "The server URL can’t contain a user name, password, query or fragment. Use the key field.",
   "error.provider.ollamaNotRunning": "Ollama isn’t running on this computer.",
+  "error.provider.openrouterCapabilities":
+    "OpenRouter couldn’t confirm a service that supports this request’s Tools and reply format. Try again or choose another model.",
   "error.provider.ollamaCantOpen":
     "This computer can’t open Ollama from here. Get it from ollama.com.",
   "error.provider.ollamaCloud": "{model} runs on ollama.com, not here. Choose a local model.",

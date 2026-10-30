@@ -451,6 +451,8 @@ export interface AnswerRequest {
   maxOutput?: number;
   /** The model needs the Tools in every request, the last step's too (`ModelFacts.toolsEveryRequest`). */
   toolsEveryRequest?: boolean;
+  /** False when the model refuses a named or required Tool choice. */
+  forcedToolChoice?: boolean;
   /**
    * In structured output, ask the model once more for the quotes the check
    * doesn't find (see ./quoteRetry): a local model, never a cloud one.
@@ -1897,7 +1899,7 @@ async function* toolLoop(
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
-    ...(firstTool && { firstTool }),
+    ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
     lastStep: {
       ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
