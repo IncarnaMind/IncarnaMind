@@ -30,7 +30,7 @@ import type { Language } from "../language";
 import { renderCsv } from "./csv";
 import { renderRecordHtml } from "./html";
 import { modelLabel, translatorFor } from "./labels";
-import { type CitationItem, readRecord, type SentenceItem } from "./read";
+import { type CitationItem, type RecordCiteItem, readRecord, type SentenceItem } from "./read";
 
 export interface CheckRecordDependencies {
   /** Throws `NotFoundError` unless the Mind exists. */
@@ -73,6 +73,7 @@ export interface CheckRecord {
   unread: UnreadFile[];
   sentences: SentenceItem[];
   citations: CitationItem[];
+  recordCites: RecordCiteItem[];
   figures: readonly FigureScheduleRow[];
   language: Language;
 }
@@ -93,7 +94,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const language = deps.language();
     const providers = await deps.providers();
     const t = translatorFor(language);
-    const { sentences, citations, unread } = deps.read(mind.id, (fragment) => {
+    const { sentences, citations, recordCites, unread } = deps.read(mind.id, (fragment) => {
       const record = readRecord({
         fragment,
         documents: deps.documents(),
@@ -143,6 +144,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       unread,
       sentences,
       citations,
+      recordCites,
       figures: deps.figures(mind.id),
       language,
     };

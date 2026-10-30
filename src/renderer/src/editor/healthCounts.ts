@@ -32,7 +32,7 @@ import { readFigures } from "../../../shared/figures";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { isClaim } from "../../../shared/sentences";
-import { claimPlaces, keptSpans, type ShownClaim, shownClaims } from "./claimChecks";
+import { claimPlaces, keptSpans, markOf, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -268,7 +268,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     ) {
       health.checkedAt = checkedAt;
     }
-    const unsupported = claim.shown.state === "unsupported";
+    const unsupported = markOf(claim) === "unsupported";
     const contradicted = claim.shown.state === "contradicted";
     if (unsupported) health.unsupported.push(from);
     else if (contradicted) health.contradicted.push(from);

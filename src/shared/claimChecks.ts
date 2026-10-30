@@ -5,6 +5,7 @@
  * that have changed since needs a re-check.
  */
 import {
+  type CheckedVersion,
   type Citation,
   type CitationAttributes,
   type ClaimCheckAction,
@@ -15,9 +16,11 @@ import {
   type ClaimVerdict,
   claimCheckActions,
   type FigureCheckAttributes,
+  type RecordCiteResult,
   type SearchScope,
   type UnsupportedReason,
 } from "../core/api";
+import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
@@ -34,6 +37,7 @@ import {
 } from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
+import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableSentence, isClaim } from "./sentences";
 
@@ -63,6 +67,105 @@ export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
 export const checkSearchedNarrowerThanAll = (scope: ClaimCheckScope): boolean =>
   !scope.widened && checkedScope(scope) !== null;
 
+function recordCitesOf(value: unknown): RecordCiteResult[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((each) => {
+    if (!isRecord(each)) return [];
+    const raw = text(each.raw);
+    const outcome = [
+      "supported",
+      "partly",
+      "unsupported",
+      "choose",
+      "not-found",
+      "not-checked",
+    ].find((known) => known === each.outcome);
+    if (!raw || !outcome) return [];
+    const location = each.location === undefined ? undefined : parseLocation(each.location);
+    if (each.location !== undefined && location === null) return [];
+    const nearby = each.nearby;
+    const nearbyLocation = isRecord(nearby) ? parseLocation(nearby.location) : null;
+    return [
+      {
+        raw,
+        outcome: outcome as RecordCiteResult["outcome"],
+        ...(CLAIM_CHECK_FAILURES.find((reason) => reason === each.reason)
+          ? { reason: each.reason as ClaimCheckFailure }
+          : {}),
+        ...(each.detail === null
+          ? { detail: null }
+          : text(each.detail) !== null
+            ? { detail: each.detail as string }
+            : {}),
+        ...(typeof each.from === "number" && Number.isInteger(each.from) && each.from >= 0
+          ? { from: each.from }
+          : {}),
+        ...(typeof each.to === "number" && Number.isInteger(each.to) && each.to >= 0
+          ? { to: each.to }
+          : {}),
+        ...(text(each.documentId) ? { documentId: text(each.documentId) as string } : {}),
+        ...(text(each.documentName) ? { documentName: text(each.documentName) as string } : {}),
+        ...(text(each.contentHash) ? { contentHash: text(each.contentHash) as string } : {}),
+        ...(location ? { location } : {}),
+        ...(typeof each.pageFrom === "number" && Number.isInteger(each.pageFrom)
+          ? { pageFrom: each.pageFrom }
+          : {}),
+        ...(typeof each.pageTo === "number" && Number.isInteger(each.pageTo)
+          ? { pageTo: each.pageTo }
+          : {}),
+        ...(text(each.passage) !== null ? { passage: text(each.passage) as string } : {}),
+        ...(text(each.covered) ? { covered: text(each.covered) as string } : {}),
+        ...(text(each.uncovered) ? { uncovered: text(each.uncovered) as string } : {}),
+        ...(Array.isArray(each.via) && each.via.every((cite) => typeof cite === "string")
+          ? { via: each.via as string[] }
+          : {}),
+        ...(Array.isArray(each.candidates)
+          ? {
+              candidates: each.candidates.flatMap((candidate) =>
+                isRecord(candidate) && text(candidate.id) && text(candidate.name)
+                  ? [{ id: candidate.id as string, name: candidate.name as string }]
+                  : [],
+              ),
+            }
+          : {}),
+        ...(nearbyLocation &&
+        isRecord(nearby) &&
+        typeof nearby.pageFrom === "number" &&
+        typeof nearby.pageTo === "number" &&
+        text(nearby.passage) !== null
+          ? {
+              nearby: {
+                location: nearbyLocation,
+                pageFrom: nearby.pageFrom as number,
+                pageTo: nearby.pageTo as number,
+                passage: nearby.passage as string,
+              },
+            }
+          : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * A check or result with its record cites and the Document versions they read, the one rule for
+ * all of them: a Document already listed keeps its version, and each other cited Document is
+ * listed once, at the version its first cite read. No part or figure holds these, since record
+ * cites are read apart from them (#1709).
+ */
+export function keepRecordCites<Check extends { versions: CheckedVersion[] }>(
+  check: Check,
+  recordCites: readonly RecordCiteResult[] | undefined,
+): Check & { recordCites?: RecordCiteResult[] } {
+  if (!recordCites) return check;
+  const versions = new Map(check.versions.map((version) => [version.documentId, version]));
+  for (const cite of recordCites) {
+    if (cite.documentId && cite.contentHash && !versions.has(cite.documentId))
+      versions.set(cite.documentId, { documentId: cite.documentId, contentHash: cite.contentHash });
+  }
+  return { ...check, recordCites: [...recordCites], versions: [...versions.values()] };
+}
+
 /** A check's attributes as a mark holds them, or null when they aren't one's. Unknown values read safely. */
 function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!isRecord(value)) return null;
@@ -71,6 +174,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!id || !state) return null;
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
+  const recordCites = recordCitesOf(value.recordCites);
   const check: ClaimCheckAttributes = {
     id,
     request: text(value.request) ?? "",
@@ -93,6 +197,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(value.readDocuments !== undefined && {
       readDocuments: readReadDocuments(value.readDocuments),
     }),
+    ...(recordCites && { recordCites }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
   };
@@ -107,7 +212,10 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
       const result = resultFromParts(parts);
       check.parts = result.parts ?? [];
       check.state = result.verdict;
-      check.versions = result.versions;
+      check.versions = keepRecordCites(
+        { ...check, versions: result.versions },
+        recordCites,
+      ).versions;
       check.excluded = result.excluded;
       if (result.verdict === "not-checked") {
         check.reason = result.reason;
@@ -138,7 +246,13 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
 export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   const basis = readCheckBasis(value);
   if (!basis || !isRecord(value)) return null;
-  if (basis.parts) return basis.kept ? keepCheckAsView(basis) : checkWithParts(basis, basis.parts);
+  if (basis.parts) {
+    const { recordCites, ...check } = basis;
+    return keepRecordCites(
+      check.kept ? keepCheckAsView(check) : checkWithParts(check, check.parts ?? []),
+      recordCites,
+    );
+  }
   const figures: FigureCheckAttributes[] = [];
   if (value.figures != null) {
     if (!Array.isArray(value.figures)) return null;
@@ -173,7 +287,9 @@ export type RecheckReason =
   | "scope"
   | "search-scope"
   /** Checked before each of its figures was checked with its own source (#1459). */
-  | "figures";
+  | "figures"
+  /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
+  | "referent";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -196,6 +312,25 @@ export interface ClaimCheckNow {
   folderId: string | null;
   /** The Search scope the User set for the Mind now (`mindScopeOf`); null for none. */
   scope: SearchScope | null;
+  /** The Note the sentence is in, for what its `Id.` and `supra` refer back to now; unknown when absent. */
+  note?: RecordCiteNote;
+  /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
+  noteText?(): string;
+}
+
+/** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
+function referentsMoved(check: ClaimCheckBasis, now: ClaimCheckNow): boolean {
+  const checked = (check.recordCites ?? []).flatMap((cite) => (cite.via ? [cite.via] : []));
+  if (!now.note || checked.length === 0) return false;
+  const current = shortFormsThrough(now.noteText?.() ?? now.text, now.note);
+  return (
+    current.length !== checked.length ||
+    checked.some(
+      (via, index) =>
+        via.length !== current[index]?.length ||
+        via.some((cite, at) => cite !== current[index]?.[at]),
+    )
+  );
 }
 
 function scopeChanged(searched: ClaimCheckScope, now: ClaimCheckNow): boolean {
@@ -244,6 +379,23 @@ export function saysNotFound(
   );
 }
 
+function recordEvidence(cite: RecordCiteResult): CitationAttributes | null {
+  if (!cite.documentId || !cite.documentName || !cite.location || cite.passage === undefined)
+    return null;
+  return {
+    passageId: null,
+    documentId: cite.documentId,
+    documentName: cite.documentName,
+    contentHash: cite.contentHash ?? null,
+    pageFrom: cite.pageFrom ?? null,
+    pageTo: cite.pageTo ?? null,
+    location: cite.location,
+    quote: cite.passage,
+    check: "found",
+    checkReason: null,
+  };
+}
+
 /**
  * What a check's result rests on: its evidence, the Passage quoted for the part of an
  * unsupported sentence it covers, and the quotes a worked-out figure read its numbers from.
@@ -254,6 +406,18 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
     check.evidence,
     check.unsupported?.quoted ?? null,
     ...inputs.flatMap((input) => [input.citation, input.unitStatement?.citation ?? null]),
+    ...(check.recordCites ?? []).flatMap((cite) => [
+      recordEvidence(cite),
+      cite.nearby
+        ? recordEvidence({
+            ...cite,
+            location: cite.nearby.location,
+            pageFrom: cite.nearby.pageFrom,
+            pageTo: cite.nearby.pageTo,
+            passage: cite.nearby.passage,
+          })
+        : null,
+    ]),
     ...(check.parts?.flatMap(partCitations) ?? []),
     ...(check.figures ?? []).flatMap((figure) => [
       ...restsOn(figure),
@@ -282,6 +446,7 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   ) {
     return { state: "needs-recheck", why: "edited" };
   }
+  if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
   if (now.versions) {
     const relied = new Set([
@@ -315,6 +480,27 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   return { state: check.state };
 }
 
+/** A sentence's own record cite that doesn't back it where it points (#1709). */
+const RECORD_MISSES: ReadonlySet<RecordCiteResult["outcome"]> = new Set([
+  "unsupported",
+  "not-found",
+  "choose",
+]);
+
+/**
+ * What a check's margin glyph shows: its sentence's state, but Unsupported rather than Supported
+ * while one of the sentence's own record cites is Unsupported, Not found or Choose (#1709).
+ */
+export function claimMarkState<State extends ClaimCheckShown["state"]>(
+  state: State,
+  check: Pick<ClaimCheckAttributes, "recordCites">,
+): State | "unsupported" {
+  return state === "supported" &&
+    (check.recordCites ?? []).some((cite) => RECORD_MISSES.has(cite.outcome))
+    ? "unsupported"
+    : state;
+}
+
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
     const shown = basisShown(check, now);
@@ -327,6 +513,12 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         shown.state === "contradicted")
       ? { state: "needs-recheck", why: "figures" }
       : shown;
+  }
+  if (
+    comparableSentence(now.text) === comparableSentence(check.text) &&
+    referentsMoved(check, now)
+  ) {
+    return { state: "needs-recheck", why: "referent" };
   }
   const figures = check.figures.map((figure) => figureCheckShown(figure, now));
   return aggregateFigureStates(

@@ -3,13 +3,16 @@
  * a verified document's claims: those it has a plan for.
  */
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { listedSentences } from "./claimSentences";
 
 export { listedSentences } from "./claimSentences";
 
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { isRecord } from "../../src/core/errors";
+import { recordCiteTokens } from "../../src/core/recordCites/parser";
 import { readFigures } from "../../src/shared/figures";
+import { comparableSentence } from "../../src/shared/sentences";
 import { shownPassages } from "./citations";
 import {
   type GenerateCall,
@@ -246,18 +249,40 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
  * contradiction, the plan's judgement; asked once more for the deciding
  * Passage, `evidence` (none by default).
  */
+/** A plan's judgement as the record-cite judgement words it (src/core/answers/checks/prompt.ts). */
+const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsupported" } as const;
+
 export const checkGenerate =
   (plans: Record<string, Plan>, evidence: string = JSON.stringify({ passage: null })) =>
   (call: GenerateCall): GeneratedReply => {
+    const sentence = SENTENCE.exec(call.prompt)?.[1] ?? "";
+    // A record cite's judgement reads the sentence as the Note holds it: a Citation left out of a
+    // plan's words leaves no space before the stop there.
+    const tidy = (text: string) => text.replace(/\s+([.,;:!?。，；：！？])/gu, "$1");
+    const plan =
+      plans[sentence] ??
+      Object.entries(plans).find(
+        ([claim]) =>
+          tidy(
+            comparableSentence(
+              recordClaimFacts(
+                claim,
+                recordCiteTokens(claim).filter((token) => token.kind === "cite"),
+              ),
+            ),
+          ) === tidy(sentence),
+      )?.[1];
     if (call.system.startsWith("You sort the sentences")) {
       return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
     }
     if (call.system.startsWith("A sentence the User wrote says more")) {
-      return { text: plans[SENTENCE.exec(call.prompt)?.[1] ?? ""]?.part ?? "" };
+      return { text: plan?.part ?? "" };
     }
     if (call.system.startsWith("Compare a sentence")) {
-      const plan = plans[SENTENCE.exec(call.prompt)?.[1] ?? ""];
       if (plan?.strict && isStrict(call)) return plan.strict;
+      if (call.system.includes("exact Passage a record cite names")) {
+        return { text: `Judgement: ${RECORD_WORDS[plan?.judgement ?? "conflict"]}` };
+      }
       return { text: plan?.judgement ?? "conflict" };
     }
     return { text: evidence };

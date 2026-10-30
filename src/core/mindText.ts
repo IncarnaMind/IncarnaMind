@@ -89,6 +89,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
   QUESTION_BLOCK,
+  type RecordCiteResult,
   type SignOffNow,
   type SignOffTarget,
   type StyledRun,
@@ -146,8 +147,20 @@ export interface FailedCheck {
   verdict: string | null;
 }
 
-/** A sentence whose check isn't good, with what a Word file's comment on it says. */
-export type FailedSentence = { id: string } & (
+export interface RecordCiteComment {
+  raw: string;
+  outcome: RecordCiteResult["outcome"];
+  source: string | null;
+  passage: string | null;
+  covered: string | null;
+  uncovered: string | null;
+  candidates: string[];
+  nearby: { source: string; passage: string } | null;
+}
+
+/** A sentence whose check has a Word comment, with what the comment says. */
+export type FailedSentence = { id: string; recordCites?: RecordCiteComment[] } & (
+  | { check: "record-cites" }
   | {
       check: "contradicted";
       says: string | null;

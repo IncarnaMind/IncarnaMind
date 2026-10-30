@@ -56,6 +56,7 @@ import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { classifyProviderError } from "../../providers/providerErrors";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
 import {
   answerLanguage,
@@ -157,6 +158,12 @@ export interface ClaimCheckRequest {
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
+  /** The Note the sentence is in, whose source choices and earlier record cites apply. */
+  mindId?: string;
+  /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
+  place?: RecordCitePlace;
+  /** The sentence as the Note has it (an inline node as U+FFFC), when `claim` is reworded. */
+  recordClaim?: string;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
   signal: AbortSignal;

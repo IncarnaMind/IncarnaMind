@@ -8,6 +8,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
 import { checkGenerate, checkReply } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
@@ -946,6 +947,70 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       );
       expect(reads).toHaveLength(0);
       expect(check).toMatchObject({ state: "not-checked", reason: "refused" });
+    },
+  );
+
+  test.each([
+    "The witness never mentioned a second contract (Smith Dep. 45:3–12).",
+    "证人从未提到第二份合同 (Smith Dep. 45:3–12)。",
+  ])(
+    "an absence with a record cite keeps both: the pages read whole and the cite's own result (%s)",
+    async (claim) => {
+      const reads: number[] = [];
+      const plans = { [claim]: { ...absent(), judgement: "same" } as Plan };
+      const model = scriptedModel((call) => withParts(call, checkReply(call, plans), [claim]), {
+        generate: (call) => {
+          if (call.system.startsWith("Read the whole Documents")) {
+            reads.push(1);
+            return { text: JSON.stringify({ absent: "a second contract", absence: "holds" }) };
+          }
+          return checkGenerate(plans)(call);
+        },
+      });
+      const setup = await setUpWithDocuments(model, [
+        {
+          name: "Smith Deposition.pdf",
+          contents: buildPdf([
+            {
+              lines: [
+                "Page 45",
+                "1 Q. First question?",
+                "2 A. First answer.",
+                "3 The witness denied it",
+                ...Array.from({ length: 9 }, (_, index) => `${index + 4} Later line ${index + 4}`),
+              ],
+            },
+          ]),
+        },
+      ]);
+      const document = setup.documents[0];
+      if (!document) throw new Error("The deposition Document is missing.");
+      const folder = await setup.core.createLibraryGroup({ name: "Record", description: "" });
+      await setup.core.moveToFolder({ documentIds: [document.id], folderId: folder.id });
+      const mind = await setup.core.createMind({ title: "Record", folderId: folder.id });
+      const client = await connectToMind(setup.core, mind.id);
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "cited" }, content: [{ type: "text", text: claim }] },
+      ]);
+      await client.settled();
+      await setup.core.checkSentences({
+        requestId: randomUUID(),
+        mindId: mind.id,
+        action: "check-against-documents",
+        from: { blockId: "cited", offset: 0 },
+        to: { blockId: "cited", offset: claim.length },
+      });
+      await client.settled();
+      const check = claimSpans(readMind(client))[0]?.check;
+      expect(reads).toHaveLength(1);
+      expect(check?.state).toBe("supported");
+      expect(check?.readDocuments).toHaveLength(1);
+      expect(check?.recordCites).toHaveLength(1);
+      expect(check?.recordCites?.[0]).toMatchObject({
+        raw: "Smith Dep. 45:3–12",
+        documentId: document.id,
+      });
+      expect(check?.versions.map((version) => version.documentId)).toContain(document.id);
     },
   );
 
