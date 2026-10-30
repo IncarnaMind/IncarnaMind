@@ -11,7 +11,7 @@ import {
   keyProviderGroups,
   kindOfCatalogId,
 } from "../../src/core/providers/catalog/providers";
-import { anthropicModelFacts } from "../../src/core/providers/modelLists";
+import { anthropicModelFacts, openRouterModelFacts } from "../../src/core/providers/modelLists";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { modelName } from "../../src/shared/modelName";
@@ -34,7 +34,7 @@ import {
 
 /** Starts a core with a cloud provider the User has allowed Questions to go to. */
 async function startWithCloudModel(
-  provider: { kind: "openai" | "anthropic" | "google"; modelId: string },
+  provider: { kind: "openai" | "anthropic" | "google" | "openrouter"; modelId: string },
   model = streamingModel("Twice a day."),
 ) {
   const models = scriptedModels(model);
@@ -600,5 +600,65 @@ describe("Providers saved before the catalog", () => {
     });
     expect(compatible).toMatchObject({ id: ids.compatible, hasApiKey: true });
     expect(await core.listChatProviders()).toHaveLength(5);
+  });
+});
+
+// protects=the server listing decides mandatory reasoning and whether a Claude correction can force Tools; fails_when=listed constraints are discarded; no_claim=model quality.
+test.each([
+  {
+    id: "anthropic/claude-next",
+    efforts: ["high", "minimal", "low"],
+    effort: "minimal",
+    forced: false,
+  },
+  { id: "openai/next", efforts: ["max", "medium", "high"], effort: "medium" },
+  { id: "vendor/future", efforts: ["high"], effort: "high" },
+])("OpenRouter listing constraints for $id", ({ id, efforts, effort, forced }) => {
+  expect(
+    openRouterModelFacts({ id, reasoning: { mandatory: true, supported_efforts: efforts } }),
+  ).toMatchObject({
+    reasoning: true,
+    thinkingOff: { openrouter: { reasoning: { effort } } },
+    ...(forced === false && { forcedToolChoice: false }),
+  });
+});
+test("OpenRouter mandatory reasoning without listed efforts uses the provider default", () => {
+  expect(
+    openRouterModelFacts({ id: "vendor/future", reasoning: { mandatory: true } }),
+  ).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { enabled: true } } },
+  });
+});
+test("OpenRouter live listing facts reach the model factory", async () => {
+  const { core, models } = await startWithCloudModel({
+    kind: "openrouter",
+    modelId: "anthropic/claude-opus-5.5",
+  });
+  answerFetch("https://openrouter.ai/api/v1/models", {
+    data: [
+      {
+        id: "anthropic/claude-opus-5.5",
+        reasoning: { mandatory: true, supported_efforts: ["high"] },
+      },
+    ],
+  });
+  await core.listChatModels();
+  const prepared = await core.prepareChatModel();
+  expect(prepared.capabilities.facts).toMatchObject({ forcedToolChoice: false });
+  expect(models.specs.at(-1)).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { effort: "high" } } },
+  });
+});
+
+test.each([
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-fable-5.1",
+])("OpenRouter bundled constraints reach prepared %s", async (modelId) => {
+  const { core, models } = await startWithCloudModel({ kind: "openrouter", modelId });
+  const prepared = await core.prepareChatModel();
+  expect(prepared.capabilities.facts).toMatchObject({ forcedToolChoice: false });
+  expect(models.specs.at(-1)).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { effort: "low" } } },
   });
 });

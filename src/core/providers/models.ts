@@ -61,6 +61,8 @@ export interface ChatModelSpec {
    * that asks to check or calculate.
    */
   thinking?: "off" | "summary" | "answer" | "careful";
+  /** Small-call options reported by the server, ahead of the bundled catalog. */
+  thinkingOff?: ProviderOptions;
   apiKey: string | null;
   modelId: string;
   /** "chatgpt", "claude-account" and "copilot": the User's sign-in, which signs (and refreshes) every request. */
@@ -200,7 +202,7 @@ function canSkipThinking(
     return false;
   }
   const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
-  return catalogFacts(set, spec.modelId)?.reasoning !== false;
+  return spec.thinkingOff !== undefined || catalogFacts(set, spec.modelId)?.reasoning !== false;
 }
 
 const namedByRefusal = new Map<string, ProviderOptions>();
@@ -271,7 +273,7 @@ function withThinkingOff(
   return withRememberedForm(
     model,
     `${spec.catalogId ?? spec.kind}\n${spec.modelId}`,
-    () => catalogFacts(set, spec.modelId)?.thinkingOff ?? thinkingOff.options,
+    () => spec.thinkingOff ?? catalogFacts(set, spec.modelId)?.thinkingOff ?? thinkingOff.options,
     (error, sent) => {
       const form = refusedForm(error, thinkingOff.refused);
       return form && form !== sent ? form : undefined;

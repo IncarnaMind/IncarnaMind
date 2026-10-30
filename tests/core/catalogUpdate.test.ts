@@ -175,3 +175,53 @@ describe("Running the update with Node", () => {
     expect(ids.trim().split(",")).toContain("groq");
   });
 });
+
+// protects=weekly regeneration keeps listing-derived reasoning constraints; fails_when=a mandatory model loses its effort or Claude forced-choice restriction; no_claim=model quality.
+test("catalog generation reads mandatory reasoning from OpenRouter's listing", () => {
+  const ids = ["anthropic/claude-future", "vendor/future"];
+  const base = {
+    openrouter: {
+      models: Object.fromEntries(ids.map((id) => [id, model(id, { input: 1, output: 1 })])),
+    },
+  };
+  const generated = generateModels(
+    base,
+    {},
+    ids.map((id) => ({
+      id,
+      reasoning: { mandatory: true, supported_efforts: ["high", "minimal"] },
+    })),
+  );
+  const models = generated.providers.openrouter?.models;
+  expect(models?.find((m) => m.id === ids[0])).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { effort: "minimal" } } },
+    forcedToolChoice: false,
+  });
+  expect(models?.find((m) => m.id === ids[1])).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { effort: "minimal" } } },
+  });
+  expect(models?.find((m) => m.id === ids[1])?.forcedToolChoice).toBeUndefined();
+  const diff = diffModels(generateModels(base, {}).providers, generated.providers);
+  expect(diff.changed.join("\n")).toContain("small-call reasoning");
+  expect(diff.changed.join("\n")).toContain("forced Tool choice");
+});
+
+test("Node can load the shared OpenRouter listing reader used by catalog regeneration", () => {
+  const root = resolve(__dirname, "../..");
+  const output = execFileSync(
+    process.execPath,
+    [
+      "--no-warnings",
+      "--import",
+      "./scripts/tsResolve.mjs",
+      "--input-type=module",
+      "-e",
+      'import { openRouterReasoningFacts } from "./src/core/providers/openrouterReasoning.ts"; console.log(JSON.stringify(openRouterReasoningFacts({ id:"anthropic/claude-future", reasoning:{ mandatory:true, supported_efforts:["high","low"] } })));',
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  expect(JSON.parse(output)).toMatchObject({
+    thinkingOff: { openrouter: { reasoning: { effort: "low" } } },
+    forcedToolChoice: false,
+  });
+});
