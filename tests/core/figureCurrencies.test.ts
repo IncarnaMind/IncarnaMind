@@ -318,11 +318,21 @@ describe("Checking which dollar a bare $ is (#2226)", { timeout: 60_000 }, () =>
 
 const LONG_TABLE = (heading: string, rent: string) =>
   `Item\tAmount (${heading})\n${Array.from({ length: 60 }, (_, at) => `Item ${at + 1}\t${1000 + at}`).join("\n")}\nRent\t${rent}`;
+const FEE_LIST = "费用清单\n以下为本公司的服务费用明细，请于月底前支付。\nFee\t¥54,000\n";
 
 describe("A dollar named beside its amount, and a plain number under a bare $ (#2226)", () => {
-  // protects=a code, a name or a country prefix beside a "$" says which dollar it is, so the amount is in that dollar and not a bare "$", while a lone letter before it ("A $54,000 fee") stays an article; a plain number whose Document writes a dollar only by a bare "$" or "dollars", in a heading the cited text lost, a unit line or another figure, is asked which dollar, and one whose Document names no currency keeps its reason; fails_when="$54,000 AUD" backs "US$54,000", "US $54m" backs "A$54m", a truly bare "$54,000" backs "US$54,000", or a plain number under a lost "Amount ($)", "All amounts are in dollars." or beside another figure's "$5,000" backs "US$"; no_claim=a real model's verdict.
+  // protects=a code, a name or a country prefix beside a "$" says which dollar it is, so the amount is in that dollar and not a bare "$", while a lone letter before it ("A $54,000 fee") stays an article; a plain number whose Document writes a dollar only by a bare "$" or "dollars", in a heading the cited text lost, a unit line or another figure, is asked which dollar, and one whose Document names no currency keeps its reason; a Chinese Document's "¥" is 人民币 even on a line with no Chinese; fails_when="$54,000 AUD" backs "US$54,000" (even where the Document mentions USD) or is backed by "HK$54,000", 日元 passes against a Chinese Document's "¥", "US $54m" backs "A$54m", a truly bare "$54,000" backs "US$54,000", or a plain number under a lost "Amount ($)", "All amounts are in dollars." or beside another figure's "$5,000" backs "US$"; no_claim=a real model's verdict.
   test.each([
     ["The fee is US$54,000.", "The fee is $54,000 AUD.", "unit", "$54,000 AUD"],
+    [
+      "The fee is US$54,000.",
+      "The fee is $54,000 AUD.",
+      "unit",
+      "$54,000 AUD",
+      "Invoice in USD and AUD.\nThe fee is $54,000 AUD.",
+    ],
+    ["The fee is $54,000 AUD.", "The fee is HK$54,000.", "unit", "HK$54,000"],
+    ["服务费用为54,000日元。", "Fee\t¥54,000", "yuan sign", "¥54,000", FEE_LIST],
     ["The fee is A$54,000.", "The fee is $54,000 USD.", "unit", "$54,000 USD"],
     ["Revenue was A$54m in 2025.", "Revenue was US $54m in 2025.", "unit", "US $54m"],
     ["租金为54,000美元。", "租金为$54,000 AUD。", "unit", "$54,000 AUD"],
@@ -363,6 +373,8 @@ describe("A dollar named beside its amount, and a plain number under a bare $ (#
   test.each([
     ["The fee is US$54,000.", "The fee is $54,000 USD."],
     ["The rent is A$54,000 a year.", "The rent is $54,000 AUD a year."],
+    ["The fee is $54,000 AUD.", "The fee is A$54,000."],
+    ["服务费用为人民币54,000元。", "Fee\t¥54,000", FEE_LIST],
     ["Revenue was US$54m in 2025.", "Revenue was US $54m in 2025."],
     ["The fee is US$54,000.", "The fee is $54,000 US dollars."],
     ["The fee is US$54,000.", "The fee is U.S. $54,000."],

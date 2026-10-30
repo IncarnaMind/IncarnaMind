@@ -2316,6 +2316,8 @@ const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? 
 /** Every currency a figure's own sign stands for in some Document: "$" or "dollars" for any dollar, "元" for yuan, or Hong Kong, Taiwan or Macau dollars. */
 export const currenciesOfSign = (figure: Figure): readonly string[] => {
   const sign = signOf(figure);
+  // "$54,000 AUD" is in the dollar it names, not in any dollar.
+  if (sign !== null && BARE_DOLLAR.test(sign) && !bareDollar(figure)) return [];
   return (sign !== null && (SIGN_CURRENCIES[sign] ?? SIGN_CURRENCIES[sign.toLowerCase()])) || [];
 };
 

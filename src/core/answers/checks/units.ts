@@ -204,15 +204,20 @@ function givenOtherwise(
         if (bareDollar(figure)) return { found, as: "agrees" };
         return { found, as: dollars.some((code) => codes.has(code)) ? "which dollar" : "differs" };
       }
-      if (codes.has(reading.unit.code)) return { found, as: "agrees" };
-      if (currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)))
-        return { found, as: "agrees" };
       // "¥" is 人民币 in a Chinese Document and the yen in a Japanese one, whatever one line reads as.
-      if (currenciesOfSign(number).includes("JPY") && codes.has("JPY")) {
+      if (
+        currenciesOfSign(number).includes("JPY") &&
+        codes.has("JPY") &&
+        !codes.has("CNY") &&
+        !namesWhich(each, "JPY")
+      ) {
         each.language ??= documentFigureContext([{ text: each.text.document() }]).language ?? "";
         if (each.language.startsWith("ja")) return { found, as: "agrees" };
         if (each.language.startsWith("zh")) return { found, as: "yuan sign" };
       }
+      if (codes.has(reading.unit.code)) return { found, as: "agrees" };
+      if (currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)))
+        return { found, as: "agrees" };
       return { found, as: "differs" };
     });
     if (judged.some(({ as }) => as === "agrees")) return null;
