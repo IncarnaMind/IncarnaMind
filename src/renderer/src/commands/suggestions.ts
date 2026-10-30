@@ -1,3 +1,4 @@
+import { ACCEPT_SUGGESTIONS } from "../../../shared/commands";
 import { countNow } from "../i18n";
 import { useLibraryFolds } from "../libraryFolds";
 import { acceptSuggestions, rejectSuggestions, waitingIds } from "../suggestionReview";
@@ -43,7 +44,7 @@ export const suggestionCommands: readonly Command[] = [
     },
   },
   {
-    id: "library.acceptSuggestions",
+    id: ACCEPT_SUGGESTIONS,
     label: "library.acceptSuggestions",
     // In the Library's lists only: ⌘↵ sends a Question or accepts a change where those are.
     shortcut: { keys: "CmdOrCtrl+Enter", list: true },

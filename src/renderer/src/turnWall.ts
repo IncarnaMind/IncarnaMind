@@ -12,30 +12,41 @@ import { MindIdContext } from "./editor/mindContext";
 import { useAppStore } from "./store";
 import { keptInsideName } from "./walls";
 
-/** The walled Folder of a Question asked at `place`; null outside every wall, and until known. */
-export function useTurnWall({ mindId, conversationId }: TurnPlace): string | null {
-  const library = useAppStore((state) => state.library);
+/**
+ * The walled Folder of a Question asked at `place`: null outside every wall, undefined until the
+ * core has answered for the place as it is now, so nothing shows a wall the turn won't have (#2243).
+ */
+export function useTurnWall({ mindId, conversationId }: TurnPlace): string | null | undefined {
+  const walls = useAppStore((state) =>
+    (state.library?.groups ?? [])
+      .filter((group) => group.keepInside)
+      .map((group) => group.id)
+      .join(" "),
+  );
   const noteFolder = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId,
   );
   const conversationFolder = useConversations(
     (state) => state.list.find((each) => each.id === conversationId)?.folderId,
   );
-  const [wall, setWall] = useState<string | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: asked again when a wall, the Note's Folder or the conversation's moves.
+  const asked = JSON.stringify([mindId, conversationId, noteFolder, conversationFolder, walls]);
+  const [answer, setAnswer] = useState<{ asked: string; wall: string | null } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `asked` holds the place and all the wall depends on.
   useEffect(() => {
     let current = true;
     core.wallOfTurn({ mindId, conversationId }).then(
-      (found) => {
-        if (current) setWall(found);
+      (wall) => {
+        if (current) setAnswer({ asked, wall });
       },
-      (error: unknown) => useAppStore.getState().reportError(error),
+      // A Note or conversation deleted in another window: the composer waits until it moves on.
+      (error: unknown) =>
+        console.error(`The wall of a Question asked at ${asked} isn't known.`, error),
     );
     return () => {
       current = false;
     };
-  }, [mindId, conversationId, library, noteFolder, conversationFolder]);
-  return wall;
+  }, [asked]);
+  return answer?.asked === asked ? answer.wall : undefined;
 }
 
 /**

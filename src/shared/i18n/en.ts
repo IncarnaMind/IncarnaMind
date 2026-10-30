@@ -356,6 +356,13 @@ export const en = {
     "Not moved: a Folder that keeps its work inside it can’t have its work moved in or out by the assistant. You can still move it yourself.",
   "error.folder.notFiled":
     "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+  "error.paste.conversationGone":
+    "The pasted text wasn’t saved: this conversation has been deleted.",
+  "error.paste.noteGone": "The pasted text wasn’t saved: this note has been deleted.",
+  "error.folder.wallAccept":
+    "Not accepted: some suggestions would file Documents into a Folder that keeps its work inside it, and the assistant can’t do that from outside it. You can still accept them yourself in To review.",
+  "error.folder.wallAcceptInside":
+    "Not accepted: inside a Folder that keeps its work inside it, the assistant accepts only suggestions for that Folder. You can still accept the others yourself in To review.",
   "error.folder.keepInside": "keepInside must be true or false.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
   "undo.folderWallOff": "“{name}” no longer keeps its work inside it",

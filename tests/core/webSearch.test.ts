@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, ChatProvider, CoreAdapters, PageLook } from "../../src/core";
+import { keptInsideName } from "../../src/renderer/src/walls";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { askAndFinish, onlyCitation, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
@@ -290,6 +291,40 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
       webPage: { address: local, failure: "not-public" },
     });
     expect(web.heard).toHaveLength(heardBefore);
+  });
+
+  test("a page saved behind another Folder's wall is read again, never reused, on either side", async () => {
+    const { model } = webSearchingModel(researcher(), FOUND);
+    const { core, web, folder, mind, client } = await setUp(model);
+    const walled = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+    const inside = await core.createMind({ title: "Client A tea", folderId: walled.id });
+    const insideClient = await connectToMind(core, inside.id);
+    const fetched = () => web.heard.filter((each) => each === "encyclopedia.example/tea").length;
+    const ask = async (on: typeof client, mindId: string) => {
+      const { answerId } = await askAndFinish(core, on, mindId, "Search the web: tea in Europe?");
+      return onlyCitation(on, answerId).documentId;
+    };
+
+    const insideCited = await ask(insideClient, inside.id);
+    const outsideCited = await ask(client, mind.id);
+    const again = await ask(insideClient, inside.id);
+
+    expect(fetched()).toBe(2);
+    expect(outsideCited).not.toBe(insideCited);
+    expect(again).toBe(insideCited);
+    const library = await core.getLibrary();
+    const folderOf = (id: unknown) =>
+      library.assignments.find((each) => each.documentId === id)?.groupId;
+    expect(folderOf(insideCited)).toBe(walled.id);
+    expect(folderOf(outsideCited)).toBe(folder.id);
+    // What each Citation's card would say: no Folder it isn't in.
+    expect(keptInsideName(library, String(outsideCited), folder.id)).toBeNull();
+    expect(keptInsideName(library, String(insideCited), walled.id)).toBeNull();
   });
 
   test("isn't offered while the switch is off, in Local mode, for a Question that doesn't ask for the web, or with a provider that has no web search", async () => {

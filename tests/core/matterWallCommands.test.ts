@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Core, OfferedCommand, WindowCommandRequest } from "../../src/core";
+import { ACCEPT_SUGGESTIONS } from "../../src/shared/commands";
+import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
@@ -32,6 +34,7 @@ const OFFERED: OfferedCommand[] = [
   entry("folder.keepInside", "Keep this Folder's work inside it", { on: ["folder"] }),
   entry("folder.organize", "Organize", { on: ["folder"] }),
   entry("folder.tagWithAi", "Tag with AI", { on: ["folder"] }),
+  entry(ACCEPT_SUGGESTIONS, "Accept all suggested Folders"),
 ];
 const WINDOW = "test-window";
 
@@ -63,7 +66,15 @@ async function setUp() {
   const windowAsked: WindowCommandRequest[] = [];
   core.on("command.windowRun", (request) => {
     windowAsked.push(request);
-    void core.answerWindowCommand(request.requestId, { ran: true, changed: true });
+    void (async () => {
+      // As the window runs it: every suggestion waiting in To review.
+      if (request.command === ACCEPT_SUGGESTIONS) {
+        const { assignments } = await core.getLibrary();
+        const waiting = assignments.filter((each) => each.suggested);
+        await core.acceptAssignments(waiting.map((each) => each.documentId));
+      }
+      await core.answerWindowCommand(request.requestId, { ran: true, changed: true });
+    })();
   });
   const ask = async (mindId: string, plan: Call[]) => {
     steps = plan;
@@ -79,7 +90,9 @@ async function setUp() {
       .flatMap((call) => call.results.map((each) => each.text))
       .join("\n");
   };
-  return { core, folderA, noteA, memo, lease, outside: setup.mind, windowAsked, ask };
+  const general = setup.documents.find((each) => each.name.startsWith("General"));
+  if (!general) throw new Error("The memo wasn't added.");
+  return { core, folderA, noteA, memo, lease, general, outside: setup.mind, windowAsked, ask };
 }
 
 const walled = async (core: Core, folderId: string) =>
@@ -172,5 +185,69 @@ describe("the command gate denies by default what is behind another wall", () =>
     ]);
     expect(inside).toContain("This Folder keeps its work inside it.");
     expect((await s.core.getLibrary()).groups.map((group) => group.name)).not.toContain("Leases");
+  });
+});
+
+/** Organize's suggestion of `folderId` for a Document, waiting in To review. */
+async function suggest(core: Core, documentId: string, folderId: string) {
+  const filed = await core.assignDocumentGroup(documentId, folderId);
+  const after = filed.after.assignment;
+  if (!after) throw new Error("Not filed.");
+  const waiting = { ...after, source: "automatic" as const, suggested: true };
+  await core.restoreAssignment(documentId, { assignment: waiting, tagging: null }, filed.after);
+}
+
+/** What a Folder holds now, by Document name: filed by the User, or a suggestion waiting. */
+async function heldIn(core: Core, folderId: string) {
+  const names = new Map((await core.listDocuments()).map((each) => [each.id, each.name]));
+  return (await core.getLibrary()).assignments
+    .filter((each) => each.groupId === folderId)
+    .map((each) => `${names.get(each.documentId)}: ${each.suggested ? "waiting" : "filed"}`)
+    .sort();
+}
+
+describe("Accept all suggested Folders goes through the same door as a move", () => {
+  const acceptAll = { tool: "run_command", input: { command: ACCEPT_SUGGESTIONS } };
+
+  test("from outside the wall it files nothing into a walled Folder, and says so", async () => {
+    const s = await setUp();
+    await suggest(s.core, s.general.id, s.folderA.id);
+    const before = await heldIn(s.core, s.folderA.id);
+    expect(before).toEqual(["Client A lease: filed", "General memo: waiting"]);
+
+    const said = await s.ask(s.outside.id, [acceptAll]);
+
+    expect(said).toContain(translate("en", "error.folder.wallAccept"));
+    expect(translate("zh-CN", "error.folder.wallAccept")).toMatch(/^未接受：/);
+    expect(s.windowAsked).toEqual([]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual(before);
+  });
+
+  test("from inside the wall it files only into that Folder", async () => {
+    const s = await setUp();
+    await suggest(s.core, s.general.id, s.folderA.id);
+
+    await s.ask(s.noteA.id, [acceptAll]);
+
+    expect(s.windowAsked.map((each) => each.command)).toEqual([ACCEPT_SUGGESTIONS]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual([
+      "Client A lease: filed",
+      "General memo: filed",
+    ]);
+  });
+
+  test("from inside the wall, a suggestion for another Folder keeps every one waiting", async () => {
+    const s = await setUp();
+    const other = await s.core.createLibraryGroup({ name: "General", description: "" });
+    await suggest(s.core, s.general.id, other.id);
+    const before = [await heldIn(s.core, s.folderA.id), await heldIn(s.core, other.id)];
+
+    const said = await s.ask(s.noteA.id, [acceptAll]);
+
+    expect(said).toContain(translate("en", "error.folder.wallAcceptInside"));
+    expect(translate("zh-CN", "error.folder.wallAcceptInside")).toMatch(/^未接受：/);
+    expect(s.windowAsked).toEqual([]);
+    expect([await heldIn(s.core, s.folderA.id), await heldIn(s.core, other.id)]).toEqual(before);
+    expect(before[1]).toEqual(["General memo: waiting"]);
   });
 });

@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
+import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
@@ -1478,10 +1479,12 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   /**
    * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
-   * Note's Folder, else the conversation's, judged against today's walls (#1934).
+   * Note's Folder, else the conversation's, judged against today's walls (#1934). Throws
+   * `NotFoundError` once that Note or conversation is deleted: it is behind no wall then, nor
+   * outside every one.
    */
   const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
-    if (mindId !== null) return walledFolder(mindId);
+    if (mindId !== null) return walledFolderId(minds.get(mindId).folderId);
     if (conversationId === null) return null;
     return walledFolderId(conversations.get(conversationId).folderId);
   };
@@ -1624,8 +1627,8 @@ export function createCore(adapters: CoreAdapters): Core {
     readiness: (model) => chat.readiness(model),
     prepare: (model) => chat.prepareModel(model, "web-search", "off"),
     // A page an Answer saves is never loaded whole: that is for the User to ask for, page by page.
-    savePage: (address, fetch) =>
-      webPages.save({ address, keepLook: false }, undefined, fetch, "search"),
+    savePage: (address, fetch, reuse) =>
+      webPages.save({ address, keepLook: false }, undefined, fetch, "search", reuse),
     folderOf: (place) => {
       try {
         if (place.mindId !== null) return minds.get(place.mindId).folderId;
@@ -1636,6 +1639,8 @@ export function createCore(adapters: CoreAdapters): Core {
         throw error;
       }
     },
+    filedWithin: (wallId, asked) => filedWithin(wallId, asked),
+    walledDocument,
     file: (documentId, folderId) => library.assign(documentId, folderId),
     document: (id) => documents.get(id),
     onStatus: (listener) => events.on("document.status", listener),
@@ -1691,6 +1696,20 @@ export function createCore(adapters: CoreAdapters): Core {
           library.folders().find((folder) => same(folder.name, input.folder ?? ""))?.id ?? null;
         if (filedWithin(wallId, target)?.folderId !== target) {
           throw new InvalidInputError({ key: "error.folder.wallMove" });
+        }
+      }
+      // Accept all names no ids: it files every waiting suggestion in its suggested Folder, so each
+      // goes through the same door as a move (#2243).
+      if (input.command === ACCEPT_SUGGESTIONS) {
+        const crossing = library
+          .snapshot()
+          .assignments.some(
+            (each) =>
+              each.suggested && filedWithin(wallId, each.groupId)?.folderId !== each.groupId,
+          );
+        if (crossing) {
+          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
+          throw new InvalidInputError({ key });
         }
       }
     },
@@ -4333,7 +4352,16 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
       }
-      const filed = filedWithin(turnWall(parseTurnPlace(input)), null);
+      const place = parseTurnPlace(input);
+      let wall: string | null;
+      try {
+        wall = turnWall(place);
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+        const key = place.mindId !== null ? "error.paste.noteGone" : "error.paste.conversationGone";
+        throw new NotFoundError({ key });
+      }
+      const filed = filedWithin(wall, null);
       if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");

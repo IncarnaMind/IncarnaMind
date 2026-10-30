@@ -9970,7 +9970,8 @@ export interface CoreApi {
    * The file is written in the data folder ("Saved text"), never next to the
    * User's files, and added on its own like any file: in no Folder, but in the walled Folder of
    * the Note, or of the conversation with no Note open, it was pasted in (`wallOfTurn`). A name taken
-   * already gets a number. Throws InvalidInputError for text with no words.
+   * already gets a number. Throws InvalidInputError for text with no words, and NotFoundError,
+   * saving nothing, once that Note or conversation is deleted.
    */
   saveTextAsDocument(
     input: {
@@ -9981,7 +9982,8 @@ export interface CoreApi {
   /**
    * The walled Folder a Question asked here would be behind, as Answers judge it (#1934): the
    * Note's, else the conversation's when no Note is open; null outside every wall. What the
-   * composer shows and files follows it.
+   * composer shows and files follows it. Throws NotFoundError once that Note or conversation is
+   * deleted.
    */
   wallOfTurn(input: TurnPlace): Promise<string | null>;
   /**
