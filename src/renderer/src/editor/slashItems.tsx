@@ -113,22 +113,6 @@ export const noteSlashItems: readonly SlashItem[] = [
     },
   },
   {
-    id: "contents",
-    label: "editor.slash.contents",
-    keywords: ["toc", "outline", "contents", "mulu", "目录"],
-    icon: "☰",
-    run(editor, range) {
-      const pos = insertBlock(editor, range, { type: "tableOfContents" });
-      if (pos !== null) {
-        editor
-          .chain()
-          .focus()
-          .setTextSelection(TextSelection.near(editor.state.doc.resolve(pos + 1), 1).from)
-          .run();
-      }
-    },
-  },
-  {
     id: "table",
     label: "editor.slash.table",
     keywords: ["grid", "columns", "rows"],
@@ -141,6 +125,22 @@ export const noteSlashItems: readonly SlashItem[] = [
           .chain()
           .focus()
           .setTextSelection(TextSelection.near(editor.state.doc.resolve(pos + 1)).from)
+          .run();
+      }
+    },
+  },
+  {
+    id: "contents",
+    label: "editor.slash.contents",
+    keywords: ["toc", "outline", "contents", "mulu", "目录"],
+    icon: "☰",
+    run(editor, range) {
+      const pos = insertBlock(editor, range, { type: "tableOfContents" });
+      if (pos !== null) {
+        editor
+          .chain()
+          .focus()
+          .setTextSelection(TextSelection.near(editor.state.doc.resolve(pos + 1), 1).from)
           .run();
       }
     },

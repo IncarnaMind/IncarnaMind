@@ -10,10 +10,7 @@ import { mindInFront } from "./targets";
  * ⌘K nothing does, and the Note in front takes it at its cursor.
  */
 function noteOf(ctx: CommandContext): Editor | null {
-  const editor =
-    ctx.focus?.kind === "block"
-      ? noteHolding(ctx.focus.id)
-      : openNoteInFront();
+  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : openNoteInFront();
   return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
 }
 
