@@ -2529,29 +2529,14 @@ export function namedCurrencies(
   figures: readonly Figure[] | null,
   which = false,
 ): Set<string> {
-  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
-  const text = written
-    .normalize("NFKC")
-    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+  const text = normaliseCurrencies(written);
   const settled = settle(context);
-  const codesOf = (word: string) =>
-    which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {
     for (const code of codes) named.add(code);
   };
-  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
-    for (const match of text.matchAll(pattern)) {
-      if (!besideNumber(text, match.index, match.index + match[0].length)) add(codesOf(match[0]));
-    }
-  }
-  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
-    for (const match of text.matchAll(pattern)) add(codesOf(match[1] ?? ""));
-  }
-  for (const stated of readStatedUnits(figures ? text : unitLinesOf(text), context)) {
-    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
-      add([stated.unit.code]);
-  }
+  for (const { code } of currencyMentions(text, context, settled, which, figures === null))
+    add([code]);
   // Another figure's "HK$10m" says nothing of which dollar a bare "$54m" is.
   if (which) return named;
   if (figures) {
@@ -2561,12 +2546,86 @@ export function namedCurrencies(
   const onFigures = new Map<string, string[]>();
   for (const match of text.matchAll(CURRENCY_ANYWHERE)) {
     if (!besideNumber(text, match.index, match.index + match[0].length)) continue;
-    const codes = codesOf(match[0]);
+    const codes = currencyCodesOf(match[0], settled, which);
     if (codes.length > 0) onFigures.set(codes.join(), codes);
   }
   const [only] = onFigures.values();
   if (onFigures.size === 1 && only) add(only);
   return named;
+}
+
+// "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
+const normaliseCurrencies = (written: string) =>
+  written.normalize("NFKC").replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+
+const currencyCodesOf = (word: string, settled: Settled, which: boolean) =>
+  which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
+
+interface CurrencyMention {
+  code: string;
+  /** Where in the normalised text it stands; -1 for one a unit line states. */
+  at: number;
+}
+
+/** Every place `text` names a currency: its words or code in body text, a heading, "in …", or a unit line. */
+function currencyMentions(
+  text: string,
+  context: FigureContext,
+  settled: Settled,
+  which: boolean,
+  unitLinesOnly: boolean,
+): CurrencyMention[] {
+  const found: CurrencyMention[] = [];
+  const add = (codes: readonly string[], at: number) => {
+    for (const code of codes) found.push({ code, at });
+  };
+  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
+    for (const match of text.matchAll(pattern)) {
+      if (!besideNumber(text, match.index, match.index + match[0].length))
+        add(currencyCodesOf(match[0], settled, which), match.index);
+    }
+  }
+  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
+    for (const match of text.matchAll(pattern))
+      add(currencyCodesOf(match[1] ?? "", settled, which), match.index);
+  }
+  for (const stated of readStatedUnits(unitLinesOnly ? unitLinesOf(text) : text, context)) {
+    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
+      add([stated.unit.code], -1);
+  }
+  return found;
+}
+
+/**
+ * The first line of `written` that names which currency one of `codes` is, by the same words,
+ * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`,
+ * trimmed; null when no line does (#2226).
+ */
+export function currencyNamingLine(
+  written: string,
+  context: FigureContext,
+  codes: ReadonlySet<string>,
+): string | null {
+  const text = normaliseCurrencies(written);
+  const settled = settle(context);
+  const lines = written.split(LINE_BREAK);
+  for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
+    if (!codes.has(code)) continue;
+    if (at < 0) {
+      const line = lines.find(
+        (each) =>
+          UNIT_LINE.test(each) &&
+          readStatedUnits(each, context).some(
+            (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
+          ),
+      );
+      if (line !== undefined) return line.trim();
+      continue;
+    }
+    const line = lines[text.slice(0, at).split(LINE_BREAK).length - 1]?.trim();
+    if (line) return line;
+  }
+  return null;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */

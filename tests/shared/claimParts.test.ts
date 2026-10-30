@@ -82,6 +82,22 @@ const mark = (parts?: ClaimCheckPart[]): ClaimCheckAttributes => ({
 });
 
 describe("ordered claim part codec", () => {
+  // protects=a supported part keeps the card's line naming the Document clause that says which dollar it is, through the mark's codec and into the sentence's result (#2226); fails_when=the line is dropped or read from a non-string; no_claim=the card's wording.
+  test("keeps the line that says which dollar a supported part is in", () => {
+    const clause =
+      "The Document states the currency (Lease · line 2): “$” means Australian dollars.";
+    const kept = partWithResult(plan, { ...result(), currencyClause: clause });
+    expect(kept.currencyClause).toBe(clause);
+    expect(readClaimParts(JSON.parse(JSON.stringify([kept])), "Revenue rose.")).toEqual([kept]);
+    expect(readClaimParts([{ ...kept, currencyClause: 4 }], "Revenue rose.")).toBeNull();
+    expect(resultFromParts([kept])).toMatchObject({
+      verdict: "supported",
+      currencyClause: clause,
+      parts: [{ currencyClause: clause }],
+    });
+    expect(partWithResult(plan, result()).currencyClause).toBeUndefined();
+  });
+
   test.each(["Revenue rose. We should wait.", "收入增长。我们应该等待。"])(
     "round trips %s",
     (text) => {

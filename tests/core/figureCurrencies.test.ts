@@ -204,6 +204,139 @@ describe("Checking a bare $ and ¥ in Chinese text (#2226)", { timeout: 60_000 }
   });
 });
 
+describe("Checking where a Document says which dollar (#2226)", { timeout: 60_000 }, () => {
+  const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
+  const which = (document: string, amount: string, zh: boolean) =>
+    zh
+      ? `“${document}”写的是“${amount}”，没有注明币种`
+      : `“${document}” gives “${amount}” without saying which currency`;
+  const LEASE = {
+    name: "Lease.txt",
+    contents:
+      "Lease\nThis lease is governed by the laws of New South Wales, Australia.\nThe rent is $54,000 a year.\n",
+  };
+  const DEFINED = {
+    name: "Defined lease.txt",
+    contents: "Defined lease\n“$” means Australian dollars.\nThe rent is $64,000 a year.\n",
+  };
+  const CODE = {
+    name: "Code lease.txt",
+    contents: "Code lease\nCurrency: AUD\nThe rent is $64,000 a year.\n",
+  };
+  const DOLLARS = {
+    name: "Agreement.txt",
+    contents: "Agreement\nAll amounts are in US dollars.\nThe rent is $54,000 a year.\n",
+  };
+  const MIXED = {
+    name: "Mixed lease.txt",
+    contents:
+      "Mixed lease\nAll amounts are in Australian dollars.\nThe rent is $54,000 a year and the bond is A$5,000.\n",
+  };
+  const HEADING = {
+    name: "Rent table.txt",
+    contents: "Rent table\nItem\tAmount ($)\nRent\t54,000\n",
+  };
+  const INVOICE = { name: "Invoice.txt", contents: "Invoice\nThe fee is $54,000 USD.\n" };
+  const FEE = { name: "费用.txt", contents: "费用\n服务费用为¥54,000。\n" };
+  const alone = async (
+    claim: string,
+    document: { name: string; contents: string },
+    plan: Plan,
+    language: "en" | "zh-CN",
+  ) => {
+    const { core } = await setUpWithDocuments(checkingModel({ [claim]: plan }), [document]);
+    if (language !== "en") await core.updateSettings({ user: { language } });
+    return core.checkClaim({ claim });
+  };
+
+  // protects=a Supported sentence whose Document states which dollar it is gets the card's line naming that clause and where, in words, a code or a dollars line; a Document that names no dollar, or a quote that names it itself, gets no line, since nothing in the quote says it; fails_when=the line is missing from a Document that states it, names another line or the wrong place, or shows where the quote already says it; no_claim=a real model's verdict.
+  test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
+    const zh = language === "zh-CN";
+    const clause = (document: string, location: string, line: string) =>
+      zh
+        ? `文档注明了币种（${document} · ${location}）：${line}`
+        : `The Document states the currency (${document} · ${location}): ${line}`;
+    const shown = (document: string, line: string) =>
+      clause(document, zh ? "第 2 行" : "line 2", line);
+
+    for (const [document, claim, quote, line] of [
+      [
+        DEFINED,
+        "The rent is A$64,000 a year.",
+        "The rent is $64,000 a year",
+        "“$” means Australian dollars.",
+      ],
+      [CODE, "The rent is A$64,000 a year.", "The rent is $64,000 a year", "Currency: AUD"],
+      [
+        DOLLARS,
+        "The rent is $54,000 a year.",
+        "The rent is $54,000 a year",
+        "All amounts are in US dollars.",
+      ],
+      [
+        MIXED,
+        "The rent is A$54,000 a year.",
+        "The rent is $54,000 a year and the bond is A$5,000",
+        "All amounts are in Australian dollars.",
+      ],
+    ] as const) {
+      const found = await alone(claim, document, supported(quote), language);
+      const name = document.name.replace(/\.txt$/u, "");
+      expect(found).toMatchObject({
+        verdict: "supported",
+        currencyClause: shown(name, line),
+        parts: [{ currencyClause: shown(name, line) }],
+      });
+    }
+
+    // The quote itself names the dollar, and ¥ in Chinese text is no dollar: no line.
+    const invoice = await alone(
+      "The fee is US$54,000.",
+      INVOICE,
+      supported("The fee is $54,000 USD"),
+      language,
+    );
+    expect(invoice).toMatchObject({ verdict: "supported" });
+    expect(invoice.currencyClause).toBeUndefined();
+    expect(invoice.parts?.[0]?.currencyClause).toBeUndefined();
+    const yuan = await alone(
+      "服务费用为人民币54,000元。",
+      FEE,
+      supported("服务费用为¥54,000"),
+      language,
+    );
+    expect(yuan).toMatchObject({ verdict: "supported" });
+    expect(yuan.currencyClause).toBeUndefined();
+    expect(yuan.parts?.[0]?.currencyClause).toBeUndefined();
+
+    // No dollar named at all, or only a bare "$" heading: Unsupported, and no line.
+    const bare = await alone(
+      "The rent is A$54,000 a year.",
+      LEASE,
+      supported("The rent is $54,000 a year"),
+      language,
+    );
+    expect(bare).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: which("Lease", "$54,000", zh) },
+    });
+    expect(bare.currencyClause).toBeUndefined();
+    expect(bare.parts?.[0]?.currencyClause).toBeUndefined();
+    const heading = await alone(
+      "The rent is US$54,000 a year.",
+      HEADING,
+      supported("Rent\t54,000"),
+      language,
+    );
+    expect(heading).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { reason: which("Rent table", "54,000 ($)", zh) },
+    });
+    expect(heading.currencyClause).toBeUndefined();
+    expect(heading.parts?.[0]?.currencyClause).toBeUndefined();
+  });
+});
+
 describe("Which dollar a bare $ is, wherever it is written (#2226)", () => {
   const REPORT = "Revenue was $54m in 2025.\nOur Hong Kong subsidiary paid HK$10m in fees.";
 

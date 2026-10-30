@@ -4,6 +4,7 @@ import {
   bareDollarStatement,
   currenciesOf,
   currenciesOfSign,
+  currencyNamingLine,
   type Figure,
   type FigureContext,
   type FigureUnit,
@@ -122,6 +123,57 @@ function plainSays(
   if (bare || ![...codes].some(isDollar)) return null;
   const said = [...namedInCited(each), ...namedInDocument(each)];
   return said.some((code) => !says(code)) ? "which dollar" : null;
+}
+
+/** A Citation's Document, and the quote its card shows (#2226). */
+export interface DollarClauseSource {
+  text: CheckedText;
+  quote: string;
+}
+
+/** A line of a cited Document's own that says which dollar a sentence names (#2226). */
+export interface DollarClause {
+  text: CheckedText;
+  /** The line, as its Document writes it. */
+  line: string;
+}
+
+/**
+ * The line of a cited Document that says which dollar a bare "$" or "dollars" in `claim` is, in
+ * words, a code, a heading, a unit line or a definition, when the quote its card shows doesn't
+ * name that dollar itself (#2226). Null when the quote says it, or no Document does.
+ */
+export function dollarClause(
+  claim: string,
+  sources: readonly DollarClauseSource[],
+): DollarClause | null {
+  const own = documentFigureContext([{ text: claim }]);
+  const currencyFigures = readFigures(claim, own).filter((figure) =>
+    [...currenciesOf(figure), ...currenciesOfSign(figure)].some(isDollar),
+  );
+  const wanted = new Set(
+    currencyFigures
+      .flatMap((figure) => [...currenciesOf(figure), ...currenciesOfSign(figure)])
+      .filter(isDollar),
+  );
+  if (wanted.size === 0) return null;
+  const values = new Set(currencyFigures.map((figure) => figure.value));
+  for (const { text, quote } of sources) {
+    const document = text.document();
+    const context = documentFigureContext([{ text: document }]);
+    const onQuote = readFigures(quote, context);
+    const named = namedCurrencies(quote, context, onQuote, true);
+    const saysWhich = onQuote.some(
+      (figure) =>
+        values.has(figure.value) &&
+        !bareDollar(figure) &&
+        currenciesOf(figure).some((code) => wanted.has(code)),
+    );
+    if (saysWhich || [...named].some((code) => wanted.has(code))) continue;
+    const line = currencyNamingLine(document, context, wanted);
+    if (line !== null) return { text, line };
+  }
+  return null;
 }
 
 function matchesOf(found: readonly { text: CheckedText | null; start: number }[]) {

@@ -912,6 +912,8 @@ export const zhCN = {
   "claim.unsupported.unit": "文档写的是{amount}，不是{figure}。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
+  "claim.currencyClause": "文档注明了币种（{source}）：{quote}",
+  "claim.currencyClause.noSource": "文档注明了币种：{quote}",
   "claim.openCitation": "打开引用 {number}",
   "claim.cutUnsupported": "删去无依据的部分",
   "claim.keepAsView": "保留为我的观点",

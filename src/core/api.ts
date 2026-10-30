@@ -5731,6 +5731,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
   coverage?: ClaimPartCoverage;
   /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
   readDocuments?: readonly ClaimReadDocument[];
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the part is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string;
 }
 
 export type ClaimPartJudgment = (
@@ -5945,6 +5950,11 @@ export type ClaimCheckResult = ClaimJudgment & {
   figures?: FigureCheckResult[];
   /** Undefined is a missing decomposition; null explicitly means no other assertion. */
   remainder?: ClaimJudgment | null;
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the claim is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string | null;
 };
 
 /**

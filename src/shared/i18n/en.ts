@@ -930,6 +930,8 @@ export const en = {
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
+  "claim.currencyClause": "The Document states the currency ({source}): {quote}",
+  "claim.currencyClause.noSource": "The Document states the currency: {quote}",
   "claim.openCitation": "Open citation {number}",
   "claim.cutUnsupported": "Cut the unsupported part",
   "claim.keepAsView": "Keep as my view",
