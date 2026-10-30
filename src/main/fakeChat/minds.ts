@@ -41,6 +41,8 @@
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
  * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
  * the packing list" gives its new text, one item changed, one left out and one added.
+ * "Summarise my leases without citing" (不加引用地总结我的租约) searches, then writes a summary
+ * with no Citation into a new Mind, and again as it was once told it has none (#1415).
  */
 
 import { answerReply, CITED_ANSWER } from "./answers";
@@ -220,6 +222,7 @@ const firstSentence = (result: string) => /^[^.。]*[.。]?/u.exec(result)?.[0] 
  */
 /** "Say you added the risks" (说你加了风险部分): a reply that claims a write no call made (#1559). */
 const CLAIMS_A_WRITE = /^say you added the risks|^说你加了风险部分/i;
+const UNCITED_SUMMARY = /\bsummari[sz]e my leases without citing\b|不加引用地总结我的租约/i;
 
 export function mindsReply(prompt: Prompt, asked: string, names: readonly string[]): Reply | null {
   if (!names.includes("edit_mind")) return null;
@@ -270,6 +273,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return { tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } };
     return { text: firstSentence(added) };
   }
+  if (UNCITED_SUMMARY.test(question)) return uncitedSummary(prompt, question);
   if (REVENUE_CHART.test(question)) return revenueChart(prompt, question);
   if (MIXED_UNITS_CHART.test(question)) return mixedUnitsChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
@@ -280,8 +284,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const listed = /^Their names, newest first:\n((?:- .+\n?)+)/m.exec(systemOf(prompt))?.[1] ?? "";
     const names = [...listed.matchAll(/^- (.+)$/gm)].map((line) => line[1]).sort();
     const content = `Written from ${names.join(", ")}.`;
-    // An empty Mind is filled; any other gets a new one beside it.
-    return systemOf(prompt).includes("The Mind in <mind> is open and still empty")
+    return systemOf(prompt).includes("The Note in <mind> is open and still empty")
       ? { tool: "add_to_mind", input: { content } }
       : { tool: "create_mind", input: { title: "Summary", content } };
   }
@@ -291,7 +294,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return {
         text: /\p{Script=Han}/u.test(question)
           ? "没有打开的笔记，所以没法写进去。"
-          : "No Mind is open, so I can't write it there.",
+          : "No Note is open, so I can't write it there.",
       };
     }
     const added = lastResult(prompt, "add_to_mind");
@@ -377,6 +380,28 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   const title = called?.[1] ?? called?.[2] ?? "Scripted notes";
   const content = `## Summary\n\n${cited ? CITED_ANSWER : "Written by the scripted assistant."}`;
   return { tool: "create_mind", input: { title, content } };
+}
+
+function uncitedSummary(prompt: Prompt, question: string): Reply {
+  if (lastResult(prompt, "search_documents") === undefined) {
+    return { tool: "search_documents", input: { query: "monthly rent" } };
+  }
+  const made = lastResult(prompt, "create_mind");
+  if (made !== undefined && !made.includes("content has no Citation")) {
+    return { text: firstSentence(made) };
+  }
+  return /\p{Script=Han}/u.test(question)
+    ? {
+        tool: "create_mind",
+        input: { title: "租约总结", content: "## 总结\n\n租约规定了每月的租金。" },
+      }
+    : {
+        tool: "create_mind",
+        input: {
+          title: "Lease summary",
+          content: "## Summary\n\nThe leases set the monthly rent.",
+        },
+      };
 }
 
 interface ChartedFigures {

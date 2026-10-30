@@ -16,11 +16,13 @@ import {
   type Core,
   DATABASE_FILE,
   type ResearchPlan,
+  type SearchScope,
   type StartResearchInput,
   type Task,
 } from "../../src/core";
 import { CostCapError } from "../../src/core/providers/providerErrors";
 import { openDatabase } from "../../src/core/storage";
+import { cutTitle } from "../../src/shared/naming";
 import { aiUseOfAccepted, pendingProposals, resolveProposals } from "../../src/shared/proposals";
 import { shownPassages } from "../helpers/citations";
 import {
@@ -197,12 +199,16 @@ async function setUp(
   return { core, dataDir, web, searches, provider, folder, mind, report, keychain, asked };
 }
 
-const startInput = (mindId: string, folderId: string, patch: Partial<StartResearchInput> = {}) => ({
+const startInput = (
+  mindId: string | null,
+  folderId: string,
+  patch: Partial<StartResearchInput> = {},
+) => ({
   mindId,
   topic: "Research how tea reached Europe",
   plan: PLAN,
   sources: { web: true, library: true },
-  writeInto: { mindId },
+  writeInto: mindId === null ? ({ newMind: true } as const) : { mindId },
   scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
   ...patch,
 });
@@ -280,6 +286,91 @@ describe("Research", { timeout: 30_000 }, () => {
         steps: ["Find the first traders", "Check the dates"],
       },
     });
+  });
+
+  test("with no Mind in focus it plans without one, and Start makes the new Mind its Task's own", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const planned = await core.planResearch({
+      mindId: null,
+      topic: "Research how tea reached Europe",
+      sources: { web: false, library: true },
+    });
+    expect(planned).toMatchObject({ planned: true });
+
+    const result = await core.startResearch(
+      startInput(null, folder.id, {
+        sources: { web: false, library: true },
+        writeInto: { newMind: true },
+      }),
+    );
+    if (!result.started) throw new Error(`Research didn't start: ${result.reason}`);
+    const { task } = result;
+    expect(task.mindId).not.toBeNull();
+    const made = (await core.listMinds()).find((each) => each.id === task.mindId);
+    expect(made?.title).toBe(cutTitle(PLAN.title));
+    // Its plan says where its draft goes: the Mind it made, not "a new Mind".
+    expect(await core.getResearchPlan(task.id)).toMatchObject({ writeInto: task.mindId });
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    // A Mind chosen to write into is the Task's own too, with no Mind in focus.
+    const second = await core.startResearch(
+      startInput(null, folder.id, {
+        sources: { web: false, library: true },
+        writeInto: { mindId: made?.id ?? "" },
+      }),
+    );
+    if (!second.started) throw new Error(`Research didn't start: ${second.reason}`);
+    expect(second.task.mindId).toBe(made?.id);
+    await core.stopTask(second.task.id);
+  });
+
+  test("with no Mind in focus it makes its own Mind, and once its pages are filed that Mind is in their Folder", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const task = await started(core, startInput(null, folder.id));
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    expect(done.status).toBe("done");
+    // The Folder the pages it read were filed in, made by its save step.
+    const filed = (await core.getLibrary()).groups.find(
+      (each) => each.name === cutTitle(PLAN.title),
+    );
+    expect(filed).toBeDefined();
+    const minds = await core.listMinds();
+    const made = minds.find((each) => each.id === task.mindId);
+    expect(made).toMatchObject({ title: cutTitle(PLAN.title), folderId: filed?.id });
+    // Its draft went into that one Mind, which shows its progress; no second Mind was made.
+    expect(done.review?.mindId).toBe(task.mindId);
+    expect(minds.filter((each) => each.title === cutTitle(PLAN.title))).toHaveLength(1);
+    expect((await changesIn(core, task.mindId ?? "")).ids).toHaveLength(1);
+  });
+
+  test("a Mind the Task made keeps the Folder the User gave it while it waited", async () => {
+    let mine = "";
+    const { core, folder } = await setUp(researcher([]), {
+      // While the save step waits for approval, the User files the Task's own Mind elsewhere.
+      onAsk: async (core) => {
+        const running = (await core.listTasks()).find((each) => each.finishedAt === null);
+        if (running?.mindId) await core.moveToFolder({ mindIds: [running.mindId], folderId: mine });
+      },
+    });
+    mine = (await core.createLibraryGroup({ name: "Mine", description: "" })).id;
+    const task = await started(core, startInput(null, folder.id));
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    expect(done.status).toBe("done");
+    const made = (await core.listMinds()).find((each) => each.id === task.mindId);
+    expect(made).toMatchObject({ folderId: mine });
+    expect(done.review?.mindId).toBe(task.mindId);
+  });
+
+  test("a Search scope it can't read starts nothing, and leaves no Mind behind", async () => {
+    const { core, folder } = await setUp(researcher([]));
+    const minds = (await core.listMinds()).length;
+    await expect(
+      core.startResearch(
+        startInput(null, folder.id, { scope: { folderIds: [42] } as unknown as SearchScope }),
+      ),
+    ).rejects.toThrow();
+    expect(await core.listMinds()).toHaveLength(minds);
+    expect(await core.listTasks()).toEqual([]);
   });
 
   test("the plan asks the model not to think where it can: Kimi K2.6's thinking took its whole reply (#1369)", async () => {
@@ -584,6 +675,56 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(groups.map((each) => each.name)).toEqual(["Grocers"]);
     const page = (await core.listDocuments()).find((each) => each.kind === "web");
     expect(assignments.find((each) => each.documentId === page?.id)?.groupId).toBe(folder.id);
+  });
+
+  test("started behind a Folder wall, it files its pages and its new draft Note in that Folder (#1934)", async () => {
+    const seen: ModelCall[] = [];
+    const { core, folder, mind, asked } = await setUp(researcher(seen));
+    await core.updateLibraryGroup(folder.id, {
+      name: "Grocers",
+      description: "",
+      keepInside: true,
+    });
+    const task = await started(
+      core,
+      startInput(mind.id, folder.id, { writeInto: { newMind: true } }),
+    );
+    const done = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    expect(done.status).toBe("done");
+    expect(asked).toEqual([
+      expect.objectContaining({ taskId: task.id, title: "Save 1 web page to “Grocers”" }),
+    ]);
+    const { groups, assignments } = await core.getLibrary();
+    expect(groups.map((each) => each.name)).toEqual(["Grocers"]);
+    const page = (await core.listDocuments()).find((each) => each.kind === "web");
+    expect(assignments.find((each) => each.documentId === page?.id)?.groupId).toBe(folder.id);
+    const draft = (await core.listMinds()).find((each) => each.id === done.review?.mindId);
+    expect(draft?.id).not.toBe(mind.id);
+    expect(draft?.folderId).toBe(folder.id);
+  });
+
+  test("started behind a Folder wall that is gone by the time it files, it makes nothing and says why (#1934)", async () => {
+    const seen: ModelCall[] = [];
+    const { core, folder, mind } = await setUp(researcher(seen), {
+      onAsk: (each) => each.deleteLibraryGroup(folder.id),
+    });
+    await core.updateLibraryGroup(folder.id, {
+      name: "Grocers",
+      description: "",
+      keepInside: true,
+    });
+    const before = (await core.listMinds()).map((each) => each.id);
+    const task = await started(
+      core,
+      startInput(mind.id, folder.id, { writeInto: { newMind: true } }),
+    );
+    const failed = await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+
+    expect(failed).toMatchObject({ status: "failed", problem: "kept-inside", review: null });
+    const { groups } = await core.getLibrary();
+    expect(groups).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.id)).toEqual(before);
   });
 
   test("Tell it…: two messages told during a step are read at the next one together, in the order they were told, once each", async () => {

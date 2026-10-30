@@ -338,6 +338,7 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
         const state = citationState(each, live);
         const recheck = state.changedAfterCited
           ? await core.recheckCitation({
+              mindId: null,
               documentId: each.documentId ?? "",
               quote: each.quote ?? "",
               pageFrom: each.pageFrom,

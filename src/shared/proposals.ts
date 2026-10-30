@@ -368,8 +368,9 @@ export function keepRevised(
 /**
  * Puts back what a revision by `request` replaced, after the Block that was
  * before it, unless a change of it still waits or they are back already: a
- * reject undone and done again puts them back once. Returns what it put back,
- * each with the Answer it came from when it was replaced.
+ * reject undone and done again puts them back once. Forgets the revision then,
+ * so nothing can put the Blocks back after the User turns them down. Returns
+ * what it put back, each with the Answer it came from when it was replaced.
  */
 export function restoreRevised(
   blocks: Y.XmlFragment,
@@ -399,12 +400,11 @@ export function restoreRevised(
       : anchor >= 0
         ? anchor + 1
         : Math.min(fallback ?? blocks.length, blocks.length);
-  blocks.insert(
-    at,
-    elements.map((element) => element.clone()),
-  );
+  const copies = elements.map((element) => element.clone());
+  blocks.insert(at, copies);
   const from = revision.get(REVISED_FROM);
-  return elements.map((element, index) => {
+  revisionsOf(blocks)?.delete(request);
+  return copies.map((element, index) => {
     const answer = Array.isArray(from) ? from[index] : null;
     return { element, from: typeof answer === "string" ? answer : null };
   });
@@ -463,6 +463,23 @@ export function waitingChanges(
   belongs: (ref: ProposalRef) => boolean = () => true,
 ): number {
   return pendingProposals(blocks).filter(belongs).length;
+}
+
+/**
+ * What an applied row still says waits: the changes a Mind counts as waiting, less the ones its
+ * apply took, and whether the Mind's copy has the apply yet — it counts the taken ones as waiting
+ * until the update that applied them arrives (#1325, #1358).
+ */
+export function appliedWaiting(
+  pending: readonly string[],
+  accepted: readonly string[] | undefined,
+): { count: number; settled: boolean } {
+  if (!accepted) return { count: pending.length, settled: true };
+  const taken = new Set(accepted);
+  return {
+    count: pending.filter((id) => !taken.has(id)).length,
+    settled: !pending.some((id) => taken.has(id)),
+  };
 }
 
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);

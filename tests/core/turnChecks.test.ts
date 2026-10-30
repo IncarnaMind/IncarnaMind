@@ -87,7 +87,12 @@ const documents: AnswerTools = {
   cite: () => "Recorded.",
 };
 
-async function answer(model: ReturnType<typeof scriptedModel>, checks: TurnCheck[], maxSteps = 10) {
+async function answer(
+  model: ReturnType<typeof scriptedModel>,
+  checks: TurnCheck[],
+  maxSteps = 10,
+  refusalSuffix?: () => string | null,
+) {
   const events: AnswerEngineEvent[] = [];
   for await (const event of createAiSdkAnswerEngine({ maxSteps }).generate({
     instructions: () => "Answer.",
@@ -98,6 +103,7 @@ async function answer(model: ReturnType<typeof scriptedModel>, checks: TurnCheck
     tools: [],
     support: "tools",
     turnChecks: checks,
+    ...(refusalSuffix && { refusalSuffix }),
     signal: new AbortController().signal,
   })) {
     events.push(event);
@@ -145,6 +151,36 @@ describe("An Answer whose reply trips two checks", () => {
     expect(shown).toBe("First reply.");
     expect(events).toContainEqual({ type: "claims-unbacked", claims: ["added"] });
     expect(events.at(-1)).toEqual({ type: "finished" });
+  });
+
+  test("a failed retry keeps the reply before and adds the wall line", async () => {
+    const model = scriptedModel((call: ModelCall) =>
+      call.index === 0 ? { text: "First reply." } : { error: { status: 500, message: "down" } },
+    );
+
+    const events = await answer(model, [trips("a", ["added"])], 10, () => "Inside only.");
+
+    let shown = "";
+    for (const event of events) {
+      if (event.type === "text-delta") shown += event.text;
+      else if (event.type === "text-retracted") shown = shown.slice(0, -event.length);
+    }
+    expect(shown).toBe("First reply.\n\nInside only.");
+  });
+
+  test("a blank retry keeps the reply before and adds the wall line", async () => {
+    const model = scriptedModel((call: ModelCall) =>
+      call.index === 0 ? { text: "First reply." } : { text: "" },
+    );
+
+    const events = await answer(model, [trips("a", ["added"])], 10, () => "Inside only.");
+
+    let shown = "";
+    for (const event of events) {
+      if (event.type === "text-delta") shown += event.text;
+      else if (event.type === "text-retracted") shown = shown.slice(0, -event.length);
+    }
+    expect(shown).toBe("First reply.\n\nInside only.");
   });
 });
 

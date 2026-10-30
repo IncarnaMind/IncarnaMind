@@ -2,17 +2,21 @@ import { create } from "zustand";
 import type {
   AskedQuote,
   AskInConversationInput,
+  ChatModelChoice,
   Conversation,
   ConversationAnswer,
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
+  ReadyQuestion,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
 import { applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
+import { offeredCommands } from "./assistantWindow";
+import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
@@ -147,19 +151,58 @@ export async function openConversation(conversationId: string, answerId?: string
 
 let readyAsking = false;
 
-export async function askReadyQuestion(): Promise<void> {
+/**
+ * The card's ready Question being asked, whose Answer waits for its Documents to be read (#2218):
+ * its row says what it is reading, and offers Stop, until the Answer is there.
+ */
+export const useReadyAsk = create<{ asking: boolean; waitingFor: string | null }>()(() => ({
+  asking: false,
+  waitingFor: null,
+}));
+
+/**
+ * Asks the ready Question the card showed (`ready`), so the click asks exactly what the button
+ * names: no second read that a Document or language change could have moved on. About the User's
+ * own Document it starts a fresh conversation first, so the example's earlier turns are not in the
+ * model's context; no Mind is read either, or the example would colour the first Answer about
+ * their file. The example's Answer is written in advance, and the core writes it once its
+ * Documents are read: while it waits, the card says so and Stop stops it. Resolves to whether it
+ * was asked (or waits for a model).
+ */
+export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
   // A double-click asks it once.
-  if (readyAsking) return;
+  if (readyAsking) return false;
   readyAsking = true;
   try {
-    const { conversationId } = await core.askReadyQuestion();
-    useAppStore.getState().updateGettingStarted({ askedReady: true });
-    await openConversation(conversationId);
-  } catch (error) {
-    report(error);
+    if (ready.scope) {
+      startNewChat();
+      // Asked like any Question: its step ticks when its Answer arrives, not when it is asked.
+      return await askInAssistant({ text: ready.question, mindId: null, scope: ready.scope });
+    }
+    // The last ask's problem is not this ask's: the row says what this one is reading.
+    settleAsk(composerKey(null), null);
+    useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
+    try {
+      const { conversationId, stopped } = await core.askExampleReadyQuestion();
+      // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
+      if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
+      await openConversation(conversationId);
+      return !stopped;
+    } catch (error) {
+      // Why not, and what to do, where the card's button is, rather than a notice that passes.
+      settleAsk(composerKey(null), null, error);
+      return false;
+    } finally {
+      useReadyAsk.setState({ asking: false, waitingFor: null });
+    }
   } finally {
     readyAsking = false;
   }
+}
+
+/** Stop while the ready Question waits for its Documents: its Answer says Stopped. */
+export function stopReadyAsk(): void {
+  core.stopExampleReadyQuestion().catch(report);
 }
 
 function sayLeftOut(result: ConversationAskResult): void {
@@ -198,6 +241,8 @@ export async function askInAssistant(
       ...input,
       conversationId: useConversations.getState().openId,
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(input.mindId),
+      clientId,
     });
     if (
       !result.asked &&
@@ -257,8 +302,11 @@ core.on("chatReadiness.changed", (readiness) => {
     return;
   }
   const { wanted, waiting } = useModelSetup.getState();
-  // The setup card stays, saying what each job uses, until the User continues.
-  if (wanted || waiting) useModelSetup.setState({ ready: true });
+  if (!wanted && !waiting) return;
+  // The card stays for steps 2 and 3, after the Question that waited has been asked from it.
+  useModelSetup.setState({ ready: true, wanted: true });
+  // The Question runs as soon as step 1 works; steps 2 and 3 stay below its Answer (#1922).
+  askWaitingQuestion();
 });
 
 /** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
@@ -271,11 +319,12 @@ export function continueSetup(): void {
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.
- * `clearScope`: from every Document, its Question's Search scope taken off (#748).
+ * `clearScope`: from every Document, its Question's Search scope taken off (#748). `model`:
+ * with this model, which the Question then keeps (#1848).
  */
 export async function regenerateAnswer(
   answerId: string,
-  { clearScope = false }: { clearScope?: boolean } = {},
+  { clearScope = false, model }: { clearScope?: boolean; model?: ChatModelChoice } = {},
 ): Promise<void> {
   const conversationId = useConversations.getState().openId;
   if (!conversationId) return;
@@ -288,13 +337,28 @@ export async function regenerateAnswer(
       conversationId,
       answerId,
       ...(clearScope && { clearScope }),
+      ...(model && { model }),
       onScreen: documentsOnScreen(),
+      commands: offeredCommands(askedFrom(answerId)),
+      clientId,
     });
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {
     settleAsk(answerId, null, error);
   }
+}
+
+/** The Note the Question of an Answer of the open conversation was asked from, while it is there. */
+function askedFrom(answerId: string): string | null {
+  const { messages } = useConversations.getState();
+  const answer = messages.find((message) => message.id === answerId);
+  const question =
+    answer?.kind === "answer"
+      ? messages.find((message) => message.id === answer.questionId)
+      : undefined;
+  const from = question?.kind === "question" ? question.askedFrom : null;
+  return from && !from.deleted ? from.mindId : null;
 }
 
 /** Stops an Answer of the open conversation being written, keeping what it has. */

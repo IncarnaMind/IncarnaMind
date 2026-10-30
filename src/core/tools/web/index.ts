@@ -3,8 +3,8 @@
  * model, behind the User's switch in Settings → Search and the consent
  * screen naming that provider; never in Local mode. The pages an Answer reads
  * are saved through #261's path with the guarded fetcher (./fetcher), filed
- * in the Folder the Question was asked in, and read once they can be
- * searched. The Tools themselves are in ./tools.
+ * in the Folder the Question was asked in, as its Folder wall allows (#1934),
+ * and read once they can be searched. The Tools themselves are in ./tools.
  */
 import { searchesTheWeb } from "../../../shared/webSearch";
 import type { AnswerWeb } from "../../answers";
@@ -101,7 +101,9 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
       return searchWeb(prepared.model, prepared.provider.kind, query, signal);
     },
 
-    async save(address: string, place: AnswerPlace, signal: AbortSignal): Promise<SavedPage> {
+    async save(address, place, signal, filing): Promise<SavedPage> {
+      const filed = filing(options.folderOf(place));
+      if (filed === null) return { outcome: "failed", reason: "kept-inside" };
       // Before a page saved already is used as it is: web search reads only the public internet.
       try {
         await fetcher.check(address);
@@ -112,8 +114,7 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
       const result = await options.savePage(address, fetcher.fetch);
       if (result.outcome === "failed") return { outcome: "failed", reason: result.failure.reason };
       const { document } = result;
-      const folderId = result.existing ? null : options.folderOf(place);
-      if (folderId !== null) options.file(document.id, folderId);
+      if (!result.existing && filed.folderId !== null) options.file(document.id, filed.folderId);
       if (!(await searchable(document.id, signal)))
         return { outcome: "failed", reason: "not-text" };
       return {

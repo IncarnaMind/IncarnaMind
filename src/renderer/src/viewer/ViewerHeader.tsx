@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
-import { changedSourceNote, citationState } from "../../../shared/citations";
+import { changedSourceLines, citationState } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
@@ -103,9 +103,11 @@ export function ViewerHeader({
       : null,
     changedState,
     document?.contentHash,
+    // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
+    null,
   );
   const changed = citedState
-    ? changedSourceNote(
+    ? changedSourceLines(
         changedState,
         {
           pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
@@ -113,8 +115,10 @@ export function ViewerHeader({
           location: cited?.location ?? null,
         },
         recheck,
+        document,
+        language,
         t,
-      )
+      ).note
     : null;
   /** Why the Document's own app couldn't open it, until it is tried again. */
   const [problem, setProblem] = useState<Said | null>(null);

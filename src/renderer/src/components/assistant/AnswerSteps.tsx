@@ -49,7 +49,7 @@ import { useT } from "../../i18n";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
-import { openCited, quoteSaysSo } from "../../openCited";
+import { openCitedFollowing, quoteSaysSo } from "../../openCited";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
@@ -646,6 +646,16 @@ function StepItem({
           <SkillRow name={row.name} use={row.use} reads={row.reads} />
         </li>
       );
+    case "asked-again":
+      return (
+        <Step kind={row.kind} icon={<SparkLineIcon />}>
+          {row.tools.map((tool) => (
+            <p key={tool} data-testid="answer-asked-again" className="answer-step-title">
+              {t(tool === "search" ? "steps.askedAgain.search" : "steps.askedAgain.calculate")}
+            </p>
+          ))}
+        </Step>
+      );
     case "calculated":
       return (
         <Step kind={row.kind} icon={<CalculatorLineIcon />}>
@@ -838,11 +848,11 @@ function SourceRow({ source }: { source: StepSource }) {
       data-document-id={source.documentId}
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
-        openCited(source, {
-          check: source.check,
-          withQuote: quoteSaysSo(source.check),
-          label: where,
-        })
+        void openCitedFollowing(
+          source,
+          { check: source.check, withQuote: quoteSaysSo(source.check), label: where },
+          null,
+        )
       }
       className="answer-step-source"
     >

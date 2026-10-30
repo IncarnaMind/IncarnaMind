@@ -1,4 +1,5 @@
 import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
+import { figureCellText, rawColumn } from "../../shared/figures";
 import { translate } from "../../shared/i18n";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
@@ -6,24 +7,16 @@ import type { Language } from "../language";
 const MARKER = /\[=(table|chart) (\d+)\]/g;
 const LINE = /^[ \t]*\[=(table|chart) (\d+)\][ \t]*$/;
 
-const numberText = (value: number): string => {
-  if (Number.isInteger(value) || !Number.isFinite(value)) return String(value);
-  const whole = Math.floor(Math.log10(Math.abs(value))) + 1;
-  return String(Number(value.toPrecision(Math.max(4, whole + 2))));
-};
-
-const cellText = (cell: AnalysisCell): string =>
-  cell === null
-    ? ""
-    : (typeof cell === "number" ? numberText(cell) : String(cell))
-        .replaceAll("|", "\\|")
-        .replaceAll("\n", " ");
+const escaped = (text: string): string => text.replaceAll("|", "\\|").replaceAll("\n", " ");
 
 function markdownTable(table: AnalysisTable, language: Language): string {
+  const raw = table.columns.map(rawColumn);
+  const cell = (value: AnalysisCell, at: number) =>
+    escaped(figureCellText(language, value, raw[at] ?? false));
   const lines = [
-    `| ${table.columns.map(cellText).join(" | ")} |`,
+    `| ${table.columns.map(escaped).join(" | ")} |`,
     `|${table.columns.map(() => " --- ").join("|")}|`,
-    ...table.rows.map((row) => `| ${row.map(cellText).join(" | ")} |`),
+    ...table.rows.map((row) => `| ${row.map(cell).join(" | ")} |`),
   ];
   const left = table.rowCount - table.rows.length;
   if (left > 0) {

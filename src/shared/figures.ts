@@ -66,6 +66,8 @@ export interface Reading {
    * worked out from the figure is shown with as many.
    */
   decimals: number;
+  /** Last shown place in base units; null for exact fractions, undefined for legacy or unrepresentable precision. */
+  precision?: number | null;
 }
 
 /**
@@ -377,6 +379,162 @@ function languageSeparators(language: string): Separators | null {
   return null;
 }
 
+/**
+ * The headings whose column keeps its digits as written: an identifier or a
+ * period. A year, an account number or a clause number grouped ("2,026")
+ * would stop reading as one (#2102).
+ */
+export const RAW_COLUMN_HEADERS: readonly string[] = [
+  "ID",
+  "code",
+  "No.",
+  "number",
+  "Year",
+  "FY",
+  "Period",
+  "Quarter",
+  "Fiscal year",
+  "Financial year",
+  "Reporting period",
+  "编号",
+  "代码",
+  "序号",
+  "年",
+  "年份",
+  "年度",
+  "期间",
+  "季度",
+  "财年",
+  "会计年度",
+  "报告期",
+];
+
+// One bracket after a heading's own words: "Year (FY)", "年份（财年）".
+const HEADER_BRACKET = /\s*[（(][^（()）]*[）)]$/;
+
+const RAW_HEADINGS: ReadonlySet<string> = new Set(
+  RAW_COLUMN_HEADERS.map((header) => header.toLowerCase()),
+);
+
+/**
+ * Whether a column keeps its cells' digits raw, decided by its heading alone
+ * and never by a cell's size: "Year (FY)", "年份（财年）", "Reporting period"
+ * and "ID" do, while "Yearly revenue", "Revenue per year (£)" and "FY 2024"
+ * don't. Other headings are amounts, whose numbers the interface writes.
+ */
+export function rawColumn(header: string): boolean {
+  const trimmed = header.trim();
+  return RAW_HEADINGS.has(trimmed.replace(HEADER_BRACKET, "").trim().toLowerCase());
+}
+
+/**
+ * A string that groups as a written number: digits that a person would group
+ * with the language's separator. A leading zero ("02139", a postcode), an
+ * exponent ("1e3") and anything else written stays exactly as it is (#2105).
+ */
+const GROUPABLE_NUMBER = /^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/** Where a language puts its group separator, taken from the same formatter `figureText` uses. */
+function groupSeparator(language: string): string {
+  return (
+    groupedFormat(language, 0)
+      .formatToParts(1000)
+      .find((part) => part.type === "group")?.value ?? ""
+  );
+}
+
+/**
+ * A numeric string as text: the language's group separator in its integer
+ * digits, its fraction exactly as written. Nothing is turned into a number,
+ * so "9007199254740993" and "1234.50" keep every digit they were written with.
+ */
+function groupedNumberText(language: string, text: string): string {
+  const sign = text.startsWith("-") || text.startsWith("+") ? text.slice(0, 1) : "";
+  const body = text.slice(sign.length);
+  const point = body.indexOf(".");
+  const integer = point < 0 ? body : body.slice(0, point);
+  const fraction = point < 0 ? "" : body.slice(point);
+  if (integer.length <= 3) return text;
+  const separator = groupSeparator(language);
+  let grouped = "";
+  for (const [index, digit] of [...integer].entries()) {
+    if (index > 0 && (integer.length - index) % 3 === 0) grouped += separator;
+    grouped += digit;
+  }
+  return `${sign}${grouped}${fraction}`;
+}
+
+/** The precision an Analysis has always rounded a non-integer to, kept so grouping never changes it. */
+function roundedText(value: number): string {
+  if (Number.isInteger(value) || !Number.isFinite(value)) return String(value);
+  const whole = Math.floor(Math.log10(Math.abs(value))) + 1;
+  return String(Number(value.toPrecision(Math.max(4, whole + 2))));
+}
+
+const GROUPED_FORMATS = new Map<string, Intl.NumberFormat>();
+
+function groupedFormat(language: string, places: number): Intl.NumberFormat {
+  const key = `${language}\u0000${places}`;
+  const found = GROUPED_FORMATS.get(key);
+  if (found) return found;
+  const options: Intl.NumberFormatOptions = {
+    useGrouping: "always",
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  };
+  let format: Intl.NumberFormat;
+  try {
+    format = new Intl.NumberFormat(language, options);
+  } catch {
+    // Not a language tag at all ("English"): there is no language to write by.
+    format = new Intl.NumberFormat("en", options);
+  }
+  GROUPED_FORMATS.set(key, format);
+  return format;
+}
+
+/**
+ * A number as the interface writes it: an Analysis's own precision first, then
+ * the language's separators, with every number of 1,000 and over grouped
+ * (#2102). A number JavaScript writes exponentially keeps that form, since
+ * grouping it would add digits it never had.
+ */
+export function figureText(language: string, value: number): string {
+  const rounded = roundedText(value);
+  if (/e/i.test(rounded)) return rounded;
+  const point = rounded.indexOf(".");
+  const places = point === -1 ? 0 : rounded.length - point - 1;
+  return groupedFormat(language, places).format(Number(rounded));
+}
+
+/**
+ * A cell of an Analysis table as it reads: a string that is a plain number is
+ * grouped as text, so its digits are never read as a number; a string that is
+ * anything else ("7,509,964", "n/a", "12.5%", "02139", "1e3") stays exactly
+ * as it is. A column `rawColumn` names keeps its digits raw, however large a
+ * cell is.
+ */
+export function figureCellText(
+  language: string,
+  cell: string | number | boolean | null,
+  raw: boolean,
+): string {
+  if (cell === null) return "";
+  if (typeof cell === "number") return raw ? String(cell) : figureText(language, cell);
+  if (typeof cell !== "string") return String(cell);
+  const trimmed = cell.trim();
+  return !raw && GROUPABLE_NUMBER.test(trimmed) ? groupedNumberText(language, trimmed) : cell;
+}
+
+/**
+ * A single figure result as the interface writes it: a label a `rawColumn`
+ * heading names keeps its digits raw, as the same value in that column does
+ * (#2105).
+ */
+export function figureResultText(language: string, value: number, label: string): string {
+  return rawColumn(label) ? String(value) : figureText(language, value);
+}
+
 /** Numbers whose separators can only be read one way, and the convention each shows. */
 const EVIDENCE: readonly [RegExp, Separators][] = [
   [/(?<![\d.,'])\d{1,3}(?:,\d{3})+\.\d+(?![\d.,])/g, { decimal: ".", group: "," }],
@@ -580,11 +738,6 @@ const EN_SCALE_AFTER =
 
 const CURRENCY_ISO_CODES =
   "USD|CNY|RMB|Rmb|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR|KRW|NZD|MOP|BRL|RUB|SEK|NOK|DKK|ZAR|MXN|THB|MYR|IDR|PHP|VND|TRY|SAR|AED";
-const CURRENCY_TOKEN = new RegExp(
-  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|人民币|美元|港币|港元|欧元|日元|英镑)`,
-);
-/** Currency signs before a number, and codes and names before it, with a space allowed. */
-const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 const CURRENCY_CODES: Readonly<Record<string, string>> = {
   US$: "USD",
@@ -653,6 +806,17 @@ const CURRENCY_CODES: Readonly<Record<string, string>> = {
   "United States dollars": "USD",
   "Swiss francs": "CHF",
 };
+
+// Every Chinese name the table gives a currency, longest first: "新台币54,000元" is in TWD (#1452).
+const HAN_CURRENCIES = Object.keys(CURRENCY_CODES)
+  .filter((word) => /^\p{Script=Han}{2,}$/u.test(word))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+const CURRENCY_TOKEN = new RegExp(
+  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
+);
+/** Currency signs before a number, and codes and names before it, with a space allowed. */
+const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 // Contracts write "in Pounds Sterling" and "ALL AMOUNTS ARE IN US DOLLARS".
 const NAMED_CODES = new Map(
@@ -753,14 +917,14 @@ const CN_MEASURES =
   );
 /** Counting words: a figure's unit after a numeral of two characters or more ("十二家"), not after one. */
 const CN_COUNTS =
-  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋".split(
+  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋 单元 室 层 楼 章".split(
     " ",
   );
 const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
 const EN_UNIT_AFTER =
-  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F)(?![A-Za-z0-9])/y;
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 
 /** Written before a figure that is approximate or a bound; outside its characters. */
 const APPROXIMATE_BEFORE =
@@ -847,23 +1011,27 @@ interface Statement extends Span {
   unit: FigureUnit;
 }
 
-const CN_UNIT_WORDS = "新加坡元|新台币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|元";
+const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
     "dg",
   ),
-  /币种[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)/dg,
+  new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
-    `[(（](?<before>人民币|RMB|美元|USD|港元|港币|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
+    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
     "dg",
   ),
   new RegExp(
-    `(?<![${CN_NUMERAL_CHARS}\\d.,])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
+    `(?<![${CN_NUMERAL_CHARS}\\d.,百千万亿])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
     "dg",
   ),
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
   /(?<![\dA-Za-z.,])(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?(?:in )?(?<scale>'000s?|000s|thousands?|millions?|billions?|mn|bn|m|k)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
+  // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
+  /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
   /[(（]%[)）]|(?<![A-Za-z])in (?:%|per cent|percent)(?![A-Za-z])/dg,
 ];
 
@@ -896,7 +1064,9 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       const groups = match.groups ?? {};
       const at = match.indices?.groups ?? {};
       const scale = groups.scale ?? null;
-      const words = groups.unit ?? groups.before ?? groups.cur ?? null;
+      // "单位：港币千元" is in Hong Kong dollars: 元 only names the yuan when nothing comes before it.
+      const generic = groups.unit !== undefined && /^[元圆]$/.test(groups.unit) && groups.before;
+      const words = (generic ? groups.before : groups.unit) ?? groups.before ?? groups.cur ?? null;
       let unit: FigureUnit = { kind: "plain" };
       if (match[0].includes("%") || /per ?cent/i.test(match[0])) unit = { kind: "percent" };
       else if (words) {
@@ -994,6 +1164,11 @@ interface Digits {
 }
 
 const decimalsOf = (number: Digits): number => Math.max(0, number.digits.length - number.point);
+
+function precisionOf(number: Digits, exponent: number): number | undefined {
+  const precision = 10 ** (exponent - decimalsOf(number));
+  return Number.isFinite(precision) && precision > 0 ? precision : undefined;
+}
 
 /** The double nearest to the digits × 10^exponent, as a spreadsheet reads the same number written out. */
 function decimalValue(number: Digits, exponent: number, negative: boolean): number {
@@ -1289,6 +1464,34 @@ function lexChinese(s: string, start: number): Core | null {
   const point = run.indexOf("点");
   const span = { from: start, to: end };
   const capitals = CAPITALS.test(run);
+  const digit = CN_DIGITS[run[0] ?? ""];
+  const place = run[1] ?? "";
+  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
+  const halfEnds =
+    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
+  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
+    const halfSpan = { from: start, to: end + 1 };
+    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
+    if (exponent !== undefined) {
+      return core(
+        halfSpan,
+        { digits: `${digit}5`, point: 1 },
+        {
+          chinese: true,
+          capitals,
+          exponent,
+          scaleWord: place,
+          scaleAt: { from: end - 1, to: end },
+        },
+      );
+    }
+    const unit = CN_PLACES[place];
+    if (unit !== undefined && unit >= 100) {
+      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    }
+  }
   if (point >= 0) {
     const whole = cnInteger(run.slice(0, point));
     const after = run.slice(point + 1);
@@ -1548,6 +1751,34 @@ function readAround(
       draft.scaleWord = scale.word;
       draft.scaleAt = scale.at;
       draft.exponent = scaleExponent(scale.word);
+      // "2万5千", "2亿5000万": the lower places go on with the same amount, at its scale.
+      let place =
+        found.number.point === found.number.digits.length && !found.otherReading
+          ? CN_SCALES[scale.word]
+          : undefined;
+      let value = decimalValue(found.number, draft.exponent, false);
+      let joined = false;
+      while (place !== undefined) {
+        const at = right;
+        const digits = take(/\d{1,4}(?![\d.,])/y);
+        const lower = digits ? take(CN_SCALE_AFTER) : null;
+        const exponent = lower ? CN_SCALES[lower.word] : undefined;
+        if (
+          !digits ||
+          exponent === undefined ||
+          Number(digits.word) * 10 ** exponent >= 10 ** place
+        ) {
+          right = at;
+          break;
+        }
+        value += Number(digits.word) * 10 ** exponent;
+        place = exponent;
+        joined = true;
+      }
+      if (joined) {
+        const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
+        draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
+      }
     }
   }
   const currencyAfter =
@@ -1556,10 +1787,14 @@ function readAround(
       : null;
   if (currencyAfter) {
     const codes = currencyCodes(currencyAfter.word.replace(/(.)人民币$/, "$1"), settled);
+    // "新台币54,000元" is in TWD: 元 after one named currency is that currency's unit.
+    const unitOfNamed = /^[元圆]$/.test(currencyAfter.word) && draft.currencies.length === 1;
     // "¥3,500元": the word after settles the sign before.
-    if (draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code)))
-      draft.currencies = codes;
-    else draft.currencies = [...new Set([...draft.currencies, ...codes])];
+    if (!unitOfNamed) {
+      const settles =
+        draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code));
+      draft.currencies = settles ? codes : [...new Set([...draft.currencies, ...codes])];
+    }
     draft.currencyAt ??= currencyAfter.at;
     if (found.capitals) {
       const jiao = take(/([壹贰叁肆伍陆柒捌玖])角/y);
@@ -1836,6 +2071,7 @@ function readingOf(draft: Draft, written?: Written, number: Digits = draft.core.
     scaleWord: draft.scaleAt && written ? written(draft.scaleAt) : draft.scaleWord,
     unit,
     decimals: fraction !== null ? 0 : decimalsOf(number),
+    precision: fraction !== null ? null : precisionOf(number, draft.exponent + draft.unitExponent),
   };
 }
 
@@ -1851,6 +2087,8 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
   if (draft.unit.kind !== "plain" && draft.unit.kind !== "currency") return [];
   const readings: Reading[] = [];
   for (const statement of statements) {
+    // A numeral in words writes the whole amount: "一万二" under "单位：万元" is still 12,000 (#2189).
+    if (draft.core.chinese && statement.exponent !== 0) continue;
     let unit: FigureUnit = draft.unit;
     let unitExponent = 0;
     if (statement.unit.kind === "percent") {
@@ -1870,6 +2108,7 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
       scaleWord: statement.scaleWord,
       unit,
       decimals: decimalsOf(draft.core.number),
+      precision: precisionOf(draft.core.number, statement.exponent + unitExponent),
     });
   }
   return readings;
@@ -2104,6 +2343,64 @@ function besideNumber(text: string, from: number, to: number): boolean {
 }
 
 /**
+ * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
+ * "家", "岁") is no measure: what a Document counts is its own business, not a unit it must state.
+ */
+const MEASURES: Readonly<Record<string, { latin: string; han: string }>> = {
+  mass: {
+    latin: "t|tonnes?|tons?|kt|Mt|kg|kilograms?|g|grams?|mg|lbs?|ounces?|oz|k?tCO2e?|MtCO2e",
+    han: "吨|千克|公斤|克",
+  },
+  length: {
+    latin:
+      "km|kilomet(?:re|er)s?|m|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?",
+    han: "公里|千米|厘米|毫米|米",
+  },
+  area: {
+    latin:
+      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha",
+    han: "平方公里|平方米|平米|公顷|亩|㎡",
+  },
+  volume: {
+    latin: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|l|barrels?|bbl",
+    han: "立方米|升|桶",
+  },
+  power: { latin: "kW|MW|GW|(?:kilo|mega|giga)watts?", han: "千瓦|兆瓦|吉瓦" },
+  energy: { latin: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?", han: "千瓦时|兆瓦时" },
+};
+
+const measureWords = ({ latin, han }: { latin: string; han: string }) =>
+  new RegExp(`(?<![A-Za-z])(?:${latin})(?![A-Za-z])|${han}`, "i");
+
+// The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
+const WRITES: Readonly<Record<string, RegExp>> = {
+  percent: /[%‰]|(?<![A-Za-z])(?:per[ \n]?cent|percent|pcts?)(?![A-Za-z])|百分之|百分比/i,
+  points:
+    /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
+  ...Object.fromEntries(
+    Object.entries(MEASURES).map(([name, words]) => [name, measureWords(words)]),
+  ),
+};
+
+/** What `unit` measures: "percent", "points", or a standard unit's kind ("mass", "area"); null for a count. */
+export function measureOf(unit: FigureUnit): string | null {
+  if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
+  if (unit.kind !== "other") return null;
+  const found = Object.entries(MEASURES).find(([, { latin, han }]) =>
+    new RegExp(`^(?:${latin}|${han})$`, "i").test(unit.word),
+  );
+  return found?.[0] ?? null;
+}
+
+/**
+ * Whether `text` writes any unit of `measure`: a column heading ("Output (t)", "YoY%"), a unit line
+ * ("单位：吨", "单位：百分比") or a word ("tonnes"). Converting one unit into another isn't attempted.
+ */
+export function writesMeasure(text: string, measure: string): boolean {
+  return WRITES[measure]?.test(text) ?? false;
+}
+
+/**
  * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
  * in a unit it states ("单位：元", "Salary (£)", "in £'000", "All figures are in £") and on
  * `figures`, its figures as read. With no figures given (null), the currency on its figures counts
@@ -2111,10 +2408,12 @@ function besideNumber(text: string, from: number, to: number): boolean {
  * plain "54,000".
  */
 export function namedCurrencies(
-  text: string,
+  written: string,
   context: FigureContext,
   figures: readonly Figure[] | null,
 ): Set<string> {
+  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does.
+  const text = written.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
   const settled = settle(context);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {

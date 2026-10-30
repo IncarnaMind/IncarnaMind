@@ -17,15 +17,18 @@
  */
 
 import {
+  InvalidToolInputError,
   jsonSchema,
   type ModelMessage,
   type StopCondition,
   stepCountIs,
   streamText,
+  type ToolCallRepairFunction,
   type ToolSet,
   tool,
 } from "ai";
 import Ajv, { type ValidateFunction } from "ajv";
+import { escapedInStrings } from "../../shared/jsonText";
 import {
   cacheProviderOptions,
   stablePrefixOf,
@@ -38,6 +41,26 @@ import {
   refusesFeature,
 } from "../providers/providerErrors";
 import type { RunEngine, RunEvent, RunMessage, RunRequest, RunTool } from "./engine";
+
+/**
+ * A Tool call whose input holds a raw tab or line break inside a string, as Claude Haiku 5.5
+ * copies a sheet row's tabs into a quote (#1827), is read with them escaped, as JSON's own
+ * escapes are. Input broken any other way is refused as it is.
+ */
+export const repairControlCharacters: ToolCallRepairFunction<ToolSet> = async ({
+  toolCall,
+  error,
+}) => {
+  if (!InvalidToolInputError.isInstance(error)) return null;
+  const escaped = escapedInStrings(toolCall.input);
+  if (escaped === toolCall.input) return null;
+  try {
+    JSON.parse(escaped);
+  } catch {
+    return null;
+  }
+  return { ...toolCall, input: escaped };
+};
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -407,6 +430,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
     instructions: request.instructions,
     messages: initial,
     tools,
+    repairToolCall: repairControlCharacters,
     temperature: request.temperature,
     providerOptions: cacheProviderOptions(request.cacheKey),
     stopWhen: [
@@ -444,7 +468,17 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       const write = stepNumber >= maxSteps - 1 || noRoom;
       writing = write;
       canCallAgain = stepNumber + 1 < maxSteps - 1;
-      if (!write) return { ...(messages && { messages }) };
+      if (!write)
+        return {
+          ...(messages && { messages }),
+          // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
+          ...(stepNumber === 0 &&
+            request.firstTool &&
+            request.firstTool in tools &&
+            !request.lastStep?.keepTools && {
+              toolChoice: { type: "tool" as const, toolName: request.firstTool },
+            }),
+        };
       return {
         messages: [
           ...(messages ?? [...initialMessages, ...splice(responseMessages, inserted)]),

@@ -258,9 +258,9 @@ describe("exporting a Mind to PDF", () => {
     const { core, mind, client, tides, chinese, sources } = await setUp();
     writeBilingual(client, tides, chinese);
     await client.settled();
-    await expect(core.exportMind(mind.id, { format: "pdf" })).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
+    await expect(core.exportMind(mind.id, { format: "pdf" })).rejects.toMatchObject({
+      wording: { key: "error.checkRecord.noPdf" },
+    });
 
     const failing = startCore(await createTempDataFolder(), {
       printer: {

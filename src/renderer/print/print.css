@@ -485,6 +485,26 @@ img {
   vertical-align: -1.5pt;
 }
 
+.record-figures {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 9pt;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.record-figures th,
+.record-figures td {
+  padding: 3pt 4pt;
+  vertical-align: top;
+  border-bottom: 0.75pt solid var(--rule-strong);
+  text-align: left;
+}
+
+.record-figures tr {
+  break-inside: avoid;
+}
+
 .record-summary td div + div {
   margin-top: 2pt;
 }

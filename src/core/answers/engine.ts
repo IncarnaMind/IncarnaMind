@@ -76,6 +76,7 @@ import type {
   AnswerPhase,
   CitationSupport,
   ClaimedChange,
+  ClaimedTool,
   FigureRetry,
   ProviderError,
   QuoteRetry,
@@ -106,10 +107,10 @@ import type {
 import { inStep } from "../timing/flows";
 import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
+import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
-import { missingMarkerEvents, textEdits } from "./markerPlacement";
 import {
   NOTHING_SHOWN_YET,
   SEARCH_QUERY_INSTRUCTIONS,
@@ -120,8 +121,8 @@ import {
 } from "./prompt";
 import { retryQuotes } from "./quoteRetry";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
-import { claimsOf, createNudges, settleReply, type TurnCheck } from "./turnChecks";
-import { citeUnmarked } from "./unmarkedQuotes";
+import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
+import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
 /** One message of Question context. */
@@ -162,10 +163,7 @@ export interface CiteOptions {
    * (see `structured`): a Passage named by its number alone ("1"), or with
    * more ("P1 (p. 9)"), is "P1"; a record naming none it was given (a
    * Document's name, say) cites the first Passage it was given whose pages
-   * hold its quote word for word; and a quote that isn't on the pages its
-   * record names, but is word for word on a page of the Passage it names, or
-   * on two consecutive ones, is cited there, as `cite`'s feedback lets a
-   * model in the Tool loop do.
+   * hold its quote word for word.
    */
   structured?: boolean;
 }
@@ -273,6 +271,7 @@ export interface AnswerTools {
    * the model about them. Absent: the Answer offers no `calculate`.
    */
   calculate?(figures: readonly unknown[], options?: CiteOptions): string;
+  calculationFailed?(): void;
   /**
    * The figures structured output gave that couldn't be worked out: what its
    * one request to fix them asks about (see ./figureRetry).
@@ -455,6 +454,12 @@ export interface AnswerRequest {
    */
   turnChecks?: readonly TurnCheck[];
   /**
+   * For a reply with a form of its own (a check's "Verdict: …"): whether a text is that reply.
+   * A step that says it records a marker ("to record the quote for marker [^1]") beside `cite`
+   * then doesn't end the Run as an Answer would; the model goes on to write the reply.
+   */
+  isReply?(text: string): boolean;
+  /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
    * Absent: all of it.
@@ -462,6 +467,13 @@ export interface AnswerRequest {
   shownUpTo?(text: string): number;
   /** Whether a reply with no text still answers: the Answer changed a Mind, which its card reports. */
   mayEndBlank?(): boolean;
+  /**
+   * What to end with when the model wrote no reply: the app's own words, so
+   * a turn that ended after a refused Tool still says why. Null: end blank.
+   */
+  blankReply?(): string | null;
+  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
+  refusalSuffix?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -543,8 +555,13 @@ export type AnswerEngineEvent =
   | { type: "read-third-party"; source: ReadThirdPartySource }
   /** A model call ended, with the tokens its provider counted, the cached ones too. */
   | { type: "usage"; usage: TokenUsage }
-  /** The reply claims these changes to a Mind, which none of the Answer's Tool calls made. */
-  | { type: "claims-unbacked"; claims: ClaimedChange[] }
+  /**
+   * The reply claims these changes to a Mind, or says these Tools ran (#1796), which none of the
+   * Answer's Tool calls made or ran.
+   */
+  | { type: "claims-unbacked"; claims: ClaimedChange[]; tools?: ClaimedTool[] }
+  /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
+  | { type: "asked-again"; tools: readonly ClaimedTool[] }
   /** The Answer is complete. Nothing follows. */
   | { type: "finished" }
   /** The model or its provider failed. Nothing follows. */
@@ -666,136 +683,6 @@ function refusalOf(
   if (feature && refusesFeature(error, feature)) return { type: "unsupported" };
   return null;
 }
-
-const calculationsSchema = {
-  type: "array",
-  items: {
-    type: "object",
-    properties: {
-      marker: {
-        type: "integer",
-        description:
-          "The figure's marker number: 1 for [=1]. Figures are numbered apart from Citations.",
-      },
-      label: {
-        type: "string",
-        description: 'What the result is, with its period: "Revenue growth 2025".',
-      },
-      inputs: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "A short name for the formula: rev2024." },
-            label: {
-              type: "string",
-              description: 'What it is, with its year or period: "Revenue 2024".',
-            },
-            citation: {
-              type: "integer",
-              description:
-                "The marker of a Citation record with the number in its quote: 1 for [^1]. Or give passage, location and quote instead.",
-            },
-            passage: {
-              type: "string",
-              description: "Instead of citation: the Passage's id, e.g. P1.",
-            },
-            location: {
-              type: "string",
-              description: "With passage: where the quote is, as for a Citation.",
-            },
-            quote: {
-              type: "string",
-              description: "With passage: a short quote holding the number, copied word for word.",
-            },
-            number: {
-              type: "string",
-              description: 'The number as it is written in the quote: "1.2亿", "$1,482.6 million".',
-            },
-            position: {
-              type: "integer",
-              description:
-                "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first.",
-            },
-            unitQuote: {
-              type: "string",
-              description:
-                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"): that line, copied word for word from the same Passage.',
-            },
-            reading: {
-              type: "integer",
-              description:
-                "Only when told the number can be read more than one way: the reading to use, as numbered then.",
-            },
-            rate: {
-              type: "string",
-              description:
-                'Only for an exchange rate: the currencies it converts, as "CNY per USD".',
-            },
-          },
-          required: ["name"],
-        },
-      },
-      formula: {
-        type: "string",
-        description:
-          "In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead.",
-      },
-      as: {
-        type: "string",
-        enum: ["number", "percent", "points", "currency", "times", "yes-no"],
-        description:
-          "How to show the result: percent for a growth rate or a share. Default: from the inputs.",
-      },
-      decimals: { type: "integer", description: "Decimal places, when the default won't do." },
-      scale: {
-        type: "string",
-        description:
-          "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown.",
-      },
-    },
-    required: ["marker", "inputs", "formula"],
-  },
-} as const;
-
-/**
- * In a check Run (#707), each figure also names the number of the sentence it
- * is for, which IncarnaMind compares the result with.
- */
-const checkCalculationsSchema = {
-  ...calculationsSchema,
-  items: {
-    ...calculationsSchema.items,
-    properties: {
-      ...calculationsSchema.items.properties,
-      inputs: {
-        ...calculationsSchema.items.properties.inputs,
-        items: {
-          ...calculationsSchema.items.properties.inputs.items,
-          properties: {
-            ...calculationsSchema.items.properties.inputs.items.properties,
-            bracketedCost: {
-              type: "boolean",
-              description:
-                'True when the number is a cost or deduction printed in brackets ("Finance costs (41.2)", "财务费用 (41.2)"), so its size is meant. Never for a loss or another result in brackets.',
-            },
-          },
-        },
-      },
-      stated: {
-        type: "string",
-        description: 'The number as the sentence to check writes it: "1.1x", "12%".',
-      },
-      relation: {
-        type: "string",
-        enum: ["equals", "at most", "at least"],
-        description:
-          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant", "不超过3.25倍", "至少5倍").',
-      },
-    },
-    required: [...calculationsSchema.items.required, "stated", "relation"],
-  },
-} as const;
 
 const recordsSchema = {
   type: "array",
@@ -1538,7 +1425,7 @@ export function documentTools(
     calculate: documents.calculate
       ? {
           ...own(DOCUMENT_TOOLS.calculate),
-          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
+          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
             checking
               ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
@@ -1713,10 +1600,12 @@ async function* toolLoop(
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
+  const endedTurn = new Set<string>();
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
-   * so for its card; one that read third-party text says so.
+   * so for its card; one that read third-party text says so; one whose result
+   * ends the turn says so.
    */
   const tracked = (tool: Tool): Tool => ({
     ...tool,
@@ -1726,6 +1615,7 @@ async function* toolLoop(
         counted: (count) => results.set(context.toolCallId, count),
         readThirdParty,
       });
+      if (tool.endsTurn?.(result, input)) endedTurn.add(context.toolCallId);
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
         ? (results.get(context.toolCallId) ?? 0) > 0
@@ -1835,6 +1725,8 @@ async function* toolLoop(
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
   let again: readonly RunMessage[] | null = null;
+  /** The Tool the ask said to call: the asked-again Run's first step calls it. */
+  let mustCall: string | null = null;
   /** Model calls made so far: asked once more, the model gets what is left of `maxSteps`. */
   let steps = 0;
   const nudges = createNudges(maxSteps, () => steps);
@@ -1851,8 +1743,7 @@ async function* toolLoop(
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
   async function* flag(text: string): AsyncGenerator<AnswerEngineEvent> {
-    const claims = await claimsOf(request.turnChecks ?? [], text);
-    if (claims.length > 0) yield { type: "claims-unbacked", claims };
+    yield* flagged(await flagsOf(request.turnChecks ?? [], text));
   }
   async function* backToFirst(written: string): AsyncGenerator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
@@ -1862,34 +1753,49 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    if (!request.documents.wroteIntoMind?.()) {
-      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
-      yield* textEdits(keptText, figured);
-      keptText = figured;
-      const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-      yield* citeUnmarked(request, placed, temperature, budget, () =>
-        nudges.take("unmarked-quotes"),
-      );
+  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+    if (keptText.trim() !== "" || suffix === null) {
+      if (!request.documents.wroteIntoMind?.()) {
+        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+        yield* textEdits(keptText, figured);
+        keptText = figured;
+        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+        yield* citeUnmarked(request, placed, temperature, budget, () =>
+          nudges.take("unmarked-quotes"),
+        );
+      }
+    }
+    if (suffix) {
+      const withRefusal = keptText.trim() === "" ? suffix : `${keptText}\n\n${suffix}`;
+      yield* textEdits(keptText, withRefusal);
+      keptText = withRefusal;
     }
     yield { type: "finished" };
   }
   const runTools = tools.map(tracked);
   async function* runs(): AsyncGenerator<RunEvent> {
     let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
+    let calls: string | null = null;
     for (;;) {
-      yield* engine.run(runRequest(history, maxSteps - steps));
+      yield* engine.run(runRequest(history, maxSteps - steps, calls));
       if (!again) return;
       history = [...history, ...again];
       again = null;
+      calls = mustCall;
+      mustCall = null;
     }
   }
-  const runRequest = (history: readonly RunMessage[], stepsLeft: number): RunRequest => ({
+  const runRequest = (
+    history: readonly RunMessage[],
+    stepsLeft: number,
+    firstTool: string | null = null,
+  ): RunRequest => ({
     model: request.model,
     instructions,
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
+    ...(firstTool && { firstTool }),
     cacheKey: request.cacheKey,
     lastStep: {
       ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
@@ -1910,20 +1816,20 @@ async function* toolLoop(
     // another call would only write it again. Written then cited (#489), it is complete once the
     // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
     endsAfter: (step) => {
+      if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
+      const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
       if (!request.writeThenCite) {
         return (
           cite !== null &&
-          MARKER.test(step.text) &&
+          reply(step.text) &&
           recordsOnly &&
           step.calls.every((call) => askedForFixes.get(call.id) === false)
         );
       }
       if (recordsOnly) besideRecords += step.text;
-      return (
-        cite !== null && recordsOnly && MARKER.test(besideRecords) && owesNothing(besideRecords)
-      );
+      return cite !== null && recordsOnly && reply(besideRecords) && owesNothing(besideRecords);
     },
     temperature,
     signal: AbortSignal.any([signal, rambling.signal]),
@@ -1992,6 +1898,7 @@ async function* toolLoop(
         // A failed call (a Skill or file that isn't there, a Connector's failure or a declined
         // consent) is told to the model; its card says it failed.
         const called = calls.get(event.id);
+        if (called === calculate && !event.ok) request.documents.calculationFailed?.();
         if (called && !recording(called)) {
           const passages = found.get(event.id);
           const error = failures.get(event.id);
@@ -2038,7 +1945,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         // Too long only with a window, so sized to one.
@@ -2057,15 +1964,28 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
+        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
+        // Asked again, the model wrote nothing: the reply before stands, as when the ask fails.
+        // A turn that ended after a refused Tool keeps the app's own words (`blankReply`).
+        if (
+          taken.text.trim() === "" &&
+          standing !== null &&
+          !(request.mayEndBlank?.() ?? false) &&
+          (request.blankReply?.() ?? null) === null
+        ) {
+          yield* backToFirst(standing);
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          return;
+        }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
           const records = parseRecords(taken.records).filter(
             ({ marker }) => !request.documents.hasRecord?.(marker),
@@ -2081,6 +2001,7 @@ async function* toolLoop(
         }
         const settled = await settleReply(request.turnChecks ?? [], taken.text, nudges);
         if ("nudge" in settled) {
+          if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
           if (released > 0) yield { type: "text-retracted", length: released };
           released = 0;
@@ -2090,18 +2011,21 @@ async function* toolLoop(
           besideRecords = "";
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
+          mustCall = settled.requires ?? null;
           break;
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
-        if (taken.text !== keptText) {
-          yield* textEdits(keptText.slice(0, released), taken.text);
-          keptText = taken.text;
+        // A turn that ends with no reply after a refused Tool says why in the app's words.
+        const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
+        if (text !== keptText) {
+          yield* textEdits(keptText.slice(0, released), text);
+          keptText = text;
           released = keptText.length;
         }
         yield* release(keptText.length);
-        if (settled.claims.length > 0) yield { type: "claims-unbacked", claims: settled.claims };
-        yield* endAnswer();
+        yield* flagged(settled);
+        yield* endAnswer(refused);
         return;
       }
     }
@@ -2247,8 +2171,13 @@ async function* flagClaims(
   request: AnswerRequest,
   text: string,
 ): AsyncGenerator<AnswerEngineEvent> {
-  const claims = await claimsOf(request.turnChecks ?? [], text);
-  if (claims.length > 0) yield { type: "claims-unbacked", claims };
+  yield* flagged(await flagsOf(request.turnChecks ?? [], text));
+}
+
+function* flagged({ claims, tools }: Flags): Generator<AnswerEngineEvent> {
+  if (claims.length > 0 || tools) {
+    yield { type: "claims-unbacked", claims, ...(tools && { tools }) };
+  }
 }
 
 /** A plain streamed Answer, with no Tools and no Citations. */

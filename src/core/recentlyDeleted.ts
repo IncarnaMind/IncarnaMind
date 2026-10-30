@@ -20,6 +20,7 @@ import {
 } from "./api";
 import type { Conversations } from "./conversations";
 import type { createDocuments } from "./documents";
+import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { createLibrary } from "./library";
 import type { createMindContent } from "./mindContent";
@@ -86,11 +87,14 @@ function purge(
       [at, at, list],
     );
     forgetMindBlocks(db, ids, at);
-    // Its checks' evidence (#96), retained under the Mind (src/core/answers/checks).
+    // Its checks' evidence and figure inputs are retained under the Mind (ADR-0021).
     db.run(
       `UPDATE retained_versions SET deleted_at = ?, updated_at = ?
-       WHERE kind = 'check-result' AND owner_id ${IN} AND deleted_at IS NULL`,
-      [at, at, list],
+       WHERE deleted_at IS NULL AND
+         ((kind IN ('check-result', 'note-figure') AND owner_id ${IN})
+          OR (kind = 'checkpoint' AND owner_id IN
+            (SELECT ? || value FROM json_each(?))))`,
+      [at, at, list, NOTE_FIGURE_CHECKPOINT_PREFIX, list],
     );
   }
   if (kind === "conversation") {
@@ -169,7 +173,10 @@ export function createRecentlyDeleted(options: {
   tags: TagsStore;
   library: ReturnType<typeof createLibrary>;
   mindsChanged(): void;
-  mindsRestored(mindIds: readonly string[]): void;
+  /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
+  mindsRestored(mindIds: readonly string[], reopen: boolean): void;
+  /** Minds gone for good: what the layout kept for their tabs goes. */
+  mindsForgotten(mindIds: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -293,7 +300,9 @@ export function createRecentlyDeleted(options: {
     },
 
     /** See `CoreApi.restore`. */
-    restore(input: unknown): void {
+    restore(input: unknown, restoreOptions?: unknown): void {
+      // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
+      const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
       const refs = parseRefs(input, "restore");
       const since = earliestRestorable(now());
       const done = db.transaction(() => {
@@ -372,7 +381,7 @@ export function createRecentlyDeleted(options: {
       });
       for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
-      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds);
+      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds, reopen);
       if (done.conversations) options.conversationsChanged();
       if (done.documents.length > 0) {
         documents.restored(done.documents);
@@ -386,7 +395,10 @@ export function createRecentlyDeleted(options: {
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
     },
 
-    /** Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. */
+    /**
+     * Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. What the
+     * layout kept for their tabs needs no dropping: it is this session's, and none is kept yet.
+     */
     expire(): void {
       purgeExpired(db, now(), documentText);
     },
@@ -417,7 +429,9 @@ export function createRecentlyDeleted(options: {
         }
       });
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
-      for (const { kind, id } of refs) if (kind === "mind") content.forget(id);
+      const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
+      for (const mindId of minds) content.forget(mindId);
+      if (minds.length > 0) options.mindsForgotten(minds);
     },
   };
 }

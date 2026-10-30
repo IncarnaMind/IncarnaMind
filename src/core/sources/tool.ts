@@ -16,7 +16,7 @@ import {
   SOURCE_KIND_PROVIDERS,
 } from "../api";
 import { InvalidInputError } from "../errors";
-import { SOURCE_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
+import { SOURCE_TOOLS, type Tool, type ToolProviderInfo, type ToolTurn } from "../tools";
 import type { SourceProvider } from "./types";
 
 const PROVIDER: ToolProviderInfo = { kind: "sources", id: "sources", name: "Find sources" };
@@ -39,7 +39,11 @@ const list = (names: readonly string[]) =>
     ? (names[0] ?? "")
     : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
-function describe(work: FoundSource, index: number): string {
+function describe(
+  work: FoundSource,
+  index: number,
+  readable: (documentId: string) => boolean,
+): string {
   const { fields } = work;
   const authors = fields.authors.slice(0, 3).map(formatName);
   const parts = [
@@ -62,18 +66,24 @@ function describe(work: FoundSource, index: number): string {
     work.citedBy !== null ? `Cited by ${work.citedBy}.` : "",
     work.unofficial ? "An unofficial compilation, not the official edition." : "",
     work.notice ? `The source says: ${work.notice}` : "",
-    work.inLibrary
-      ? work.inLibrary.documentId
-        ? "Already in the User's Library as a Document."
-        : "Already in the User's Library as a reference."
-      : "",
+    // A Document kept inside another walled Folder isn't named, not even as there (#1934).
+    !work.inLibrary
+      ? ""
+      : work.inLibrary.documentId === null
+        ? "Already in the User's Library as a reference."
+        : readable(work.inLibrary.documentId)
+          ? "Already in the User's Library as a Document."
+          : "",
     `Found by ${list(work.foundBy.map((each) => each.name))}.`,
   ];
   return parts.filter(Boolean).join(" ");
 }
 
-/** What the model reads of a search. */
-export function resultText(result: FindSourcesResult): string {
+/** What the model reads of a search, from work that may read the Documents `readable` allows. */
+export function resultText(
+  result: FindSourcesResult,
+  readable: (documentId: string) => boolean,
+): string {
   if (result.outcome === "local-mode") {
     return "Find sources is off: “Keep everything on this computer” is on, so nothing was searched. Say so.";
   }
@@ -83,7 +93,7 @@ export function resultText(result: FindSourcesResult): string {
       ? `Nothing was found${searched.length > 0 ? ` on ${list(searched.map((each) => each.name))}` : ""}.`
       : `Found ${result.works.length} works on ${list(searched.map((each) => each.name))}. They aren't the User's Documents: never put citation markers on them; name each by its title, first author and year. The User can add them to their Library from this search's results ("Show results", under this Answer); an open-access one then becomes a Document that can be cited.`,
     "",
-    ...result.works.slice(0, SHOWN).map(describe),
+    ...result.works.slice(0, SHOWN).map((work, index) => describe(work, index, readable)),
   ];
   for (const each of result.providers) {
     if (!each.failure) continue;
@@ -102,6 +112,7 @@ export function resultText(result: FindSourcesResult): string {
 export function sourcesTool(
   search: (input: FindSourcesInput, signal: AbortSignal) => Promise<FindSourcesResult>,
   searching: readonly SourceProvider[],
+  turn: ToolTurn,
 ): Tool {
   const names = (ids: readonly string[]) =>
     list(searching.filter((each) => ids.includes(each.id)).map((each) => each.name));
@@ -184,7 +195,7 @@ export function sourcesTool(
         context.signal,
       );
       context.counted?.(result.outcome === "found" ? result.works.length : 0);
-      return resultText(result);
+      return resultText(result, turn.readable);
     },
   };
 }

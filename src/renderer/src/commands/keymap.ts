@@ -4,6 +4,7 @@ import { topModalNow } from "../components/useModal";
 import { files } from "../core";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
+import { taskAt } from "../taskFocus";
 import { nextToRedo, nextToUndo, typesText, useUndo } from "../undo";
 import { keysLabel, keysOn, pressed } from "./keys";
 import { menuKinds } from "./menus";
@@ -31,11 +32,16 @@ const inList = (target: EventTarget | null) =>
   !typesText(target) &&
   target.closest(`${SELECTABLE_LIST}, ${ROW}`) !== null;
 
-/** The object whose row holds the focus: the one its ⋯ button names. */
+/**
+ * The object whose row holds the focus: the one the row names, or else its ⋯ button, so a row
+ * holding other objects' buttons, such as a comparison cell's Citations, is still its own.
+ */
 export function objectAt(target: EventTarget | null): ObjectRef | null {
   if (!inList(target) || !(target instanceof Element)) return null;
-  const named = target.closest(ROW)?.querySelector<HTMLElement>("[data-object-menu]")
-    ?.dataset.objectMenu;
+  const row = target.closest<HTMLElement>(ROW);
+  const named =
+    row?.dataset.objectRow ||
+    row?.querySelector<HTMLElement>("[data-object-menu]")?.dataset.objectMenu;
   const colon = named?.indexOf(":") ?? -1;
   const kind = menuKinds().find((each) => each === named?.slice(0, colon));
   return named && kind ? { kind, id: named.slice(colon + 1) } : null;
@@ -57,6 +63,7 @@ const contextAt = (target: EventTarget | null): CommandContext => ({
   selection: [],
   focus: null,
   surface: surfaceOf(target),
+  task: taskAt(target),
 });
 
 const dialogOpen = () => document.querySelector("dialog[open]") !== null;

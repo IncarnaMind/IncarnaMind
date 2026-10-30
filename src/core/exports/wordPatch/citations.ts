@@ -12,6 +12,7 @@ import type { SourceContext } from "../../../shared/sources";
 import type { CitationFormatRequest, FormattedCitations } from "../../api";
 import { type Block, type Inline, NO_MARKS as PLAIN } from "../../mindText";
 import { addSources, changeKey, listCitations, styleCitations } from "../citations";
+import type { FigureWriting } from "../figures";
 import { special, type Token } from "./paragraph";
 
 /** Something the export writes: a paragraph's text, or a new Block's. */
@@ -31,6 +32,7 @@ export interface CitationOptions {
   format(request: CitationFormatRequest): Promise<FormattedCitations>;
   /** The mark after a Location whose quote wasn't found (`ExportLabels.unverified`). */
   unverified: string;
+  figures: FigureWriting;
 }
 
 const isCitation = (token: Token | undefined) =>
@@ -129,7 +131,7 @@ export async function styleWritten(
   }
   styled = options.listed
     ? listCitations(blocks, options.sources, options.heading, options.unverified)
-    : await styleCitations(blocks, options.style, options.format);
+    : await styleCitations(blocks, options.style, options.format, options.figures);
 
   let at = 0;
   for (const each of written) {

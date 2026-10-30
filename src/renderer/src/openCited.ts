@@ -1,5 +1,9 @@
 import type { CitationAttributes, CitationCheck } from "../../core/api";
+import { citationState, quoteStanding } from "../../shared/citations";
+import { citationLocation, formatLocation } from "../../shared/locations";
 import { type CitedSource, useComposer } from "./composer";
+import { core } from "./core";
+import { translateNow } from "./i18n";
 import { currentTabOf } from "./layoutSlice";
 import { type AppState, useAppStore } from "./store";
 
@@ -44,6 +48,8 @@ export function openCited(
     label?: string | null;
     from?: string;
     keep?: boolean;
+    /** The Document opens without coming to the front, even where the window shows one group. */
+    stay?: boolean;
     /** Where to open it, when that isn't where the Citation points: its quote moved in the new version. */
     place?: { pageFrom: number | null; pageTo: number | null };
   },
@@ -76,7 +82,56 @@ export function openCited(
         ...(citation.pageTo !== null && { pageTo: citation.pageTo }),
       },
     },
-    { as: "citation", ...(how.from && { from: how.from }), ...(how.keep && { keep: true }) },
+    {
+      as: "citation",
+      ...(how.from && { from: how.from }),
+      ...(how.keep && { keep: true }),
+      ...(how.stay && { stay: true }),
+    },
   );
   useComposer.setState({ citedSource: source });
+}
+
+/**
+ * As `openCited`, but where its Document changed after the Citation was made and the quote now
+ * stands at another place in the new version, it opens there, with that place's label (#99). The
+ * Citation's own card does the same.
+ */
+export async function openCitedFollowing(
+  citation: Parameters<typeof openCited>[0],
+  how: Parameters<typeof openCited>[1],
+  /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
+  mindId: string | null,
+): Promise<void> {
+  const app = useAppStore.getState();
+  const cited = citationState(
+    citation,
+    app.status.kind === "ready" ? app.documents : null,
+    app.keptCitationTexts,
+  );
+  const quote = citation.quote ?? "";
+  if (!cited.changedAfterCited || quote === "") return openCited(citation, how);
+  const recheck = await core
+    .recheckCitation({
+      mindId,
+      documentId: citation.documentId,
+      quote,
+      pageFrom: citation.pageFrom,
+      pageTo: citation.pageTo,
+      contentHash: citation.contentHash ?? null,
+    })
+    .catch((failure: unknown) => {
+      console.error("A moved quote couldn't be looked for in its Document's new version.", failure);
+      return null;
+    });
+  // Kept inside a wall the Note is outside, nothing of the new version is known: it opens as cited.
+  if (recheck === null || "keptInside" in recheck || quoteStanding(citation, recheck) !== "moved") {
+    return openCited(citation, how);
+  }
+  const location = recheck.location ?? citationLocation(citation);
+  openCited(citation, {
+    ...how,
+    place: { pageFrom: recheck.pageFrom, pageTo: recheck.pageTo },
+    label: location ? formatLocation(location, translateNow) : how.label,
+  });
 }

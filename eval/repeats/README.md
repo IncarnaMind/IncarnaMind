@@ -47,7 +47,16 @@ npm run eval:repeats
 
 **Cost and time:** ten checks of the first four Minds take about 5 minutes and $0.10 on Claude Haiku 5.5, and about 9 minutes and $2.20 on Claude Sonnet 5.5. The two conflict Minds add about 9 minutes and $0.25 on Haiku 5.5, and roughly $4 on Sonnet 5.5 (from the other sets' ratio, not measured), so run them there with fewer checks.
 
-**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).
+**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).
+
+## The claims request, asked again and again
+
+Check this Mind asks the model once which of a Mind's sentences make claims, and keeps the answer: a sentence it leaves out isn't checked again until it is edited (#1682). `npm run eval:claims` asks that request again and again, each time on a new Mind of the same sentences, so every request is independent (the app never sorts a sentence twice), with a real chat model, and counts what each request made of each sentence. Nothing is checked, so it is cheap.
+
+- **The claim kinds group** (`KIND_SETS` in `cases.ts`, `en-kinds` and `zh-kinds`): a User's notes on each agreement, three or four claims of each kind the agreement states (a negation, a number, a name, a modal, a party) between seven sentences that make no claim (an opinion said as one and one that isn't, a question, advice, thanks, a request and a proposal). The conflict sets are asked too, each sentence of the kind its key says (`claimKindOf`), and `en-long` and `zh-long`, every sentence of a language's sets in one Mind of about 80, as a long Note is asked.
+- **What it counts,** for each set, model and kind: how often a claim isn't named (left out, or undecided when no reply decided it even asked again, which the Mind says it didn't examine) and how often a sentence that makes no claim is named. A sentence with a figure is a claim without asking and isn't shown to the request; the report names those.
+- `INCARNAMIND_EVAL_REPEATS`: independent calls on each Mind (20). `INCARNAMIND_EVAL_REPEATS_SETS`: which sets (`en-conflicts,zh-conflicts,en-kinds,zh-kinds` by default). `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops past this many dollars (2).
+- **Cost and time:** 100 calls on each of the six Minds cost about $0.15 on Claude Haiku 5.5 and take about 4 minutes; 20 calls on each cost about $0.55 on Claude Sonnet 5.5.
 
 ## Scope of a check from a Mind
 
@@ -59,6 +68,42 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-10-29: every sentence gets its own decision when the claims are named (#1682)
+
+The claims request asked the model for the numbers of the sentences that make claims, and the app took every number it didn't list for a sentence that makes no claim, for good. Now the model decides each sentence ("claim" or "no", by its number), the sentences a reply says nothing of are asked about once more, in one request for their batch, and one still undecided isn't taken for one that makes no claim: it stays to check, the next Check asks about it again, and the line under the check says how many sentences it didn't examine.
+
+`npm run eval:claims`, `main` at 401f7af2f against this version, on the same day; 100 independent calls a Mind on Claude Haiku 5.5, 20 on Claude Sonnet 5.5. A claim is counted wrong when a call doesn't name it; a sentence that makes no claim, when a call names it.
+
+| Model | Language | Kind | `main` | This version |
+|---|---|---|---|---|
+| Haiku 5.5 | EN | modal | 200 of 2,000 | 200 of 2,000 |
+| Haiku 5.5 | ZH | modal | 168 of 2,200 | 8 of 2,200 |
+| Haiku 5.5 | ZH | party | 57 of 1,800 | 0 of 1,800 |
+| Haiku 5.5 | ZH | other | 1 of 2,400 | 0 of 2,400 |
+| Sonnet 5.5 | EN | modal | 40 of 400 | 36 of 400 |
+
+Every other kind (negation, number, name, party, other, and sentences that make no claim), in both languages and on both models, was 0 before and after. The Chinese negation of the conflict set ("试用期内任何一方都不得解除本合同。") was named in 100 of 100 calls on Haiku 5.5 and 20 of 20 on Sonnet 5.5, before and after, so it is an ordinary member of `zh-conflicts` again.
+
+- **What `main` left out:** "公司可以通知林晓在居家工作日到岗。" in 57 of 100 calls, and "林晓应事先与主管商定居家工作的日子。" in 99 of 100 in its Mind and 69 of 100 in the long one (after: 2 and 6 of 100; 1 and 9 in a second run). In other runs of `main` the same day: "The Director of People reports to the Employee." in 17 of 100 and 7 of 40 calls in the long English Mind, which the reply skipped in a run of numbers ("…30, 31, 33, 34…"), and advice and an opinion named in 25 of 700. No call of this version's wording left a sentence undecided: 0 in 2,400.
+- **Left out by both:** "Tunde should agree his home-working days with his manager in advance." in every call on Haiku 5.5 and in 36 of 40 on Sonnet 5.5, read as the writer's advice, which the request leaves out (#737). Whether the User's "should" is advice is the opinion rule's question, and #2002 shows the opinions a check leaves out.
+- **The request before sentences with figures skipped it** (the commit before #1932, every sentence shown): the list left out "公司可以通知林晓在居家工作日到岗。" in 100 of 100 calls in one version of `zh-kinds` (0 of 100 once two sentences were added before it) and the seven days' notice in 2 of 100; asking for every decision, none of them. There, though, a decision for each left out "Up to 5 unused days should be carried over into the next year." in 59 of 100 calls on Haiku 5.5 (0 with the list). Today that sentence has a figure and isn't asked.
+- **Wordings tried,** Haiku 5.5, 20 to 100 calls a Mind:
+
+| Reply | Claims not named | Sentences that make no claim named |
+|---|---|---|
+| The numbers of the claims (`main`) | as above | 25 of 700 in one run |
+| Two lists, claims and every other sentence | 15 of 480 (duties and permissions put in "other") | 0 |
+| The numbers of the sentences to leave out | 331 of 3,760 | 0 |
+| A decision for each (this version) | as above | 0 |
+| The same, and "when unsure, decide claim" | 0 | Sonnet 5.5: a proposal for a meeting in 35 of 60 calls |
+| The same, and "a sentence that says what someone must, should or may do is a claim" | "should be carried over" 81 of 100, before #1932 | Sonnet 5.5: thanks in 6 of 20 |
+| The same, and "when unsure whether a sentence states something or gives the writer's own view, decide claim" | 0, but the English "should agree" | Haiku 5.5: "总体来看，这份合同还算公平。" in 38 of 100 |
+
+- **The checks, `main` against this version, Haiku 5.5, 10 checks:** `en`, `zh`, `en-control` and `zh-control` gave each sentence the same verdicts but for single checks either way: the near miss about named days Contradicted once after, and a check not checked for a reply with no evidence in 5 checks before and 2 after. Conflicts Contradicted: 230 and 229 of 320 in English, 189 of 300 and 204 of 310 in Chinese, the negation now counted. Sonnet 5.5, 5 checks of the four sets and 2 of the conflict sets: the same verdicts, and 47 and 46 of 64, 45 and 46 of 62. Every sentence of these Minds was named in every check after.
+- **Cost and time:** the reply names every sentence, so it is about three times as long (44 to 173 tokens out before, 136 to 454 after); a call on Haiku 5.5 took 0.9 to 1.3 s before and 1.0 to 2.9 s after, on Sonnet 5.5 1.8 to 2.7 s and 2.5 to 3.3 s. A call costs at most $0.0004 on Haiku 5.5 and $0.008 on Sonnet 5.5, once a check for the sentences not sorted before, ahead of the checks it starts.
+- **Found on the way:** on `main`, conflicts whose sentence holds a figure ("The salary is 61,500 per month.", "乙方月工资为人民币两万元。", the rent, the laptop, the flat) come back not checked or unsupported in most checks, before and after this change.
+- **Spend:** about $21 over this work, Haiku 5.5 and Sonnet 5.5, at the app's own count.
 
 ### 2026-10-25: a check searches again before it says a sentence isn't found (#1608)
 

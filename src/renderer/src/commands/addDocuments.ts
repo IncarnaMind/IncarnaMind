@@ -8,6 +8,8 @@ const store = () => useAppStore.getState();
 export const addDocumentCommands: readonly Command[] = [
   {
     ...fromMenu("documents.add"),
+    // It waits for the User's choice in a file picker; the assistant adds a folder's files itself.
+    assistant: false,
     shortcut: { keys: MENU_COMMANDS["documents.add"].keys, notInText: true },
     keywords: ["documents.add.keywords"],
     group: "main",
@@ -17,6 +19,8 @@ export const addDocumentCommands: readonly Command[] = [
   // The one way in on day one (#1942): files and a folder are the same question.
   {
     id: "documents.addFilesOrFolder",
+    // It waits for the User's choice in a file picker; the assistant adds a folder's files itself.
+    assistant: false,
     // What this computer's dialog does: files and a folder on macOS, files elsewhere (#1942).
     label: (_ctx, t) => t(addFilesLabel()),
     keywords: ["documents.add.keywords"],
@@ -26,6 +30,8 @@ export const addDocumentCommands: readonly Command[] = [
   },
   {
     ...fromMenu("linkedFolder.add"),
+    // It waits for the User's choice in a file picker; the assistant adds a folder's files itself.
+    assistant: false,
     keywords: ["documents.add.linkFolder.keywords"],
     group: "main",
     reversible: true,

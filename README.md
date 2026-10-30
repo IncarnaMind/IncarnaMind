@@ -29,7 +29,7 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A wrong figure in a credit analyst's draft is marked in the margin. A click opens the page it contradicts, and checking the draft again turns the mark green. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A credit memo says 36.8% where the Q3 results say 38.6%, and the figure is marked in the margin. Then the app sorts scattered files, drafts from them, charts a spreadsheet with every bar linked to its cell, checks the whole memo and fixes the wrong figure in one click, exports to Word with footnotes, and takes notes on an expert call that cite what was said. Recorded in the app with Claude Sonnet 5.5."></p>
 
 <p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
@@ -37,11 +37,11 @@
 
 | System | File on the [Releases page](https://github.com/IncarnaMind/IncarnaMind/releases) |
 |---|---|
-| macOS (Apple silicon or Intel) | `.dmg` |
+| macOS on Apple silicon (M1 or later) | `.dmg` |
 | Windows | `.exe` |
 | Linux | `.deb` for Ubuntu and Debian, or `.AppImage` |
 
-Test builds change often and aren't signed yet, so your system warns you the first time. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
+Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
 
 <details>
 <summary>If your system won't open it</summary>
@@ -71,7 +71,7 @@ npm install && npm run dev
 | **Sort** | Link your folders. Organize suggests Folders and Tags. |
 | **Ask** | Ask all your documents at once, every page cited. |
 | **Write** | A Note is a notebook for one topic. The assistant's text stays grey until you edit it, and Undo takes it back. |
-| **Analyse** | Calculate and chart from spreadsheets, every input cited. From the next test build. |
+| **Analyse** | Calculate and chart from spreadsheets, every input cited. |
 | **Check** | Check a Note or any PDF against your files, sentence by sentence. |
 | **Compare** | Ask many documents the same questions and get one cited table. |
 | **Export** | Edit a Word file and save it back: untouched parts stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
@@ -84,7 +84,7 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 - Search OpenAlex, arXiv and PubMed for papers, save web pages, and import references from Zotero, BibTeX, RIS or CSL JSON.
 - Add MCP servers and `SKILL.md` Skills. Anything that could change something asks you first.
-- Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations (from the next test build).
+- Give [Claude Code](docs/claude-code.md), [Codex](docs/codex.md) or [Cursor](docs/cursor.md) the Folders you choose, with checked citations.
 - The whole app is in English and Chinese.
 
 </details>
@@ -108,10 +108,10 @@ Figures are compared as numbers. One rounded from the source passes, a different
 | Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
 | Checks your own draft | ✓ | ✗ | ✗ | ✗ |
 | Edits your Word file and saves it back | ✓ | ✗ | ✗ | ✗ |
-| Spreadsheet analysis | ✓² | ✓ | ✗ | ◐ |
+| Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
 | Meetings | ✓ | ✗ | ✗ | ✓ |
 
-<sub>✓ yes · ◐ partly, or not stated · ✗ not in their documentation. ¹ Formerly NotebookLM. ² From the next test build. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
+<sub>✓ yes · ◐ partly, or not stated · ✗ not in their documentation. ¹ Formerly NotebookLM. From each product's documentation, October 2026: [Gemini Notebook](https://support.google.com/gemininotebook/), [Open Notebook](https://github.com/lfnovo/open-notebook), [AnythingLLM](https://docs.anythingllm.com/).</sub>
 
 ## Privacy
 

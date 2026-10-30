@@ -119,6 +119,86 @@ async function setup(language: "en" | "zh-CN", heard = true) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: an explicit request for all Documents during an empty call keeps their text without Tools`, async () => {
+    const fact =
+      language === "en"
+        ? "Zircon vessels stabilize in forty-five days"
+        : "锆石容器在四十五天内稳定";
+    const model = scriptedModel((call) => {
+      if (call.tools.length > 0) {
+        return { error: { status: 400, message: "This model does not support tools" } };
+      }
+      const answer = call.prompt.includes(fact) ? fact : "No readable source.";
+      return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
+    });
+    const { core } = await transcribingCore(await createTempDataFolder(), { model });
+    await core.updateSettings({ user: { language } });
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-test",
+    });
+    if (provider.service) await core.allowDataFlow("chat", provider.service.id);
+    const folder = await createSourceFolder();
+    await addAndProcess(core, [await writeSourceFile(folder, "Zircon.txt", fact)]);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    const answer = await answerOf(
+      core,
+      await core.askInConversation({
+        mindId: meeting.mindId,
+        text: language === "en" ? "Summarize all Documents." : "请总结所有文档。",
+      }),
+    );
+    expect(answer.text).toContain(fact);
+  });
+
+  test(`${language}: Not covered yet has the whole guide even outside retrieved excerpts`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const answer = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    const first = calls.find((call) => call.prompt.includes("<help>"));
+    const supplied = first?.prompt.replace(
+      /<found-in-documents>[\s\S]*?<\/found-in-documents>/g,
+      "",
+    );
+    expect(supplied).toContain(fact);
+    expect(answer.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+  });
+
+  for (const heard of [false, true]) {
+    test(`${language}: an ordinary recap ${heard ? "with speech" : "before speech"} leaves Library facts out on ask and retry`, async () => {
+      const { core, meeting, calls, fact, spoken } = await setup(language, heard);
+      const first = await answerOf(
+        core,
+        await core.askInConversation({
+          mindId: meeting.mindId,
+          text: translate(language, "meeting.ask.recap"),
+        }),
+      );
+      const retried = await answerOf(
+        core,
+        await core.regenerateConversationAnswer({
+          conversationId: first.conversationId,
+          answerId: first.id,
+        }),
+      );
+      for (const answer of [first, retried]) {
+        expect(answer.text).not.toContain(fact);
+        expect(answer.citations).toHaveLength(heard ? 1 : 0);
+        if (heard) {
+          expect(answer.citations[0]?.quote).toBe(spoken);
+          expect(answer.citations[0]?.check).toBe("found");
+        }
+      }
+      expect(calls.every((call) => call.prompt.includes("<live-transcript>"))).toBe(true);
+      expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
+    });
+  }
+
   for (const action of actions) {
     test(`${language}: ${action.kind} ${action.documents ? "may cite Documents for its task" : "cites only the call"}`, async () => {
       const { core, meeting, guide, calls, fact, spoken } = await setup(language);

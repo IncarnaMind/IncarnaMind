@@ -61,17 +61,27 @@ describe("Documents", { timeout: 30_000 }, () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
 
-    const first = await core.saveTextAsDocument({ name: "Pasted: notes/1", text: ENGLISH_NOTES });
-    const second = await core.saveTextAsDocument({ name: "Pasted: notes/1", text: "Other words." });
+    const first = await core.saveTextAsDocument({
+      mindId: null,
+      conversationId: null,
+      name: "Pasted: notes/1",
+      text: ENGLISH_NOTES,
+    });
+    const second = await core.saveTextAsDocument({
+      mindId: null,
+      conversationId: null,
+      name: "Pasted: notes/1",
+      text: "Other words.",
+    });
 
     expect(first).toMatchObject({ name: "Pasted notes 1", kind: "markdown", linkedFolderId: null });
     expect(first.path).toMatch(/\/Saved text\/Pasted notes 1\.md$/);
     expect(first.path?.includes(realpathSync(dataDir))).toBe(true);
     expect(second.path).toMatch(/\/Saved text\/Pasted notes 1 2\.md$/);
     expect(await readFile(first.path as string, "utf8")).toBe(`${ENGLISH_NOTES}\n`);
-    await expect(core.saveTextAsDocument({ name: "x", text: "  \n" })).rejects.toThrow(
-      InvalidInputError,
-    );
+    await expect(
+      core.saveTextAsDocument({ mindId: null, conversationId: null, name: "x", text: "  \n" }),
+    ).rejects.toThrow(InvalidInputError);
   });
 
   test("adding a file indexes it where it is, under the SHA-256 of its content, without copying it", async () => {
@@ -346,7 +356,7 @@ describe("Documents", { timeout: 30_000 }, () => {
     const traditionalQuery = await core.searchPassages("經濟增長", { mode: "keyword" });
     expect(traditionalQuery.map((result) => result.documentId)).toEqual([growth?.id]);
     expect(traditionalQuery[0]?.text).toContain("经济增长依赖于");
-    // A Document's name is folded too, where it is indexed with each of its Passages.
+    // A Document's name is folded too, in its own keyword index.
     const byName = await core.searchPassages("季度报告", { mode: "keyword" });
     expect(byName.map((result) => result.documentName)).toEqual(["季度報告"]);
     expect(byName[0]?.documentId).toBe(report?.id);

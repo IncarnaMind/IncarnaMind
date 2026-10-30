@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { CLAIM_CHECK_INSTRUCTIONS, unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { scriptedModel } from "../helpers/models";
 
 const MINDS = [
@@ -53,7 +53,7 @@ describe("The quick model's verdict", () => {
     "已在新的 Mind 中整理好总结。",
   ])("an unmade claim is returned unbacked: %s", async (reply) => {
     const result = await check(
-      judge({ claims: [{ sentence: reply, kind: "changed", backed: false }] }),
+      judge({ claims: [{ sentence: reply, kind: "changed", about: "mind", backed: false }] }),
       reply,
     );
 
@@ -66,7 +66,7 @@ describe("The quick model's verdict", () => {
     const reply = "I've renamed the page to “Q3 summary”.";
     const sentence = 'I\'ve renamed the page to "Q3 summary".';
     const result = await check(
-      judge({ claims: [{ sentence, kind: "changed", backed: false }] }),
+      judge({ claims: [{ sentence, kind: "changed", about: "mind", backed: false }] }),
       reply,
     );
     expect(result.claims).toEqual(["changed"]);
@@ -85,8 +85,12 @@ describe("The quick model's verdict", () => {
 
   test("the record, not the old wording patterns, decides", async () => {
     const reply = "I added a risks section to “Q3 review”.";
-    const backed = judge({ claims: [{ sentence: reply, kind: "added", backed: true }] });
-    const unbacked = judge({ claims: [{ sentence: reply, kind: "added", backed: false }] });
+    const backed = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
+    });
+    const unbacked = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+    });
 
     expect((await check(backed, reply, [mindCall("add_to_mind", {})])).claims).toEqual([]);
     expect((await check(unbacked, reply, [mindCall("add_to_mind", null)])).claims).toEqual([
@@ -171,5 +175,75 @@ describe("The quick model's verdict", () => {
 
   test("an unreadable verdict finds nothing", async () => {
     expect((await check(judge("not JSON"), "An honest Answer.")).claims).toEqual([]);
+  });
+});
+
+describe("What the judge says the sentence is about (#2194)", () => {
+  const english = "I've sorted out what the Volunteer Handbook says.";
+  const chinese = "我整理了手册的要点。";
+
+  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
+    "about %s finds nothing",
+    async (about) => {
+      for (const reply of [english, chinese]) {
+        const result = await check(
+          judge({ claims: [{ sentence: reply, kind: "added", about, backed: false }] }),
+          reply,
+        );
+        expect(result.claims).toEqual([]);
+      }
+    },
+  );
+
+  // protects=a claim the judge calls a change to a Mind flags, backed false; fails_when=the line goes missing for a real claim; no_claim=none beyond protects.
+  test("about mind flags", async () => {
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }] }),
+        reply,
+      );
+      expect(result.claims).toEqual(["added"]);
+    }
+  });
+
+  // protects=a provider that ignores the schema, and a judge that omits or invents about, cannot silently drop a real claim: no about, and an unknown one, flag as they did before the field, in English and Chinese; fails_when=a claim is lost because the field is missing or unknown; no_claim=how a provider ignores the schema.
+  test.each(["omitted", "unknown"] as const)("about %s flags", async (how) => {
+    for (const reply of [english, chinese]) {
+      const claim =
+        how === "omitted"
+          ? { sentence: reply, kind: "added", backed: false }
+          : { sentence: reply, kind: "added", about: "Mind", backed: false };
+      const result = await check(judge({ claims: [claim] }), reply);
+      expect(result.claims).toEqual(["added"]);
+    }
+  });
+
+  // protects=the instructions ask the judge to say what each claim is about and to count only a Mind; fails_when=the field is asked for without the rule, or the rule without the field; no_claim=what a real model then answers (the pull request's runs).
+  test("the instructions ask for about, and only a Mind counts", () => {
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "For every claim, about says what the sentence is about",
+    );
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("Only a claim about a mind counts.");
+  });
+
+  // protects=the judge reads "mind" in the record's Tool names and fields as the Note it judges, where that word is; fails_when=the instructions say the record calls a Note a Mind, which its words no longer do; no_claim=how a real model then reads it.
+  test("the instructions say where the record says mind", () => {
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "The record's Tool names and fields say mind for a Note.",
+    );
+    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("A Note is called a Mind in the record.");
+  });
+});
+
+describe("The judge is told which revision is a change (#2194)", () => {
+  // protects=the judge reads a change to a Mind as a revision of text the assistant wrote into that Mind, not of "the assistant's own text", which every reply is; fails_when=the wording a small model read as a change to the reply itself comes back; no_claim=what a real model then judges (the pull request's before and after runs).
+  test("a revision is of text written into a Mind", () => {
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "A revision of text the assistant wrote into a Mind earlier is a change",
+    );
+    expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain(
+      "A revision of the assistant's own text is a change",
+    );
   });
 });

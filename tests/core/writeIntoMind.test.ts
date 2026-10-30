@@ -48,8 +48,8 @@ const QUOTES = LEASES.map(
 );
 const CITED = QUOTES.map((quote, index) => `${quote} [^${index + 1}].`).join("\n\n");
 
-const WRITE_COMMAND = "The write command is create_mind for a new Mind";
-const AS_A_DOCUMENT = "To put your last Answer into a Mind as it is";
+const WRITE_COMMAND = "The write command is create_mind for a new Note";
+const AS_A_DOCUMENT = "To put your last Answer into a Note as it is";
 
 /** The instructions of the request that offers the Minds' Tools. */
 const withMindTools = (systems: readonly string[]) =>
@@ -136,7 +136,7 @@ describe("A request to write something (#1109)", { timeout: 60_000 }, () => {
 
     await askAssistant(core, { text: "根据我现有的文件帮我写一份summary", mindId: empty.id });
 
-    expect(withMindTools(systems)).toContain("The Mind in <mind> is open and still empty");
+    expect(withMindTools(systems)).toContain("The Note in <mind> is open and still empty");
     expect(withMindTools(systems)).toContain(WRITE_COMMAND);
   });
 });
@@ -182,7 +182,7 @@ describe("“Make it a document” after an Answer (#1109)", { timeout: 60_000 }
 
       expect(withMindTools(systems)).toContain(AS_A_DOCUMENT);
       expect(withMindTools(systems)).toContain(
-        "give answer: true to add_to_mind for the Mind in <mind>, or to create_mind",
+        "give answer: true to add_to_mind for the Note in <mind>, or to create_mind",
       );
       expect(second.flatMap((call) => call.results.map((each) => each.tool))).not.toContain(
         "search_documents",
@@ -210,7 +210,7 @@ function summaryOfShown(call: ModelCall): ScriptedReply {
   if (called(call, "create_mind") || called(call, "add_to_mind")) return { text: "Done." };
   const content = citations.map((each) => `${each.quote} [^${each.marker}].`).join("\n\n");
   // As a model does, it writes where it is told: into the empty Mind in front, or into a new Mind.
-  return call.system.includes("The Mind in <mind> is open and still empty")
+  return call.system.includes("The Note in <mind> is open and still empty")
     ? { calls: [{ tool: "add_to_mind", input: { content } }] }
     : { calls: [{ tool: "create_mind", input: { title: "Summary", content } }] };
 }
@@ -267,7 +267,7 @@ describe("A request to write from part of the Documents (#1149)", { timeout: 60_
       expect(proposalRequestOf(summary.doc, changes[0]?.request ?? "")).toMatchObject({
         requested: "write",
       });
-      expect(lastResult(model)).toContain("applies in the Mind at once");
+      expect(lastResult(model)).toContain("applies in the Note at once");
       const summaries = (await core.listMinds()).filter((each) => each.title === "Summary");
       expect(summaries.map((each) => each.id)).toEqual([made?.mindId]);
       await resolveChanges(summary, "accept");
@@ -344,6 +344,57 @@ async function useAll(core: Core, answer: Awaited<ReturnType<typeof askAssistant
   if (rewritten?.kind !== "answer") throw new Error("No Answer.");
   return rewritten;
 }
+
+/**
+ * Searches, then writes the rents into a Mind with no Citation; told it has none (#1415), it
+ * writes it again as it was.
+ */
+function uncitedSummary(call: ModelCall): ScriptedReply {
+  if (!called(call, "search_documents")) {
+    return { calls: [{ tool: "search_documents", input: { query: "monthly rent" } }] };
+  }
+  const writes = call.results.filter((each) => each.tool === "create_mind");
+  const refused = writes.length === 1 && writes[0]?.text.includes("content has no Citation");
+  if (writes.length > 0 && !refused) return { text: "Done." };
+  return {
+    calls: [{ tool: "create_mind", input: { title: "Summary", content: QUOTES.join("\n\n") } }],
+  };
+}
+
+describe("Use all of a summary with no Citation (#1415)", { timeout: 60_000 }, () => {
+  // protects=Use all writes an accepted uncited summary again in place through the same check as a new write: refused once, then, written again as it was, marked uncited, so the line under the Answer stays; fails_when=the rewrite in place is taken unchecked or unmarked, or makes a second Mind; no_claim=the line's words (tests/renderer/changeProblems.test.ts).
+  test("refused once, and written again as it was, marked uncited", async () => {
+    const model = scriptedModel(uncitedSummary);
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const writes = (answer: Awaited<ReturnType<typeof askAssistant>>) =>
+      mindCalls(answer).map((call) => [call.status, call.mindProblem?.kind ?? null]);
+    expect(writes(first)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    const made = changesIn(first)[0];
+    expect(made).toMatchObject({ created: true, uncited: true });
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+
+    const rewritten = await useAll(core, first);
+
+    expect(writes(rewritten)).toEqual([
+      ["failed", "uncited"],
+      ["done", null],
+    ]);
+    expect(changesIn(rewritten)).toEqual([
+      expect.objectContaining({ mindId: made?.mindId, created: false, uncited: true }),
+    ]);
+    const summaries = (await core.listMinds()).filter((each) => each.title === "Summary");
+    expect(summaries.map((each) => each.id)).toEqual([made?.mindId]);
+  });
+});
 
 describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () => {
   // protects=in an empty Mind, a request to write fills it, and Use all writes that same text again from every Document in its place, as one asked change, with no new Mind; rejected, it leaves the 2-Document text; fails_when=Use all makes a new Mind, or Undo leaves an empty Mind; no_claim=the window's own Undo step.

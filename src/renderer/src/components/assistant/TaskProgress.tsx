@@ -1,16 +1,20 @@
 import { Fragment, type ReactNode, useEffect, useId, useState } from "react";
 import type { Task, TaskStep } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
+import type { CommandId } from "../../../../shared/commands";
 import { formatDateTime } from "../../../../shared/dates";
 import { RESEARCH_TASK } from "../../../../shared/research";
+import { shortcutLabel } from "../../commands/keymap";
 import { core } from "../../core";
 import { formatMoney } from "../../cost";
+import { withShortcut } from "../../editor/withShortcut";
 import { useLanguage, useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
+import { taskOffers } from "../../taskActions";
 import { needsYou } from "../../taskGroups";
 import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tasks";
-import { stepLine, taskName } from "../../taskText";
+import { failedLine, stepLine, taskName } from "../../taskText";
 import { CheckLineIcon } from "../lineIcons";
 import { MetaLine } from "../MetaLine";
 
@@ -40,7 +44,7 @@ function useMinutes(since: string, until: string | null): number {
 function headLine(task: Task, minutes: number, t: Translate): string[] {
   const time = t("task.minutes", { count: minutes });
   if (task.status === "done") return [t("task.progress.doneIn", { time })];
-  if (task.status === "failed") return [t("task.status.failed")];
+  if (task.status === "failed") return [failedLine(task, t)];
   if (task.status === "stopped") return [t("task.status.stopped")];
   const progress = task.progress;
   if (!progress || progress.total === 0) return [time];
@@ -132,7 +136,8 @@ function useAllSteps(task: Task, wanted: boolean): readonly TaskStep[] | null {
  * steps: the live dot and its name, how far it is; a 3px bar; "Show all N
  * steps"; its latest steps, ✓ when done and a dot on the one it is on; then
  * what its kind lets the User do (Plan · Tell it… · Pause · Stop). Done, it
- * says how long it took, and offers Review and Details.
+ * says how long it took, and offers Plan (a Research's steps it ran), Review
+ * and Details; Stop names the keys that do it.
  */
 export function TaskProgress({
   task,
@@ -169,11 +174,18 @@ export function TaskProgress({
     label: string;
     onClick(): void;
     strong?: boolean;
+    /** The keys that do the same, for the tooltip. */
+    shortcut?: CommandId;
   }[] = [];
   const offer = (key: string, label: string, onClick: () => void, testId = key) =>
     offered.push({ key, testId, label, onClick });
   const has = (action: Task["actions"][number]) => task.actions.includes(action);
   if (finished) {
+    // Its plan stays: a finished Research shows the steps it ran.
+    if (has("plan") && actions.plan) {
+      const showPlan = actions.plan;
+      offer("plan", t("task.action.plan"), () => showPlan(task));
+    }
     if (task.status === "done") {
       offered.push({
         key: "review",
@@ -191,11 +203,21 @@ export function TaskProgress({
     if (task.status === "paused" && task.pausedReason === "cost-cap") {
       offer("cap", t("answer.error.changeCap"), () => openSettings("general"));
     }
-    if (has("pause") && live) offer("pause", t("task.pause"), () => void pauseTask(task.id));
-    if (has("pause") && task.status === "paused" && task.ask === null) {
+    if (taskOffers(task, "pause")) {
+      offer("pause", t("task.pause"), () => void pauseTask(task.id));
+    }
+    if (taskOffers(task, "resume")) {
       offer("pause", t("task.resume"), () => void resumeTask(task.id), "resume");
     }
-    if (has("stop")) offer("stop", t("task.stop"), () => void stopTask(task.id));
+    if (taskOffers(task, "stop")) {
+      offered.push({
+        key: "stop",
+        testId: "stop",
+        label: t("task.stop"),
+        onClick: () => void stopTask(task.id),
+        shortcut: "task.stop",
+      });
+    }
   }
 
   return (
@@ -321,6 +343,10 @@ export function TaskProgress({
                   ? "task-progress-action task-progress-action--strong"
                   : "task-progress-action"
               }
+              {...withShortcut(
+                action.label,
+                action.shortcut ? shortcutLabel(action.shortcut) : undefined,
+              )}
             >
               {action.label}
             </button>

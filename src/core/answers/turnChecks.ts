@@ -7,14 +7,21 @@
  * left is flagged, by every check, the same way: an Answer flagged with
  * Regenerate (`claims-unbacked`).
  */
-import type { ClaimedChange } from "../api";
+import type { ClaimedChange, ClaimedTool } from "../api";
 
 /** What a check found wrong in the reply. */
 export interface TurnFinding {
   /** What to tell the model so it writes the reply again. */
   note: string;
+  /**
+   * The Tool the model calls first when asked: a record it names and never made. Claude Haiku
+   * 5.5, told to call `cite`, wrote the same reply again in about one ask in twenty.
+   */
+  requires?: string;
   /** What flags the reply if it stands: none, for a check that only asks. */
   claims: readonly ClaimedChange[];
+  /** The Tools the reply says ran that didn't (#1796), which flag it too. */
+  tools?: readonly ClaimedTool[];
 }
 
 export interface TurnCheck {
@@ -43,8 +50,18 @@ export function createNudges(maxSteps: number, steps: () => number): Nudges {
   };
 }
 
-/** What the checks make of a reply: to ask the model once more, or the claims to flag it with. */
-export type Settled = { nudge: string } | { claims: ClaimedChange[] };
+/** What flags a reply that stands: the changes and the Tools it claims that none of its calls made. */
+export interface Flags {
+  claims: ClaimedChange[];
+  tools?: ClaimedTool[];
+}
+
+/**
+ * What the checks make of a reply: to ask the model once more (and the Tools
+ * the ask is about, which the Answer shows as a step, and the one it must call
+ * first), or what to flag it with.
+ */
+export type Settled = { nudge: string; requires?: string; tools?: readonly ClaimedTool[] } | Flags;
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -52,20 +69,25 @@ export async function settleReply(
   nudges: Nudges,
 ): Promise<Settled> {
   const claims = new Set<ClaimedChange>();
+  const tools = new Set<ClaimedTool>();
   for (const each of checks) {
     const found = await each.check(reply);
     if (!found) continue;
-    if (found.note && nudges.take(each.name)) return { nudge: found.note };
+    if (found.note && nudges.take(each.name)) {
+      return {
+        nudge: found.note,
+        ...(found.requires && { requires: found.requires }),
+        ...(found.tools && found.tools.length > 0 && { tools: found.tools }),
+      };
+    }
     for (const claim of found.claims) claims.add(claim);
+    for (const tool of found.tools ?? []) tools.add(tool);
   }
-  return { claims: [...claims] };
+  return { claims: [...claims], ...(tools.size > 0 && { tools: [...tools] }) };
 }
 
 /** What flags a reply that is not asked about again. */
-export const claimsOf = async (
-  checks: readonly TurnCheck[],
-  reply: string,
-): Promise<ClaimedChange[]> => {
+export const flagsOf = async (checks: readonly TurnCheck[], reply: string): Promise<Flags> => {
   const settled = await settleReply(checks, reply, { take: () => false });
-  return "claims" in settled ? settled.claims : [];
+  return "claims" in settled ? settled : { claims: [] };
 };

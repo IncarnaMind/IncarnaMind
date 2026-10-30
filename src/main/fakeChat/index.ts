@@ -11,8 +11,10 @@
  * and a rate limit (429) do, and as a request that never reaches the provider does. A model whose id ends
  * "-not-found" fails as one its provider doesn't know when it answers; one ending "-claims-not-found"
  * does when it finds or checks claims; one ending "-claims-offline" can't reach its provider the
- * first time it finds claims. A key with "refused" in it is refused,
- * as a provider refuses a wrong key (HTTP 401). A model whose id ends "-no-tools" refuses
+ * first time it finds claims; one ending "-claims-undecided" says nothing of the last sentence
+ * it is shown when it finds claims, however often it is asked. A key with "refused" in it is refused,
+ * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
+ * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
@@ -132,6 +134,14 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           requestBodyValues: {},
           isRetryable: false,
         });
+      }
+      if (spec.modelId.endsWith("-claims-undecided") && findsClaims(options)) {
+        return {
+          content: [{ type: "text", text: fakeClaims(options, { undecidedLast: true }) ?? "" }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage: USAGE,
+          warnings: [],
+        };
       }
       if (tagsSlowly(options)) await new Promise((resolve) => setTimeout(resolve, SLOW_TAGGING_MS));
       if (tagsUnreachable(options)) {

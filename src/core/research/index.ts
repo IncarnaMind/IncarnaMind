@@ -19,12 +19,14 @@
  */
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
+import { cutTitle } from "../../shared/naming";
 import {
   MAX_RESEARCH_STEP,
   MAX_RESEARCH_STEPS,
   MAX_RESEARCH_TOPIC,
   RESEARCH_TASK,
 } from "../../shared/research";
+import { filingFolder } from "../../shared/searchScope";
 import type { CellAnswer } from "../answers";
 import type { QuestionContext } from "../answers/context";
 import type {
@@ -77,6 +79,10 @@ interface ResearchInput {
   plan: ResearchPlan;
   sources: ResearchSources;
   writeInto: ResearchTarget;
+  /** It made its own Mind at its Start, so the draft's Folder is that Mind's too. */
+  ownMind: boolean;
+  /** The Folder wall it was started behind; null: outside every wall. */
+  wallId: string | null;
   scope: SearchScope | null;
   providerId: string;
   modelId: string;
@@ -129,8 +135,12 @@ export interface ResearchOptions extends FinishOptions {
   };
   /** A Mind's name, as the window shows it; null once it is gone. */
   mindName(mindId: string): string | null;
-  /** The ids of the live Documents a Search scope covers; null with none (every Document). */
-  resolveScope(scope: SearchScope): string[] | null;
+  /** The Folder wall of a Mind, or null for ordinary scope. */
+  walledFolder(mindId: string | null): string | null;
+  /** The Folder itself when it is walled now; null for any other, or none. */
+  walledFolderId(folderId: string | null): string | null;
+  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
+  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
   tasks: {
@@ -229,6 +239,9 @@ function inputOf(input: unknown): ResearchInput | null {
     plan: { title: plan.title, steps: plan.steps as string[] },
     sources: { web: sources.web, library: sources.library },
     writeInto: target,
+    ownMind: input.ownMind === true,
+    // A Task started before Folders could be walled was started outside every wall.
+    wallId: typeof input.wallId === "string" ? input.wallId : null,
     scope: within,
     providerId,
     modelId,
@@ -420,9 +433,7 @@ export function createResearch(options: ResearchOptions) {
       said: task.messages(),
     });
     const documentIds = input.sources.library
-      ? input.scope
-        ? options.resolveScope(input.scope)
-        : null
+      ? options.scopeDocuments(input.scope, task.mindId)
       : [];
     task.started(key);
     const attempt = task.step(key)?.attempts ?? 1;
@@ -617,7 +628,8 @@ export function createResearch(options: ResearchOptions) {
 
     async plan(given: PlanResearchInput): Promise<ResearchPlanResult> {
       if (!isRecord(given)) throw new InvalidInputError({ key: "error.research.plan" });
-      options.requireMind(given.mindId);
+      // With no Mind in focus there is no Mind to plan into; the plan lives on the card until Start.
+      if (given.mindId !== null) options.requireMind(given.mindId);
       const topic = text(given.topic, "error.research.topic", MAX_RESEARCH_TOPIC);
       const sources = parseSources(given.sources);
       const model = parseModel(given.model);
@@ -674,23 +686,44 @@ export function createResearch(options: ResearchOptions) {
       if (!isRecord(given) || !isRecord(given.plan)) {
         throw new InvalidInputError({ key: "error.research.plan" });
       }
-      const mindId = options.requireMind(given.mindId);
+      const asked = given.mindId === null ? null : options.requireMind(given.mindId);
       const topic = text(given.topic, "error.research.topic", MAX_RESEARCH_TOPIC);
       const plan: ResearchPlan = {
         title: text(given.plan.title, "error.research.step", MAX_RESEARCH_STEP),
         steps: parseSteps(given.plan.steps),
       };
       const sources = parseSources(given.sources);
-      const writeInto = parseTarget(given.writeInto);
-      if ("mindId" in writeInto) options.requireMind(writeInto.mindId);
-      const scope = options.searchedScope(parseSearchScope(given.scope), mindId);
+      const chosen = parseTarget(given.writeInto);
+      const chosenMind = "mindId" in chosen ? options.requireMind(chosen.mindId) : null;
+      // Read before anything is made: a scope that can't be read makes no Mind to leave behind.
+      const within = parseSearchScope(given.scope);
       const ready = await readyModel(parseModel(given.model));
       if (!("model" in ready)) return ready;
+      // With no Mind in focus, the new Mind its draft goes into is the Task's own, made first so
+      // its progress shows there from the start; a Mind chosen to write into is that Mind.
+      const ownMind = asked === null && !("mindId" in chosen);
+      // With no Mind in focus, a scope of one walled Folder is work inside it (#1934).
+      const wall =
+        asked === null
+          ? options.walledFolderId(filingFolder(within, null))
+          : options.walledFolder(asked);
+      const filed = options.filedWithin(wall, null);
+      if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
+      const mindId =
+        asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), filed.folderId);
+      const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
+      const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
+      if (wall !== options.walledFolder(targetMind)) {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      }
+      const scope = options.searchedScope(within, targetMind);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {
         topic,
         plan,
         sources,
         writeInto,
+        ownMind,
+        wallId: wall,
         scope,
         providerId: ready.model.providerId,
         modelId: ready.model.modelId,

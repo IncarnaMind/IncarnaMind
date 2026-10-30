@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { nodeOf } from "../../src/core/answers/blocks";
+import { plainText } from "../../src/core/mindText";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
+import {
+  calculatedFiguresIn,
+  figureRunsFor,
+  figureRunsOfAnswer,
+} from "../../src/shared/figureRuns";
+import { askAssistant } from "../helpers/assistant";
 import { answerEnded, type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -186,6 +195,31 @@ describe("an Analysis an Answer runs", () => {
     ]);
   });
 
+  test.each([
+    ["en", "Which year does the sheet cover?"],
+    ["zh-CN", "这张表覆盖哪一年？"],
+  ])("%s keeps a figure result labelled Year raw", async (_language, asked) => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('result("year", 2026, "Year")')],
+      answer: "The sheet covers [=1].",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [{ kind: "figure", name: "year", label: "Year", unit: null, value: 2026 }],
+      },
+    }));
+    const { answer } = await askAndRead(core, asked);
+    expect(answer.figures).toEqual([
+      expect.objectContaining({
+        value: 2026,
+        shown: "2026",
+        analysis: { analysis: 1, result: "year" },
+      }),
+    ]);
+    expect(told(model, "run_analysis")[0]).toContain("Year: 2026");
+  });
+
   test("calculate cannot replace an Analysis marker and can use a new marker", async () => {
     const model = scriptedModel((call) => {
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -320,7 +354,7 @@ describe("an Analysis an Answer runs", () => {
     expect(kept[0]?.pages).toBeGreaterThan(0);
   });
 
-  test("Add to note serializes the Analysis figure as text without new persisted Mind attributes", async () => {
+  test("Add to note owns the Analysis figure and its used run after its conversation is purged", async () => {
     const model = analysingModel({
       query: "revenue",
       runs: [salesRun()],
@@ -330,21 +364,127 @@ describe("an Analysis an Answer runs", () => {
     const { answer } = await askAndRead(core, "What was the total revenue?");
     const mind = await core.createMind({ title: "Revenue" });
 
+    const blocks = answerBlocks(answer);
     await core.addToNote({
       mindId: mind.id,
-      blocks: answerBlocks(answer),
+      blocks,
+      figureRuns: figureRunsOfAnswer(answer, blocks),
       model: answer.model,
       origin: null,
     });
     const reader = await connectToMind(core, mind.id);
     const read = readMind(reader);
-
-    expect(read.textContent).toContain("350.5");
-    const serialized = JSON.stringify(read.toJSON());
-    expect(serialized).not.toContain('"analyses"');
-    expect(serialized).not.toContain('"analysis"');
-    expect(serialized).not.toContain('"code"');
+    expect(
+      reader.blocks
+        .toArray()
+        .flatMap((node) =>
+          node instanceof Y.XmlElement || node instanceof Y.XmlText ? [plainText(node)] : [],
+        )
+        .join("\n"),
+    ).toContain("350.5");
+    const figures = calculatedFiguresIn(read.toJSON().content ?? []);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({
+      value: 350.5,
+      analysis: { analysis: 1, result: "total" },
+    });
+    const retained = () =>
+      figureRunsFor(
+        reader.doc,
+        reader.blocks
+          .toArray()
+          .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : [])),
+      );
+    expect(retained()).toEqual([
+      expect.objectContaining({
+        code: answer.analyses[0]?.code,
+        inputs: answer.analyses[0]?.inputs,
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+    expect(retained()[0]).not.toHaveProperty("output");
+    expect(figures[0]?.figure).not.toHaveProperty("code");
     expect((await core.getConversation(answer.conversationId)).messages).toContainEqual(answer);
+    await core.deleteConversation(answer.conversationId);
+    await core.deletePermanently([{ kind: "conversation", id: answer.conversationId }]);
+    expect(retained()[0]?.values[0]?.value).toBe(350.5);
+  });
+
+  test("an Analysis figure the assistant writes into a Note is a figure there, with its used run (#439)", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      if (!call.results.some((result) => result.tool === "add_to_mind"))
+        return {
+          calls: [{ tool: "add_to_mind", input: { content: "Revenue came to [=1] in total." } }],
+        };
+      return { text: "" };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    await askAssistant(core, { text: "Add the total revenue to the note", mindId: mind.id });
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    const figures = calculatedFiguresIn(blocks);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.figure).toMatchObject({ value: 350.5, analysis: { result: "total" } });
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
+  });
+
+  test("a follow-up that writes the last Answer into a Note brings that Answer's Analysis run with its figure", async () => {
+    const model = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (call.prompt.includes("Put that in the note")) {
+        if (!call.results.some((result) => result.tool === "add_to_mind"))
+          return { calls: [{ tool: "add_to_mind", input: { answer: true } }] };
+        return { text: "Added." };
+      }
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis"))
+        return { calls: [salesRun()(searches.flatMap((each) => shownPassages(each.text)))] };
+      return { text: "Revenue came to [=1] in total." };
+    });
+    const { core } = await setUp(model, totalOf);
+    const mind = await core.createMind({ title: "Revenue" });
+    const first = await askAssistant(core, {
+      text: "What was the total revenue?",
+      mindId: mind.id,
+    });
+    expect(first.analyses).toHaveLength(1);
+    const added = await askAssistant(core, {
+      text: "Put that in the note",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+    expect(added.analyses).toHaveLength(0);
+
+    const reader = await connectToMind(core, mind.id);
+    const blocks = reader.blocks
+      .toArray()
+      .flatMap((node) => (node instanceof Y.XmlElement ? [nodeOf(node)] : []));
+    expect(calculatedFiguresIn(blocks)).toHaveLength(1);
+    expect(figureRunsFor(reader.doc, blocks)).toEqual([
+      expect.objectContaining({
+        values: [
+          { kind: "figure", name: "total", label: "Total revenue", unit: "USD", value: 350.5 },
+        ],
+      }),
+    ]);
   });
 
   test("an Analysis call survives the unchanged Mind editor schema's serialization", async () => {
@@ -421,7 +561,9 @@ describe("an Analysis an Answer runs", () => {
       const input = answer.analyses[0]?.inputs[0];
       if (input?.kind !== "range") throw new Error("No range input.");
 
-      expect(await core.recheckCitation(input.citation)).toMatchObject({ check: "found" });
+      expect(await core.recheckCitation({ ...input.citation, mindId: null })).toMatchObject({
+        check: "found",
+      });
     },
   );
 
@@ -577,5 +719,137 @@ describe("an Analysis an Answer runs", () => {
 
     expect(offered.at(0)).toBe(false);
     expect(offered.at(-1)).toBe(true);
+  });
+});
+
+describe("an Analysis table writes its numbers as the Answer's language does (#2102)", () => {
+  const table = (name: string, columns: string[], rows: (string | number)[][]) => ({
+    kind: "table" as const,
+    name,
+    label: name,
+    unit: null,
+    table: { columns, rows, rowCount: rows.length, columnCount: columns.length },
+  });
+
+  const amounts = table(
+    "amounts",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", -1284.5],
+      ["East", 0.7717546362339514],
+      ["Precise", 12.5],
+    ],
+  );
+  const strings = table(
+    "strings",
+    ["Region", "Revenue"],
+    [
+      ["North", 7509964],
+      ["South", "7509964"],
+      ["East", "7,509,964"],
+      ["West", "n/a"],
+      ["Padded", "12.50"],
+      ["Huge", "9007199254740993"],
+      ["Exponent", "1e3"],
+      ["Exact", "1.5e3"],
+      ["Grouped", "1234.50"],
+      ["Zeroed", "02139"],
+    ],
+  );
+  const postcodes = table("postcodes", ["Postcode"], [["02139"]]);
+  const identifiers = table(
+    "identifiers",
+    ["ID", "Code", "No.", "number", "编号", "代码", "序号"],
+    [[7509964, "7509964", 1284, 2024, 7509964, "0012", 2026]],
+  );
+  const periods = table(
+    "periods",
+    [
+      "Year",
+      "FY",
+      "Period",
+      "Quarter",
+      "Fiscal year",
+      "Financial year",
+      "Reporting period",
+      "年",
+      "年份",
+      "年度",
+      "期间",
+      "季度",
+      "财年",
+      "会计年度",
+      "报告期",
+    ],
+    [Array.from({ length: 15 }, () => 2026)],
+  );
+  const headings = table(
+    "headings",
+    [
+      "Year (FY)",
+      "年份（财年）",
+      "Period (quarter)",
+      "Revenue per year (£)",
+      "Yearly revenue",
+      "年收入",
+      "FY 2024",
+    ],
+    [[2026, 2026, 2026, 1284, 1284, 1284, 2024]],
+  );
+  const chart = {
+    kind: "bar" as const,
+    title: "Revenue",
+    x: "Region",
+    y: ["Revenue"],
+    table: {
+      columns: ["Region", "Revenue"],
+      rows: [["North", 7509964]],
+      rowCount: 1,
+      columnCount: 2,
+    },
+  };
+
+  const answer =
+    "[=table 1]\n\n[=table 2]\n\n[=table 3]\n\n[=table 4]\n\n[=table 5]\n\n[=table 6]\n\n[=chart 1]";
+
+  test.each([
+    ["en", "What were the figures?"],
+    ["zh-CN", "这些数字分别是多少？"],
+  ])("%s groups every thousand and keeps identifiers and periods raw", async (_language, asked) => {
+    const model = analysingModel({ query: "revenue", runs: [salesRun()], answer });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [amounts, strings, identifiers, periods, headings, postcodes],
+        charts: [chart],
+      },
+    }));
+
+    const { answer: read } = await askAndRead(core, asked);
+
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).toContain("| South | -1,284.5 |");
+    expect(read.text).toContain("| East | 0.7718 |");
+    expect(read.text).toContain("| Precise | 12.5 |");
+    expect(read.text).toContain("| South | 7,509,964 |");
+    expect(read.text).toContain("| East | 7,509,964 |");
+    expect(read.text).toContain("| West | n/a |");
+    expect(read.text).toContain("| Padded | 12.50 |");
+    expect(read.text).toContain("| Huge | 9,007,199,254,740,993 |");
+    expect(read.text).toContain("| Exponent | 1e3 |");
+    expect(read.text).toContain("| Exact | 1.5e3 |");
+    expect(read.text).toContain("| Grouped | 1,234.50 |");
+    expect(read.text).toContain("| Zeroed | 02139 |");
+    expect(read.text).toContain("| 02139 |");
+    expect(read.text).toContain("| 7509964 | 7509964 | 1284 | 2024 | 7509964 | 0012 | 2026 |");
+    expect(read.text).toContain(
+      "| 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 | 2026 |",
+    );
+    expect(read.text).toContain("| 2026 | 2026 | 2026 | 1,284 | 1,284 | 1,284 | 2,024 |");
+    expect(read.text).toContain("| North | 7,509,964 |");
+    expect(read.text).not.toContain("| North | 7509964 |");
+
+    // The report the model reads writes the same table the same way.
+    expect(told(model, "run_analysis")[0]).toContain("| North | 7,509,964 |");
   });
 });

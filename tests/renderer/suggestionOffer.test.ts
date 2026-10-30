@@ -15,6 +15,7 @@ const updateSettings = vi.fn(async (patch: { device?: Partial<Settings["device"]
 }));
 const bridge = {
   on: () => () => undefined,
+  readyQuestion: async () => null,
   suggestNext,
   updateSettings,
 };
@@ -99,7 +100,6 @@ describe("a pause while suggestions are off", () => {
         linkedFolderId: "examples",
         answerId: "example-answer",
         more: [],
-        ready: null,
       } satisfies Examples,
     });
     suggestNext.mockResolvedValue({ kind: "off", scopeHasDocuments: true });

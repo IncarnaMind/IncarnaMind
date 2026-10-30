@@ -70,7 +70,7 @@ jobs:
               heavy=false
             fi
             # Only a change to what the packaged real-engine checks cover runs them.
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/embedding/download\.ts$|src/main/(meetings/|scanReader(Process)?\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-transcription/|workflows/ci\.yml$))'; then
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/(embedding|reranking)/(download|onnx)\.ts$|src/core/engineModules\.ts$|src/main/(meetings/|engine(Process|Environment|Check)\.ts$|(embedder|reranker|scanReader)(Process)?\.ts$|(index|sandbox|analysis|analysisPaths)\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|scripts/(afterPack|check-package)\.mjs$|scripts/pythonRuntime\.ts$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-(transcription|speech-windows|engines)/|workflows/ci\.yml$))'; then
               packaged=true
             fi
           fi
@@ -211,10 +211,11 @@ jobs:
             test "${{ needs.unit.result }}" = skipped
           fi
 
-  # The packaged app, as the User installs it, reads scans with its real OCR (#1819) and transcribes
-  # a meeting with its real speech engine and model (#1239): engine failures can appear only there,
-  # while every test passes on the fakes. macOS runners are few, so a pull request runs these only
-  # when it changes what they cover; the nightly run and the release always do. Not a required check.
+  # The packaged app, as the User installs it, loads every engine module the way it runs them,
+  # reads scans with its real OCR (#1819) and transcribes a meeting with its real speech engine and
+  # model (#1239): engine failures can appear only there, while every test passes on the fakes.
+  # macOS runners are few, so a pull request runs these only when it changes what they cover; the
+  # nightly run and the release always do. Not a required check.
   packaged-transcription:
     name: Packaged app's real engines (macOS)
     needs: changes
@@ -235,16 +236,45 @@ jobs:
         run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
       - uses: ./.github/actions/packaged-transcription
 
-  packaged-agents:
-    name: Packaged agent connection (${{ matrix.os }})
+  # The packaged Windows app loads every engine module the way it runs them (#1239), and transcribes
+  # a meeting with the speech engine on the app's own ONNX Runtime library, which keeps its usage
+  # events out of Windows' diagnostic data (#2152). Runs on the same changes as the macOS job; the
+  # nightly run always does. Not a required check.
+  packaged-speech-windows:
+    name: Packaged app's speech engine (Windows)
     needs: changes
-    if: needs.changes.outputs.agents == 'true'
+    if: needs.changes.outputs.packaged == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Package the app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:dir
+      - name: Check the package
+        run: npm run check:package
+      - uses: ./.github/actions/packaged-engines
+      - uses: ./.github/actions/packaged-speech-windows
+
+  # An outside agent connects to the packaged app (Windows and Linux), and the packaged Linux app
+  # loads every engine module the way it runs them (#1239). Windows builds only for the connection:
+  # its engines load in the job above. Not a required check.
+  packaged-app:
+    name: Packaged app (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.agents == 'true' || needs.changes.outputs.packaged == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: ${{ fromJSON(needs.changes.outputs.agents == 'true' && '["windows-latest", "ubuntu-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -261,16 +291,19 @@ jobs:
         run: |
           node -e 'const fs=require("node:fs"), path=require("node:path"); const app=process.platform==="win32"?"dist/win-unpacked/IncarnaMind.exe":"dist/linux-unpacked/incarnamind"; fs.appendFileSync(process.env.GITHUB_ENV,"INCARNAMIND_PACKAGED_APP="+path.resolve(app)+"\n");'
       - name: Let the Linux sandbox start
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.agents == 'true'
         run: |
           sudo chown root:root dist/linux-unpacked/chrome-sandbox
           sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
       - name: Check the packaged connection on Linux
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.agents == 'true'
         run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
       - name: Check the packaged connection on Windows
         if: runner.os == 'Windows'
         run: npm run test:packaged -- agentConnection.packaged.ts
+      # After the connection, so that a change to either still hears about both.
+      - if: ${{ !cancelled() && runner.os == 'Linux' }}
+        uses: ./.github/actions/packaged-engines
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

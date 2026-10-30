@@ -4,8 +4,12 @@
  * "总结这些文档"), or the main few ("the two main documents"). A summary of
  * more than `COVERED_AT_ONCE` covers the largest, and says so with an offer
  * of the rest; the main few are the largest, named, with an offer of others.
+ * A Document the Question names that it read, when the name fits others too,
+ * is named with an offer of those others.
  */
+import { displayName } from "../../shared/documentNames";
 import type { AnswerCoverage } from "../api";
+import { keywordTerms, keywordText } from "../documents/keywords";
 
 export const COVERED_AT_ONCE = 8;
 
@@ -104,6 +108,75 @@ export function coverageOf(
   return null;
 }
 
+export interface TitledDocument {
+  id: string;
+  name: string;
+  /** Its own title (see ../documents/title), which may name it where its file name doesn't. */
+  title?: string | null;
+}
+
+const HAN = /\p{Script=Han}/u;
+// "The document" and "这个文件" name no one Document; what "this document" means is #1334's.
+const ANY_DOCUMENT = /^(?:documents?|docs?|files?|pdfs?|文档|文件)$/;
+
+const compact = (text: string) => text.replaceAll(" ", "");
+
+const has = (fields: readonly string[], term: string) =>
+  fields.some((words) =>
+    HAN.test(term)
+      ? compact(words).includes(compact(term))
+      : words.split(" ").some((word) => word === term || word === `${term}'s`),
+  );
+
+const canName = (term: string) =>
+  /\p{L}/u.test(term) && compact(term).length >= (HAN.test(term) ? 2 : 3);
+
+/**
+ * A Document the Answer used that the Question's words name, when they name others of `documents`
+ * (those in scope) too (#1512): the first of `used` (the Documents it cited, or those its Passages
+ * came from when it cited none, in order) whose name or title has the Question's words that some
+ * other Document's has as well, named as the User sees it, with those others in `excluded` — every
+ * Document it used or searched by name — left out; null when there is none.
+ */
+export function namedCoverage(
+  question: string,
+  used: readonly string[],
+  excluded: readonly string[],
+  documents: readonly TitledDocument[],
+): AnswerCoverage | null {
+  const terms = keywordTerms(question).filter(
+    (term) => compact(term).length > 1 && !ANY_DOCUMENT.test(term),
+  );
+  const words = new Map<string, string[]>();
+  const namedBy = (document: TitledDocument, term: string) => {
+    let fields = words.get(document.id);
+    if (!fields) {
+      fields = [document.name, document.title].flatMap((field) =>
+        field ? [keywordText(field)] : [],
+      );
+      words.set(document.id, fields);
+    }
+    return has(fields, term);
+  };
+  for (const id of used) {
+    const document = documents.find((each) => each.id === id);
+    if (!document) continue;
+    const said = terms.filter((term) => namedBy(document, term));
+    if (!said.some(canName)) continue;
+    const rest = documents.filter(
+      (each) => !excluded.includes(each.id) && said.every((term) => namedBy(each, term)),
+    );
+    if (rest.length > 0) {
+      return {
+        kind: "named",
+        used: [{ id: document.id, name: displayName(document) }],
+        rest: rest.map((each) => each.id),
+      };
+    }
+  }
+  return null;
+}
+
 const quotedList = (names: readonly string[]) =>
   names.length < 2
     ? `“${names[0] ?? ""}”`
@@ -120,7 +193,7 @@ export function coverageInstructions(
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
   const searchEach =
-    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Mind.";
+    "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }

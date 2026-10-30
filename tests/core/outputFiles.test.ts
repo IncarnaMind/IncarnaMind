@@ -142,6 +142,7 @@ describe("The Output location", () => {
       citations: 0,
       unverifiedCitations: 0,
       questions: 0,
+      hiddenColumns: 0,
       word: null,
       sentenceChecks: {
         contradicted: 0,
@@ -154,6 +155,12 @@ describe("The Output location", () => {
       unreadFiles: 0,
       unreadFileNames: false,
       needsDetails: [],
+      citedDocuments: 0,
+      footnotes: 0,
+      numbered: true,
+      citationPlace: null,
+      markAiText: null,
+      sentKept: true,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(
       "Spring tides come twice a month.",
@@ -550,7 +557,9 @@ describe("Saving next to an original (the call other features use)", () => {
     const { outputs, linked, original } = await outputsWith();
     const before = sha256(await readFile(original));
     const folder = join(linked, "Leases");
-    expect(await outputs.save({ name: "Lease.docx", data, folder, ownFile: "export" })).toEqual({
+    expect(
+      await outputs.save({ name: "Lease.docx", data, folder, ownFile: "export", fromFolder: null }),
+    ).toEqual({
       path: join(folder, "Lease 2.docx"),
       name: "Lease 2.docx",
       folder,
@@ -564,6 +573,7 @@ describe("Saving next to an original (the call other features use)", () => {
       data,
       folder,
       ownFile: "export",
+      fromFolder: null,
     });
     expect(dirname(escaping.path)).toBe(folder);
     expect(escaping.name).toMatch(/Escape\.md$/);
@@ -573,13 +583,25 @@ describe("Saving next to an original (the call other features use)", () => {
   test("a file IncarnaMind wrote has its fingerprint recorded, once; an empty one, or a source it saved, has none (#80)", async () => {
     const { outputs, linked, fingerprints } = await outputsWith();
     const folder = join(linked, "Leases");
-    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export" });
-    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export" });
+    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export", fromFolder: null });
+    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export", fromFolder: null });
     expect(fingerprints()).toEqual([{ content_hash: sha256(data), kind: "export" }]);
 
-    await outputs.save({ name: "Empty.md", data: new Uint8Array(), folder, ownFile: "export" });
+    await outputs.save({
+      name: "Empty.md",
+      data: new Uint8Array(),
+      folder,
+      ownFile: "export",
+      fromFolder: null,
+    });
     const transcript = new TextEncoder().encode("[00:01] The tide turned at noon.");
-    await outputs.save({ name: "Meeting.vtt", data: transcript, folder, ownFile: null });
+    await outputs.save({
+      name: "Meeting.vtt",
+      data: transcript,
+      folder,
+      ownFile: null,
+      fromFolder: null,
+    });
     expect(fingerprints()).toHaveLength(1);
   });
 
@@ -587,11 +609,23 @@ describe("Saving next to an original (the call other features use)", () => {
     const { outputs, linked } = await outputsWith();
     const elsewhere = await createSourceFolder();
     await expect(
-      outputs.save({ name: "Out.md", data, folder: elsewhere, ownFile: "export" }),
+      outputs.save({
+        name: "Out.md",
+        data,
+        folder: elsewhere,
+        ownFile: "export",
+        fromFolder: null,
+      }),
     ).rejects.toThrow(InvalidInputError);
     await symlink(elsewhere, join(linked, "Shortcut"), "dir");
     await expect(
-      outputs.save({ name: "Out.md", data, folder: join(linked, "Shortcut"), ownFile: "export" }),
+      outputs.save({
+        name: "Out.md",
+        data,
+        folder: join(linked, "Shortcut"),
+        ownFile: "export",
+        fromFolder: null,
+      }),
     ).rejects.toThrow(/only in the output location/);
     expect(await readdir(elsewhere)).toEqual([]);
   });

@@ -10,6 +10,7 @@
  * (exports, Question context) and the tests share it.
  */
 import {
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
@@ -18,6 +19,7 @@ import {
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
+import { figureShownText } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
 import type { MessageKey, MessageParams } from "./i18n";
 import { holdsPeriods, isPeriod } from "./periods";
@@ -301,6 +303,32 @@ export function chartPoints(chart: Pick<ChartAttributes, "kind" | "drawn" | "dat
     });
   }
   return points;
+}
+
+export function chartCheckText(chart: ChartAttributes): string {
+  const points = chartPoints(chart);
+  const plotted = new Set(points.map(({ row, series }) => `${row}:${series}`));
+  if (chart.kind === "scatter") {
+    const across = drawnSeries(chart)[0];
+    if (across !== undefined) for (const point of points) plotted.add(`${point.row}:${across}`);
+  }
+  return JSON.stringify({
+    kind: chart.kind,
+    title: chart.title,
+    label: chart.data.labelHeading,
+    values: chartCells(chart)
+      .filter(({ row, series }) => plotted.has(`${row}:${series}`))
+      .map(({ row, series, value }) => ({
+        row,
+        series,
+        label: chart.data.rows[row]?.label ?? "",
+        heading: chart.data.series[series] ?? "",
+        shown: value.shown,
+        value: value.value,
+        unit: value.unit,
+        scale: value.scale,
+      })),
+  });
 }
 
 type Measured = Pick<ChartValue, "unit" | "scale">;
@@ -878,6 +906,10 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
       return;
     }
     if (child.type === FOOTNOTE_NODE) return;
+    if (child.type === CALCULATED_FIGURE_NODE) {
+      text += figureShownText(child.attrs);
+      return;
+    }
     if (child.type === "text") text += child.text ?? "";
     else if (child.type === "hardBreak" || (BLOCK_TYPES.has(child.type) && text !== "")) {
       text += " ";

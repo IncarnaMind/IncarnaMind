@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { pruneFigureRuns } from "../shared/figureRuns";
 import {
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
@@ -68,6 +69,8 @@ interface Unsaved {
 
 /** What the core hears of changes that couldn't be stored. */
 export interface MindContentOptions {
+  /** Runs inside the content write's transaction; an error rolls the write back. */
+  persisted?(mindId: string): void;
   /** Some of the Mind's changes couldn't be stored, or (null) all of them are now. */
   unsaved?(
     mindId: string,
@@ -85,7 +88,8 @@ function missesEarlier(doc: Y.Doc, update: Uint8Array): boolean {
   return [...from].some(([client, clock]) => clock > (have.get(client) ?? 0));
 }
 
-const holdsBack = (doc: Y.Doc) => doc.store.pendingStructs !== null || doc.store.pendingDs !== null;
+export const hasPendingMindChanges = (doc: Y.Doc) =>
+  doc.store.pendingStructs !== null || doc.store.pendingDs !== null;
 
 /**
  * The authoritative Yjs document of each Mind being edited (ADR-0003).
@@ -220,6 +224,7 @@ export function createMindContent(
       const at = now();
       db.transaction(() => {
         for (const row of rows) insert(mindId, row, at, mind.deletedAt);
+        options.persisted?.(mindId);
       });
     } catch (failure) {
       if (waiting?.timer) clearTimeout(waiting.timer);
@@ -312,22 +317,40 @@ export function createMindContent(
       }
     },
 
+    /** Reads only committed content (or the current storage transaction), excluding unsaved edits. */
+    readPersisted<T>(mindId: string, look: (doc: Y.Doc) => T): T {
+      const { doc } = fromStorage(mindId, loaded.get(mindId)?.deletedAt != null);
+      try {
+        return look(doc);
+      } finally {
+        doc.destroy();
+      }
+    },
+
     apply(mindId: string, update: unknown, cause?: EditCause): void {
       if (!(update instanceof Uint8Array) || update.byteLength === 0) {
-        throw new InvalidInputError("A Mind update must be a non-empty Uint8Array.");
+        throw new InvalidInputError("A Note update must be a non-empty Uint8Array.");
       }
       const mind = load(mindId);
       requireWritable(mind);
       let failure: unknown;
       let missed = false;
-      const heldBack = holdsBack(mind.doc);
+      const heldBack = hasPendingMindChanges(mind.doc);
       mind.cause = cause;
       try {
         missed = missesEarlier(mind.doc, update);
         // One transaction, so recording the version rides in the same stored update.
         mind.doc.transact(() => {
-          Y.applyUpdate(mind.doc, update);
-          stampContentVersion(mind.doc);
+          try {
+            Y.applyUpdate(mind.doc, update);
+            stampContentVersion(mind.doc);
+          } finally {
+            if (
+              !hasPendingMindChanges(mind.doc) &&
+              contentVersionOf(mind.doc) <= CONTENT_SCHEMA_VERSION
+            )
+              pruneFigureRuns(mind.doc);
+          }
         }, CORE_ORIGIN);
       } catch (error) {
         failure = error;
@@ -340,7 +363,7 @@ export function createMindContent(
         throw new InvalidInputError("That isn't a valid Yjs update.", { cause: failure });
       }
       // Yjs holds back a change that builds on one it never got; acknowledging it would lose it.
-      if (missed || (!heldBack && holdsBack(mind.doc))) {
+      if (missed || (!heldBack && hasPendingMindChanges(mind.doc))) {
         throw new InvalidInputError({ key: "error.mind.missedChange" });
       }
     },
@@ -383,8 +406,16 @@ export function createMindContent(
       let result: T | undefined;
       try {
         mind.doc.transact(() => {
-          result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
-          stampContentVersion(mind.doc);
+          try {
+            result = change(mind.doc.getXmlFragment(MIND_CONTENT_FIELD));
+            stampContentVersion(mind.doc);
+          } finally {
+            if (
+              !hasPendingMindChanges(mind.doc) &&
+              contentVersionOf(mind.doc) <= CONTENT_SCHEMA_VERSION
+            )
+              pruneFigureRuns(mind.doc);
+          }
         }, origin);
       } finally {
         flush(mindId, mind);
