@@ -17,7 +17,7 @@ IncarnaMind reads, searches and indexes your files here. It has no account or se
 | Meeting transcription | All of a Meeting's audio while it records, microphone and computer sound | Soniox (your key) or OpenAI realtime (your key) | Only with a cloud route; it can't be chosen in local mode |
 | An AI agent you connected | What it reads: Passages and Notes in your shared folders, and Answers it asks for | The agent, then its own AI model | When it calls; paused in local mode |
 
-On the same chat flow, `Make this a Skill` sends up to 40,000 characters from the end of the Note; a Question naming another Note, up to about 12,000 tokens of it; a command, names, dates, Folders and Tags of what it found; a model without Tools, the Question rewritten and translated as search queries.
+On the same chat flow, `Make this a Skill` sends up to 40,000 characters from the end of the Note; a Question naming another Note, up to about 12,000 tokens of it; a command, names, dates, Folders and Tags of what it found; a model without Tools, the Question rewritten and translated as search queries to the quick-tasks model.
 
 ## Nothing of yours goes without a choice
 
@@ -25,4 +25,4 @@ With `Keep everything on this computer` on, every cloud flow above stops or uses
 
 Usage data goes only from a build with an analytics project and only if you choose Send (a test build sends until you turn it off); crash reports only if you turn them on; sign-ins to ChatGPT, a Claude account or GitHub go only to that service.
 
-Your keys stay here and go only to their own service, except an AI agent's pairing key: a plain-text copy is in the agent's settings, setup command or install bundle, so keep it private. There is no sync: nothing is uploaded to an IncarnaMind account; there isn't one.
+Your keys stay here and go only to their own service, except an AI agent's pairing key: a plain-text copy is in the agent's settings, setup command or install bundle, and any process under your account can read it, so keep it private. There is no sync: nothing is uploaded to an IncarnaMind account; there isn't one.
