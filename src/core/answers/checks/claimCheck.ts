@@ -73,7 +73,7 @@ import {
   type CiteOptions,
   type DocumentLanguage,
 } from "../engine";
-import type { TurnCheck } from "../turnChecks";
+import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -84,6 +84,8 @@ import {
   readFigureReply,
   readFigureSource,
   uncheckedFigureResults,
+  verdictMarkers,
+  withSentenceVerdict,
 } from "./figureChecks";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
@@ -236,8 +238,9 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
           `Your Figures line names ${unrecorded.map((marker) => `[^${marker}]`).join(", ")}, never recorded: call cite now with each quote it uses, under the marker you gave it.`,
         ]
       : []),
-    "Some sources in your Figures line can't be read:",
-    ...problems.map((problem) => `- ${problem}`),
+    ...(problems.length > 0
+      ? ["Some sources in your Figures line can't be read:", ...problems.map((each) => `- ${each}`)]
+      : []),
     "Fix each one, then write your whole reply again, its Figures line included.",
   ].join("\n");
 
@@ -245,26 +248,37 @@ const figureSourcesNote = (problems: readonly string[], unrecorded: readonly num
  * A verdict whose requested figures aren't bound is asked for once more, as `calculate` answers
  * an input it can't read: Claude Haiku 5.5 wrote its verdict and stopped, skipped the cite
  * call, or left out the heading that states a sheet's unit, for about a third of sentences
- * with figures.
+ * with figures. A figure the model calls contradicted or unsupported is asked about only when
+ * its source gives the very number it contradicts; with a source that can't be read it is
+ * Unsupported, since asked to cite a number its quote doesn't hold, Claude Haiku 5.5 often wrote
+ * prose in place of its reply (#2184). A remainder is asked for only when the reply's own verdict
+ * is Supported: a stricter one stands for the sentence's other words (`withSentenceVerdict`).
+ * `asking` is told each reply asked about.
  */
 function figuresReplied(
   request: ClaimCheckRequest,
   calculations: Pick<CalculationSession, "number" | "figure">,
   searched: () => boolean,
   recorded: (marker: number) => boolean,
+  asking: (text: string) => void,
 ): TurnCheck[] {
   const figures = request.figures ?? [];
-  const asked = (text: string) =>
-    figures.length > 0 && searched() && !readsAsRefusal(text) && readVerdict(text) !== null;
+  const asked = (text: string) => figures.length > 0 && searched() && readVerdict(text) !== null;
+  const ask = (text: string, finding: TurnFinding): TurnFinding => {
+    asking(text);
+    return finding;
+  };
   return [
     {
       name: "figures-line",
       check(text) {
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
-        if (!read) return { claims: [], note: FIGURES_LINE };
-        // Without its remainder the reply can't be settled, so it is asked for as the line is.
-        return read.remainder === undefined ? { claims: [], note: REMAINDER_LINE } : null;
+        if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
+        // Without its remainder a Supported reply can't be settled, so it is asked for as the line is.
+        return read.remainder === undefined && readVerdict(text)?.verdict === "supported"
+          ? ask(text, { claims: [], note: REMAINDER_LINE })
+          : null;
       },
     },
     {
@@ -275,23 +289,30 @@ function figuresReplied(
         const problems = read.items.flatMap((item) => {
           const target = figures.find((figure) => figure.id === item.id);
           if (!target) return [];
+          if (item.verdict !== "supported") {
+            const judged = item.topic === "found" && item.scope === "same" && item.roles === "same";
+            const source =
+              judged && item.verdict === "contradicted" && item.source
+                ? readFigureSource(calculations, target, item.source)
+                : null;
+            return source && "input" in source && givesItsOwnNumber(target, source.input)
+              ? [
+                  `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+                ]
+              : [];
+          }
           if (!item.source && item.calculation !== null && !calculations.figure(item.calculation))
             return [
               `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
             ];
           if (!item.source)
-            return item.calculation === null && item.verdict !== "unsupported" && !target.calculated
+            return item.calculation === null && !target.calculated
               ? [
-                  `${target.reading.chars}: a ${item.verdict} figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
+                  `${target.reading.chars}: a supported figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
                 ]
               : [];
           const source = readFigureSource(calculations, target, item.source);
-          if ("problem" in source) return [`${target.reading.chars}: ${source.problem}`];
-          return item.verdict === "contradicted" && givesItsOwnNumber(target, source.input)
-            ? [
-                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
-              ]
-            : [];
+          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
         });
         const remainder = read.remainder?.citation;
         if (remainder && !recorded(remainder))
@@ -300,18 +321,18 @@ function figuresReplied(
           ...new Set(
             [
               ...read.items.flatMap((item) =>
-                item.source?.citation ? [item.source.citation] : [],
+                item.verdict === "supported" && item.source?.citation ? [item.source.citation] : [],
               ),
               ...(remainder ? [remainder] : []),
             ].filter((marker) => !recorded(marker)),
           ),
         ];
-        return problems.length > 0
-          ? {
+        return problems.length > 0 || unrecorded.length > 0
+          ? ask(text, {
               claims: [],
               note: figureSourcesNote(problems, unrecorded),
               ...(unrecorded.length > 0 && { requires: "cite" }),
-            }
+            })
           : null;
       },
     },
@@ -744,6 +765,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       request.findParts(text);
     };
     let setAside: readonly string[] = [];
+    let askedAbout: string | null = null;
+    let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
     for await (const event of deps.engine.generate({
@@ -790,6 +813,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           figures,
           looked,
           (marker) => session.tools.hasRecord?.(marker) ?? false,
+          (text) => {
+            askedAbout = text;
+            if (readFigureReply(text, request.figures ?? [], request.claim)) askedFigures = text;
+          },
         ),
         {
           name: "calculate-first",
@@ -798,7 +825,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: async (text) =>
             !request.figures?.length &&
             attempts === 0 &&
-            (await requiresCalculation(readsAsRefusal(text) ? null : readVerdict(text)))
+            (await requiresCalculation(readVerdict(text)))
               ? {
                   claims: [],
                   note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
@@ -821,7 +848,20 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      if (readsAsRefusal(reply)) return notChecked("refused");
+      const written = figureReplyText(reply, setAside);
+      // Asked about its Figures line, a model that can't do what it was asked may write prose
+      // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
+      // One that writes only its Figures line again leaves its verdict on the sentence standing.
+      const text =
+        askedAbout !== null &&
+        readVerdict(written) === null &&
+        readFigureReply(written, request.figures, request.claim) === null
+          ? askedAbout
+          : written;
+      if (readsAsRefusal(text)) return notChecked("refused");
+      // A refusal after an ask is the model's last word: the reply asked about can still make the
+      // sentence stricter, never Supported.
+      const declined = text !== written && readsAsRefusal(written);
       if (!looked()) return notChecked("unread");
       // A saved figure is worked out again from its own inputs, within the check's scope.
       const saved = new Map(
@@ -851,10 +891,50 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       );
       session.check();
       if (invalidInput || pending.size > 0) return notChecked("no-evidence");
-      return checkFigureReply({
+      const judged = async (
+        said: ReadVerdict,
+        words: string,
+        evidence: Citation | null,
+      ): Promise<ClaimJudgment> => {
+        const result = figureJudgment(said, evidence, facts(), citedCase(evidence));
+        if (result.verdict !== "contradicted" || !evidence) return result;
+        const confirmation = await confirmContradiction(
+          { ...request, claim: words, figures: undefined },
+          evidence,
+          session,
+          signal,
+        );
+        if ("failed" in confirmation) {
+          const failure = failureOf(confirmation.failed);
+          return unchecked(failure.reason, failure.detail);
+        }
+        if (confirmation.kind === "stopped") return unchecked("stopped");
+        if (confirmation.kind === "malformed") return unchecked("malformed");
+        if (confirmation.kind === "confirmed") return result;
+        const doubted = figureJudgment(
+          { ...said, verdict: "unsupported" },
+          evidence,
+          facts(),
+          citedCase(evidence),
+        );
+        // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
+        // the quote states, quoting it, when the reply names that part.
+        return doubted.verdict === "unsupported" && said.covered && said.uncovered
+          ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
+          : doubted;
+      };
+      const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
+      const said = readVerdict(verdictText);
+      // A reply asked about its Figures line that gives its verdict again without one keeps the
+      // last line that reads: each figure is still compared with its own quote.
+      const figuresText =
+        readFigureReply(text, request.figures, request.claim) === null
+          ? (askedFigures ?? text)
+          : text;
+      const result = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
-        reply: figureReplyText(reply, setAside),
+        reply: figuresText,
         calculations: figures,
         citation: (marker) => session.finalCitation(marker),
         facts,
@@ -863,33 +943,42 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         unitReason: (figure, citations, bound) =>
           unstatedUnit(citations, figure, bound)?.why ?? null,
         signal,
-        async remainder(remainder) {
-          const evidence =
-            remainder.citation === null ? null : session.finalCitation(remainder.citation);
-          const result = figureJudgment(remainder, evidence, facts(), citedCase(evidence));
-          if (result.verdict !== "contradicted" || !evidence) return result;
-          const confirmation = await confirmContradiction(
-            { ...request, claim: remainder.text, figures: undefined },
-            evidence,
-            session,
-            signal,
-          );
-          if ("failed" in confirmation) {
-            const failure = failureOf(confirmation.failed);
-            return unchecked(failure.reason, failure.detail);
-          }
-          if (confirmation.kind === "stopped") return unchecked("stopped");
-          if (confirmation.kind === "malformed") return unchecked("malformed");
-          if (confirmation.kind !== "confirmed")
-            return figureJudgment(
-              { ...remainder, verdict: "unsupported" },
-              evidence,
-              facts(),
-              citedCase(evidence),
-            );
-          return result;
-        },
+        remainder: (remainder) =>
+          judged(
+            remainder,
+            remainder.text,
+            remainder.citation === null ? null : session.finalCitation(remainder.citation),
+          ),
       });
+      // The sentence's contradiction is judged on the quote its own words cite, not a figure's.
+      // A sentence whose words cite no quote of their own rests on its figures' quotes, so a
+      // Supported verdict never turns a result its figures settled into Not checked.
+      const cited =
+        verdictMarkers(verdictText)
+          .map((marker) => session.finalCitation(marker))
+          .find((citation) => citation?.check === "found") ??
+        decidingCitation(session.finalCitation) ??
+        (result.verdict === "not-checked" ? null : result.evidence);
+      // A contradiction with no quote found is asked for its quote once, as a sentence without
+      // figures is: Claude Haiku 5.5 wrote its record into the reply instead of calling cite in
+      // about one contradicted check in seven (#2184).
+      const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
+        if (declined && verdict.verdict === "supported") return unchecked("refused");
+        const evidence =
+          cited ??
+          (verdict.verdict === "contradicted"
+            ? await askForEvidence(request, verdict, session, signal)
+            : null);
+        if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
+        const failure = failureOf(evidence.failed);
+        return unchecked(failure.reason, failure.detail);
+      };
+      if (signal.aborted) return result;
+      if (said) return withSentenceVerdict(result, () => sentence(said));
+      // Figures that all check out never make a sentence Supported without a verdict to read.
+      return result.verdict === "supported"
+        ? withSentenceVerdict(result, async () => unchecked("malformed"))
+        : result;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
