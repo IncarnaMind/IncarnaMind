@@ -45,6 +45,7 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "too-many",
   "consent-revoked",
   "local-mode",
+  "kept-inside",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [

@@ -115,6 +115,40 @@ async function setUp(example: Example) {
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
 
+/** Writes, in the Note outside every wall, a sentence of two facts citing the lease's Passage. */
+async function writeCited(setup: Setup, example: Example) {
+  const sentence = example.joined(example.ends, example.repairs);
+  const selected = await setup.core.citeSelection({
+    documentId: setup.lease.id,
+    parts: [{ unit: 1, text: example.lease.trim() }],
+  });
+  writeMind(setup.client, [
+    {
+      type: "paragraph",
+      attrs: { id: "one" },
+      content: [
+        { type: "text", text: sentence },
+        {
+          type: "citation",
+          attrs: {
+            passageId: selected.passageId,
+            documentId: setup.lease.id,
+            documentName: setup.lease.name,
+            contentHash: selected.contentHash,
+            quote: example.lease.trim(),
+            pageFrom: selected.pageFrom,
+            pageTo: selected.pageTo,
+            location: selected.location,
+            check: "found",
+          },
+        },
+      ],
+    },
+  ]);
+  await setup.client.settled();
+  return sentence;
+}
+
 async function checkSentence(setup: Setup, mindId: string, client: MindClient, length: number) {
   await setup.core.checkSentences({
     requestId: `check-${randomUUID()}`,
@@ -212,35 +246,7 @@ describe.each(LANGUAGES)("a sentence in parts behind a Folder's wall ($language)
   // protects=a sentence outside a wall whose Citations are all behind it keeps every part's result when checked again: nothing is read and no model is asked, as for a whole sentence (#1934); fails_when=a part turns Not checked or is checked again from outside the wall; no_claim=the wall's own Citation re-check.
   test("each part of a sentence citing a walled Passage keeps its result, read from outside", async () => {
     const setup = await setUp(example);
-    const sentence = example.joined(example.ends, example.repairs);
-    const selected = await setup.core.citeSelection({
-      documentId: setup.lease.id,
-      parts: [{ unit: 1, text: example.lease.trim() }],
-    });
-    writeMind(setup.client, [
-      {
-        type: "paragraph",
-        attrs: { id: "one" },
-        content: [
-          { type: "text", text: sentence },
-          {
-            type: "citation",
-            attrs: {
-              passageId: selected.passageId,
-              documentId: setup.lease.id,
-              documentName: setup.lease.name,
-              contentHash: selected.contentHash,
-              quote: example.lease.trim(),
-              pageFrom: selected.pageFrom,
-              pageTo: selected.pageTo,
-              location: selected.location,
-              check: "found",
-            },
-          },
-        ],
-      },
-    ]);
-    await setup.client.settled();
+    const sentence = await writeCited(setup, example);
     await checkSentence(setup, setup.mind.id, setup.client, sentence.length + 1);
     const before = markOf(setup.client);
     expect(before.state).toBe("supported");
@@ -252,6 +258,33 @@ describe.each(LANGUAGES)("a sentence in parts behind a Folder's wall ($language)
 
     expect(markOf(setup.client)).toEqual(before);
     expect(sentTo(setup.calls.slice(from)).runs).toBe(0);
+  });
+
+  // protects=Check this Note from outside a wall, on a sentence whose Citations are all behind it, reads nothing and says Kept inside on each part, and the mark still reads back with its parts (#1934, #2002); fails_when=a part is checked from outside the wall, or a part's Kept inside makes its mark unreadable; no_claim=what the card shows.
+  test("Check this Note from outside says Kept inside on each part of a cited sentence", async () => {
+    const setup = await setUp(example);
+    await writeCited(setup, example);
+    await setup.wall();
+
+    expect(
+      await setup.core.checkMind({
+        requestId: `note-${randomUUID()}`,
+        mindId: setup.mind.id,
+        mode: "all",
+        allDocuments: true,
+      }),
+    ).toMatchObject({ kind: "checked" });
+    await setup.client.settled();
+
+    expect(markOf(setup.client)).toMatchObject({
+      state: "not-checked",
+      reason: "kept-inside",
+      parts: [
+        { text: example.ends, verdict: "not-checked", reason: "kept-inside", cites: [] },
+        { text: example.repairs, verdict: "not-checked", reason: "kept-inside", cites: [] },
+      ],
+    });
+    expect(sentTo(setup.calls).runs).toBe(0);
   });
 
   // protects=a part whose deciding Passage went behind a wall keeps its result when the sentence is checked again from outside, while its other part is checked as usual (#1934); fails_when=the part turns Unsupported because the check can no longer see its Passage, or the walled Document is read; no_claim=what a check inside the wall would find.
