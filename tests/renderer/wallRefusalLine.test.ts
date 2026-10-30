@@ -94,7 +94,7 @@ async function show(done: Partial<CommandDone>) {
   await act(() =>
     root?.render(
       createElement(CommandsCard, {
-        answer: { id: "answer-1", toolCalls: [callOf(done)] },
+        answer: { id: "answer-1", text: "", toolCalls: [callOf(done)] },
         streaming: false,
       }),
     ),
