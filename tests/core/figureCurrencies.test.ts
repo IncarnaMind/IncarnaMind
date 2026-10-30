@@ -647,7 +647,7 @@ describe("A unit the Document doesn't state (#1452)", () => {
 });
 
 describe("A one-letter or one-character unit symbol (#2225)", () => {
-  // protects=a Latin symbol stands alone: a letter, an apostrophe or a Han character beside it makes it a word ("t" in "don't", "m" in "I'm", "T" in （T恤）, "t" in tea), and a digit after it makes a product ("m" in 27m3); fails_when="54,000 tonnes" against "We don't ship 54,000 a year." or "54 kilometres" against "27m3" passes; no_claim=whether the figure is right.
+  // protects=a Latin symbol stands alone: a letter, an apostrophe, a dot or a hyphen beside it makes it a word ("t" in "don't", "m" in "I'm", "T" in （T恤）, "t" in tea, "g" in e.g., "m" in 9 a.m., "T" in T-shirt, "t" in t-test, "L" in L.P.), and a digit after it makes a product ("m" in 27m3); fails_when="54,000 tonnes" against "We don't ship 54,000 a year." or "54 kilometres" against "27m3" passes; no_claim=whether the figure is right.
   test.each([
     ["The mill's output was 54,000 tonnes.", "We don't ship 54,000 a year.", "54,000"],
     ["The route was 54 kilometres.", "I'm sure the route was 54.", "54"],
@@ -655,17 +655,24 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["The mill's output was 54,000 tonnes.", "Units: tea\nOutput\t54,000", "54,000"],
     ["The mill's output was 54,000 tonnes.", "The output was 54,000 at the kiosk.", "54,000"],
     ["The route was 54 kilometres.", "We poured 27m3 of gravel; the route is 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "See e.g. the annex. Output 54,000.", "54,000"],
+    ["The route was 54 kilometres.", "Open from 9 a.m.; the route is 54.", "54"],
+    ["The mill's output was 54,000 tonnes.", "T-shirt sales 54,000.", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "Output 54,000 — the t-test is valid", "54,000"],
+    ["The mill's output was 54,000 tonnes.", "Grade A-t steel; output 54,000.", "54,000"],
+    ["The tank held 54 litres.", "Smith L.P. holds a tank of 54.", "54"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
-  // protects=a Han symbol is not the first character of a word after a figure or on a unit line: 克 in 克服 and 克林工厂, 米 in 大米 and 米其林, 升 in 升迁; fails_when="54,000吨" against "克服困难，产量54,000" or "单位：克林工厂" passes; no_claim=the value.
+  // protects=a Han symbol is not the first character of a word after a figure, on a unit line or in a heading: 克 in 克服, 克林工厂 and （克林工厂）, 米 in 大米 and 米其林, 升 in 升迁; fails_when="54,000吨" against "克服困难，产量54,000", "单位：克林工厂" or "（克林工厂）" passes; no_claim=the value.
   test.each([
     ["产量为54,000吨。", "克服困难，产量54,000", "54,000"],
     ["路线长54公里。", "大米\t54", "54"],
     ["产量为54,000吨。", "单位：克林工厂\n产量\t54,000", "54,000"],
     ["路线长54公里。", "单位：米其林轮胎\n路线长54", "54"],
     ["容量为54升。", "单位：升迁记录\n容量\t54", "54"],
+    ["产量为54,000吨。", "（克林工厂）\t54,000", "54,000"],
   ])("%s against %j gives %s", (claim, cited, amount) => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
@@ -690,7 +697,7 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "unit", amount });
   });
 
-  // protects=a real unit Documents write beside a rate, a comma, a year or a label states the measure: "540 €/t", "$/t", "(USD per t)", "(t, 2024)", "(metric t)", "Output, t", "in t", "Unit of measure: t", "元/吨", "单位为吨", "单位：克"; fails_when=any of these is Unsupported; no_claim=the value.
+  // protects=a real unit Documents write beside a rate, a comma, a year or a label states the measure: "540 €/t", "$/t", "(USD per t)", "(t, 2024)", "(metric t)", "Output, t", "in t", "Unit of measure: t", "元/吨", "单位为吨", "单位：克", "10万t", "60,000t左右", "100万L", "540/吨的货物", "元/吨的货物", "每吨", "（吨）"; fails_when=any of these is Unsupported; no_claim=the value.
   test.each([
     ["The mill's output was 54,000 tonnes.", "Price 540 €/t; output 54,000"],
     ["The mill's output was 54,000 tonnes.", "Price $/t: 540\nOutput 54,000"],
@@ -705,6 +712,14 @@ describe("A one-letter or one-character unit symbol (#2225)", () => {
     ["产量为54,000吨。", "单位为吨\n产量54,000"],
     ["产量为54,000吨。", "单位是吨\n产量54,000"],
     ["重量为54克。", "单位：克\n重量\t54"],
+    ["产量为54,000吨。", "（吨）\t54,000"],
+    ["产量为54,000吨。", "年产10万t，产量54,000"],
+    ["产量为54,000吨。", "运量达60,000t左右，产量54,000"],
+    ["The mill's output was 54,000 tonnes.", "Capacity 5万t; output 54,000"],
+    ["容量为54,000升。", "储量100万L，容量54,000"],
+    ["产量为54,000吨。", "报价540/吨的货物，产量54,000"],
+    ["产量为54,000吨。", "价格3,500元/吨的货物，产量54,000"],
+    ["产量为54,000吨。", "按每吨3,500元计，产量54,000"],
     ["产量为54,000吨。", "产量54,000，另有一吨。"],
     ["容量为54升。", "容量54，另有十升。"],
   ])("%s against %j isn't flagged", (claim, cited) => {

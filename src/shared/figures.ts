@@ -2385,25 +2385,33 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
   energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
 };
 
-// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", 克服, 单位：克林工厂, 27m3).
+// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).
 const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
 const WHOLE_NAME = `(?!${HAN})`;
-// A Latin symbol stands alone: a letter, an apostrophe or a Han character beside it makes it a word, and a digit after it a product ("27m3").
-const latinSymbol = (symbol: string) => `(?<![\\p{L}'’ʼ])${symbol}(?![\\p{L}\\p{N}])`;
+// A Han name may go on with a particle ("540/吨的货物") but not with a word ("2026/克林工厂").
+const NAME_END = `(?:(?!${HAN})|(?=[的计以等左右、]))`;
+// A Latin symbol stands alone, or is attached to a figure: a letter, apostrophe, dot or hyphen joins it to a word ("e.g.", "T-shirt"), a digit after it makes a product ("27m3"), and a Han scale or text beside it doesn't ("10万t", "60,000t左右").
+const latinSymbol = (symbol: string) =>
+  [
+    `[0-9百千万亿][ \\u00a0]?${symbol}(?![A-Za-z\\p{N}])`,
+    `(?<![\\p{L}'’ʼ.\\-])${symbol}(?![\\p{L}\\p{N}])(?![.\\-]\\p{L})`,
+  ].join("|");
 // NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
 const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
 const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
 const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
 const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
 const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
-// After a slash, a lone numeral or a label, a Han symbol must be the whole name ("元/吨", "一吨", "单位为吨"); a digit before it leaves it free ("54,000吨的货物").
+const HAN_AFTER_EACH = `每[ \\u00a0]?`;
+// After a slash, a lone numeral, a label or 每, a Han symbol must end its name there; a digit before it leaves it free ("54,000吨的货物").
 const hanSymbol = (symbol: string) =>
   [
     `${HAN_AFTER_FIGURE}${symbol}`,
-    `${HAN_AFTER_RATE}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_RATE}${symbol}${NAME_END}`,
+    `${HAN_AFTER_SLASH}${symbol}${NAME_END}`,
+    `${HAN_AFTER_NUMERAL}${symbol}${NAME_END}`,
+    `${HAN_AFTER_LABEL}${symbol}${NAME_END}`,
+    `${HAN_AFTER_EACH}${symbol}${NAME_END}`,
     `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
   ].join("|");
 
