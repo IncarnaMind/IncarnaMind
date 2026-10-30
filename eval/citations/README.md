@@ -78,15 +78,17 @@ npm run eval:citations:scan       # no key, personal data or unlisted Document i
    any value the shell holds under a key's name), e-mail address, phone number, home folder path or
    Document the set doesn't list, in the set, the runs, the judgements and the results. It reads
    each Document's text as the app does, and fails on a page with no text to read until its image
-   has been read and the reading recorded. `scan-allowed.json` holds the only exceptions, each
-   with why: an address a Document's publisher printed in it (an author's, a court's press office),
-   named by its SHA-256, which passes in that Document and in the files that quote it; and a page
-   read from its image, bound to the Document's SHA-256, so a changed file is read again. An entry
-   that matches nothing fails, and the file itself is scanned with no exceptions. A home folder is
-   found in a path and also in a folder named after a path, its slashes turned into dashes. With
-   `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` set to a file outside the repository, one word or phrase
-   a line, the scan also fails on any of them, in any case; a list that is missing, empty or inside
-   the repository fails the scan. `npm test` runs the scan over `eval/citations/`.
+   has been read and the reading recorded. `scan-allowed.json` holds the only exceptions, each with
+   why: an address a Document's publisher printed in it (an author's, a court's press office), named
+   by its SHA-256, which passes in that Document and in the files that quote it; and a page read
+   from its image, bound to the Document's SHA-256, so a changed file is read again. An entry that
+   matches nothing fails, and the file itself is scanned with no exceptions. A home folder is found
+   in a path and also in a folder named after a path, its slashes turned into dashes. Every text is
+   read with its percent-escapes decoded too ("%40" an "@"), and a run of escapes that doesn't
+   decode is scanned as written. With `INCARNAMIND_EVAL_CITATIONS_DENY_LIST` set to a file outside
+   the repository, one word or phrase a line (a `#` at a line's start or after a space starts a
+   comment), the scan also fails on any of them, in any case; a list that is missing, empty or
+   inside the repository fails the scan. `npm test` runs the scan over `eval/citations/`.
 
 | Variable | Default | |
 |---|---|---|
@@ -136,6 +138,11 @@ Citations an Answer, each about 1,500 tokens in and 120 out per judge. "At most"
 the tokens with no cache for every Question and every verdict, as the largest measured Answer did.
 Prices are the app's catalog's on 2026-10-30; Claude Opus 5.5 and Gemini 3.1 Pro stand in for the
 judges until they are chosen (a Claude or a Gemini run takes another maker's judge in its place).
+The judges' part of "at most" is their most, not their expected cost: every verdict at four times
+its tokens with no cache, $23.11 a model where it was $5.78. That is why "at most" rose from
+$601.91 to $740.58 (8 models × $17.33 = $138.67); the runs' own most didn't change. While judging,
+each verdict is also reserved at its most before it is asked: its own prompt and its 400-token
+output limit, for each of its three attempts.
 
 | Model | The run, expected | The judges, expected | At most, both |
 |---|---|---|---|

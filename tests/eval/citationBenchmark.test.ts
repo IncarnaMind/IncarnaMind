@@ -42,6 +42,7 @@ import {
   ALLOWED_FILE,
   type Allowed,
   decodeJsonEscapes,
+  decodePercent,
   heldSecrets,
   readDenyList,
   scanBenchmark,
@@ -360,6 +361,9 @@ describe("The citation benchmark (#1999)", () => {
     );
     const elsewhere = { ...run.model, server: "a".repeat(64) };
     expect(resumeProblem(run, { ...run, model: elsewhere })).toMatch(/another server/);
+    expect(resumeProblem(run, { ...run, set: { ...run.set, questions: "q2" } })).toMatch(
+      /another version of the set/,
+    );
   });
 
   test("the cost cap: a paid model needs a cap and stops before passing it; one on this computer needs none", () => {
@@ -417,14 +421,25 @@ describe("The citation benchmark (#1999)", () => {
     expect(kinds("the -Users-Shared-x folder")).toEqual([]);
   });
 
+  test("the scan reads percent-escapes as a URL's reader does, and scans as written what doesn't decode", () => {
+    const kinds = (text: string, denied: string[] = []) =>
+      scanText(text, "file", { denied }).map(({ kind, line }) => [kind, line]);
+    expect(kinds("one\nmailto:someone%40example.org")).toEqual([["email", 2]]);
+    expect(kinds("cache at %2FUsers%2Fsomeone%2Fnotes")).toEqual([["home-path", 1]]);
+    expect(kinds("made for Project%20Kestrel", ["project kestrel"])).toEqual([["denied-word", 1]]);
+    expect(kinds("broken %E2%82 escape then someone@example.org")).toEqual([["email", 1]]);
+    expect(kinds("grew 13.2% and 5.0%, a 100%25 share")).toEqual([]);
+    expect(decodePercent("a%2Fb%ZZ").text).toBe("a/b%ZZ");
+  });
+
   test("a deny-list is read from outside the repository and fails when it is missing or empty", () => {
     const outside = mkdtempSync(join(tmpdir(), "deny-"));
     const list = join(outside, "words.txt");
     expect(() => readDenyList(list, ROOT)).toThrow(/doesn't exist/);
     writeFileSync(list, "# nothing but a comment\n\n");
     expect(() => readDenyList(list, ROOT)).toThrow(/holds no words/);
-    writeFileSync(list, "# private names\nBluebird\n  project kestrel \n");
-    expect(readDenyList(list, ROOT)).toEqual(["Bluebird", "project kestrel"]);
+    writeFileSync(list, "# private names\nBluebird # a note\n  project kestrel \nissue#4\n");
+    expect(readDenyList(list, ROOT)).toEqual(["Bluebird", "project kestrel", "issue#4"]);
     expect(() => readDenyList(join(ROOT, "eval/citations/words.txt"), ROOT)).toThrow(
       /inside the repository/,
     );

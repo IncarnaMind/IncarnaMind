@@ -119,8 +119,9 @@ export function heldSecrets(
 }
 
 /**
- * The words of a deny-list kept outside the repository, one a line ("#"
- * starts a comment), which no published file may hold, whatever their case.
+ * The words of a deny-list kept outside the repository, one a line ("#" at a
+ * line's start or after a space starts a comment), which no published file
+ * may hold, whatever their case.
  * A list named but missing, empty or inside the repository fails, so the scan
  * never runs without the list it was given.
  */
@@ -134,17 +135,53 @@ export function readDenyList(path: string, root: string): string[] {
   if (!existsSync(path)) throw new Error(`The deny-list ${path} doesn't exist.`);
   const words = readFileSync(path, "utf8")
     .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "" && !line.startsWith("#"));
+    .map((line) => line.replace(/(?:^|\s)#.*$/, "").trim())
+    .filter((line) => line !== "");
   if (words.length === 0) throw new Error(`The deny-list ${path} holds no words.`);
   return words;
 }
 
 const escaped = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** What one text holds that may not be published; `allowed` lets an address or a number through by its SHA-256. */
+/**
+ * Text with its percent-escapes read as a URL's reader gets them ("%40" an
+ * "@", "%2F" a "/"); a run of escapes that doesn't decode stays as written.
+ * `at` gives each character's place in the text, for its line.
+ */
+export function decodePercent(text: string): { text: string; at: number[] } {
+  let decoded = "";
+  const at: number[] = [];
+  let from = 0;
+  for (const match of text.matchAll(/(?:%[0-9A-Fa-f]{2})+/g)) {
+    const start = match.index ?? 0;
+    for (let index = from; index < start; index++) {
+      decoded += text[index];
+      at.push(index);
+    }
+    let run = match[0];
+    try {
+      run = decodeURIComponent(match[0]);
+    } catch {
+      // Not UTF-8 once decoded: scanned as written.
+    }
+    decoded += run;
+    for (let index = 0; index < run.length; index++) at.push(start);
+    from = start + match[0].length;
+  }
+  for (let index = from; index < text.length; index++) {
+    decoded += text[index];
+    at.push(index);
+  }
+  return { text: decoded, at };
+}
+
+/**
+ * What one text holds that may not be published, read with its
+ * percent-escapes decoded; `allowed` lets an address or a number through by
+ * its SHA-256.
+ */
 export function scanText(
-  text: string,
+  raw: string,
   file: string,
   options: {
     allowed?: AllowedValue;
@@ -155,7 +192,9 @@ export function scanText(
   } = {},
 ): Finding[] {
   const allowed: AllowedValue = options.allowed ?? (() => false);
-  const lineOf = options.lineOf ?? ((index: number) => text.slice(0, index).split("\n").length);
+  const rawLine = options.lineOf ?? ((index: number) => raw.slice(0, index).split("\n").length);
+  const { text, at } = decodePercent(raw);
+  const lineOf = (index: number) => rawLine(at[index] ?? raw.length);
   const findings: Finding[] = [];
   const add = (kind: FindingKind, value: string, index: number) => {
     if ((kind === "email" || kind === "phone") && allowed(kind, sha256(value))) return;
@@ -165,11 +204,12 @@ export function scanText(
     for (const match of text.matchAll(pattern)) add("api-key", match[0], match.index ?? 0);
   }
   for (const secret of options.secrets ?? []) {
-    const index = text.indexOf(secret);
-    if (index >= 0)
+    const inRaw = raw.indexOf(secret);
+    const inText = text.indexOf(secret);
+    if (inRaw >= 0 || inText >= 0)
       findings.push({
         file,
-        line: lineOf(index),
+        line: inRaw >= 0 ? rawLine(inRaw) : lineOf(inText),
         kind: "held-key",
         shown: "a key this shell holds",
       });
