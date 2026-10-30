@@ -11,6 +11,7 @@ import { catalogFacts } from "../../src/core/providers/catalog";
 import { ollamaCloudPrice } from "../../src/core/providers/catalog/billing";
 import type { Price } from "../../src/core/providers/catalog/types";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
+import { searchWeb } from "../../src/core/providers/webSearch";
 import { runItems } from "../../src/core/runs/stop";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeBrowser, startFakeOpenAI } from "../helpers/chatgpt";
@@ -90,7 +91,7 @@ const haikuPrice = (): Price => {
 /** A core whose chat model is `model` on a provider of `kind`, with Questions to its service allowed. */
 async function cloudCore(
   model: MockLanguageModelV4,
-  provider: { kind: "anthropic" | "openai" | "ollama"; modelId: string } = {
+  provider: { kind: "anthropic" | "openai" | "openrouter" | "ollama"; modelId: string } = {
     kind: "anthropic",
     modelId: HAIKU,
   },
@@ -151,6 +152,53 @@ const spentUsd = async (core: Core) =>
   (await core.getCostSummary()).spent.find((each) => each.currency === "USD")?.amount ?? 0;
 
 describe("Recording", () => {
+  // protects=server-only search is charged once even without results, and the cap blocks before sending; fails_when=fees depend on a client Tool-call part; no_claim=provider billing accuracy.
+  test.each([false, true])(
+    "OpenRouter search fee without a Tool-call part (sources: %s)",
+    async (hasSource) => {
+      const remote = new MockLanguageModelV4({
+        doStream: async () => ({
+          stream: new ReadableStream<StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (hasSource)
+                controller.enqueue({
+                  type: "source",
+                  sourceType: "url",
+                  id: "s1",
+                  url: "https://example.com",
+                  title: "Example",
+                });
+              controller.enqueue({
+                type: "finish",
+                finishReason: { unified: "stop", raw: undefined },
+                usage: usageOf({ input: 0, output: 0 }),
+              });
+              controller.close();
+            },
+          }),
+        }),
+      });
+      const { core } = await cloudCore(remote, {
+        kind: "openrouter",
+        modelId: "anthropic/claude-haiku-5.5",
+      });
+      const { model } = await core.prepareChatModel();
+      for (let count = 1; count <= 2; count++) {
+        expect(
+          await searchWeb(model, "openrouter", "river", new AbortController().signal),
+        ).toHaveLength(hasSource ? 1 : 0);
+        expect(await spentUsd(core)).toBeCloseTo(count * 0.007, 9);
+      }
+      const calls = remote.doStreamCalls.length;
+      await setCap(core, { currency: "USD", amount: 0.015 });
+      await expect(
+        searchWeb(model, "openrouter", "river", new AbortController().signal),
+      ).rejects.toThrow();
+      expect(remote.doStreamCalls).toHaveLength(calls);
+    },
+  );
+
   test("the cap is off by default, and the month-to-date figure is what the recorded requests cost", async () => {
     const counts = [
       { input: 12_000, cached: 4_800, output: 750 },

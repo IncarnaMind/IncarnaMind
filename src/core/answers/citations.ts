@@ -61,6 +61,7 @@ import {
   type CitationRecheck,
   type CitationToRecheck,
   type CitedSelection,
+  type DocumentKind,
   MAX_CITED_PAGES,
   type QuotedWords,
   type RejectedRecord,
@@ -1151,8 +1152,13 @@ export function createCitationSession(
   const rejected: RejectedRecord[] = [];
   const searched = new Set<string>();
   const passageDocuments: string[] = [];
-  /** What the model was given of each Passage, in the order it was, with its Document. */
-  const read: { documentId: string; documentName: string; text: string }[] = [];
+  /** What the model was given of each Passage, in the order it was, with its Document and its kind. */
+  const read: {
+    documentId: string;
+    documentName: string;
+    text: string;
+    kind: DocumentKind;
+  }[] = [];
   const searchedDocuments: string[] = [];
   const remember = (list: string[], id: string) => {
     if (!list.includes(id)) list.push(id);
@@ -1578,7 +1584,12 @@ export function createCitationSession(
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
       if (!measuring) {
-        read.push({ documentId: passage.documentId, documentName: passage.documentName, text });
+        read.push({
+          documentId: passage.documentId,
+          documentName: passage.documentName,
+          text,
+          kind: passage.documentKind,
+        });
       }
       return {
         id,
@@ -1754,8 +1765,13 @@ export function createCitationSession(
   return {
     tools,
 
-    /** What the model was given of each Passage so far, in order, with its Document's id and name. */
-    passagesRead: (): readonly { documentId: string; documentName: string; text: string }[] => read,
+    /** What the model was given of each Passage so far, in order, with its Document's id, name and kind. */
+    passagesRead: (): readonly {
+      documentId: string;
+      documentName: string;
+      text: string;
+      kind: DocumentKind;
+    }[] => read,
 
     /** The Documents its final Citations name, those its Passages came from, and those it searched by name. */
     documentsRead: () => ({
