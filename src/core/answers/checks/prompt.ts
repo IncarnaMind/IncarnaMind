@@ -408,11 +408,7 @@ export function readEvidence(
  */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
-  /**
-   * Whether the sentence asserts an absence, as the reply's Absence field says: "unclear" when
-   * the field gives yes but not as its one plain answer ("No. Wait, yes"); null when it gives
-   * no yes at all and no plain no (missing, or prose).
-   */
+  /** Whether the sentence asserts an absence; left off when the reply gives no one plain answer. */
   absence?: Exclude<AbsenceAnswer, null>;
   says: string | null;
   covered: string | null;
@@ -533,26 +529,30 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
-export type AbsenceAnswer = "yes" | "no" | "unclear" | null;
+/** null: the reply gives no one plain answer, so whether the sentence asserts an absence is unknown. */
+export type AbsenceAnswer = "yes" | "no" | null;
 
-const PLAIN_ANSWER = /^(?:yes|no|是|否)$/i;
-const NAMES_YES = /\byes\b|是/i;
+const ANSWERS: ReadonlyMap<string, Exclude<AbsenceAnswer, null>> = new Map([
+  ["yes", "yes"],
+  ["是", "yes"],
+  ["no", "no"],
+  ["否", "no"],
+]);
 
 /**
- * Every Absence field of a reply read as one answer: "yes" or "no" only when each says that
- * word alone, and they agree. A model that corrects itself gives two, and then neither counts.
+ * Every Absence field of a reply read as one answer, "yes" or "no" only when each field is that
+ * word alone and they agree. A model that corrects itself ("No. Wait, yes") gives two answers,
+ * and prose gives none: neither is read as one.
  */
 function absenceOf(values: readonly string[]): AbsenceAnswer {
-  const plain = values.map((value) =>
-    value.replace(MARKERS, "").replace(PHRASE_EDGES, "").toLowerCase(),
+  const answers = new Set(
+    values.map(
+      (value) =>
+        ANSWERS.get(value.replace(MARKERS, "").replace(PHRASE_EDGES, "").toLowerCase()) ?? null,
+    ),
   );
-  if (plain.length > 0 && plain.every((value) => PLAIN_ANSWER.test(value))) {
-    const yes = plain.every((value) => value === "yes" || value === "是");
-    const no = plain.every((value) => value === "no" || value === "否");
-    if (yes) return "yes";
-    if (no) return "no";
-  }
-  return plain.some((value) => NAMES_YES.test(value)) ? "unclear" : null;
+  const [answer] = answers;
+  return answers.size === 1 && answer !== undefined ? answer : null;
 }
 
 const answered = (absence: AbsenceAnswer) => (absence === null ? {} : { absence });

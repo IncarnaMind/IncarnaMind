@@ -741,7 +741,7 @@ describe("One claim check", () => {
             calls: [cite("Spring tides happen every week")],
           };
         }
-        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported\nAbsence: no" };
       },
       { generate: checkGenerate(PLANS) },
     );
@@ -2215,7 +2215,8 @@ describe("When the model can't check a sentence", () => {
 describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
-  const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+  const LINES =
+    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same";
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:

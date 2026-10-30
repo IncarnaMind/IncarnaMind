@@ -241,7 +241,7 @@ describe("Verify a document", () => {
             ],
           };
         }
-        return { text: "Verdict: supported\nThe memo says so [^1]" };
+        return { text: "Verdict: supported\nAbsence: no\nThe memo says so [^1]" };
       },
       {
         generate: checkGenerate({

@@ -301,6 +301,15 @@ describe("Checking an absence sentence", () => {
       reply: "Absence: No. Wait, yes: it asserts the clause is absent.",
       shown: "not checked",
     },
+    { name: "缺失：是", reply: "缺失：是", shown: "whole read" },
+    { name: "缺失：否", reply: "缺失：否", shown: "search" },
+    { name: "missing Absence line", reply: "", shown: "not checked" },
+    {
+      name: "JSON with no asserts_absence",
+      reply: '{"verdict":"supported"}',
+      shown: "not checked",
+    },
+    { name: "Absence: true", reply: "Absence: true", shown: "not checked" },
     { name: "no and yes on one line", reply: "Absence: no yes", shown: "not checked" },
     { name: "two lines that disagree", reply: "Absence: no\nAbsence: yes", shown: "not checked" },
     {
@@ -333,21 +342,23 @@ describe("Checking an absence sentence", () => {
   );
 
   test.each([
-    "Absence: The sentence does not assert an absence.",
-    "Absence: **Answer:** no",
-    "Absence: nope",
+    { name: "no Absence line", field: "" },
+    ...[
+      "Absence: The sentence does not assert an absence.",
+      "Absence: **Answer:** no",
+      "Absence: nope",
+      "Absence: true",
+      "Absence: No. Wait, yes: it asserts the clause is absent.",
+    ].map((field) => ({ name: `“${field}”`, field })),
   ])(
-    "an ordinary sentence keeps its result and Citation when its Absence field reads “%s”",
-    async (field) => {
+    "an ordinary sentence whose reply has $name is Not checked, never sent to the whole read",
+    async ({ field }) => {
       const wholeReads: number[] = [];
       const { core } = await setUpWithDocuments(leaseModel(TERM, field, wholeReads), [LEASE]);
 
       const result = await core.checkClaim({ claim: TERM });
 
-      expect(result).toMatchObject({
-        verdict: "supported",
-        evidence: { quote: TERM, check: "found", pageFrom: 1, pageTo: 1 },
-      });
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
       expect(result.readDocuments).toBeUndefined();
       expect(wholeReads).toHaveLength(0);
     },

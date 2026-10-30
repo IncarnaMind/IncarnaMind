@@ -633,9 +633,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // A search that found and cited the thing contradicts its absence as any sentence is
       // contradicted: the whole read decides only whether search may say Supported.
       if (searched === "contradicted") return null;
-      // The model may have meant an absence, and search alone never backs one.
-      if (absence === "unclear") return searched === "supported" ? notChecked("malformed") : null;
-      if (absence !== "yes") return null;
+      if (absence === "no") return null;
+      // An answer that can't be read may hide an absence, which search alone never backs; and
+      // the whole read is only for a sentence known to assert one.
+      if (absence === null) return searched === "supported" ? notChecked("malformed") : null;
       if (signal.aborted) return notChecked("stopped");
       return checkAbsence({
         request,
@@ -850,7 +851,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           return result;
         },
       });
-      const absence = await absenceFor(readVerdict(reply)?.absence ?? null, figureResult.verdict);
+      const absence = await absenceFor(
+        readVerdict(figureReplyText(reply, setAside))?.absence ?? null,
+        figureResult.verdict,
+      );
       return absence ?? figureResult;
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);

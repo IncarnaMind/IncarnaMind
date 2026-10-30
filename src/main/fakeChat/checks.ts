@@ -89,8 +89,10 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   return JSON.stringify({ verdict: "supported" });
 }
 
+const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
+
 const withAbsence = (sentence: string, verdict: string): Reply => ({
-  text: `${verdict}\nAbsence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`,
+  text: `${verdict}\n${absenceLine(sentence)}`,
 });
 
 /**
@@ -341,6 +343,6 @@ function figuresReply(
     };
   });
   return {
-    text: `Verdict: supported\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+    text: `Verdict: supported\n${absenceLine(sentence)}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
   };
 }
