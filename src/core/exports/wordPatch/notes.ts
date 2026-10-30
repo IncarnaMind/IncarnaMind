@@ -27,6 +27,7 @@ import type { AtomPlan } from "./atoms";
 import {
   alignTokens,
   baseTokens,
+  keptKindOf,
   lineBreak,
   type ParagraphContext,
   sourceOf,
@@ -84,24 +85,36 @@ function noteMarks(blocks: readonly NodeJSON[], into: NodeJSON[] = []): NodeJSON
   return into;
 }
 
-/** The changes to the footnotes part and the endnotes part. */
+/**
+ * The changes to the footnotes part and the endnotes part. A note goes only
+ * when none of the file's marks of it is written: a file can mark one note
+ * twice, and the second mark is kept as is.
+ */
 export function notesSplices(input: NotesPatchInput): Record<NoteKind, Splice[]> {
   const { base, plan } = input;
   const splices: Record<NoteKind, Splice[]> = { footnote: [], endnote: [] };
   const done = new Set<string>();
+  const gone = new Map<string, { kind: NoteKind; element: XmlElement }>();
+  const kept = new Set<string>();
   for (const mark of noteMarks(base.structure.blocks)) {
     const source = sourceOf(mark);
     const note = source ? noteOf(base, source) : null;
     const element = note && base.notes[note.kind]?.notes.get(note.id)?.element;
-    if (!source || !note || !element || plan.written(source)) continue;
-    done.add(`${note.kind}:${note.id}`);
-    splices[note.kind].push({ from: startOf(element), to: endOf(element), text: "" });
+    if (!source || !note || !element) continue;
+    const key = `${note.kind}:${note.id}`;
+    if (plan.written(source)) kept.add(key);
+    else gone.set(key, { kind: note.kind, element });
+  }
+  for (const [key, { kind, element }] of gone) {
+    if (kept.has(key)) continue;
+    done.add(key);
+    splices[kind].push({ from: startOf(element), to: endOf(element), text: "" });
   }
   for (const footnote of noteMarks(input.current)) {
     const source = sourceOf(footnote);
     if (footnote.type !== FOOTNOTE_NODE || !source) continue;
     // Only the mark the document is written with: a copy is a new note.
-    if (!plan.ownerOf(source)?.content?.includes(footnote) || !input.edited(footnote)) continue;
+    if (!plan.writes(source, footnote, keptKindOf(footnote)) || !input.edited(footnote)) continue;
     const note = noteOf(base, source);
     const part = note ? base.notes[note.kind] : null;
     const found = note && part?.notes.get(note.id);

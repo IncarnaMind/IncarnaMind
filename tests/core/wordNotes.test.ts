@@ -6,6 +6,7 @@
  * byte as the file had them; a Note imported before is converted when it
  * is opened.
  */
+import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
@@ -134,10 +135,10 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     });
   });
 
-  test("a note a footnote can't hold (a table), with someone's change (a move, a paragraph's properties) or with a mark of its own is kept as is", async () => {
+  test("a note a footnote can't hold (a table), with someone's change (a move, a custom XML element's insertion, a paragraph's properties) or with a mark of its own is kept as is", async () => {
     const { client } = await setUp({
       body: paragraph(
-        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>${run(" and moved")}${noteMark("footnote", 3)}${run(" and restyled")}${noteMark("footnote", 4)}`,
+        `${run("Odd")}${noteMark("footnote", 1)}${run(" and starred")}<w:r><w:footnoteReference w:customMarkFollows="1" w:id="2"/><w:t>*</w:t></w:r>${run(" and moved")}${noteMark("footnote", 3)}${run(" and restyled")}${noteMark("footnote", 4)}${run(" and tagged")}${noteMark("footnote", 5)}`,
       ),
       footnotes: [
         `<w:footnote w:id="1">${table([["A", "B"]])}</w:footnote>`,
@@ -146,6 +147,7 @@ describe("a Word file's notes are the Note's own footnotes", () => {
           `<w:moveTo w:id="9" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z">${run("Moved here.")}</w:moveTo>`,
         ]),
         `<w:footnote w:id="4"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/><w:pPrChange w:id="10" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"><w:pPr/></w:pPrChange></w:pPr><w:r><w:footnoteRef/></w:r>${run(" Restyled.")}</w:p></w:footnote>`,
+        `<w:footnote w:id="5"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:footnoteRef/></w:r><w:customXmlInsRangeStart w:id="11" w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"/>${run(" Tagged.")}<w:customXmlInsRangeEnd w:id="11"/></w:p></w:footnote>`,
       ].join(""),
     });
     const atoms: JSONContent[] = [];
@@ -157,6 +159,7 @@ describe("a Word file's notes are the Note's own footnotes", () => {
       ["footnote", "Starred note."],
       ["footnote", "Moved here."],
       ["footnote", "Restyled."],
+      ["footnote", "Tagged."],
     ]);
     expect(footnotesOf(client)).toEqual([]);
   });
@@ -261,6 +264,88 @@ describe("a Word file's notes are the Note's own footnotes", () => {
     expect(part("word/document.xml")).not.toContain('<w:footnoteReference w:id="2"/>');
     expect(noteXml(part("word/footnotes.xml"), "footnote", 2)).toBeNull();
     expect(noteXml(part("word/footnotes.xml"), "footnote", 1)).not.toBeNull();
+  });
+
+  test.each(["after", "before"] as const)(
+    "a copy of a note's mark %s it, in its paragraph, is a new footnote: the original keeps its id, and its untouched note stays byte for byte",
+    async (where) => {
+      const { core, bytes, mindId, client } = await setUp(brief());
+      const original = "See Hale v Nair, 2019.";
+      const copyOf = (node: JSONContent): JSONContent => ({
+        type: FOOTNOTE_NODE,
+        // A copy the editor didn't write: its own id, the note's place still on it.
+        attrs: { id: randomUUID(), source: node.attrs?.source },
+        content: [{ type: "text", text: "Independent copied footnote." }],
+      });
+      const withCopy = (node: JSONContent): JSONContent => ({
+        ...node,
+        ...(node.content && {
+          content: node.content.flatMap((each) =>
+            each.type === FOOTNOTE_NODE && plain(each.content) === original
+              ? where === "after"
+                ? [each, copyOf(each)]
+                : [copyOf(each), each]
+              : [withCopy(each)],
+          ),
+        }),
+      });
+      editMind(client, (blocks) => blocks.map(withCopy));
+      await client.settled();
+
+      const was = unzip(bytes).get("word/footnotes.xml")?.toString("utf8") ?? "";
+      const { part } = await exported(core, mindId);
+      const document = part("word/document.xml");
+      const footnotes = part("word/footnotes.xml");
+      expect(document.match(/<w:footnoteReference w:id="1"\/>/g)).toHaveLength(1);
+      expect(noteXml(footnotes, "footnote", 1)).toBe(noteXml(was, "footnote", 1));
+      const ids = [...document.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g)].map((match) =>
+        Number(match[1]),
+      );
+      const added = ids.filter((id) => id > 2);
+      expect(added).toHaveLength(1);
+      expect(noteXml(footnotes, "footnote", added[0] ?? 0)).toContain(
+        "Independent copied footnote.",
+      );
+      expect(footnotes.match(/Independent copied footnote\./g)).toHaveLength(1);
+    },
+  );
+
+  test("a note the file marks twice stays while either mark does; it goes with the last", async () => {
+    const { core, mindId, client } = await setUp({
+      body: [
+        paragraph(`${run("First mark.")}${noteMark("footnote", 1)}`),
+        paragraph(`${run("Second mark.")}${noteMark("footnote", 1)}`),
+      ].join(""),
+      footnotes: note("footnote", 1, ["Shared note."]),
+    });
+    const without = (drop: (node: JSONContent) => boolean) => (node: JSONContent) => {
+      const strip = (each: JSONContent): JSONContent => ({
+        ...each,
+        ...(each.content && { content: each.content.filter((one) => !drop(one)).map(strip) }),
+      });
+      return strip(node);
+    };
+    const footnoteMark = (node: JSONContent) => node.type === FOOTNOTE_NODE;
+    const keptMark = (node: JSONContent) =>
+      node.type === WORD_ATOM_NODE && node.attrs?.kind === "footnote";
+    const marks: string[] = [];
+    readMind(client).descendants((node) => {
+      if (footnoteMark(node.toJSON())) marks.push("footnote");
+      else if (keptMark(node.toJSON())) marks.push("kept");
+    });
+    expect(marks).toEqual(["footnote", "kept"]);
+
+    editMind(client, (blocks) => blocks.map(without(footnoteMark)));
+    await client.settled();
+    let { part } = await exported(core, mindId);
+    expect(part("word/document.xml").match(/<w:footnoteReference w:id="1"\/>/g)).toHaveLength(1);
+    expect(noteXml(part("word/footnotes.xml"), "footnote", 1)).toContain("Shared note.");
+
+    editMind(client, (blocks) => blocks.map(without(keptMark)));
+    await client.settled();
+    ({ part } = await exported(core, mindId));
+    expect(part("word/document.xml")).not.toContain("<w:footnoteReference");
+    expect(noteXml(part("word/footnotes.xml"), "footnote", 1)).toBeNull();
   });
 });
 

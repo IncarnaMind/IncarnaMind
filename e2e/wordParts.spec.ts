@@ -1,16 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import { type CoreBridge, PAGE_BREAK_NODE } from "../src/core/api";
 import { unzip } from "../tests/helpers/docx";
 import { note, noteMark, paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
+  blocksUpdate,
   clickEndOf,
   createDataFolder,
   dismissChatSetup,
   importWordFromMenu,
   interceptOpenDialog,
   launchApp,
+  type MindChild,
+  mindNode,
   motionSettled,
   newMind,
   pointAndClick,
@@ -19,6 +23,7 @@ import {
   setLanguage,
   setWindowSize,
 } from "./app";
+import { pdfText } from "./pdfText";
 
 /*
  * A Word file's footnotes, endnotes and breaks are the Note's own (#746): a
@@ -283,5 +288,57 @@ test("⌘↵ puts a page break in a Note of the User's own, and the selection me
   await pointAndClick(window, menu.getByTestId("format-page-break"));
   await expect(editor.getByTestId("page-break")).toHaveCount(2);
   await expect(editor.locator("p")).toHaveText(["Chapter one.", "", "Chapter two."]);
+  await app.close();
+});
+
+test("in the PDF a page break starts a page, two in a row leave a page empty, and a list a break cuts goes on counting", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await dismissChatSetup(window);
+  await newMind(window);
+  const mindId = await window.getByTestId("mind-pane").getAttribute("data-mind-id");
+  if (!mindId) throw new Error("No Mind is open.");
+  const line = (...children: MindChild[]) => mindNode("paragraph", { id: randomUUID() }, children);
+  const pageBreak = () => mindNode(PAGE_BREAK_NODE, {});
+  const item = (...children: MindChild[]) => mindNode("listItem", {}, [line(...children)]);
+  const update = blocksUpdate([
+    line(pageBreak()),
+    line("Cover."),
+    line(pageBreak()),
+    line(pageBreak()),
+    line("After two breaks."),
+    mindNode("orderedList", { start: 1 }, [
+      item("Clause one."),
+      item("Clause two begins.", pageBreak(), "Clause two ends."),
+      item("Clause three."),
+    ]),
+  ]);
+  await window.evaluate(
+    ([id, bytes]) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.applyMindUpdate(
+        id,
+        new Uint8Array(bytes),
+      ),
+    [mindId, Array.from(update)] as const,
+  );
+  await expect(window.getByTestId("mind-editor").getByTestId("page-break")).toHaveCount(4);
+
+  const pdf = await window.evaluate(async (id) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return Array.from((await core.exportMind(id, { format: "pdf" })).data);
+  }, mindId);
+  const pages = (await pdfText(new Uint8Array(pdf))).map((page) =>
+    page.replace(/\s+/g, " ").trim(),
+  );
+  // Each page ends with its number; what is above it:
+  expect(pages.map((page, index) => page.endsWith(String(index + 1)))).toEqual(
+    pages.map(() => true),
+  );
+  expect(pages.map((page) => page.replace(/\s*\d+$/, ""))).toEqual([
+    "",
+    "Cover.",
+    "",
+    "After two breaks. 1. Clause one. 2. Clause two begins.",
+    "Clause two ends. 3. Clause three.",
+  ]);
   await app.close();
 });

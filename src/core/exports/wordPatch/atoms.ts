@@ -1,12 +1,14 @@
 /**
  * What a Word import kept as is (#104) and where export writes it (#105).
- * Each atom's XML is written once, by the paragraph it came from while that
- * paragraph is in the Mind, else by the first that holds it. A copy is
- * written as its text, except what has no id to clash (a field, an
- * equation, a symbol, a page break). Marks that come in pairs (a bookmark's
- * start and end, a comment's range and its mark) are left out when their
- * other half is gone, as Word would repair the file. What can't be kept,
- * someone's comment or tracked change on deleted text, is said.
+ * Each atom's XML is written once, by one occurrence: the node the import
+ * read it into, wherever it is now, else the first in the paragraph it came
+ * from while that paragraph is in the Mind, else the first anywhere. A copy
+ * is written as its text, or a note's mark as a new footnote (#746), except
+ * what has no id to clash (a field, an equation, a symbol, a page break).
+ * Marks that come in pairs (a bookmark's start and end, a comment's range
+ * and its mark) are left out when their other half is gone, as Word would
+ * repair the file. What can't be kept, someone's comment or tracked change
+ * on deleted text, is said.
  *
  * When the User's edits are tracked (#107), what they deleted stays in the
  * file as their deletion, with whatever is kept as is in it: nothing is left
@@ -50,13 +52,12 @@ const QUOTED = 120;
 
 interface Occurrence {
   node: NodeJSON;
-  /** The paragraph or Block it is in, or is. */
-  owner: NodeJSON;
+  /** The key of the paragraph or Block it is in, or is. */
   ownerKey: string | null;
 }
 
 export class AtomPlan {
-  /** The node that writes each atom's XML. */
+  /** The occurrence that writes each atom's XML. */
   private readonly writer = new Map<string, NodeJSON>();
   /** Atoms nothing writes: deleted, or the other half of their pair is. */
   private readonly unwritten = new Set<string>();
@@ -72,6 +73,8 @@ export class AtomPlan {
     places: Places,
     /** The User's edits are tracked: what they deleted stays, as deleted. */
     track = false,
+    /** Whether a node is the one the import read its atom into, not a copy with a new id. */
+    imported: (node: NodeJSON) => boolean = () => false,
   ) {
     const baseAtoms = occurrences(base, baseKey);
     const now = occurrences(current, currentKey);
@@ -82,7 +85,8 @@ export class AtomPlan {
       const home = baseAtoms.get(source)?.[0]?.ownerKey ?? null;
       const atHome =
         home && presentKeys.has(home) ? found.find((each) => each.ownerKey === home) : undefined;
-      this.writer.set(source, (atHome ?? (found[0] as Occurrence)).owner);
+      const chosen = found.find((each) => imported(each.node)) ?? atHome ?? found[0];
+      if (chosen) this.writer.set(source, chosen.node);
     }
     for (const source of baseAtoms.keys()) {
       if (!this.writer.has(source)) (track ? this.removed : this.unwritten).add(source);
@@ -141,17 +145,13 @@ export class AtomPlan {
   }
 
   /**
-   * Whether `owner` writes the atom's XML: the one chosen, or anyone for one
-   * that can be copied, unless nothing may.
+   * Whether `node` (the atom in a paragraph, or a kept Block) writes the
+   * atom's XML: the occurrence chosen, or any for one that can be copied,
+   * unless nothing may.
    */
-  writes(source: string, owner: NodeJSON, kind: WordAtomKind): boolean {
+  writes(source: string, node: NodeJSON, kind: WordAtomKind): boolean {
     if (this.unwritten.has(source)) return false;
-    return this.writer.get(source) === owner || COPYABLE.has(kind);
-  }
-
-  /** The paragraph or Block that writes the atom's XML, if one does. */
-  ownerOf(source: string): NodeJSON | undefined {
-    return this.writer.get(source);
+    return this.writer.get(source) === node || COPYABLE.has(kind);
   }
 
   /** Whether the atom is written somewhere. */
@@ -188,12 +188,7 @@ function occurrences(
     for (const counterpart of counterparts) {
       if (counterpart.kind === "kept") {
         const source = readWordAtom(counterpart.node.attrs ?? {}).source;
-        if (source)
-          add(source, {
-            node: counterpart.node,
-            owner: counterpart.node,
-            ownerKey: counterpart.key,
-          });
+        if (source) add(source, { node: counterpart.node, ownerKey: counterpart.key });
       } else if (counterpart.kind === "table") {
         for (const row of counterpart.node.content ?? []) {
           for (const cell of row.content ?? []) visit(counterpartsOf(cell.content ?? [], keyOf));
@@ -201,7 +196,7 @@ function occurrences(
       } else if (counterpart.kind === "paragraph") {
         for (const node of counterpart.node.content ?? []) {
           const source = sourceOf(node);
-          if (source) add(source, { node, owner: counterpart.node, ownerKey: counterpart.key });
+          if (source) add(source, { node, ownerKey: counterpart.key });
         }
       }
     }

@@ -59,7 +59,7 @@ import {
 } from "./mind";
 import { notesSplices } from "./notes";
 import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package";
-import { currentTokens, type Token } from "./paragraph";
+import { currentTokens, sourceOf as keptSourceOf, type Token } from "./paragraph";
 import {
   DocumentComments,
   DocumentFootnotes,
@@ -185,6 +185,10 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     currentKey,
     base.places,
     input.review.trackAs !== null,
+    (node) => {
+      const kept = keptSourceOf(node);
+      return kept !== null && sourceOf(node)?.n === kept;
+    },
   );
 
   // The parts new content goes into.

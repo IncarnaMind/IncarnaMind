@@ -23,6 +23,7 @@ import {
   WORD_ATOM_NODE,
 } from "../../../core/api";
 import { citationReference } from "../../../shared/citations";
+import { noteCopies } from "./noteCopies";
 import { asOwnUndoStep } from "./selectionCommands";
 
 /**
@@ -133,7 +134,7 @@ export const Footnote = Node.create<FootnoteOptions>({
   },
 
   addProseMirrorPlugins() {
-    return [openFootnotePlugin()];
+    return [openFootnotePlugin(), noteCopies()];
   },
 });
 

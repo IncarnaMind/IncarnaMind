@@ -76,6 +76,8 @@ export interface Token {
   run: XmlElement | null;
   /** An atom's source: "w:bookmarkStart#3", "w:r#40..w:r#44". */
   source: string | null;
+  /** An atom of the Note's text now: its node, which `AtomPlan` may choose to write the XML. */
+  node?: NodeJSON;
   /** A special's content, for the native writer: a Citation's footnote, maths, a new picture. */
   inline: Inline | null;
   /** What changes still waiting do to it (#107). */
@@ -244,7 +246,7 @@ export function currentTokens(
       if (source) {
         // A copy of a note is written as a new one: it can't take the original's id.
         const inline = node.type === FOOTNOTE_NODE ? (specialOf(node)[0] ?? null) : null;
-        tokens.push(...marked([{ ...atom(source), inline }], node, pending));
+        tokens.push(...marked([{ ...atom(source), inline, node }], node, pending));
       } else {
         const inlines = specialOf(node);
         if (inlines.length > 0) tokens.push(...inlines.map(special));

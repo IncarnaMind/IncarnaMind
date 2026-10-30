@@ -107,6 +107,8 @@ const splitsByChild = (block: Element) => block.matches("ul, ol, li, blockquote"
 class Paginator {
   private readonly pages: HTMLElement[] = [];
   private page: Page;
+  /** The page being filled was opened because the one before it was full, not by a break or the start. */
+  private full = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -196,7 +198,9 @@ class Paginator {
     for (let block = queue.shift(); block; block = queue.shift()) {
       const page = this.page;
       if (block.classList.contains("page-break")) {
-        if (page.body.childElementCount > 0) this.page = this.newPage();
+        // What follows a break starts a page, as in Word, so two in a row leave a page empty.
+        if (page.body.childElementCount > 0 || !this.full) this.page = this.newPage();
+        this.full = false;
         continue;
       }
       if (block.classList.contains("pack-page") && page.body.childElementCount > 0) {
@@ -210,6 +214,7 @@ class Paginator {
         // Taller than a page and nowhere to split it: it is made to fit, smaller.
         this.shrinkOnto(page, block);
         this.page = this.newPage();
+        this.full = true;
         continue;
       }
       // A heading, and a chart's picture and caption, stay with what follows them.
@@ -224,6 +229,7 @@ class Paginator {
         queue.unshift(last);
       }
       this.page = this.newPage();
+      this.full = true;
     }
     if (this.pages.length > 1 && this.page.body.childElementCount === 0) {
       this.pages.pop()?.remove();
@@ -381,7 +387,9 @@ function blocksOf(source: HTMLElement): HTMLElement[] {
 /**
  * A block with a page break inside it (in a list item, a quote): the part
  * before each break, the break, and the rest, so the break starts a page as
- * one between Blocks does. A list item cut in two keeps one number.
+ * one between Blocks does. A list item cut in two keeps one number, on its
+ * part before the break unless that part is empty, and each list goes on
+ * counting after the break from the items before it.
  */
 function apartAtBreaks(block: HTMLElement): HTMLElement[] {
   const parts: HTMLElement[] = [];
@@ -391,15 +399,29 @@ function apartAtBreaks(block: HTMLElement): HTMLElement[] {
     at;
     at = rest.querySelector<HTMLElement>(".page-break")
   ) {
-    const item = at.closest("li");
-    const items = rest.querySelectorAll(":scope > li").length;
+    const holders: HTMLElement[] = [];
+    for (let each = at.parentElement; each; each = each === rest ? null : each.parentElement) {
+      holders.unshift(each);
+    }
     const after = cutAt(rest, { node: at, offset: null });
     at.remove();
-    if (item && after.firstElementChild instanceof HTMLElement) {
-      after.firstElementChild.style.listStyleType = "none";
+    // What follows the break is in a copy of each element it was in, each the first in the one before.
+    const cut: [HTMLElement, Element | null][] = [];
+    let copy: Element | null = after;
+    for (const holder of holders) {
+      cut.push([holder, copy]);
+      copy = copy?.firstElementChild ?? null;
     }
-    if (rest instanceof HTMLOListElement && after instanceof HTMLOListElement) {
-      after.start = rest.start + Math.max(0, items - 1);
+    let numbered = false;
+    for (const [holder, continued] of cut.reverse()) {
+      if (holder instanceof HTMLLIElement && continued instanceof HTMLElement) {
+        numbered = holder.childElementCount > 0 || (holder.textContent ?? "").trim() !== "";
+        if (numbered) continued.style.listStyleType = "none";
+        else holder.remove();
+      } else if (holder instanceof HTMLOListElement && continued instanceof HTMLOListElement) {
+        const before = holder.querySelectorAll(":scope > li").length;
+        continued.start = holder.start + before - (numbered ? 1 : 0);
+      }
     }
     parts.push(rest, at);
     rest = after;

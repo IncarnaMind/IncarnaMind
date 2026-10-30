@@ -18,12 +18,7 @@
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readParagraphFormat } from "../../../shared/paragraphFormat";
 import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import {
-  PARAGRAPH_FORMAT_ATTRIBUTE,
-  type ParagraphFormat,
-  type WordAtomKind,
-  type WordExportLoss,
-} from "../../api";
+import { PARAGRAPH_FORMAT_ATTRIBUTE, type ParagraphFormat, type WordExportLoss } from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
 import type { Relationship } from "../../documents/formats/docxPackage";
 import { child, elements, walk, type XmlElement } from "../../documents/formats/xml";
@@ -723,7 +718,7 @@ export class DocumentPatch {
       if (
         source &&
         element?.name === "w:sectPr" &&
-        this.input.plan.writes(source, counterpart.node, "sectionBreak")
+        this.input.plan.writes(source, node, "sectionBreak")
       ) {
         sources.push(source);
       }
@@ -739,12 +734,11 @@ export class DocumentPatch {
   ): string {
     const { plan } = this.input;
     const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
-      if (token.kind !== "atom" || !token.source) return [token];
-      const node = (counterpart.node.content ?? []).find((each) => sourceOf(each) === token.source);
-      const kind = node ? keptKindOf(node) : ("other" as WordAtomKind);
-      if (plan.writes(token.source, counterpart.node, kind)) return [token];
+      const { node } = token;
+      if (token.kind !== "atom" || !token.source || !node) return [token];
+      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
       if (token.inline) return [special(token.inline)];
-      if (!node || !plan.written(token.source)) return [];
+      if (!plan.written(token.source)) return [];
       plan.copied(node);
       const text = node.type === "image" ? "" : wordAtomText(readWordAtom(node.attrs ?? {}));
       return Array.from(text, (each) => ({

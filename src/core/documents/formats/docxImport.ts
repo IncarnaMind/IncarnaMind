@@ -484,12 +484,8 @@ const PROPERTIES = new Set([
 /** Inline containers that are only wrappers: their content is read as if they weren't there. */
 const TRANSPARENT = new Set(["w:smartTag", "w:customXml", "w:dir", "w:bdo"]);
 
-/** Marks that keep a place for something that spans text: a comment's range, a permission's, a move's. */
-const RANGES = new Set([
-  "w:commentRangeStart",
-  "w:commentRangeEnd",
-  "w:permStart",
-  "w:permEnd",
+/** Where someone's tracked change spans text: a move's range, a custom XML element's insertion, deletion or move. */
+const CHANGE_RANGES = new Set([
   "w:moveFromRangeStart",
   "w:moveFromRangeEnd",
   "w:moveToRangeStart",
@@ -502,6 +498,15 @@ const RANGES = new Set([
   "w:customXmlMoveFromRangeEnd",
   "w:customXmlMoveToRangeStart",
   "w:customXmlMoveToRangeEnd",
+]);
+
+/** Marks that keep a place for something that spans text: a comment's range, a permission's, a tracked change's. */
+const RANGES = new Set([
+  "w:commentRangeStart",
+  "w:commentRangeEnd",
+  "w:permStart",
+  "w:permEnd",
+  ...CHANGE_RANGES,
 ]);
 
 /** Tracked changes, which are kept as is: their fields don't open or close one outside them. */
@@ -1850,12 +1855,14 @@ class Reader {
   /**
    * A note's paragraphs as the Note's footnote holds its text, each read as a
    * paragraph of the document is; null when a footnote can't hold it, or
-   * someone's tracked change is in it (their words, a paragraph's mark or
-   * properties, a format), which the note keeps as is.
+   * someone's tracked change is in it (their words, a move's or a custom XML
+   * element's range, a paragraph's mark or properties, a format), which the
+   * note keeps as is.
    */
   noteParagraphs(note: XmlElement): NoteParagraph[] | null {
     for (const element of walk(note)) {
-      if (CHANGES.has(element.name) || element.name in KEPT_CHANGES) return null;
+      const { name } = element;
+      if (CHANGES.has(name) || CHANGE_RANGES.has(name) || name in KEPT_CHANGES) return null;
     }
     const paragraphs: NoteParagraph[] = [];
     let waiting: NodeJSON[] = [];
