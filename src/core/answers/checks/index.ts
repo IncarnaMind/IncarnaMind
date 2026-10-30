@@ -584,6 +584,12 @@ function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
   };
 }
 
+/** A sentence as a whole read finds it again: the Note can be reloaded while it reads. */
+const sentenceKey = (
+  mindId: string,
+  { blockId, occurrence, text }: Pick<SelectedSentence, "blockId" | "occurrence" | "text">,
+) => JSON.stringify([mindId, blockId, occurrence, text]);
+
 const isSentence = (
   a: Pick<SelectedSentence, "element" | "from" | "to">,
   b: Pick<SelectedSentence, "element" | "from" | "to">,
@@ -887,7 +893,8 @@ export function createChecks(options: ChecksOptions) {
       ) ??
       (plans && pendingParts(plans, previous));
     const check: ClaimCheckAttributes = {
-      id: input.part?.id ?? randomUUID(),
+      // A whole read writes onto the mark it was asked from, so that mark's open card shows it.
+      id: input.part?.id ?? (input.within ? physicalPrior?.id : undefined) ?? randomUUID(),
       request: input.requestId,
       action: input.action,
       state: "checking",
@@ -1024,7 +1031,7 @@ export function createChecks(options: ChecksOptions) {
           ? []
           : [
               {
-                sentence,
+                key: sentenceKey(mindId, sentence),
                 marks: marksOn(blocks, sentence),
                 queued: startCheck(blocks, sentence, owner, input, prepared, scope, startedAt)
                   .queued,
@@ -1039,50 +1046,52 @@ export function createChecks(options: ChecksOptions) {
     }
 
     let checked = 0;
-    for (const { sentence, marks, queued } of started.sentences) {
+    for (const { key, marks, queued } of started.sentences) {
       if (signal.aborted) break;
-      wholeRead.claim(sentence, input.requestId);
-      const reading = wholeRead.reader(input, read, prepared, atomicCheck);
-      const result = await withCites(createPartCheck(options, reading.readPart))({
-        ...checkRequest(queued, read.scope, prepared, mindId, signal),
-        undecidedOnly: true,
-      });
-      if (signal.aborted) break;
-      const at = options.now().toISOString();
-      recordJudged(options.recordAiUse, mindId, prepared, result, at);
-      const kept = content.edit(mindId, (blocks) => {
-        if (!wholeRead.owns(sentence, input.requestId)) return false;
-        const again = selectedSentences(blocks, stretches);
-        const now = again.ok
-          ? again.sentences.find(
-              (each) => each.element === sentence.element && each.text === sentence.text,
-            )
-          : undefined;
-        if (!now || marksOn(blocks, now) !== marks) return false;
-        const owner = input.part ? currentPartOwner(blocks, input.part) : null;
-        if (input.part && !owner) return false;
-        const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
-        const settled = noteResult(
-          begun.pending,
-          result,
-          at,
-          blocks,
-          mindId,
-          begun.queued.claim,
-          begun.queued.priorParts,
-          begun.queued.before,
-        );
-        markSentence(now.element, now.from, now.to, {
-          ...settled,
-          read: { pages: reading.pagesRead(), of: read.pages },
+      wholeRead.claim(key, input.requestId);
+      try {
+        const reading = wholeRead.reader(input, read, prepared, atomicCheck);
+        const result = await withCites(createPartCheck(options, reading.readPart))({
+          ...checkRequest(queued, read.scope, prepared, mindId, signal),
+          undecidedOnly: true,
         });
-        if (input.part) removeOpinion(blocks, input.part.id);
-        recordOpinions(blocks, []);
-        return true;
-      });
-      if (!kept) continue;
-      if (result.verdict !== "not-checked") checked++;
-      retainEvidence(mindId);
+        if (signal.aborted) break;
+        const at = options.now().toISOString();
+        recordJudged(options.recordAiUse, mindId, prepared, result, at);
+        const kept = content.edit(mindId, (blocks) => {
+          if (!wholeRead.owns(key, input.requestId)) return false;
+          const again = selectedSentences(blocks, stretches);
+          const now = again.ok
+            ? again.sentences.find((each) => sentenceKey(mindId, each) === key)
+            : undefined;
+          if (!now || marksOn(blocks, now) !== marks) return false;
+          const owner = input.part ? currentPartOwner(blocks, input.part) : null;
+          if (input.part && !owner) return false;
+          const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
+          const settled = noteResult(
+            begun.pending,
+            result,
+            at,
+            blocks,
+            mindId,
+            begun.queued.claim,
+            begun.queued.priorParts,
+            begun.queued.before,
+          );
+          markSentence(now.element, now.from, now.to, {
+            ...settled,
+            read: { pages: reading.pagesRead(), of: read.pages },
+          });
+          if (input.part) removeOpinion(blocks, input.part.id);
+          recordOpinions(blocks, []);
+          return true;
+        });
+        if (!kept) continue;
+        if (result.verdict !== "not-checked") checked++;
+        retainEvidence(mindId);
+      } finally {
+        wholeRead.release(key, input.requestId);
+      }
     }
     if (signal.aborted) return { kind: "cancelled" };
     return {

@@ -148,7 +148,8 @@ describe("Check against a Document, read whole", () => {
         ...whole(block, example.claim.length),
         allDocuments: true,
       });
-      expect((await onlyMark(client)).state).toBe("unsupported");
+      const before = await onlyMark(client);
+      expect(before.state).toBe("unsupported");
       const handed = calls
         .filter(isCheckRun)
         .flatMap((call) => call.results)
@@ -169,6 +170,8 @@ describe("Check against a Document, read whole", () => {
       expect(result).toMatchObject({ kind: "checked", sentences: 1, checked: 1 });
       const check = await onlyMark(client);
       expect(check).toMatchObject({
+        // The card that asked stays on its mark, which now holds the result.
+        id: before.id,
         action: "check-against-document",
         state: "supported",
         evidence: { documentId: lease.id, quote: leaseQuote, check: "found" },
@@ -938,6 +941,46 @@ describe("A whole read the User replaced", () => {
       release();
     }
     await ordinary;
+  });
+
+  test("a read that ends after its Note was closed still marks the sentence", async () => {
+    let release = () => {};
+    const paused = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    let held = false;
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && !held && call.results.some((result) => result.tool === "cite")) {
+          held = true;
+          return { text: "Verdict: supported", pause: { after: 0, until: paused } };
+        }
+        return checkReply(call, { [EN.claim]: { verdict: "supported", quote: EN.quote } });
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, mind, block, documents } = await setup(
+      [{ name: EN.document, contents: EN.quote }],
+      {},
+      EN.claim,
+      [],
+      undefined,
+      model,
+    );
+    const reading = core.checkSentences(
+      checkInput(mind.id, block, EN.claim, within([documents[0]?.id ?? ""])),
+    );
+    await vi.waitFor(() => expect(held).toBe(true));
+    await core.closeMind(mind.id);
+
+    release();
+    expect(await reading).toMatchObject({ kind: "checked", checked: 1 });
+
+    const reopened = await connectToMind(core, mind.id);
+    expect(await onlyMark(reopened)).toMatchObject({
+      action: "check-against-document",
+      state: "supported",
+    });
   });
 
   test("a slower read cannot replace a newer ordinary check", async () => {

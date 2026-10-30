@@ -4,7 +4,6 @@
  * search. Planning sends nothing. Each part's check reads the windows in order and stops at the
  * first that decides it. Consent uses the separate "document-check" flow (ADR-0022).
  */
-import type * as Y from "yjs";
 import { sameScope } from "../../../shared/searchScope";
 import type {
   ChatModelChoice,
@@ -127,8 +126,8 @@ interface Reading {
 export function createWholeRead(options: WholeReadOptions) {
   /** The latest plan in each Note, by Note: a read asked from an earlier one sends nothing. */
   const plans = new Map<string, { id: string; within: SearchScope }>();
-  /** The latest whole read of each sentence: an earlier one still running never writes. */
-  const owners = new WeakMap<Y.XmlElement, Map<string, string>>();
+  /** The latest whole read of each sentence, by `sentenceKey`: an earlier one never writes. */
+  const owners = new Map<string, string>();
 
   function toRead(
     mindId: string,
@@ -289,14 +288,16 @@ export function createWholeRead(options: WholeReadOptions) {
       return latest?.id === plan && sameScope(latest.within, within);
     },
 
-    claim(sentence: { element: Y.XmlElement; text: string }, requestId: string): void {
-      const owned = owners.get(sentence.element) ?? new Map<string, string>();
-      owned.set(sentence.text, requestId);
-      owners.set(sentence.element, owned);
+    claim(sentence: string, requestId: string): void {
+      owners.set(sentence, requestId);
     },
 
-    owns(sentence: { element: Y.XmlElement; text: string }, requestId: string): boolean {
-      return owners.get(sentence.element)?.get(sentence.text) === requestId;
+    owns(sentence: string, requestId: string): boolean {
+      return owners.get(sentence) === requestId;
+    },
+
+    release(sentence: string, requestId: string): void {
+      if (owners.get(sentence) === requestId) owners.delete(sentence);
     },
   };
 }
