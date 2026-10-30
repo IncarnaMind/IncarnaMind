@@ -11,7 +11,6 @@ export interface SaveReason {
 }
 
 interface SystemFailure {
-  /** The error code the message starts with, e.g. `EACCES: …`. */
   code?: RegExp;
   /** The system's own words, for a message that names no code. */
   words?: RegExp;
