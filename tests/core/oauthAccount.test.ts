@@ -85,6 +85,16 @@ describe("A kept sign-in's record", () => {
     expect(store.written()).toBeNull();
   });
 
+  test("signing out of a record that can't be read has nothing to end and touches nothing", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onTestFinished(() => error.mockRestore());
+    const store = secretStore(async () => "not a sign-in record");
+    const account = accountStoredIn(store.secrets);
+
+    expect(await account.signOut()).toEqual({ revoked: true });
+    expect(store.written()).toBeNull();
+  });
+
   test("a completed sign-in replaces the record, which only commit writes", async () => {
     const store = secretStore(async () => "not a sign-in record");
     const account = accountStoredIn(store.secrets);

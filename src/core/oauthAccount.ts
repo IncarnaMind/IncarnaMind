@@ -437,7 +437,7 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
       try {
         // A refresh already under way would otherwise save its tokens after these are forgotten.
         await refreshing?.catch(() => undefined);
-        const stored = await load();
+        const stored = await loadOrNull();
         if (!stored?.tokens) return { revoked: true };
         const { refreshToken } = stored.tokens;
         const revoked =
