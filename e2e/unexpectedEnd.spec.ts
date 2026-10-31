@@ -161,7 +161,7 @@ test("after a run is killed the next start says IncarnaMind closed, in English a
 
   const second = await launchApp(dataDir);
   const notice = second.window.getByTestId("unexpected-end");
-  await expect(notice.locator("p")).toHaveText("IncarnaMind 意外关闭，你最后的改动可能没有保存。");
+  await expect(notice.locator("p")).toHaveText("IncarnaMind 意外关闭，你最后的改动可能未保存。");
   await expect(second.window.getByTestId("sidebar")).toContainText("关闭前的笔记");
   await screenshot(second.window, "closed-unexpectedly-zh");
   expect(await lastRunOf()).toMatch(
