@@ -1869,6 +1869,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    liveMeeting: (mindId) => liveMeetingOf(mindId),
     providerExists: (providerId) => chat.exists(providerId),
     defaultModel: () => settings.get().user.chatModel,
     readsImages: (choice) => chat.readsImages(choice),
@@ -3892,6 +3893,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let listMeetings: (() => Meeting[]) | undefined;
   /** See `AnswersOptions.meetingHelp`; set once Meetings are. */
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
+  /** See `AnswersOptions.liveMeeting`; set once Meetings are. */
+  let liveMeetingOf = (_mindId: string): boolean => false;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   let transcriptSaved = (_meetingId: string) => {};
@@ -4070,6 +4073,10 @@ export function createCore(adapters: CoreAdapters): Core {
         LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question),
       ) ?? null
     );
+  };
+  liveMeetingOf = (mindId) => {
+    const meeting = meetings.liveOf(mindId);
+    return meeting !== null && meeting.kind === "meeting";
   };
   /** The conversation each live Meeting's help went to last: the panel's goes on there. */
   const helpConversations = new Map<string, string>();

@@ -239,6 +239,7 @@ import {
   withoutWrittenIds,
 } from "./contextCitations";
 import {
+  asksForCallRecap,
   coverageInstructions,
   coverageOf,
   documentsAsked,
@@ -556,6 +557,8 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /** Whether the Mind's Meeting records or is paused now; a recap of that call reads the call alone (#1319). */
+  liveMeeting?(mindId: string): boolean;
   providerExists(providerId: string): boolean;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
@@ -3380,6 +3383,12 @@ export function createAnswers(options: AnswersOptions) {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
+    // A recap of a live call reads the call: an earlier reply's Document-based check would steer it (#1319).
+    const recap =
+      mind !== null &&
+      help === null &&
+      (options.liveMeeting?.(mind.mindId) ?? false) &&
+      asksForCallRecap(question.text);
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
     // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.
@@ -3410,16 +3419,17 @@ export function createAnswers(options: AnswersOptions) {
       }
       return { message, wall: turnWall };
     });
-    const earlier = help
-      ? []
-      : withWalls
-          .filter(
-            ({ message, wall }) =>
-              wall !== UNKNOWN_WALL &&
-              wall === wallId &&
-              !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
-          )
-          .map((each) => each.message);
+    const earlier =
+      help || recap
+        ? []
+        : withWalls
+            .filter(
+              ({ message, wall }) =>
+                wall !== UNKNOWN_WALL &&
+                wall === wallId &&
+                !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
+            )
+            .map((each) => each.message);
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
     // follow-up keeps the part the first one found, and so the same start for the prompt cache.
     const asking = [
