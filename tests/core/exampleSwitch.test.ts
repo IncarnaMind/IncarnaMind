@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { access, mkdir, realpath, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import type { Document, Examples, LinkedFolder, Mind } from "../../src/core";
@@ -59,6 +60,10 @@ async function exampleOverFakes() {
   let language: Language = "en";
   let listingFails = false;
   let shown: Examples | undefined;
+  /** The next folder link waits for this, once it has started. */
+  let linkHeld: { reached: () => void; until: Promise<void> } | null = null;
+  /** A Linked folder of the User's that holds the data folder: linking inside it gives it back. */
+  let outer: { id: string; path: string } | null = null;
   const reports: { folder: string; shownFolder: string | null | undefined }[] = [];
 
   const examples = createExamples({
@@ -96,7 +101,15 @@ async function exampleOverFakes() {
       return change(held.blocks);
     },
     linkFolder: async (path) => {
-      const id = randomUUID();
+      // As the library gives it: the real path, whatever the data folder's link says.
+      const real = await realpath(path);
+      const held = linkHeld;
+      linkHeld = null;
+      if (held) {
+        held.reached();
+        await held.until;
+      }
+      const id = outer?.id ?? randomUUID();
       folders.add(id);
       // The names the ready Question cites, in the language just asked for.
       const quotes = EXAMPLE_SETS.credit[language].ready?.quotes ?? [];
@@ -107,7 +120,7 @@ async function exampleOverFakes() {
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
-        path,
+        path: outer?.path ?? real,
         folderId: randomUUID(),
         status: "scanning",
         layout: "tree",
@@ -143,6 +156,27 @@ async function exampleOverFakes() {
   return {
     examples,
     reports,
+    minds,
+    folders,
+    shown: () => shown,
+    setLanguage: (next: Language) => {
+      language = next;
+    },
+    dataDir,
+    /** The User links the folder holding the data folder: it takes in the Linked folders inside. */
+    linkOuter: () => {
+      outer = { id: randomUUID(), path: dirname(dataDir) };
+      folders.clear();
+      folders.add(outer.id);
+      return outer.id;
+    },
+    /** Holds the next folder link until `release`; `reached` once it has started. */
+    holdLink: () => {
+      const reached = Promise.withResolvers<void>();
+      const until = Promise.withResolvers<void>();
+      linkHeld = { reached: () => reached.resolve(), until: until.promise };
+      return { reached: reached.promise, release: () => until.resolve() };
+    },
     failListing: () => {
       listingFails = true;
     },
@@ -213,4 +247,108 @@ test("a listing that fails says so rather than reading as no example", async () 
   await examples.create();
   failListing();
   expect(() => examples.readyState()).toThrow("The folders couldn't be listed.");
+});
+
+// protects=two quick changes of language end in the one chosen last (#2302); fails_when=the second change reads the example before the first has swapped it, does nothing, and the first then swaps it to the language left behind; no_claim=what the window shows meanwhile.
+test("two quick changes of language end in the language chosen last", async () => {
+  const { examples, setLanguage, holdLink } = await exampleOverFakes();
+  await examples.create();
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const toChinese = examples.followLanguage();
+  await link.reached;
+  setLanguage("en");
+  const back = examples.followLanguage();
+  link.release();
+  await Promise.all([toChinese, back]);
+
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+});
+
+// protects=Remove pressed while the example follows the language leaves no example (#2302); fails_when=the swap writes into the deleted Mind, or links its folder and says the example is there after it was removed; no_claim=Undo of the removal (covered in examples.test.ts).
+test("an example removed while it follows the language is gone, with its Documents", async () => {
+  const { examples, setLanguage, holdLink, minds, folders, shown } = await exampleOverFakes();
+  await examples.create();
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const removing = examples.remove();
+  link.release();
+  await Promise.all([switching, removing]);
+
+  expect(examples.status().mindId).toBeNull();
+  expect(shown()?.mindId).toBeNull();
+  expect(minds.size).toBe(0);
+  expect(folders.size).toBe(0);
+});
+
+// protects=what the User writes in the example while it follows the language is kept (#2302); fails_when=the swap checks the example only before copying the files, then writes the other language's over the User's words; no_claim=an edit made before the change (covered in examples.test.ts).
+test("an example written in while it follows the language keeps what was written", async () => {
+  const { examples, setLanguage, holdLink, minds, folders } = await exampleOverFakes();
+  const made = await examples.create();
+  const mind = minds.get(made.mindId as string);
+  if (!mind) throw new Error("The example Mind wasn't made.");
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const note = new Y.XmlElement("paragraph");
+  note.insert(0, [new Y.XmlText("My own note on the covenants.")]);
+  mind.blocks.insert(mind.blocks.length, [note]);
+  link.release();
+  await switching;
+
+  expect(mind.blocks.toString()).toContain("My own note on the covenants.");
+  expect(mind.mind.title).toBe(EXAMPLE_SETS.credit.en.title);
+  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect([...folders]).toEqual([made.linkedFolderId]);
+});
+
+// protects=a Linked folder of the User's that holds the copy stays linked when a switch gives way to their words (#2302); fails_when=giving way unlinks whatever folder the link returned, the User's own included; no_claim=what the User's folder indexes.
+test("an example written in while it follows the language leaves the User's own Linked folder", async () => {
+  const { examples, setLanguage, holdLink, minds, folders, linkOuter } = await exampleOverFakes();
+  const made = await examples.create();
+  const mind = minds.get(made.mindId as string);
+  if (!mind) throw new Error("The example Mind wasn't made.");
+  const theirs = linkOuter();
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const note = new Y.XmlElement("paragraph");
+  note.insert(0, [new Y.XmlText("My own note on the covenants.")]);
+  mind.blocks.insert(mind.blocks.length, [note]);
+  link.release();
+  await switching;
+
+  expect(mind.blocks.toString()).toContain("My own note on the covenants.");
+  expect([...folders]).toEqual([theirs]);
+});
+
+// protects=files the User keeps in a folder of the example's name stay when a switch gives way to their words (#2302); fails_when=giving way deletes the whole folder it copied into; no_claim=the copies the switch added there, which stay unlinked.
+test("an example written in while it follows the language leaves a folder that was there before", async () => {
+  const { examples, setLanguage, holdLink, minds, dataDir } = await exampleOverFakes();
+  const made = await examples.create();
+  const mind = minds.get(made.mindId as string);
+  if (!mind) throw new Error("The example Mind wasn't made.");
+  const there = join(dataDir, EXAMPLE_SETS.credit["zh-CN"].folder);
+  await mkdir(there, { recursive: true });
+  await writeFile(join(there, "My notes.txt"), "Kept by the User.\n");
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const note = new Y.XmlElement("paragraph");
+  note.insert(0, [new Y.XmlText("My own note on the covenants.")]);
+  mind.blocks.insert(mind.blocks.length, [note]);
+  link.release();
+  await switching;
+
+  await expect(access(join(there, "My notes.txt"))).resolves.toBeUndefined();
 });

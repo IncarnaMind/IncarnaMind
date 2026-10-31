@@ -225,9 +225,11 @@ interface State extends Saved {
 }
 
 export interface TranscriptDocuments {
-  add(id: string, name: string, file: SnapshotFile): Document;
-  /** Files the Document in the Mind's Folder. */
-  file(documentId: string, folderId: string): void;
+  /**
+   * Makes the Meeting's Transcript Document from its file: named for its note, in its Folder,
+   * and, while the note waits in Recently deleted, deleted with it (#1253).
+   */
+  add(meetingId: string, id: string, file: SnapshotFile): void;
   check(path: string): Promise<void>;
   /** Reads the file again, and resolves once the Document's text is this file's. */
   checkNow(documentId: string | null, path: string): Promise<void>;
@@ -240,10 +242,6 @@ export interface TranscriptsOptions {
   transcriber: Transcriber;
   model: TranscriptionModel;
   documents: TranscriptDocuments;
-  /** "Transcript · {meeting}", in the language of the interface. */
-  name(meetingId: string): string;
-  /** The Folder of the Meeting's Mind, if it is in one. */
-  folderOf(meetingId: string): string | null;
   /** The Meeting's audio parts on disk. */
   partsOf(meetingId: string): AudioPart[];
   /** Whether the Meeting's audio was deleted, by the User or after its day. */
@@ -420,9 +418,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!state.documentId) {
       const id = randomUUID();
       try {
-        documents.add(id, options.name(state.meetingId), file);
-        const folderId = options.folderOf(state.meetingId);
-        if (folderId) documents.file(id, folderId);
+        documents.add(state.meetingId, id, file);
         state.documentId = id;
         state.lastIndexed = Date.now();
         persist(state);
@@ -1608,7 +1604,24 @@ export function createTranscripts(options: TranscriptsOptions) {
       options.changed();
     },
 
-    /** The Meeting's Mind was deleted: its Transcript's working files go; its Document stays. */
+    /** The Meeting's Transcript Document, once its first line made one. */
+    documentOf(meetingId: string): string | null {
+      return load(meetingId).documentId;
+    },
+
+    /**
+     * The Meeting is back from Recently deleted (#1253): its file is read again, for lines that
+     * came, and a finish, while its Document waited there.
+     */
+    restored(meetingId: string): void {
+      const state = load(meetingId);
+      if (closed || !state.documentId || state.cues.length === 0) return;
+      documents.check(state.savedPath ?? vttPath(meetingId)).catch((error: unknown) => {
+        log.error("transcript.indexFailed", { meetingId, message: messageOf(error) });
+      });
+    },
+
+    /** The Meeting is gone for good: its Transcript's working state goes, and its working file. */
     forget(meetingId: string): void {
       const state = states.get(meetingId);
       if (state?.live) {
