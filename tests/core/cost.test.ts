@@ -1196,14 +1196,20 @@ describe("A Run's budget (#1554)", () => {
 
     const requests = [0, 1].map(() =>
       inRun(run, () => request(core, 100_000)).then(
-        () => "answered",
-        (error: unknown) => classifyProviderError(error).kind,
+        () => null,
+        (error: unknown) => classifyProviderError(error),
       ),
     );
     await expect.poll(() => rows(dataDir).length).toBe(1);
     release();
 
-    expect((await Promise.all(requests)).sort()).toEqual(["answered", "cost-cap"]);
+    const [first, second] = await Promise.all(requests);
+    // Refused while the other is still open: it had spent nothing yet, whatever it set aside.
+    expect(first ?? second).toMatchObject({
+      kind: "cost-cap",
+      budget: { spent: { currency: "USD", amount: 0 } },
+    });
+    expect([first, second].filter((each) => each === null)).toHaveLength(1);
     expect(model.doStreamCalls).toHaveLength(1);
   });
 

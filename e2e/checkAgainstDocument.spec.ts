@@ -213,7 +213,18 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
   await choose(stopped.window, "Long harbour");
   const progress = stopped.card.getByTestId("document-check-progress");
   await expect(progress).toBeVisible();
-  await expect(progress).toContainText("Reading");
+  await expect(progress).toContainText("Reading “Long harbour”");
+  await expect(progress).not.toContainText(" 0 of ");
+  await expect(progress).toContainText("· Stop");
+  // While it reads, the card is the read's: nothing that would start another beside it.
+  for (const offered of [
+    "claim-nothing",
+    "claim-check-document",
+    "claim-check-again",
+    "claim-read-continue",
+  ]) {
+    await expect(stopped.card.getByTestId(offered)).toHaveCount(0);
+  }
   await capture(stopped.window, "after-progress-en-1440");
   await pointAndClick(stopped.window, stopped.card.getByTestId("document-check-stop"));
   await expect(stopped.card.getByTestId("claim-nothing")).toHaveText(

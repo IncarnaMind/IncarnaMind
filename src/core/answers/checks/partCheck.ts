@@ -7,6 +7,7 @@ import {
   withFigureFacts,
 } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
+import { stoppedAtBudget } from "../../../shared/readBudget";
 import type {
   CheckFigure,
   ClaimCheckFailure,
@@ -237,7 +238,9 @@ export function createPartCheck(
       if (
         request.undecidedOnly &&
         !selected &&
-        (previous?.verdict === "supported" || previous?.verdict === "contradicted")
+        (previous?.verdict === "supported" ||
+          previous?.verdict === "contradicted" ||
+          (request.resumesStopped && previous && !stoppedAtBudget(previous)))
       ) {
         parts.push(previous);
         continue;

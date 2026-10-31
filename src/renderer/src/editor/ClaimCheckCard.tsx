@@ -22,6 +22,7 @@ import {
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
+import { stoppedAtBudget } from "../../../shared/readBudget";
 import { comparableSentence } from "../../../shared/sentences";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
@@ -45,7 +46,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
-import { reasonParams } from "../cost";
+import { reasonText } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -693,17 +694,29 @@ function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
-  // A whole read stopped at its budget: Continue sizes what is left and asks again.
-  const spentAll = shown.state === "not-checked" && shown.reason === "read-budget";
+  // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
+  // on those it did: Continue sizes what is left and asks again.
+  const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
+  const stoppedPart = check.parts?.find(stoppedAtBudget);
+  const stopLine =
+    sentenceStopped || stoppedPart
+      ? reasonText(
+          t,
+          language,
+          "read-budget",
+          sentenceStopped ? check.detail : (stoppedPart?.detail ?? null),
+        )
+      : null;
   const reason =
     shown.state === "not-checked"
-      ? t(`claim.reason.${shown.reason}`, {
-          ...reasonParams(shown.reason, check.detail, language),
-          cap: SENTENCES_CHECKED_AT_MOST,
-        })
+      ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;
+  const reading = useChecks((store) => {
+    const read = store.running[mindId ?? ""]?.read;
+    return read !== undefined && read.checkId === check.id;
+  });
 
   const figureSources = mismatched.map((figure) => {
     const cited = figure.sourceInput?.citation;
@@ -724,6 +737,38 @@ function ClaimCard({
       </p>
     );
   });
+
+  // While the sentence's own read runs, its card is that read's: its progress and Stop, nothing it
+  // would replace, so no Continue or Check again starts a second read beside it.
+  if (reading && mindId) {
+    return (
+      <div
+        ref={rootRef}
+        className="citation-card citation-card--checking"
+        contentEditable={false}
+        {...objectMenu.rowProps}
+      >
+        <div className="citation-card-head">
+          <p data-testid="claim-badge" data-check="checking" className="citation-badge">
+            <ClaimMarkIcon state="checking" className="citation-badge-icon" />
+            <span>{t("claim.state.checking")}</span>
+          </p>
+          <p data-testid="claim-sentence" className="claim-card-sentence">
+            {t("claim.sentence", { sentence })}
+          </p>
+        </div>
+        <div className="citation-card-actions">
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={false}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -930,7 +975,7 @@ function ClaimCard({
           </button>
         </p>
       )}
-      {reason && (pastCap || spentAll) && (
+      {reason && pastCap && (
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-reason"
@@ -938,25 +983,35 @@ function ClaimCard({
               reason,
               <LineAction
                 key="now"
-                action={
-                  pastCap
-                    ? {
-                        label: t("claim.checkNow"),
-                        testId: "claim-check-now",
-                        onClick: () => onCheckAgain(),
-                      }
-                    : {
-                        label: t("claim.readBudget.continue"),
-                        testId: "claim-read-continue",
-                        onClick: () => onCheckAgain(),
-                      }
-                }
+                action={{
+                  label: t("claim.checkNow"),
+                  testId: "claim-check-now",
+                  onClick: () => onCheckAgain(),
+                }}
               />,
             ]}
           />
         </div>
       )}
-      {reason && !pastCap && !spentAll && (
+      {stopLine && (
+        <div className="citation-card-note">
+          <MetaLine
+            data-testid="claim-read-stopped"
+            parts={[
+              stopLine,
+              <LineAction
+                key="continue"
+                action={{
+                  label: t("claim.readBudget.continue"),
+                  testId: "claim-read-continue",
+                  onClick: () => onCheckAgain(),
+                }}
+              />,
+            ]}
+          />
+        </div>
+      )}
+      {reason && !pastCap && !sentenceStopped && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>

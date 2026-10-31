@@ -15,7 +15,7 @@ vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
 const checksState = vi.hoisted(() => ({
   pickDocument: {} as Record<string, unknown>,
   running: {} as Record<string, unknown>,
-  documentProgress: {},
+  documentProgress: {} as Record<string, unknown>,
 }));
 vi.mock("../../src/renderer/src/checks", () => ({
   checkSentences: read,
@@ -78,7 +78,11 @@ vi.mock("../../src/renderer/src/components/DocumentOrFolderPicker", async () => 
 });
 vi.mock("../../src/renderer/src/components/ProblemLine", async () => {
   const { createElement: element } = await import("react");
-  return { ProblemLine: () => element("p", null, "Problem") };
+  return {
+    ProblemLine: () => element("p", null, "Problem"),
+    LineAction: ({ action }: { action: { label: string; testId: string; onClick(): void } }) =>
+      element("button", { "data-testid": action.testId, onClick: action.onClick }, action.label),
+  };
 });
 vi.mock("../../src/renderer/src/editor/MindCheckLine", async () => {
   const { createElement: element } = await import("react");
@@ -177,6 +181,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   checksState.pickDocument = {};
   checksState.running = {};
+  checksState.documentProgress = {};
   read.mockResolvedValue(undefined);
   ({ window } = parseHTML("<!doctype html><html><body></body></html>"));
   container = window.document.createElement("div");
@@ -298,6 +303,42 @@ test.each([
     expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: plan.kind === "ready" ? plan.id : "" });
   },
 );
+
+test("the card's read shows its progress with Stop beside it, and no count before the first", async () => {
+  checksState.running = {
+    mind: {
+      requestId: "reading",
+      action: "check-against-document",
+      read: { checkId: "claim", within: scope("A") },
+    },
+  };
+  await render();
+  const progress = () => container.querySelector('[data-testid="document-check-progress"]');
+  expect(progress()?.textContent).toBe("claim.readProgress.starting:A: · checks.stop::");
+  expect(
+    container.querySelector('[data-testid="claim-check-document"]')?.hasAttribute("disabled"),
+  ).toBe(true);
+
+  // The read's first report, before any window answered, counts nothing yet.
+  checksState.documentProgress = { reading: { requestId: "reading", pages: 0, of: 200 } };
+  await render();
+  expect(progress()?.textContent).toBe("claim.readProgress.starting:A: · checks.stop::");
+
+  checksState.documentProgress = { reading: { requestId: "reading", pages: 54, of: 200 } };
+  await render();
+  expect(progress()?.textContent).toBe("claim.readProgress:A:54 · checks.stop::");
+
+  // Another card's read shows nothing here.
+  checksState.running = {
+    mind: {
+      requestId: "reading",
+      action: "check-against-document",
+      read: { checkId: "other", within: scope("A") },
+    },
+  };
+  await render();
+  expect(progress()).toBeNull();
+});
 
 test("a read asked again waits while the Note's check runs, then sizes it and asks", async () => {
   bridge.planDocumentCheck.mockResolvedValue(ready(12, 2));

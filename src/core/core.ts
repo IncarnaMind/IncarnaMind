@@ -2584,6 +2584,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
     },
+    readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });

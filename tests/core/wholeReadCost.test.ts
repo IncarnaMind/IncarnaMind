@@ -1,9 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkGenerate, checkReply, isCheckRun, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  sentenceOf,
+} from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -343,7 +350,7 @@ describe("A whole read held to the most it may spend", () => {
       const stopped = first.marks.get(RENT);
       expect(stopped).toMatchObject({ state: "not-checked", reason: "read-budget" });
       // What the read spent before it stopped: all of this core's spending, none of it still open.
-      expect(JSON.parse(stopped?.detail ?? "null")).toEqual({
+      expect(JSON.parse(stopped?.detail ?? "null")).toMatchObject({
         most: first.most,
         spent: { currency: "USD", amount: expect.closeTo(first.spent, 9) },
       });
@@ -371,5 +378,260 @@ describe("A whole read held to the most it may spend", () => {
     ).toBeLessThan(0.5);
     expect(again.most).toEqual({ amount: 0.5, currency: "USD" });
     expect(again.marks.get(RENT)?.state).toBe("supported");
+  });
+});
+
+/** A paragraph of `sentence`, its check's mark on it as `check` has it. */
+const marked = (sentence: string, check: ClaimCheckAttributes): JSONContent => ({
+  type: "paragraph",
+  attrs: { id: crypto.randomUUID() },
+  content: [{ type: "text", text: sentence, marks: [{ type: "claimCheck", attrs: check }] }],
+});
+
+describe("What is left of a read its budget stopped", () => {
+  const SENTENCE =
+    "The tenant may keep a cat, rent is due monthly, and the deposit is two months of rent.";
+  const PARTS = [
+    "The tenant may keep a cat",
+    "rent is due monthly",
+    "the deposit is two months of rent",
+  ];
+  const LEASE = Array.from(
+    { length: 400 },
+    (_, index) => `Clause ${index + 1} covers the upkeep of the flat and its garden.`,
+  ).join("\n\n");
+  const unsupported = { verdict: "unsupported" as const };
+  const plans = Object.fromEntries([SENTENCE, ...PARTS].map((each) => [each, unsupported]));
+  const SPENT: ReportedUsage = {
+    inputTokens: { total: 20_000_000, noCache: 20_000_000, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 10, text: 10, reasoning: undefined },
+  };
+
+  test("costs no more than the whole, as it was planned, and less with each part judged", async () => {
+    let spend = false;
+    const runs: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        runs.push(call);
+        const reply = checkReply(call, plans);
+        if (!spend || "error" in reply) return reply;
+        spend = false;
+        return { ...reply, usage: SPENT };
+      },
+      {
+        generate(call) {
+          if (!call.system.startsWith("You sort the sentences")) return checkGenerate(plans)(call);
+          const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
+            number,
+            parts: (said === SENTENCE ? PARTS : [said]).map((words) => ({
+              kind: "fact",
+              text: words,
+            })),
+          }));
+          return { text: JSON.stringify({ sentences }) };
+        },
+      },
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Lease.md", contents: LEASE },
+    ]);
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("checks", provider.service.id);
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    const within = { folderIds: [], tagIds: [], documentIds: [documents[0]?.id ?? ""] };
+    const write = async (check?: ClaimCheckAttributes) => {
+      const block = check ? marked(SENTENCE, check) : note(SENTENCE);
+      writeMind(client, [block]);
+      await client.settled();
+      const blockId = String(block.attrs?.id);
+      return { from: { blockId, offset: 0 }, to: { blockId, offset: SENTENCE.length } };
+    };
+    const mark = () => {
+      const [check] = claimSpans(readMind(client)).map((span) => span.check);
+      if (!check) throw new Error("The sentence has no mark.");
+      return check;
+    };
+    const about = async (place: Awaited<ReturnType<typeof write>>) => {
+      const plan = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...place,
+        within,
+        model: chosen,
+      });
+      if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+        throw new Error("The read has no per-token estimate.");
+      }
+      return { plan, tokens: plan.estimate.tokens, cost: plan.estimate.cost?.amount ?? 0 };
+    };
+
+    let place = await write();
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      mode: "all",
+      model: chosen,
+    });
+    expect(mark().parts?.map((part) => part.verdict)).toEqual([
+      "unsupported",
+      "unsupported",
+      "unsupported",
+    ]);
+    const whole = await about(place);
+    expect(whole.plan.parts).toBe(3);
+
+    // The read's first request spends past its most: nothing else is sent, and nothing judged.
+    spend = true;
+    await core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-document",
+      ...place,
+      within,
+      plan: whole.plan.id,
+      model: chosen,
+    });
+    await client.settled();
+    const stopped = mark();
+    expect(stopped.parts?.map((part) => part.reason)).toEqual([
+      "read-budget",
+      "read-budget",
+      "read-budget",
+    ]);
+    // Every line says the one figure the read had spent when it ended.
+    const spent = [stopped.detail, ...(stopped.parts ?? []).map((part) => part.detail)].map(
+      (detail) => JSON.parse(detail ?? "null")?.spent,
+    );
+    expect(new Set(spent.map((each) => JSON.stringify(each))).size).toBe(1);
+
+    const left = await about(place);
+    expect(left.plan.parts).toBe(3);
+    expect(left.tokens).toBe(whole.tokens);
+    expect(left.cost).toBeCloseTo(whole.cost, 12);
+
+    // Judged by the read before it stopped, a part is not read, nor priced, again.
+    const judged = (count: number): ClaimCheckAttributes => ({
+      ...stopped,
+      parts: (stopped.parts ?? []).map((part, index) =>
+        index < count ? { ...part, verdict: "unsupported", reason: null, detail: null } : part,
+      ),
+    });
+    place = await write(judged(1));
+    const two = await about(place);
+    place = await write(judged(2));
+    const one = await about(place);
+    expect(two.plan.parts).toBe(2);
+    expect(one.plan.parts).toBe(1);
+    expect(two.tokens).toBeLessThan(left.tokens);
+    expect(one.tokens).toBeLessThan(two.tokens);
+    // Each part is about a third of the whole: its own search and verdict in the one window.
+    expect(two.tokens / whole.tokens).toBeGreaterThan(0.5);
+    expect(two.tokens / whole.tokens).toBeLessThan(0.8);
+    expect(one.tokens / whole.tokens).toBeGreaterThan(0.2);
+    expect(one.tokens / whole.tokens).toBeLessThan(0.5);
+
+    // Continue reads only what is left, and keeps what was judged.
+    place = await write(judged(1));
+    const plan = (await about(place)).plan;
+    const sent = runs.length;
+    await core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-document",
+      ...place,
+      within,
+      plan: plan.id,
+      model: chosen,
+    });
+    await client.settled();
+    const read = runs.slice(sent).filter(isCheckRun).map(sentenceOf);
+    expect(read.length).toBeGreaterThan(0);
+    expect(read).not.toContain(PARTS[0]);
+    expect(mark().parts?.map((part) => part.verdict)).toEqual([
+      "unsupported",
+      "unsupported",
+      "unsupported",
+    ]);
+  });
+
+  test("once its budget stops it, the read sends nothing more, though a smaller request would fit", async () => {
+    const FIRST = "The tenant may keep a cat.";
+    const SECOND = "Rent is due on the first of each month.";
+    const both = { [FIRST]: unsupported, [SECOND]: unsupported };
+    // About 40,000 tokens in one window: its verdict sets aside about $0.01, a search about $0.005.
+    const long = Array.from(
+      { length: 2600 },
+      (_, index) => `Clause ${index + 1} covers the upkeep of the flat and its garden.`,
+    ).join("\n\n");
+    let spending: ReportedUsage | null = null;
+    const runs: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        runs.push(call);
+        const reply = checkReply(call, both);
+        if (!spending || "error" in reply) return reply;
+        const usage = spending;
+        spending = null;
+        return { ...reply, usage };
+      },
+      { generate: checkGenerate(both) },
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Lease.md", contents: long },
+    ]);
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    const block = note(`${FIRST} ${SECOND}`);
+    writeMind(client, [block]);
+    await client.settled();
+    const blockId = String(block.attrs?.id);
+    const place = {
+      from: { blockId, offset: 0 },
+      to: { blockId, offset: FIRST.length + 1 + SECOND.length },
+    };
+    const within = { folderIds: [], tagIds: [], documentIds: [documents[0]?.id ?? ""] };
+    const plan = await core.planDocumentCheck({ mindId: mind.id, ...place, within, model: chosen });
+    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+      throw new Error("The read has no per-token estimate.");
+    }
+    const most = plan.estimate.upTo?.cost?.amount ?? 0;
+    // The first search settles $0.007 short of the budget: the verdict can't fit, a search could.
+    const tokens = Math.round(((most - 0.007) / 0.1) * 1_000_000);
+    spending = {
+      inputTokens: { total: tokens, noCache: tokens, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 0, text: 0, reasoning: undefined },
+    };
+
+    await core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-document",
+      ...place,
+      within,
+      plan: plan.id,
+      model: chosen,
+    });
+    await client.settled();
+
+    const marks = claimSpans(readMind(client)).map((span) => span.check);
+    expect(marks.map((each) => [each.text, each.reason])).toEqual([
+      [FIRST, "read-budget"],
+      [SECOND, "read-budget"],
+    ]);
+    expect(runs.filter(isCheckRun).map(sentenceOf)).toEqual([FIRST]);
+    expect(
+      new Set(marks.map((each) => JSON.stringify(JSON.parse(each.detail ?? "null")?.spent))).size,
+    ).toBe(1);
   });
 });

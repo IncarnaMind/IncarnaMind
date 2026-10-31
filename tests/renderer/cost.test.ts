@@ -4,7 +4,7 @@ import {
   formatMoney,
   formatSpent,
   notCheckedKey,
-  reasonParams,
+  reasonText,
   runStopParts,
   runStopText,
   setAsideText,
@@ -222,20 +222,33 @@ describe("A whole read stopped at the most it may spend", () => {
     const detail = JSON.stringify({
       most: { amount: 0.41, currency: "USD" },
       spent: { amount: 0.38, currency: "USD" },
+      judgesAbsence: false,
     });
-    expect(
-      t(language)("claim.reason.read-budget", reasonParams("read-budget", detail, language)),
-    ).toBe(line);
+    expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
     expect(t(language)("claim.readBudget.continue")).toBe(action);
   });
 
-  test("another reason's detail is as it is, and amounts that can't be read are left out", () => {
-    expect(reasonParams("failed", "The service failed.", "en")).toEqual({
-      detail: "The service failed.",
-    });
-    expect(reasonParams("read-budget", "not money", "en")).toEqual({ spent: "", most: "" });
-    expect(reasonParams("read-budget", JSON.stringify({ most: { amount: "0.41" } }), "en")).toEqual(
-      { spent: "", most: "" },
+  test.each([
+    ["en", "Stopped at the most this read may spend."],
+    ["zh-CN", "已停止：已达到这次读取最多可花的费用。"],
+  ] as const)(
+    "a detail it can't read still says it stopped, without amounts (%s)",
+    (language, line) => {
+      expect(reasonText(t(language), language, "read-budget", "not money")).toBe(line);
+      expect(
+        reasonText(
+          t(language),
+          language,
+          "read-budget",
+          JSON.stringify({ most: { amount: "0.41" } }),
+        ),
+      ).toBe(line);
+    },
+  );
+
+  test("another reason says its detail as it is", () => {
+    expect(reasonText(t("en"), "en", "failed", "The service failed.")).toBe(
+      "The check failed: The service failed.",
     );
   });
 });

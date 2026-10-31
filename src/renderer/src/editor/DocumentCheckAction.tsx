@@ -12,7 +12,8 @@ import {
   useChecks,
 } from "../checks";
 import { DocumentOrFolderPicker } from "../components/DocumentOrFolderPicker";
-import { ProblemLine } from "../components/ProblemLine";
+import { MetaLine } from "../components/MetaLine";
+import { LineAction, ProblemLine } from "../components/ProblemLine";
 import { core } from "../core";
 import { estimateLine } from "../cost";
 import { errorMessage } from "../errors";
@@ -52,10 +53,12 @@ export function DocumentCheckAction({
   // A plan is shown, and read, only with the pick it was made for: one the User replaced is dropped.
   const [offer, setOffer] = useState<{ within: SearchScope; plan: DocumentCheckPlan } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const [reading, setReading] = useState<SearchScope | null>(null);
   const asked = useRef<SearchScope | null>(null);
   const requested = useChecks((state) => state.pickDocument[claim.check.id]);
   const running = useChecks((state) => state.running[mindId]);
+  // The read is this card's however it began, so it shows while the read runs, opened or not.
+  const reading =
+    running?.read && running.read.checkId === claim.check.id ? running.read.within : null;
   const progress = useChecks((state) =>
     running ? state.documentProgress[running.requestId] : undefined,
   );
@@ -79,17 +82,15 @@ export function DocumentCheckAction({
   const readPlan = async (within: SearchScope, plan: ReadyPlan) => {
     if (asked.current !== within) return;
     close();
-    setReading(within);
     try {
       await checkSentences(editor, mindId, doc, "check-against-document", {
         ranges: [{ from: claim.from, to: claim.to }],
         within,
         plan: plan.id,
+        checkId: claim.check.id,
       });
     } catch (error) {
       setFailure(errorMessage(error, t));
-    } finally {
-      setReading((now) => (now === within ? null : now));
     }
   };
   /** `ask`: a read asked again, never started without the User's Read it, however small. */
@@ -140,7 +141,7 @@ export function DocumentCheckAction({
           type="button"
           data-testid="claim-check-document"
           className="citation-card-action"
-          disabled={reading !== null || running !== undefined}
+          disabled={running !== undefined}
           onClick={() => setPicking(true)}
         >
           {t("claim.checkAgainstDocument")}
@@ -193,16 +194,28 @@ export function DocumentCheckAction({
       )}
       {failure && <ProblemLine testId="document-check-problem">{failure}</ProblemLine>}
       {reading && (
-        <p data-testid="document-check-progress" className="citation-card-note">
-          {t(progress?.of === 1 ? "claim.readProgress.one" : "claim.readProgress", {
-            scope: read?.name ?? "",
-            pages: progress?.pages ?? 0,
-            of: progress?.of ?? 0,
-          })}{" "}
-          <button type="button" data-testid="document-check-stop" onClick={() => stopCheck(mindId)}>
-            {t("checks.stop")}
-          </button>
-        </p>
+        <MetaLine
+          data-testid="document-check-progress"
+          className="citation-card-note"
+          parts={[
+            // No count until the first window answers: "0 of 200 pages" read as nothing read.
+            progress && progress.pages > 0
+              ? t(progress.of === 1 ? "claim.readProgress.one" : "claim.readProgress", {
+                  scope: read?.name ?? "",
+                  pages: progress.pages,
+                  of: progress.of,
+                })
+              : t("claim.readProgress.starting", { scope: read?.name ?? "" }),
+            <LineAction
+              key="stop"
+              action={{
+                label: t("checks.stop"),
+                testId: "document-check-stop",
+                onClick: () => stopCheck(mindId),
+              }}
+            />,
+          ]}
+        />
       )}
     </>
   );

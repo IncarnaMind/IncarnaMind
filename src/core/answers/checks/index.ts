@@ -44,6 +44,12 @@ import {
   settleFigureCheck,
 } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
+import {
+  budgetStopOf,
+  judgesAbsence,
+  resumesRead,
+  stoppedAtBudget,
+} from "../../../shared/readBudget";
 import { readRecordCiteChoices, writeRecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { namePartCitations } from "../../../shared/signOffs";
@@ -67,11 +73,13 @@ import {
   type ClaimJudgment,
   type ClaimPartSpan,
   type ContradictionCheckPlan,
+  type Currency,
   claimCheckActions,
   type Document,
   type DocumentCheckPlan,
   type DocumentCheckProgress,
   type ExternalService,
+  type Money,
   type RunEstimate,
   type SearchScope,
   type TextPlace,
@@ -106,6 +114,7 @@ import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
+  type AtomicClaimCheckResult,
   type CheckedCitation,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
@@ -231,6 +240,8 @@ export interface ChecksOptions
     };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
+  /** What a whole read's requests have settled at, by its request id, in `currency`. */
+  readSpent(requestId: string, currency: Currency): Money;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
@@ -620,6 +631,38 @@ const isSentence = (
   b: Pick<SelectedSentence, "element" | "from" | "to">,
 ) => a.element === b.element && a.from === b.from && a.to === b.to;
 
+/**
+ * A whole read's result with one figure for what the read spent on every line its budget stopped,
+ * what its requests settled at once the sentence's check ended, however its parts were refused;
+ * and on each part it stopped, whether that part's read judges its absence, as the read planned it.
+ */
+function withSpent(
+  result: ClaimCheckResult,
+  spent: (currency: Currency) => Money,
+  previous: readonly ClaimCheckPart[] | undefined,
+): ClaimCheckResult {
+  const settle = (detail: string | null, planned?: boolean) => {
+    const stop = budgetStopOf(detail);
+    if (!stop) return detail;
+    return JSON.stringify({
+      most: stop.most,
+      spent: spent(stop.most.currency),
+      ...(planned !== undefined && { judgesAbsence: planned }),
+    });
+  };
+  const parts = result.parts?.map((part) => {
+    if (!stoppedAtBudget(part)) return part;
+    const before = previous?.find(
+      (each) => each.span.start === part.span.start && each.span.end === part.span.end,
+    );
+    return { ...part, detail: settle(part.detail, before ? judgesAbsence(before) : true) };
+  });
+  const settled = parts ? { ...result, parts } : result;
+  return settled.verdict === "not-checked" && settled.reason === "read-budget"
+    ? { ...settled, detail: settle(settled.detail) }
+    : settled;
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
 
@@ -962,6 +1005,7 @@ export function createChecks(options: ChecksOptions) {
         ...(plans && { parts: plans }),
         ...(input.part && { only: input.part.span }),
         ...(previous && { previous }),
+        ...(input.within && prior && resumesRead(prior, input.within) && { resumesStopped: true }),
         ...((owner?.parts ?? physicalPrior?.parts) && {
           priorParts: owner?.parts ?? physicalPrior?.parts,
         }),
@@ -986,6 +1030,7 @@ export function createChecks(options: ChecksOptions) {
       ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
       ...("only" in sentence && sentence.only && { only: sentence.only }),
       ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
+      ...("resumesStopped" in sentence && sentence.resumesStopped && { resumesStopped: true }),
       scope,
       model: prepared,
       mindId,
@@ -1009,7 +1054,8 @@ export function createChecks(options: ChecksOptions) {
 
   /**
    * The sentences a whole read of these stretches reads (as `sentenceKey`s, with the part asked
-   * about), and how many of their parts it checks against the pick: a part asked about, else each
+   * about), and how many of their parts it checks against the pick: a part asked about; after a
+   * read of the same pick stopped at its budget, each part it stopped before judging; else each
    * not yet Supported or Contradicted, as the part check reads them, with each one's check. Null
    * parts: a sentence with none yet is sorted as it is read, its check naming its parts first.
    */
@@ -1017,6 +1063,7 @@ export function createChecks(options: ChecksOptions) {
     mindId: string,
     stretches: readonly TextStretch[],
     part: ParsedCheck["part"],
+    within: SearchScope,
   ): { sentences: string; parts: number | null; checks: PlannedCheck[] } {
     return content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
@@ -1037,12 +1084,14 @@ export function createChecks(options: ChecksOptions) {
           ? owner?.parts.filter(
               (each) => each.span.start === part.span.start && each.span.end === part.span.end,
             )
-          : prior?.check.parts?.filter(
-              (each) =>
-                each.verdict !== "supported" &&
-                each.verdict !== "contradicted" &&
-                !(each.kind === "opinion" && each.verdict === null),
-            );
+          : prior && resumesRead(prior.check, within)
+            ? prior.check.parts?.filter(stoppedAtBudget)
+            : prior?.check.parts?.filter(
+                (each) =>
+                  each.verdict !== "supported" &&
+                  each.verdict !== "contradicted" &&
+                  !(each.kind === "opinion" && each.verdict === null),
+              );
         parts = parts === null || open === undefined ? null : parts + open.length;
         const asked = { ...checkText(sentence), cited: citedNow(sentence.cited) };
         if (!all || !open) {
@@ -1055,7 +1104,7 @@ export function createChecks(options: ChecksOptions) {
         for (const each of open) {
           checks.push({
             ...partRequest(asked, each.span, owned?.[all.indexOf(each)] ?? []),
-            judgesAbsence: each.verdict !== "unsupported",
+            judgesAbsence: judgesAbsence(each),
           });
         }
       }
@@ -1138,17 +1187,31 @@ export function createChecks(options: ChecksOptions) {
     // Every request of the read counts toward the most it may spend, which it never passes.
     const budget = wholeRead.budget(mindId, input.plan ?? "");
     const task = { id: input.requestId, ...(budget && { budget }) };
+    /** The first check the budget stopped: no part after it sends anything. */
+    let stopped: AtomicClaimCheckResult | null = null;
+    const atomic = async (request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> => {
+      if (stopped) return stopped;
+      const result = await atomicCheck(request);
+      if (result.verdict === "not-checked" && result.reason === "read-budget") {
+        stopped ??= { ...result, versions: [], excluded: [] };
+      }
+      return result;
+    };
     let checked = 0;
     for (const { key, marks, queued } of started.sentences) {
       if (!current()) break;
       wholeRead.claim(key, input.requestId);
       try {
-        const reading = wholeRead.reader(input, read, prepared, atomicCheck, current);
-        const result = await currentTask.run(task, () =>
-          withCites(createPartCheck(options, reading.readPart))({
-            ...checkRequest(queued, read.scope, prepared, mindId, signal),
-            undecidedOnly: true,
-          }),
+        const reading = wholeRead.reader(input, read, prepared, atomic, current);
+        const result = withSpent(
+          await currentTask.run(task, () =>
+            withCites(createPartCheck(options, reading.readPart))({
+              ...checkRequest(queued, read.scope, prepared, mindId, signal),
+              undecidedOnly: true,
+            }),
+          ),
+          (currency) => options.readSpent(input.requestId, currency),
+          "previous" in queued ? queued.previous : undefined,
         );
         if (!current()) break;
         const at = options.now().toISOString();
@@ -1415,6 +1478,7 @@ export function createChecks(options: ChecksOptions) {
               parsed.mindId,
               [{ from: parsed.from, to: parsed.to }, ...parsed.more],
               parsed.part,
+              within,
             ).sentences
           : null;
       const planned = () =>
@@ -1445,7 +1509,7 @@ export function createChecks(options: ChecksOptions) {
         { from: parsePlace(input.from, "from"), to: parsePlace(input.to, "to") },
         ...parseStretches(input.more),
       ];
-      const target = readTarget(mindId, stretches, parsePart(input.part));
+      const target = readTarget(mindId, stretches, parsePart(input.part), within);
       // A newer pick replaces the read of the one before: it stops, and its result never lands.
       for (const requestId of wholeReads) {
         const run = running.get(requestId);

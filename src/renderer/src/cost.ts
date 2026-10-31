@@ -1,7 +1,8 @@
-import type { Money, RunEstimate, RunStop } from "../../core/api";
+import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { budgetStopOf } from "../../shared/readBudget";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -21,35 +22,27 @@ export function formatMoney({ amount, currency }: Money, language: Language): st
   }).format(amount);
 }
 
-const moneyOf = (value: unknown): Money | null => {
-  const { amount, currency } = (value ?? {}) as Partial<Money>;
-  return typeof amount === "number" && (currency === "USD" || currency === "CNY")
-    ? { amount, currency }
-    : null;
-};
-
 /**
- * What a check's reason says beside it: a whole read stopped at its budget, what it spent and the
- * most it may spend (the core keeps both as JSON in `detail`), as amounts; any other reason's
- * `detail` as it is.
+ * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
+ * spent and the most it may spend, kept in `detail`, or that it stopped there when the detail
+ * can't be read; any other reason says its `detail` as it is.
  */
-export function reasonParams(
-  reason: string | null,
-  detail: string | null,
+export function reasonText(
+  t: Translate,
   language: Language,
-): MessageParams {
-  if (reason !== "read-budget") return { detail: detail ?? "" };
-  let stopped: { most?: unknown; spent?: unknown } = {};
-  try {
-    stopped = JSON.parse(detail ?? "") ?? {};
-  } catch {
-    // A detail that can't be read still says the read stopped, without amounts.
-  }
-  const said = (value: unknown) => {
-    const money = moneyOf(value);
-    return money ? formatMoney(money, language) : "";
-  };
-  return { spent: said(stopped.spent), most: said(stopped.most) };
+  reason: ClaimCheckFailure,
+  detail: string | null,
+  params: MessageParams = {},
+): string {
+  if (reason !== "read-budget")
+    return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
+  const stop = budgetStopOf(detail);
+  return stop
+    ? t("claim.reason.read-budget", {
+        spent: formatMoney(stop.spent, language),
+        most: formatMoney(stop.most, language),
+      })
+    : t("claim.reason.read-budget.unknown");
 }
 
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */

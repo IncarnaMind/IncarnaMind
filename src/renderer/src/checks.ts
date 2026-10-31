@@ -57,6 +57,8 @@ export type CheckProblem =
 export interface CheckRunning {
   requestId: string;
   action: Exclude<ClaimCheckAction, "find-support"> | "whole-mind";
+  /** A whole read (#1554): the sentence check whose card it reads for, and its pick. */
+  read?: { checkId: string; within: SearchScope };
 }
 
 /**
@@ -210,6 +212,7 @@ export async function checkSentences(
     within,
     plan,
     part,
+    checkId,
   }: {
     ranges?: readonly { from: number; to: number }[];
     allDocuments?: boolean;
@@ -217,6 +220,8 @@ export async function checkSentences(
     /** With `within`: the `planDocumentCheck` the User confirmed, so a replaced pick sends nothing. */
     plan?: string;
     part?: { id: string; span: ClaimPartSpan };
+    /** With `within`: the sentence check whose card the read is for. */
+    checkId?: string;
   } = {},
 ): Promise<void> {
   // An older version's mark says "find-support": it is Check against Documents now. A whole
@@ -242,7 +247,11 @@ export async function checkSentences(
   }
   const requestId = crypto.randomUUID();
   setFor("problems", mindId, null);
-  setFor("running", mindId, { requestId, action });
+  setFor("running", mindId, {
+    requestId,
+    action,
+    ...(within && checkId && { read: { checkId, within } }),
+  });
   let result: CheckSentencesResult | Extract<CheckProblem, { kind: "failed" }>;
   try {
     result = await core.checkSentences({
@@ -376,6 +385,9 @@ export function checkAgain(
 ): Promise<void> {
   const { action } = claim.check;
   const chosen = claim.check.scope.chosen;
+  // The sentence's own read is running: its card offers nothing until it ends.
+  const reading = useChecks.getState().running[mindId]?.read;
+  if (reading && reading.checkId === claim.check.id) return Promise.resolve();
   if (action === "check-against-document" && !allDocuments && chosen) {
     requestDocumentRead(claim.check.id, chosen);
     showCard?.(claim.check.id);

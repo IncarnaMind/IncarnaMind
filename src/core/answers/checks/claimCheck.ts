@@ -185,6 +185,8 @@ export interface ClaimCheckRequest {
   previous?: readonly ClaimCheckPart[];
   /** Parts already Supported or Contradicted keep their results: a whole read looks for the rest (#1554). */
   undecidedOnly?: boolean;
+  /** A whole read goes on from one of the same pick stopped at its budget: only the parts it stopped before judging are read. */
+  resumesStopped?: boolean;
   /** The run's limit on model checks at once, which its claims' parts share. */
   slots?: Slots;
   /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */

@@ -738,6 +738,11 @@ export function createMeter(options: {
       };
     },
 
+    /** What a Run's requests billed per token settled at, in `currency`. */
+    runSpent(runId: string, currency: Currency): Money {
+      return { currency, amount: runIn(runId, currency).settled };
+    },
+
     /**
      * What a Task's settled model requests billed per token have cost, in the
      * currency of most of it (the other at the fixed rate); null when none was priced.

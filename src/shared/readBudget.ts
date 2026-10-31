@@ -1,4 +1,11 @@
-import type { Money, RunEstimate } from "../core/api";
+import type {
+  ClaimCheckAttributes,
+  ClaimCheckPart,
+  Money,
+  RunEstimate,
+  SearchScope,
+} from "../core/api";
+import { sameScope } from "./searchScope";
 
 /** About this much or less, in its price's currency, a read whose parts are sorted starts unasked. */
 const UNASKED_ABOUT = 0.5;
@@ -28,4 +35,73 @@ export function readBudget(estimate: RunEstimate | null, partsSorted: boolean): 
   return readsUnasked(estimate, partsSorted)
     ? { ...most, amount: Math.min(most.amount, UNASKED_ABOUT) }
     : most;
+}
+
+/**
+ * A whole read stopped at its budget, as its `read-budget` reason's `detail` keeps it: the most it
+ * may spend, what it had spent, and for a part, whether its read judges its absence, as the plan
+ * of the read that stopped said.
+ */
+export interface BudgetStop {
+  most: Money;
+  spent: Money;
+  judgesAbsence?: boolean;
+}
+
+const moneyOf = (value: unknown): Money | null => {
+  const { amount, currency } = (value ?? {}) as Partial<Money>;
+  return typeof amount === "number" && (currency === "USD" || currency === "CNY")
+    ? { amount, currency }
+    : null;
+};
+
+/** A `read-budget` detail read back; null when it can't be. */
+export function budgetStopOf(detail: string | null): BudgetStop | null {
+  let read: Partial<Record<keyof BudgetStop, unknown>>;
+  try {
+    read = JSON.parse(detail ?? "") ?? {};
+  } catch {
+    return null;
+  }
+  const most = moneyOf(read.most);
+  const spent = moneyOf(read.spent);
+  if (!most || !spent) return null;
+  return {
+    most,
+    spent,
+    ...(typeof read.judgesAbsence === "boolean" && { judgesAbsence: read.judgesAbsence }),
+  };
+}
+
+/** A part a whole read stopped at its budget before it judged it. */
+export const stoppedAtBudget = (part: Pick<ClaimCheckPart, "verdict" | "reason">): boolean =>
+  part.verdict === "not-checked" && part.reason === "read-budget";
+
+/**
+ * Whether a whole read of a part judges its absence too: not when its last check found its words
+ * unsupported, as a sentence that says nothing is absent is; a part a read stopped before it judged
+ * it, as that read's plan said.
+ */
+export function judgesAbsence(
+  part: Pick<ClaimCheckPart, "verdict" | "reason" | "detail">,
+): boolean {
+  if (stoppedAtBudget(part)) return budgetStopOf(part.detail)?.judgesAbsence ?? true;
+  return part.verdict !== "unsupported";
+}
+
+/**
+ * Whether a whole read of `within` goes on from a read of the same pick that stopped at its budget:
+ * then it reads only the parts that read stopped before it judged them, as they were planned.
+ */
+export function resumesRead(
+  check: Pick<ClaimCheckAttributes, "action" | "scope" | "parts">,
+  within: SearchScope,
+): boolean {
+  const chosen = check.scope.chosen;
+  return (
+    check.action === "check-against-document" &&
+    chosen !== undefined &&
+    sameScope(chosen, within) &&
+    (check.parts?.some(stoppedAtBudget) ?? false)
+  );
 }
