@@ -3714,6 +3714,10 @@ export const en = {
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "Checking the quote, and whether it supports this sentence.",
+  "citation.reason.answer-limit":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
+  "citation.reason.monthly-limit":
+    "Not checked: your monthly limit of {cap} was reached before this sentence.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.where": "{document}, {location}",
   "citation.scan": "Text read from a scan",
@@ -6216,6 +6220,14 @@ export const en = {
   "steps.check.notFound": "{count} not found",
   "steps.check.needALook": "{count} need a look",
   "steps.check.needALook.one": "1 needs a look",
+  "steps.check.answerLimit":
+    "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
+  "steps.check.monthlyLimit":
+    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.checkTheRest": "Check the rest",
+  "steps.check.checkTheRest.go": "Check",
+  "steps.check.checkTheRest.cancel": "Cancel",
+  "steps.check.settings": "Settings",
   "steps.check.notChecked": "{count} not checked",
   "steps.askedAgain.calculate":
     "Asked again: the reply said figures were calculated, and no calculation had run",

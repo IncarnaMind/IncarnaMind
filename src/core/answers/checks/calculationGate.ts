@@ -88,7 +88,7 @@ export async function needsCalculation({
   confirm,
 }: {
   claim: string;
-  verdict: ReadVerdict;
+  verdict: Pick<ReadVerdict, "verdict" | "topic" | "calculations">;
   attempted: boolean;
   computed: readonly Figure[];
   citations: readonly { citation: Citation; units: readonly { text: string }[] }[];

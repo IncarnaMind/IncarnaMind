@@ -10,7 +10,7 @@ import type {
   MarkedCitation,
   MarkedFigure,
 } from "../../src/core";
-import { citedSentences as markedSentences } from "../../src/core/answers/checks/answerCheck";
+import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */

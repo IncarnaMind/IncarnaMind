@@ -1,92 +1,43 @@
 /**
  * An Answer's sentences with Citations, judged once it ends (#2311). The Citation check finds a
  * quote's words where it points, never whether they back the sentence: "包括两台 K9 窑炉并已安装好"
- * kept the green check of "£185,000 for two K9 kilns, installed". Each sentence is checked as Check
- * this Note checks it (./claimCheck), with the quotes it cites, in the Answer's Search scope, on the
- * model that answered as its own request used it, a few at a time and each within the claim time
- * limit; none on a model on this computer too small to judge reliably (#680). Its Citations show the
- * result: found only when it is supported.
+ * kept the green check of "£185,000 for two K9 kilns, installed". Its sentences are judged top to
+ * bottom in batches against the Passages their Citations quote (./sentenceBatch), on the model that
+ * answered as its own request used it, a few batches at a time, each within the claim time limit;
+ * none on a model on this computer too small to judge reliably (#680). Its Citations show the
+ * result: found only when it is supported. A limit that stops the judgement stops it at a batch,
+ * so the sentences it leaves are the last ones.
  */
-import { FIGURE_MARKER } from "../../../shared/figureMarkers";
-import { comparableSentence, INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { generateText } from "ai";
+import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
+  Citation,
   CitedQuote,
-  ClaimCheckResult,
   MarkedCitation,
   MarkedFigure,
 } from "../../api";
+import type { EstimatedRead } from "../../cost/meter";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { PreparedChatModel } from "../../providers/chat";
-import { runItems, slots } from "../../runs/stop";
+import { outputTokens } from "../../providers/outputLimits";
+import { classifyProviderError } from "../../providers/providerErrors";
 import { inStep } from "../../timing/flows";
-import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
+import { estimateTokens } from "../context";
+import { answerTemperature } from "../engine";
+import { needsCalculation } from "./calculationGate";
+import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
-
-export interface CitedSentence {
-  /** The sentence without its Citation markers. */
-  sentence: string;
-  /** Its paragraph, list item or table row, also without them. */
-  context: string;
-  /** The Citation markers it holds, in order. */
-  markers: number[];
-  /** It shows a Calculated figure, whose own check is the Calculation check (ADR-0021). */
-  calculated: boolean;
-  /** It is a table's row: its cells, read as one line. */
-  inTable: boolean;
-}
-
-const MARKER = /\[\^(\d+)\]/g;
-const FOOTNOTE_LINE = /^\s*\[\^\d+\]:/;
-const BLOCK_MARKUP = /^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/;
-const BEFORE_MARKER = new RegExp(`\\s+(?=${INLINE_NODE})`, "gu");
-
-/** Where a Calculated figure's shown text starts, while the sentences are found. */
-const FIGURE_START = "\uE000";
-
-const inlineNodes = (text: string) => text.split(INLINE_NODE).length - 1;
-
-/** A marker leaves nothing behind, not even the space before it: "is quadratic [^2]." reads "is quadratic.". */
-const withoutMarkers = (text: string) =>
-  comparableSentence(text.replace(BEFORE_MARKER, "").replaceAll(FIGURE_START, ""));
-
-/** The claims of an Answer's Markdown that hold a Citation marker, each with its markers. */
-export function citedSentences(
-  text: string,
-  figures: readonly Pick<MarkedFigure, "marker" | "shown">[] = [],
-): CitedSentence[] {
-  const found: CitedSentence[] = [];
-  for (const line of text.split("\n")) {
-    if (FOOTNOTE_LINE.test(line)) continue;
-    const inTable = line.trimStart().startsWith("|");
-    const markers: number[] = [];
-    const marked = line
-      .replace(BLOCK_MARKUP, "")
-      .replace(
-        FIGURE_MARKER,
-        (marker, number: string) =>
-          `${FIGURE_START}${figures.find((each) => each.marker === Number(number))?.shown ?? marker}`,
-      )
-      .replace(MARKER, (_, number: string) => {
-        markers.push(Number(number));
-        return INLINE_NODE;
-      })
-      .replace(/[*_`]/g, "")
-      .replace(/\|/g, " ");
-    const context = withoutMarkers(marked);
-    for (const { from, to } of sentenceSpans(marked)) {
-      const before = inlineNodes(marked.slice(0, from));
-      const inside = markers.slice(before, before + inlineNodes(marked.slice(from, to)));
-      const sentence = withoutMarkers(marked.slice(from, to));
-      if (inside.length > 0 && isClaim(sentence)) {
-        const calculated = marked.slice(from, to).includes(FIGURE_START);
-        found.push({ sentence, context, markers: inside, calculated, inTable });
-      }
-    }
-  }
-  return found;
-}
+import {
+  type BatchPassage,
+  type BatchSentence,
+  type BatchVerdict,
+  batchesOf,
+  batchPrompt,
+  readBatchReply,
+  SENTENCE_BATCH_INSTRUCTIONS,
+} from "./sentenceBatch";
 
 /** What a checked sentence's result makes of each of its found Citations. */
 export interface SupportResult {
@@ -94,6 +45,9 @@ export interface SupportResult {
   /** For unsupported or contradicted: what the Documents say, in one plain sentence. */
   verdict: string | null;
 }
+
+/** The limit that stopped a judgement before a sentence: the Answer's own, or the monthly cap. */
+export type JudgementStop = "answer-limit" | "monthly-limit";
 
 export interface AnswerCheckInput {
   text: string;
@@ -105,19 +59,25 @@ export interface AnswerCheckInput {
   documentIds: readonly string[] | null;
   model: ChatModelChoice;
   signal: AbortSignal;
-  /** Each waiting marker's result once every sentence it is cited in is judged; null when one couldn't be. */
-  onJudged?(marker: number, result: SupportResult | null): void;
+  /**
+   * Each waiting marker's result once every sentence it is cited in is judged; null when one
+   * couldn't be, with the limit that stopped it, if one did.
+   */
+  onJudged?(marker: number, result: SupportResult | null, stop: JudgementStop | null): void;
 }
 
 export interface AnswerCheckOptions {
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
   prepare(choice: ChatModelChoice): Promise<PreparedChatModel | null>;
-  claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   scope(documentIds: readonly string[] | null): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
-  /** How long one check may take: a reply may never come. */
+  /** The Passages those quotes are on, within the scope. */
+  passages(cited: readonly CheckedCitation[], scope: EvidenceScope): BatchPassage[];
+  /** A cited Document's Units, for whether the quotes state a sentence's numbers. */
+  units(citation: Citation): readonly { text: string }[];
+  /** How long one batch may take: a reply may never come. */
   claimTimeLimitMs: number;
 }
 
@@ -164,31 +124,77 @@ const WORSE: Record<SupportResult["check"], number> = {
   contradicted: 2,
 };
 
-function supportOf(result: ClaimCheckResult): SupportResult | null {
+/** A sentence a batch judged, as its Citations show it; null when it isn't judged. */
+async function supportOf(
+  sentence: CitedSentence & { found: MarkedCitation[] },
+  verdict: BatchVerdict | undefined,
+  units: AnswerCheckOptions["units"],
+): Promise<SupportResult | null> {
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
-  // a fact sorted as opinion must not show the green check (#2311).
-  if (result.parts && !result.parts.some((part) => part.kind === "fact")) return null;
-  switch (result.verdict) {
-    case "supported":
-      return { check: "found", verdict: null };
-    case "unsupported":
-      return { check: "unsupported", verdict: result.unsupported?.reason ?? null };
-    case "contradicted":
-      return { check: "contradicted", verdict: result.says };
-    default:
-      return null;
+  // a fact sorted as opinion must not show the green check.
+  if (!verdict || verdict.kind === "opinion") return null;
+  if (verdict.verdict === "contradicted") return { check: "contradicted", verdict: verdict.says };
+  // Who does it, and whether it has happened, as Roles and Time do in a sentence's own check (#1668).
+  if (
+    verdict.verdict === "unsupported" ||
+    verdict.roles === "differs" ||
+    verdict.time === "differs"
+  ) {
+    return { check: "unsupported", verdict: verdict.says };
   }
+  // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
+  const calculation = await needsCalculation({
+    claim: sentence.sentence,
+    verdict: { verdict: "supported", topic: "found", calculations: [] },
+    attempted: false,
+    computed: [],
+    inputs: [],
+    citations: sentence.found.map((citation) => ({ citation, units: units(citation) })),
+    confirm: async () => false,
+  });
+  return calculation ? null : { check: "found", verdict: null };
 }
 
+/** The limit a failed batch met, if it was one. */
+function stopOf(error: unknown): JudgementStop | null {
+  const failure = classifyProviderError(error);
+  if (failure.kind !== "cost-cap") return null;
+  return failure.budget ? "answer-limit" : "monthly-limit";
+}
+
+/** About what a batch's reply writes for each sentence. */
+const LIKELY_OUTPUT_TOKENS = 120;
+
 export function createAnswerCheck(options: AnswerCheckOptions) {
-  /** One sentence's check, given up on once it takes longer than the time limit. */
-  async function checkWithin(request: ClaimCheckRequest): Promise<ClaimCheckResult | null> {
-    const ended = AbortSignal.any([request.signal, AbortSignal.timeout(options.claimTimeLimitMs)]);
-    // A reply that never comes, even once aborted, is given up on all the same.
-    const givenUp = new Promise<null>((resolve) =>
-      ended.addEventListener("abort", () => resolve(null), { once: true }),
-    );
-    return Promise.race([options.claimCheck({ ...request, signal: ended }), givenUp]);
+  /** The sentences to judge, each with what it cites and the Passages those quotes are on. */
+  function asked(input: Omit<AnswerCheckInput, "model" | "signal">) {
+    const scope = options.scope(input.documentIds);
+    return sentencesToCheck(input).map((sentence) => {
+      const cited = options.citedNow(sentence.found);
+      return {
+        ...sentence,
+        quotes: cited,
+        passages: options.passages(cited, scope),
+      } satisfies BatchSentence;
+    });
+  }
+
+  /** The requests judging would send, a batch each: about what each writes, and the most it may. */
+  function requests(input: Omit<AnswerCheckInput, "model" | "signal">): EstimatedRead | null {
+    const batches = batchesOf(asked(input).filter((sentence) => sentence.passages.length > 0));
+    if (batches.length === 0) return null;
+    const inputTokens = (batch: BatchSentence[]) =>
+      estimateTokens(SENTENCE_BATCH_INSTRUCTIONS) + estimateTokens(batchPrompt(batch));
+    return {
+      likely: batches.map((batch) => ({
+        inputTokens: inputTokens(batch),
+        outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
+      })),
+      most: batches.map((batch) => ({
+        inputTokens: inputTokens(batch),
+        outputTokens: outputTokens("sentence-batch", batch.length),
+      })),
+    };
   }
 
   /**
@@ -203,54 +209,88 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     if (!prepared || judgesUnreliably(prepared)) return null;
     const scope = options.scope(input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
-    const waitingIn = (sentence: (typeof sentences)[number]) =>
+    const judged = asked(input);
+
+    const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
     const left = new Map<number, number>();
-    for (const { marker } of sentences.flatMap(waitingIn)) {
+    for (const { marker } of judged.flatMap(waitingIn)) {
       left.set(marker, (left.get(marker) ?? 0) + 1);
     }
     const worst = new Map<number, SupportResult>();
-    const unjudged = new Set<number>();
+    const unjudged = new Map<number, JudgementStop | null>();
     const results = new Map<number, SupportResult>();
-    const limit = slots(claimsAtOnce(prepared));
-    await runItems(
-      sentences,
-      (sentence) =>
-        checkWithin({
-          claim: sentence.sentence,
-          context: sentence.context,
-          cited: options.citedNow(sentence.found),
-          scope,
-          model: prepared,
-          opinionsLeftOut: true,
-          slots: limit,
-          signal: input.signal,
-        }),
-      {
-        concurrency: claimsAtOnce(prepared),
-        signal: input.signal,
-        onOutcome: (sentence, outcome) => {
-          const support =
-            outcome.status === "done" && outcome.value ? supportOf(outcome.value) : null;
-          for (const { marker } of waitingIn(sentence)) {
-            const before = worst.get(marker);
-            if (!support) unjudged.add(marker);
-            else if (!before || WORSE[support.check] > WORSE[before.check]) {
-              worst.set(marker, support);
-            }
-            const remaining = (left.get(marker) ?? 1) - 1;
-            left.set(marker, remaining);
-            if (remaining > 0) continue;
-            const result = worst.get(marker);
-            const known = result && (!unjudged.has(marker) || result.check !== "found");
-            if (known) results.set(marker, result);
-            input.onJudged?.(marker, known ? result : null);
-          }
-        },
+    const settle = (
+      sentence: (typeof judged)[number],
+      support: SupportResult | null,
+      stop: JudgementStop | null,
+    ) => {
+      for (const { marker } of waitingIn(sentence)) {
+        const before = worst.get(marker);
+        if (!support) unjudged.set(marker, unjudged.get(marker) ?? stop);
+        else if (!before || WORSE[support.check] > WORSE[before.check]) worst.set(marker, support);
+        const remaining = (left.get(marker) ?? 1) - 1;
+        left.set(marker, remaining);
+        if (remaining > 0) continue;
+        const result = worst.get(marker);
+        const known = result && (!unjudged.has(marker) || result.check !== "found");
+        if (known) results.set(marker, result);
+        input.onJudged?.(
+          marker,
+          known ? result : null,
+          known ? null : (unjudged.get(marker) ?? null),
+        );
+      }
+    };
+
+    /** The limit that stopped the judgement: no batch after the one it stopped sends anything. */
+    let stopped: JudgementStop | null = null;
+    const judge = async (batch: (typeof judged)[number][]) => {
+      if (stopped || input.signal.aborted) {
+        for (const sentence of batch) settle(sentence, null, stopped);
+        return;
+      }
+      const ended = AbortSignal.any([input.signal, AbortSignal.timeout(options.claimTimeLimitMs)]);
+      let verdicts = new Map<number, BatchVerdict>();
+      try {
+        const { text } = await generateText({
+          model: prepared.model,
+          instructions: SENTENCE_BATCH_INSTRUCTIONS,
+          prompt: batchPrompt(batch),
+          temperature: answerTemperature(prepared.capabilities.facts.temperature),
+          maxOutputTokens: outputTokens("sentence-batch", batch.length),
+          maxRetries: 1,
+          abortSignal: ended,
+        });
+        verdicts = await readBatchReply(text, batch.length);
+      } catch (error) {
+        const stop = stopOf(error);
+        if (stop) stopped ??= stop;
+        for (const sentence of batch) settle(sentence, null, stop);
+        return;
+      }
+      for (const [index, sentence] of batch.entries()) {
+        settle(sentence, await supportOf(sentence, verdicts.get(index + 1), options.units), null);
+      }
+    };
+
+    // In order, a few at a time: a limit met at one batch leaves the ones after it.
+    // A sentence whose quotes are on no Passage in scope, such as an older version's, has nothing
+    // to be judged against: it isn't sent.
+    for (const sentence of judged) if (sentence.passages.length === 0) settle(sentence, null, null);
+    const queue = batchesOf(judged.filter((sentence) => sentence.passages.length > 0));
+    const workers = Array.from(
+      { length: Math.min(claimsAtOnce(prepared), queue.length) },
+      async () => {
+        for (let batch = queue.shift(); batch; batch = queue.shift()) await judge(batch);
       },
     );
+    await Promise.all(workers);
     return results;
   }
 
-  return (input: AnswerCheckInput) => inStep("answer-check", () => checkAnswer(input));
+  return {
+    check: (input: AnswerCheckInput) => inStep("answer-check", () => checkAnswer(input)),
+    requests,
+  };
 }

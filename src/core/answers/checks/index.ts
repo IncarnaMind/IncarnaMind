@@ -113,7 +113,7 @@ import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCite
 import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
-import { createAnswerCheck } from "./answerCheck";
+import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
@@ -1467,12 +1467,34 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
-  const checkAnswer = createAnswerCheck({
+  const answerCheck = createAnswerCheck({
     prepare: answeringModel,
-    claimCheck,
     scope: (documentIds) => options.evidence.scope(documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     citedNow,
+    passages: (cited, scope) =>
+      [...new Set(cited.flatMap((each) => (each.passageId ? [each.passageId] : [])))].flatMap(
+        (passageId) => {
+          const source = options.documents.citationSource(passageId);
+          const inScope =
+            source &&
+            !source.documentDeleted &&
+            !source.notCited &&
+            !scope.excluded.has(source.documentId) &&
+            (scope.documentIds === null || scope.documentIds.includes(source.documentId));
+          if (!source || !inScope) return [];
+          const { pageFrom, pageTo } = source;
+          const location =
+            pageFrom === null
+              ? null
+              : pageTo && pageTo !== pageFrom
+                ? `pp. ${pageFrom}–${pageTo}`
+                : `p. ${pageFrom}`;
+          return [{ passageId, documentName: source.documentName, location, text: source.text }];
+        },
+      ),
+    units: (citation) =>
+      options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
@@ -1495,7 +1517,12 @@ export function createChecks(options: ChecksOptions) {
     checkWritten,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
-    checkAnswer,
+    checkAnswer: answerCheck.check,
+    /** What judging an Answer's sentences would cost (#2311); null when nothing is left to judge. */
+    estimateAnswerCheck(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null {
+      const read = answerCheck.requests(input);
+      return read && options.estimateRead(input.model, read);
+    },
 
     async checkSentences(input: unknown): Promise<CheckSentencesResult> {
       const parsed = parseCheck(input);

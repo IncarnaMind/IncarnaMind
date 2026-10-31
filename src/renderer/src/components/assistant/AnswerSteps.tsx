@@ -47,6 +47,7 @@ import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useT } from "../../i18n";
+import { useJudgementLimit } from "../../judgementLimit";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
@@ -63,9 +64,10 @@ import {
   MindLineIcon,
   SparkLineIcon,
 } from "../lineIcons";
-import { ProblemLine } from "../ProblemLine";
+import { LineAction, ProblemLine } from "../ProblemLine";
 import { AnswerWait } from "./AnswerWait";
 import { askCallText } from "./AskCall";
+import { CheckTheRest } from "./CheckTheRest";
 import { mindCallText } from "./MindCall";
 
 /** Sources shown under a search before "+N more". */
@@ -138,6 +140,7 @@ export function AnswerSteps({
           <Timeline
             rows={stepRows({ answer, askedFrom, meeting, selection }, step, checking.current)}
             scope={scopeOf(0)}
+            answer={answer}
             onRegenerate={onRegenerate}
           />
         )}
@@ -172,6 +175,7 @@ export function AnswerSteps({
           <Timeline
             rows={stepRows({ answer, askedFrom, meeting, selection })}
             scope={scopeOf(0)}
+            answer={answer}
             onRegenerate={onRegenerate}
           />
           <button
@@ -526,10 +530,12 @@ function FoldedToggle({
 function Timeline({
   rows,
   scope,
+  answer,
   onRegenerate,
 }: {
   rows: StepRow[];
   scope: string;
+  answer: ConversationAnswer;
   onRegenerate(): void;
 }) {
   const t = useT();
@@ -541,6 +547,7 @@ function Timeline({
           key={index}
           row={row}
           scope={scope}
+          answer={answer}
           onRegenerate={onRegenerate}
         />
       ))}
@@ -551,10 +558,12 @@ function Timeline({
 function StepItem({
   row,
   scope,
+  answer,
   onRegenerate,
 }: {
   row: StepRow;
   scope: string;
+  answer: ConversationAnswer;
   onRegenerate(): void;
 }) {
   const t = useT();
@@ -682,6 +691,8 @@ function StepItem({
           needALook={row.needALook ?? 0}
           contradicted={row.contradicted ?? 0}
           notChecked={row.notChecked ?? 0}
+          stopped={row.stopped ?? null}
+          answer={answer}
           running={row.running}
         />
       );
@@ -954,6 +965,8 @@ function CheckStep({
   needALook,
   contradicted,
   notChecked,
+  stopped,
+  answer,
   running,
 }: {
   count: number;
@@ -961,13 +974,45 @@ function CheckStep({
   needALook: number;
   contradicted: number;
   notChecked: number;
+  stopped: Extract<StepRow, { kind: "check" }>["stopped"] | null;
+  answer: ConversationAnswer;
   running?: boolean | undefined;
 }) {
   const t = useT();
+  const limits = useJudgementLimit();
+  const openSettings = useAppStore((state) => state.openSettings);
   if (running) {
     return (
       <Step kind="check" icon={null} running>
         <p className="answer-step-title">{checkingWords(t, count)}</p>
+      </Step>
+    );
+  }
+  if (stopped) {
+    const mark = contradicted > 0 ? "contradicted" : needALook > 0 ? "unsupported" : "not-checked";
+    const values = { checked: stopped.checked, total: stopped.total };
+    return (
+      <Step
+        kind="check"
+        icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
+      >
+        <p data-testid="answer-check-stopped" className="answer-step-title">
+          {stopped.by === "answer-limit"
+            ? t("steps.check.answerLimit", { ...values, limit: limits.limit })
+            : t("steps.check.monthlyLimit", { ...values, cap: limits.cap })}
+          <span aria-hidden="true"> · </span>
+          {stopped.by === "answer-limit" ? (
+            <CheckTheRest answer={answer} />
+          ) : (
+            <LineAction
+              action={{
+                label: t("steps.check.settings"),
+                testId: "answer-check-settings",
+                onClick: () => openSettings("general"),
+              }}
+            />
+          )}
+        </p>
       </Step>
     );
   }

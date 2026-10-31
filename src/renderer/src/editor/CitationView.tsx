@@ -42,6 +42,7 @@ import { useTabPlace } from "../components/tabs/tabItems";
 import { useAnswerBeingWritten } from "../conversations";
 import { nameWithPlace, useDocumentPlace } from "../documentPlaces";
 import { useGap, useLanguage, useT } from "../i18n";
+import { limitReason, useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
@@ -514,7 +515,10 @@ export function CitationView({
               onOpen={openFromCard}
               onUpdate={choices.update}
               onKeep={choices.keepOld}
-              onCheckAgain={state.check === "not-checked" ? checkAgainHere : null}
+              // Past a limit, the rest is checked from the check step, which says what it costs.
+              onCheckAgain={
+                state.check === "not-checked" && !limitReason(state.reason) ? checkAgainHere : null
+              }
               onRemove={
                 editor.isEditable
                   ? () => {
@@ -720,14 +724,19 @@ function CitationCard({
       : where
         ? citationSource(attributes, t).text
         : name;
+  const stoppedAt = useJudgementLimit();
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : state.check === "not-checked"
-        ? t("citation.reason.notChecked")
-        : state.reason
-          ? t(`citation.reason.${state.reason}`)
-          : null;
+      : state.reason === "answer-limit"
+        ? t("citation.reason.answer-limit", { limit: stoppedAt.limit })
+        : state.reason === "monthly-limit"
+          ? t("citation.reason.monthly-limit", { cap: stoppedAt.cap })
+          : state.check === "not-checked"
+            ? t("citation.reason.notChecked")
+            : state.reason
+              ? t(`citation.reason.${state.reason}`)
+              : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);

@@ -8,7 +8,9 @@ import type {
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
+  Money,
   ReadyQuestion,
+  RunEstimate,
   SearchScope,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
@@ -401,6 +403,33 @@ export function stopAnswer(answerId: string): void {
 export function checkAnswerAgain(answer: { id: string; conversationId: string }): void {
   core
     .checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id })
+    .catch(report);
+}
+
+/** What judging the rest of an Answer's sentences costs, past its checking limit (#2311). */
+export function estimateCheckTheRest(answer: {
+  id: string;
+  conversationId: string;
+}): Promise<RunEstimate | null> {
+  return core
+    .estimateAnswerCheck({ conversationId: answer.conversationId, answerId: answer.id })
+    .catch((error: unknown) => {
+      report(error);
+      return null;
+    });
+}
+
+/** Judges the rest of an Answer's sentences, spending at most `most` (#2311). */
+export function checkTheRest(
+  answer: { id: string; conversationId: string },
+  most: Money | null,
+): void {
+  core
+    .checkAnswerAgain({
+      conversationId: answer.conversationId,
+      answerId: answer.id,
+      ...(most && { limit: most }),
+    })
     .catch(report);
 }
 

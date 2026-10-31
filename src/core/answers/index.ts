@@ -44,6 +44,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
+import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
 import {
   askedFor,
@@ -72,6 +73,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { moneyOf } from "../../shared/readBudget";
 import {
   filingFolder,
   folderScope,
@@ -126,9 +128,11 @@ import {
   type MindChange,
   type MindFocus,
   type MindProblem,
+  type Money,
   type ProviderError,
   QUESTION_BLOCK,
   type QuoteRetry,
+  type RunEstimate,
   type SearchScope,
   type SkillAvailability,
   type SkillScriptRun,
@@ -158,6 +162,7 @@ import type { PreparedChatModel } from "../providers/chat";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
+import { currentTask } from "../runs/current";
 import type { GateDecision } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
 import {
@@ -204,7 +209,12 @@ import {
 import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
-import { type AnswerCheckInput, judgedMarkers, type SupportResult } from "./checks/answerCheck";
+import {
+  type AnswerCheckInput,
+  type JudgementStop,
+  judgedMarkers,
+  type SupportResult,
+} from "./checks/answerCheck";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -569,6 +579,8 @@ export interface AnswersOptions {
    * each checked marker's result; null when none could be checked.
    */
   checkAnswer?(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null>;
+  /** What judging an Answer's sentences would cost, sending nothing; null when nothing is left. */
+  estimateAnswerCheck?(input: Omit<AnswerCheckInput, "signal">): RunEstimate | null;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
   /** Whether this model reads pictures: one that can't is sent none, even one the User selected (#1937). */
@@ -1004,6 +1016,14 @@ export function createAnswers(options: AnswersOptions) {
         ? options.resolveScope(folderScope(wallId))
         : options.resolveScope(NO_SCOPE, mindId);
 
+  /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
+  const judgedScope = (question: ConversationQuestion): string[] | null => {
+    const from = question.askedFrom;
+    const mindId = from && !from.deleted ? from.mindId : null;
+    const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
+    return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
+  };
+
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
   const judgements = new Map<
     string,
@@ -1026,7 +1046,11 @@ export function createAnswers(options: AnswersOptions) {
    * unsupported or contradicted otherwise, and not checked when the judgement couldn't run or was
    * stopped. One judged again in the meantime writes nothing more.
    */
-  async function judgeAnswer(answer: ConversationAnswer, documentIds: readonly string[] | null) {
+  async function judgeAnswer(
+    answer: ConversationAnswer,
+    documentIds: readonly string[] | null,
+    limit: Money = ANSWER_CHECKING_LIMIT,
+  ) {
     const waiting = new Set(
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
     );
@@ -1038,12 +1062,16 @@ export function createAnswers(options: AnswersOptions) {
       model: answer.model,
     });
     let citations = answer.citations;
-    const judged = (marker: number | null, result: SupportResult | null) => {
+    const judged = (
+      marker: number | null,
+      result: SupportResult | null,
+      stop: JudgementStop | null = null,
+    ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
           return citation;
         }
-        if (!result) return { ...citation, check: "not-checked", checkReason: null };
+        if (!result) return { ...citation, check: "not-checked", checkReason: stop };
         return {
           ...citation,
           check: result.check,
@@ -1056,17 +1084,22 @@ export function createAnswers(options: AnswersOptions) {
       }
     };
     try {
-      if (options.checkAnswer && answer.model) {
-        await options.checkAnswer({
-          text: answer.text,
-          citations: answer.citations,
-          figures: answer.figures,
-          waiting,
-          documentIds,
-          model: answer.model,
-          signal: controller.signal,
-          onJudged: judged,
-        });
+      const { checkAnswer } = options;
+      if (checkAnswer && answer.model) {
+        const model = answer.model;
+        // Every request of the judgement counts toward its limit, which the meter never passes.
+        await currentTask.run({ id: randomUUID(), budget: limit }, () =>
+          checkAnswer({
+            text: answer.text,
+            citations: answer.citations,
+            figures: answer.figures,
+            waiting,
+            documentIds,
+            model,
+            signal: controller.signal,
+            onJudged: judged,
+          }),
+        );
       }
     } catch (error) {
       options.reportError(error);
@@ -4062,21 +4095,38 @@ export function createAnswers(options: AnswersOptions) {
       const answer = options.conversations.answer(answerId);
       if (!answer || answer.status === "streaming") return;
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
-      // Its Search scope as the Answer had it, resolved as regenerating it does.
-      const from = question.askedFrom;
-      const mindId = from && !from.deleted ? from.mindId : null;
-      const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
-      const { documentIds } = scopeNow(
-        question.scope,
-        mindId,
-        readsMind ? null : wallOfTurn(question),
-      );
+      const limit = isRecord(input) ? moneyOf(input.limit) : null;
+      const documentIds = judgedScope(question);
       const waiting = answer.citations.map(
         (citation): MarkedCitation =>
           citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
       );
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
-      await judgeAnswer({ ...answer, citations: waiting }, documentIds);
+      await judgeAnswer({ ...answer, citations: waiting }, documentIds, limit ?? undefined);
+    },
+
+    /**
+     * What judging an ended Answer's sentences whose Citations are not checked would cost, as
+     * Check the rest asks it (#2311); null when nothing is left to judge. Sends nothing.
+     */
+    async estimateAnswerCheck(input: unknown): Promise<RunEstimate | null> {
+      const { answerId, question } = options.conversations.questionOf(input);
+      const answer = options.conversations.answer(answerId);
+      if (!answer?.model || answer.status === "streaming") return null;
+      const waiting = new Set(
+        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
+      );
+      if (waiting.size === 0) return null;
+      return (
+        options.estimateAnswerCheck?.({
+          text: answer.text,
+          citations: answer.citations,
+          figures: answer.figures,
+          waiting,
+          documentIds: judgedScope(question),
+          model: answer.model,
+        }) ?? null
+      );
     },
 
     /**

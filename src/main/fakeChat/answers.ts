@@ -113,30 +113,11 @@ const FOUND_PAGES = [
 /** The scripted Answer when it cited something: one sentence with a marker. */
 export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
 
-/**
- * The sentences the scripted Answers write beside a Citation, which say only what it quotes, as
- * an Answer must (#1073): the scripted check finds each supported by its quote (./checks, #2311).
- */
-export const KEPT_TO_THE_QUOTE = new RegExp(
-  `^(?:${[
-    String.raw`Your Documents answer this\.`,
-    // As a table's row reads, its two cells one line.
-    String.raw`Your Documents answer this Documents`,
-    "文档回答了这个问题。",
-    String.raw`Your Documents say “[^”]+”\.`,
-    "文档中写道“[^”]+”。",
-    String.raw`Statement \d+ says the tide rises and falls twice a day, at hours that follow the moon\.`,
-    String.raw`第\d+条说明潮水每天涨落两次，月亮的位置决定了涨落的时间。`,
-    String.raw`The tide rises and falls twice a day\.`,
-    "潮水每天涨落两次。",
-    String.raw`What the Mind found, with its sources\.`,
-    "Mind 里的发现，来源都在。",
-  ].join("|")})$`,
-  "u",
-);
-
 /** A Question whose Answer says more than its quote does: the scripted check finds it unsupported (#2311). */
 const BEYOND_ITS_QUOTE = /\bbeyond its quote\b|超出引文/i;
+
+/** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
+export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
 
 /**
  * A Question whose model, after its search, runs on for pages of working notes instead of an

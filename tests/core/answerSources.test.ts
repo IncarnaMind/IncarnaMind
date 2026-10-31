@@ -37,33 +37,36 @@ const upFrontIn = (prompt: string) =>
  */
 function answeringFromWhatItIsGiven(cites: boolean) {
   const searched: string[] = [];
-  const model = scriptedModel((call: ModelCall) => {
-    // The Answer's sentence is then checked against its quote (#2311): no search of the Answer's.
-    if (isCheckRun(call)) {
-      return checkReply(call, {
-        "月租金为人民币 4,800 元。": { verdict: "supported", quote: RENT },
-      });
-    }
-    const given = shownPassages(upFrontIn(call.prompt));
-    if (given.length === 0) {
-      if (call.results.some((result) => result.tool === "search_documents")) {
-        return { text: "没有找到相关内容。" };
+  const model = scriptedModel(
+    (call: ModelCall) => {
+      // The Answer's sentence is then checked against its quote (#2311): no search of the Answer's.
+      if (isCheckRun(call)) {
+        return checkReply(call, {
+          "月租金为人民币 4,800 元。": { verdict: "supported", quote: RENT },
+        });
       }
-      searched.push(call.prompt);
-      return { calls: [{ tool: "search_documents", input: { query: QUESTION } }] };
-    }
-    if (!cites) return { text: "这些文档我都看过，但我拿不准。" };
-    const lease = given.find((each) => each.text.includes(RENT));
-    if (!lease) throw new Error("The lease wasn't sent.");
-    if (!call.results.some((result) => result.tool === "cite")) {
-      return {
-        calls: [
-          { tool: "cite", input: { citations: [{ marker: 1, passage: lease.id, quote: RENT }] } },
-        ],
-      };
-    }
-    return { text: "月租金为人民币 4,800 元[^1]。" };
-  });
+      const given = shownPassages(upFrontIn(call.prompt));
+      if (given.length === 0) {
+        if (call.results.some((result) => result.tool === "search_documents")) {
+          return { text: "没有找到相关内容。" };
+        }
+        searched.push(call.prompt);
+        return { calls: [{ tool: "search_documents", input: { query: QUESTION } }] };
+      }
+      if (!cites) return { text: "这些文档我都看过，但我拿不准。" };
+      const lease = given.find((each) => each.text.includes(RENT));
+      if (!lease) throw new Error("The lease wasn't sent.");
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: lease.id, quote: RENT }] } },
+          ],
+        };
+      }
+      return { text: "月租金为人民币 4,800 元[^1]。" };
+    },
+    { judgesItsAnswers: true },
+  );
   return { model, searched };
 }
 

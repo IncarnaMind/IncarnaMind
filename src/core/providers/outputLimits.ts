@@ -27,6 +27,7 @@ export const OUTPUT_LIMITS = {
   comparison: { most: 300 },
   "record-cite": { most: 400 },
   "absence-read": { most: 400 },
+  "sentence-batch": { most: 2_400, each: 300 },
   // Room for a model that thinks whatever it is asked, before its plan.
   "research-plan": { most: 4_096 },
   "research-tags": { most: 1_024 },

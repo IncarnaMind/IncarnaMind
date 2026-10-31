@@ -1973,7 +1973,11 @@ export type CitationCheckReason =
   /** Can't check from this Note: the Document stays inside a walled Folder. */
   | "kept-inside"
   /** Can't check: the Document was deleted. */
-  | "document-removed";
+  | "document-removed"
+  /** Not checked: judging the Answer's sentences reached its own limit before this one's (#2311). */
+  | "answer-limit"
+  /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
+  | "monthly-limit";
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -10495,9 +10499,17 @@ export interface CoreApi {
   stopConversationAnswer(input: ConversationAnswerInput): Promise<void>;
   /**
    * Judges again the sentences of an ended Answer whose Citations are not checked (#2311), on the
-   * model that wrote it: Check again on such a Citation's card. Resolves once each has a result.
+   * model that wrote it: Check again on such a Citation's card, and Check the rest past a limit.
+   * `limit`: the most it may spend, as `estimateAnswerCheck` gave it; the Answer's own limit when
+   * left out. Resolves once each has a result.
    */
-  checkAnswerAgain(input: ConversationAnswerInput): Promise<void>;
+  checkAnswerAgain(input: ConversationAnswerInput & { limit?: Money }): Promise<void>;
+  /**
+   * What judging an ended Answer's sentences whose Citations are not checked costs (#2311), about
+   * and at most, for Check the rest to say before it spends; null when nothing is left to judge.
+   * Sends nothing.
+   */
+  estimateAnswerCheck(input: ConversationAnswerInput): Promise<RunEstimate | null>;
   /**
    * How many seconds the model of an Answer of a conversation usually takes
    * before its Answers have words, from its latest ones to a Question of the
@@ -12410,6 +12422,7 @@ const methods: Record<CoreApiMethod, true> = {
   countScopeDocuments: true,
   stopConversationAnswer: true,
   checkAnswerAgain: true,
+  estimateAnswerCheck: true,
   usualAnswerWait: true,
   listConversations: true,
   getConversation: true,

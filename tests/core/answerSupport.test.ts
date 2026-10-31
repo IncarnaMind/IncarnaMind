@@ -1,19 +1,19 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, type Core, type MarkedCitation } from "../../src/core";
-import { citedSentences } from "../../src/core/answers/checks/answerCheck";
+import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
-import {
-  checkGenerate,
-  checkingModel,
-  checkReply,
-  isCheckRun,
-  type Plan,
-  sentenceOf,
-} from "../helpers/checks";
+import { citedSentences } from "../../src/shared/citedSentences";
+import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { nextTurn, startCore } from "../helpers/core";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 
@@ -69,29 +69,57 @@ const TITLE = "供应商合同摘要";
 const TERM = "合同有效期至 2027 年 12 月 31 日";
 
 /**
- * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and checks each sentence
- * as `plans` say, naming those in `opinions` all opinion; every request it is sent is kept in `calls`.
+ * A batch of an Answer's sentences judged as `plans` say (#2311): each its plan's verdict and what
+ * it says, unsupported with no plan; those in `opinions` sorted all opinion.
+ */
+function batchReply(
+  call: GenerateCall,
+  plans: Record<string, Plan>,
+  opinions: readonly string[] = [],
+): GeneratedReply {
+  const sentences = [
+    ...call.prompt.matchAll(/<sentence number="(\d+)">\n([\s\S]*?)\n<\/sentence>/g),
+  ];
+  return {
+    text: JSON.stringify({
+      sentences: sentences.map(([, number, sentence = ""]) => ({
+        number: Number(number),
+        kind: opinions.includes(sentence) ? "opinion" : "fact",
+        verdict: plans[sentence]?.verdict ?? "unsupported",
+        roles: "same",
+        time: "same",
+        says: plans[sentence]?.says ?? null,
+      })),
+    }),
+  };
+}
+
+const isBatch = (call: GenerateCall) => call.system === SENTENCE_BATCH_INSTRUCTIONS;
+
+/**
+ * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and
+ * judges its sentences as `plans` say, or as `judge` replies to each batch; every streamed request
+ * it is sent is kept in `calls`.
  */
 function answeringModel(
   query: string,
   answer: string,
   quotes: readonly string[],
   plans: Record<string, Plan>,
-  calls: ModelCall[] = [],
-  opinions: readonly string[] = [],
+  {
+    calls = [],
+    opinions = [],
+    judge,
+  }: {
+    calls?: ModelCall[];
+    opinions?: readonly string[];
+    judge?: (call: GenerateCall) => GeneratedReply;
+  } = {},
 ) {
   return scriptedModel(
     (call) => {
       calls.push(call);
-      if (isCheckRun(call)) {
-        const sentence = sentenceOf(call);
-        if (opinions.includes(sentence) && call.results.length === 0) {
-          const parts = [{ kind: "opinion", text: sentence.replace(/[.。]$/u, "") }];
-          const search = { tool: "search_documents", input: { query: sentence } };
-          return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
-        }
-        return checkReply(call, plans);
-      }
+      if (isCheckRun(call)) return checkReply(call, plans);
       const searches = call.results.filter((result) => result.tool === "search_documents");
       if (searches.length === 0) {
         return { calls: [{ tool: "search_documents", input: { query } }] };
@@ -107,7 +135,12 @@ function answeringModel(
       }
       return { text: answer };
     },
-    { generate: checkGenerate(plans) },
+    {
+      generate: (call) =>
+        isBatch(call)
+          ? (judge?.(call) ?? batchReply(call, plans, opinions))
+          : checkGenerate(plans)(call),
+    },
   );
 }
 
@@ -202,10 +235,7 @@ describe("a sentence its quote doesn't support loses its green check", () => {
   ])("a date taken from a title, in $language, is marked unsupported", async (each) => {
     const answer = `${each.wrong.slice(0, -1)}[^1]${each.wrong.slice(-1)} ${each.right.slice(0, -1)}[^2]${each.right.slice(-1)}`;
     const plans: Record<string, Plan> = {
-      [each.wrong]: {
-        verdict: "unsupported",
-        reply: { text: `Verdict: unsupported\nAbsence: no\n${each.reason}` },
-      },
+      [each.wrong]: { verdict: "unsupported", says: each.reason },
       [each.right]: { verdict: "supported", quote: TERM, says: each.right },
     };
     const { core } = await setUpWithDocuments(
@@ -260,16 +290,18 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       const sentence = each.answer.replace("[^1]", "");
       let fails = true;
       const { core } = await setUpWithDocuments(
-        answeringModel("kilns installed cost", each.answer, [INSTALLATION], {
-          [sentence]: {
-            reply: (call) =>
+        answeringModel(
+          "kilns installed cost",
+          each.answer,
+          [INSTALLATION],
+          { [sentence]: { verdict: "supported", says: sentence } },
+          {
+            judge: (call) =>
               fails
                 ? { error: { status: 500, message: "The provider failed." } }
-                : checkReply(call, {
-                    [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence },
-                  }),
+                : batchReply(call, { [sentence]: { verdict: "supported", says: sentence } }),
           },
-        }),
+        ),
         [KILN_DECK],
       );
 
@@ -299,8 +331,7 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
           each.answer,
           [INSTALLATION],
           { [sentence]: { verdict: "contradicted", quote: INSTALLATION, says: sentence } },
-          [],
-          [sentence],
+          { opinions: [sentence] },
         ),
         [KILN_DECK],
       );
@@ -317,11 +348,14 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const sentence = ANSWER.replace("[^1]", "");
     const { core, dataDir, models } = await setUpWithDocuments(
-      answeringModel("kilns installed cost", ANSWER, [INSTALLATION], {
-        [sentence]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
-      }),
+      answeringModel(
+        "kilns installed cost",
+        ANSWER,
+        [INSTALLATION],
+        {},
+        { judge: (call) => ({ ...batchReply(call, {}), until: held }) },
+      ),
       [KILN_DECK],
     );
     const asked = await askedAnswer(core, "When is the kiln installed?");
@@ -345,12 +379,15 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const sentence = ANSWER.replace("[^1]", "");
     const question = "When is the kiln installed?";
     const { core } = await setUpWithDocuments(
-      answeringModel("kilns installed cost", ANSWER, [INSTALLATION], {
-        [sentence]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
-      }),
+      answeringModel(
+        "kilns installed cost",
+        ANSWER,
+        [INSTALLATION],
+        {},
+        { judge: (call) => ({ ...batchReply(call, {}), until: held }) },
+      ),
       [KILN_DECK],
     );
     const checksIn = (blocks: readonly NodeJSON[]): unknown[] =>
@@ -379,43 +416,52 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
   });
 
   test.each([
-    {
-      language: "English",
-      question: "What do the kilns cost, and when are they installed?",
-      answer: `The two K9 kilns cost £185,000[^1]. ${ANSWER.replace("[^1]", "[^2]")}`,
-    },
-    {
-      language: "Chinese",
-      question: "窑炉多少钱，什么时候安装？",
-      answer: `两台 K9 窑炉的费用为 £185,000[^1]。${ANSWER_ZH.replace("[^1]", "[^2]")}`,
-    },
+    { language: "English", sentence: (n: number) => `Kiln ${n} is installed in February 2027.` },
+    { language: "Chinese", sentence: (n: number) => `第 ${n} 台窑炉在 2027 年 2 月安装。` },
   ])(
-    "in $language, stopping it while a sentence is judged leaves that Citation not checked and keeps the one judged",
+    "in $language, stopping it while a batch is judged leaves that batch's Citations not checked and keeps the batch judged",
     async (each) => {
       let release = () => {};
       const held = new Promise<void>((resolve) => {
         release = resolve;
       });
-      const [first = "", second = ""] = each.answer
-        .replace(/\[\^\d\]/g, "")
-        .split(/(?<=[.。])\s*/)
-        .filter(Boolean);
+      // Nine sentences: the first batch holds eight, the second the ninth.
+      const sentences = Array.from({ length: 9 }, (_, index) => each.sentence(index + 1));
+      const answer = sentences
+        .map((sentence, index) => `${sentence.slice(0, -1)}[^${index + 1}]${sentence.slice(-1)}`)
+        .join(" ");
+      const plans = Object.fromEntries(
+        sentences.map((sentence): [string, Plan] => [sentence, { verdict: "supported" }]),
+      );
+      const schedule = {
+        name: "Kiln schedule.md",
+        contents: `# Kiln schedule\n\n${sentences.join("\n\n")}\n`,
+      };
       const { core } = await setUpWithDocuments(
-        answeringModel("kilns installed cost", each.answer, [COST, INSTALLATION], {
-          [first]: { verdict: "supported", quote: COST, says: first },
-          [second]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
-        }),
-        [KILN_DECK],
+        answeringModel(
+          "kiln installed February 2027",
+          answer,
+          sentences.map((sentence) => sentence.slice(0, -1)),
+          plans,
+          {
+            judge: (call) =>
+              // The ninth sentence's own batch: every batch shows the Passage that has its line.
+              call.prompt.includes(`">\n${sentences[8]}\n</sentence>`)
+                ? { ...batchReply(call, plans), until: held }
+                : batchReply(call, plans),
+          },
+        ),
+        [schedule],
       );
 
-      const asked = await askedAnswer(core, each.question);
+      const asked = await askedAnswer(core, "When are the kilns installed?");
       const { conversationId, id: answerId } = asked.atEnd;
       await vi.waitFor(
         async () => {
           const { messages } = await core.getConversation(conversationId);
           const answer = messages.find((message) => message.id === answerId);
-          if (answer?.kind !== "answer" || checkOf(answer.citations, 1)?.check !== "found") {
-            throw new Error("Its first sentence isn't judged yet.");
+          if (answer?.kind !== "answer" || checkOf(answer.citations, 8)?.check !== "found") {
+            throw new Error("Its first batch isn't judged yet.");
           }
         },
         { timeout: 20_000, interval: 20 },
@@ -424,15 +470,15 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       const judged = await asked.judged();
       release();
 
-      expect(asked.atEnd.citations).toMatchObject([
-        { marker: 1, check: "checking" },
-        { marker: 2, check: "checking" },
-      ]);
+      expect(asked.atEnd.citations.every((citation) => citation.check === "checking")).toBe(true);
       expect(judged.status).toBe("done");
-      expect(judged.citations).toMatchObject([
-        { marker: 1, check: "found" },
-        { marker: 2, check: "not-checked" },
-      ]);
+      expect(judged.citations.slice(0, 8).map((citation) => citation.check)).toEqual(
+        Array(8).fill("found"),
+      );
+      expect(checkOf(judged.citations, 9)).toMatchObject({
+        check: "not-checked",
+        checkReason: null,
+      });
     },
   );
 });
@@ -452,7 +498,7 @@ describe("a check reads what the Document's words say, and no date beside them",
         "The contract runs until 31 December 2027[^1].",
         [TERM],
         { [sentence]: { verdict: "unsupported" } },
-        calls,
+        { calls },
       ),
       [CONTRACT],
     );

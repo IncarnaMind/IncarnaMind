@@ -15,8 +15,9 @@
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
+import { SENTENCE_BATCH_INSTRUCTIONS } from "../../core/answers/checks/sentenceBatch";
 import { readFigures } from "../../shared/figures";
-import { KEPT_TO_THE_QUOTE } from "./answers";
+import { SAYS_MORE } from "./answers";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import {
   type GenerateOptions,
@@ -77,6 +78,31 @@ export const PARTLY_UNCITED = [
 
 export const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
 
+/**
+ * A batch of an Answer's sentences (#2311): each supported by what it cites, as the scripted
+ * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`).
+ */
+export function fakeSentenceBatch(options: GenerateOptions): string | null {
+  if (systemOf(options.prompt) !== SENTENCE_BATCH_INSTRUCTIONS) return null;
+  const prompt = lastUserText(options.prompt);
+  const sentences = [...prompt.matchAll(/<sentence number="(\d+)">\n([\s\S]*?)\n<\/sentence>/g)];
+  return JSON.stringify({
+    sentences: sentences.map(([, number, sentence = ""]) => {
+      const beyond = SAYS_MORE.test(sentence);
+      return {
+        number: Number(number),
+        kind: "fact",
+        verdict: beyond ? "unsupported" : "supported",
+        roles: "same",
+        time: beyond ? "differs" : "same",
+        says: beyond
+          ? "The Document says when it happens, not that it is already done."
+          : "The Document says so.",
+      };
+    }),
+  });
+}
+
 export function fakeAbsence(options: GenerateOptions): string | null {
   const prompt = lastUserText(options.prompt);
   if (!systemOf(options.prompt).startsWith(WHOLE_READ) || !ABSENCE_WORDS.test(prompt)) {
@@ -106,28 +132,6 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   });
 }
 
-/** The first quote the check is given for its sentence. */
-const citedQuote = (first: string) => /^- [^\n]*?: “([^\n]+)”$/m.exec(first)?.[1] ?? null;
-
-/** The record of `quote`, on a Passage shown so far that holds it. */
-function keptToItsQuote(quote: string, shown: readonly string[]): Record<string, unknown> | null {
-  const passage = shown.flatMap(passagesIn).find((each) => each.text.includes(quote));
-  return passage ? (recordFor(passage, quote, 1)?.record ?? null) : null;
-}
-
-/**
- * A table's row the scripted Answers write gives figures the Passage its Citation quotes holds:
- * each number of the sentence is in that Passage, so the row is supported.
- */
-function numbersAllCited(sentence: string, first: string): boolean {
-  if (!/^The User cites this for it/m.test(first)) return false;
-  const numbers = checkWords(sentence).filter((word) => /\d/.test(word));
-  const cited = passagesIn(first)
-    .map((each) => each.text)
-    .join("\n");
-  return numbers.length > 0 && numbers.every((number) => cited.includes(number));
-}
-
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
 
 const withAbsence = (sentence: string, verdict: string): Reply => ({
@@ -144,8 +148,6 @@ const withAbsence = (sentence: string, verdict: string): Reply => ({
  * search again before it says a sentence isn't found, it searches the
  * sentence's longer words and numbers alone.
  * Offered calculate, a sentence that states a multiple has it worked out first.
- * The scripted Answers' own sentences (`KEPT_TO_THE_QUOTE`), judged once the Answer ends
- * (#2311), are supported by the quote they cite.
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   // The sentence is in the first message: the check may have been asked to search again since.
@@ -169,17 +171,6 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
   if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
-  const quote =
-    KEPT_TO_THE_QUOTE.test(sentence) || numbersAllCited(sentence, first) ? citedQuote(first) : null;
-  const kept = quote ? keptToItsQuote(quote, [first, ...searches]) : null;
-  // A quote kept from a Note's Citation may be on a Passage no search for the sentence found.
-  if (quote && !kept && searches.length === 1) {
-    return { tool: "search_documents", input: { query: quote } };
-  }
-  if (kept && toolResults(prompt, "cite").length === 0) {
-    return { tool: "cite", input: { citations: [kept] } };
-  }
-  if (kept) return withAbsence(sentence, "Verdict: supported\nThe Document says so [^1].");
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {

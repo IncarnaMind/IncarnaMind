@@ -121,15 +121,18 @@ const REPORTED: Record<string, Plan> = {
 
 /** A model that records each Citation it reads by its id (unless `cite` is false), then writes `answer`. */
 function reportModel(answer: (prompt: string) => string, cite = true) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, REPORTED);
-    if (cite && !call.results.some((result) => result.tool === "cite")) {
-      const ids = [...new Set(idsShown(call.prompt))];
-      const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
-    return { text: answer(call.prompt) };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, REPORTED);
+      if (cite && !call.results.some((result) => result.tool === "cite")) {
+        const ids = [...new Set(idsShown(call.prompt))];
+        const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return { text: answer(call.prompt) };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 const REPORT = [
@@ -387,16 +390,19 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
   // protects=a reply whose markers no record backs, while the context shows ids, is asked again in the Tool loop, and the model's records then keep the Mind's Citations; fails_when=the markers are dropped and the claims read uncited; no_claim=how often a real model needs it (eval/reports).
   test("markers written without cite are asked about once, and then kept by id", async () => {
     const UNBACKED = "no cite record backs";
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      if (!call.prompt.includes(UNBACKED)) return { text: REPORT };
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const ids = [...new Set(idsShown(call.prompt))];
-        const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
-        return { calls: [{ tool: "cite", input: { citations } }] };
-      }
-      return { text: REPORT };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!call.prompt.includes(UNBACKED)) return { text: REPORT };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const ids = [...new Set(idsShown(call.prompt))];
+          const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        return { text: REPORT };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
     const citations = await writeReview(core, client, documents);
 
