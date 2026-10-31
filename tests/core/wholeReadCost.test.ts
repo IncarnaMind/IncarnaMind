@@ -4,6 +4,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { readsUnasked } from "../../src/shared/readBudget";
 import {
   checkGenerate,
   checkReply,
@@ -169,10 +170,17 @@ function leaseMarkdown(sections: number, words: number): string {
   return parts.join("\n");
 }
 
-async function readPlans(recorded: Recorded) {
+/** The recorded reads' plans; `sorted`: after a check of the Note, which sorts each sentence's parts. */
+async function readPlans(recorded: Recorded, sorted = false) {
   const lease = leaseMarkdown(recorded.lease.parts, recorded.lease.words);
   expect(lease.length).toBe(recorded.lease.characters);
-  const scripted = scriptedModel((call) => checkReply(call, {}), { generate: checkGenerate({}) });
+  const sentences = [...new Set(recorded.reads.map((each) => each.sentence))];
+  const found = Object.fromEntries(
+    sentences.map((each) => [each, { verdict: "unsupported" as const }]),
+  );
+  const scripted = scriptedModel((call) => checkReply(call, found), {
+    generate: checkGenerate(found),
+  });
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(scripted).createChatModel,
   });
@@ -183,6 +191,7 @@ async function readPlans(recorded: Recorded) {
   });
   if (!provider.service) throw new Error("The test provider has no service.");
   await core.allowDataFlow("document-check", provider.service.id);
+  await core.allowDataFlow("checks", provider.service.id);
   const model = { providerId: provider.id, modelId: recorded.model };
   const sources = await createTempDataFolder();
   const [document] = await addAndProcess(core, [
@@ -196,10 +205,12 @@ async function readPlans(recorded: Recorded) {
   if (!document) throw new Error("The lease wasn't added.");
   const mind = await core.createMind({ title: "Lease checks" });
   const client = await connectToMind(core, mind.id);
-  const sentences = [...new Set(recorded.reads.map((each) => each.sentence))];
   const blocks = sentences.map((each) => note(each));
   writeMind(client, blocks);
   await client.settled();
+  if (sorted) {
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all", model });
+  }
   const plans = new Map<string, Awaited<ReturnType<typeof core.planDocumentCheck>>>();
   for (const [index, sentence] of sentences.entries()) {
     const blockId = String(blocks[index]?.attrs?.id);
@@ -230,8 +241,12 @@ test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded
     expect(plan.tokens).toBe(recorded.lease.tokens);
     const most = plan.estimate.upTo;
     // Each of a Run's eleven calls may write its 8,000-token limit, and the calls after it carry
-    // that: about 2.7M tokens on this lease, where 500 a call would make it about 1.3M.
+    // that: about 2.7M tokens on this lease, where 500 a call would make it about 1.3M. The first
+    // window's calls from the third on carry a prompt over 100,000 tokens as Claude may count it,
+    // priced at the 5x tier: about $1.09, where the base price alone would make it about $0.31.
     expect(most?.tokens).toBeGreaterThan(2_400_000);
+    expect(most?.cost?.amount).toBeGreaterThan(1);
+    expect(most?.cost?.amount).toBeLessThan(1.2);
     expect(most?.calls).toBeGreaterThanOrEqual(read.requests);
     expect(most?.tokens).toBeGreaterThanOrEqual(read.inputTokens + read.outputTokens);
     expect(most?.cost?.amount).toBeGreaterThanOrEqual(Math.max(read.usd, read.meteredUsd));
@@ -606,8 +621,10 @@ describe("What is left of a read its budget stopped", () => {
       throw new Error("The read has no per-token estimate.");
     }
     const most = plan.estimate.upTo?.cost?.amount ?? 0;
-    // The first search settles $0.007 short of the budget: the verdict can't fit, a search could.
-    const tokens = Math.round(((most - 0.007) / 0.1) * 1_000_000);
+    // The first search settles $0.007 short of the budget, at the tier of a prompt over 100,000
+    // tokens ($0.50 a million): the verdict can't fit, a search could.
+    const tokens = Math.round(((most - 0.007) / 0.5) * 1_000_000);
+    expect(tokens).toBeGreaterThan(100_000);
     spending = {
       inputTokens: { total: tokens, noCache: tokens, cacheRead: 0, cacheWrite: 0 },
       outputTokens: { total: 0, text: 0, reasoning: undefined },
@@ -634,4 +651,28 @@ describe("What is left of a read its budget stopped", () => {
       new Set(marks.map((each) => JSON.stringify(JSON.parse(each.detail ?? "null")?.spent))).size,
     ).toBe(1);
   });
+});
+
+test("the recorded lease's read is held to $0.50 once its parts are sorted, its ceiling at the tier above", async () => {
+  const recorded: Recorded = JSON.parse(
+    await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-whole-read.json"), "utf8"),
+  );
+  const unsorted = await readPlans(recorded);
+  const sorted = await readPlans(recorded, true);
+  for (const sentence of unsorted.keys()) {
+    const asked = unsorted.get(sentence);
+    const unasked = sorted.get(sentence);
+    if (asked?.kind !== "ready" || unasked?.kind !== "ready") throw new Error("Not ready.");
+    // Unsorted, it asks, held to its whole ceiling: the 5x tier above 100,000 tokens included.
+    expect(asked.parts).toBeNull();
+    const ceiling = asked.estimate?.billing === "per-token" ? asked.estimate.upTo?.cost : null;
+    expect(ceiling?.amount).toBeGreaterThan(1);
+    expect(ceiling?.amount).toBeLessThan(1.2);
+    // Sorted, about $0.015, it starts unasked, and the "up to" its card shows is that budget.
+    expect(unasked.parts).toBe(1);
+    if (unasked.estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
+    expect(unasked.estimate.cost?.amount).toBeLessThan(0.02);
+    expect(readsUnasked(unasked.estimate, true)).toBe(true);
+    expect(unasked.estimate.upTo?.cost).toEqual({ amount: 0.5, currency: "USD" });
+  }
 });

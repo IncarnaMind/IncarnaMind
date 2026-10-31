@@ -59,7 +59,14 @@ import { currentTask } from "../runs/current";
 import type { TokenUsage } from "../runs/engine";
 import type { Database } from "../storage";
 import type { Timings } from "../timing/timings";
-import { costOf, inCurrency, promptTokensOf, reservationOf, TYPICAL_ANSWER } from "./price";
+import {
+  costOf,
+  inCurrency,
+  promptTokenRatio,
+  promptTokensOf,
+  reservationOf,
+  TYPICAL_ANSWER,
+} from "./price";
 
 type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
 type CallOptions = Wrapped["params"];
@@ -191,18 +198,6 @@ export interface EstimatedRead {
   likely: readonly EstimatedRequest[];
   most: readonly EstimatedRequest[];
 }
-
-/**
- * The tokens a provider counts for each one `estimateTokens` counts, at the most measured: Claude
- * Haiku 5.5 counted 1.33 to 1.41 times as many in a whole read's requests (a Document's text, and
- * a check's instructions and Tools; tests/fixtures/cost/recorded-whole-read.json). One not measured
- * is counted high. Counted on this computer: a provider's own count would send the Document.
- */
-const COUNTED_PER_TOKEN: Partial<Record<ChatProviderKind, number>> = { anthropic: 1.45 };
-const UNMEASURED_PER_TOKEN = 1.5;
-
-const countedInput = (kind: ChatProviderKind, tokens: number) =>
-  Math.ceil(tokens * (COUNTED_PER_TOKEN[kind] ?? UNMEASURED_PER_TOKEN));
 
 /** A request's own web searches (#128), by the name the request gives each, with what one costs. */
 function searchesOffered(tools: CallOptions["tools"]): Map<string, Money> {
@@ -841,11 +836,10 @@ export function createMeter(options: {
     },
 
     /**
-     * A whole read's cost (../answers/checks/wholeRead): about what it likely sends, its tokens
-     * all it sends, what the prompt cache gives again among them priced as the cache's, and the
-     * most every request it may send costs, all of their input written to the prompt cache where
-     * the provider bills that higher. Input comes as `estimateTokens` counts it, and is priced as
-     * the provider counts it.
+     * A whole read's cost (../answers/checks/wholeRead): about what it likely sends, what the
+     * prompt cache gives again among it priced as the cache's, and the most every request it may
+     * send costs, reserved as the meter reserves each request, at its prompt's tier. Its tokens
+     * are shown as its provider may count them (`promptTokenRatio`).
      */
     estimateRead(model: MeteredModel, read: EstimatedRead): RunEstimate {
       if (model.billing !== "per-token") return { billing: model.billing };
@@ -853,17 +847,16 @@ export function createMeter(options: {
       const cap = options.cap();
       const { price } = model;
       const cacheWrites = writesCache(model);
-      const counted = (requests: readonly EstimatedRequest[]) =>
-        requests.map((each) => ({
-          ...each,
-          inputTokens: countedInput(model.kind, each.inputTokens),
-        }));
+      const ratio = promptTokenRatio(model.kind);
       const priced = (
         requests: readonly EstimatedRequest[],
         cost: (request: EstimatedRequest, price: Price) => number,
       ) => ({
         calls: requests.length,
-        tokens: requests.reduce((sum, each) => sum + each.inputTokens + each.outputTokens, 0),
+        tokens: requests.reduce(
+          (sum, each) => sum + Math.ceil(each.inputTokens * ratio) + each.outputTokens,
+          0,
+        ),
         cost: price
           ? {
               currency: price.currency,
@@ -873,12 +866,12 @@ export function createMeter(options: {
       });
       return {
         billing: "per-token",
-        ...priced(counted(read.likely), (each, known) =>
+        ...priced(read.likely, (each, known) =>
           costOf({ ...each, cachedInputTokens: each.cached ? each.inputTokens : 0 }, known, at, {
             cacheWrites,
           }),
         ),
-        upTo: priced(counted(read.most), (each, known) =>
+        upTo: priced(read.most, (each, known) =>
           reservationOf(
             {
               promptTokens: each.inputTokens,
