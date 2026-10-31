@@ -108,6 +108,8 @@ describe("Migrations", () => {
     const transcribed = "00000000-0000-4000-8000-000000000002";
     const silent = "00000000-0000-4000-8000-000000000003";
     const document = "00000000-0000-4000-8000-000000000004";
+    const older = "00000000-0000-4000-8000-000000000005";
+    const added = "00000000-0000-4000-8000-000000000006";
     db.run("INSERT INTO minds (id, created_at, updated_at) VALUES (?, ?, ?)", [mind, at, at]);
     for (const id of [transcribed, silent]) {
       db.run(
@@ -122,6 +124,26 @@ describe("Migrations", () => {
        VALUES (?, 'hash', 'Transcript · Weekly call', 'transcript', 1, 'ready', ?, 'data-folder',
          ?, ?, ?)`,
       [document, `/data/Transcripts/${transcribed}.vtt`, `Transcripts/${transcribed}.vtt`, at, at],
+    );
+    // An older Document of the same file, and a .vtt the User added of a name like it, aren't it.
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         relative_path, created_at, updated_at, deleted_at)
+       VALUES (?, 'old', 'Transcript', 'transcript', 1, 'ready', ?, 'data-folder', ?, ?, ?, ?)`,
+      [
+        older,
+        `/data/Transcripts/${transcribed}.vtt`,
+        `Transcripts/${transcribed}.vtt`,
+        "2026-10-28T09:00:00.000Z",
+        "2026-10-28T09:00:00.000Z",
+        at,
+      ],
+    );
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         created_at, updated_at)
+       VALUES (?, 'mine', 'Weekly call.vtt', 'transcript', 1, 'ready', ?, 'file', ?, ?)`,
+      [added, `/Users/me/Transcripts/${silent}.vtt`, at, at],
     );
 
     migrate(db);

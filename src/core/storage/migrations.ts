@@ -2098,12 +2098,19 @@ export const migrations: readonly Migration[] = [
       -- and is deleted permanently with the Meeting's note even when the Transcript's working
       -- file is missing. Meetings recorded before this find theirs where IncarnaMind keeps it.
       ALTER TABLE meetings ADD COLUMN transcript_document_id TEXT;
-      UPDATE meetings SET transcript_document_id = (
-        SELECT d.id FROM documents d
+      -- One pass over the Documents, each Transcript keyed to its Meeting by its file's name, so
+      -- it takes milliseconds before the window opens however many Documents there are.
+      UPDATE meetings SET transcript_document_id = linked.id
+      FROM (
+        SELECT substr(d.relative_path, 13, length(d.relative_path) - 16) AS meeting_id, d.id,
+          row_number() OVER (PARTITION BY d.relative_path ORDER BY d.created_at DESC, d.rowid DESC)
+            AS newest
+        FROM documents d
         WHERE d.kind = 'transcript' AND d.source_kind = 'data-folder'
-          AND d.relative_path = 'Transcripts/' || meetings.id || '.vtt'
-        ORDER BY d.created_at DESC LIMIT 1
-      );
+          AND substr(d.relative_path, 1, 12) = 'Transcripts/'
+          AND substr(d.relative_path, -4) = '.vtt'
+      ) AS linked
+      WHERE linked.meeting_id = meetings.id AND linked.newest = 1;
       -- When the audio, the Transcript's working file and the recording details of a Meeting
       -- whose note was deleted permanently were removed: each start looks only at those left.
       ALTER TABLE meetings ADD COLUMN purged_at TEXT;

@@ -3412,7 +3412,13 @@ export function createCore(adapters: CoreAdapters): Core {
           if (!filed) library.assign(documentId, folderId);
         }
         meetingFill.restored(meetingIds);
-        return audio;
+        return {
+          lost: audio.lost,
+          expired: audio.expired.map(({ mindId, meetingId, memo }) => {
+            const documentId = meetings.transcriptOf(meetingId);
+            return { mindId, memo, transcript: !!documentId && !!liveDocument(documentId) };
+          }),
+        };
       },
     },
     mindsRestored: (mindIds, reopen) => {

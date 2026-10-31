@@ -9037,7 +9037,16 @@ export interface RestoreResult {
    * The Notes whose Meeting came back without its audio because its day ended while the Note
    * waited in Recently deleted, and it was deleted then, as any Meeting's audio is (#1253).
    */
-  audioExpired: string[];
+  audioExpired: ExpiredAudio[];
+}
+
+/** A Note whose Meeting's audio was deleted, its day over, while the Note waited in Recently deleted. */
+export interface ExpiredAudio {
+  mindId: string;
+  /** A voice memo, recorded rather than a call. */
+  memo: boolean;
+  /** Its Transcript came back with it. */
+  transcript: boolean;
 }
 
 /** What Undo of a Restore puts back in Recently deleted: an item, at the time it was deleted before it came back. */

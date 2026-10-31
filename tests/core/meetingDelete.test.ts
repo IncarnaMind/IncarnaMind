@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { CitationAttributes, Core, Meeting } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
+import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { FAKE_LINES, type FakeTranscriberOptions } from "../../src/core/transcription/fake";
 import { lostSentences } from "../../src/renderer/src/deletedItems";
 import { citationState } from "../../src/shared/citations";
@@ -280,7 +281,7 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
     // Its day ended while it waited: not a failure, but said, not as audio that was lost.
     expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({
       audioLost: [],
-      audioExpired: [meeting.mindId],
+      audioExpired: [{ mindId: meeting.mindId, memo: false, transcript: true }],
     });
     expect((await meetingOf(core, meeting.id))?.audio).toEqual({
       kept: false,
@@ -303,6 +304,46 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
     await core.deletePermanently([{ kind: "mind", id: meeting.mindId }]);
     expect(existsSync(details)).toBe(false);
     expect(await core.listDeleted()).toEqual([]);
+  });
+
+  test("past its day in Recently deleted says whether it was a voice memo and whether its Transcript came back", async () => {
+    // A voice memo, transcribed: its Transcript comes back with it.
+    const memoData = await createTempDataFolder();
+    const memoCore = await transcribingCore(memoData);
+    const memo = await memoCore.core.recordMemo();
+    memoCore.record(9 * SECOND);
+    await memoCore.core.stopMeeting(memo.id);
+    await until(memoCore.core, memo.id, (transcript) => transcript.state === "saved");
+    await memoCore.core.deleteMind(memo.mindId);
+    memoCore.core.close();
+    // A Meeting where nothing could transcribe it: no Transcript to come back.
+    const callData = await createTempDataFolder();
+    const clock = manualClock();
+    const capture = createFakeCapture({ now: () => clock.now().getTime() });
+    const callCore = startCore(callData, { audioCapture: capture, now: clock.now });
+    await callCore.updateSettings({ device: { meetingNoticeAccepted: true } });
+    const call = await callCore.startMeeting({ meetingId: (await callCore.createMeeting()).id });
+    clock.advance(9 * SECOND);
+    capture.push("microphone", 9 * SECOND);
+    await callCore.stopMeeting(call.id);
+    await callCore.deleteMind(call.mindId);
+    callCore.close();
+
+    const later = manualClock("2026-10-08T09:00:00.000Z");
+    for (const [dataDir, mindId, memoKind, transcript] of [
+      [memoData, memo.mindId, true, true],
+      [callData, call.mindId, false, false],
+    ] as const) {
+      const again = startCore(dataDir, { now: later.now });
+      expect(await again.restore([{ kind: "mind", id: mindId }])).toEqual({
+        audioLost: [],
+        audioExpired: [{ mindId, memo: memoKind, transcript }],
+      });
+      expect(
+        (await again.listDocuments()).filter((each) => each.kind === "transcript"),
+      ).toHaveLength(transcript ? 1 : 0);
+      again.close();
+    }
   });
 
   test("goes when the Note is deleted permanently, with its Transcript", async () => {

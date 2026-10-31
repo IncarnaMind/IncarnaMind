@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { DeletedItem, RestoreResult } from "../../core/api";
+import { expiredKey } from "./changes";
 import { core } from "./core";
 import { languageNow, translateNow as t } from "./i18n";
 import type { Words, WordsInLine } from "./lineNames";
@@ -56,6 +57,7 @@ function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResu
     const { audioLost, audioExpired } = audio();
     return audioLost.length > 0 ? "lost" : audioExpired.length > 0 ? "expired" : null;
   };
+  const expiredOf = () => audio().audioExpired[0];
   const [only] = items;
   if (!only || items.length > 1) {
     return (t) => {
@@ -76,7 +78,8 @@ function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResu
     const name = deletedName(only);
     const why = without();
     if (why === "lost") return t("meetings.audio.notRestored", { name });
-    if (why === "expired") return t("meetings.audio.expired", { name });
+    const expired = expiredOf();
+    if (expired) return t(expiredKey(expired), { name });
     return folder
       ? t("object.restoredTo", { name, folder: folder.name })
       : t("object.restored", { name });

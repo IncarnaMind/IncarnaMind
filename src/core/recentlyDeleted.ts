@@ -16,6 +16,7 @@ import {
   type DeletedKind,
   type DeletedRef,
   type DocumentKind,
+  type ExpiredAudio,
   RECENTLY_DELETED_DAYS,
   type RestoreRef,
   type RestoreResult,
@@ -196,7 +197,7 @@ export function createRecentlyDeleted(options: {
     recordingDeletedWith(mindId: string, deletedAt: string): boolean;
     restoreWith(mindId: string, deletedAt: string): RestoredMeeting[];
     /** After the restore and its events: the Minds whose Meeting came back without its audio. */
-    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: string[] };
+    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: ExpiredAudio[] };
   };
   /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
   mindsRestored(mindIds: readonly string[], reopen: boolean): void;

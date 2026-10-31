@@ -5,7 +5,7 @@
  * links back as they were. Each says what happened in the words of the undo
  * line, and what it was, for the Edit menu.
  */
-import type { RestoreRef, RestoreResult, TagLinkState } from "../../core/api";
+import type { ExpiredAudio, RestoreRef, RestoreResult, TagLinkState } from "../../core/api";
 import { core } from "./core";
 import { languageNow } from "./i18n";
 import type { Words } from "./lineNames";
@@ -17,6 +17,16 @@ import type { Undoable } from "./undo";
 type Shown = string | Words;
 
 const shownIn = (t: Translate, shown: Shown) => (typeof shown === "string" ? shown : shown(t));
+
+/** What a restore says of a Meeting whose audio's day ended while its Note waited (#1253). */
+export const expiredKey = (expired: ExpiredAudio) =>
+  expired.memo
+    ? expired.transcript
+      ? "memos.audio.expired"
+      : "memos.audio.expiredAlone"
+    : expired.transcript
+      ? "meetings.audio.expired"
+      : "meetings.audio.expiredAlone";
 
 /** Renamed: undone by the old name, done again by the new one. */
 export function renamed(
@@ -76,11 +86,12 @@ export function deleted(
       }
     },
     undoneNote: () => {
+      const [expired] = audio.audioExpired;
       const key =
         audio.audioLost.length > 0
           ? "meetings.audio.notRestored"
-          : audio.audioExpired.length > 0
-            ? "meetings.audio.expired"
+          : expired
+            ? expiredKey(expired)
             : null;
       return key ? (t) => t(key, { name: shownIn(t, shown) }) : null;
     },

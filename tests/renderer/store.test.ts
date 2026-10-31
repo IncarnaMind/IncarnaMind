@@ -656,11 +656,15 @@ describe("changes the User can take back", () => {
   });
 
   // protects=a Meeting whose audio's day ended while its Note waited in Recently deleted comes back saying it came with its transcript and its audio was deleted 24 hours after the call, from Undo and from Restore, and the ordinary line when the audio is still there, in English and Chinese (#1253); fails_when=nothing is said, it is said as a failure, or it is said when the audio is there; no_claim=how the core times the audio's day.
-  test("Undo and Restore say when a Meeting's audio was deleted 24 hours after the call, and only then", async () => {
+  test("Undo and Restore say when a Meeting's audio was deleted 24 hours after it, with or without its transcript, and only then", async () => {
     const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
     const zh = (key: Parameters<Translate>[0], params?: Parameters<Translate>[1]) =>
       translate("zh-CN", key, params);
-    method("restore").mockResolvedValue({ audioLost: [], audioExpired: ["m"] });
+    const expired = (memo: boolean, transcript: boolean) => ({
+      audioLost: [],
+      audioExpired: [{ mindId: "m", memo, transcript }],
+    });
+    method("restore").mockResolvedValue(expired(false, true));
     method("listDeleted").mockResolvedValue([]);
 
     await useAppStore.getState().deleteMind("m");
@@ -689,11 +693,28 @@ describe("changes the User can take back", () => {
     );
     await restoreItems([item, { ...item, id: "n", name: "Budget" }]);
     expect(said(top())).toBe(
-      "Restored 2 items with their transcripts. Some audio was deleted 24 hours after its call.",
+      "Restored 2 items. Some audio was deleted 24 hours after it was recorded.",
     );
-    expect(undoLines(zh).said(top())).toBe(
-      "已恢复 2 项及其转写稿。部分音频已在会议结束 24 小时后删除。",
+    expect(undoLines(zh).said(top())).toBe("已恢复 2 项。部分音频已在录制 24 小时后删除。");
+
+    // With no Transcript it says only the audio; a voice memo's was recorded, not a call.
+    method("restore").mockResolvedValue(expired(false, false));
+    await restoreItems([item]);
+    expect(said(top())).toBe("Restored “Plan”. Its audio was deleted 24 hours after the call.");
+    expect(undoLines(zh).said(top())).toBe("已恢复“Plan”。音频已在会议结束 24 小时后删除。");
+    method("restore").mockResolvedValue(expired(true, true));
+    await restoreItems([item]);
+    expect(said(top())).toBe(
+      "Restored “Plan” with its transcript. Its audio was deleted 24 hours after it was recorded.",
     );
+    expect(undoLines(zh).said(top())).toBe("已恢复“Plan”及其转写稿。音频已在录制 24 小时后删除。");
+    method("restore").mockResolvedValue(expired(true, false));
+    await useAppStore.getState().deleteMind("m");
+    await useUndo.getState().undo();
+    expect(useUndo.getState().line?.note?.(words)).toBe(
+      "Restored “Plan”. Its audio was deleted 24 hours after it was recorded.",
+    );
+    expect(useUndo.getState().line?.note?.(zh)).toBe("已恢复“Plan”。音频已在录制 24 小时后删除。");
 
     // With its audio still there, the line is the ordinary one.
     method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });

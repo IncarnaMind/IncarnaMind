@@ -1135,19 +1135,24 @@ export function createMeetings(options: MeetingsOptions) {
      * no longer on this computer though its day hadn't ended, or expired, its day having ended
      * while the Mind waited in Recently deleted.
      */
-    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: string[] } {
+    restored(meetings: readonly RestoredMeeting[]): {
+      lost: string[];
+      expired: { mindId: string; meetingId: string; memo: boolean }[];
+    } {
       if (meetings.length === 0) return { lost: [], expired: [] };
       for (const { meetingId } of meetings) kept.delete(meetingId);
       sweep();
       const at = now();
       const lost: string[] = [];
-      const expired: string[] = [];
+      const expired: { mindId: string; meetingId: string; memo: boolean }[] = [];
       for (const { meetingId, deletedAt } of meetings) {
         const row = rowOf(meetingId);
         log.info("meeting.restored", { meetingId });
         transcripts?.restored(meetingId);
         if (row.audio_deleted_at !== null) {
-          if (row.audio_deleted_at > deletedAt) expired.push(row.mind_id);
+          if (row.audio_deleted_at > deletedAt) {
+            expired.push({ mindId: row.mind_id, meetingId, memo: row.kind === "memo" });
+          }
           continue;
         }
         if (row.audio_expires_at === null || hasAudio(meetingId)) continue;

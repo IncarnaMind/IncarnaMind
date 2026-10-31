@@ -5683,8 +5683,14 @@ export const en = {
     "Restored {count} items without some meeting audio: it was no longer on this computer.",
   "meetings.audio.expired":
     "Restored “{name}” with its transcript. Its audio was deleted 24 hours after the call.",
+  "meetings.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after the call.",
+  "memos.audio.expired":
+    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after it was recorded.",
+  "memos.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after it was recorded.",
   "meetings.audio.someExpired":
-    "Restored {count} items with their transcripts. Some audio was deleted 24 hours after its call.",
+    "Restored {count} items. Some audio was deleted 24 hours after it was recorded.",
   "meetings.health.label": "Recording details",
   "meetings.health.show": "Show recording details",
   "meetings.health.hide": "Hide recording details",
