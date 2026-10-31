@@ -3,10 +3,10 @@
  * Cambria, Aptos and Segoe UI come with Office and Windows, so a Mac, for one,
  * has none of them, and a page that names one would fall back to the
  * browser's Times. Each name here is the font itself where it is installed
- * (local()), and otherwise the nearest of the app's own bundled fonts: Source
- * Sans 3 for the sans faces, Source Serif 4 for Cambria. Nothing loads from
- * the network (the Content-Security-Policy's font-src is 'self'). Latin only:
- * other characters fall through to the next family a page names.
+ * (local()), and otherwise the nearest of the app's own bundled fonts: Carlito
+ * (Calibri's metrics) for the sans faces, Source Serif 4 for Cambria. Nothing
+ * loads from the network (the Content-Security-Policy's font-src is 'self').
+ * Latin only: other characters fall through to the next family a page names.
  */
 
 @font-face {
@@ -16,8 +16,7 @@
   font-display: block;
   src:
     local("Calibri"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -28,8 +27,7 @@
   src:
     local("Calibri Italic"),
     local("Calibri-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -40,8 +38,7 @@
   src:
     local("Calibri Bold"),
     local("Calibri-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -52,8 +49,7 @@
   src:
     local("Calibri Bold Italic"),
     local("Calibri-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -64,8 +60,7 @@
   src:
     local("Calibri Light"),
     local("CalibriLight"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -76,8 +71,7 @@
   src:
     local("Calibri Light Italic"),
     local("CalibriLight-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -87,8 +81,7 @@
   font-display: block;
   src:
     local("Aptos"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -99,8 +92,7 @@
   src:
     local("Aptos Italic"),
     local("Aptos-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -111,8 +103,7 @@
   src:
     local("Aptos Bold"),
     local("Aptos-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -123,8 +114,7 @@
   src:
     local("Aptos Bold Italic"),
     local("Aptos-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -135,8 +125,7 @@
   src:
     local("Aptos Narrow"),
     local("AptosNarrow"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -147,8 +136,7 @@
   src:
     local("Aptos Narrow Italic"),
     local("AptosNarrow-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -159,8 +147,7 @@
   src:
     local("Aptos Narrow Bold"),
     local("AptosNarrow-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -171,8 +158,7 @@
   src:
     local("Aptos Narrow Bold Italic"),
     local("AptosNarrow-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -183,8 +169,7 @@
   src:
     local("Aptos Display"),
     local("AptosDisplay"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -195,8 +180,7 @@
   src:
     local("Aptos Display Italic"),
     local("AptosDisplay-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -207,8 +191,7 @@
   src:
     local("Aptos Display Bold"),
     local("AptosDisplay-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -219,8 +202,7 @@
   src:
     local("Aptos Display Bold Italic"),
     local("AptosDisplay-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -231,8 +213,7 @@
   src:
     local("Segoe UI"),
     local("SegoeUI"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -243,8 +224,7 @@
   src:
     local("Segoe UI Italic"),
     local("SegoeUI-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -255,8 +235,7 @@
   src:
     local("Segoe UI Bold"),
     local("SegoeUI-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -267,8 +246,7 @@
   src:
     local("Segoe UI Bold Italic"),
     local("SegoeUI-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
