@@ -102,6 +102,15 @@ export const notCheckedKey = (stop: RunStop): MessageKey =>
 /** Parts of a meta line on one line, joined by middle dots; `MetaLine` is for lines that can wrap. */
 export const joinMeta = (parts: readonly string[]): string => parts.filter(Boolean).join(" · ");
 
+/**
+ * A token count, short and to the same three figures in every language: 708K is 70.8万, where
+ * each language's own rounding would make it 71万.
+ */
+export const formatTokens = (tokens: number, language: Language): string =>
+  new Intl.NumberFormat(language, { notation: "compact", maximumSignificantDigits: 3 }).format(
+    tokens,
+  );
+
 export interface EstimateLine {
   parts: string[];
   title: string;
@@ -126,9 +135,7 @@ export function estimateLine(
   if (estimate.billing !== "per-token") return null;
   const most = estimate.upTo?.cost ?? estimate.cost;
   if (!options.always && !estimate.cap && !(most !== null && most.amount > 1)) return null;
-  const tokens = t("cost.estimate.tokens", {
-    tokens: new Intl.NumberFormat(language, { notation: "compact" }).format(estimate.tokens),
-  });
+  const tokens = t("cost.estimate.tokens", { tokens: formatTokens(estimate.tokens, language) });
   const aside = estimate.setAsideTowardCap
     ? setAsideText([estimate.setAsideTowardCap], t, language)
     : null;

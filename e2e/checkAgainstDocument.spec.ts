@@ -138,7 +138,13 @@ async function choose(window: Page, name: string) {
     .or(window.getByTestId("consent-dialog"))
     .or(window.getByTestId("document-check-progress"));
   await expect(next.filter({ visible: true }).first()).toBeVisible();
-  if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("document-check-read"));
+  if (!(await ask.isVisible())) return;
+  // While it asks, the card is the question's: the old verdict's line and actions wait for the answer.
+  const card = window.getByTestId("claim-card");
+  for (const replaced of ["claim-nothing", "claim-check-document", "claim-check-again"]) {
+    await expect(card.getByTestId(replaced)).toHaveCount(0);
+  }
+  await pointAndClick(window, ask.getByTestId("document-check-read"));
 }
 
 const FILES = [
@@ -216,6 +222,7 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
   await expect(progress).toContainText("Reading “Long harbour”");
   await expect(progress).not.toContainText(" 0 of ");
   await expect(progress).toContainText("· Stop");
+  await expect(stopped.window.getByTestId("claim-mark")).toHaveAttribute("data-check", "checking");
   // While it reads, the card is the read's: nothing that would start another beside it.
   for (const offered of [
     "claim-nothing",
@@ -229,6 +236,10 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
   await pointAndClick(stopped.window, stopped.card.getByTestId("document-check-stop"));
   await expect(stopped.card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “Seabirds”.",
+  );
+  await expect(stopped.window.getByTestId("claim-mark")).toHaveAttribute(
+    "data-check",
+    "unsupported",
   );
   await stopped.app.close();
 });

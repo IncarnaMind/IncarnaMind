@@ -93,6 +93,11 @@ interface ChecksState {
   pickDocument: Readonly<Record<string, true | SearchScope>>;
   /** By whole-read request: its latest page count. */
   documentProgress: Readonly<Record<string, DocumentCheckProgress>>;
+  /**
+   * By claim: the whole read its card asks the User about, sized for its pick. Kept here rather
+   * than in the card, which draws the question in a view of its own.
+   */
+  documentAsk: Readonly<Record<string, { within: SearchScope; plan: DocumentCheckPlan }>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -104,6 +109,7 @@ export const useChecks = create<ChecksState>()(() => ({
   focusClaim: {},
   pickDocument: {},
   documentProgress: {},
+  documentAsk: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -181,6 +187,12 @@ export const dismissDocumentPicker = (id: string) => setFor("pickDocument", id, 
 
 export const setDocumentProgress = (progress: DocumentCheckProgress) =>
   setFor("documentProgress", progress.requestId, progress);
+
+/** The whole read a claim's card asks about, or none (null). */
+export const setDocumentAsk = (
+  id: string,
+  ask: { within: SearchScope; plan: DocumentCheckPlan } | null,
+) => setFor("documentAsk", id, ask);
 
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {

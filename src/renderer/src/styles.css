@@ -1931,6 +1931,8 @@
   .check-card-ask-title {
     font-weight: 600;
     color: var(--color-ink);
+    /* A Chinese question would otherwise leave one character alone on its last line. */
+    text-wrap: pretty;
   }
   .check-card-ask-actions {
     display: flex;

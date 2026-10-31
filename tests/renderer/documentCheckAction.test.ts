@@ -16,20 +16,35 @@ const checksState = vi.hoisted(() => ({
   pickDocument: {} as Record<string, unknown>,
   running: {} as Record<string, unknown>,
   documentProgress: {} as Record<string, unknown>,
+  documentAsk: {} as Record<string, unknown>,
 }));
-vi.mock("../../src/renderer/src/checks", () => ({
-  checkSentences: read,
-  dismissDocumentPicker,
-  planDocumentRead: (
-    _editor: unknown,
-    mindId: string,
-    _doc: unknown,
-    { within }: { within: SearchScope },
-  ) => bridge.planDocumentCheck({ mindId, within } as never),
-  setDocumentProgress: vi.fn(),
-  stopCheck: vi.fn(),
-  useChecks: (selector: (state: unknown) => unknown) => selector(checksState),
-}));
+const changed = vi.hoisted(() => new Set<() => void>());
+vi.mock("../../src/renderer/src/checks", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const subscribe = (listener: () => void) => {
+    changed.add(listener);
+    return () => changed.delete(listener);
+  };
+  return {
+    checkSentences: read,
+    dismissDocumentPicker,
+    planDocumentRead: (
+      _editor: unknown,
+      mindId: string,
+      _doc: unknown,
+      { within }: { within: SearchScope },
+    ) => bridge.planDocumentCheck({ mindId, within } as never),
+    setDocumentAsk: (id: string, ask: unknown) => {
+      const { [id]: _dropped, ...others } = checksState.documentAsk;
+      checksState.documentAsk = ask ? { ...others, [id]: ask } : others;
+      for (const listener of changed) listener();
+    },
+    setDocumentProgress: vi.fn(),
+    stopCheck: vi.fn(),
+    useChecks: (selector: (state: unknown) => unknown) =>
+      useSyncExternalStore(subscribe, () => selector(checksState)),
+  };
+});
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => "en",
   useT: () => (key: string, params?: { scope?: string; pages?: number }) =>
@@ -182,6 +197,7 @@ beforeEach(async () => {
   checksState.pickDocument = {};
   checksState.running = {};
   checksState.documentProgress = {};
+  checksState.documentAsk = {};
   read.mockResolvedValue(undefined);
   ({ window } = parseHTML("<!doctype html><html><body></body></html>"));
   container = window.document.createElement("div");
@@ -221,6 +237,26 @@ test("a replaced selection cannot supply the confirmation or its scope", async (
   await click("document-check-read");
   expect(read).toHaveBeenCalledOnce();
   expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("B"), plan: "plan-12" });
+});
+
+test("the question stays with the sentence, so the card's reading view asks the same", async () => {
+  bridge.planDocumentCheck.mockResolvedValue(ready(12, 2));
+  await click("claim-check-document");
+  await click("pick-A");
+  expect(container.querySelector('[data-testid="ask-question"]')?.textContent).toBe(
+    "claim.readAsk:A:12",
+  );
+
+  await act(async () => root.unmount());
+  const { createRoot: makeRoot } = await import("react-dom/client");
+  root = makeRoot(container);
+  await render();
+  expect(container.querySelector('[data-testid="ask-question"]')?.textContent).toBe(
+    "claim.readAsk:A:12",
+  );
+  await click("document-check-read");
+  expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("A"), plan: "plan-12" });
+  expect(checksState.documentAsk).toEqual({});
 });
 
 test("only the latest low-estimate selection can auto-read", async () => {

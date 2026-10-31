@@ -7,6 +7,7 @@ import {
   checkSentences,
   dismissDocumentPicker,
   planDocumentRead,
+  setDocumentAsk,
   setDocumentProgress,
   stopCheck,
   useChecks,
@@ -51,7 +52,9 @@ export function DocumentCheckAction({
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const [picking, setPicking] = useState(false);
   // A plan is shown, and read, only with the pick it was made for: one the User replaced is dropped.
-  const [offer, setOffer] = useState<{ within: SearchScope; plan: DocumentCheckPlan } | null>(null);
+  const offer = useChecks((state) => state.documentAsk[claim.check.id] ?? null);
+  const setOffer = (ask: { within: SearchScope; plan: DocumentCheckPlan } | null) =>
+    setDocumentAsk(claim.check.id, ask);
   const [failure, setFailure] = useState<string | null>(null);
   const asked = useRef<SearchScope | null>(null);
   const requested = useChecks((state) => state.pickDocument[claim.check.id]);
@@ -80,7 +83,6 @@ export function DocumentCheckAction({
     dismissDocumentPicker(claim.check.id);
   };
   const readPlan = async (within: SearchScope, plan: ReadyPlan) => {
-    if (asked.current !== within) return;
     close();
     try {
       await checkSentences(editor, mindId, doc, "check-against-document", {

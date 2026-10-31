@@ -35,6 +35,7 @@ import {
   removeClaimMark,
   replaceCitation,
   setClaimFocus,
+  setDocumentAsk,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -133,7 +134,6 @@ export function ClaimMark({
   editor,
   mindId,
   doc,
-  label,
   style,
   reveal,
   onRevealed,
@@ -143,7 +143,6 @@ export function ClaimMark({
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
-  label: string;
   style?: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
@@ -152,10 +151,12 @@ export function ClaimMark({
 }) {
   const t = useT();
   const state = claim.shown.state;
-  const mark = markOf(claim);
   const running = useChecks((store) => store.running[mindId] !== undefined);
+  // Its old verdict stands until the read's comes, but the mark says what its card says.
+  const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
+  const mark = reading ? "checking" : markOf(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = state === "not-checked";
+  const silent = mark === "not-checked";
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -179,6 +180,9 @@ export function ClaimMark({
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
+  const label = t("claim.mark.label", {
+    state: reading ? t("claim.state.checking") : heading,
+  });
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -717,6 +721,9 @@ function ClaimCard({
     const read = store.running[mindId ?? ""]?.read;
     return read !== undefined && read.checkId === check.id;
   });
+  const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // Closing the card drops its question: opened again, it sizes the read afresh.
+  useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
   const figureSources = mismatched.map((figure) => {
     const cited = figure.sourceInput?.citation;
@@ -738,20 +745,22 @@ function ClaimCard({
     );
   });
 
-  // While the sentence's own read runs, its card is that read's: its progress and Stop, nothing it
-  // would replace, so no Continue or Check again starts a second read beside it.
-  if (reading && mindId) {
+  // While the sentence's own read runs, or the card asks about the next, the card is that read's:
+  // its question, or its progress and Stop, nothing it would replace, so no Continue or Check
+  // again starts a second read beside it.
+  if ((reading || asking) && mindId) {
+    const shownMark = reading ? "checking" : mark;
     return (
       <div
         ref={rootRef}
-        className="citation-card citation-card--checking"
+        className={`citation-card citation-card--${TONE[shownMark]}`}
         contentEditable={false}
         {...objectMenu.rowProps}
       >
         <div className="citation-card-head">
-          <p data-testid="claim-badge" data-check="checking" className="citation-badge">
-            <ClaimMarkIcon state="checking" className="citation-badge-icon" />
-            <span>{t("claim.state.checking")}</span>
+          <p data-testid="claim-badge" data-check={shownMark} className="citation-badge">
+            <ClaimMarkIcon state={shownMark} className="citation-badge-icon" />
+            <span>{reading ? t("claim.state.checking") : heading}</span>
           </p>
           <p data-testid="claim-sentence" className="claim-card-sentence">
             {t("claim.sentence", { sentence })}

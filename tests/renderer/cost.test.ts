@@ -3,6 +3,7 @@ import {
   estimateLine,
   formatMoney,
   formatSpent,
+  formatTokens,
   notCheckedKey,
   reasonText,
   runStopParts,
@@ -214,6 +215,16 @@ describe("Cost in words", () => {
       );
     }
   });
+});
+
+test.each([
+  [708_000, "708K", "70.8万"],
+  [2_710_000, "2.71M", "271万"],
+  [310_000, "310K", "31万"],
+  [12_345_678, "12.3M", "1230万"],
+])("%d tokens read to the same three figures in English and Chinese", (tokens, en, zh) => {
+  expect(formatTokens(tokens, "en")).toBe(en);
+  expect(formatTokens(tokens, "zh-CN")).toBe(zh);
 });
 
 describe("A whole read stopped at the most it may spend", () => {
