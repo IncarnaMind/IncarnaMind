@@ -490,6 +490,9 @@ describe("A Document read", { timeout: 60_000 }, () => {
       expect(told).toContain(
         "A miss in these results is not evidence that the Documents lack the answer.",
       );
+      expect(told).toContain(
+        "say a Document doesn't state it only after read_document showed where it would be.",
+      );
       core.close();
     },
   );

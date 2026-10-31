@@ -92,6 +92,9 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(prompt).toContain(
       "A miss in these results is not evidence that the other pages lack the answer.",
     );
+    expect(prompt).toContain(
+      "say a Document doesn't state it only after read_document showed where it would be.",
+    );
   });
 
   test("on Claude Haiku 5.5, as the list names it, answers from the Question's own search in one call", async () => {

@@ -1539,8 +1539,10 @@ export function createCitationSession(
     if (found.length === 0) {
       // The miss is the search's, as `coverageOf` says of results that cover only some pages (#1443).
       return {
-        text: "No Passages in the User's Documents match this search. A miss in these results is not evidence that the Documents lack the answer.",
+        text: "No Passages in the User's Documents match this search.",
         passageCount: 0,
+        coverage: () =>
+          "A miss in these results is not evidence that the Documents lack the answer.",
       };
     }
     return {

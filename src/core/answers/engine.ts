@@ -1419,15 +1419,25 @@ function searchResultText(
   return note ? `${passages}\n\n${note}` : passages;
 }
 
+/**
+ * Said beside a miss, where the Answer reads it, when it can read pages: told only in its
+ * instructions, Claude Haiku 5.5 still wrote that a 10-Q "doesn't state" a figure it hadn't read
+ * for (#1443).
+ */
+const READ_BEFORE_ABSENCE =
+  "Say you didn't find what they don't show; say a Document doesn't state it only after read_document showed where it would be.";
+
 function fittedResultText(
   found: SearchResultForModel,
   fitted: string,
   documents: AnswerTools,
   languageNote: (() => string | null) | undefined,
+  reads: boolean,
 ): string {
   const text = searchResultText(fitted, documents, languageNote);
   const coverage = found.coverage?.(fitted);
-  return coverage ? `${text}\n\n${coverage}` : text;
+  if (!coverage) return text;
+  return `${text}\n\n${coverage}${reads ? ` ${READ_BEFORE_ABSENCE}` : ""}`;
 }
 
 /**
@@ -1444,6 +1454,7 @@ export function documentTools(
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
+  const reads = !checking && documents.readDocument !== undefined;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1490,74 +1501,70 @@ export function documentTools(
         const result = hooks.fit(found);
         hooks.fitted?.(fittedPassageIds(found, result.text));
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        return fittedResultText(found, result.text, documents, hooks.languageNote);
+        return fittedResultText(found, result.text, documents, hooks.languageNote, reads);
       },
     },
-    read:
-      !checking && documents.readDocument
-        ? {
-            ...own(DOCUMENT_TOOLS.read),
-            description:
-              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it. Use pages as "16" or "15-17", or give a Passage id already shown with optional before/after counts (up to 3). Omit both to read the opening. Read where the answer would be before saying the Document does not state it.',
-            inputSchema: {
-              type: "object",
-              properties: {
-                document: {
-                  type: "string",
-                  description: "The Document to read, named as the instructions list it.",
-                },
-                pages: {
-                  type: "string",
-                  description: 'One page or a page range, such as "16" or "15-17".',
-                },
-                passage: {
-                  type: "string",
-                  description: "A Passage id already shown, to read around.",
-                },
-                before: {
-                  type: "number",
-                  description: "Passages to include before the given Passage, from 0 to 3.",
-                },
-                after: {
-                  type: "number",
-                  description:
-                    "Passages to include after the given Passage or from the opening, from 0 to 3.",
-                },
+    read: reads
+      ? {
+          ...own(DOCUMENT_TOOLS.read),
+          description:
+            'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it. Use pages as "16" or "15-17", or give a Passage id already shown with optional before/after counts (up to 3). Omit both to read the opening. Read where the answer would be before saying the Document does not state it.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              document: {
+                type: "string",
+                description: "The Document to read, named as the instructions list it.",
               },
-              required: ["document"],
+              pages: {
+                type: "string",
+                description: 'One page or a page range, such as "16" or "15-17".',
+              },
+              passage: {
+                type: "string",
+                description: "A Passage id already shown, to read around.",
+              },
+              before: {
+                type: "number",
+                description: "Passages to include before the given Passage, from 0 to 3.",
+              },
+              after: {
+                type: "number",
+                description:
+                  "Passages to include after the given Passage or from the opening, from 0 to 3.",
+              },
             },
-            shownInput: ({ document, pages, passage, before, after }) => {
-              const effective = typeof pages === "string" ? readDocumentPages(pages) : null;
-              return {
-                document: String(document ?? ""),
-                ...(typeof pages === "string" &&
-                  pages !== "" && { pages: effective ? formatDocumentPages(effective) : pages }),
-                ...(typeof passage === "string" && passage !== "" && { passage }),
-                ...(typeof before === "number" && { before }),
-                ...(typeof after === "number" && { after }),
-              };
-            },
-            effects: () => [{ action: "read", scope: { kind: "documents" } }],
-            untrustedResult: true,
-            async call(
-              { document, pages, passage, before, after },
-              { toolCallId, readThirdParty },
-            ) {
-              const found = await documents.readDocument?.({
-                document: String(document ?? ""),
-                ...(typeof pages === "string" && pages !== "" && { pages }),
-                ...(typeof passage === "string" && passage !== "" && { passage }),
-                ...(typeof before === "number" && { before }),
-                ...(typeof after === "number" && { after }),
-              });
-              if (!found) throw new Error("read_document is unavailable");
-              for (const source of found.thirdParty ?? []) readThirdParty?.(source);
-              const result = hooks.fit(found);
-              hooks.searched(toolCallId, result.passageCount, found.passageIds);
-              return fittedResultText(found, result.text, documents, hooks.languageNote);
-            },
-          }
-        : null,
+            required: ["document"],
+          },
+          shownInput: ({ document, pages, passage, before, after }) => {
+            const effective = typeof pages === "string" ? readDocumentPages(pages) : null;
+            return {
+              document: String(document ?? ""),
+              ...(typeof pages === "string" &&
+                pages !== "" && { pages: effective ? formatDocumentPages(effective) : pages }),
+              ...(typeof passage === "string" && passage !== "" && { passage }),
+              ...(typeof before === "number" && { before }),
+              ...(typeof after === "number" && { after }),
+            };
+          },
+          effects: () => [{ action: "read", scope: { kind: "documents" } }],
+          untrustedResult: true,
+          async call({ document, pages, passage, before, after }, { toolCallId, readThirdParty }) {
+            const found = await documents.readDocument?.({
+              document: String(document ?? ""),
+              ...(typeof pages === "string" && pages !== "" && { pages }),
+              ...(typeof passage === "string" && passage !== "" && { passage }),
+              ...(typeof before === "number" && { before }),
+              ...(typeof after === "number" && { after }),
+            });
+            if (!found) throw new Error("read_document is unavailable");
+            for (const source of found.thirdParty ?? []) readThirdParty?.(source);
+            const result = hooks.fit(found);
+            hooks.searched(toolCallId, result.passageCount, found.passageIds);
+            return fittedResultText(found, result.text, documents, hooks.languageNote, true);
+          },
+        }
+      : null,
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
@@ -1648,7 +1655,7 @@ function presearchMessages(
   const id = "question-search";
   const input = { query };
   const read = (passages: string) =>
-    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
+    `${fittedResultText(result, passages, request.documents, request.languageNote, request.documents.readDocument !== undefined)}\n\n${PRESEARCH_NOTE}`;
   const fitted = loop
     ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
         JSON.stringify(input),

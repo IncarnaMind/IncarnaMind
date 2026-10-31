@@ -471,6 +471,37 @@ describe("Checking an absence sentence", () => {
     },
   );
 
+  test.each([
+    ["English", "The lease names a parking space."],
+    ["Chinese", "租约约定了停车位。"],
+  ])(
+    "a check's search that finds nothing is told the miss isn't the Documents', with nothing to read (%s)",
+    async (_, claim) => {
+      const told: string[] = [];
+      const model = scriptedModel((call) => {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) {
+          return withParts(
+            call,
+            { calls: [{ tool: "search_documents", input: { query: "zebra quokka" } }] },
+            [claim],
+          );
+        }
+        told.push(searched.text);
+        return { text: "Verdict: unsupported\nAbsence: no" };
+      });
+      const { core } = await setUpWithDocuments(model, [LEASE]);
+
+      await core.checkClaim({ claim });
+
+      expect(told[0]).toContain("No Passages in the User's Documents match this search.");
+      expect(told[0]).toContain(
+        "A miss in these results is not evidence that the Documents lack the answer.",
+      );
+      expect(told[0]).not.toContain("read_document");
+    },
+  );
+
   test("a plain Supported fact takes three model requests: search, cite and verdict", async () => {
     const requests: string[] = [];
     const { core } = await setUpWithDocuments(leaseModel(TERM, "Absence: no", [], requests), [
