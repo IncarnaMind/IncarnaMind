@@ -255,8 +255,12 @@ export interface CreateMindInput {
  *   read to decide an absence sentence, which an older editor would strip,
  *   losing both the card's Locations and the dependency that makes a changed
  *   Document need a re-check. Older content is version 37 content as it is.
+ * - 38: the `picture` Block (#1937), a picture the User pasted or dropped,
+ *   kept in the Note's data with its size and alt text. An older editor would
+ *   drop it when it saves the Note, so it opens these Notes read-only. Older
+ *   content is version 38 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 37;
+export const CONTENT_SCHEMA_VERSION = 38;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
