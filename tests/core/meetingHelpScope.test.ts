@@ -342,6 +342,13 @@ for (const language of ["en", "zh-CN"] as const) {
         text: translate(language, "meeting.ask.recap"),
       }),
     );
+    const retried = await answerOf(
+      core,
+      await core.regenerateConversationAnswer({
+        conversationId: recap.conversationId,
+        answerId: recap.id,
+      }),
+    );
     const asked = calls.slice(first);
     const guideWords = fact.slice(0, -1);
     expect(asked.some((call) => call.prompt.includes(spoken))).toBe(true);
@@ -349,7 +356,9 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(call.prompt).not.toContain(guideWords);
       expect(call.prompt).not.toContain(translate(language, "meetings.help.notCovered"));
     }
-    expect(recap.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
+    for (const answer of [recap, retried]) {
+      expect(answer.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
+    }
   });
 
   test(`${language}: an ordinary follow-up after guide help still carries it`, async () => {
