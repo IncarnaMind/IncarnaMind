@@ -50,6 +50,8 @@ const WORDS = {
     lost: (name: string) =>
       `Restored “${name}” without its audio: it was no longer on this computer.`,
     gone: /^Recorded 0:\d\d · Audio deleted$/,
+    question: (name: string) =>
+      `Your text in “${name}” is gone. Its recording and Transcript are deleted too. This can’t be undone. Your files stay where they are.`,
   },
   "zh-CN": {
     saved: "转写稿已保存 · 打开转写稿",
@@ -58,6 +60,8 @@ const WORDS = {
     restored: (name: string) => `已恢复“${name}”`,
     lost: (name: string) => `已恢复“${name}”，但音频已不在这台电脑上，无法恢复。`,
     gone: /^已录制 0:\d\d · 音频已删除$/,
+    question: (name: string) =>
+      `“${name}”中你写的内容将丢失。会议的录音和转写稿也将彻底删除。此操作无法撤销。你的文件仍在原处。`,
   },
 } as const;
 
@@ -176,6 +180,16 @@ for (const language of ["en", "zh-CN"] as const) {
     const rows = window.getByTestId("deleted-item");
     await expect(rows.getByTestId("deleted-name")).toHaveText([name]);
     await screenshot(window, `meeting-restore-deleted-${language}`);
+    // Delete Permanently says what goes with the note before anything is lost; Esc keeps it all.
+    await pointAndClick(window, rows.getByTestId("deleted-delete"));
+    const question = window.getByTestId("delete-permanently-dialog");
+    await expect(question.locator("#delete-permanently-body")).toHaveText(
+      WORDS[language].question(name),
+    );
+    await screenshot(window, `meeting-delete-permanently-${language}`);
+    await window.keyboard.press("Escape");
+    await expect(question).toBeHidden();
+    await expect(rows).toHaveCount(1);
     await pointAndClick(window, rows.getByTestId("deleted-restore"));
     await expect(undoMessage(window)).toHaveText(WORDS[language].restored(name));
 

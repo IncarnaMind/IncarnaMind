@@ -192,6 +192,7 @@ export function createRecentlyDeleted(options: {
   /** A Mind's Meetings, deleted and restored with it (#1253): see `Meetings`. */
   meetings: {
     transcriptsDeletedWith(mindId: string, deletedAt: string): string[];
+    recordingDeletedWith(mindId: string, deletedAt: string): boolean;
     restoreWith(mindId: string, deletedAt: string): string[];
     /** After the restore and its events: returns the Minds whose Meeting came back without its audio. */
     restored(meetingIds: readonly string[]): string[];
@@ -336,11 +337,16 @@ export function createRecentlyDeleted(options: {
           .map((row) => item("tag", row)),
       ];
       // A Transcript waits with its Meeting's Mind, not beside it.
-      const withMinds = new Set(
-        items.flatMap((each) =>
-          each.kind === "mind" ? documentsWith(each.id, each.deletedAt) : [],
-        ),
-      );
+      const withMinds = new Set<string>();
+      for (const each of items) {
+        if (each.kind !== "mind") continue;
+        const transcripts = documentsWith(each.id, each.deletedAt);
+        const recording = options.meetings.recordingDeletedWith(each.id, each.deletedAt);
+        for (const id of transcripts) withMinds.add(id);
+        if (recording || transcripts.length > 0) {
+          each.meeting = { recording, transcript: transcripts.length > 0 };
+        }
+      }
       return items
         .filter((each) => !(each.kind === "document" && withMinds.has(each.id)))
         .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));

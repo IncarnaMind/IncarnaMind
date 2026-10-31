@@ -5,7 +5,9 @@ import type { CitationAttributes, Core, Meeting } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { FAKE_LINES, type FakeTranscriberOptions } from "../../src/core/transcription/fake";
+import { lostSentences } from "../../src/renderer/src/deletedItems";
 import { citationState } from "../../src/shared/citations";
+import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import { transcribingCore, until } from "../helpers/transcription";
 
@@ -21,6 +23,25 @@ const HOUR = 60 * 60 * SECOND;
 const NAMES = {
   en: { note: "Meeting, 6 October", transcript: "Transcript · Meeting, 6 October" },
   "zh-CN": { note: "会议，10月6日", transcript: "转写稿 · 会议，10月6日" },
+} as const;
+
+const QUESTIONS = {
+  en: {
+    meeting: [
+      "Your text in “Meeting, 6 October” is gone.",
+      "Its recording and Transcript are deleted too.",
+    ],
+    plain: ["Your text in “Tide tables” is gone."],
+    both: [
+      "Your text in 2 notes is gone.",
+      "Their meetings’ recordings and Transcripts are deleted too.",
+    ],
+  },
+  "zh-CN": {
+    meeting: ["“会议，10月6日”中你写的内容将丢失。", "会议的录音和转写稿也将彻底删除。"],
+    plain: ["“Tide tables”中你写的内容将丢失。"],
+    both: ["这 2 篇笔记中你写的内容将丢失。", "其中会议的录音和转写稿也将彻底删除。"],
+  },
 } as const;
 
 afterEach(() => {
@@ -71,6 +92,14 @@ async function recordedMeeting(language: keyof typeof NAMES, engine: FakeTranscr
   recording.record(9 * SECOND);
   await until(recording.core, meeting.id, (transcript) => transcript.lines >= 4);
   return { ...recording, dataDir, meeting };
+}
+
+/** Delete Permanently's question about these items, as the window says it, in `language`. */
+async function questionOf(core: Core, language: keyof typeof NAMES, ids: readonly string[]) {
+  const items = (await core.listDeleted()).filter((item) => ids.includes(item.id));
+  return lostSentences(items, (item) => item.name).map(({ key, params }) =>
+    translate(language, key, params),
+  );
 }
 
 /** What the Library shows of the Transcript, if it is there. */
@@ -206,6 +235,22 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(partsOf(dataDir, meeting.id)).toEqual(["microphone@0", "system@0"]);
       expectPlayable(dataDir, meeting.id);
     });
+
+    test("Delete Permanently's question says a Meeting's note takes its recording and Transcript with it, and a plain note only its text", async () => {
+      const { core, dataDir, meeting } = await recordedMeeting(language);
+      await stopped(core, dataDir, meeting.id);
+      const plain = await core.createMind({ title: "Tide tables" });
+      await core.deleteMind(meeting.mindId);
+      await core.deleteMind(plain.id);
+
+      expect(await questionOf(core, language, [meeting.mindId])).toEqual(
+        QUESTIONS[language].meeting,
+      );
+      expect(await questionOf(core, language, [plain.id])).toEqual(QUESTIONS[language].plain);
+      expect(await questionOf(core, language, [meeting.mindId, plain.id])).toEqual(
+        QUESTIONS[language].both,
+      );
+    });
   });
 }
 
@@ -225,6 +270,11 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
     clock.advance(2 * HOUR);
     vi.advanceTimersByTime(60 * SECOND);
     expect(existsSync(meetingFolder(dataDir, meeting.id))).toBe(false);
+    // Delete Permanently would take its Transcript now, its recording being gone already.
+    expect(await questionOf(core, "en", [meeting.mindId])).toEqual([
+      "Your text in “Meeting, 6 October” is gone.",
+      "Its Transcript is deleted too.",
+    ]);
 
     expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({ audioLost: [] });
     expect((await meetingOf(core, meeting.id))?.audio).toEqual({

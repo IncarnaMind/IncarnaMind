@@ -9057,6 +9057,11 @@ export interface DeletedItem {
   groupId: string | null;
   /** A Document's Linked folder, or null: a file added on its own, and for the others. */
   linkedFolderId: string | null;
+  /**
+   * A Note's Meeting, when it keeps its recording or its Transcript here with the Note: both go
+   * when the Note is deleted permanently (#1253). Absent for the others.
+   */
+  meeting?: { recording: boolean; transcript: boolean };
 }
 
 /**

@@ -3398,6 +3398,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetings: {
       transcriptsDeletedWith: (mindId, deletedAt) =>
         meetings.transcriptsDeletedWith(mindId, deletedAt),
+      recordingDeletedWith: (mindId, deletedAt) => meetings.recordingDeletedWith(mindId, deletedAt),
       restoreWith: (mindId, deletedAt) => meetings.restoreWith(mindId, deletedAt),
       restored: (meetingIds) => {
         const audioLost = meetings.restored(meetingIds);

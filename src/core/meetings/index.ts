@@ -1037,6 +1037,17 @@ export function createMeetings(options: MeetingsOptions) {
       );
     },
 
+    /** Whether a Meeting deleted with the Mind at `deletedAt` still keeps its audio. */
+    recordingDeletedWith(mindId: string, deletedAt: string): boolean {
+      return db
+        .all<{ id: string }>(
+          `SELECT id FROM meetings
+           WHERE mind_id = ? AND deleted_at = ? AND audio_deleted_at IS NULL`,
+          [mindId, deletedAt],
+        )
+        .some((row) => hasAudio(row.id));
+    },
+
     /**
      * Brings back the Mind's Meetings deleted with it at `deletedAt`, in the restore's
      * transaction, then `restored`. One an earlier version left recording when it deleted the
