@@ -52,6 +52,31 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
   });
 
+  // protects=on the cloud path too, a line the User said before the others made a sound becomes Me once the computer's sound is heard, not the room's "Speaker 1" the service's voice gave it (#2305); fails_when=the first line keeps a number; no_claim=the local engine, which tests/core/transcripts.test.ts covers.
+  test("the User speaks before the others make a sound: the service's first lines read Me once the call is heard", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    record(4 * SECOND, ["microphone"]);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 1);
+    record(6 * SECOND);
+    const live = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    await vi.waitFor(() =>
+      expect(readVtt(readFileSync(live, "utf8")).cues.some((cue) => cue.speaker !== "Me")).toBe(
+        true,
+      ),
+    );
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    // Only the microphone was heard for the first four seconds: the first line is the User's.
+    expect(cues[0]).toMatchObject({ startMs: 0, speaker: "Me" });
+    expect(cues.some((cue) => cue.speaker !== "Me")).toBe(true);
+  });
+
   // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are; fails_when=one voice is numbered, or the pass runs over the cloud's labels; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
   test('with one voice on the other side, its lines say "Them", and the speaker pass leaves the service\'s voices', async () => {
     const dataDir = await createTempDataFolder();

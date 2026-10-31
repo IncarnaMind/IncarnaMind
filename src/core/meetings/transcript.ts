@@ -210,6 +210,8 @@ interface State extends Saved {
   restarts: number[];
   /** The other side's lines from the one voice a cloud service heard so far, while it is "Them". */
   firstVoice: Set<Cue>;
+  /** The microphone's lines from before the computer's sound was heard: the User's once it is. */
+  beforeCall: Set<Cue>;
   lastSwitch: (Pick<EngineSwitch, "from" | "to" | "reason"> & { atMs: number }) | null;
   fellBack: MeetingTranscript["fellBack"];
   probe: { audioMs: number; decodeMs: number; recorded: boolean };
@@ -357,6 +359,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       catchUps: new Map(),
       restarts: [],
       firstVoice: new Set(),
+      beforeCall: new Set(),
       lastSwitch: null,
       fellBack: null,
       probe: { audioMs: 0, decodeMs: 0, recorded: false },
@@ -509,9 +512,14 @@ export function createTranscripts(options: TranscriptsOptions) {
   function heardCall(state: State): void {
     if (state.callHeard || state.memo) return;
     state.callHeard = true;
-    for (const cue of state.cues) if (cue.speaker === SPEAKER_UNKNOWN) cue.speaker = SPEAKER_ME;
-    for (const heard of state.partials.values()) {
-      if (heard.speaker === SPEAKER_UNKNOWN) heard.speaker = SPEAKER_ME;
+    // A cloud service may have numbered them as a room's voices; one read back from the file
+    // after a restart is "Speaker ?".
+    for (const cue of state.cues) {
+      if (state.beforeCall.has(cue) || cue.speaker === SPEAKER_UNKNOWN) cue.speaker = SPEAKER_ME;
+    }
+    state.beforeCall.clear();
+    for (const [stream, heard] of state.partials) {
+      if (owner(stream)?.source === "microphone") heard.speaker = SPEAKER_ME;
     }
     persist(state);
     writeLines(state);
@@ -605,6 +613,9 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (segment.text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
       if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
+      if (found.source === "microphone" && speaker !== null && !state.callHeard) {
+        state.beforeCall.add(cue);
+      }
     }
     if (segment.failed) {
       health.add(state.meetingId, {
