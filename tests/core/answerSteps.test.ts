@@ -197,59 +197,90 @@ describe("A search's steps", { timeout: 60_000 }, () => {
   });
 });
 
-describe("A Document read", { timeout: 60_000 }, () => {
-  test("after a search miss ends with the figure on the read page cited", async () => {
-    const model = scriptedModel((call) => {
-      if (!call.tools.includes("read_document")) return { text: "read_document was not offered." };
-      const reads = call.results.filter((result) => result.tool === "read_document");
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
-      }
-      if (reads.length === 0) {
-        return {
-          calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
-        };
-      }
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const passages = shownPassages(reads.at(-1)?.text ?? "");
-        return {
-          calls: [
-            {
-              tool: "cite",
-              input: {
-                citations: [
-                  {
-                    marker: 1,
-                    passage: passages[0]?.id,
-                    pageFrom: 2,
-                    pageTo: 2,
-                    quote: "Comparable sales declined 6.2%.",
-                  },
-                ],
-              },
-            },
-          ],
-        };
-      }
-      return { text: "Comparable sales declined 6.2% [^1]." };
-    });
-    const { core } = await setUp(model, "ollama");
-    const sources = await createSourceFolder();
-    const filing = buildPdf([
+// The figure is on the page the search didn't reach: a read of it, not the search, decides (#1443).
+const FILINGS = {
+  English: {
+    pages: [
       { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
       { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
-    ]);
-    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+    ],
+    quote: "Comparable sales declined 6.2%.",
+    answer: "Comparable sales declined 6.2% [^1].",
+    question: "What was the consolidated comparable-sales change?",
+    missed: "I didn't find the consolidated comparable-sales change in “Filing”.",
+  },
+  Chinese: {
+    pages: [
+      { chineseLines: ["分部业绩", "国内同店销售额下降 5.1%。"] },
+      { chineseLines: ["合并经营业绩", "同店销售额下降 6.2%。"] },
+    ],
+    quote: "同店销售额下降 6.2%。",
+    answer: "集团同店销售额下降 6.2% [^1]。",
+    question: "集团同店销售额变化了多少？",
+    missed: "未在“Filing”中找到集团同店销售额的变化。",
+  },
+} as const;
 
-    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+describe("A Document read", { timeout: 60_000 }, () => {
+  test.each(Object.entries(FILINGS))(
+    "after a search miss ends with the figure on the read page cited (%s)",
+    async (_, filing) => {
+      const model = scriptedModel((call) => {
+        if (!call.tools.includes("read_document"))
+          return { text: "read_document was not offered." };
+        const reads = call.results.filter((result) => result.tool === "read_document");
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+        }
+        if (reads.length === 0) {
+          return {
+            calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
+          };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = shownPassages(reads.at(-1)?.text ?? "");
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: passages[0]?.id,
+                      pageFrom: 2,
+                      pageTo: 2,
+                      quote: filing.quote,
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: filing.answer };
+      });
+      const { core } = await setUp(model, "ollama");
+      const sources = await createSourceFolder();
+      await addAndProcess(core, [
+        await writeSourceFile(sources, "Filing.pdf", buildPdf(filing.pages)),
+      ]);
 
-    expect(answer.text).toBe("Comparable sales declined 6.2% [^1].");
-    expect(answer.citations[0]).toMatchObject({ pageFrom: 2, pageTo: 2, check: "found" });
-    const read = answer.toolCalls.find((call) => call.tool === "read_document");
-    expect(read).toMatchObject({ status: "done", input: { document: "Filing", pages: "2" } });
-    expect(read?.passages).toContain(answer.citations[0]?.passageId);
-    core.close();
-  });
+      const { answer } = await ask(core, filing.question);
+
+      expect(answer.text).toBe(filing.answer);
+      expect(answer.citations[0]).toMatchObject({
+        pageFrom: 2,
+        pageTo: 2,
+        quote: filing.quote,
+        check: "found",
+      });
+      const read = answer.toolCalls.find((call) => call.tool === "read_document");
+      expect(read).toMatchObject({ status: "done", input: { document: "Filing", pages: "2" } });
+      expect(read?.passages).toContain(answer.citations[0]?.passageId);
+      core.close();
+    },
+  );
 
   test("reads the Document's opening when no pages are given", async () => {
     const model = scriptedModel((call) => {
@@ -432,27 +463,36 @@ describe("A Document read", { timeout: 60_000 }, () => {
     core.close();
   });
 
-  test("a search miss without a read says I didn't find and has no Citation", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
-        : { text: "I didn't find the consolidated comparable-sales change in “Filing”." },
-    );
-    const { core } = await setUp(model, "ollama");
-    const sources = await createSourceFolder();
-    const filing = buildPdf([
-      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
-      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
-    ]);
-    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+  test.each(Object.entries(FILINGS))(
+    "a search miss without a read says I didn't find, with no Citation (%s)",
+    async (_, filing) => {
+      const model = scriptedModel((call) =>
+        call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
+          : { text: filing.missed },
+      );
+      const { core } = await setUp(model, "ollama");
+      const sources = await createSourceFolder();
+      await addAndProcess(core, [
+        await writeSourceFile(sources, "Filing.pdf", buildPdf(filing.pages)),
+      ]);
 
-    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+      const { answer } = await ask(core, filing.question);
 
-    expect(answer.text).toBe("I didn't find the consolidated comparable-sales change in “Filing”.");
-    expect(answer.citations).toEqual([]);
-    expect(answer.toolCalls.filter((call) => call.tool === "read_document")).toEqual([]);
-    core.close();
-  });
+      expect(answer.text).toBe(filing.missed);
+      expect(answer.toolCalls).toContainEqual(
+        expect.objectContaining({ tool: "search_documents", status: "done", resultCount: 0 }),
+      );
+      expect(answer.citations).toEqual([]);
+      expect(answer.toolCalls.filter((call) => call.tool === "read_document")).toEqual([]);
+      const told = JSON.stringify(model.doStreamCalls[1]?.prompt);
+      expect(told).toContain("No Passages in the User's Documents match this search.");
+      expect(told).toContain(
+        "A miss in these results is not evidence that the Documents lack the answer.",
+      );
+      core.close();
+    },
+  );
 
   test("refuses a page number outside the safe integer range", async () => {
     const model = scriptedModel((call) =>
