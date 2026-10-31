@@ -255,7 +255,7 @@ for (const value of ["en", "zh-CN"] as const) {
       await window.keyboard.insertText(value === "en" ? KEYS.anthropic : KEYS.bare);
       if (value === "en") await pointAndClick(window, form.getByTestId("provider-use-key"));
       else await window.keyboard.press("Enter");
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible();
+      await expect(window.getByTestId("assistant-setup-line")).toBeVisible();
       const chatModel = await window.evaluate(
         async () =>
           (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getSettings())

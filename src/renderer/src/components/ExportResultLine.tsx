@@ -26,14 +26,9 @@ import {
 import { showFileLabelKey } from "../fileInfo";
 import { useMindNoteStates } from "../home";
 import { useLanguage, useT } from "../i18n";
-import { folderName } from "../linkedFolders";
 import { enter } from "../motion";
 import { type NoteState, noteStateParts } from "../noteState";
-import {
-  chooseOutputLocation,
-  defaultFolderLabel,
-  showOutputLocationSetting,
-} from "../outputFiles";
+import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
@@ -74,10 +69,13 @@ export function ExportResultLine({ mindId }: { mindId: string }) {
   const result = useExports((state) => (state.result?.mindId === mindId ? state.result : null));
   const dismiss = useExports((state) => state.dismiss);
   const line = useRef<HTMLDivElement>(null);
-  const expired =
-    result?.state === "saved" &&
-    isPlainSaved(result, t) &&
-    Date.now() - result.at >= SAVED_SHOWN_MS;
+  // Judged when the line mounts, so a line the pointer is on isn't dropped by a later render.
+  const [stale] = useState(() =>
+    result?.state === "saved" && isPlainSaved(result, t) && Date.now() - result.at >= SAVED_SHOWN_MS
+      ? result
+      : null,
+  );
+  const expired = result !== null && result === stale;
   const shown = result !== null && !expired;
   useEffect(() => {
     if (expired) dismiss();
@@ -108,7 +106,7 @@ function ResultBody({
   const t = useT();
   const dismiss = useExports((state) => state.dismiss);
   const [error, setError] = useState<string | null>(null);
-  const held = useHeld(line);
+  const held = useHeld(line, { focusHolds: true });
   // Someone else's Word file with no comments says so quietly, before Change, not as a warning (#110).
   const unmarked =
     result.state === "saved" && !othersWord(result) ? unmarkedChecks(result.checks, t) : null;
@@ -396,7 +394,7 @@ function useExportNoteState(mindId: string | null): NoteState | null {
 function SavedSentence({ result, withFile }: { result: SavedResult; withFile: SavedWithFile }) {
   const t = useT();
   const language = useLanguage();
-  const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
+  const folder = savedFolderLabel(result, t);
   const name = nameInLine(result.name);
   // The check record and the workbooks aren't the note's file: their lines say what they are, not how the note stands.
   const noteExport = !isCheckRecord(result.format) && !isWorkbook(result.format);
