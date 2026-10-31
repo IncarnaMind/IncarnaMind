@@ -107,6 +107,7 @@ test("Words to know: words are added at the top, renamed by double-click and F2,
   await rowNames(section).nth(1).focus();
   await window.keyboard.press("Delete");
   await expect(rowNames(section)).toHaveText(["星河科技集团"]);
+  await expect(rowNames(section).first()).toBeFocused();
 
   // In Chinese, the same list in Chinese words.
   await setLanguage(window, "zh-CN");

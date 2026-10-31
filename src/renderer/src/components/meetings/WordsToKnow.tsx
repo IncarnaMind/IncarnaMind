@@ -53,7 +53,7 @@ function WordRow({
     }
   };
   return (
-    <li data-testid="meeting-word" className={`group ${ruledRow("center", true)}`}>
+    <li data-testid="meeting-word" className={ruledRow("center", true)}>
       {naming.renaming ? (
         <InlineName
           value={word}
@@ -101,6 +101,7 @@ export function WordsToKnow() {
   const [problem, setProblem] = useState<Problem | null>(null);
   const fieldId = useId();
   const field = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const section = useSettingsTarget<HTMLElement>(TARGET, words !== undefined, () =>
     queueMicrotask(() => field.current?.focus({ preventScroll: true })),
   );
@@ -147,6 +148,11 @@ export function WordsToKnow() {
     const at = words.indexOf(word);
     setProblem(null);
     await saveWords(words.filter((each) => each !== word));
+    // The focus stays in the list, on the word that took its place, rather than going to the page.
+    requestAnimationFrame(() => {
+      const rows = list.current?.querySelectorAll<HTMLElement>('[data-testid="meeting-word-name"]');
+      (rows?.[Math.min(at, rows.length - 1)] ?? field.current)?.focus();
+    });
     useUndo.getState().push({
       said: (say, cut) => say("meetings.words.removed", { word: cut(word) }),
       undo: async () => {
@@ -208,7 +214,7 @@ export function WordsToKnow() {
         </p>
       )}
       {words.length > 0 && (
-        <ul data-testid="meeting-words-list" className={`mt-2 ${ruledListClass}`}>
+        <ul ref={list} data-testid="meeting-words-list" className={`mt-2 ${ruledListClass}`}>
           {words.map((word) => (
             <WordRow key={word} word={word} rename={rename} remove={remove} />
           ))}
