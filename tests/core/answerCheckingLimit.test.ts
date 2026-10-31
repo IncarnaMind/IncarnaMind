@@ -148,10 +148,15 @@ describe("judging an Answer's sentences stops at a limit, at the end", { timeout
     ).toBe(true);
   });
 
-  test.each(["claude-sonnet-5-5", "claude-haiku-5-5"])(
-    "Check the rest of one batch on %s judges all of it within the most it said",
-    async (modelId) => {
-      const { core, answer, judging, batches } = await answered(8, { failing: true, modelId });
+  test.each([
+    { modelId: "claude-sonnet-5-5", count: 8, sent: 1 },
+    { modelId: "claude-haiku-5-5", count: 8, sent: 1 },
+    // Three batches: the "up to" rounded to the cent no longer covers a most counted low.
+    { modelId: "claude-sonnet-5-5", count: 24, sent: 3 },
+  ])(
+    "Check the rest of $count sentences on $modelId judges all of them within the most it said",
+    async ({ modelId, count, sent }) => {
+      const { core, answer, judging, batches } = await answered(count, { failing: true, modelId });
       judging.failing = false;
       const ids = { conversationId: answer.conversationId, answerId: answer.id };
 
@@ -162,9 +167,9 @@ describe("judging an Answer's sentences stops at a limit, at the end", { timeout
       await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
       const again = await answerJudged(core, answer.conversationId, answer.id);
 
-      expect(checksOf(answer.citations)).toEqual(Array(8).fill("not-checked"));
-      expect(checksOf(again.citations)).toEqual(Array(8).fill("found"));
-      expect(batches).toHaveLength(1);
+      expect(checksOf(answer.citations)).toEqual(Array(count).fill("not-checked"));
+      expect(checksOf(again.citations)).toEqual(Array(count).fill("found"));
+      expect(batches).toHaveLength(sent);
     },
   );
 

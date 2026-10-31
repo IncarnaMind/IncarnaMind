@@ -92,6 +92,12 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
 
 const VERDICTS = new Set(["supported", "unsupported", "contradicted"]);
 
+/** A reply's sentence number, written as a number or as digits; null for anything else. */
+function sentenceNumber(value: unknown): number | null {
+  const number = typeof value === "string" && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
+  return typeof number === "number" && Number.isInteger(number) ? number : null;
+}
+
 /**
  * A batch's reply, by the sentence's number from 1. A sentence it gave nothing readable for is
  * missing, and so is one it gave two verdicts for.
@@ -102,17 +108,18 @@ export async function readBatchReply(
 ): Promise<Map<number, BatchVerdict>> {
   const value = await replyJson(reply);
   const read = new Map<number, BatchVerdict>();
-  /** Numbers given twice: which of the two verdicts is the sentence's can't be told. */
+  const seen = new Set<number>();
+  /** Numbers the reply gave twice, readably or not: which entry is the sentence's can't be told. */
   const twice = new Set<number>();
   const entries = isRecord(value) && Array.isArray(value.sentences) ? value.sentences : [];
   for (const entry of entries) {
     if (!isRecord(entry)) continue;
-    const { number, kind, verdict, roles, time, says } = entry;
-    if (typeof number !== "number" || !Number.isInteger(number) || number < 1 || number > count) {
-      continue;
-    }
+    const { kind, verdict, roles, time, says } = entry;
+    const number = sentenceNumber(entry.number);
+    if (number === null || number < 1 || number > count) continue;
+    if (seen.has(number)) twice.add(number);
+    seen.add(number);
     if (typeof verdict !== "string" || !VERDICTS.has(verdict)) continue;
-    if (read.has(number)) twice.add(number);
     read.set(number, {
       kind: kind === "opinion" ? "opinion" : "fact",
       verdict: verdict as BatchVerdict["verdict"],
