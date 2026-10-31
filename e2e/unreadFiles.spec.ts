@@ -577,6 +577,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(
       window.getByTestId("viewer-sheet-tab").filter({ hasText: "Q3 raw" }),
     ).toBeVisible();
+
+    // Undo reads it again without them, and the list says so.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(row).toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
     await app.close();
   });
 }
