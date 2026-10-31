@@ -427,6 +427,21 @@ for (const language of ["en", "zh-CN"] as const) {
       }),
     );
     expect(calls.slice(asked).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+    const previous = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text:
+          language === "en"
+            ? "Walk me through your previous answer about supplier payments during this meeting"
+            : "带我回顾一下你上一条回答里关于供应商付款的内容，就在这次通话里",
+      }),
+    );
+    expect(calls.slice(previous).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(
+      true,
+    );
   });
 
   test(`${language}: a recap after the call ended keeps the conversation's earlier replies`, async () => {

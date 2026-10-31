@@ -10,6 +10,7 @@
 import { displayName } from "../../shared/documentNames";
 import type { AnswerCoverage } from "../api";
 import { keywordTerms, keywordText } from "../documents/keywords";
+import { asksAboutEarlier } from "./pointersBack";
 
 export const COVERED_AT_ONCE = 8;
 
@@ -32,7 +33,9 @@ const ABOUT_THE_CALL =
 
 /** Whether a Question asks for a summary or recap of the call ("recap the last 5 minutes", "回顾最近 5 分钟"). */
 export const asksForSummary = (question: string): boolean =>
-  (SUMMARY.test(question) || RECAP.test(question)) && ABOUT_THE_CALL.test(question);
+  (SUMMARY.test(question) || RECAP.test(question)) &&
+  ABOUT_THE_CALL.test(question) &&
+  !asksAboutEarlier(question);
 const DOCUMENT_WORDS = "(?:documents|docs|papers|files|reports)";
 const ZH_DOCUMENT_WORDS = "(?:文档|论文|文件|报告)";
 const THE_SET = new RegExp(
