@@ -12,6 +12,7 @@ import * as Y from "yjs";
 import { readChartData } from "../../shared/charts";
 import { readClaimCheck, restsOn } from "../../shared/claimChecks";
 import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
+import { perBlock } from "../../shared/memo";
 import {
   CHART_NODE,
   CITATION_NODE,
@@ -22,7 +23,7 @@ import {
 } from "../api";
 import { isRecord } from "../errors";
 import { readContentVersion } from "../mindAccess";
-import { nodeOf, topLevelBlocks } from "./blocks";
+import { nodeOf } from "./blocks";
 
 /**
  * What a Citation's check reads: the stored text of one version of a
@@ -70,7 +71,9 @@ function chartCitations(chart: Y.XmlElement): CitationFields[] {
   );
 }
 
-function figureCheckCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
+function figureCheckCitations(
+  fragment: Y.XmlFragment | Y.XmlElement | Y.XmlText,
+): CitationFields[] {
   const cited: CitationFields[] = [];
   const add = (raw: unknown) => {
     if (!isRecord(raw) || raw.figures == null) return;
@@ -78,19 +81,37 @@ function figureCheckCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationF
     if (!check) throw new Error("The figure Check's record is invalid.");
     cited.push(...restsOn(check).map((citation) => ({ ...citation })));
   };
-  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+  const visit = (parent: Y.XmlFragment | Y.XmlElement | Y.XmlText) => {
+    if (parent instanceof Y.XmlText) {
+      for (const run of parent.toDelta() as { attributes?: Record<string, unknown> }[])
+        add(run.attributes?.[CLAIM_CHECK_MARK]);
+      return;
+    }
     if (parent instanceof Y.XmlElement) add(parent.getAttribute(CLAIM_CHECK_MARK));
     for (const child of parent.toArray()) {
-      if (child instanceof Y.XmlElement) visit(child);
-      else if (child instanceof Y.XmlText)
-        for (const run of child.toDelta() as { attributes?: Record<string, unknown> }[])
-          add(run.attributes?.[CLAIM_CHECK_MARK]);
+      if (child instanceof Y.XmlElement || child instanceof Y.XmlText) visit(child);
     }
   };
   visit(fragment);
   return cited;
 }
 
+/** A top-level Block's calculated figures, the Block itself when it has any, and its figure Checks' Citations. */
+const figureBlock = perBlock((block) => {
+  const node = nodeOf(block);
+  const figures = calculatedFiguresIn([node]);
+  return {
+    node: figures.length > 0 ? node : null,
+    figures,
+    checked: figureCheckCitations(block),
+  };
+});
+
+/**
+ * The Citations a Note's figures rest on: those of its calculated figures' inputs, of the
+ * Analyses they came from, and of its figure Checks. A Note's Blocks are read once while they
+ * stay the same, since this is worked out again with every change stored.
+ */
 export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): CitationFields[] {
   if (
     fragment.doc &&
@@ -98,12 +119,22 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
       CONTENT_SCHEMA_VERSION
   )
     return [];
-  const blocks =
-    fragment instanceof Y.XmlElement ? [nodeOf(fragment)] : topLevelBlocks(fragment).map(nodeOf);
-  const figures = calculatedFiguresIn(blocks);
-  const inputs = figures.flatMap(({ figure }) => figure.inputs);
+  const parts =
+    fragment instanceof Y.XmlElement
+      ? [figureBlock(fragment)]
+      : fragment.toArray().map((child) =>
+          child instanceof Y.XmlElement
+            ? figureBlock(child)
+            : {
+                node: null,
+                figures: [],
+                checked: child instanceof Y.XmlText ? figureCheckCitations(child) : [],
+              },
+        );
+  const inputs = parts.flatMap(({ figures }) => figures.flatMap(({ figure }) => figure.inputs));
   const cited: CitationFields[] = [];
   if (fragment.doc) {
+    const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
     for (const run of figureRunsFor(fragment.doc, blocks)) {
       for (const input of run.inputs) {
         if (input.kind === "figure") inputs.push(input.input);
@@ -115,7 +146,10 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
     cited.push({ ...input.citation });
     if (input.unitStatement) cited.push({ ...input.unitStatement.citation });
   }
-  return [...cited, ...figureCheckCitations(fragment)];
+  return [
+    ...cited,
+    ...parts.flatMap(({ checked }) => checked.map((citation) => ({ ...citation }))),
+  ];
 }
 
 /** Adds the Units that the Citations under `fragment` point to in these Documents to `cited`. */

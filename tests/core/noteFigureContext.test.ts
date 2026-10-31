@@ -6,9 +6,14 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import { documentFigureContext, partsFigureContext } from "../../src/core/answers/calculations";
+import {
+  documentFigureContext,
+  type NoteParagraphs,
+  partsFigureContext,
+} from "../../src/core/answers/calculations";
 import { readWordStructure } from "../../src/core/documents/formats/docxImport";
 import { openWordPackage, reviewOf } from "../../src/core/documents/formats/docxPackage";
+import { figureFactsOf } from "../../src/shared/figures";
 import { memoized } from "../../src/shared/memo";
 import { longContract } from "../helpers/longContract";
 import { wordFixtures } from "../helpers/wordLookResolved";
@@ -26,6 +31,13 @@ function paragraphs(blocks: readonly JSONContent[]): string[] {
   return texts;
 }
 
+/** Each paragraph as a Block of its own. */
+const asBlocks = (parts: readonly string[]): NoteParagraphs[] =>
+  parts.map((text) => ({
+    words: [text],
+    facts: (language) => [figureFactsOf(text, language)],
+  }));
+
 describe("a Note's figure context, added up from its paragraphs", () => {
   test("says what the joined text says, for every Word file of the corpus and the 304-page contract", async () => {
     const files: [string, Uint8Array][] = [
@@ -37,7 +49,7 @@ describe("a Note's figure context, added up from its paragraphs", () => {
       const pkg = await openWordPackage(Buffer.from(bytes));
       const structure = await readWordStructure(pkg, await reviewOf(pkg));
       const parts = paragraphs(structure.blocks);
-      expect(partsFigureContext(parts), name).toEqual(
+      expect(partsFigureContext(asBlocks(parts)), name).toEqual(
         documentFigureContext([{ text: parts.join("\n") }]),
       );
       compared++;
@@ -47,9 +59,11 @@ describe("a Note's figure context, added up from its paragraphs", () => {
 
   test("telling numbers in different paragraphs add up, as in one text", () => {
     const parts = ["Revenue was 1.234.567,89 EUR.", "Costs: 2.100.000,00 EUR", "See 3.5 below."];
-    expect(partsFigureContext(parts)).toEqual(documentFigureContext([{ text: parts.join("\n") }]));
-    expect(partsFigureContext(parts).separators).toEqual({ decimal: ",", group: "." });
-    expect(partsFigureContext(["人民币 1,200 万元", "¥300"]).yen).toBe("CNY");
+    expect(partsFigureContext(asBlocks(parts))).toEqual(
+      documentFigureContext([{ text: parts.join("\n") }]),
+    );
+    expect(partsFigureContext(asBlocks(parts)).separators).toEqual({ decimal: ",", group: "." });
+    expect(partsFigureContext(asBlocks(["人民币 1,200 万元", "¥300"])).yen).toBe("CNY");
   });
 });
 

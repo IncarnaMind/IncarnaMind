@@ -27,6 +27,7 @@ import {
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
+import { fingerprintOfBlocks } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -38,7 +39,7 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
+import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -2408,7 +2409,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return figureSchedule({
         mindId: mind.id,
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        basis: targetHash(blocks.toString()),
+        basis: fingerprintOfBlocks(blocks),
         blocks,
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,

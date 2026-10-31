@@ -32,9 +32,9 @@ import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
   type Figure,
   type FigureContext,
+  type FigureFacts,
   figureContextOf,
   figureContextOfFacts,
-  figureFactsOf,
   figureLanguageTag,
   type Reading,
   readFigures,
@@ -113,6 +113,9 @@ export function answerLanguage(question: string): Language {
   return detectLanguage(question) === "Chinese" ? "zh-CN" : "en";
 }
 
+/** How much of a text its language is told from. */
+const LANGUAGE_SAMPLE = 20_000;
+
 /**
  * How a Document version writes its numbers (its language, separators and
  * "¥"), from all of its Units' text: what an input's number is read with, and
@@ -120,23 +123,37 @@ export function answerLanguage(question: string): Language {
  */
 export function documentFigureContext(units: readonly { text: string }[]): FigureContext {
   const all = units.map((unit) => unit.text).join("\n");
-  return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, 20_000))));
+  return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, LANGUAGE_SAMPLE))));
 }
 
-const factsOf = memoized(
-  20_000,
-  (text: string, language: string | null) => `${language ?? ""}\u0000${text}`,
-  figureFactsOf,
+/** The language a Note's numbers are read in, told again only once its opening words change. */
+const noteLanguage = memoized(
+  4,
+  (head: string) => head,
+  (head: string) => figureLanguageTag(detectLanguage(head)),
 );
 
+/** What a Note's paragraphs, by Block, tell of how it writes its numbers. */
+export interface NoteParagraphs {
+  words: readonly string[];
+  facts(language: string | null): readonly FigureFacts[];
+}
+
 /**
- * `documentFigureContext` of a Note's paragraphs, each read once while its text stays the same:
- * the whole Note is read for its separators and language on every change to it (#746).
+ * `documentFigureContext` of a Note's paragraphs, added up from each Block's: the whole Note is
+ * read for its separators and language on every change to it (#746).
  */
-export function partsFigureContext(parts: readonly string[]): FigureContext {
-  const language = figureLanguageTag(detectLanguage(parts.join("\n").slice(0, 20_000)));
+export function partsFigureContext(blocks: readonly NoteParagraphs[]): FigureContext {
+  const head: string[] = [];
+  let length = 0;
+  for (const words of blocks.flatMap((block) => block.words)) {
+    if (length > LANGUAGE_SAMPLE) break;
+    head.push(words);
+    length += words.length + 1;
+  }
+  const language = noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
   return figureContextOfFacts(
-    parts.map((text) => factsOf(text, language)),
+    blocks.flatMap((block) => block.facts(language)),
     language,
   );
 }
