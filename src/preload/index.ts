@@ -46,11 +46,18 @@ import {
 } from "../shared/permissionGuide";
 import { titleBarOf } from "../shared/titleBar";
 
-const served = ipcRenderer.invoke(SERVED_CHANNEL);
+// Once served, calls go straight to the main process again, in the order and turn they are made.
+let isServed = false;
+const served = ipcRenderer.invoke(SERVED_CHANNEL).then(() => {
+  isServed = true;
+});
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
-  served.then(() => ipcRenderer.invoke(channel, ...args));
+  isServed
+    ? ipcRenderer.invoke(channel, ...args)
+    : served.then(() => ipcRenderer.invoke(channel, ...args));
 const send = (channel: string, ...args: unknown[]): void => {
-  void served.then(() => ipcRenderer.send(channel, ...args));
+  if (isServed) ipcRenderer.send(channel, ...args);
+  else void served.then(() => ipcRenderer.send(channel, ...args));
 };
 
 function listen<T>(channel: string, listener: (value: T) => void): () => void {
