@@ -223,7 +223,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
 
     const system = promptOf(model)[0]?.text ?? "";
     expect(system).toMatch(/Cite every claim you draw from a Passage/);
-    expect(system).toMatch(/If the Documents don't cover the Question, say "I didn't find/);
+    expect(system).toMatch(/If what you found doesn't answer the Question, say "I didn't find/);
     expect(system).toMatch(/\[\^1\]/);
     expect(system).toMatch(
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
@@ -233,7 +233,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       "Revision worksheets need every item row and its revision, no bare values.",
     );
     // Short: it is sent with every Question.
-    expect(system.length).toBeLessThan(5100);
+    expect(system.length).toBeLessThan(5120);
   });
 
   // protects=what the model is sent tells it a cited sentence says only what its quote supports, with an inference in a sentence of its own; fails_when=the rule is left out of the answering prompt or loses its examples in either language; no_claim=whether a model follows it (eval/everyday).

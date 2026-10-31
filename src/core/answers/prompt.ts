@@ -340,12 +340,15 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  * where claims carry Citations, a figure from the model's own knowledge reads
  * as one from the User's Documents. General knowledge only for a general
  * Question, labelled, and without figures. `cite`: the Answer cites with markers.
+ * A miss is the search's: told "if the Documents don't cover the Question",
+ * Claude Haiku 5.5 wrote that a 10-Q "does not state" a figure it never read
+ * for (#1443).
  */
 function notCovered(cite: boolean, reads = false): string {
   const absence = reads
-    ? "Absence needs read_document where X would be."
-    : "Never claim Document absence.";
-  return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
+    ? "Say “Doc” doesn't state X only after read_document showed where X would be."
+    : "Never say “Doc” doesn't state X.";
+  return `If what you found doesn't answer the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
 
 /**
