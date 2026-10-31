@@ -12,7 +12,7 @@ const WHEEL_QUIET_MS = 140;
 
 // The ⌄'s 28px and its 2px either side, in styles.css: it shows only while a tab is hidden, so
 // the fit takes its room as soon as it hides one.
-const SHOW_ALL_PX = 32;
+export const SHOW_ALL_PX = 32;
 
 /**
  * The box a tab's name's letters fill: the title's own text, cut to the part its span shows. A

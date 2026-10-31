@@ -168,9 +168,13 @@ function itemForKey(key: string, all: readonly HTMLElement[]): HTMLElement | und
 }
 
 /**
- * The item whose name starts with the letters typed so far, as in every list on the computer:
- * letters typed within a pause add up, and the next letter after it starts a new name. A field
- * the menu holds keeps its own keys.
+ * The item whose name starts with the letters typed so far, as in every list on the computer.
+ *
+ * A new name is looked for from the row after the one in focus and round, so pressing a letter
+ * again on its own moves to the next name starting with it; letters typed within a pause add to
+ * the name being typed and look again from the first row. A Space within that pause is part of
+ * the name ("untitled s" reaches "Untitled something"), and never presses the row in focus. A
+ * field the menu holds keeps its own keys.
  */
 function typedTo(
   event: KeyboardEvent,
@@ -178,9 +182,9 @@ function typedTo(
   typed: { current: { text: string; at: number } },
 ): HTMLElement | undefined {
   const target = event.target;
+  const key = event.key;
   if (
-    event.key.length !== 1 ||
-    event.key === " " ||
+    key.length !== 1 ||
     event.ctrlKey ||
     event.metaKey ||
     event.altKey ||
@@ -191,13 +195,24 @@ function typedTo(
     return undefined;
   }
   const now = performance.now();
-  const text = now - typed.current.at > TYPE_AHEAD_MS ? event.key : typed.current.text + event.key;
+  const last = typed.current.text;
+  const fresh = now - typed.current.at <= TYPE_AHEAD_MS;
+  // A Space of its own is the row's own key; within a name it is a letter.
+  if (key === " " && !fresh) return undefined;
+  const repeating = fresh && last.length === 1 && key === last;
+  const extending = fresh && last !== "" && !repeating;
+  const text = extending ? last + key : key;
   typed.current = { text, at: now };
+  const items = itemsOf(menu);
+  const focused = items.indexOf(document.activeElement as HTMLElement);
+  const from = extending ? 0 : focused + 1;
+  const around = [...items.slice(from), ...items.slice(0, from)];
   // The app's one way to jump to a name by its first letters, as the sidebar's tree does: a
   // Chinese name by its pinyin or initials too.
-  const item = itemsOf(menu).find((each) => startsWith(text, (each.textContent ?? "").trim()));
-  // The first letters of a name are never a stray key: the menu keeps them for the next one.
-  if (item) event.preventDefault();
+  const item = around.find((each) => startsWith(text, (each.textContent ?? "").trim()));
+  // The first letters of a name are never a stray key: the menu keeps them for the next one,
+  // and a Space typed into a name never presses the row it is in.
+  if (item !== undefined || key === " ") event.preventDefault();
   return item;
 }
 
@@ -463,6 +478,7 @@ export function usePopoverMenu({
         if (event.newState === "open") {
           touched.current = false;
           returnWanted.current = false;
+          typed.current = { text: "", at: 0 };
           focusReturn.remember();
         }
         setOpen(event.newState === "open");

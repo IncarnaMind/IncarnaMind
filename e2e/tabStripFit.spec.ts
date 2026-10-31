@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { SHOW_ALL_PX } from "../src/renderer/src/components/tabs/useTabStripFit";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -570,6 +571,17 @@ for (const language of LANGUAGES) {
     expect(hidden).toBeGreaterThan(0);
     await expect(button).toHaveAttribute("aria-label", said(hidden));
     await expect(button).toHaveAttribute("title", said(hidden));
+    // Its space in the strip is the room the fit takes when a tab hides (SHOW_ALL_PX).
+    expect(
+      await button.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return (
+          element.getBoundingClientRect().width +
+          Number.parseFloat(style.marginLeft) +
+          Number.parseFloat(style.marginRight)
+        );
+      }),
+    ).toBe(SHOW_ALL_PX);
 
     // The keyboard reaches the button from the shown tab, and Enter opens the list.
     await shownTab(window).first().focus();
@@ -643,6 +655,75 @@ for (const language of LANGUAGES) {
         await expect(menu).toBeHidden();
       }
     }
+    await app.close();
+  });
+
+  test(`typing in the list searches from the row in focus, repeats cycle, and Space is part of the name (${language}) (#2244)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchApp(dataDir);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    const first = language === "en" ? "Untitled alpha" : "城市热岛 报告";
+    const second = language === "en" ? "Untitled beta" : "城市热岛 草稿";
+    const other = language === "en" ? "Zebra notes" : "斑马笔记";
+    const key = language === "en" ? "u" : "c";
+    const query = language === "en" ? "untitled b" : "chengshiredao c";
+    const report = await addReport(window, language);
+    for (const name of [first, second, other]) await addMind(window, groupAt(window, 0), name);
+    await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
+    await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    const divider = window.getByTestId("group-divider").first();
+    const widthOf = () =>
+      window
+        .getByTestId("tab-group")
+        .first()
+        .evaluate((group) => group.getBoundingClientRect().width);
+    await divider.focus();
+    while ((await widthOf()) > 225) {
+      const before = await widthOf();
+      await window.keyboard.press("ArrowLeft");
+      await expect.poll(widthOf).not.toBe(before);
+    }
+    await expectResting(window, "the list's tabs");
+    const list = listAt(window, 0);
+    const button = window.getByTestId("show-all-tabs").first();
+    const menu = window.getByTestId("tab-strip").first().getByTestId("show-all-tabs-menu");
+    const rows = menu.getByTestId("show-all-tabs-row");
+    const rowOf = (name: string) => rows.filter({ hasText: name });
+    const openList = async () => {
+      await shownTab(window).first().focus();
+      await window.keyboard.press("Tab");
+      await window.keyboard.press("Tab");
+      await window.keyboard.press("Enter");
+      await expect(menu).toBeVisible();
+    };
+    await openList();
+
+    // A new name is looked for from the row after the one in focus, and round from the last.
+    await window.keyboard.press("Home");
+    await expect(rowOf(first)).toBeFocused();
+    await window.waitForTimeout(700);
+    await window.keyboard.press(key);
+    await expect(rowOf(second)).toBeFocused();
+
+    // The same letter again, on its own, cycles to the next name starting with it.
+    await window.keyboard.press(key);
+    await expect(rowOf(first)).toBeFocused();
+
+    // A Space within a name is part of it: the whole name reaches the second row, and the Space
+    // never presses the row in focus.
+    await window.keyboard.press("Escape");
+    await expect(button).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(menu).toBeVisible();
+    await window.keyboard.type(query);
+    await expect(rowOf(second)).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(list.getByRole("tab", { name: second, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await app.close();
   });
 
