@@ -185,24 +185,31 @@ const quotedList = (names: readonly string[]) =>
         .map((name) => `“${name}”`)
         .join(", ")} and “${names.at(-1)}”`;
 
-/** What the model is told of the Documents a Question asks about; "" when nothing. */
+/**
+ * What the model is told of the Documents a Question asks about, `documents`
+ * the Documents in scope, the most text first; "" when nothing.
+ */
 export function coverageInstructions(
   coverage: AnswerCoverage | null,
   each: boolean,
   documents: readonly SizedDocument[],
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
-  const rest = (coverage?.rest ?? []).flatMap((id) => {
-    const document = documents.find((each) => each.id === id);
-    return document ? [document.name] : [];
-  });
   const searchEach =
     "Search each one (search_documents with its document), cite each at least once, and say in your reply which, if any, you couldn't cover. Nothing about your searching goes into a Note.";
   if (coverage?.kind === "main") {
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }
   if (coverage?.kind === "largest") {
-    return `This Answer covers the ${covered.length} largest of ${documents.length} Documents: ${quotedList(covered)}. In your reply, name the others you didn't cover (${quotedList(rest)}) and offer to summarise them. ${searchEach}`;
+    // The reply names what the next summary covers, as the offer above it does no more than count them (#894).
+    const rest = documents.filter((document) => coverage.rest.includes(document.id));
+    const next = rest.slice(0, COVERED_AT_ONCE).map((document) => document.name);
+    const after = rest.length - next.length;
+    const left =
+      after > 0
+        ? `the next summary takes ${quotedList(next)}, and ${after} more ${after === 1 ? "comes" : "come"} after those`
+        : `${quotedList(next)} ${next.length === 1 ? "is" : "are"} left for the next summary`;
+    return `This Answer covers the ${covered.length} largest of the ${documents.length} Documents, as one summary covers ${COVERED_AT_ONCE} at a time: ${quotedList(covered)}. In your reply, not in a Note, say that ${left}, say why, and offer to go on; IncarnaMind says so above your reply too, with a button for it. ${searchEach}`;
   }
   return each && documents.length > 1
     ? `The User asked about each of the ${documents.length} Documents. ${searchEach}`

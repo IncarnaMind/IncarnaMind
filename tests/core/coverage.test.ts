@@ -141,9 +141,29 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
     return { core, mind, scope, calls };
   }
 
-  // protects=a summary of 10 Documents covers the 8 largest, tells the model which, and records the 2 others to offer; fails_when=it covers all, the smaller ones, or forgets the rest; no_claim=what the model writes.
-  test("of 10 covers the 8 largest and keeps the 2 others", async () => {
-    const { core, mind, scope, calls } = await withDocuments(10);
+  // protects=a summary of 10 Documents covers the 8 largest, tells the model which, records the 2 others to offer, and has the reply name those 2 as left for the next summary, in English and Chinese; fails_when=it covers all, the smaller ones, forgets the rest, or the reply isn't told which are left (#894); no_claim=what the model writes.
+  test.each(["Write a summary page of these documents", "总结这些文档"])(
+    "%s, of 10, covers the 8 largest and names the 2 others",
+    async (text) => {
+      const { core, mind, scope, calls } = await withDocuments(10);
+
+      const answer = await askAssistant(core, { text, mindId: mind.id, scope });
+
+      expect(answer.steps?.coverage?.kind).toBe("largest");
+      expect(answer.steps?.coverage?.used.map((each) => each.name)).toEqual(
+        Array.from({ length: 8 }, (_, at) => `Report ${at + 1}`),
+      );
+      expect(answer.steps?.coverage?.rest).toHaveLength(2);
+      expect(calls[0]?.system).toContain("This Answer covers the 8 largest of the 10 Documents");
+      expect(calls[0]?.system).toContain(
+        "say that “Report 9” and “Report 10” are left for the next summary",
+      );
+    },
+  );
+
+  // protects=past what the next summary covers, the reply is told the 8 it takes and how many come after, not every name; fails_when=it is told none, or all 12 of the rest; no_claim=what the model writes.
+  test("of 20 names the 8 the next summary takes and counts the 4 after", async () => {
+    const { core, mind, scope, calls } = await withDocuments(20);
 
     const answer = await askAssistant(core, {
       text: "Write a summary page of these documents",
@@ -151,28 +171,12 @@ describe("A summary of many Documents, through the core", { timeout: 60_000 }, (
       scope,
     });
 
-    expect(answer.steps?.coverage?.kind).toBe("largest");
-    expect(answer.steps?.coverage?.used.map((each) => each.name)).toEqual(
-      Array.from({ length: 8 }, (_, at) => `Report ${at + 1}`),
-    );
-    expect(answer.steps?.coverage?.rest).toHaveLength(2);
-    expect(calls[0]?.system).toContain("This Answer covers the 8 largest of 10 Documents");
-    expect(calls[0]?.system).toContain("Report 9");
-    expect(calls[0]?.system).toContain("Report 10");
-  });
-
-  test("of 4 covers every Document and tells the model the real count", async () => {
-    const { core, mind, scope, calls } = await withDocuments(4);
-
-    const answer = await askAssistant(core, {
-      text: "Write a summary page of these documents",
-      mindId: mind.id,
-      scope,
-    });
-
-    expect(answer.steps?.coverage).toBeUndefined();
-    expect(calls[0]?.system).toContain("The User asked about each of the 4 Documents");
-    expect(calls[0]?.system).not.toContain("[object Object]");
+    expect(answer.steps?.coverage?.rest).toHaveLength(12);
+    const system = calls[0]?.system ?? "";
+    expect(system).toContain("This Answer covers the 8 largest of the 20 Documents");
+    expect(system).toContain("the next summary takes “Report 9”,");
+    expect(system).toContain("and “Report 16”, and 4 more come after those");
+    expect(system).not.toContain("“Report 17”");
   });
 
   // protects=a Question about a topic across many Documents searches them all, with no cap; fails_when=it covers only the largest 8; no_claim=what the model writes.
