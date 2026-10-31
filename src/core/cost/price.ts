@@ -33,9 +33,10 @@ export function rateAt(price: Price, at: Date): number {
 }
 
 /**
- * At most how many tokens a provider counts for each one `promptTokensOf`
- * counts: Claude Haiku 5.5 counted up to 1.41 times a whole read's estimate
- * (#2126), and a provider not measured is counted higher still.
+ * How many tokens a provider may count for each one `promptTokensOf` counts.
+ * Claude Haiku 5.5 counted 1.09 to 1.16 times as many on #2126's recorded
+ * whole read, so Anthropic's 1.45 is a deliberate margin; a provider not
+ * measured gets a wider one.
  */
 const COUNTED_PER_TOKEN: Partial<Record<ChatProviderKind, number>> = { anthropic: 1.45 };
 

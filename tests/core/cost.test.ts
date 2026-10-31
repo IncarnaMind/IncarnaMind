@@ -1221,9 +1221,12 @@ describe("A model priced by prompt length is metered at its tier (#2285)", () =>
    * A core on Claude Haiku 5.5 that has sent one request of "a", and the length of text whose
    * request the meter counts at `tokens`: each three more characters count one more token.
    */
-  async function sizedCore(counts: readonly Counted[] = [{ input: 10, output: 10 }]) {
+  async function sizedCore(
+    counts: readonly Counted[] = [{ input: 10, output: 10 }],
+    provider?: Parameters<typeof cloudCore>[1],
+  ) {
     const model = reportingModel(counts);
-    const started = await cloudCore(model);
+    const started = await cloudCore(model, provider);
     await request(started.core, 1_000, "a");
     const counted = (call: number) => promptTokensOf(model.doStreamCalls[call]?.prompt ?? []);
     const text = (tokens: number) => "a".repeat(1 + 3 * (tokens - counted(0)));
@@ -1232,7 +1235,7 @@ describe("A model priced by prompt length is metered at its tier (#2285)", () =>
 
   const settledCosts = (dataDir: string) => rows(dataDir).map((row) => row.cost);
 
-  // protects=a request is reserved at the tier its provider may count its prompt in, so the cap holds for a long one; fails_when=the reservation ignores the tier, or picks it from the estimate alone, which Anthropic counts up to 1.41 times higher; no_claim=how many tokens the provider counts.
+  // protects=a request is reserved at the tier its provider may count its prompt in, so the cap holds for a long one; fails_when=the reservation ignores the tier, or picks it from the estimate alone, which Anthropic counts up to 1.16 times higher; no_claim=how many tokens the provider counts.
   test("a prompt estimated at 68,965 tokens is reserved at the base prices, and one of 68,966 or 90,000 at five times them", async () => {
     const { core, dataDir, counted, text } = await sizedCore();
 
@@ -1241,13 +1244,33 @@ describe("A model priced by prompt length is metered at its tier (#2285)", () =>
     await request(core, 1_000, text(90_000));
 
     expect([counted(1), counted(2), counted(3)]).toEqual([68_965, 68_966, 90_000]);
-    // Anthropic may count 1.45 times the estimate: 99,999 and 100,001 tokens. All of the prompt
+    // Its tier is picked at 1.45 times the estimate: 99,999 and 100,001 tokens. All of the prompt
     // written to the cache ($0.125 or $0.625), and 1,000 tokens out ($0.50 or $2.50).
     expect(rows(dataDir).map((row) => row.reserved)).toEqual([
       expect.any(Number),
       expect.closeTo(0.009120625, 12),
       expect.closeTo(0.04560375, 12),
       expect.closeTo(0.05875, 12),
+    ]);
+  });
+
+  // protects=a provider not measured gets the wider margin, so its reservation's tier is never too low; fails_when=the default ratio is narrower than 1.5; no_claim=how many tokens OpenRouter counts.
+  test("on OpenRouter, a prompt estimated at 66,666 tokens is reserved at the base prices, and one of 66,667 at five times them", async () => {
+    const { core, dataDir, counted, text } = await sizedCore(undefined, {
+      kind: "openrouter",
+      modelId: "anthropic/claude-haiku-5.5",
+    });
+
+    await request(core, 1_000, text(66_666));
+    await request(core, 1_000, text(66_667));
+
+    expect([counted(1), counted(2)]).toEqual([66_666, 66_667]);
+    // Its tier is picked at 1.5 times the estimate: 99,999 and 100,000.5 tokens. The prompt at
+    // $0.10 or $0.50, with no cache writes counted, and 1,000 tokens out at $0.50 or $2.50.
+    expect(rows(dataDir).map((row) => row.reserved)).toEqual([
+      expect.any(Number),
+      expect.closeTo(0.0071666, 12),
+      expect.closeTo(0.0358335, 12),
     ]);
   });
 
