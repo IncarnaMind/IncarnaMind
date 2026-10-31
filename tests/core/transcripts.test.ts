@@ -354,6 +354,44 @@ describe("Who said each line (#941)", { timeout: 60_000 }, () => {
     );
   });
 
+  // protects=in a call the microphone's lines are the User's from the first, though the User spoke before the others made a sound: once the computer's sound is heard, the earlier lines become Me, live and in the saved file; with the computer's sound off they stay Speaker ? (#2305); fails_when=a line said before the computer's sound was heard keeps Speaker ?, or a room's line reads Me; no_claim=a macOS that never allows the computer's sound, which the tests below cover.
+  test("the User speaks before the others make a sound: the microphone's lines read Me from the first line, and after Stop", async () => {
+    const said = async (systemAudio: boolean) => {
+      const { core, record } = await transcribingCore(await createTempDataFolder());
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id, systemAudio });
+      record(5 * SECOND, ["microphone"]);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+      const before = (await linesOf(core, meeting.id)).map((line) => line.speaker);
+      record(5 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= (systemAudio ? 5 : 4));
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const lines = readVtt(readFileSync(saved.savedPath as string, "utf8")).cues;
+      core.close();
+      return { before, lines };
+    };
+
+    const call = await said(true);
+    expect(call.before).toEqual(["Speaker ?", "Speaker ?"]);
+    expect(call.lines[0]).toMatchObject({ speaker: "Me", text: FAKE_LINES[0] });
+    expect(call.lines.filter((line) => line.speaker === "Me").map((line) => line.text)).toEqual(
+      FAKE_LINES.slice(0, 5),
+    );
+    expect(call.lines.filter((line) => line.speaker === "Them").length).toBeGreaterThan(0);
+    expect(call.lines.some((line) => line.speaker === "Speaker ?")).toBe(false);
+
+    const room = await said(false);
+    expect(room.lines.map((line) => line.text)).toEqual(FAKE_LINES.slice(0, 5));
+    expect(room.lines.map((line) => line.speaker)).toEqual([
+      "Speaker ?",
+      "Speaker ?",
+      "Speaker ?",
+      "Speaker ?",
+      "Speaker ?",
+    ]);
+  });
+
   test("a meeting with the microphone only reads Speaker ? and never Them", async () => {
     const { core, record } = await transcribingCore(await createTempDataFolder());
     const meeting = await core.createMeeting();
