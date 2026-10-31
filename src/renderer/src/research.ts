@@ -168,6 +168,11 @@ async function plan(
       });
     }
   } catch (error) {
+    // Cancelled and asked again meanwhile: the new card is planning its own steps (#2302).
+    if (useResearch.getState().plans[mindId]?.askedAt !== card.askedAt) {
+      console.error("An earlier research plan failed.", error);
+      return;
+    }
     updatePlan(mindId, { planning: false, steps: card.steps.length > 0 ? card.steps : [""] });
     report(error);
   }
