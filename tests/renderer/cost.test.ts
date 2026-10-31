@@ -69,7 +69,9 @@ describe("Cost in words", () => {
   test("a stopped run says why, with when to try again when the provider said", () => {
     const now = new Date(2026, 9, 12, 9, 0);
     const later = new Date(2026, 9, 12, 14, 30).toISOString();
-    expect(runStopText({ reason: "cost-cap" }, t("en"), "en", now)).toBe("Monthly cap reached");
+    expect(runStopText({ reason: "cost-cap" }, t("en"), "en", now)).toBe(
+      "Could pass your monthly cap",
+    );
     expect(runStopText({ reason: "plan-limit", resetsAt: null }, t("en"), "en", now)).toBe(
       "Plan limit reached",
     );
@@ -84,7 +86,7 @@ describe("Cost in words", () => {
     expect(parts[1]).toMatch(/^Try again after (14:30|2:30 pm)$/);
     expect(parts).toHaveLength(2);
     expect(runStopParts({ reason: "cost-cap" }, t("en"), "en", now)).toEqual([
-      "Monthly cap reached",
+      "Could pass your monthly cap",
     ]);
     const tomorrow = new Date(2026, 9, 13, 14, 30).toISOString();
     expect(runStopText({ reason: "plan-limit", resetsAt: tomorrow }, t("en"), "en", now)).toMatch(

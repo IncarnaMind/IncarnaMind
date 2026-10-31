@@ -3079,7 +3079,7 @@ export const zhCN = {
   "answer.error.retry": "重试",
   "answer.error.addCredit": "充值",
   "answer.error.useAnotherKey": "换一个密钥",
-  "answer.error.cost-cap": "已达到每月花费上限",
+  "answer.error.cost-cap": "可能超出你设置的每月上限",
   "answer.error.changeCap": "更改上限",
   "answer.error.plan-limit.ollama": "Ollama Cloud 的用量已用完",
   "answer.error.planModel": "你的套餐里 {model} 的额度已用完，{time} 恢复。",
@@ -3088,7 +3088,7 @@ export const zhCN = {
   "answer.error.planModels.forNow": "你的套餐额度暂时已全部用完。",
   "answer.error.answerWith": "改用 {model} 回答",
 
-  "run.stopped.cost-cap": "已达到每月花费上限",
+  "run.stopped.cost-cap": "可能超出你设置的每月上限",
   "run.stopped.plan-limit": "已达到订阅用量上限",
   "run.stopped.cancelled": "已停止",
   "run.stopped.tryAfter": "{time} 后可重试",

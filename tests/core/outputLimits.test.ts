@@ -213,31 +213,50 @@ describe("Every model call's output limit", () => {
 
   // protects=no model call in the core is left to its provider's default output (128,000 tokens on Claude), and none sets a number of its own, written in place, through a variable or in options built elsewhere; fails_when=a call to the AI SDK sets no maxOutputTokens, one not read from the table, or passes its options in a way this can't read (#2275).
   test("every call to the model layer in the core sets one, read from the table", () => {
+    const CALLS = "generateText|streamText|generateObject|streamObject";
     const fromTable = /^(?:Math\.min\(\s*)?(?:outputTokens\(|outputOf\(|request\.outputTokens\.)/;
     /** Whether `value`, or every value given to the variable it names in `text`, reads the table. */
     const readsTable = (value: string, text: string): boolean => {
       if (fromTable.test(value)) return true;
       const name = /^[\w.]+$/.test(value) ? value.split(".").at(-1) : undefined;
       if (!name) return false;
-      const given = [...text.matchAll(new RegExp(`(?<![\\w.])${name}\\s*=(?!=)\\s*([^;]+)`, "g"))];
-      return given.length > 0 && given.every((each) => fromTable.test((each[1] ?? "").trim()));
+      const given = [
+        ...text.matchAll(new RegExp(`(?<![\\w.])${name}\\s*([-+*/%]?)=(?!=)\\s*([^;]+)`, "g")),
+      ];
+      return (
+        given.length > 0 &&
+        given.every((each) => each[1] === "" && fromTable.test((each[2] ?? "").trim()))
+      );
     };
     const found: string[] = [];
     const missing: string[] = [];
     for (const file of sources(join(ROOT, "src/core"))) {
-      for (const match of file.text.matchAll(
-        /\b(?:generateText|streamText|generateObject|streamObject)\((\{)?/g,
+      const code = file.text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      const lineOf = (index: number) =>
+        `${file.path}:${file.text.slice(0, file.text.indexOf(code.slice(index, index + 40))).split("\n").length}`;
+      // A call is only seen by name: imported as it is, never renamed, passed on or exported again.
+      for (const match of code.matchAll(new RegExp(`\\b(?:${CALLS})\\b`, "g"))) {
+        const after = code.slice(match.index + match[0].length);
+        const imported = /^import\s*(?:type\s*)?\{[^}]*$/.test(
+          code.slice(code.lastIndexOf("import", match.index), match.index),
+        );
+        if (imported ? /^\s+as\b/.test(after) : !/^\s*(?:<[^>(]*>)?\(/.test(after)) {
+          missing.push(`${lineOf(match.index)} (not called by its own name)`);
+        }
+      }
+      for (const match of code.matchAll(
+        new RegExp(`\\b(?:${CALLS})\\s*(?:<[^>(]*>)?\\((\\{)?`, "g"),
       )) {
-        const at = `${file.path}:${file.text.slice(0, match.index).split("\n").length}`;
+        const at = lineOf(match.index);
         found.push(at);
         if (!match[1]) {
           missing.push(`${at} (options not written in place)`);
           continue;
         }
         const limit = /\bmaxOutputTokens\b(?:\s*:\s*([^,\n]+))?/.exec(
-          literalAt(file.text, match.index + match[0].length - 1),
+          literalAt(code, match.index + match[0].length - 1),
         );
-        if (!limit || !readsTable((limit[1] ?? "maxOutputTokens").trim(), file.text)) {
+        if (!limit || !readsTable((limit[1] ?? "maxOutputTokens").trim(), code)) {
           missing.push(at);
         }
       }

@@ -554,7 +554,7 @@ test("empty states from the + menu, and the monthly cap: every cell left says it
   );
   await expect(table.getByTestId("comparison-fill")).toHaveText("补全 6 个单元格");
   // The table says what stopped it, once, with the one thing that helps.
-  await expect(table.getByTestId("comparison-stopped")).toContainText("已达到每月花费上限");
+  await expect(table.getByTestId("comparison-stopped")).toContainText("可能超出你设置的每月上限");
   await expect(table.getByTestId("comparison-stopped")).toContainText("更改上限");
   await screenshot(window, "compare-cost-cap-zh-900");
 });

@@ -39,6 +39,11 @@ export const OUTPUT_LIMITS = {
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;
 
+/** The most any call may write: no request needs more room for its reply. */
+export const LONGEST_OUTPUT = Math.max(
+  ...Object.values(OUTPUT_LIMITS).map((limit: { most: number }) => limit.most),
+);
+
 /** `count`: the items a call of a kind with `each` asks about. */
 export function outputTokens(kind: ModelCallKind, count = 1): number {
   const limit: { most: number; each?: number } = OUTPUT_LIMITS[kind];
