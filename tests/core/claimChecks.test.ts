@@ -1051,7 +1051,7 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
 
   test.each([
     ["Net debt fell sharply over the year.", "Net debt fell to 1.1x over the year."],
-    ["净负债在这一年里大幅下降。", "净负债在这一年里降至1.1倍。"],
+    ["净负债在本年度大幅下降。", "净负债在本年度降至1.1倍。"],
   ])(
     "a sentence that states no figure isn't offered calculate, one that does is (#1634): %s",
     async (none, one) => {

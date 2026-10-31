@@ -1340,6 +1340,40 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
     ]);
   });
 
+  // protects=only whole lines count as shared, so a Passage whose first line merely ends the one before it is shown whole, in English and Chinese; fails_when=that line is left out and the Passage marked as going on from the one before; no_claim=Passages of different Documents, which never share lines.
+  test.each([
+    [
+      "The harbour logged 412 calls in 2025, up from 398.",
+      "up from 398.\nThe dredging finished in March.",
+    ],
+    ["港口2025年停靠412艘次，高于398艘次。", "高于398艘次。\n疏浚工程于三月完工。"],
+  ])(
+    "a line that only ends with the next Passage's first line is not shared: %s",
+    async (...texts) => {
+      const found = texts.map(
+        (text, position): WindowedPassage => ({
+          passageId: `r${position}`,
+          documentId: "port",
+          documentName: "Port report",
+          contentHash: "v1",
+          pageFrom: 1,
+          pageTo: 1,
+          position,
+          text,
+          seq: position,
+          documentKind: "pdf",
+          windowFrom: 0,
+          windowTo: position,
+        }),
+      );
+      const { session } = searching(found);
+      const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+
+      expect(shown.map((passage) => passage.continues)).toEqual([null, null]);
+      expect(shown.map((passage) => passage.text)).toEqual(texts);
+    },
+  );
+
   test("an Answer's Passages are shown whole", async () => {
     const found = windowed([0, 1, 2]);
     const { session } = searching(found, false);

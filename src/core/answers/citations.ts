@@ -1079,11 +1079,15 @@ function formatPassages(passages: readonly ShownPassage[]): string {
     .join("\n\n");
 }
 
-/** How many of `text`'s first lines `before` ends with: what a Passage repeats of the one before it. */
+/**
+ * How many of `text`'s first lines are `before`'s last whole lines: what a Passage repeats of the
+ * one before it. Passages share whole lines, so a line that only ends with another isn't shared.
+ */
 function repeatedLines(before: string, text: string): number {
   const lines = text.split("\n");
   for (let count = lines.length - 1; count > 0; count--) {
-    if (before.endsWith(lines.slice(0, count).join("\n"))) return count;
+    const shared = lines.slice(0, count).join("\n");
+    if (before === shared || before.endsWith(`\n${shared}`)) return count;
   }
   return 0;
 }
