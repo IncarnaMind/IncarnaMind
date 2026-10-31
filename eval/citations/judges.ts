@@ -163,6 +163,7 @@ export function modelJudge(settings: ChatSettings): Judge {
           promptTokens: promptTokensOf(prompt),
           outputTokens: JUDGE_OUTPUT_TOKENS,
           cacheWrites: settings.kind === "anthropic",
+          kind: settings.kind,
         },
         price,
         new Date(),

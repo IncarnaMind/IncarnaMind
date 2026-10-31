@@ -166,6 +166,7 @@ export function reservationUsd(model: ModelRef, price: Price | null, check: bool
         promptTokens: per.inputTokens * MOST_FACTOR,
         outputTokens: per.outputTokens * MOST_FACTOR,
         cacheWrites: model.kind === "anthropic",
+        kind: model.kind,
       },
       price,
       new Date(),
