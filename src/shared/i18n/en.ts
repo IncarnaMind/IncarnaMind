@@ -4580,6 +4580,19 @@ export const en = {
   "unsaved.saveCopy.title": "Save a copy of the note",
   "unsaved.lost": "{count} changes made before IncarnaMind closed couldn’t be saved",
   "unsaved.lost.one": "1 change made before IncarnaMind closed couldn’t be saved",
+  "unexpectedEnd.app":
+    "IncarnaMind closed unexpectedly. Your last changes may not have been saved.",
+  "unexpectedEnd.window":
+    "This window stopped unexpectedly and reopened. Your last changes may not have been saved.",
+  "unexpectedEnd.window.short": "This window stopped unexpectedly and reopened.",
+  "unexpectedEnd.session":
+    "When Windows shut down or signed out, {count} changes hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.one":
+    "When Windows shut down or signed out, 1 change hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.note":
+    "When Windows shut down or signed out, {count} changes to “{note}” hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.note.one":
+    "When Windows shut down or signed out, 1 change to “{note}” hadn’t been saved yet. Everything else was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
   "quit.unsaved.quit": "Quit anyway",

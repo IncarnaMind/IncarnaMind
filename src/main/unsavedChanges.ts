@@ -54,12 +54,14 @@ function copyFailedText(t: (key: MessageKey, params?: MessageParams) => string, 
 }
 
 /**
- * Guards quitting. Returns `settleQuit`, for what quits by itself (an update's restart): it asks
- * the same question, and says whether quitting is certain, when the next quit goes through unasked.
+ * Guards quitting; `quit` quits again once the User has answered. Returns `settleQuit`, for what
+ * quits by itself (an update's restart): it asks the same question, and says whether quitting is
+ * certain, when the next quit goes through unasked.
  */
 export function guardQuit(
   core: Core,
   focusedWindow: () => BrowserWindow | null,
+  quit: () => void,
 ): () => Promise<boolean> {
   let unsaved: UnsavedChanges | null = null;
   core.on("minds.unsaved", (state) => {
@@ -115,7 +117,7 @@ export function guardQuit(
   const decide = async () => {
     if (!(await settle())) return;
     leaving = true;
-    app.quit();
+    quit();
   };
   app.on("before-quit", (event) => {
     if (leaving || !unsaved) return;

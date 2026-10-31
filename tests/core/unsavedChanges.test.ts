@@ -1,11 +1,12 @@
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type Core, MIND_CONTENT_FIELD, type UnsavedChanges } from "../../src/core";
+import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { unsavedReason } from "../../src/core/unsavedChanges";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { failMindDeleteCommits, refuseWrites } from "../helpers/failingStorage";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { note } from "../helpers/minds";
@@ -23,6 +24,14 @@ afterEach(() => {
 });
 
 const failWrites = (dataDir: string) => refuseWrites(dataDir);
+
+/** The core's paths, with a temporary folder of its own, where it keeps its count of changes waiting. */
+const tempPaths = async (dataDir: string) => ({
+  dataDir,
+  home: join(dataDir, "home"),
+  documents: join(dataDir, "Documents"),
+  tempDir: await mkdtemp(join(tmpdir(), "incarnamind-temp-")),
+});
 
 /** A copy of a new Mind holding "BASE", stored, that sends each change as the editor does. */
 async function typingIn(core: Core) {
@@ -240,7 +249,7 @@ describe("Changes storage refuses (#1119)", () => {
   });
 
   // protects=a run that ends without quitting while changes wait (a crash) leaves their count for the next start, said once; a run that quits leaves none, as the quit sheet told the User; fails_when=the next start says nothing of a crash's loss, says it twice, or speaks after a quit; no_claim=what the count file survives.
-  test("a crash leaves the count of changes lost for the next start, once; quitting leaves none", async () => {
+  test("a crash leaves the count of changes lost for the next start, once; quitting leaves 0", async () => {
     const dataDir = await createTempDataFolder();
     const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-temp-"));
     const paths = {
@@ -261,7 +270,89 @@ describe("Changes storage refuses (#1119)", () => {
     expect(await next.takeLostChanges()).toBeNull();
     crashed.close();
     restore();
-    expect(await startCore(dataDir, { paths }).takeLostChanges()).toBeNull();
+    expect(await startCore(dataDir, { paths }).takeLostChanges()).toBe(0);
+  });
+
+  // protects=the next start says nothing was lost only when the last run wrote that down (#2309); fails_when=a stored run leaves no count, so the next start can't tell; no_claim=what a crash says.
+  test("a run that stored everything leaves 0", async () => {
+    const dataDir = await createTempDataFolder();
+    const paths = await tempPaths(dataDir);
+    const copy = await typingIn(startCore(dataDir, { paths }));
+    expect(await copy.type(" KEPT")).toBe("stored");
+    expect(await startCore(dataDir, { paths }).takeLostChanges()).toBe(0);
+  });
+
+  // protects=a count that couldn't be written is never read back as the old 0 (#2309); fails_when=a refused write leaves the last {"count":0} readable, so a crash's loss reads as nothing; no_claim=a temporary folder that refuses removing too.
+  test.skipIf(process.platform === "win32")(
+    "one whose count couldn't be written leaves no answer",
+    async () => {
+      const dataDir = await createTempDataFolder();
+      const paths = await tempPaths(dataDir);
+      const copy = await typingIn(startCore(dataDir, { paths }));
+      const [countFile] = await readdir(paths.tempDir);
+      if (!countFile) throw new Error("The count was never written.");
+      expect(await readFile(join(paths.tempDir, countFile), "utf8")).toBe('{"count":0}');
+
+      // Read-only, as a disk that refuses writes leaves it: the old 0 could still be read.
+      await chmod(join(paths.tempDir, countFile), 0o400);
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const restore = failWrites(dataDir);
+      await copy.type(" LOST");
+      restore();
+      expect(logged).toHaveBeenCalledWith(
+        "unsaved: the count of changes waiting couldn't be written",
+        expect.anything(),
+      );
+      expect(await startCore(dataDir, { paths }).takeLostChanges()).toBeNull();
+    },
+  );
+
+  // protects=as Windows ends the session, what waits is stored at once when storage takes it, and what it still refuses is counted for the host to record (#2309); fails_when=the session's end leaves stored changes unsaid as lost or loses count of refused ones; no_claim=Windows's own timing.
+  test("the session's end stores what waits at once, or says how many it still couldn't", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const copy = await typingIn(core);
+    const restore = failWrites(dataDir);
+    await copy.type(" ONE");
+    await copy.type(" TWO");
+    expect(core.sessionEnding()).toEqual({
+      count: 2,
+      minds: [{ mindId: copy.mindId, count: 2 }],
+    });
+    restore();
+    expect(core.sessionEnding()).toEqual({ count: 0, minds: [] });
+    expect(await core.unsavedChanges()).toBeNull();
+    expect(await afterRestart(dataDir, copy.mindId)).toBe("<paragraph>BASE ONE TWO</paragraph>");
+  });
+
+  // protects=a Meeting's save that storage refuses at the session's end doesn't stop the Notes being stored or the end being recorded (#2309); fails_when=the refusal escapes, so nothing after it runs and the host records no end; no_claim=the Meeting's own recovery at the next start.
+  test("the session's end stores the Notes and answers though a Meeting's save is refused, and logs that", async () => {
+    const dataDir = await createTempDataFolder();
+    const clock = manualClock();
+    const capture = createFakeCapture({ now: () => clock.now().getTime() });
+    const errors: string[] = [];
+    const core = startCore(dataDir, {
+      audioCapture: capture,
+      now: clock.now,
+      log: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (event, fields) => errors.push(`${event} ${JSON.stringify(fields)}`),
+      },
+    });
+    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id, systemAudio: false });
+    const copy = await typingIn(core);
+    const restoreNotes = failWrites(dataDir);
+    await copy.type(" WAITS");
+    restoreNotes();
+    const restoreMeetings = refuseWrites(dataDir, { tables: ["meetings"], updates: true });
+
+    expect(core.sessionEnding()).toEqual({ count: 0, minds: [] });
+    restoreMeetings();
+    expect(errors).toContain('meeting.sessionEndSaveFailed {"error":"Error","reason":"full"}');
+    expect(await afterRestart(dataDir, copy.mindId)).toBe("<paragraph>BASE WAITS</paragraph>");
   });
 
   // protects=quitting while storage still fails quits cleanly, keeps what was stored before, and says in the log which Mind lost how many changes; fails_when=quitting throws, the stored text is damaged, or the loss goes unlogged; no_claim=that the refused change survives, which nothing can store.
@@ -339,6 +430,7 @@ describe("Changes waiting when their Mind is deleted (#1202)", () => {
     await core.deleteMind(copy.mindId);
 
     expect(await core.unsavedChanges()).toMatchObject({ count: 2, mindIds: [] });
+    expect(core.sessionEnding()).toEqual({ count: 2, minds: [] });
     restore();
   });
 

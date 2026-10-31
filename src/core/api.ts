@@ -10402,7 +10402,8 @@ export interface CoreApi {
   saveChangesAgain(): Promise<UnsavedChanges | null>;
   /**
    * How many changes the last run couldn't store before it closed without quitting (a crash, a
-   * force-quit), once: later calls give null. Null too when it doesn't know.
+   * force-quit), once: later calls give null. 0 when it lost none, or quit; null when it doesn't
+   * know, as when the count itself couldn't be written.
    */
   takeLostChanges(): Promise<number | null>;
   /**
@@ -12135,6 +12136,13 @@ export interface UnsavedChanges {
   reason: SaveFailureReason;
   /** The database's own words, for Details. */
   detail: string;
+}
+
+/** The changes that still wait as the system ends the session (#2309): how many, and in which Minds. */
+export interface UnsavedAtEnd {
+  count: number;
+  /** Each Mind's share of `count`, deleted Minds left out. */
+  minds: { mindId: string; count: number }[];
 }
 
 export interface CoreEvents {

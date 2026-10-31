@@ -133,6 +133,10 @@ interface SetUpOptions {
   scriptRuntimes?: CoreAdapters["scriptRuntimes"];
 }
 
+/** What scripts left in the temporary folder: all of it but the core's own count of changes waiting (#2309). */
+const scriptsLeftIn = async (folder: string) =>
+  (await readdir(folder)).filter((name) => !/^incarnamind-unsaved-[0-9a-f]{16}\.json$/.test(name));
+
 /**
  * A core with a local chat model (no consent asked), the toolbox Skill, a
  * folder for the scripts' working folders, and a Mind with a client.
@@ -297,7 +301,7 @@ describe("Running a Skill's scripts", { timeout: 30_000 }, () => {
     expect(report.cwd.startsWith(await realpath(tempDir))).toBe(true);
     expect(report.before).toEqual([]);
     expect(existsSync(report.cwd)).toBe(false);
-    expect(await readdir(tempDir)).toEqual([]);
+    expect(await scriptsLeftIn(tempDir)).toEqual([]);
 
     const [call] = scriptCalls(client, answerId);
     expect(call).toMatchObject({
@@ -471,7 +475,7 @@ describe("Running a Skill's scripts", { timeout: 30_000 }, () => {
     expect(scriptCalls(client, answerId)).toMatchObject([
       { status: "failed", script: { exitCode: null, timedOut: true, stdout: "started\n" } },
     ]);
-    await vi.waitFor(async () => expect(await readdir(tempDir)).toEqual([]));
+    await vi.waitFor(async () => expect(await scriptsLeftIn(tempDir)).toEqual([]));
   });
 
   test("Stop stops a running script at once, with every process it started", async () => {
@@ -490,7 +494,7 @@ describe("Running a Skill's scripts", { timeout: 30_000 }, () => {
     expect((await ended).payload).toMatchObject({ status: "stopped" });
     await expectStopped(pids);
     expect(scriptCalls(client, answerId)).toMatchObject([{ status: "failed" }]);
-    await vi.waitFor(async () => expect(await readdir(tempDir)).toEqual([]));
+    await vi.waitFor(async () => expect(await scriptsLeftIn(tempDir)).toEqual([]));
   });
 
   test.skipIf(process.platform === "win32")(
@@ -595,7 +599,7 @@ describe("Running a Skill's scripts", { timeout: 30_000 }, () => {
     expect(scriptCalls(client, answerId)).toMatchObject([
       { status: "failed", script: { exitCode: null, error: message } },
     ]);
-    expect(await readdir(tempDir)).toEqual([]);
+    expect(await scriptsLeftIn(tempDir)).toEqual([]);
   });
 
   test("a shell script on Windows, or a TypeScript one, gives a clear error without asking", async () => {

@@ -326,6 +326,59 @@ test("a dead owner leaves no stale gate, even while its PID and start time remai
   expect(current?.identity).not.toEqual(old?.identity);
 });
 
+test("the next start names a run that ended while in use, or that the system ended with changes unstored, and not one that quit or never got ready (#2309)", async () => {
+  const folder = await tempFolder();
+  const killedWhenReady = start(folder);
+  const killed = await killedWhenReady.message("owner");
+  await killedWhenReady.message("ready");
+  const gone = once(killedWhenReady.child, "exit");
+  killedWhenReady.child.kill("SIGKILL");
+  await gone;
+  const afterKill = start(folder, "take");
+  expect(await afterKill.done()).toBe(0);
+  expect(await afterKill.message("owner")).toMatchObject({
+    lastRunEnd: { ...(killed?.identity as object), kind: "app" },
+  });
+
+  const ended = start(folder);
+  const endedOwner = await ended.message("owner");
+  await ended.message("ready");
+  ended.child.stdin.write("session-ended\n");
+  await ended.message("session-ended");
+  const endedGone = once(ended.child, "exit");
+  ended.child.kill("SIGKILL");
+  await endedGone;
+  const afterSession = start(folder, "take");
+  expect(await afterSession.done()).toBe(0);
+  expect(await afterSession.message("owner")).toMatchObject({
+    lastRunEnd: {
+      ...(endedOwner?.identity as object),
+      kind: "session",
+      unsaved: 2,
+      minds: [{ mindId: "mind-1", count: 2 }],
+    },
+  });
+
+  const quitter = start(folder);
+  await quitter.message("ready");
+  quitter.child.stdin.write("quitting\n");
+  await quitter.message("quitting");
+  quitter.child.stdin.write("exit\n");
+  expect(await quitter.done()).toBe(0);
+  const afterQuit = start(folder, "take");
+  expect(await afterQuit.done()).toBe(0);
+  expect(await afterQuit.message("owner")).toMatchObject({ lastRunEnd: null });
+
+  const starting = start(folder, "starting");
+  await starting.message("owner");
+  const stopped = once(starting.child, "exit");
+  starting.child.kill("SIGKILL");
+  await stopped;
+  const afterStarting = start(folder, "take");
+  expect(await afterStarting.done()).toBe(0);
+  expect(await afterStarting.message("owner")).toMatchObject({ lastRunEnd: null });
+});
+
 test.each([true, false])(
   "a committed update deflects a start before the native install event (reopens %s)",
   async (reopens) => {

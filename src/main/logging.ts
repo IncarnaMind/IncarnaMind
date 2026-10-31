@@ -1,13 +1,17 @@
 /**
- * Starts IncarnaMind's log (./log) for the desktop app: the app's start and
- * quit, errors written to the console (which is where the core and the main
- * process report problems), errors nothing caught in the main process, and
- * windows and processes that crashed. The core logs through the `log`
- * adapter (./platform); the window's uncaught errors come over the files
+ * Starts IncarnaMind's log (./log) for the desktop app: the app's start (how it
+ * ends is ./appEnd's), errors written to the console (which is where the core
+ * and the main process report problems), errors nothing caught in the main
+ * process, and windows and processes that crashed. The core logs through the
+ * `log` adapter (./platform); the window's uncaught errors come over the files
  * bridge (./files).
  */
 import { arch, release } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { app } from "electron";
+import { ANALYSIS_ORIGIN } from "../shared/analysisWindow";
+import { pageName } from "./appEnd";
 import { createScrubber } from "./crashScrubber";
 import { createFileLogger, createLogFile, type FileLogger, logConsole, logsFolder } from "./log";
 
@@ -23,6 +27,12 @@ export function startLogging(dataDir: string): FileLogger {
     appPath: app.getAppPath(),
   });
   const printError = console.error.bind(console);
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const ownPages = [
+    pathToFileURL(join(__dirname, "../renderer/")).href,
+    `${ANALYSIS_ORIGIN}/`,
+    ...(rendererUrl ? [`${new URL(rendererUrl).origin}/`] : []),
+  ];
   logConsole(logger);
 
   // A monitor, so Electron still handles the error as it would have.
@@ -41,8 +51,12 @@ export function startLogging(dataDir: string): FileLogger {
     logger.exception("main.unhandledRejection", reason);
     printError("Unhandled promise rejection:", reason);
   });
-  app.on("render-process-gone", (_event, _contents, details) => {
-    const fields = { reason: details.reason, exitCode: details.exitCode };
+  app.on("render-process-gone", (_event, contents, details) => {
+    const fields = {
+      page: pageName(contents.getURL(), ownPages),
+      reason: details.reason,
+      exitCode: details.exitCode,
+    };
     if (details.reason === "clean-exit") logger.info("window.exited", fields);
     else logger.error("window.crashed", fields);
   });
@@ -56,7 +70,6 @@ export function startLogging(dataDir: string): FileLogger {
     if (details.reason === "clean-exit") logger.info("process.exited", fields);
     else logger.error("process.crashed", fields);
   });
-  app.on("will-quit", () => logger.info("app.quit"));
 
   logger.info("app.start", {
     version: app.getVersion(),
@@ -65,6 +78,7 @@ export function startLogging(dataDir: string): FileLogger {
     osVersion: release(),
     arch: arch(),
     packaged: app.isPackaged,
+    pid: process.pid,
   });
   return logger;
 }

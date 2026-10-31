@@ -9,11 +9,16 @@ const databaseOf = (dataDir: string) => openDatabase(join(dataDir, "incarnamind.
 /**
  * Makes a data folder's database refuse writes as a full disk does (#1119), through
  * triggers on synthetic data, until the returned function is called: of Mind content only
- * (new rows, and with `updates` marking them deleted too), or, `every`, of every table.
+ * (new rows, and with `updates` marking them deleted too), of `tables` instead, or, `every`, of
+ * every table.
  */
 export function refuseWrites(
   dataDir: string,
-  { every = false, updates = false }: { every?: boolean; updates?: boolean } = {},
+  {
+    every = false,
+    updates = false,
+    tables: only = ["mind_updates"],
+  }: { every?: boolean; updates?: boolean; tables?: string[] } = {},
 ) {
   const db = databaseOf(dataDir);
   const tables = every
@@ -22,7 +27,7 @@ export function refuseWrites(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL%'",
         )
         .map(({ name }) => name)
-    : ["mind_updates"];
+    : only;
   const actions = every
     ? ["INSERT", "UPDATE", "DELETE"]
     : updates

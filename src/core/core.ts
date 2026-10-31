@@ -143,6 +143,7 @@ import {
   type TurnPlace,
   type UnlockDocumentInput,
   type UnreadFile,
+  type UnsavedAtEnd,
   type Unsubscribe,
 } from "./api";
 import { createApprovals } from "./approvals";
@@ -333,7 +334,7 @@ import {
   TRANSCRIPTION_SPEED,
 } from "./transcription/model";
 import { createSpeakerModel } from "./transcription/speakerModel";
-import { createUnsavedChanges } from "./unsavedChanges";
+import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
@@ -409,6 +410,12 @@ export interface Core extends CoreApi, CoreEventSource {
   reconcileDocuments(): Promise<void>;
   /** The computer is about to sleep: a Meeting recording saves what it has and stops capturing. */
   systemSleeping(): void;
+  /**
+   * The system ends the session and the process with it, with no quit (Windows): the changes that
+   * wait are stored at once, a Meeting recording saves what it has, as before a sleep, and it says
+   * how many changes still wait and where, for the host to record. Never throws.
+   */
+  sessionEnding(): UnsavedAtEnd;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /** Every event the core emits, for the host to forward to the UI. */
@@ -6039,6 +6046,19 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),
     systemSleeping: () => meetings.sleeping(),
+    sessionEnding: () => {
+      content.storeWaiting();
+      // A disk that refuses the Meeting's save mustn't keep the host from recording the end.
+      try {
+        meetings.sleeping();
+      } catch (error) {
+        (adapters.log ?? silentLogger).error("meeting.sessionEndSaveFailed", {
+          error: error instanceof Error ? error.name : "unknown",
+          reason: unsavedReason(error),
+        });
+      }
+      return unsaved.atEnd();
+    },
     systemAwake: () => meetings.awake(),
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),

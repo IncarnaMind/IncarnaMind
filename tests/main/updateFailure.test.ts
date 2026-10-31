@@ -91,7 +91,7 @@ test("the real quit guard keeps SQLite ownership through the install attempt", a
   try {
     startAutoUpdates(
       core,
-      guardQuit(core, () => null),
+      guardQuit(core, () => null, vi.fn()),
       failed,
       vi.fn(),
       vi.fn(),
@@ -154,7 +154,7 @@ test.each(["throws", "emits", "emits then throws"] as const)(
     try {
       startAutoUpdates(
         core,
-        guardQuit(core, () => null),
+        guardQuit(core, () => null, vi.fn()),
         () => {
           restartAfterFailedUpdate(
             app,
@@ -200,7 +200,7 @@ test("Keep open with real refused writes retains ownership and never starts the 
   const mind = await core.createMind({ title: "Still editing" });
   const { guardQuit } = await import("../../src/main/unsavedChanges");
   const { startAutoUpdates, canReopenAfterUpdate } = await import("../../src/main/updater");
-  const settle = guardQuit(core, () => null);
+  const settle = guardQuit(core, () => null, vi.fn());
   const restore = refuseWrites(dataDir);
   await core.addToNote({ mindId: mind.id, blocks: [note("WAITING")], origin: null, model: null });
   fixture.showMessageBox.mockResolvedValueOnce({ response: 0 }).mockResolvedValue({ response: 2 });
