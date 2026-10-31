@@ -25,8 +25,10 @@
  * - While Organize files new Documents by itself, the Documents it holds are
  *   its own. One it doesn't hold, such as one this tagger had when Organize
  *   began filing new Documents, is still tagged here.
- * - With no Tags defined the model is skipped and a Document is "no-tags", not
- *   "tagged", so it is checked once a Tag exists (see `tagsDefined`).
+ * - With no Tags defined, a tagger that only chooses from the list (Jev, a
+ *   decision model) is skipped and a Document is "no-tags", not "tagged", so it
+ *   is checked once a Tag exists (see `tagsDefined`). The chat model names Tags
+ *   from what the Document says (./suggest), so it is asked anyway.
  */
 import type { DocumentKind, ProviderError } from "../api";
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "../backgroundQueue";
@@ -47,8 +49,8 @@ import type { Database } from "../storage";
 import {
   type DocumentExcerpt,
   excerptFromPassages,
+  type TagChoice,
   type TagClassifier,
-  type TagDecision,
 } from "./classify";
 import type { TagsStore } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
@@ -98,8 +100,15 @@ export interface TaggerOptions {
    * nothing is sent then.
    */
   prepare(): Promise<TagClassifier>;
+  /**
+   * Whether the tagger in use names Tags of its own (the chat model), with no waiting: then a
+   * Document is tagged even while no Tag exists.
+   */
+  namesTags?(): boolean;
   /** Pushes "documents.tagged" for these Documents. */
   announce(documentIds: readonly string[]): void;
+  /** Tagging made new Tags: the list of Tags is to be read again. */
+  tagsMade?(): void;
   reportError(error: unknown): void;
   /** The background model queue, in which tagging each Document takes one turn. */
   background: BackgroundQueue;
@@ -220,8 +229,9 @@ export function createTagger(options: TaggerOptions) {
     const definitions = tags.list();
     if (setState(id, "tagging")) announce([id]);
 
-    let decisions: TagDecision[] = [];
-    if (definitions.length > 0) {
+    let choice: TagChoice = { decisions: [], newTags: [] };
+    let asked = false;
+    if (definitions.length > 0 || options.namesTags?.() === true) {
       let tagger: TagClassifier;
       try {
         tagger = await options.prepare();
@@ -242,22 +252,23 @@ export function createTagger(options: TaggerOptions) {
         }
         return;
       }
+      asked = definitions.length > 0 || tagger.namesTags === true;
       // A model on this computer serves one request at a time: an Answer goes first.
       if (tagger.local) call.runsLocally();
       if (stale()) return;
       const signal = AbortSignal.any([lifetime.signal, call.signal]);
-      const decide = () =>
-        tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal });
+      const decide = async () =>
+        asked ? tagger.decide({ tags: definitions, excerpt: excerptOf(id, row), signal }) : choice;
       try {
         try {
-          decisions = await decide();
+          choice = await decide();
         } catch (error) {
           if (!isTransient(error)) throw error;
           await options.timers.sleep(
             RETRY_WAIT_MS.least + Math.random() * RETRY_WAIT_MS.jitter,
             signal,
           );
-          decisions = await decide();
+          choice = await decide();
         }
       } catch (error) {
         if (stale()) return;
@@ -290,11 +301,14 @@ export function createTagger(options: TaggerOptions) {
     }
     if (stale()) return;
 
-    const changed = db.transaction(() => {
-      if (rowOf(id)?.status !== "ready") return false; // deleted, or processed again, meanwhile
-      const tagsChanged = tags.applyAutomatic(id, decisions);
-      return setState(id, definitions.length === 0 ? "no-tags" : "tagged") || tagsChanged;
+    const { changed, made } = db.transaction(() => {
+      // Deleted, or processed again, meanwhile.
+      if (rowOf(id)?.status !== "ready") return { changed: false, made: 0 };
+      const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
+      const settled = setState(id, asked ? "tagged" : "no-tags");
+      return { changed: settled || applied.changed, made: applied.made };
     });
+    if (made > 0) options.tagsMade?.();
     if (changed) announce([id]);
   }
 
@@ -386,7 +400,7 @@ export function createTagger(options: TaggerOptions) {
    */
   function resume(only?: "no-tags"): void {
     if (lifetime.signal.aborted) return;
-    const checkable = tags.list().length > 0;
+    const checkable = tags.list().length > 0 || options.namesTags?.() === true;
     if (only && !checkable) return;
     const statuses = only
       ? [only]

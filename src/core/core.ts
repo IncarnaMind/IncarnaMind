@@ -2241,7 +2241,7 @@ export function createCore(adapters: CoreAdapters): Core {
           confidence: null,
           needsReview: false,
         }));
-        if (tags.applyAutomatic(documentId, decided)) announceTagged([documentId]);
+        if (tags.applyAutomatic(documentId, decided).changed) announceTagged([documentId]);
       },
     },
     notes: {
@@ -3133,7 +3133,10 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
     },
+    // A hint only: the tagger prepared decides whether it names Tags.
+    namesTags: () => tagsWith()?.kind === "chat",
     announce: announceTagged,
+    tagsMade: tagsChanged,
     reportError: (error) => console.error(error),
     background,
     rateLimit,
@@ -3146,6 +3149,7 @@ export function createCore(adapters: CoreAdapters): Core {
     db,
     tags,
     tagged: announceTagged,
+    tagsMade: tagsChanged,
     now,
     settings,
     background,
@@ -5252,6 +5256,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const service = tagging.service(classifier);
       return service ? { where: "cloud", service } : { where: "local" };
     },
+    proposeFolders: async (ids) => library.propose(ids, settings.get().language),
     classifyDocuments: async (ids) => {
       library.classify(ids);
       const classifier = organizeModelOf(library.settings());
