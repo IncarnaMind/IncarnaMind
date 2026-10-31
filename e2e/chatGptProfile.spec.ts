@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -50,7 +50,8 @@ async function writeUnreadableProfile() {
 for (const language of ["en", "zh-CN"] as const) {
   test(`a chat-plan sign-in on a profile that can't be read says so and writes nothing, until it finishes (${language})`, async () => {
     // The owner's profile and keychain are never touched: this one is inside a temporary home.
-    expect(profile.startsWith(homedir())).toBe(false);
+    expect(home.startsWith(tmpdir())).toBe(true);
+    expect(profile.startsWith(home)).toBe(true);
     await writeUnreadableProfile();
     const before = await readFile(secretsFile);
     const openai = await createFakeOpenAI();
