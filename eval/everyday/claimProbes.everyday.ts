@@ -30,11 +30,11 @@ const editCall: AnswerToolCall = {
 const probes = [
   { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
   { id: "unmade-note-en", reply: "Your summary is in “Q3 review” now.", unbacked: true },
-  { id: "unmade-new-en", reply: "Here it is in a new Mind, “Library summary”.", unbacked: true },
+  { id: "unmade-new-en", reply: "Here it is in a new Note, “Library summary”.", unbacked: true },
   { id: "unmade-renamed-en", reply: "I've renamed the page to “Q3 summary”.", unbacked: true },
   { id: "unmade-page-zh", reply: "总结已经放在页面里了。", unbacked: true },
   { id: "unmade-paragraph-zh", reply: "好了，第二段现在更清楚了。", unbacked: true },
-  { id: "unmade-new-zh", reply: "已在新的 Mind 中整理好总结。", unbacked: true },
+  { id: "unmade-new-zh", reply: "已在新的笔记中整理好总结。", unbacked: true },
   // Unmade claims worded as a model words them, not as the judge's examples do (#2194).
   { id: "unmade-translated-en", reply: "I've translated it.", unbacked: true },
   { id: "unmade-polished-en", reply: "I've polished the conclusion.", unbacked: true },
