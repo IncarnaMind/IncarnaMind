@@ -14,8 +14,8 @@ const EXAMPLES = resolve(__dirname, "../../resources/examples");
 const CREDIT = EXAMPLE_SETS.credit;
 
 const SETS = [
-  { set: CREDIT.en, language: "en", wording: /example note/ },
-  { set: CREDIT["zh-CN"], language: "zh-CN", wording: /示例笔记/ },
+  { set: CREDIT.en, language: "en", wording: /IncarnaMind’s\s+example\s+note/ },
+  { set: CREDIT["zh-CN"], language: "zh-CN", wording: /IncarnaMind\s+的示例笔记/ },
 ] as const;
 
 describe("the credit example's Documents", () => {

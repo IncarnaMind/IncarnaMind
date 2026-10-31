@@ -94,12 +94,23 @@ table {
   margin: 0;
 }
 
-td {
+td,
+th {
   padding: 5.5px 8px;
   line-height: 20px;
+  text-align: right;
 }
 
-thead td {
+th {
+  font-weight: inherit;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+thead th {
   color: #5B6570;
   font-weight: 600;
   border-bottom: 1px solid #1D232B;
@@ -109,12 +120,9 @@ tbody tr {
   border-bottom: 1px solid #D5DAE0;
 }
 
+tbody tr:last-child th,
 tbody tr:last-child td {
   font-weight: 700;
-}
-
-td:not(:first-child) {
-  text-align: right;
 }
 
 .num {
