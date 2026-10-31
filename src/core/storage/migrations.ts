@@ -2142,9 +2142,14 @@ export const migrations: readonly Migration[] = [
  * Brings the database up to the latest schema: every migration in the list that
  * isn't recorded as applied runs, in version order, in one transaction. A database
  * recording a migration this build doesn't know was written by a newer version of
- * IncarnaMind, and is refused.
+ * IncarnaMind, and is refused. `ran` hears each version as it runs, before the
+ * transaction commits.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(
+  db: Database,
+  list: readonly Migration[] = migrations,
+  ran?: (version: number) => void,
+): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -2171,6 +2176,7 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
         migration.version,
         new Date().toISOString(),
       ]);
+      ran?.(migration.version);
     }
     // Kept for tools that read it: the highest migration applied.
     const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
