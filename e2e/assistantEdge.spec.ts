@@ -138,7 +138,7 @@ test("the header, the thread, the Task tray and the composer share one left edge
 
   for (const dock of DOCKS) {
     await dockAs(window, dock);
-    // In the 320px assistant, docked on the right, the buttons of the ask don't wrap.
+    // In the 320px assistant, docked on the right, the choices keep the card's order inside the tray.
     if (dock === "right") await expectApprovalButtons(window, "English");
     const { panel, ...found } = await edges(window);
     for (const [name, x] of Object.entries(found)) {
