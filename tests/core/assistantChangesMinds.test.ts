@@ -15,7 +15,14 @@ import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, note, readMind, shownWithChanges, writeMind } from "../helpers/minds";
+import {
+  heading,
+  note,
+  readMind,
+  resolveChanges,
+  shownWithChanges,
+  writeMind,
+} from "../helpers/minds";
 import {
   type ModelCall,
   type ScriptedReply,
@@ -696,6 +703,54 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
     },
   );
+
+  // protects=a list item the rewrite takes out is told as gone, not as still there, so the reply says it was deleted (#2180); in Chinese too; fails_when=the result says the removed item stayed, or names another item as gone; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Delete the deposit item, leave the rest",
+      items: [
+        "Rent is 98,000 a month.",
+        "Six parking spaces come with it.",
+        "The deposit is three months' rent.",
+      ],
+    },
+    {
+      asked: "把押金那一条删掉，其他不变。",
+      items: ["月租金为九万八千元。", "附带六个停车位。", "押金为三个月租金。"],
+    },
+  ])("a list item the rewrite takes out is told as gone: $asked", async ({ asked, items }) => {
+    const [kept, also, gone] = items as [string, string, string];
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+      if (passage !== undefined) {
+        return {
+          text: `${passage.replace(`- ${gone}`, `<removed>- ${gone}</removed>`)}\n<why>Done.</why>`,
+        };
+      }
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      {
+        type: "bulletList",
+        content: items.map((item) => ({ type: "listItem", content: [note(item)] })),
+      },
+    ]);
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+
+    await client.settled();
+    const told = lastResult(model);
+    expect(told).toContain(`no longer in the text as they were (taken out or reworded): “${gone}”`);
+    expect(told).not.toContain("they are still in the text");
+    expect(told).not.toContain(`“${kept}”`);
+    expect(told).not.toContain(`“${also}”`);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([kept, also]);
+  });
 
   // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
   test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {

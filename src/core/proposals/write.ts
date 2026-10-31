@@ -486,8 +486,11 @@ function withEmphasis(
 
 /** A text Block's words as the Mind holds them without `request`'s changes, or once they are accepted; null for a Block that isn't there in that view. */
 function viewOf(element: Y.XmlElement, request: string, accepted: boolean): string | null {
-  const whole = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-  if (whole?.request === request && whole.kind === (accepted ? "delete" : "insert")) return null;
+  // A list item taken out whole has its Proposal on the item, not on its paragraph (#2180).
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    const whole = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (whole?.request === request && whole.kind === (accepted ? "delete" : "insert")) return null;
+  }
   let text = "";
   for (const { node } of layout(element)) {
     if (!(node instanceof Y.XmlText)) continue;
