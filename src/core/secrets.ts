@@ -33,9 +33,18 @@ export function createSecrets(
     };
   };
 
-  if (keychain.protection() === "plain-text" && plainTextAccepted()) keychain.allowPlainText();
+  /**
+   * The setting is the User's, not this store's: another store built before they
+   * accepted (a profile shared by several data folders) reads it again here.
+   */
+  const allowAcceptedPlainText = () => {
+    if (keychain.protection() === "plain-text" && plainTextAccepted()) keychain.allowPlainText();
+  };
+
+  allowAcceptedPlainText();
 
   const read = async (name: string): Promise<string | null> => {
+    allowAcceptedPlainText();
     const secret = await keychain.get(name);
     if (secret) remember(secret);
     return secret;
@@ -64,6 +73,7 @@ export function createSecrets(
     async set(name: string, secret: string): Promise<void> {
       const { canSave, protection } = status();
       if (!canSave) throw new SecretStorageError(protection);
+      allowAcceptedPlainText();
       remember(secret);
       await keychain.set(name, secret);
     },

@@ -251,7 +251,7 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
         id: JSON.stringify(["chart", blockId, row, series, reading.chars]),
         locator: { kind: "chart", blockId, row, series },
         reading,
-        calculated: null,
+        calculated: value.figure ?? null,
         sentence: null,
         label,
         context: [chart.title, label, chart.data.series[series] ?? ""].join("\n"),

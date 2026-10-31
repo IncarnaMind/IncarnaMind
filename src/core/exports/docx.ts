@@ -620,6 +620,9 @@ export class DocxWriter {
     let sources = "";
     const cited = this.inline(block.sources, context);
     if (cited) sources += run(labels.chartSources) + cited;
+    if (block.calculated > 0) {
+      sources += run(`${sources ? " " : ""}${labels.chartCalculated(block.calculated)}`);
+    }
     if (block.uncited > 0) {
       sources += run(`${sources ? " " : ""}${labels.chartUncited(block.uncited)}`);
     }
