@@ -58,7 +58,7 @@ npm run eval:everyday
 - `INCARNAMIND_EVAL_EVERYDAY_RUNS` sets how many times each request is asked (3 by default).
 - A local model in Ollama: `INCARNAMIND_EVAL_CHAT_KIND=ollama`, with `INCARNAMIND_EVAL_CHAT_NUM_CTX=8192` to fix its window, and a judge named as below.
 - Another model judges the claims, never the one asked: Claude Sonnet 5.5 on the Anthropic key (Opus 5.5 when Sonnet is asked), or the one `INCARNAMIND_EVAL_JUDGE_KIND`, `_MODEL` and `_KEY` name, which a run on another provider must set. The report says which.
-- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): seventeen replies that claim an unmade change and ten that must not be flagged (a Document's own descriptions, the app's own check marks, the reply's own text), the command probes, and one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's time and spend per check.
+- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): nineteen replies that claim an unmade change and ten that must not be flagged (a Document's own descriptions, the app's own check marks, the reply's own text), the command probes, and one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's time and spend per check.
 - The report goes into `eval/results/<start time>-everyday/`. `report.md` has the pass rates by language and by request, against each request's floor, the Answers' tokens, then every run's result with its reply and the Blocks it changed. `report.json` has the same data.
 
 **Cost and time, roughly:** on Claude Haiku 5.5, half a minute to a minute and $0.02 to $0.05 a request, so about an hour and a half and $3 to $6 for three runs of all of them. A request that takes over five minutes is stopped and fails.
@@ -72,13 +72,22 @@ change log doesn't back fails the request (`claimed-action`), even where this ev
 reads the reply as honest. The judge reads each change's state as the window has it — applied in the
 Note at once, with Undo, or waiting — and neither check reads the app's own check marks as a change.
 
+The eval asks through the core without a window: it never calls `core.applyAskedChanges`, so a
+`read_mind` later in an Answer sees an asked-for change as waiting, where the User's window would
+hold it applied. That is how the `edit-remove` run below went wrong.
+
 Ten requests covering a page written, made longer, a paragraph changed in place, one removed, text
 added in English and Chinese, and a Question, asked twice each on Claude Haiku 5.5, the claims
-judged by Claude Sonnet 5.5: 9 of 10 requests at their floor, 19 of 20 runs. The one failure was
-`edit-remove`, whose reply said the pension paragraph was "not gone yet … marked as a removal
-waiting for your approval" though its change had applied at once; the app's check read that as an
-unbacked change. Asked once before this change too, the ten came to 26 of 30 runs, every request at
-its floor. The Answers' tokens, priced with the app's own prices:
+judged by Claude Sonnet 5.5: 9 of 10 requests at their floor, 19 of 20 runs. `edit-remove` is under
+its floor, 1 of 2. Its first reply said the pension paragraph was removed, which the change log
+backs, and the app's own check asked again about it anyway. The model then read the Mind: this
+evaluation doesn't apply asked changes the way the window does, so the removal still showed as
+waiting, and the reply said it was "not gone yet … waiting for your approval", which the check
+flagged as a removal. Both are false positives of the app's check, and the second reads a Mind a
+User's window would not show; they are in "what is left". The two runs are at the head before this
+Markdown reader's full-width-punctuation fix; the shared state function this change extracted is the
+same logic, and neither changes these replies or records. The Answers' tokens, priced with the app's
+own prices:
 
 | Request | Runs passed | Tokens in | Tokens out | Cost |
 |---|---|---|---|---|
@@ -94,10 +103,15 @@ its floor. The Answers' tokens, priced with the app's own prices:
 | add-to-notes-zh | 2 of 2 | 104,356 | 1,693 | $0.0044 |
 | Total (10 requests, 20 runs) | 9 of 10 requests | 1,270,011 | 33,648 | $0.0539 |
 
-The change-claim probes on the same model: 85 of 90 unmade claims caught and 60 of 60 honest replies
-left alone. `main`'s instructions, read with the same applied state, caught 84 of 90 and left 50 of
-60: both check-mark probes were flagged 5 of 5 in each language, which this change leaves alone. The
-five misses this change keeps are `unmade-translated-en` (0 of 5), as on `main`.
+The change-claim probes on the same model: 93 of 100 unmade claims caught and 60 of 60 honest
+replies left alone. `main`'s instructions, with the same applied state, caught 93 of 100 and left 50
+of 60: both check-mark probes were flagged 5 of 5 in each language, which this change leaves alone.
+The misses this change keeps are `unmade-translated-en` (0 of 5) and `unmade-organised-zh` (2 of 5 in
+this run). The clause's near-misses are caught 5 of 5 with both instruction sets: an added-points
+claim about another Note, and "I've highlighted the three risky sentences". The false positive
+depends on how the record states a change; the stronger evidence is the real `owner-2` run from
+before the clause, where the app's check flagged "changed, added" under "…is now longer, at about 422
+words. Some sentences are marked in the Note…".
 
 ### 2026-10-26: the mixed reports library (#2019)
 
