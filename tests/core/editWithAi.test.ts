@@ -2802,20 +2802,72 @@ describe("An edit the User asked for (#880)", () => {
     expect(shownWithChanges(client)).toEqual(after);
   });
 
-  test("in Chinese any character boundary counts, so 草稿 in 草稿箱 is a second place and the quote is refused", async () => {
-    const lines = ["标题：预算草稿", "旧草稿箱已归档。"];
-    const { core, mind, client } = await setUp(editingModel(() => "<removed>草稿</removed>"));
+  // protects=Chinese has no spaces, so any character boundary counts: a word quoted from inside a run of characters comes out, and 草稿 in 草稿箱 is a second place, so that quote is refused (#2180); fails_when=a Chinese part removal is refused as cutting a word, or the second place is missed; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a word inside a run of characters comes out",
+      lines: ["标题：预算草稿", "旧文件已归档。"],
+      quote: "草稿",
+      after: ["标题：预算", "旧文件已归档。"],
+    },
+    {
+      case: "a word inside a sentence comes out",
+      lines: ["预算：待定下周确认。", "水费按季度单独结算。"],
+      quote: "待定",
+      after: ["预算：下周确认。", "水费按季度单独结算。"],
+    },
+    {
+      case: "a second place inside another word refuses",
+      lines: ["标题：预算草稿", "旧草稿箱已归档。"],
+      quote: "草稿",
+      after: null,
+    },
+  ])("in Chinese any character boundary counts: $case", async ({ lines, quote, after }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quote}</removed>`));
     writeMind(
       client,
       lines.map((line) => paragraph(text(line))),
     );
     await client.settled();
 
-    const result = await core.editWithAi(wholeMind(client, mind.id, "去掉标题里的草稿"));
+    const result = await core.editWithAi(wholeMind(client, mind.id, `去掉${quote}`));
 
-    expect(result).toEqual({ kind: "unplaced", quotes: ["草稿"] });
-    expect(shownWithChanges(client)).toEqual(lines);
+    if (after === null) {
+      expect(result).toEqual({ kind: "unplaced", quotes: [quote] });
+      expect(shownWithChanges(client)).toEqual(lines);
+      return;
+    }
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual(after);
   });
+
+  // protects=a word taken out right before a full stop or comma takes the space before it, so no space is left before the punctuation; one taken out mid-sentence takes the space after it (#2180); fails_when=the line reads "Owner: Sam ." or two words run together; no_claim=none beyond protects.
+  test.each([
+    { line: "Owner: Sam TBD.", after: "Owner: Sam." },
+    { line: "Owner: Sam TBD, for now.", after: "Owner: Sam, for now." },
+    { line: "Owner: Sam TBD later.", after: "Owner: Sam later." },
+    { line: "Owner: Sam TBD", cited: true, after: "Owner: Sam." },
+  ])(
+    "a word taken out leaves no space before punctuation: $line",
+    async ({ line, cited, after }) => {
+      const water = "Water is billed separately each quarter.";
+      const { core, mind, client, tides } = await setUp(
+        editingModel(() => "<removed>TBD</removed>"),
+      );
+      writeMind(client, [
+        cited ? paragraph(text(line), citation(tides), text(".")) : paragraph(text(line)),
+        paragraph(text(water)),
+      ]);
+      await client.settled();
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Drop the TBD"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([after, water]);
+    },
+  );
 
   // protects=a paragraph the reply moved is a paragraph it wrote: when its new place still has the quoted words, a part quote refuses the edit, and the same words in a paragraph left out stay (#2180); fails_when=the moved paragraph counts as having dropped them and the quote is let pass, or the left-out paragraph loses them; no_claim=none beyond protects.
   test("a part quote a moved paragraph still has refuses the edit", async () => {

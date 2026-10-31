@@ -2143,7 +2143,8 @@ export function createRewriteStream(
   /**
    * Takes the quoted words from `from` to `to` out of a paragraph left out, with the Citation
    * and footnote markers right after them and the spaces that would be left over: those after
-   * them, or at the paragraph's end those before them. A formula or a line break after them stays.
+   * them, or at the paragraph's end or before punctuation those before them. A formula or a line
+   * break after them stays.
    */
   const removePart = (segment: Segment, quotedFrom: number, quotedTo: number) => {
     const { tokens } = segment;
@@ -2153,13 +2154,17 @@ export function createRewriteStream(
         ? token.node?.name === CITATION_NODE || token.node?.name === FOOTNOTE_NODE
         : /^\s+$/.test(token.text));
     let to = quotedTo;
+    let spaced = false;
     let after = tokens.findIndex((token) => token.from >= to);
     while (after >= 0 && after < tokens.length && blank(tokens[after])) {
+      if (tokens[after]?.text !== undefined) spaced = true;
       to = tokens[after]?.to ?? to;
       after++;
     }
     let from = quotedFrom;
-    if (after < 0 || after >= tokens.length) {
+    // A full stop or comma right after the words closes onto the word before them.
+    const closing = !spaced && /^[\p{Po}\p{Pe}\p{Pf}]/u.test(tokens[after]?.text ?? "");
+    if (after < 0 || after >= tokens.length || closing) {
       let previous = tokens.findLastIndex((token) => token.to <= from);
       while (previous >= 0 && tokens[previous]?.text !== undefined && blank(tokens[previous])) {
         from = tokens[previous]?.from ?? from;
