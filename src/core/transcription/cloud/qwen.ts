@@ -7,6 +7,8 @@
  * Text is done only up to a final result's boundary: the last finished sentence, or the start of
  * the sentence now being said. Audio received beyond that is not guessed to be finished, since a
  * late result can show that it is speech which still needs replaying after a lost connection.
+ * Apart from that, every result, a heartbeat in a long silence included, shows the service keeps
+ * up with the audio sent before it: that alone says live text isn't falling behind.
  */
 import { cleanSpeech } from "../speechText";
 import { HANDSHAKE_REFUSED } from "./protocol";
@@ -52,6 +54,7 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
   const taskId = crypto.randomUUID();
   const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
   let received = 0;
+  let answeredMs = 0;
   let finalMs = 0;
   let furthestMs = 0;
   const open = new Map<number, Sentence>();
@@ -129,7 +132,7 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
       say(sentence, true);
     }
     open.clear();
-    report.progress(msOf(received));
+    report.progress(msOf(received), msOf(received));
   }
 
   function heard(text: string): void {
@@ -148,17 +151,17 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
         report.opened();
         return;
       case "result-generated": {
+        answeredMs = msOf(received);
         const sentence = sentenceOf(message?.payload);
-        if (!sentence) return;
-        if (sentence.ended) {
+        if (sentence?.ended) {
           open.delete(sentence.id);
           finalMs = Math.max(finalMs, sentence.endMs);
           say(sentence, true);
-        } else {
+        } else if (sentence) {
           open.set(sentence.id, sentence);
           say(sentence, false);
         }
-        report.progress(doneMs());
+        report.progress(doneMs(), answeredMs);
         return;
       }
       case "task-finished":
@@ -185,7 +188,7 @@ export function createQwenStream(options: CloudStreamOptions & { url: string }):
       );
       if (started) socket.send(bytes);
       else waiting.push(bytes);
-      report.progress(doneMs());
+      report.progress(doneMs(), answeredMs);
     },
 
     finish() {

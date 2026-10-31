@@ -393,6 +393,7 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
     const service = playback();
     const heard = collect();
     const order: string[] = [];
+    const answered: number[] = [];
     const stream = createQwenStream({
       stream: "m:system",
       model: QWEN_REALTIME_MODEL,
@@ -404,15 +405,16 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
           heard.report.segment(each);
           order.push(`${each.final ? "final" : "partial"} ${each.id}`);
         },
-        progress: (doneMs) => {
+        progress: (doneMs, heardMs) => {
           heard.report.progress(doneMs);
+          answered.push(heardMs ?? doneMs);
           order.push(`done ${doneMs}`);
         },
         lost: heard.report.lost,
         opened: heard.report.opened,
       },
     });
-    return { service, heard, order, stream };
+    return { service, heard, order, answered, stream };
   }
 
   /** The service answers as the audio is fed: each message once its time has been said, a second second. */
@@ -697,6 +699,24 @@ describe("Qwen's real-time transcription, played back in the format Alibaba docu
     const { heard } = await play([started, heartbeat, ...rest, heartbeat] as QwenMessage[], 24);
     expect(heard.finals()).toHaveLength(2);
     expect(heard.segments.every((each) => each.text !== "")).toBe(true);
+  });
+
+  // protects=a heartbeat in a long silence shows the service keeps up with the audio sent, so the core doesn't call live text behind, while text done stays where the last final left it; fails_when=a heartbeat moves done, which a later partial could show was speech, or says nothing, so a quiet track falls behind; no_claim=the real service's heartbeat cadence.
+  test("a heartbeat shows the service answered for the audio sent, and moves no text done", () => {
+    const { service, heard, answered, stream } = connect();
+    service.open();
+    service.say({ header: { event: "task-started" }, payload: {} });
+    feed((samples) => stream.push(samples), 10);
+    service.say({
+      header: { event: "result-generated" },
+      payload: {
+        output: { sentence: { begin_time: null, end_time: null, text: "", heartbeat: true } },
+      },
+    });
+
+    expect(heard.segments).toEqual([]);
+    expect(heard.progress.at(-1)).toBe(0);
+    expect(answered.at(-1)).toBe(10_000);
   });
 
   test("a key the service turns away, in either way it does, is refused; any other end is a dropped connection, and nothing more is reported", async () => {

@@ -8,8 +8,11 @@ import type { CloudConnect } from "./socket";
 
 export interface CloudStreamReport {
   segment(segment: SpeechSegment): void;
-  /** All the stream's audio before `doneMs` has its final text. */
-  progress(doneMs: number): void;
+  /**
+   * All the stream's audio before `doneMs` has its final text; the service has answered for the
+   * audio sent before `heardMs` (`doneMs` when absent), so it keeps up while nothing is final yet.
+   */
+  progress(doneMs: number, heardMs?: number): void;
   /** It ended before it was finished; nothing more is reported. */
   lost(loss: CloudLoss): void;
   /** The core holds the audio until now, so a send gate that closes meanwhile sends nothing. */

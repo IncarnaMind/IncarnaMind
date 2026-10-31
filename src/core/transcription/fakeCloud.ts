@@ -2,8 +2,9 @@
  * A pretend cloud transcription service, for the tests and the smoke tests (#141): it speaks
  * enough of OpenAI's, Soniox's and Qwen's protocols for their adapters (./cloud) and never
  * touches the network. Soniox's side gives a line, with a speaker, for every two seconds of
- * sound it is sent, and Qwen's a sentence; OpenAI's gives one for each turn committed. It can
- * refuse the key, or drop the connection after so much audio, as a lost network does.
+ * sound it is sent, and Qwen's a sentence, with a heartbeat for each second of quiet; OpenAI's
+ * gives one for each turn committed. It can refuse the key, or drop the connection after so much
+ * audio, as a lost network does.
  */
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { OPENAI_TRANSCRIPTION_URL } from "./cloud/openai";
@@ -47,6 +48,7 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     let partialSent = false;
     let sentMs = 0;
     let loudMs = 0;
+    let quietMs = 0;
     let lineStartMs: number | null = null;
     let items = 0;
     let previous: string | null = null;
@@ -158,7 +160,23 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
           let sum = 0;
           for (let i = at; i < at + FRAME; i++) sum += (samples[i] as number) ** 2;
           const frameMs = startMs + (at * 1000) / MEETING_SAMPLE_RATE;
-          if (Math.sqrt(sum / FRAME) <= LEVEL) continue;
+          if (Math.sqrt(sum / FRAME) <= LEVEL) {
+            quietMs += 20;
+            if (qwen && quietMs >= 1000) {
+              quietMs = 0;
+              reply({
+                header: { event: "result-generated" },
+                payload: {
+                  output: {
+                    sentence: { begin_time: null, end_time: null, text: "", heartbeat: true },
+                  },
+                  usage: null,
+                },
+              });
+            }
+            continue;
+          }
+          quietMs = 0;
           lineStartMs ??= frameMs;
           loudMs += 20;
           if (loudMs >= LINE_MS) {

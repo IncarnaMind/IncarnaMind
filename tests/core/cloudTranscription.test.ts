@@ -379,7 +379,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       const dataDir = await createTempDataFolder();
       const { core } = await transcribingCore(dataDir);
       const qwen = async () =>
-        (await core.listTranscriptionServices()).find((each) => each.route === "qwen");
+        (await core.listTranscriptionServices()).services.find((each) => each.route === "qwen");
       expect(await qwen()).toMatchObject({
         hasKey: false,
         region: null,
@@ -412,7 +412,9 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       const beijing = await transcribingCore(await createTempDataFolder());
       await chooseQwen(beijing.core);
       expect(
-        (await beijing.core.listTranscriptionServices()).find((each) => each.route === "qwen"),
+        (await beijing.core.listTranscriptionServices()).services.find(
+          (each) => each.route === "qwen",
+        ),
       ).toMatchObject({
         region: { en: "China (Beijing)", zh: "中国内地（北京）" },
         perHour: { currency: "CNY", amount: 1.188 },
@@ -524,6 +526,47 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       expect(final.gaps).toEqual([]);
       expect(Math.min(...final.cues.map((cue) => cue.startMs))).toBeLessThanOrEqual(SECOND);
       expect(final.cues.some((cue) => FAKE_LINES.includes(cue.text))).toBe(true);
+    });
+
+    // protects=a healthy Qwen connection, whose heartbeats show it keeps up, stays live through a silence longer than the lag allows, and speech after it is in the saved Transcript when the connection then drops; fails_when=the silence reads as falling behind and closes the socket, or the drop leaves the speech out; no_claim=how often the real service sends heartbeats, which needs a real key.
+    test("a silence longer than the lag allows stays live on Qwen, and speech after it survives a dropped connection", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        capture: { system: "silent" },
+        engine: { cloud: { dropAfterMs: 40 * SECOND } },
+      });
+      // The time between chunks, in which the service and the transcription process answer.
+      const answered = async () => {
+        for (let turn = 0; turn < 10; turn++) await new Promise((done) => setTimeout(done, 0));
+      };
+      await chooseQwen(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "qwen");
+
+      for (let second = 0; second < 36; second++) {
+        record(SECOND, ["system"]);
+        await answered();
+      }
+      expect(await transcriptOf(core, meeting.id)).toMatchObject({
+        state: "live",
+        cloud: "qwen",
+        fellBack: null,
+      });
+
+      for (let second = 0; second < 6; second++) {
+        record(SECOND);
+        await answered();
+      }
+      await until(core, meeting.id, (transcript) => transcript.fellBack !== null);
+      record(4 * SECOND);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      const final = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+      expect(final.gaps).toEqual([]);
+      expect(
+        final.cues.some((cue) => cue.startMs >= 36 * SECOND && FAKE_LINES.includes(cue.text)),
+      ).toBe(true);
     });
 
     test("the monthly cap counts Qwen's price from the catalog and hands the live audio to this computer; recording never stops", async () => {

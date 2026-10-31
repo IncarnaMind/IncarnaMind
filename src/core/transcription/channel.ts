@@ -48,7 +48,7 @@ export type TranscriberResponse =
   | { type: "done"; id: number }
   | { type: "error"; id: number; message: string }
   | { type: "segment"; segment: SpeechSegment }
-  | { type: "progress"; stream: string; doneMs: number }
+  | { type: "progress"; stream: string; doneMs: number; heardMs?: number }
   | { type: "failed"; stream: string; message: string }
   | { type: "switched"; change: EngineSwitch }
   | { type: "lost"; stream: string; loss: CloudLoss }
@@ -96,7 +96,8 @@ export function createChannelTranscriber(start: () => TranscriberChannel): Trans
           for (const listener of listeners) listener.segment(response.segment);
           return;
         case "progress":
-          for (const listener of listeners) listener.progress(response.stream, response.doneMs);
+          for (const listener of listeners)
+            listener.progress(response.stream, response.doneMs, response.heardMs);
           return;
         case "failed":
           for (const listener of listeners) listener.failed(response.stream, response.message);
@@ -222,8 +223,13 @@ export function serveTranscriber(
   let ready: Promise<void> = Promise.resolve();
   const report = {
     segment: (segment: SpeechSegment) => port.respond({ type: "segment", segment }),
-    progress: (stream: string, doneMs: number) =>
-      port.respond({ type: "progress", stream, doneMs }),
+    progress: (stream: string, doneMs: number, heardMs?: number) =>
+      port.respond({
+        type: "progress",
+        stream,
+        doneMs,
+        ...(heardMs !== undefined && { heardMs }),
+      }),
     failed: (stream: string, message: string) => port.respond({ type: "failed", stream, message }),
   };
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -242,7 +248,7 @@ export function serveTranscriber(
     }
     const streamReport = {
       segment: report.segment,
-      progress: (doneMs: number) => report.progress(stream, doneMs),
+      progress: (doneMs: number, heardMs?: number) => report.progress(stream, doneMs, heardMs),
       lost,
       opened: () => port.respond({ type: "opened", stream }),
     };
