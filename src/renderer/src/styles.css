@@ -5,18 +5,16 @@
  * change it first). Utilities follow the names: bg-sheet, bg-frame,
  * border-rule, text-ink, text-ink-meta, bg-success-wash, text-body, …
  *
- * Fonts are bundled (fonts.css) for Latin and Greek. Chinese falls through to
- * the system's Simplified Chinese fonts, named before the generic ones so a
- * font with Japanese-style Han glyphs (Windows in Japanese) isn't picked:
- * with the serif, Songti SC / STSong on macOS, SimSun on Windows, Noto Serif
- * CJK SC (Source Han Serif SC) on Linux; with the sans, PingFang SC and
- * Hiragino Sans GB on macOS, Microsoft YaHei on Windows, Noto Sans CJK SC
- * (Source Han Sans SC) on Linux.
+ * The app and a Mind's writing use the system's font (DESIGN.md, Typography);
+ * Source Serif 4, JetBrains Mono, Carlito and Caladea are the fonts bundled
+ * with it (fonts.css). Chinese is named before the generic families so a font
+ * with Japanese-style Han glyphs (Windows in Japanese) isn't picked: the
+ * system's Simplified Chinese sans here, and its serif with the Serif style.
  */
 @theme {
   --font-sans:
-    "Source Sans 3", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
-    "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
   --font-serif:
     "Source Serif 4", "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC",
     ui-serif, Georgia, serif;
@@ -107,8 +105,8 @@
   --text-display--line-height: 42px;
   --text-heading: 22px;
   --text-heading--line-height: 30px;
-  --text-body: 17px;
-  --text-body--line-height: 28px;
+  --text-body: 16px;
+  --text-body--line-height: 26px;
   --text-note: 15px;
   --text-note--line-height: 24px;
   --text-question: 16px;
@@ -135,9 +133,8 @@
   --font-cjk-sans:
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC";
   --font-cjk-serif: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC";
-  --font-system:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", var(--font-cjk-sans), system-ui,
-    sans-serif;
+  /* The writing's name for the app's font, which its page names from script. */
+  --font-system: var(--font-sans);
   --font-mono-writing:
     "JetBrains Mono", var(--font-cjk-sans), ui-monospace, "SFMono-Regular", Menlo, Consolas,
     monospace;
@@ -2832,7 +2829,7 @@
     pointer-events: none;
   }
 
-  /* The Mind editor's content (Tiptap): your writing in Source Serif 4, 17/28. */
+  /* The Mind editor's content (Tiptap): the writing's font, 16/26 in the Default style. */
   .mind-editor {
     /* The handle's 20px target, its right edge `--edge-gap` before the text (the column's rule). */
     --handle-gap: var(--edge-gap);
@@ -2914,7 +2911,7 @@
       font-size: var(--text-display);
       line-height: var(--text-display--line-height);
       font-variation-settings: "opsz" 48;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
     }
     h2 {
       font-size: var(--text-heading);
@@ -3325,7 +3322,7 @@
   }
 
   /*
-   * A Question (DESIGN.md, Question): one quiet line in Source Sans 3 14/20,
+   * A Question (DESIGN.md, Question): one quiet line in the system's font 14/20,
    * ink-meta, at the Mind's text edge. No band and no box: its spark and fold
    * chevron sit in the left margin, and its meta (model, Search scope, a
    * Skill) fills the rest of the line, shown on hover or focus. The meta never

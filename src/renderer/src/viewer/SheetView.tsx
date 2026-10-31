@@ -319,7 +319,7 @@ let measuring: CanvasRenderingContext2D | null = null;
 function canvasFont(font: FontStyle, fallbackPoints: number): string {
   const size = ((font.size ?? fallbackPoints) * 4) / 3;
   const family = font.name ? `"${font.name.replace(/["\\]/g, "")}", ` : "";
-  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}"Source Sans 3", sans-serif`;
+  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}system-ui, sans-serif`;
 }
 
 function measure(text: string, font: string): number {
@@ -347,7 +347,7 @@ function wrappedLines(text: string, font: string, width: number): number {
 }
 
 /** The UI font a CSV's grid is set in (viewer.css), as the canvas takes it. */
-const CSV_FONT = '400 13px "Source Sans 3", sans-serif';
+const CSV_FONT = "400 13px system-ui, sans-serif";
 
 /** A CSV's column widths: fitted to the widest value among its first rows. */
 function csvWidths(sheet: Sheet): Map<number, number> {
