@@ -258,8 +258,12 @@ export interface CreateMindInput {
  * - 38: a table of contents Block (#1935). An older editor would drop it when
  *   it saves the Note, so it opens these Notes read-only. Existing content is
  *   version 38 content as it is.
+ * - 39: a check against a Document the User picked, read whole (#1554):
+ *   "check-against-document" and `read` on its mark, recording exactly how
+ *   much was read. An older version would treat it as a search and check it
+ *   again. Older content is version 39 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 38;
+export const CONTENT_SCHEMA_VERSION = 39;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -4691,6 +4695,11 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /**
+   * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
+   * the Run had spent when it stopped.
+   */
+  budget?: { most: Money; spent: Money };
 }
 
 /**
@@ -5251,6 +5260,14 @@ export type RunEstimate =
       tokens: number;
       /** Null for a model with no known price. */
       cost: Money | null;
+      /**
+       * The most it may come to, with the requests it sends only when what it reads asks for
+       * them: in a whole read (#1554), every other call each check's Run may make, what a check
+       * may ask after its Run, the looks at a quote a window's judgement gives, and a judgement
+       * its sentence's last check said it wouldn't need. A whole read's `cost` here is its
+       * budget, which the meter holds it to (../shared/readBudget).
+       */
+      upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;
       setAsideTowardCap: Money | null;
       cap: MonthlyCap | null;
@@ -5614,6 +5631,7 @@ export const claimCheckActions = [
   "find-support",
   "check-against-documents",
   "contradiction-watch",
+  "check-against-document",
 ] as const;
 export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
@@ -5637,6 +5655,11 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
+ *   but a look at its quote found it doesn't state that (#1554).
+ * - "read-budget": a whole read reached the most it may spend before this part was judged, so
+ *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
+ *   `{ most: Money; spent: Money }`).
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5654,8 +5677,10 @@ export type ClaimCheckFailure =
   | "consent-revoked"
   | "local-mode"
   | "absence-read-limit"
+  | "absence-unconfirmed"
   | "kept-inside"
-  | "cut-short";
+  | "cut-short"
+  | "read-budget";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6104,6 +6129,14 @@ export interface ClaimCheckBasis {
    * stay as they were checked, it isn't shown, counted or checked again.
    */
   kept?: true;
+  /** "check-against-document": how much of the picked Document or Folder was read. */
+  read?: WholeRead;
+}
+
+/** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
+export interface WholeRead {
+  pages: number;
+  of: number;
 }
 
 export interface FigureCheckAttributes extends ClaimCheckBasis, FigureFinding {}
@@ -6126,8 +6159,67 @@ export interface CheckSentencesInput {
   action: ClaimCheckAction;
   /** Search every Document, not the Mind's Folder ("Search all Documents"). */
   allDocuments?: boolean;
+  /**
+   * "check-against-document": the Document or Folder to read whole, on the Note's side of any
+   * Folder wall. With `part`, only that part is read; without, each part not yet Supported or
+   * Contradicted is.
+   */
+  within?: SearchScope;
+  /**
+   * With `within`, required: the `planDocumentCheck` it was asked from. Refused, sending nothing,
+   * unless it is still the Note's latest plan and was made for this pick and these sentences; a
+   * newer plan stops a read already running.
+   */
+  plan?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
+}
+
+/** What `checkSentences` will read whole: its sentences, or one part, and its pick. */
+export interface PlanDocumentCheckInput {
+  mindId: string;
+  from: TextPlace;
+  to: TextPlace;
+  more?: TextStretch[];
+  part?: { id: string; span: ClaimPartSpan };
+  within: SearchScope;
+  model?: ChatModelChoice | null;
+}
+
+export interface DocumentToRead {
+  documentId: string;
+  name: string;
+  pages: number;
+  readable: number;
+}
+
+/** What an explicit whole read takes; planning never sends text to a model. */
+export type DocumentCheckPlan =
+  | {
+      kind: "ready";
+      /** What a read of this plan names as its `plan`. */
+      id: string;
+      /**
+       * The parts the read checks against the pick, each through every window: the estimate's
+       * count. Null when a sentence's parts are sorted only as it is read: then at least one.
+       */
+      parts: number | null;
+      documents: DocumentToRead[];
+      pages: number;
+      readable: number;
+      tokens: number;
+      estimate: RunEstimate | null;
+    }
+  | { kind: "too-large"; tokens: number; most: number }
+  | { kind: "too-many"; documents: number; most: number }
+  | { kind: "nothing-to-read" };
+
+/** Progress through an explicit whole read, sent as it goes and never persisted. */
+export interface DocumentCheckProgress {
+  requestId: string;
+  mindId: string;
+  pages: number;
+  of: number;
 }
 
 /** What `checkSentences` did. */
@@ -6169,7 +6261,9 @@ export type CheckSentencesResult =
   /** Contradiction watch, nothing sent: the Mind is in no Folder, so there is none to check against. */
   | { kind: "no-folder" }
   /** Contradiction watch, nothing sent: the Folder holds no Documents but those its claims cite. */
-  | { kind: "only-cited"; folderId: string };
+  | { kind: "only-cited"; folderId: string }
+  /** "check-against-document": the pick cannot be read whole, and the plan says why. */
+  | { kind: "cannot-read"; plan: Exclude<DocumentCheckPlan, { kind: "ready" }> };
 
 /** Contradiction watch (#112) on a whole Mind, on demand. */
 export interface CheckContradictionsInput {
@@ -6210,7 +6304,7 @@ export interface ContradictionCheckOutcome {
 /** What `checkContradictions` did. */
 export type CheckContradictionsResult =
   | ({ kind: "checked" } & ContradictionCheckOutcome)
-  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" }>;
+  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" | "cannot-read" }>;
 
 /**
  * The last check for contradictions a new version of a Document in the Mind's
@@ -6322,7 +6416,10 @@ export type CheckMindResult =
   | { kind: "failed"; error: ProviderError }
   /** A Check of this Note is running already, asked from this window or another: none started. */
   | { kind: "running" }
-  | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" | "no-folder" | "only-cited" | "waiting" | "cannot-read" }
+    >;
 
 /**
  * The last whole-Mind check (#737), in the Mind's settings
@@ -6387,7 +6484,10 @@ export interface TextStretch {
 
 /** Why finding or checking a document's claims sent nothing. */
 type VerifyRefusal =
-  | Exclude<CheckSentencesResult, { kind: "checked" } | { kind: "waiting" }>
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" } | { kind: "waiting" } | { kind: "cannot-read" }
+    >
   /** Another document's claims are being found or checked, in that Mind: one run at a time. */
   | { kind: "busy"; mindId: string };
 
@@ -7620,6 +7720,7 @@ export const dataKinds = [
   "answers",
   "web-searches",
   "verified-document",
+  "whole-document",
   "references",
   "connector-search",
   "meeting-audio",
@@ -7687,6 +7788,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   else the image model's). Not allowed by choosing the provider (#1613):
  *   the User allows it here, in Settings › Privacy, and without it the scan
  *   stays unsorted. A model on this computer needs no consent.
+ * - "document-check": when the User asks Check against a Document… (#1554),
+ *   the sentence with its paragraph and the whole text of the Document or
+ *   Folder they pick, to the chat model's provider. Asked where it is used;
+ *   none in local mode.
  */
 export const dataFlowIds = [
   "chat",
@@ -7706,6 +7811,7 @@ export const dataFlowIds = [
   "connector-registry",
   "transcription",
   "scan-images",
+  "document-check",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -11044,8 +11150,18 @@ export interface CoreApi {
    * "checking", then its result, pushed as a "mind.update" like any edit.
    * Sends on the "checks" flow once the User allows it for the model's
    * service; in local mode only a model on this computer is used.
+   *
+   * `check-against-document` instead reads the picked `within` scope in ordered
+   * windows on the separate "document-check" flow. It keeps the previous mark
+   * unchanged until the read settles, so stopping leaves no partial result.
    */
   checkSentences(input: CheckSentencesInput): Promise<CheckSentencesResult>;
+  /**
+   * Sizes Check against a Document… for its sentences, or one part, before anything is sent; the
+   * read is `checkSentences` with `within` and this plan's `id`. It becomes the Note's latest plan
+   * and stops a whole read already running there.
+   */
+  planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -11992,6 +12108,8 @@ export interface CoreEvents {
    * "document.status". Carries each Document whole.
    */
   "references.changed": Document[];
+  /** How far a whole read of Check against a Document… is (#1554). */
+  "documentCheck.progress": DocumentCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */
@@ -12263,6 +12381,7 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateProposal: true,
   cancelEdit: true,
   checkSentences: true,
+  planDocumentCheck: true,
   cancelCheck: true,
   checkClaim: true,
   chooseRecordCiteSource: true,

@@ -32,9 +32,11 @@ import {
   boundedCheck,
   boundedCheckParts,
   checkWithParts,
+  figuresByPart,
   partWithResult,
   pendingPart,
   resultFromParts,
+  withFigureFacts,
 } from "../../../shared/claimParts";
 import {
   beginFigureCheck,
@@ -42,6 +44,12 @@ import {
   settleFigureCheck,
 } from "../../../shared/figureChecks";
 import { mindScopeIn } from "../../../shared/mindScope";
+import {
+  budgetStopOf,
+  judgesAbsence,
+  resumesRead,
+  stoppedAtBudget,
+} from "../../../shared/readBudget";
 import { readRecordCiteChoices, writeRecordCiteChoice } from "../../../shared/recordCiteChoices";
 import { folderScope, oneFolderOf } from "../../../shared/searchScope";
 import { namePartCitations } from "../../../shared/signOffs";
@@ -65,9 +73,14 @@ import {
   type ClaimJudgment,
   type ClaimPartSpan,
   type ContradictionCheckPlan,
+  type Currency,
   claimCheckActions,
   type Document,
+  type DocumentCheckPlan,
+  type DocumentCheckProgress,
   type ExternalService,
+  type Money,
+  type RunEstimate,
   type SearchScope,
   type TextPlace,
   type TextStretch,
@@ -75,10 +88,12 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
+import type { EstimatedRead } from "../../cost/meter";
 import { depositionMapper } from "../../documents/deposition";
-import type { Evidence } from "../../documents/evidence";
+import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
 import type { RetainVersion, VersionRetention } from "../../documents/retention";
+import type { WindowedPassage } from "../../documents/search";
 import { parseModel, parsePlace } from "../../edits";
 import {
   ChatNotReadyError,
@@ -95,17 +110,21 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
+import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
+  type AtomicClaimCheckResult,
   type CheckedCitation,
   type ClaimCheckDependencies,
+  type ClaimCheckRequest,
+  checkRunStart,
   createClaimCheck,
   recordJudged,
 } from "./claimCheck";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
-import { createPartCheck } from "./partCheck";
+import { createPartCheck, partRequest } from "./partCheck";
 import {
   judgeResolvedRecordCites,
   notJudgedError,
@@ -123,11 +142,18 @@ import {
   markSentence,
   noteTextOf,
   recordCiteParagraphs,
+  type SelectedSentence,
   selectedSentences,
   updateCheck,
 } from "./sentences";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
+import {
+  createWholeRead,
+  DOCUMENT_CHECK_FLOW_SENDS,
+  type ModelShape,
+  type PlannedCheck,
+} from "./wholeRead";
 import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
 /**
@@ -139,6 +165,8 @@ export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", 
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
+
+type CheckFlow = "checks" | "document-check";
 
 export interface ChecksOptions
   extends Pick<
@@ -178,6 +206,8 @@ export interface ChecksOptions
   walledFolderName(documentId: string): string | null;
   /** What a check from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
+  /** The Documents a pick covers on its Note's side of a Folder wall, as its searches see them. */
+  pickedDocuments(within: SearchScope, mindId: string): string[];
   /** The file a Mind was imported from (#720), which its own checks never use as evidence. */
   originalOf(mindId: string): CheckedDocument | null;
   /** The default chat model, used when the Mind has none of its own. */
@@ -185,8 +215,9 @@ export interface ChecksOptions
   /** The model a Mind whose own pick is `own` is checked with: see `modelInUse`. */
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   chat: {
-    readiness(choice: ChatModelChoice | undefined, flow: "checks"): Promise<ChatReadiness>;
-    prepareModel(choice: ChatModelChoice | undefined, flow: "checks"): Promise<PreparedChatModel>;
+    readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
+    prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
+    modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -202,7 +233,17 @@ export interface ChecksOptions
     Pick<RecordCiteSource, "batesHolders"> & {
       /** Every live Document's names: what the Citations a sentence already has are named by. */
       names(): readonly LiveDocument[];
+      /** The live Documents of these, in the order given. */
+      live(documentIds: readonly string[]): Document[];
+      /** A live Document's Passages, in reading order. */
+      passages(documentId: string): WindowedPassage[];
     };
+  /** The estimate of a whole read's requests. */
+  estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
+  /** What a whole read's requests have settled at, by its request id, in `currency`. */
+  readSpent(requestId: string, currency: Currency): Money;
+  /** How far a whole read is, as it goes (#1554). */
+  documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
   /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
@@ -218,6 +259,9 @@ interface ParsedCheck {
   more: TextStretch[];
   action: ClaimCheckAction;
   allDocuments: boolean;
+  /** "check-against-document": what to read whole. */
+  within: SearchScope | null;
+  plan: string | null;
   model: ChatModelChoice | null;
   part?: { id: string; span: ClaimPartSpan };
 }
@@ -263,6 +307,10 @@ function parseCheck(input: unknown): ParsedCheck {
   if (part && known === "contradiction-watch") {
     throw new InvalidInputError({ key: "error.check.partChanged" });
   }
+  const within = known === "check-against-document" ? parseWithin(input.within) : null;
+  const plan = typeof input.plan === "string" && input.plan !== "" ? input.plan : null;
+  // A whole read sends a Document's text at a cost the User saw: never without its plan.
+  if (within && plan === null) throw new InvalidInputError({ key: "error.check.readUnplanned" });
   return {
     requestId,
     mindId: parseMindId(input.mindId),
@@ -271,9 +319,17 @@ function parseCheck(input: unknown): ParsedCheck {
     more: parseStretches(input.more),
     action: known,
     allDocuments: input.allDocuments === true,
+    within,
+    plan: within ? plan : null,
     model: parseModel(input.model),
     ...(part && { part }),
   };
+}
+
+function parseWithin(value: unknown): SearchScope {
+  const within = parseSearchScope(value);
+  if (!within) throw new InvalidInputError({ key: "error.check.noDocumentPicked" });
+  return within;
 }
 
 function parseClaim(input: unknown) {
@@ -564,6 +620,49 @@ function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
   };
 }
 
+/** A sentence as a whole read finds it again: the Note can be reloaded while it reads. */
+const sentenceKey = (
+  mindId: string,
+  { blockId, occurrence, text }: Pick<SelectedSentence, "blockId" | "occurrence" | "text">,
+) => JSON.stringify([mindId, blockId, occurrence, text]);
+
+const isSentence = (
+  a: Pick<SelectedSentence, "element" | "from" | "to">,
+  b: Pick<SelectedSentence, "element" | "from" | "to">,
+) => a.element === b.element && a.from === b.from && a.to === b.to;
+
+/**
+ * A whole read's result with one figure for what the read spent on every line its budget stopped,
+ * what its requests settled at once the sentence's check ended, however its parts were refused;
+ * and on each part it stopped, whether that part's read judges its absence, as the read planned it.
+ */
+function withSpent(
+  result: ClaimCheckResult,
+  spent: (currency: Currency) => Money,
+  previous: readonly ClaimCheckPart[] | undefined,
+): ClaimCheckResult {
+  const settle = (detail: string | null, planned?: boolean) => {
+    const stop = budgetStopOf(detail);
+    if (!stop) return detail;
+    return JSON.stringify({
+      most: stop.most,
+      spent: spent(stop.most.currency),
+      ...(planned !== undefined && { judgesAbsence: planned }),
+    });
+  };
+  const parts = result.parts?.map((part) => {
+    if (!stoppedAtBudget(part)) return part;
+    const before = previous?.find(
+      (each) => each.span.start === part.span.start && each.span.end === part.span.end,
+    );
+    return { ...part, detail: settle(part.detail, before ? judgesAbsence(before) : true) };
+  });
+  const settled = parts ? { ...result, parts } : result;
+  return settled.verdict === "not-checked" && settled.reason === "read-budget"
+    ? { ...settled, detail: settle(settled.detail) }
+    : settled;
+}
+
 export function createChecks(options: ChecksOptions) {
   const { content, chat } = options;
 
@@ -620,6 +719,8 @@ export function createChecks(options: ChecksOptions) {
   }
   /** The requests running, by id: how to stop each, and its Mind. */
   const running = new Map<string, { controller: AbortController; mindId: string }>();
+  /** Which of them read a picked Document or Folder whole. */
+  const wholeReads = new Set<string>();
   const recordCiteDocuments = {
     ...options.documents,
     recordChoices: (mindId: string) => content.readSettings(mindId, readRecordCiteChoices),
@@ -628,40 +729,46 @@ export function createChecks(options: ChecksOptions) {
   const withCites = (check: ReturnType<typeof createClaimCheck>) =>
     withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
   const claimCheck = withCites(createPartCheck(options));
+  const atomicCheck = createClaimCheck(options);
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
   const wholeCheck = withCites(createClaimCheck(options));
 
+  const services = async () => {
+    const service = chat.defaultService();
+    return service ? [service] : [];
+  };
+  options.consent.registry.register({ id: "checks", sends: CHECKS_FLOW_SENDS, services });
   options.consent.registry.register({
-    id: "checks",
-    sends: CHECKS_FLOW_SENDS,
-    async services() {
-      const service = chat.defaultService();
-      return service ? [service] : [];
-    },
+    id: "document-check",
+    sends: DOCUMENT_CHECK_FLOW_SENDS,
+    services,
   });
 
   /** The model to check with, or why there is none; the consent dialog shows before anything is sent. */
-  async function prepare(choice: ChatModelChoice | null): Promise<
+  async function prepare(
+    choice: ChatModelChoice | null,
+    flow: CheckFlow = "checks",
+  ): Promise<
     | { ok: true; prepared: PreparedChatModel }
     | {
         ok: false;
         result: Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>;
       }
   > {
-    const readiness = await chat.readiness(choice ?? undefined, "checks");
+    const readiness = await chat.readiness(choice ?? undefined, flow);
     if (!readiness.ready) return { ok: false, result: { kind: "not-ready", readiness } };
     if (readiness.provider.service && options.localOnly()) {
       return { ok: false, result: { kind: "local-mode" } };
     }
     try {
-      return { ok: true, prepared: await chat.prepareModel(choice ?? undefined, "checks") };
+      return { ok: true, prepared: await chat.prepareModel(choice ?? undefined, flow) };
     } catch (error) {
       if (error instanceof ChatNotReadyError) {
         return { ok: false, result: { kind: "not-ready", readiness: error.readiness } };
       }
       if (error instanceof LocalModeError) return { ok: false, result: { kind: "local-mode" } };
       if (error instanceof ConsentDeclinedError) {
-        const now = await chat.readiness(choice ?? undefined, "checks");
+        const now = await chat.readiness(choice ?? undefined, flow);
         return {
           ok: false,
           result: now.ready ? { kind: "cancelled" } : { kind: "not-ready", readiness: now },
@@ -816,6 +923,344 @@ export function createChecks(options: ChecksOptions) {
     return { sentence: own, parts, check: marked?.check };
   }
 
+  /** The part's owner as the Note is now; null once the part has changed. */
+  function currentPartOwner(blocks: Y.XmlFragment, target: NonNullable<ParsedCheck["part"]>) {
+    try {
+      return partOwner(blocks, target);
+    } catch (error) {
+      if (error instanceof InvalidInputError) return null;
+      throw error;
+    }
+  }
+
+  /** A sentence's "checking" mark and what its check is asked; `owner` when one part is asked. */
+  function startCheck(
+    blocks: Y.XmlFragment,
+    sentence: SelectedSentence,
+    owner: ReturnType<typeof partOwner> | null,
+    input: ParsedCheck,
+    prepared: PreparedChatModel,
+    scope: ClaimCheckScope,
+    startedAt: string,
+  ) {
+    const priorOwners = markedSentences(blocks).filter(
+      (each) =>
+        each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+    );
+    const physicalPrior =
+      owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
+    const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
+    const previous = owner?.parts ?? prior?.parts;
+    const plans = previous?.map(({ span, kind }) => ({ span, kind }));
+    const parts =
+      owner?.parts.map(
+        (part): ClaimCheckPart =>
+          input.part &&
+          part.span.start === input.part.span.start &&
+          part.span.end === input.part.span.end
+            ? { ...pendingPart(part), verdict: "checking" }
+            : part,
+      ) ??
+      (plans && pendingParts(plans, previous));
+    const check: ClaimCheckAttributes = {
+      // A whole read writes onto the mark it was asked from, so that mark's open card shows it.
+      id: input.part?.id ?? (input.within ? physicalPrior?.id : undefined) ?? randomUUID(),
+      request: input.requestId,
+      action: input.action,
+      state: "checking",
+      reason: null,
+      detail: null,
+      providerId: prepared.provider.id,
+      modelId: prepared.modelId,
+      text: sentence.text,
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      // A whole read's mark says what it read: the pick, whichever part it was asked about.
+      scope: input.within ? scope : (owner?.check?.scope ?? scope),
+      versions: [],
+      excluded: [],
+      checkedAt: startedAt,
+      ...(parts && { parts }),
+    };
+    const priorFigures =
+      allMarks(blocks).find(
+        (mark) =>
+          mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
+      )?.check ?? null;
+    const pending = sentence.figures?.length
+      ? beginFigureCheck(priorFigures, check, sentence.figures, null, sentence.projection)
+      : check;
+    return {
+      pending,
+      queued: {
+        id: check.id,
+        ...checkText(sentence),
+        cited: sentence.cited,
+        recordClaim: noteTextOf(sentence),
+        place: { blockId: sentence.blockId, from: sentence.from },
+        ...(plans && { parts: plans }),
+        ...(input.part && { only: input.part.span }),
+        ...(previous && { previous }),
+        ...(input.within && prior && resumesRead(prior, input.within) && { resumesStopped: true }),
+        ...((owner?.parts ?? physicalPrior?.parts) && {
+          priorParts: owner?.parts ?? physicalPrior?.parts,
+        }),
+        before: priorFigures,
+      },
+    };
+  }
+
+  function checkRequest(
+    sentence: ReturnType<typeof startCheck>["queued"],
+    scope: EvidenceScope,
+    prepared: PreparedChatModel,
+    mindId: string,
+    signal: AbortSignal,
+  ): ClaimCheckRequest {
+    return {
+      claim: sentence.claim,
+      ...(sentence.projection && { projection: sentence.projection }),
+      context: sentence.context,
+      ...(sentence.figures && { figures: sentence.figures }),
+      cited: citedNow(sentence.cited),
+      ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
+      ...("only" in sentence && sentence.only && { only: sentence.only }),
+      ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
+      ...("resumesStopped" in sentence && sentence.resumesStopped && { resumesStopped: true }),
+      scope,
+      model: prepared,
+      mindId,
+      recordClaim: sentence.recordClaim,
+      place: sentence.place,
+      cacheKey: mindId,
+      signal,
+    };
+  }
+
+  /** Every check marking a sentence, as it reads now: what a whole read's result may replace. */
+  const marksOn = (blocks: Y.XmlFragment, sentence: SelectedSentence) =>
+    JSON.stringify(
+      markedSentences(blocks)
+        .filter(
+          (each) =>
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        )
+        .map(({ check }) => check),
+    );
+
+  /**
+   * The sentences a whole read of these stretches reads (as `sentenceKey`s, with the part asked
+   * about), and how many of their parts it checks against the pick: a part asked about; after a
+   * read of the same pick stopped at its budget, each part it stopped before judging; else each
+   * not yet Supported or Contradicted, as the part check reads them, with each one's check. Null
+   * parts: a sentence with none yet is sorted as it is read, its check naming its parts first.
+   */
+  function readTarget(
+    mindId: string,
+    stretches: readonly TextStretch[],
+    part: ParsedCheck["part"],
+    within: SearchScope,
+  ): { sentences: string; parts: number | null; checks: PlannedCheck[] } {
+    return content.read(mindId, (blocks) => {
+      const selected = selectedSentences(blocks, stretches);
+      const sentences = selected.ok ? selected.sentences : [];
+      const owner = part ? partOwner(blocks, part) : null;
+      const read = sentences.filter((sentence) => !owner || isSentence(owner.sentence, sentence));
+      let parts: number | null = 0;
+      const checks: PlannedCheck[] = [];
+      for (const sentence of read) {
+        const marks = markedSentences(blocks).filter(
+          (each) =>
+            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        );
+        const prior =
+          marks.length === 1 && marks[0]?.check.text === sentence.text ? marks[0] : null;
+        const all = owner?.parts ?? prior?.check.parts;
+        const open = part
+          ? owner?.parts.filter(
+              (each) => each.span.start === part.span.start && each.span.end === part.span.end,
+            )
+          : prior && resumesRead(prior.check, within)
+            ? prior.check.parts?.filter(stoppedAtBudget)
+            : prior?.check.parts?.filter(
+                (each) =>
+                  each.verdict !== "supported" &&
+                  each.verdict !== "contradicted" &&
+                  !(each.kind === "opinion" && each.verdict === null),
+              );
+        parts = parts === null || open === undefined ? null : parts + open.length;
+        const asked = { ...checkText(sentence), cited: citedNow(sentence.cited) };
+        if (!all || !open) {
+          checks.push({ ...asked, findsParts: true, judgesAbsence: true });
+          continue;
+        }
+        const figures = asked.figures ?? [];
+        const plans = withFigureFacts(asked.claim, all, figures, asked.projection);
+        const owned = figuresByPart(asked.claim, plans, figures, asked.projection);
+        for (const each of open) {
+          checks.push({
+            ...partRequest(asked, each.span, owned?.[all.indexOf(each)] ?? []),
+            judgesAbsence: judgesAbsence(each),
+          });
+        }
+      }
+      return {
+        sentences: JSON.stringify([read.map((each) => sentenceKey(mindId, each)), part ?? null]),
+        parts,
+        checks,
+      };
+    });
+  }
+
+  /**
+   * Check against a Document… (./wholeRead). A sentence's mark stays as it was until its read
+   * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
+   * meanwhile, wins over the result.
+   */
+  async function readSentences(
+    input: ParsedCheck,
+    within: SearchScope,
+    planned: () => boolean,
+    signal: AbortSignal,
+  ): Promise<CheckSentencesResult> {
+    const { mindId } = input;
+    const current = () => !signal.aborted && planned();
+    const stretches = [{ from: input.from, to: input.to }, ...input.more];
+    const found = content.read(mindId, (blocks) => {
+      const selected = selectedSentences(blocks, stretches);
+      if (!selected.ok) return selected;
+      if (input.part) partOwner(blocks, input.part);
+      // Its mark stays until the read ends, so a check already running would outlast a newer read.
+      const checking = selected.sentences.some((sentence) =>
+        markedSentences(blocks).some(
+          (each) =>
+            each.element === sentence.element &&
+            each.from < sentence.to &&
+            each.to > sentence.from &&
+            each.check.state === "checking",
+        ),
+      );
+      if (checking) throw new InvalidInputError({ key: "error.check.partChecking" });
+      return selected;
+    });
+    if (!found.ok) return { kind: found.reason };
+    const read = wholeRead.toRead(mindId, within);
+    if ("kind" in read) return { kind: "cannot-read", plan: read };
+    const ready = await prepare(input.model ?? options.defaultModel(), "document-check");
+    if (!ready.ok) return ready.result;
+    // Consent or the model can take a while: a pick replaced meanwhile sends nothing.
+    if (!current()) return { kind: "cancelled" };
+    const { prepared } = ready;
+    const scope: ClaimCheckScope = {
+      folderId: options.mindFolder(mindId),
+      widened: false,
+      chosen: within,
+    };
+    const startedAt = options.now().toISOString();
+    const started = content.read(mindId, (blocks) => {
+      const again = selectedSentences(blocks, stretches);
+      if (!again.ok) return { waiting: found.waiting, sentences: [] };
+      const owner = input.part ? partOwner(blocks, input.part) : null;
+      const sentences = again.sentences.flatMap((sentence) =>
+        owner && !isSentence(owner.sentence, sentence)
+          ? []
+          : [
+              {
+                key: sentenceKey(mindId, sentence),
+                marks: marksOn(blocks, sentence),
+                queued: startCheck(blocks, sentence, owner, input, prepared, scope, startedAt)
+                  .queued,
+              },
+            ],
+      );
+      return { waiting: again.waiting, sentences };
+    });
+    const { waiting } = started;
+    if (started.sentences.length === 0) {
+      return waiting.sentences.length > 0 ? { kind: "waiting", waiting } : { kind: "nothing" };
+    }
+
+    // Every request of the read counts toward the most it may spend, which it never passes.
+    const budget = wholeRead.budget(mindId, input.plan ?? "");
+    const task = { id: input.requestId, ...(budget && { budget }) };
+    /** The first check the budget stopped: no part after it sends anything. */
+    let stopped: AtomicClaimCheckResult | null = null;
+    const atomic = async (request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> => {
+      if (stopped) return stopped;
+      const result = await atomicCheck(request);
+      if (result.verdict === "not-checked" && result.reason === "read-budget") {
+        stopped ??= { ...result, versions: [], excluded: [] };
+      }
+      return result;
+    };
+    let checked = 0;
+    for (const { key, marks, queued } of started.sentences) {
+      if (!current()) break;
+      wholeRead.claim(key, input.requestId);
+      try {
+        const reading = wholeRead.reader(input, read, prepared, atomic, current);
+        const result = withSpent(
+          await currentTask.run(task, () =>
+            withCites(createPartCheck(options, reading.readPart))({
+              ...checkRequest(queued, read.scope, prepared, mindId, signal),
+              undecidedOnly: true,
+            }),
+          ),
+          (currency) => options.readSpent(input.requestId, currency),
+          "previous" in queued ? queued.previous : undefined,
+        );
+        if (!current()) break;
+        const at = options.now().toISOString();
+        recordJudged(options.recordAiUse, mindId, prepared, result, at);
+        const kept = content.edit(mindId, (blocks) => {
+          if (!wholeRead.owns(key, input.requestId)) return false;
+          const again = selectedSentences(blocks, stretches);
+          const now = again.ok
+            ? again.sentences.find((each) => sentenceKey(mindId, each) === key)
+            : undefined;
+          if (!now || marksOn(blocks, now) !== marks) return false;
+          const owner = input.part ? currentPartOwner(blocks, input.part) : null;
+          if (input.part && !owner) return false;
+          const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
+          const settled = noteResult(
+            begun.pending,
+            result,
+            at,
+            blocks,
+            mindId,
+            begun.queued.claim,
+            begun.queued.priorParts,
+            begun.queued.before,
+          );
+          markSentence(now.element, now.from, now.to, {
+            ...settled,
+            read: { pages: reading.pagesRead(), of: read.pages },
+          });
+          if (input.part) removeOpinion(blocks, input.part.id);
+          recordOpinions(blocks, []);
+          return true;
+        });
+        if (!kept) continue;
+        if (result.verdict !== "not-checked") checked++;
+        retainEvidence(mindId);
+      } finally {
+        wholeRead.release(key, input.requestId);
+      }
+    }
+    if (!current()) return { kind: "cancelled" };
+    return {
+      kind: "checked",
+      sentences: started.sentences.length,
+      checked,
+      smallModel: judgesUnreliably(prepared),
+      ...(waiting.sentences.length > 0 && { waiting }),
+    };
+  }
+
   async function checkSentences(
     input: ParsedCheck,
     signal: AbortSignal,
@@ -859,82 +1304,19 @@ export function createChecks(options: ChecksOptions) {
       waiting = again.waiting;
       const owner = input.part ? partOwner(blocks, input.part) : null;
       const marked = again.sentences.flatMap((sentence) => {
-        if (
-          owner &&
-          (sentence.element !== owner.sentence.element ||
-            sentence.from !== owner.sentence.from ||
-            sentence.to !== owner.sentence.to)
-        )
-          return [];
-        const priorOwners = markedSentences(blocks).filter(
-          (each) =>
-            each.element === sentence.element && each.from < sentence.to && each.to > sentence.from,
+        if (owner && !isSentence(owner.sentence, sentence)) return [];
+        const started = startCheck(
+          blocks,
+          sentence,
+          owner,
+          input,
+          ready.prepared,
+          scope,
+          startedAt,
         );
-        const physicalPrior =
-          owner?.check ?? (priorOwners.length === 1 ? priorOwners[0]?.check : undefined);
-        const prior = physicalPrior?.text === sentence.text ? physicalPrior : undefined;
-        const previous = owner?.parts ?? prior?.parts;
-        const plans = previous?.map(({ span, kind }) => ({ span, kind }));
-        const parts =
-          owner?.parts.map(
-            (part): ClaimCheckPart =>
-              input.part &&
-              part.span.start === input.part.span.start &&
-              part.span.end === input.part.span.end
-                ? { ...pendingPart(part), verdict: "checking" }
-                : part,
-          ) ??
-          (plans && pendingParts(plans, previous));
-        const check: ClaimCheckAttributes = {
-          id: input.part?.id ?? randomUUID(),
-          request: input.requestId,
-          action: input.action,
-          state: "checking",
-          reason: null,
-          detail: null,
-          providerId: ready.prepared.provider.id,
-          modelId: ready.prepared.modelId,
-          text: sentence.text,
-          evidence: null,
-          says: null,
-          unsupported: null,
-          calculation: null,
-          citedCaseUnchecked: false,
-          citedCaseFound: false,
-          scope: owner?.check?.scope ?? scope,
-          versions: [],
-          excluded: [],
-          checkedAt: startedAt,
-          ...(parts && { parts }),
-        };
-        const priorFigures =
-          allMarks(blocks).find(
-            (mark) =>
-              mark.element === sentence.element &&
-              mark.from < sentence.to &&
-              mark.to > sentence.from,
-          )?.check ?? null;
-        const pending = sentence.figures?.length
-          ? beginFigureCheck(priorFigures, check, sentence.figures, null, sentence.projection)
-          : check;
-        markSentence(sentence.element, sentence.from, sentence.to, pending);
+        markSentence(sentence.element, sentence.from, sentence.to, started.pending);
         if (input.part) removeOpinion(blocks, input.part.id);
-        return [
-          {
-            id: check.id,
-            ...checkText(sentence),
-            cited: sentence.cited,
-            recordClaim: noteTextOf(sentence),
-            place: { blockId: sentence.blockId, from: sentence.from },
-            ...(plans && { parts: plans }),
-            ...(input.part && { only: input.part.span }),
-            ...(previous && { previous }),
-            ...((owner?.parts ?? physicalPrior?.parts) && {
-              priorParts: owner?.parts ?? physicalPrior?.parts,
-            }),
-            before: priorFigures,
-          },
-        ];
+        return [started.queued];
       });
       recordOpinions(blocks, []);
       if (marked.length > 0) recordUnread(blocks, input.requestId, unread);
@@ -947,23 +1329,9 @@ export function createChecks(options: ChecksOptions) {
     let checked = 0;
     for (const sentence of queued) {
       if (signal.aborted) break;
-      const result = await claimCheck({
-        claim: sentence.claim,
-        ...(sentence.projection && { projection: sentence.projection }),
-        context: sentence.context,
-        ...(sentence.figures && { figures: sentence.figures }),
-        cited: citedNow(sentence.cited),
-        ...("parts" in sentence && sentence.parts && { parts: sentence.parts }),
-        ...("only" in sentence && sentence.only && { only: sentence.only }),
-        ...("previous" in sentence && sentence.previous && { previous: sentence.previous }),
-        scope: evidenceScope,
-        model: ready.prepared,
-        mindId,
-        recordClaim: sentence.recordClaim,
-        place: sentence.place,
-        cacheKey: mindId,
-        signal,
-      });
+      const result = await claimCheck(
+        checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal),
+      );
       if (signal.aborted) break;
       if (result.verdict !== "not-checked") checked++;
       const at = options.now().toISOString();
@@ -1079,6 +1447,18 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  const wholeRead = createWholeRead({
+    documents: options.documents,
+    pickedDocuments: options.pickedDocuments,
+    evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),
+    defaultModel: options.defaultModel,
+    model: (choice) => chat.modelShape(choice ?? undefined),
+    runStart: (check, model) => checkRunStart(options, check, model),
+    estimate: options.estimateRead,
+    progress: options.documentCheckProgress,
+    newId: randomUUID,
+  });
+
   return {
     ...verify,
 
@@ -1091,14 +1471,51 @@ export function createChecks(options: ChecksOptions) {
       if (running.has(parsed.requestId)) {
         throw new InvalidInputError(`The check ${parsed.requestId} is already running.`);
       }
+      const { within, plan } = parsed;
+      const target =
+        within && plan
+          ? readTarget(
+              parsed.mindId,
+              [{ from: parsed.from, to: parsed.to }, ...parsed.more],
+              parsed.part,
+              within,
+            ).sentences
+          : null;
+      const planned = () =>
+        within !== null &&
+        plan !== null &&
+        target !== null &&
+        wholeRead.planned(parsed.mindId, plan, within, target);
+      if (within && !planned()) throw new InvalidInputError({ key: "error.check.pickReplaced" });
       const tracked = track(parsed.requestId, parsed.mindId);
+      if (within) wholeReads.add(parsed.requestId);
       try {
+        if (within) return await readSentences(parsed, within, planned, tracked.signal);
         return parsed.action === "contradiction-watch"
           ? await watch.checkSentences(parsed, tracked.signal)
           : await checkSentences(parsed, tracked.signal);
       } finally {
+        wholeReads.delete(parsed.requestId);
         tracked.done();
       }
+    },
+
+    async planDocumentCheck(input: unknown): Promise<DocumentCheckPlan> {
+      if (!isRecord(input)) throw new InvalidInputError("planDocumentCheck expects an object.");
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      const within = parseWithin(input.within);
+      const stretches = [
+        { from: parsePlace(input.from, "from"), to: parsePlace(input.to, "to") },
+        ...parseStretches(input.more),
+      ];
+      const target = readTarget(mindId, stretches, parsePart(input.part), within);
+      // A newer pick replaces the read of the one before: it stops, and its result never lands.
+      for (const requestId of wholeReads) {
+        const run = running.get(requestId);
+        if (run?.mindId === mindId) run.controller.abort();
+      }
+      return wholeRead.plan(mindId, within, parseModel(input.model), target);
     },
 
     async planContradictionCheck(mindId: unknown): Promise<ContradictionCheckPlan> {

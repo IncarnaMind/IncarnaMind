@@ -8,6 +8,8 @@ import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 /** The request to confirm a contradiction, judge the nearest line, or judge a record cite. */
 const CONFIRM_RUN = /^Compare a sentence the User wrote with words quoted from a Passage/m;
 const RECORD_RUN = /^Compare a sentence the User wrote with the exact Passage a record cite names/m;
+/** A look at the quote a whole read's window gives for what a sentence says is absent. */
+const PRESENCE_RUN = /^A sentence the User wrote says something is absent from their Documents/m;
 
 /**
  * The scripted judgement of a sentence beside the words quoted from a Passage: they conflict
@@ -16,6 +18,8 @@ const RECORD_RUN = /^Compare a sentence the User wrote with the exact Passage a 
  */
 export function fakeConfirm(options: GenerateOptions): string | null {
   const system = systemOf(options.prompt);
+  // The scripted whole read quotes only the clause itself.
+  if (PRESENCE_RUN.test(system)) return "Judgement: there";
   const record = RECORD_RUN.test(system);
   if (!CONFIRM_RUN.test(system) && !record) return null;
   const text = lastUserText(options.prompt);

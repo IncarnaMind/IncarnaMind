@@ -25,6 +25,7 @@ import type { Price } from "../../src/core/providers/catalog/types";
 import { outputTokens } from "../../src/core/providers/outputLimits";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
 import { searchWeb } from "../../src/core/providers/webSearch";
+import { currentTask } from "../../src/core/runs/current";
 import { runItems } from "../../src/core/runs/stop";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeBrowser, startFakeOpenAI } from "../helpers/chatgpt";
@@ -1156,6 +1157,76 @@ describe("The estimate before a check run (#973)", () => {
     const estimate = await core.estimateRun({ items: 10, each: "check" });
 
     expect(estimate).toMatchObject({ calls: 35, tokens: 35 * 5_100 });
+  });
+});
+
+describe("A Run's budget (#1554)", () => {
+  // 100,000 output tokens of Claude Haiku 5.5 reserve $0.05, and a reply that writes them all settles there.
+  const BUDGET = { amount: 0.08, currency: "USD" as const };
+  const LOCAL = { kind: "ollama" as const, modelId: "qwen3.5:4b" };
+  const inRun = <T>(id: string, work: () => Promise<T>) =>
+    currentTask.run({ id, budget: BUDGET }, work);
+
+  test("a request that would take the Run past its budget, counting what it settled at, is refused, and nothing is recorded", async () => {
+    const model = reportingModel([{ input: 40, output: 100_000 }]);
+    const { core, dataDir } = await cloudCore(model);
+    const run = crypto.randomUUID();
+
+    await inRun(run, () => request(core, 100_000));
+    const refused = await inRun(run, () => request(core, 100_000)).then(
+      () => null,
+      (error: unknown) => classifyProviderError(error),
+    );
+
+    // What the Run had spent: the first request's 100,000 output tokens and 40 input, at $0.0500.
+    expect(refused).toMatchObject({
+      kind: "cost-cap",
+      budget: { most: BUDGET, spent: { currency: "USD", amount: expect.closeTo(0.050004, 6) } },
+    });
+    expect(model.doStreamCalls).toHaveLength(1);
+    expect(rows(dataDir)).toHaveLength(1);
+    // Another Run, and work in none, keep their own counts.
+    await inRun(crypto.randomUUID(), () => request(core, 100_000));
+    await request(core, 100_000);
+    expect(model.doStreamCalls).toHaveLength(3);
+  });
+
+  test("what the Run's open requests set aside counts too: of two at once, the one that would pass is refused", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = reportingModel([{ input: 40, output: 1_000 }], () => held);
+    const { core, dataDir } = await cloudCore(model);
+    const run = crypto.randomUUID();
+
+    const requests = [0, 1].map(() =>
+      inRun(run, () => request(core, 100_000)).then(
+        () => null,
+        (error: unknown) => classifyProviderError(error),
+      ),
+    );
+    await expect.poll(() => rows(dataDir).length).toBe(1);
+    release();
+
+    const [first, second] = await Promise.all(requests);
+    // Refused while the other is still open: it had spent nothing yet, whatever it set aside.
+    expect(first ?? second).toMatchObject({
+      kind: "cost-cap",
+      budget: { spent: { currency: "USD", amount: 0 } },
+    });
+    expect([first, second].filter((each) => each === null)).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(1);
+  });
+
+  test("a model on this computer has no budget to keep to", async () => {
+    const model = reportingModel([{ input: 40, output: 100_000 }]);
+    const { core } = await cloudCore(model, LOCAL);
+    const run = crypto.randomUUID();
+
+    for (const _ of [0, 1, 2]) await inRun(run, () => request(core, 100_000));
+
+    expect(model.doStreamCalls).toHaveLength(3);
   });
 });
 

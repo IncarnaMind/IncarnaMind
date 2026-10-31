@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type { CheckSentencesInput } from "../../src/core/api";
 import type * as Checks from "../../src/renderer/src/checks";
+import type { ShownClaim } from "../../src/renderer/src/editor/claimChecks";
 
 /*
  * Asking for a check from a mark an older version made: its action says
@@ -69,6 +70,60 @@ describe("a check asked again", () => {
     expect(asked[0]?.running).toMatchObject({ action: expected });
     expect(checks.useChecks.getState().running["mind-1"]).toBeUndefined();
   });
+
+  test("Check again preserves a contradiction watch's action", async () => {
+    asked.length = 0;
+    const claim = {
+      from: 1,
+      to: 2,
+      check: { action: "contradiction-watch", scope: { widened: false } },
+    } as unknown as ShownClaim;
+
+    await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim);
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.input.action).toBe("contradiction-watch");
+  });
+});
+
+test("Check again on a whole read asks its card to size the read and ask its cost, reading nothing", async () => {
+  asked.length = 0;
+  const chosen = { folderIds: [], tagIds: [], documentIds: ["lease"] };
+  const claim = {
+    from: 1,
+    to: 2,
+    check: {
+      id: "whole-read",
+      action: "check-against-document",
+      scope: { widened: false, chosen, folderId: null },
+    },
+  } as unknown as ShownClaim;
+
+  const shown: string[] = [];
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, undefined, (id) => shown.push(id));
+
+  expect(asked).toHaveLength(0);
+  expect(checks.useChecks.getState().pickDocument["whole-read"]).toEqual(chosen);
+  // Use the figure closes no card that has to ask: the card opens for it.
+  expect(shown).toEqual(["whole-read"]);
+  checks.dismissDocumentPicker("whole-read");
+
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, true);
+  expect(asked).toHaveLength(1);
+  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: true });
+  expect(asked[0]?.input.within).toBeUndefined();
+});
+
+test("Check against all Documents after a whole read checks as an ordinary check", async () => {
+  asked.length = 0;
+
+  await checks.checkSentences(editor, "mind-1", new Y.Doc(), "check-against-document", {
+    allDocuments: true,
+  });
+
+  expect(asked).toHaveLength(1);
+  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: true });
+  expect(asked[0]?.input.within).toBeUndefined();
 });
 
 test("Check anyway sends an explicit part target even when the selection reader expands its sentence", async () => {

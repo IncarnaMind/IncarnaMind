@@ -7,6 +7,7 @@ import {
   withFigureFacts,
 } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
+import { stoppedAtBudget } from "../../../shared/readBudget";
 import type {
   CheckFigure,
   ClaimCheckFailure,
@@ -37,6 +38,7 @@ const STOPS: readonly ClaimCheckFailure[] = [
   "failed",
   "rate-limit",
   "cost-cap",
+  "read-budget",
   "plan-limit",
   "out-of-credit",
   "consent-revoked",
@@ -74,8 +76,24 @@ function checkedPart(
   };
 }
 
-export function createPartCheck(deps: ClaimCheckDependencies) {
-  const atomic = createClaimCheck(deps);
+/** A part's own check: its words, read in its sentence and that sentence's paragraph. */
+export function partRequest<
+  T extends Pick<ClaimCheckRequest, "claim" | "context" | "originalClaim">,
+>(request: T, span: ClaimPartSpan, figures: readonly CheckFigure[]) {
+  return {
+    ...request,
+    claim: request.claim.slice(span.start, span.end),
+    figures: figures.length ? [...figures] : undefined,
+    projection: undefined,
+    originalClaim: request.originalClaim ?? request.claim,
+    context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+  };
+}
+
+export function createPartCheck(
+  deps: ClaimCheckDependencies,
+  atomic: (request: ClaimCheckRequest) => Promise<AtomicClaimCheckResult> = createClaimCheck(deps),
+) {
   return async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
     const full: ClaimPartPlan = { kind: "fact", span: { start: 0, end: request.claim.length } };
     const failed = (reason: ClaimCheckFailure, detail: string | null = null): ClaimCheckResult => {
@@ -218,6 +236,16 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
         (request.only !== undefined && sameSpan(plan.span, request.only)) ||
         (request.figureIds !== undefined && figures.length > 0);
       if (
+        request.undecidedOnly &&
+        !selected &&
+        (previous?.verdict === "supported" ||
+          previous?.verdict === "contradicted" ||
+          (request.resumesStopped && previous && !stoppedAtBudget(previous)))
+      ) {
+        parts.push(previous);
+        continue;
+      }
+      if (
         (request.only && !selected) ||
         (request.figureIds && !figures.some((figure) => request.figureIds?.includes(figure.id)))
       ) {
@@ -270,15 +298,7 @@ export function createPartCheck(deps: ClaimCheckDependencies) {
                 ? null
                 : request.claim.slice(plan.span.start, plan.span.end),
             },
-            () =>
-              atomic({
-                ...request,
-                claim: request.claim.slice(plan.span.start, plan.span.end),
-                figures: figures.length ? figures : undefined,
-                projection: undefined,
-                originalClaim: request.originalClaim ?? request.claim,
-                context: [request.context, request.claim].filter(Boolean).join("\n\n"),
-              }),
+            () => atomic(partRequest(request, plan.span, figures)),
           );
           parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
           if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {

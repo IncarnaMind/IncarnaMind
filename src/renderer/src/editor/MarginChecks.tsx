@@ -4,10 +4,8 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from "re
 import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
 import { focusFigure, useFigureFocus } from "../figures";
-import { useT } from "../i18n";
 import { mindFolded } from "../mindColumn";
 import { motionMode, subscribeMotion } from "../motion";
-import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
@@ -184,7 +182,6 @@ export function MarginChecks({
   /** The Mind and its document: a card checks again there. */
   mind: { id: string; doc: Y.Doc };
 }) {
-  const t = useT();
   const place = useCardPlace(mind.id);
   const layer = useRef<HTMLDivElement>(null);
   // The outline draws in the layer, which a figure shown before this note opened waits for.
@@ -459,7 +456,6 @@ export function MarginChecks({
       editor={editor}
       mindId={mind.id}
       doc={mind.doc}
-      label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
       reveal={mark.delay !== null}
       style={
         {

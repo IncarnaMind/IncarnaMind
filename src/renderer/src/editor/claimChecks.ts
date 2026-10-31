@@ -58,6 +58,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "recordCites",
   "checkedAt",
   "kept",
+  "read",
   "figures",
   "remainder",
 ];

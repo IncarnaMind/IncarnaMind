@@ -26,7 +26,7 @@ const SENTENCES_LEFT: Record<string, number> = {
   "agents/index.ts": 6,
   "agents/setup.ts": 4,
   "aiUse.ts": 7,
-  "answers/checks/index.ts": 6,
+  "answers/checks/index.ts": 7,
   "answers/index.ts": 6,
   "approvals.ts": 9,
   "checkpoints/index.ts": 3,

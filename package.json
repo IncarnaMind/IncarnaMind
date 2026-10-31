@@ -34,6 +34,7 @@
     "eval:reports": "vitest run --config eval/reports/vitest.config.ts",
     "eval:repeats": "vitest run --config eval/repeats/vitest.config.ts",
     "eval:scope": "vitest run --config eval/repeats/vitest.scope.config.ts",
+    "eval:whole-read": "vitest run --config eval/repeats/vitest.wholeRead.config.ts",
     "eval:claims": "vitest run --config eval/repeats/vitest.claims.config.ts",
     "eval:harness": "vitest run --config eval/harness/vitest.config.ts",
     "eval:speed": "vitest run --config eval/speed/vitest.config.ts",

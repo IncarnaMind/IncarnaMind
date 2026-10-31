@@ -949,6 +949,38 @@ export function createChat(options: {
       );
     },
 
+    /**
+     * What execution will know of a model before its first request, without sending a Document or
+     * asking for consent: what it can do, how it gives Citations, and the window its requests fit.
+     */
+    async modelShape(
+      choice?: ChatModelChoice,
+    ): Promise<Pick<PreparedChatModel, "capabilities" | "support" | "window"> | null> {
+      const chosen = choice ?? settings.get().user.chatModel;
+      const row = chosen && rowById(chosen.providerId);
+      if (!chosen || !row || !isKnownRow(row)) return null;
+      const shaped = (capabilities: ModelCapabilities, window: ContextWindow | undefined) => {
+        const support = startingSupport(capabilities);
+        return { capabilities, ...(support && { support }), ...(window && { window }) };
+      };
+      if (row.kind !== "ollama") {
+        // As `prepareModel` does: a local preset's list says how large its models' windows are.
+        const provider = await toProvider(row, chosen.modelId);
+        if (!provider.service && isPreset(catalogProvider(provider.catalogId))) {
+          await listedModels(row, provider);
+        }
+        const capabilities = capabilitiesOf(row, chosen.modelId);
+        return shaped(capabilities, cloudWindow(capabilities));
+      }
+      const profile = await profileFor(row.kind, row.base_url, chosen.modelId);
+      return shaped(
+        capabilitiesOf(row, chosen.modelId, profile ? ollamaFacts(profile) : undefined),
+        profile
+          ? { tokens: profile.settings.numCtx, outputTokens: profile.settings.outputTokens }
+          : undefined,
+      );
+    },
+
     /** A provider's kind, and whether its model runs on this computer (it sends to no service); null when it's gone. */
     describe(id: string): { kind: ChatProviderKind; local: boolean } | null {
       const row = rowById(id);

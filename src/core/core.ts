@@ -1462,6 +1462,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
+  /**
+   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
+   * inside a wall only those behind it, from outside never one a wall keeps inside.
+   */
+  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
+    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
+    const picked = resolveSearchScope(scope, {
+      folderTree: (folderId) => folders.subtree(folderId),
+      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      documentIds: (filter) => documents.ids(filter),
+    });
+    return (picked ?? []).filter((id) => searched.has(id));
+  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
@@ -2560,6 +2573,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledDocument,
     walledFolderName,
     searchedScope,
+    pickedDocuments,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),
@@ -2578,6 +2592,8 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      live: (documentIds) => documents.getMany(documentIds),
+      passages: (documentId) => documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
       batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
@@ -2591,6 +2607,12 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    estimateRead(model, read) {
+      const metered = chat.metered(model ?? undefined);
+      return metered && meter.estimateRead(metered, read);
+    },
+    readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
@@ -4960,6 +4982,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
+    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
     chooseRecordCiteSource: (input) =>
