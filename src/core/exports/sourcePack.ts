@@ -178,15 +178,18 @@ function pictureHtml(page: PackPage, picture: DrawnPage, language: Language): st
   );
 }
 
+type QuoteReader = (attributes: Partial<CitationAttributes>) => string | null;
+
 /** A page that wasn't saved: its quotes, as words. */
-function quotesHtml(page: PackPage, language: Language): string {
-  const quotes = page.entries.flatMap(({ citation }) =>
-    citation.attributes.quote
+function quotesHtml(page: PackPage, language: Language, readQuote: QuoteReader): string {
+  const quotes = page.entries.flatMap(({ citation }) => {
+    const quote = readQuote(citation.attributes);
+    return quote
       ? [
-          `<p class="pack-quote"><span class="pack-badge">${citation.number}</span> “${escapeHtml(citation.attributes.quote)}”</p>`,
+          `<p class="pack-quote"><span class="pack-badge">${citation.number}</span> “${escapeHtml(quote)}”</p>`,
         ]
-      : [],
-  );
+      : [];
+  });
   const note = escapeHtml(translate(language, "export.pack.noPage"));
   return `<p class="pack-note">${note}</p>${quotes.join("")}`;
 }
@@ -200,6 +203,7 @@ export function renderSourcePack(
   title: string,
   pages: readonly PackPage[],
   language: Language,
+  readQuote: QuoteReader,
   unread: readonly UnreadFile[] = [],
   names = false,
 ): string {
@@ -225,7 +229,9 @@ export function renderSourcePack(
     return (
       `<section class="pack-page" data-pack="${index}">` +
       `<h2 class="pack-title"><span class="pack-numbers">${numbers}</span> ${escapeHtml(source)}</h2>` +
-      (page.image ? pictureHtml(page, page.image, language) : quotesHtml(page, language)) +
+      (page.image
+        ? pictureHtml(page, page.image, language)
+        : quotesHtml(page, language, readQuote)) +
       "</section>"
     );
   });
