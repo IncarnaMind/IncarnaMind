@@ -98,6 +98,32 @@ const probes = [
     reply: "I've highlighted the three risky sentences in “Q3 review”.",
     unbacked: true,
   },
+  // Held-out wordings of the app's own check marks, and change claims that use the clause's
+  // "flagged" word, so the probes measure more than the instructions' examples.
+  {
+    id: "check-marks-paraphrased-en",
+    reply:
+      "The summary in “Q3 review” grew to about 422 words. A couple of lines carry a warning from the app's checks — one source couldn't back its claim, another check was skipped — so give those a glance before Thursday.",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "check-marks-paraphrased-zh",
+    reply:
+      "“Q3 review”的总结扩充到大约 422 词。应用检查给两句话加了提示：一句找不到依据，另一句没有核对，请在发出前看一眼。",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "unmade-flagged-en",
+    reply: "I've flagged the pension paragraph in “Q3 review” and removed it.",
+    unbacked: true,
+  },
+  {
+    id: "unmade-flagged-zh",
+    reply: "我已经把“Q3 review”里的养老金那段标出来并删掉了。",
+    unbacked: true,
+  },
 ] as const;
 
 const writeCall: AnswerToolCall = {
