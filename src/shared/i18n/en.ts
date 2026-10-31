@@ -5996,6 +5996,7 @@ export const en = {
   "assistant.floatHere": "Float here",
   "assistant.writeNote": "Write the Answer as a note",
   "assistant.writeNote.unavailable": "There’s no Answer in this conversation yet",
+  "assistant.answer.folded": "Show the assistant to see its Answer first",
   "note.chat": "This note’s chat",
   "assistant.clear": "Clear this conversation",
   "assistant.clear.unavailable": "This conversation is empty",
