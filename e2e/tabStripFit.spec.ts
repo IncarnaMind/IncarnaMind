@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { SHOW_ALL_PX } from "../src/renderer/src/components/tabs/useTabStripFit";
+import { TYPE_AHEAD_MS } from "../src/renderer/src/components/usePopoverMenu";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -658,7 +659,7 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`typing in the list searches from the row in focus, repeats cycle, and Space is part of the name (${language}) (#2244)`, async () => {
+  test(`typing in the list searches from the row in focus, repeats cycle, and Space is part of the name only straight after the letters that reached one (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
@@ -668,6 +669,7 @@ for (const language of LANGUAGES) {
     const second = language === "en" ? "Untitled beta" : "城市热岛 草稿";
     const other = language === "en" ? "Zebra notes" : "斑马笔记";
     const key = language === "en" ? "u" : "c";
+    const none = language === "en" ? "q" : "l";
     const query = language === "en" ? "untitled b" : "chengshiredao c";
     const report = await addReport(window, language);
     for (const name of [first, second, other]) await addMind(window, groupAt(window, 0), name);
@@ -698,12 +700,16 @@ for (const language of LANGUAGES) {
       await window.keyboard.press("Enter");
       await expect(menu).toBeVisible();
     };
+    const reopen = async () => {
+      await button.focus();
+      await window.keyboard.press("Enter");
+      await expect(menu).toBeVisible();
+    };
     await openList();
 
     // A new name is looked for from the row after the one in focus, and round from the last.
     await window.keyboard.press("Home");
     await expect(rowOf(first)).toBeFocused();
-    await window.waitForTimeout(700);
     await window.keyboard.press(key);
     await expect(rowOf(second)).toBeFocused();
 
@@ -720,6 +726,46 @@ for (const language of LANGUAGES) {
     await window.keyboard.type(query);
     await expect(rowOf(second)).toBeFocused();
     await window.keyboard.press("Enter");
+    await expect(list.getByRole("tab", { name: second, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // A key that moves the focus ends the name: a Space straight after presses the row in focus,
+    // rather than joining letters typed before the move.
+    await reopen();
+    await window.keyboard.press(key);
+    await expect(rowOf(first)).toBeFocused();
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("ArrowDown");
+    const moved = await menu.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+    await window.keyboard.press("Space");
+    await expect(menu).not.toBeVisible();
+    await expect(list.getByRole("tab", { name: moved, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // A letter no name takes ends the search too: the Space after it presses the focused row.
+    await reopen();
+    await window.keyboard.press("Home");
+    await expect(rowOf(first)).toBeFocused();
+    await window.keyboard.press(none);
+    await expect(rowOf(first)).toBeFocused();
+    await window.keyboard.press("Space");
+    await expect(menu).not.toBeVisible();
+    await expect(list.getByRole("tab", { name: first, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // The pause ends the search as well: a Space then presses the row in focus.
+    await reopen();
+    await window.keyboard.press(key);
+    await expect(rowOf(second)).toBeFocused();
+    await window.waitForTimeout(TYPE_AHEAD_MS + 100);
+    await window.keyboard.press("Space");
+    await expect(menu).not.toBeVisible();
     await expect(list.getByRole("tab", { name: second, exact: true })).toHaveAttribute(
       "aria-selected",
       "true",

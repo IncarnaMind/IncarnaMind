@@ -23,7 +23,7 @@ const MIN_BESIDE_ROW_PX = 120;
 /** Menu items of every kind: plain, radio and checkbox. */
 const ITEMS = '[role^="menuitem"]';
 /** Letters typed this close together jump to a name; a pause starts a new one. */
-const TYPE_AHEAD_MS = 600;
+export const TYPE_AHEAD_MS = 600;
 
 /** A row crossed on the way to an open submenu takes over once the pointer has rested on it this long. */
 const SLIDE_REST_MS = 300;
@@ -175,6 +175,10 @@ function itemForKey(key: string, all: readonly HTMLElement[]): HTMLElement | und
  * the name being typed and look again from the first row. A Space within that pause is part of
  * the name ("untitled s" reaches "Untitled something"), and never presses the row in focus. A
  * field the menu holds keeps its own keys.
+ *
+ * Only letters that reached a name are kept: any other key that moves the focus ends the name
+ * (see `onKeyDown`), and letters no name takes end it too, so a Space after either presses the
+ * row in focus.
  */
 function typedTo(
   event: KeyboardEvent,
@@ -210,6 +214,8 @@ function typedTo(
   // The app's one way to jump to a name by its first letters, as the sidebar's tree does: a
   // Chinese name by its pinyin or initials too.
   const item = around.find((each) => startsWith(text, (each.textContent ?? "").trim()));
+  // Letters no name takes end the name, so the Space after them presses the row in focus.
+  if (item === undefined) typed.current = { text: "", at: 0 };
   // The first letters of a name are never a stray key: the menu keeps them for the next one,
   // and a Space typed into a name never presses the row it is in.
   if (item !== undefined || key === " ") event.preventDefault();
@@ -448,12 +454,14 @@ export function usePopoverMenu({
       if (leaving) menu.current?.hidePopover();
       return;
     }
-    const next =
-      itemForKey(event.key, itemsOf(menu.current)) ?? typedTo(event, menu.current, typed);
-    if (!next) return;
+    const next = itemForKey(event.key, itemsOf(menu.current));
+    // The focus left the row the letters reached, so the name ends: a Space now presses the row.
+    if (next !== undefined) typed.current = { text: "", at: 0 };
+    const item = next ?? typedTo(event, menu.current, typed);
+    if (!item) return;
     event.preventDefault();
-    next.focus();
-    closeSubmenusBut(menu.current, next);
+    item.focus();
+    closeSubmenusBut(menu.current, item);
   };
 
   return {
