@@ -88,6 +88,12 @@ import { classifyProviderError, LocalModelError, OllamaNotRunningError } from ".
 /** How long a provider's model list is kept before it is asked again. */
 const MODEL_LIST_TTL_MS = 5 * 60_000;
 
+/** When a model list was asked for: `order` among every ask, `at` in milliseconds. */
+interface ListAsked {
+  order: number;
+  at: number;
+}
+
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
  * Connector is on, the core adds "tool-results" (what its Tools return),
@@ -446,9 +452,18 @@ export function createChat(options: {
       ? OLLAMA_CLOUD
       : null);
 
-  /** Model lists by provider and server, with when they were fetched. */
-  const modelLists = new Map<string, { at: number; models: ListedModel[] }>();
+  /** Model lists by provider and server, with when they were asked for, in order and in time. */
+  const modelLists = new Map<string, ListAsked & { models: ListedModel[] }>();
   const listKey = (row: ProviderRow) => `${row.id}\n${row.base_url ?? ""}\n${row.endpoint ?? ""}`;
+  let listsAsked = 0;
+  const askList = (): ListAsked => ({ order: ++listsAsked, at: Date.now() });
+  /** Keeps a list, unless one asked for after it came back first: that one is newer (#2302). */
+  const keepList = (key: string, asked: ListAsked, models: ListedModel[]) => {
+    const kept = modelLists.get(key);
+    if (models.length > 0 && (!kept || kept.order < asked.order)) {
+      modelLists.set(key, { ...asked, models });
+    }
+  };
 
   /** The models a saved provider lists, kept for a few minutes; none for a cloud service the User hasn't allowed yet. */
   const listedModels = async (row: ProviderRow, provider: ChatProvider): Promise<ListedModel[]> => {
@@ -466,6 +481,7 @@ export function createChat(options: {
     }
     if (!listed && !mayAsk) listed = [];
     if (!listed) {
+      const asked = askList();
       const apiKey = provider.hasApiKey ? await secrets.tryGet(keyName(row.id)) : null;
       listed = await listProviderModels({
         kind: provider.kind,
@@ -474,7 +490,7 @@ export function createChat(options: {
         endpoint: row.endpoint,
         catalogId: row.catalog_id,
       });
-      if (listed.length > 0) modelLists.set(cacheKey, { at: Date.now(), models: listed });
+      keepList(cacheKey, asked, listed);
     }
     return listed;
   };
@@ -1290,6 +1306,7 @@ export function createChat(options: {
           error instanceof ChatNotReadyError ? notReadyError(error) : classifyProviderError(error),
       });
       let listed: ListedModel[];
+      const asked = askList();
       try {
         if (provider.service) {
           // Local mode first: a prompt for what couldn't be sent anyway would only be in the way.
@@ -1317,7 +1334,7 @@ export function createChat(options: {
       } catch (error) {
         return failed("list", null, error);
       }
-      if (listed.length > 0) modelLists.set(listKey(row), { at: Date.now(), models: listed });
+      keepList(listKey(row), asked, listed);
       const modelId = testModelOf(row, listed);
       if (!modelId) {
         return failed("answer", null, new LocalModelError("model", "It lists no models to try."));
