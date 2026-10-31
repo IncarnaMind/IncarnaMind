@@ -155,8 +155,8 @@ function reportReply(prompt: Prompt, question: string): Reply {
   const markers = ids.map((_, index) => `[^${index + 1}]`).join("");
   return {
     text: /\p{Script=Han}/u.test(question)
-      ? `# 报告\n\nMind 里的发现，来源都在${markers}。`
-      : `# Report\n\nWhat the Mind found, with its sources ${markers}.`,
+      ? `# 报告\n\n笔记里的发现，来源都在${markers}。`
+      : `# Report\n\nWhat the Note found, with its sources ${markers}.`,
   };
 }
 
