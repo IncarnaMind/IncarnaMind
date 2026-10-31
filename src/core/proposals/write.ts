@@ -1565,7 +1565,10 @@ function likeness(old: readonly OldToken[], next: readonly NewToken[]): number {
   return (2 * shared) / (a.length + b.length);
 }
 
-/** How alike a paragraph of unknown kind must be to one of the selection's to pair with it. */
+/**
+ * How alike a new paragraph must be to one of the selection's to pair with it when its place
+ * can't say which it is: it is of unknown kind, or the reply has left paragraphs out (#2333).
+ */
 const UNKNOWN_KIND_LIKENESS = 0.3;
 
 /**
@@ -1631,12 +1634,15 @@ function counterpart(segment: Segment, alike: number, translating: boolean): boo
  * place stand in for, between the same two pairs: one for one when there are
  * as many of each, else those the new ones share any words with, most alike
  * first. An edit that keeps what it left out still takes these out, so an
- * item reworded or replaced is never there twice.
+ * item reworded or replaced is never there twice. With `readsAs`, in a reply
+ * that has left paragraphs out, a new one's place says nothing: only those it
+ * reads as (#2333).
  */
 function replacedIn(
   between: readonly Segment[],
   held: readonly NewParagraph[],
   paired: readonly (number | null)[],
+  readsAs: ((segment: Segment, paragraph: NewParagraph) => boolean) | null = null,
 ): Segment[] {
   const replaced: Segment[] = [];
   let oldFrom = 0;
@@ -1651,7 +1657,7 @@ function replacedIn(
         if (covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL) replaced.push(segment);
       }
     }
-    if (olds.length === news.length) {
+    if (!readsAs && olds.length === news.length) {
       replaced.push(...olds);
       return;
     }
@@ -1659,7 +1665,9 @@ function replacedIn(
       .flatMap((segment, i) =>
         news.map((paragraph, j) => ({ i, j, alike: placeLikeness(segment, paragraph) })),
       )
-      .filter((each) => each.alike > 0)
+      .filter(({ i, j, alike }) =>
+        readsAs ? readsAs(olds[i] as Segment, news[j] as NewParagraph) : alike > 0,
+      )
       .sort((a, b) => b.alike - a.alike);
     const usedOld = new Set<number>();
     const usedNew = new Set<number>();
@@ -1682,6 +1690,12 @@ function replacedIn(
 
 /** How alike a new paragraph of unknown kind must be to one of the selection's to take its kind. */
 const MOVED_LIKENESS = 0.5;
+/**
+ * How much more like one of the selection's paragraphs than like any other a new one of a reply
+ * that leaves some out must be to take its place: a new line on the pattern of several (a cost,
+ * a term) is as like each of them, and is added beside them (#2333).
+ */
+const CLEARLY_MORE = 0.1;
 /**
  * How much of a paragraph the reply leaves out another must say for it to go unmarked, moved or
  * made into a table: nearly all of its words, so a new line that only reads like it takes nothing (#2180).
@@ -1779,6 +1793,7 @@ function pairUp(
   segments: readonly Segment[],
   paragraphs: readonly NewParagraph[],
   translating: boolean,
+  may: (segment: Segment, paragraph: NewParagraph) => boolean = () => true,
 ): (number | null)[] {
   const weight = (i: number, j: number): number | null => {
     const segment = segments[i] as Segment;
@@ -1787,7 +1802,7 @@ function pairUp(
     const alike = placeLikeness(segment, paragraph);
     // Of unknown kind, only a paragraph like it can take a Block's place.
     if (paragraph.kind === null && alike < UNKNOWN_KIND_LIKENESS) return null;
-    if (!counterpart(segment, alike, translating)) return null;
+    if (!counterpart(segment, alike, translating) || !may(segment, paragraph)) return null;
     return 1 + 2 * alike;
   };
   return bestPairing(segments.length, paragraphs.length, weight);
@@ -1877,7 +1892,10 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * middle is added, not written over the one after it, and one moved up is
  * added where it now goes. When two are like none of the selection's before
  * any is much like one (a translation), each pairs in order as it comes.
- * `finish` takes out the selection's paragraphs the text never reached, or with
+ * With `leftOut: "keep"` the text may leave paragraphs out: a paragraph pairs
+ * by its place only while none is left out before it, else only with one it
+ * reads as (`readsAs`, #2333), and a text written anew pairs in order once it
+ * ends as long as the selection. `finish` takes out the selection's paragraphs the text never reached, or with
  * `leftOut: "keep"` keeps them unless the text quotes them between <removed>
  * and </removed> (#2180); a request stopped before leaves them. Call each in a
  * Yjs transaction on the document `selection` was read from.
@@ -1893,6 +1911,54 @@ export function createRewriteStream(
   const notes = notesOf();
   // Only the paragraphs the model was shown: an empty one between two isn't in its text.
   const segments = selection.segments.filter((segment) => segment.shown);
+  /** The text may leave paragraphs out, which stay: where a new one stands may say nothing of which it is (#2333). */
+  const keeps = onLeftOut === "keep";
+  const wordsIn = segments.map((segment) => new Set(wordsOf(segment.tokens)));
+  /** Each paragraph's words that none of the selection's others has. */
+  const ownWords = new Map(
+    segments.map((segment, index) => [
+      segment,
+      new Set(
+        [...(wordsIn[index] ?? [])].filter((word) =>
+          wordsIn.every((words, other) => other === index || !words.has(word)),
+        ),
+      ),
+    ]),
+  );
+  const indexOf = new Map(segments.map((segment, index) => [segment, index]));
+  /** How alike a new paragraph is to each of the selection's, and whether it says words of that one's own. */
+  const nearness = new WeakMap<NewParagraph, { alike: number[]; own: boolean[] }>();
+  const nearnessOf = (paragraph: NewParagraph) => {
+    const known = nearness.get(paragraph);
+    if (known) return known;
+    const words = wordsOf(paragraph.tokens);
+    const found = {
+      alike: segments.map((segment) => placeLikeness(segment, paragraph)),
+      own: segments.map((segment) => words.some((word) => ownWords.get(segment)?.has(word))),
+    };
+    nearness.set(paragraph, found);
+    return found;
+  };
+  /**
+   * A new paragraph reads as this one of the selection's: like it by `least`, and clearly more
+   * like it than like any other it could take the place of, unless it says words only each of
+   * them has, as two joined in one do.
+   */
+  const readsAs = (segment: Segment, paragraph: NewParagraph, least = UNKNOWN_KIND_LIKENESS) => {
+    const { alike, own } = nearnessOf(paragraph);
+    const index = indexOf.get(segment) ?? -1;
+    const mine = alike[index] ?? 0;
+    return (
+      mine >= least &&
+      segments.every(
+        (other, at) =>
+          at === index ||
+          (paragraph.kind !== null && paragraph.kind !== other.kind) ||
+          (alike[at] ?? 0) <= mine - CLEARLY_MORE ||
+          (own[index] === true && own[at] === true),
+      )
+    );
+  };
   const first = segments[0];
   let place: Place | null = first
     ? { element: first.element, kind: first.kind, side: "before" }
@@ -1996,8 +2062,12 @@ export function createRewriteStream(
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
+    // A paragraph's place says which it is only while the text goes paragraph for paragraph: once
+    // it has left one out, a new line in the place of the next is new text, not that one (#2333).
+    const placed = !keeps || (kept.length === 0 && between.length === held.length);
     // As many new paragraphs as old ones between two that held their place: each rewrites its own.
     const inPlace =
+      placed &&
       between.length === held.length &&
       held.every((paragraph, index) => {
         const segment = between[index];
@@ -2007,8 +2077,12 @@ export function createRewriteStream(
           counterpart(segment, likeness(segment.tokens, paragraph.tokens), whole)
         );
       });
-    const paired = inPlace ? held.map((_, index) => index) : pairUp(between, held, whole);
-    for (const segment of replacedIn(between, held, paired)) replaced.add(segment);
+    const paired = inPlace
+      ? held.map((_, index) => index)
+      : pairUp(between, held, whole, placed ? undefined : readsAs);
+    for (const segment of replacedIn(between, held, paired, placed ? null : readsAs)) {
+      replaced.add(segment);
+    }
     for (const [index, paragraph] of held.entries()) {
       const pair = paired[index];
       if (pair === null || pair === undefined) addNew(paragraph);
@@ -2030,6 +2104,9 @@ export function createRewriteStream(
         most = alike;
       }
     }
+    if (best !== null && keeps && !readsAs(segments[best] as Segment, paragraph, MOVED_LIKENESS)) {
+      return null;
+    }
     return best;
   };
 
@@ -2043,7 +2120,8 @@ export function createRewriteStream(
     }
     held.push(paragraph);
     if (like === null && !anchored) unlike++;
-    if (unlike >= 2) anew = true;
+    // A text that may leave paragraphs out is written anew only if it turns out as long as the selection.
+    if (unlike >= 2 && !keeps) anew = true;
     if (at >= segments.length) writeHeld(at);
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };
@@ -2223,7 +2301,9 @@ export function createRewriteStream(
           const alike =
             segment !== undefined &&
             (paragraph.kind === null || paragraph.kind === segment.kind) &&
-            placeLikeness(segment, paragraph) >= MOVED_LIKENESS;
+            (keeps
+              ? readsAs(segment, paragraph, MOVED_LIKENESS)
+              : placeLikeness(segment, paragraph) >= MOVED_LIKENESS);
           if (!alike) {
             addNew(paragraph);
             continue;
