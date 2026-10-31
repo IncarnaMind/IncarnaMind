@@ -57,6 +57,21 @@ export class DataFromNewerVersionError extends Error {
   }
 }
 
+/**
+ * The file that keeps secrets exists but can't be read as a whole: it is empty,
+ * its JSON is truncated, it is a directory, or the system refused to read it.
+ * A single unreadable value in a sound file is not this.
+ */
+export class SecretsFileDamagedError extends Error {
+  override name = "SecretsFileDamagedError";
+  constructor(
+    readonly file: string,
+    options?: ErrorOptions,
+  ) {
+    super(`The file that keeps secrets (${file}) is damaged.`, options);
+  }
+}
+
 /** Thrown when a secret can't be stored safely on this device (see `getSecretStorage`). */
 export class SecretStorageError extends TranslatableError {
   override name = "SecretStorageError";
@@ -114,6 +129,14 @@ export class FileWriteCancelledError extends TranslatableError {
   }
 }
 
+/** Thrown when a PDF couldn't be laid out or printed: no PDF was saved, and the Output location is fine. */
+export class PdfLayoutError extends TranslatableError {
+  override name = "PdfLayoutError";
+  constructor(options?: ErrorOptions) {
+    super({ key: "error.pdf.notLaidOut" }, options);
+  }
+}
+
 /** Thrown when a new file would go inside a Linked folder the User said IncarnaMind may not add files to. */
 export class LinkedFolderWritesDeclinedError extends TranslatableError {
   override name = "LinkedFolderWritesDeclinedError";
@@ -164,6 +187,4 @@ export class EmbeddingModelNotReadyError extends Error {
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { isRecord } from "../shared/record";

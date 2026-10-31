@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -355,6 +355,7 @@ export async function launchApp(
     mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await paintNoFrameInPrintPage(app);
   mainProcessIds.set(app, await app.evaluate(() => process.pid));
   await assertPackagedMain(app);
   const window = await app.firstWindow();
@@ -367,6 +368,19 @@ export async function launchApp(
     });
   }
   return { app, window };
+}
+
+/**
+ * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
+ * that waits for one settles. Playwright's focus emulation, which it turns on in every page it
+ * attaches to, has Chromium paint a page that isn't shown, and hid a print that never ended (#1455).
+ */
+async function paintNoFrameInPrintPage(app: ElectronApplication): Promise<void> {
+  await app.context().addInitScript(() => {
+    if (!location.pathname.endsWith("/print.html")) return;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    globalThis.requestAnimationFrame = () => 0;
+  });
 }
 
 /**
@@ -835,6 +849,63 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
+ * Ollama, with "fake-model", which the app asks where the model runs before
+ * each Question is asked. While held, it answers only once released, as an
+ * Ollama busy loading a model does: the Question waits on it, on its way.
+ * In the cloud, it says the model runs on ollama.com.
+ */
+export async function busyOllama() {
+  const waiting: (() => void)[] = [];
+  let holding = false;
+  let cloud = false;
+  let tags = 0;
+  const server: Server = createServer((request, response) => {
+    request.resume();
+    if (request.url !== "/api/tags") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    tags += 1;
+    const listing = {
+      name: "fake-model",
+      model: "fake-model",
+      // What the app learnt of a model is kept by its digest.
+      digest: cloud ? "in-the-cloud" : "on-this-computer",
+      ...(cloud && { remote_host: "https://ollama.com:443" }),
+    };
+    const answer = () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [listing] }));
+    };
+    if (holding) waiting.push(answer);
+    else answer();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+      for (const answer of waiting.splice(0)) answer();
+    },
+    inTheCloud(on: boolean) {
+      cloud = on;
+    },
+    close() {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+
+/**
  * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
  * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
@@ -849,6 +920,24 @@ export async function continueSetup(window: Page): Promise<void> {
   await pointAndClick(window, sorting);
   await expect(card).toBeHidden();
 }
+
+/**
+ * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
+ * place (#1922). It waits for the card and gives it back.
+ */
+export async function askFirstQuestion(window: Page): Promise<Locator> {
+  await newMind(window);
+  await window.getByTestId("mind-editor").focus();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("What is in my Documents?");
+  await window.keyboard.press("Enter");
+  const card = window.getByTestId("model-setup");
+  await expect(card).toBeVisible();
+  return card;
+}
+
+/** A key as a real one is shaped, for a stand-in provider: never a real key. */
+export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
 
 /**
  * Opens the key form where a key's own form names no service we list (#1922): the field says so,
@@ -1401,6 +1490,18 @@ export async function openDocumentAt(window: Page, location: DocumentLocation): 
 }
 
 /**
+ * Opens the Block menu Shift+F10 opens for this Block, without moving the caret, through the
+ * test hook: a spec can hold the caret in one list while the command names another Block.
+ */
+export async function openBlockMenuFor(window: Page, blockId: string): Promise<void> {
+  await window.evaluate((id) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.openBlockMenu(id);
+  }, blockId);
+}
+
+/**
  * The next Skill import in Settings gets this path instead of the system's
  * open dialog, which a test can't drive, through the test hook.
  */
@@ -1448,6 +1549,43 @@ export async function setWindowSize(
   height: number,
 ): Promise<void> {
   await resizeContent(app, window, width, height);
+}
+
+/** Sizes the window until the Note's own pane — its page, beside a viewer in a split — is `width` wide. */
+export async function sizeNote(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const page = window.locator(".mind-tab-page");
+  // A split needs the window's two groups apart, which ends under 1,000px.
+  let windowWidth = Math.max(width + 700, 1100);
+  for (let tries = 0; tries < 8; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await page.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 3) return;
+    windowWidth = Math.max(1000, windowWidth + Math.round(width - have));
+  }
+}
+
+/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
+export async function sizeMind(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const column = window.locator(".mind-column");
+  // Past 1,000px the sidebar stops taking room, so a window under it can't make a column this narrow.
+  let windowWidth = Math.max(width + 600, 1000);
+  for (let tries = 0; tries < 4; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await column.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 1) return;
+    windowWidth += Math.round(width - have);
+  }
+  await expect
+    .poll(async () => Math.abs(((await column.boundingBox())?.width ?? 0) - width))
+    .toBeLessThanOrEqual(1);
 }
 
 const SIZE_WAIT_MS = 30_000;
@@ -2022,10 +2160,37 @@ export async function pointAndClick(
     modifiers?: readonly ("ControlOrMeta" | "Shift")[];
   } = {},
 ): Promise<void> {
+  // A scroll into view can settle a frame or two later (a tab strip rests on whole tabs, which
+  // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
   // A list that redraws as the click begins swaps the element for an equal one: look again.
+  let scrolled = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
-    await target.scrollIntoViewIfNeeded();
+    if (!scrolled) {
+      await target.scrollIntoViewIfNeeded();
+      scrolled = true;
+    }
+    const held = await target.evaluate(async (element) => {
+      const at = element.getBoundingClientRect();
+      const off = at.right <= 0 || at.bottom <= 0 || at.left >= innerWidth || at.top >= innerHeight;
+      if (off) return "off";
+      const read = () => {
+        const at = element.getBoundingClientRect();
+        return `${Math.round(at.left)} ${Math.round(at.top)} ${Math.round(at.width)} ${Math.round(at.height)}`;
+      };
+      const first = read();
+      for (let frame = 0; frame < 3; frame++) {
+        await new Promise((next) => requestAnimationFrame(next));
+        if (read() !== first) return false;
+      }
+      return true;
+    });
+    if (held === "off") {
+      // Drawn again somewhere out of the window: the next look brings it back.
+      scrolled = false;
+      throw new Error("The element is out of the window.");
+    }
+    if (!held) throw new Error("The element is still moving.");
     box = await target.boundingBox();
     if (!box) throw new Error("The element isn't visible.");
   }).toPass();
@@ -2316,6 +2481,13 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   const menu = window.locator('[data-testid="page-actions"]:visible');
   await expect(menu).toBeVisible();
   return menu;
+}
+
+/** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
+export async function chooseLook(window: Page, look: "word" | "plain"): Promise<void> {
+  const menu = await openPageMenu(window);
+  await pointAndClick(window, menu.getByTestId(`look-${look}`));
+  await expect(menu).toBeHidden();
 }
 
 /** "Show word count while writing", in the page's ⋯ menu: the count is hidden until then. */
@@ -3128,3 +3300,143 @@ export const addFilesLabel = (language: "en" | "zh-CN") =>
 /** Its label's message key, for the menus and ⌘K that show it. */
 export const addFilesLabelKey =
   process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";
+
+/** Records keydown → next paint for each key typed, and Event Timing entries. */
+export async function installKeyLatency(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const w = window as unknown as {
+      __keys?: number[];
+      __events?: { name: string; duration: number }[];
+    };
+    if (w.__keys) return;
+    w.__keys = [];
+    w.__events = [];
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        const t0 = event.timeStamp;
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => w.__keys?.push(performance.now() - t0);
+          channel.port2.postMessage(0);
+        });
+      },
+      true,
+    );
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          w.__events?.push({ name: entry.name, duration: entry.duration });
+        }
+      }).observe({
+        type: "event",
+        durationThreshold: 16,
+        buffered: false,
+      } as PerformanceObserverInit);
+    } catch {
+      // Event Timing isn't supported
+    }
+  });
+}
+
+/**
+ * The keys timed since the last take, and clears them. With `keys`, waits until that many have
+ * been timed: each is timed once its frame is drawn, after the key itself.
+ */
+export async function takeKeyLatency(window: Page, { keys: typed }: { keys?: number } = {}) {
+  if (typed !== undefined)
+    await expect
+      .poll(() => window.evaluate(() => (window as unknown as { __keys: number[] }).__keys.length))
+      .toBeGreaterThanOrEqual(typed);
+  return window.evaluate(() => {
+    const w = window as unknown as {
+      __keys: number[];
+      __events: { name: string; duration: number }[];
+    };
+    const keys = [...w.__keys].sort((a, b) => a - b);
+    const events = w.__events.filter((e) => /key|input/.test(e.name));
+    w.__keys = [];
+    w.__events = [];
+    const q = (p: number) => keys[Math.min(keys.length - 1, Math.floor(p * keys.length))] ?? 0;
+    const round = (v: number) => Math.round(v * 10) / 10;
+    return {
+      keys: keys.length,
+      median: round(q(0.5)),
+      p95: round(q(0.95)),
+      max: round(keys.at(-1) ?? 0),
+      over50: keys.filter((k) => k > 50).length,
+      eventTimingOver16: events.length,
+      eventTimingMax: round(Math.max(0, ...events.map((e) => e.duration))),
+      // Event Timing (to the presented frame) for keydown only; keys it didn't report took < 16ms.
+      presented: (() => {
+        const downs = events.filter((e) => e.name === "keydown").map((e) => e.duration);
+        const all = [
+          ...downs,
+          ...Array.from({ length: Math.max(0, keys.length - downs.length) }, () => 8),
+        ].sort((a, b) => a - b);
+        const at = (p: number) => all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0;
+        return {
+          keydownsOver16: downs.length,
+          median: at(0.5),
+          p95: at(0.95),
+          max: Math.max(0, ...downs),
+        };
+      })(),
+    };
+  });
+}
+
+/**
+ * How long the Mind takes to open in place until `count` elements match `selector` in its own
+ * pane, never the one it replaces, and a frame after.
+ */
+export async function msToOpen(window: Page, mindId: string, done: string, count: number) {
+  return window.evaluate(
+    async ({ id, selector, wanted }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const inPane = `article[data-mind-id="${CSS.escape(id)}"] ${selector}`;
+      const start = performance.now();
+      await core.changeLayout("main", {
+        type: "open",
+        item: { kind: "mind", mindId: id },
+        where: { in: "place" },
+      });
+      for (;;) {
+        if (document.querySelectorAll(inPane).length >= wanted) break;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      return Math.round(performance.now() - start);
+    },
+    { id: mindId, selector: done, wanted: count },
+  );
+}
+
+/** The largest .docx of the committed Word corpus (eval/word). */
+export function largestCorpusFile(): string {
+  const root = join(__dirname, "../eval/word");
+  let largest = { path: "", size: 0 };
+  const visit = (folder: string) => {
+    for (const name of readdirSync(folder)) {
+      const path = join(folder, name);
+      const stat = statSync(path);
+      if (stat.isDirectory()) visit(path);
+      else if (name.endsWith(".docx") && stat.size > largest.size)
+        largest = { path, size: stat.size };
+    }
+  };
+  visit(root);
+  return largest.path;
+}
+
+/** ⌘J over what is selected, saying what to change: in the selection menu's field, or in the composer where the menu can't open (all of the Mind). */
+export async function askToChange(window: Page, instruction: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect
+    .poll(() => window.evaluate(() => document.activeElement?.getAttribute("data-testid")))
+    .toMatch(/^(selection-edit-field|composer-input)$/);
+  await window.keyboard.type(instruction);
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+  await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
+}

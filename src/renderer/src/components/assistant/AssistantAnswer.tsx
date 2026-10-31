@@ -7,6 +7,7 @@ import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
+import { repliesOnlyRefusals } from "../../commandFacts";
 import { regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
@@ -226,7 +227,7 @@ export function AssistantAnswer({
       <AnswerActions
         answer={answer}
         streaming={streaming}
-        canKeep={written}
+        canKeep={written && !repliesOnlyRefusals(answer)}
         focusedMindName={keeping.focusedMindName}
         mindEmpty={keeping.mindEmpty}
         onAdd={() => keeping.add(answer)}

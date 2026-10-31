@@ -32,6 +32,8 @@ export const useSignIn = create<{ waiting: boolean; failure: ChatGptSignInFailur
 interface ContinueOptions {
   anotherAccount?: boolean;
   keepDefault?: boolean;
+  /** The User chose to replace a saved sign-in this computer can't read, once this one completes. */
+  replaceUnreadable?: boolean;
 }
 
 /** The ChatGPT provider after a sign-in, and the model to ask with. */
@@ -86,7 +88,14 @@ async function signIn(options: ContinueOptions): Promise<SignedIn | ChatGptSignI
   const result =
     current.account.state === "signed-in" && !options.anotherAccount
       ? { ok: true as const, firstTime: false, status: current }
-      : await core.signInToChatGpt(options.anotherAccount ? { anotherAccount: true } : undefined);
+      : await core.signInToChatGpt(
+          options.anotherAccount || options.replaceUnreadable
+            ? {
+                ...(options.anotherAccount && { anotherAccount: true }),
+                ...(options.replaceUnreadable && { replaceUnreadable: true }),
+              }
+            : undefined,
+        );
   if (!result.ok) return result.error.kind === "cancelled" ? null : result.error;
   if (result.firstTime) useWelcome.setState({ open: true });
   const providers = await core.listChatProviders();

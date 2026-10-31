@@ -6,9 +6,8 @@
  * the HTML made here, as a Mind's is (./printHtml, src/renderer/print).
  */
 import type { CitationForm } from "../../shared/citationStyles";
-import type { DrawnPage, PageBox } from "../../shared/citedPage";
+import { type DrawnPage, type PageBox, quoteBoxes } from "../../shared/citedPage";
 import { translate } from "../../shared/i18n";
-import { findQuoteInPieces, type MatchOptions, type PieceRange } from "../../shared/quoteMatch";
 import { unreadPartsCounts, unreadSection } from "../../shared/unreadFiles";
 import type { CitationAttributes, UnreadFile } from "../api";
 import { citedPageKey } from "../citedPages";
@@ -105,60 +104,6 @@ export interface PackPage {
 export const isUnverified = ({ citation, boxes }: PackEntry) =>
   citation.footnote.unverified && boxes === null;
 
-/** How a Location's text is matched: number formatting is normalised in sheets and, if needed, slides. */
-function matchOptions(attributes: Partial<CitationAttributes>): MatchOptions {
-  const kind = attributes.location?.kind;
-  return { numbers: kind === "rows" ? true : kind === "slide" ? "if-needed" : false };
-}
-
-const sameLine = (a: PageBox, b: PageBox) =>
-  Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > Math.min(a.height, b.height) / 2;
-
-/** The boxes of the parts of the text's runs a quote covers, one for each line. */
-function boxesOf(text: DrawnPage["text"], ranges: readonly PieceRange[]): PageBox[] {
-  const lines: PageBox[] = [];
-  for (const { piece, start, end } of ranges) {
-    const run = text[piece];
-    if (!run || run.text.length === 0) continue;
-    const { box } = run;
-    const part = {
-      x: box.x + (box.width * start) / run.text.length,
-      y: box.y,
-      width: (box.width * (end - start)) / run.text.length,
-      height: box.height,
-    };
-    const last = lines.at(-1);
-    if (last && sameLine(last, part)) {
-      const x = Math.min(last.x, part.x);
-      const y = Math.min(last.y, part.y);
-      lines[lines.length - 1] = {
-        x,
-        y,
-        width: Math.max(last.x + last.width, part.x + part.width) - x,
-        height: Math.max(last.y + last.height, part.y + part.height) - y,
-      };
-    } else {
-      lines.push(part);
-    }
-  }
-  return lines;
-}
-
-/** Where a Citation's quote is on its page, from the text saved with it; null if it isn't found there. */
-export function quoteBoxes(
-  page: DrawnPage,
-  attributes: Partial<CitationAttributes>,
-): PageBox[] | null {
-  const { quote } = attributes;
-  if (!quote) return null;
-  const options = matchOptions(attributes);
-  const ranges =
-    findQuoteInPieces(page.text, quote, options) ??
-    findQuoteInPieces(page.text, quote, { ...options, lostLigatures: true });
-  const boxes = ranges ? boxesOf(page.text, ranges) : [];
-  return boxes.length > 0 ? boxes : null;
-}
-
 /**
  * The Locations the Citations cite, in the order they are first cited, each with its saved
  * picture and where the quotes are on it. Citations of one Location and version share a page.
@@ -183,7 +128,9 @@ export async function packPages(
       image: picture,
       entries: group.map((citation) => ({
         citation,
-        boxes: picture ? quoteBoxes(picture, citation.attributes) : null,
+        boxes: picture
+          ? quoteBoxes(picture, citation.attributes.quote, citation.attributes.location)
+          : null,
       })),
     });
   }

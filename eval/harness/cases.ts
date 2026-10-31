@@ -58,10 +58,13 @@ function fromEveryday([id, persona]: readonly [string, Persona]): HarnessCase {
   const found = CASES.find((each) => each.id === id);
   if (!found) throw new Error(`No everyday request "${id}".`);
   const { library } = found;
-  if (library === "reserves" || library === "cedar" || library === "cedar-zh")
-    throw new Error(
-      `"${id}" needs the ${library} Documents, which the bake-off has no library for.`,
-    );
+  if (
+    library === "reserves" ||
+    library === "filings" ||
+    library === "cedar" ||
+    library === "cedar-zh"
+  )
+    throw new Error(`"${id}" needs a Document library the bake-off doesn't have.`);
   return {
     ...found,
     library,

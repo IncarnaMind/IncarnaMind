@@ -133,12 +133,19 @@ describe("Worksheet input provenance", () => {
         expect(JSON.stringify(answerBlocks(answer))).not.toContain("[=1]");
       },
     );
-
-    test(`does not move a ${recorded ? "recorded" : "direct"} current row from the superseded page`, async () => {
-      const answer = await calculate(CURRENT_BEADS, "p. 1", "0.075", recorded);
-      expect(answer.figures).toEqual([]);
-    });
   }
+
+  test("does not move a direct current row from the superseded page", async () => {
+    const answer = await calculate(CURRENT_BEADS, "p. 1", "0.075");
+    expect(answer.figures).toEqual([]);
+  });
+
+  test("places a recorded current row at its unique quote", async () => {
+    const answer = await calculate(CURRENT_BEADS, "p. 1", "0.075", true);
+    expect(answer.figures).toMatchObject([
+      { value: 0.075, inputs: [{ citation: { pageFrom: 2, pageTo: 2, check: "found" } }] },
+    ]);
+  });
 
   test.each([
     [CURRENT_BEADS, "p. 2", "0.075", 0.075, 2],
@@ -182,6 +189,7 @@ describe("Numerical Citation place", () => {
       if (!document) throw new Error("No Document");
       expect(
         await core.recheckCitation({
+          mindId: null,
           documentId: document.id,
           contentHash: document.contentHash,
           pageFrom: 2,

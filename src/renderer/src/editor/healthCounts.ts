@@ -29,10 +29,11 @@ import {
   keptOn,
 } from "../../../shared/claimChecks";
 import { readFigures } from "../../../shared/figures";
+import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { isClaim, sentenceSpans } from "../../../shared/sentences";
-import { keptSpans, paragraphPlaces, type ShownClaim, shownClaims } from "./claimChecks";
+import { isClaim } from "../../../shared/sentences";
+import { claimPlaces, keptSpans, markOf, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -55,7 +56,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
  * `checkable`: every claim a check reads, to check, checking or covered;
  * `supported`: the covered claims a check found supported, the ones with no
  * Citation among them; `checkedAt`: the newest check among the claims one
- * covers, for "Checked {time}" (D266).
+ * covers, for "Checked {time}"; `unexamined`: the parts of `toCheck`
+ * the last whole-Mind check didn't examine, since no reply said whether they
+ * make a claim (#1682).
  */
 export interface NoteHealth {
   found: number[];
@@ -76,10 +79,18 @@ export interface NoteHealth {
   checkable: number;
   supported: number;
   checkedAt: string | null;
+  unexamined: number[];
 }
 
 /** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
 const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
+
+/** Whether a sentence holds a figure, read once while its words stay the same: the health is counted again after every change. */
+const holdsFigures = memoized(
+  20_000,
+  (words: string) => words,
+  (words: string) => MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0,
+);
 
 /** Blocks whose text isn't counted. */
 const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
@@ -94,8 +105,11 @@ export interface SentenceInput {
   claims: readonly ShownClaim[];
   /** The last whole-Mind check found these sentences make no claim, by `sentenceKey`. */
   skipped?: ReadonlySet<string>;
+  /** The last whole-Mind check couldn't tell whether these make a claim, by `sentenceKey`. */
+  unexamined?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
+  omitted?: readonly KeptMark[];
 }
 
 export interface NoteHealthInput extends SentenceInput {
@@ -166,7 +180,7 @@ function eachSentence(
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
-    const { text, starts, ends, inline } = paragraphPlaces(node, pos, proposed);
+    const { sentences, inline } = claimPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
         ? [{ attributes: child.attrs as CitationAttributes, at, pos: place }]
@@ -174,21 +188,17 @@ function eachSentence(
     );
     const table = inTable(doc, pos);
     const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
-    for (const span of sentenceSpans(
-      text,
-      figures.map(({ at }) => at),
-    )) {
-      const from = starts[span.from] ?? pos;
-      const to = ends[span.to - 1] ?? from;
+    for (const span of sentences) {
+      const { from, to } = span;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
-      const words = text.slice(span.from, span.to);
+      const words = span.text;
       const state = checkedSentence({
         text: words,
         hasFigures:
-          figures.some(({ at }) => at >= span.from && at < span.to) ||
-          (MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0),
+          figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words),
         check: claim?.shown ?? null,
-        skipped: skipped.has(sentenceKey(words)),
+        skipped:
+          skipped.has(sentenceKey(words)) || keptOn(input.omitted ?? [], { from, to, text: words }),
         kept: keptOn(kept, { from, to, text: words }),
       });
       visit({
@@ -196,7 +206,7 @@ function eachSentence(
         to,
         text: words,
         claim,
-        citations: citations.filter((each) => each.at >= span.from && each.at < span.to),
+        citations: citations.filter((each) => each.pos >= from && each.pos < to),
         blockId,
         inTable: table,
         state,
@@ -224,7 +234,9 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     checkable: 0,
     supported: 0,
     checkedAt: null,
+    unexamined: [],
   };
+  const unexamined = input.unexamined ?? new Set<string>();
   eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
     const missing: number[] = [];
     for (const citation of citations) {
@@ -240,6 +252,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       health.toCheck.push(from);
       if (state.why === "failed") health.failed.push(from);
       else if (state.why === "recheck") health.recheck.push(from);
+      if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;
     }
@@ -262,7 +275,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     ) {
       health.checkedAt = checkedAt;
     }
-    const unsupported = claim.shown.state === "unsupported";
+    const unsupported = markOf(claim) === "unsupported";
     const contradicted = claim.shown.state === "contradicted";
     if (unsupported) health.unsupported.push(from);
     else if (contradicted) health.contradicted.push(from);
@@ -330,11 +343,12 @@ export function sentencesToCheck(
   state: EditorState,
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
+  omitted: readonly KeptMark[] = [],
 ): SentencePlace[] {
   const places: SentencePlace[] = [];
   eachSentence(
     state.doc,
-    { claims: shownClaims(state), skipped, kept: keptSpans(state) },
+    { claims: shownClaims(state), skipped, kept: keptSpans(state), omitted },
     (place) => {
       if (place.state.kind === "to-check" && (!within || within(place))) places.push(place);
     },
@@ -350,6 +364,7 @@ export function toCheckRanges(
   state: EditorState,
   skipped: ReadonlySet<string> = new Set(),
   within?: (place: SentencePlace) => boolean,
+  omitted: readonly KeptMark[] = [],
 ): { from: number; to: number }[] {
-  return sentencesToCheck(state, skipped, within).map(({ from, to }) => ({ from, to }));
+  return sentencesToCheck(state, skipped, within, omitted).map(({ from, to }) => ({ from, to }));
 }

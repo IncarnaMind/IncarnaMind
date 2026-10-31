@@ -119,7 +119,7 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
 
     // Checked again against the current version, where the quote isn't.
     const input = { documentId: document.id, quote: SPRING, pageFrom: 2, pageTo: 2 };
-    expect(await core.recheckCitation(input)).toEqual({
+    expect(await core.recheckCitation({ ...input, mindId: null })).toEqual({
       check: "not-found",
       checkReason: "quote-not-on-pages",
       contentHash: sha256(V2),
@@ -129,7 +129,7 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       location: { kind: "page", from: 2, to: 2 },
     });
     await changeFile(core, document.id, document.path, V3);
-    const rechecked = await core.recheckCitation(input);
+    const rechecked = await core.recheckCitation({ ...input, mindId: null });
     expect(rechecked).toEqual({
       check: "not-found",
       checkReason: "quote-not-on-pages",
@@ -143,7 +143,9 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
     expect(
       citationState({ ...citation, ...rechecked }, await core.listDocuments()).changedAfterCited,
     ).toBe(false);
-    await expect(core.recheckCitation({ ...input, documentId: "gone" })).resolves.toMatchObject({
+    await expect(
+      core.recheckCitation({ mindId: null, ...input, documentId: "gone" }),
+    ).resolves.toMatchObject({
       check: "cant-check",
       checkReason: "document-removed",
     });

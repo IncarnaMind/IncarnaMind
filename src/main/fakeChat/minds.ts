@@ -28,7 +28,8 @@
  * (各季度毛利率和净负债的柱状图; "line chart", 折线图) writes a table of a percent
  * column beside a column of times, which a chart draws as one chart per unit
  * (#1392); "Make a bar chart of rent by lease" does the same with each unit's
- * monthly rent, so Use all can draw it again from every lease.
+ * monthly rent, so Use all can draw it again from every lease. Each region's total revenue and
+ * growth, with a chart, is `regionalChart`'s (#2307).
  * "Write a short summary of this agreement" (为这份协议写一份简短摘要) calls
  * add_to_mind with it, for the Mind in focus. "Write a short summary of this document"
  * (为这份文件写一份简短摘要) does too, "Written from" the first Document on screen (#1334).
@@ -60,6 +61,7 @@ import {
   toolResults,
   userText,
 } from "./prompt";
+import { REGIONAL_CHART, regionalChart } from "./regionalChart";
 
 /** A Question about the User's notes or what they selected in them. */
 const ABOUT_THE_MIND = /\bnotes?\b|\bselect(?:ed|ion)\b|笔记|选中/i;
@@ -278,14 +280,14 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
   if (MIXED_UNITS_CHART.test(question)) return mixedUnitsChart(prompt, question);
   if (RENT_CHART.test(question)) return tableChart(prompt, RENT);
   if (CHECK_TABLE.test(question)) return checkTable(prompt, question);
+  if (REGIONAL_CHART.test(question)) return regionalChart(prompt, question, names);
   if (LEASES_SUMMARY.test(question)) {
     const made = lastResult(prompt, "create_mind") ?? lastResult(prompt, "add_to_mind");
     if (made !== undefined) return { text: firstSentence(made) };
     const listed = /^Their names, newest first:\n((?:- .+\n?)+)/m.exec(systemOf(prompt))?.[1] ?? "";
     const names = [...listed.matchAll(/^- (.+)$/gm)].map((line) => line[1]).sort();
     const content = `Written from ${names.join(", ")}.`;
-    // An empty Mind is filled; any other gets a new one beside it.
-    return systemOf(prompt).includes("The Mind in <mind> is open and still empty")
+    return systemOf(prompt).includes("The Note in <mind> is open and still empty")
       ? { tool: "add_to_mind", input: { content } }
       : { tool: "create_mind", input: { title: "Summary", content } };
   }
@@ -295,7 +297,7 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
       return {
         text: /\p{Script=Han}/u.test(question)
           ? "没有打开的笔记，所以没法写进去。"
-          : "No Mind is open, so I can't write it there.",
+          : "No Note is open, so I can't write it there.",
       };
     }
     const added = lastResult(prompt, "add_to_mind");

@@ -6,13 +6,16 @@ import {
   type ClaimCheckNow,
   claimCheckShown,
   figureCheckShown,
+  keepRecordCites,
   saysNotFound,
 } from "../shared/claimChecks";
+import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
 import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
+import { perBlock } from "../shared/memo";
 import {
   figureSignOffBasis,
   figureSignOffSources,
@@ -50,7 +53,12 @@ import { layout as partsOf } from "./proposals/write";
 
 type Axis = "row" | "column";
 type Owner = ReturnType<typeof checkedSentences>[number];
-type Place = { element: Y.XmlElement; heading: string | null; paragraph: number };
+type Place = {
+  element: Y.XmlElement;
+  heading: string | null;
+  paragraph: number;
+  citedAt(): ReadonlySet<number>;
+};
 type SourceDocuments = Pick<AnswerDocuments, "citationSource" | "documentDate" | "pageTexts">;
 
 export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
@@ -62,12 +70,17 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   personId?: string | null;
 }
 
+/** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
+const keepingRecordCites = (checked: ClaimCheckResult, worked: ClaimCheckResult) =>
+  keepRecordCites(worked, checked.recordCites);
+
 export function augmentFigureFooting(
   blocks: Y.XmlFragment,
   result: ClaimCheckResult,
   documents: SourceDocuments,
   now?: Omit<ClaimCheckNow, "text">,
 ): ClaimCheckResult {
+  if (result.parts) result = keepingRecordCites(result, resultFromParts(result.parts));
   if (!result.figures?.length) return result;
   const occurrences = figuresInMind(blocks);
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
@@ -117,11 +130,25 @@ export function augmentFigureFooting(
     }
     return { ...figure, footing, sourceFooting };
   });
-  return {
+  if (result.parts) {
+    const updated = new Map(figures.map((figure) => [figure.id, figure]));
+    return keepingRecordCites(
+      result,
+      resultFromParts(
+        result.parts.map((part) => ({
+          ...part,
+          ...(part.figures && {
+            figures: part.figures.map((figure) => updated.get(figure.id) ?? figure),
+          }),
+        })),
+      ),
+    );
+  }
+  return keepingRecordCites(result, {
     ...aggregateFigureResults(figures, result.remainder),
     figures,
     remainder: result.remainder,
-  };
+  });
 }
 
 function sourceFigure(input: FigureInput, units: readonly UnitText[]): Figure | null {
@@ -346,27 +373,64 @@ function sourceFootingFor(
   };
 }
 
+/** Where each element with an id is in one top-level Block, with what the Block holds for the schedule. */
+const placesOfBlock = perBlock((block) => {
+  const entries: { id: string; place: Place; heading: boolean }[] = [];
+  const tables: [string, SourceGrid][] = [];
+  const figures: NodeJSON[] = [];
+  let paragraph = 0;
+  let heading: string | null | undefined;
+  const visit = (element: Y.XmlElement) => {
+    if (element.nodeName === "heading") heading = plainText(element);
+    if (element.nodeName === "paragraph") paragraph++;
+    if (element.nodeName === CALCULATED_FIGURE_NODE) figures.push(nodeOf(element));
+    const id = element.getAttribute("id");
+    if (typeof id === "string") {
+      entries.push({
+        id,
+        place: { element, heading: heading ?? null, paragraph, citedAt: citationsIn(element) },
+        heading: heading !== undefined,
+      });
+      if (element.nodeName === "table") tables.push([id, gridOfTable(nodeOf(element))]);
+    }
+    for (const child of element.toArray()) if (child instanceof Y.XmlElement) visit(child);
+  };
+  visit(block);
+  return { entries, tables, figures, paragraphs: paragraph, heading };
+});
+
+function citationsIn(element: Y.XmlElement): () => ReadonlySet<number> {
+  let starts: ReadonlySet<number> | undefined;
+  return () => {
+    starts ??= new Set(
+      partsOf(element).flatMap(({ node, start }) =>
+        node instanceof Y.XmlElement && node.nodeName === CITATION_NODE ? [start] : [],
+      ),
+    );
+    return starts;
+  };
+}
+
 function placesIn(blocks: Y.XmlFragment) {
   const places = new Map<string, Place>();
   const tables = new Map<string, SourceGrid>();
   const figures: NodeJSON[] = [];
   let paragraph = 0;
   let heading: string | null = null;
-  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
-    for (const element of parent.toArray()) {
-      if (!(element instanceof Y.XmlElement)) continue;
-      if (element.nodeName === "heading") heading = plainText(element);
-      if (element.nodeName === "paragraph") paragraph++;
-      if (element.nodeName === CALCULATED_FIGURE_NODE) figures.push(nodeOf(element));
-      const id = element.getAttribute("id");
-      if (typeof id === "string") {
-        places.set(id, { element, heading, paragraph });
-        if (element.nodeName === "table") tables.set(id, gridOfTable(nodeOf(element)));
-      }
-      visit(element);
-    }
-  };
-  visit(blocks);
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    const read = placesOfBlock(block);
+    for (const entry of read.entries)
+      places.set(entry.id, {
+        ...entry.place,
+        heading: entry.heading ? entry.place.heading : heading,
+        paragraph: paragraph + entry.place.paragraph,
+      });
+    for (const [id, grid] of read.tables) tables.set(id, grid);
+    figures.push(...read.figures);
+    paragraph += read.paragraphs;
+    if (read.heading !== undefined) heading = read.heading;
+  }
   return { places, tables, figures };
 }
 
@@ -721,13 +785,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     const cited =
       locator.kind === "chart"
         ? (chart?.data.rows[locator.row]?.values[locator.series]?.citation ?? null) !== null
-        : place !== undefined &&
-          partsOf(place.element).some(
-            ({ node, start }) =>
-              start === locator.to.offset &&
-              node instanceof Y.XmlElement &&
-              node.nodeName === CITATION_NODE,
-          );
+        : place?.citedAt().has(locator.to.offset) === true;
     const signOff = signOffs.get(occurrence.id);
     return {
       ...finding,

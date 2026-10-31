@@ -8,12 +8,15 @@
 import type { LanguageModelV4Prompt, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
+import { checkNow } from "../../src/core/answers/checks/checkedText";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { type HandedPassage, passagesIn } from "./passagesHanded";
 
 export interface WatchedRequest {
   /** What the request is for, by its instructions: the check's Run, or a judgement after it. */
   kind: string;
+  /** The sentence's part the request checks, as the check named it; null for the whole sentence. */
+  part: string | null;
   /** The searches the Run made before this request, in order. */
   queries: string[];
   handed: HandedPassage[];
@@ -28,6 +31,7 @@ export interface WatchedRequest {
 }
 
 const KINDS: readonly [string, string][] = [
+  ["You sort the sentences of", "claims"],
   ["You check one sentence", "check"],
   ["and gave a verdict without recording", "evidence"],
   ["found it unsupported, and named the part", "covered-evidence"],
@@ -78,23 +82,37 @@ function queryOf(input: string): string {
   }
 }
 
+/** A request that names the claims among a Mind's sentences (#1682): what it was shown and what came back. */
+export interface ClaimsRequest {
+  asked: string;
+  reply: string;
+  inputTokens: number;
+  outputTokens: number;
+  ms: number;
+}
+
 export interface RequestWatch {
   chatModels(inner: ChatModelFactory): ChatModelFactory;
   /** Each sentence's requests since the last call, in order. */
   take(): Map<string, WatchedRequest[]>;
+  /** The requests that named claims since the last call, in order. */
+  takeClaims(): ClaimsRequest[];
 }
 
 export function watchRequests(sentences: readonly string[]): RequestWatch {
   let watched = new Map<string, WatchedRequest[]>();
+  let claims: { request: WatchedRequest; asked: string }[] = [];
 
   function start(prompt: LanguageModelV4Prompt) {
     const { system, asked, queries, handed } = read(prompt);
-    // A request that names several sentences (finding the claims) is no sentence's. Two sets may
-    // share a sentence: it is one sentence here.
+    // The check tags every request it makes with its sentence and part; one that names
+    // sentences itself (finding the claims) is no sentence's, and is read from its words.
+    const checked = checkNow();
     const named = [...new Set(sentences)].filter((sentence) => asked.includes(sentence));
     const [sentence] = named;
     const request: WatchedRequest = {
       kind: kindOf(system),
+      part: checked?.part ?? null,
       queries,
       handed,
       reply: "",
@@ -104,7 +122,9 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
       outputTokens: 0,
       ms: 0,
     };
-    if (named.length === 1 && sentence !== undefined) {
+    if (checked) watched.set(checked.sentence, [...(watched.get(checked.sentence) ?? []), request]);
+    else if (request.kind === "claims") claims.push({ request, asked });
+    else if (named.length === 1 && sentence !== undefined) {
       watched.set(sentence, [...(watched.get(sentence) ?? []), request]);
     }
     return { request, began: performance.now() };
@@ -148,6 +168,17 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
     take() {
       const taken = watched;
       watched = new Map();
+      return taken;
+    },
+    takeClaims() {
+      const taken = claims.map(({ request, asked }) => ({
+        asked,
+        reply: request.reply,
+        inputTokens: request.inputTokens,
+        outputTokens: request.outputTokens,
+        ms: request.ms,
+      }));
+      claims = [];
       return taken;
     },
   };

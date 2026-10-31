@@ -3,10 +3,12 @@ import { expect } from "vitest";
 import type {
   AnswerSearchTuning,
   CitationAttributes,
+  CitationRecheck,
   Core,
   CoreAdapters,
   CoreEvents,
   Document,
+  RecheckResult,
 } from "../../src/core";
 import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
@@ -268,4 +270,10 @@ export function onlyCitation(client: MindClient, answerId: string): CitationAttr
   const citations = citationsIn(client, answerId);
   expect(citations).toHaveLength(1);
   return citations[0] as CitationAttributes;
+}
+
+/** A re-check that read its Document: one kept inside a wall fails the test that expected a read. */
+export function checkedResult(result: RecheckResult): CitationRecheck {
+  if ("keptInside" in result) throw new Error(`The Citation is kept inside ${result.keptInside}.`);
+  return result;
 }

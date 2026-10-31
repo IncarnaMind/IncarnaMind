@@ -161,6 +161,29 @@ describe("Looking for Ollama", () => {
       installed: false,
     });
   });
+
+  test("says nothing when the probe runs out of time, rather than that it isn't running", async () => {
+    // A server that takes the request and holds it past the probe's two seconds, as a loaded
+    // computer's app may: silence is not an answer, and only a refused address means "not running".
+    const server = createServer(() => undefined);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onTestFinished(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    const { port } = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const app: OllamaApp = { installed: async () => true, open: async () => undefined };
+    const core = startCore(await createTempDataFolder(), { ollamaApp: app });
+
+    expect(await core.detectOllama({ baseUrl })).toMatchObject({
+      running: false,
+      unknown: true,
+      installed: true,
+    });
+    // A model call says it isn't running, as it must: nothing can answer.
+    expect(await createOllamaModels().running(baseUrl)).toBe(false);
+  }, 15_000);
 });
 
 describe("Open Ollama", () => {

@@ -29,7 +29,7 @@ export const chartProperty = {
   chart: {
     type: "object",
     description:
-      "Only when the User asks for a chart: drawn from the last table in content, right after it. Give it before content. For a table already in the Mind, give it with content empty.",
+      "Only when the User asks for a chart: drawn from the last table in content, right after it. Give it before content. For a table already in the Note, give it with content empty.",
     properties: {
       kind: {
         type: "string",

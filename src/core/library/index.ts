@@ -99,14 +99,18 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, counts_own_files, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
 
-/** A stored Folder: its switch is 0 or 1. */
-type GroupRow = Omit<LibraryGroup, "countsOwnFiles"> & { counts_own_files: number };
+/** A stored Folder: its switches are 0 or 1. */
+type GroupRow = Omit<LibraryGroup, "countsOwnFiles" | "keepInside"> & {
+  counts_own_files: number;
+  keep_inside: number;
+};
 
-const toGroup = ({ counts_own_files, ...row }: GroupRow): LibraryGroup => ({
+const toGroup = ({ counts_own_files, keep_inside, ...row }: GroupRow): LibraryGroup => ({
   ...row,
   countsOwnFiles: counts_own_files === 1,
+  keepInside: keep_inside === 1,
 });
 
 const errorOf = (row: AssignmentRow): ProviderError => {
@@ -867,9 +871,17 @@ export function createLibrary(options: {
     const at = now();
     const id = randomUUID();
     db.run(
-      `INSERT INTO library_groups (id, name, description, counts_own_files, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, value.name, value.description, value.countsOwnFiles ? 1 : 0, at, at],
+      `INSERT INTO library_groups (id, name, description, counts_own_files, keep_inside, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        value.name,
+        value.description,
+        value.countsOwnFiles ? 1 : 0,
+        value.keepInside ? 1 : 0,
+        at,
+        at,
+      ],
     );
     revision++;
     changed();
@@ -888,10 +900,12 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.nameTaken" });
     if (!exceptId && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
-    const { countsOwnFiles } = input;
+    const { countsOwnFiles, keepInside } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
       throw new InvalidInputError("countsOwnFiles must be true or false.");
-    return { name, description, countsOwnFiles };
+    if (keepInside !== undefined && typeof keepInside !== "boolean")
+      throw new InvalidInputError({ key: "error.folder.keepInside" });
+    return { name, description, countsOwnFiles, keepInside };
   }
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
@@ -956,6 +970,14 @@ export function createLibrary(options: {
       resume();
     },
     documentIds(folderId: string): string[] {
+      return db
+        .all<{ document_id: string }>(
+          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL AND (g.keep_inside = 0 OR a.source = 'user')",
+          [folderId],
+        )
+        .map((row) => row.document_id);
+    },
+    allDocumentIds(folderId: string): string[] {
       return db
         .all<{ document_id: string }>(
           "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
@@ -1058,10 +1080,11 @@ export function createLibrary(options: {
       const existing = group(id);
       const value = parseGroup(input, existing.id);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
+      const keepInside = value.keepInside ?? existing.keepInside;
       db.run(
-        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, updated_at = ?
+        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
          WHERE id = ?`,
-        [value.name, value.description, counts ? 1 : 0, now(), existing.id],
+        [value.name, value.description, counts ? 1 : 0, keepInside ? 1 : 0, now(), existing.id],
       );
       revision++;
       changed();
@@ -1086,13 +1109,14 @@ export function createLibrary(options: {
     /**
      * Deletes a Folder: its Documents go to Not in a Folder, as the Minds and conversations
      * the caller took out of it did, and all are recorded so that restoring it puts them back.
+     * `at`: when Undo of a Restore deletes it again.
      */
     delete(
       id: unknown,
       taken: { minds?: readonly string[]; conversations?: readonly string[] } = {},
+      at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
-      const at = now();
       const record = (kind: "document" | "mind" | "conversation", itemId: string, suggested = 0) =>
         db.run(
           `INSERT INTO deleted_folder_items
@@ -1348,7 +1372,20 @@ export function createLibrary(options: {
       };
     },
     // A new request id makes a run already under way for these Documents stale.
-    accept(input: unknown): AssignmentChange[] {
+    accept(input: unknown, checked?: unknown): AssignmentChange[] {
+      if (checked !== undefined) {
+        if (!isRecord(checked))
+          throw new InvalidInputError({ key: "error.library.checkedFolders" });
+        // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
+        // that moved to another Folder since it was checked is never accepted unchecked.
+        const ids: readonly unknown[] = Array.isArray(input) ? input : [];
+        const moved = ids.some((id) => {
+          if (typeof id !== "string") return false;
+          const now = assignment(id);
+          return now?.suggested === 1 && now.group_id !== (checked[id] ?? null);
+        });
+        if (moved) throw new InvalidInputError({ key: "error.folder.suggestionMoved" });
+      }
       return review(input, (row) =>
         db.run(
           "UPDATE document_groups SET source = 'user', suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",

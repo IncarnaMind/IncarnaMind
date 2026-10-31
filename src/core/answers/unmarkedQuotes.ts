@@ -40,18 +40,47 @@ import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
-import type { AnswerEngineEvent, AnswerRequest } from "./engine";
+import { outputTokens } from "../providers/outputLimits";
+import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import {
   answerTableUnits,
   likeness,
   type MarkerRecord,
-  textEdits,
   withMissingMarkers,
   wordsOf,
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
 import { replyJson } from "./quoteRetry";
 import type { WindowBudget } from "./window";
+
+/** Engine events that change the Answer's text from `from` to `to`: what follows their common start is replaced. */
+export function* textEdits(from: string, to: string): Generator<AnswerEngineEvent> {
+  let common = 0;
+  while (common < from.length && common < to.length && from[common] === to[common]) common++;
+  if (from.length > common) yield { type: "text-retracted", length: from.length - common };
+  if (to.length > common) yield { type: "text-delta", text: to.slice(common) };
+}
+
+/**
+ * Where the engine handles a finished Answer's records: the edits that put in
+ * the markers the model left out of `text` for records the core took (see
+ * `AnswerTools.hasRecord`), and how many it put in. Returns the text with them.
+ */
+export function* missingMarkerEvents(
+  text: string,
+  records: readonly MarkerRecord[],
+  tools: Pick<AnswerTools, "hasRecord">,
+): Generator<AnswerEngineEvent, string> {
+  const { text: placed, placed: markers } = withMissingMarkers(
+    text,
+    records,
+    (marker) => tools.hasRecord?.(marker) ?? false,
+  );
+  if (markers.length === 0) return text;
+  yield* textEdits(text, placed);
+  yield { type: "markers-placed", count: markers.length };
+  return placed;
+}
 
 /** The most Citations added to one Answer. */
 export const MAX_ADDED = 12;
@@ -64,8 +93,6 @@ const MIN_SIMILARITY = 0.6;
 /** The most Passages, and of each one's text, the one request for Citations holds without a window. */
 const MAX_ASKED_PASSAGES = 12;
 const MAX_ASKED_CHARACTERS = 3000;
-/** The request's output cap: a sentence, an id and a quote for each Citation. */
-const ASK_OUTPUT_TOKENS = 1500;
 
 /** Text in quotation marks. */
 const QUOTATION = /["“「『]([^"“”「」『』\n]+)["”」』]/gu;
@@ -410,7 +437,7 @@ function passagesToAsk(
   }
   let room = budget.roomBeside(
     [CITE_RETRY_INSTRUCTIONS, citeRetryPrompt(answer, [])],
-    ASK_OUTPUT_TOKENS,
+    outputTokens("unmarked-quotes"),
   );
   const asked: ShownPassage[] = [];
   for (const passage of passages) {
@@ -437,7 +464,7 @@ async function askForCitations(
       instructions: CITE_RETRY_INSTRUCTIONS,
       prompt: citeRetryPrompt(answer, passages),
       temperature,
-      maxOutputTokens: ASK_OUTPUT_TOKENS,
+      maxOutputTokens: outputTokens("unmarked-quotes"),
       output: Output.object({ schema: askedSchema, name: "citations" }),
       // One request, never more.
       maxRetries: 0,

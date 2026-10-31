@@ -1,0 +1,40 @@
+[
+  {
+    "sha256": "774d17c3ef8b4a3eb3103e8c23f3138be25528a6f20033211957baf60690ff30",
+    "kind": "email",
+    "document": "mamba",
+    "why": "The first author's address, printed under the authors' names on the paper's first page (arXiv:2312.00752, CC BY 4.0)."
+  },
+  {
+    "sha256": "3a67529e6f5400dddd970cb3012f1dc2c63c51561769e0f36fa3c4babc549ebf",
+    "kind": "email",
+    "document": "mamba",
+    "why": "The second author's address, printed under the authors' names on the paper's first page (arXiv:2312.00752, CC BY 4.0)."
+  },
+  {
+    "sha256": "49aaa25b28c2517fc27c4408956415907ef74ae376e9ea49ce839cbd287aec07",
+    "kind": "email",
+    "document": "scotus-biden-nebraska",
+    "why": "The Court's Public Information Office, which the slip opinion's notice asks readers to tell of errors (a public office's address, 17 U.S.C. 105)."
+  },
+  {
+    "sha256": "6d27e0f359a0aa468869c440a5b8cb4153137c8ef389d9825b35738407d39549",
+    "kind": "email",
+    "document": "cern-soil-elements",
+    "why": "The data paper's corresponding author, printed as its contact on the first page (CC BY 4.0)."
+  },
+  {
+    "kind": "page-read",
+    "sha256": "764e4ea530cbcb4818c31f21481e596eb119004deadea43e6f7247260407e9ba",
+    "document": "cia-reading-room-scan",
+    "page": 1,
+    "why": "The page is a scan with no text layer, read from its image on 2026-10-30: a 1965 Foreign Broadcast Information Service transcript of a Moscow radio commentary, naming only public figures, with the release stamp and file number. No e-mail address, phone number, key or home folder path, and nothing from a client or an employer."
+  },
+  {
+    "kind": "page-read",
+    "sha256": "a3561d2f63273957f84bd9a4d7374d0e57bae45f70c96b0a6b561c1020c8675f",
+    "document": "nbs-communique-2023",
+    "page": 22,
+    "why": "The last page, which a browser's printing left blank, read from its image on 2026-10-30: it is empty and holds no image."
+  }
+]

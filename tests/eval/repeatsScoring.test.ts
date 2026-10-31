@@ -170,42 +170,45 @@ describe("the repeated checks", () => {
 
   test("count a genuine conflict Supported as a false Supported, and a known miss apart", () => {
     const [summary] = summarise([
-      row(1, "number", "contradicted", "zh-conflicts"),
-      row(1, "place", "supported", "zh-conflicts"),
-      row(1, "scope", "partly", "zh-conflicts"),
-      row(1, "negation", "no-mark", "zh-conflicts"),
+      row(1, "prior-year-wrong", "contradicted", "zh-periods"),
+      row(2, "prior-year-wrong", "supported", "zh-periods"),
+      row(1, "prior-year", "supported", "zh-periods"),
+      row(1, "term-year-wrong", "differs", "zh-periods"),
     ]);
     expect(summary).toMatchObject({
       falseSupported: 1,
-      conflicts: { contradicted: 1, checked: 3 },
+      conflicts: { contradicted: 1, checked: 2 },
     });
-    expect(summary?.misses.map((each) => each.key)).toEqual(["place", "scope"]);
-    expect(summary?.known.map((each) => [each.key, each.knownMiss])).toEqual([["negation", 1682]]);
+    expect(summary?.misses.map((each) => [each.key, each.repeat])).toEqual([
+      ["prior-year-wrong", 2],
+    ]);
+    expect(summary?.known.map((each) => [each.key, each.knownMiss])).toEqual([
+      ["term-year-wrong", 1708],
+    ]);
     const shown = report(
       summarise([
-        row(1, "negation", "no-mark", "zh-conflicts"),
-        row(2, "negation", "contradicted", "zh-conflicts"),
+        row(1, "term-year-wrong", "no-mark", "zh-periods"),
+        row(2, "term-year-wrong", "contradicted", "zh-periods"),
       ]),
       RUN,
     );
-    expect(shown).toContain("### Known misses (#1682), outside the counts above");
+    expect(shown).toContain("### Known misses (#1708), outside the counts above");
     expect(shown).toContain(
-      "- negation: 1 of 2 Contradicted, 0 Supported, 0 unsupported, 1 not checked or not named",
+      "- term-year-wrong: 1 of 2 Contradicted, 0 Supported, 0 unsupported, 1 not checked or not named",
     );
     expect(shown).not.toContain("Genuine conflicts Contradicted");
   });
 
-  test("count must for may and reversed parties as ordinary conflicts, and only the negation the claims leave out apart", () => {
+  test("count must for may, reversed parties and the negation as ordinary conflicts, none of them apart", () => {
     const conflicts = (id: string) => SETS.find((each) => each.id === id)?.sentences ?? [];
     const known = (id: string) =>
       conflicts(id)
         .filter((each) => each.knownMiss !== undefined)
         .map((each) => [each.key, each.knownMiss]);
-    expect(known("en-conflicts")).toEqual([]);
-    expect(known("zh-conflicts")).toEqual([["negation", 1682]]);
     for (const id of ["en-conflicts", "zh-conflicts"]) {
+      expect(known(id)).toEqual([]);
       expect(conflicts(id).map((each) => each.key)).toEqual(
-        expect.arrayContaining(["duty-home", "permission", "party-secret"]),
+        expect.arrayContaining(["duty-home", "permission", "party-secret", "negation"]),
       );
     }
   });

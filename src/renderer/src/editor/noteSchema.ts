@@ -37,8 +37,11 @@ import {
   TextSize,
 } from "./formatSchema";
 import { Numbering } from "./numbering";
+import { PageBreak } from "./pageBreakSchema";
+import { Picture } from "./pictureSchema";
 import { ProposalAttributes, ProposalDelete, ProposalInsert } from "./proposalSchema";
 import { Answer, MindDocument, Question, QuestionContextFlag } from "./questionSchema";
+import { TableOfContents } from "./tableOfContents";
 import {
   InlineImage,
   WordAtom,
@@ -99,6 +102,12 @@ export interface NoteSchemaOptions {
   /** Draws what a Word import kept as it is (#104): in the text, and as Blocks. */
   wordAtomView?: NodeViewRenderer;
   wordBlockView?: NodeViewRenderer;
+  /** Draws page breaks as a line across the text (#746). */
+  pageBreakView?: NodeViewRenderer;
+  /** Draws a table of contents (#1935). */
+  tableOfContentsView?: NodeViewRenderer;
+  /** Draws a picture pasted into the Note, with the alt text the User writes (#1937). */
+  pictureView?: NodeViewRenderer;
 }
 
 /**
@@ -110,9 +119,10 @@ export interface NoteSchemaOptions {
  * table cells included. Calculated figures, inline, each keeping its inputs and result.
  * Footnotes the User writes, inline, each holding its
  * text. Charts, drawn from a table or from cited figures, each value with its
- * Citation (#436). Comparison tables, top-level only (#98). What a Word
+ * Citation (#436). Pictures the User pasted or dropped, as Blocks of their own, with their alt
+ * text (#1937). Comparison tables, top-level only (#98). What a Word
  * import kept as it is, and its inline pictures (#104), and the file's look
- * (see `wordSchema`). Paragraph formatting, and text colour, font, size and raise (see
+ * (see `wordSchema`). Page breaks (#746). Paragraph formatting, and text colour, font, size and raise (see
  * `formatSchema`).
  * Proposals the AI made, waiting for the User (see `proposalSchema`).
  * AI text, the words the AI wrote that the User hasn't made their own (see `aiText`).
@@ -135,6 +145,9 @@ export function noteExtensions({
   comparisonViews,
   wordAtomView,
   wordBlockView,
+  pageBreakView,
+  tableOfContentsView,
+  pictureView,
 }: NoteSchemaOptions = {}): Extensions {
   const onClick = onEditMath && ((_node: unknown, pos: number) => onEditMath(pos));
   const CodeBlock = CodeBlockLowlight.extend({
@@ -182,12 +195,15 @@ export function noteExtensions({
     Footnote.configure({ view: footnoteView ?? null }),
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),
+    TableOfContents.configure({ view: tableOfContentsView ?? null }),
+    Picture.configure({ view: pictureView ?? null }),
     ComparisonTable.configure({ view: comparisonViews?.table ?? null }),
     ComparisonRow.configure({ view: comparisonViews?.row ?? null }),
     ComparisonCell.configure({ view: comparisonViews?.cell ?? null }),
     WordAtom.configure({ view: wordAtomView ?? null }),
     WordBlock.configure({ view: wordBlockView ?? null }),
     InlineImage,
+    PageBreak.configure({ view: pageBreakView ?? null }),
     WordLookAttribute,
     WordRun,
     WordTab,

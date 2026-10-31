@@ -4,6 +4,7 @@ import type {
   AskedQuote,
   ConversationAnswer,
   ConversationQuestion,
+  SearchScope,
   Task,
 } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
@@ -33,11 +34,10 @@ import { exampleMindIds, useAppStore } from "../../store";
 import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
-import { useTipRoom } from "../../tips";
 import { SearchIcon } from "../icons";
 import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
 import { AddToMindPicker } from "./AddToMindPicker";
-import { TipRoom, WritingLine } from "./AnswerActions";
+import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
 import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
 import { MeetingStarters } from "./MeetingStarters";
@@ -112,6 +112,24 @@ export function ConversationThread({
     listening && focusedMindName
       ? t("assistant.reads.listening", { mind: focusedMindName })
       : readsLine(t, focusedMind ? focusedMindName : null, nextScope);
+  // A Question on its way, or one the core has and whose Answer is still to come: the line names
+  // what that Question reads, not the Note in focus (#2245).
+  const askingReads = useConversations((state) => state.askingReads);
+  const last = messages.at(-1);
+  const pending = last?.kind === "question" ? last : null;
+  const pendingMindId = pending
+    ? (pending.askedFrom?.mindId ?? null)
+    : (askingReads?.mindId ?? null);
+  const pendingMind = useAppStore((state) =>
+    pendingMindId === null ? undefined : state.minds.find((each) => each.id === pendingMindId),
+  );
+  // A Note deleted while its Question waits is read no more, so the line says what it searches,
+  // as the Answer's own step will.
+  const pendingMindGone =
+    pendingMindId !== null &&
+    pendingMind === undefined &&
+    (pending === null || pending.askedFrom?.deleted !== false);
+  const pendingScope = useScopeChips(pending ? pending.scope : (askingReads?.scope ?? null));
   const [picking, setPicking] = useState<{
     answer: ConversationAnswer;
     anchor: HTMLElement;
@@ -121,7 +139,6 @@ export function ConversationThread({
   // A Research topic asked, or a Task started, grows it too; a Task's every step doesn't move it.
   const started = tasks.length;
   const askedAt = plan?.askedAt;
-  const tipRoomOpen = useTipRoom("add-answer", null);
   useThreadScroll(log, {
     asking: asking !== null,
     holdOff: sought !== null,
@@ -266,16 +283,20 @@ export function ConversationThread({
         >
           <LiveLine
             step={
-              focusedMind
-                ? {
+              pendingMindId === null || pendingMindGone
+                ? { kind: "searching" }
+                : {
                     kind: "reading",
-                    mind: { mindId: focusedMind.id, name: mindName(focusedMind), deleted: false },
+                    mind: {
+                      mindId: pendingMindId,
+                      name: pendingMind ? mindName(pendingMind) : (pending?.askedFrom?.name ?? ""),
+                      deleted: false,
+                    },
                   }
-                : { kind: "searching" }
             }
             scope={stepsScope(
               t,
-              nextScope.filter((chip) => !chip.deleted),
+              pendingScope.filter((chip) => !chip.deleted),
             )}
           />
           <div aria-hidden="true" className="assistant-answer-first-line" />
@@ -289,7 +310,6 @@ export function ConversationThread({
               ) : undefined
             }
           />
-          {focusedMindId !== null && tipRoomOpen && <TipRoom />}
         </div>
       )}
       {picking && (
@@ -372,6 +392,18 @@ function QuestionBubble({
   );
 }
 
+/** The Folders, Tags and Documents a Search scope names, as chips; none for no scope. */
+function useScopeChips(scope: SearchScope | null): ScopeChip[] {
+  const folders = useAppStore((state) => state.folders);
+  const groups = useAppStore((state) => state.library?.groups);
+  const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
+  const tags = useAppStore((state) => state.tags);
+  const documents = useAppStore((state) => state.documents);
+  return scope === null
+    ? []
+    : scopeChips({ folders, groups, deletedGroups, tags, documents }, scope);
+}
+
 /** What the next Question searches: the Search scope of the composer of the Mind in focus, or of the composer with none. */
 function useNextScope(mindId: string | null): ScopeChip[] {
   const citedSource = useCitedSource();
@@ -379,15 +411,12 @@ function useNextScope(mindId: string | null): ScopeChip[] {
   const mind = useAppStore((state) => state.minds.find((each) => each.id === scopeMindId));
   // Only the scope: a keystroke in the composer makes the draft new, and the whole Conversation must not draw again for it.
   const draftScope = useComposer((state) => state.drafts[scopeMindId ?? NO_MIND]?.scope ?? null);
-  const folders = useAppStore((state) => state.folders);
-  const groups = useAppStore((state) => state.library?.groups);
-  const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
-  const tags = useAppStore((state) => state.tags);
-  const documents = useAppStore((state) => state.documents);
   const folderHolds = useFolderHoldsDocuments(mind?.folderId ?? null);
-  if (scopeMindId !== null && !mind) return [];
-  const scope = mindSearchScope(draftScope, mind?.folderId ?? null, folderHolds);
-  return scopeChips({ folders, groups, deletedGroups, tags, documents }, scope);
+  const scope =
+    scopeMindId !== null && !mind
+      ? null
+      : mindSearchScope(draftScope, mind?.folderId ?? null, folderHolds);
+  return useScopeChips(scope);
 }
 
 /**

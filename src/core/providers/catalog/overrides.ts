@@ -80,18 +80,6 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-sonnet-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_BETWEEN_TOOLS },
-      "claude-haiku-5-5": {
-        price: {
-          currency: "USD",
-          input: 0.1,
-          output: 0.5,
-          cacheRead: 0.01,
-          note: {
-            en: "Prompts over 100K tokens: $0.50 / $2.50",
-            zh: "提示超过 10 万 token：$0.50 / $2.50",
-          },
-        },
-      },
     },
     openai: {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
@@ -105,6 +93,28 @@ export const OVERRIDES: CatalogOverrides = {
           output: 3.75,
           cacheRead: 0.075,
           note: { en: "From 2027-01-01: $1.50 / $7.50", zh: "2027-01-01 起：$1.50 / $7.50" },
+        },
+      },
+    },
+    xai: {
+      // xAI bills a prompt that reaches 200K tokens at the higher prices (docs.x.ai/docs/models);
+      // models.dev's tier starts above it. Written here, these prices don't follow a refresh.
+      "grok-4.3": {
+        price: {
+          currency: "USD",
+          input: 1.25,
+          output: 2.5,
+          cacheRead: 0.2,
+          tiers: [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }],
+        },
+      },
+      "grok-4.7": {
+        price: {
+          currency: "USD",
+          input: 2,
+          output: 6,
+          cacheRead: 0.5,
+          tiers: [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }],
         },
       },
     },
@@ -140,19 +150,23 @@ export const OVERRIDES: CatalogOverrides = {
       },
     },
     qwen: {
-      // Beijing, up to 32K input unless a note says otherwise (Alibaba Cloud's price page).
+      // Beijing, from Alibaba Cloud's price page, where K is 1,000. A cache hit is the implicit
+      // cache's, 20% of the input price: requests to Qwen carry no explicit cache marks.
       "qwen3.7-plus": {
         structuredOutput: "json_schema",
-        price: yuan(2, 8, undefined, {
-          en: "Prompts over 256K tokens: ¥6 / ¥24",
-          zh: "提示超过 256K token：¥6 / ¥24",
-        }),
+        price: {
+          ...yuan(2, 8, 0.4),
+          tiers: [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }],
+        },
       },
       "qwen3.7-flash": {
-        price: yuan(0.2, 0.8, undefined, {
-          en: "Prompts over 32K tokens: ¥0.6 / ¥2.4; over 256K: ¥1.2 / ¥4.8",
-          zh: "提示超过 32K token：¥0.6 / ¥2.4；超过 256K：¥1.2 / ¥4.8",
-        }),
+        price: {
+          ...yuan(0.2, 0.8, 0.04),
+          tiers: [
+            { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+            { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
+          ],
+        },
       },
       "qwen3.8-max": { price: yuan(12, 36) },
       "qwen3.8-flash": { price: yuan(0.8, 2.7) },

@@ -111,9 +111,15 @@ export function watchEscClose(element: EscCloseDialog, giveFocusBack: () => void
  * Keeps a native <dialog> shown as a modal while `open` is true. With
  * `focusDialog`, opening focuses the dialog itself (give it tabIndex={-1})
  * instead of its first control, e.g. so no choice looks picked before the
- * User picks one.
+ * User picks one. `initialFocus` names another control to focus instead.
  */
-export function useModal(open: boolean, { focusDialog = false } = {}) {
+export function useModal(
+  open: boolean,
+  {
+    focusDialog = false,
+    initialFocus,
+  }: { focusDialog?: boolean; initialFocus?: RefObject<HTMLElement | null> } = {},
+) {
   const dialog = useRef<HTMLDialogElement>(null);
   const focus = useFocusReturn();
   useEffect(() => {
@@ -127,7 +133,8 @@ export function useModal(open: boolean, { focusDialog = false } = {}) {
     if (open && !element.open) {
       focus.remember();
       element.showModal();
-      if (focusDialog) element.focus();
+      if (initialFocus) initialFocus.current?.focus();
+      else if (focusDialog) element.focus();
     }
     if (!open && element.open) {
       element.close();
@@ -137,7 +144,7 @@ export function useModal(open: boolean, { focusDialog = false } = {}) {
     // A close the browser made has already untracked it, so an ask that shows it again must
     // track it again: the list holds what is on top now.
     return trackModal(element);
-  }, [open, focusDialog, focus]);
+  }, [open, focusDialog, initialFocus, focus]);
   return dialog;
 }
 

@@ -20,6 +20,7 @@ import {
   motionSettled,
   newMind,
   removeDataFolder,
+  runCommand,
   setMotionSpeed,
   setWindowSize,
   showCountWhileWriting,
@@ -97,8 +98,8 @@ test("footnotes by keyboard, the / menu, the selection menu and ^[…], edited i
   await window.keyboard.press("Enter");
   await window.keyboard.type("Spring tides come at new moon");
 
-  // ⌥⌘F (Ctrl+Alt+F) puts a footnote after the cursor and opens its text at the marker.
-  await window.keyboard.press("ControlOrMeta+Alt+F");
+  // ⌘K Insert Footnote puts one after the cursor and opens its text at the marker (⌥⌘F is Find and Replace, #1935).
+  await runCommand(window, "footnote.insert", "Insert Footnote");
   const popover = window.getByTestId("footnote-popover");
   await expect(popover).toBeVisible();
   const field = popover.getByTestId("footnote-text");
@@ -286,8 +287,8 @@ test("in Chinese: footnotes typed with an input method number together with an A
   await editor.click();
   await window.keyboard.type("Spring tides 大潮");
 
-  // ⌥⌘F opens the footnote, named in Chinese; an input method writes its text.
-  await window.keyboard.press("ControlOrMeta+Alt+F");
+  // ⌘K 插入脚注 opens the footnote, named in Chinese; an input method writes its text.
+  await runCommand(window, "footnote.insert", "插入脚注");
   const popover = window.getByTestId("footnote-popover");
   const field = popover.getByTestId("footnote-text");
   await expect(field).toBeFocused();
@@ -322,7 +323,9 @@ test("in Chinese: footnotes typed with an input method number together with an A
   await expect(markers).toHaveText(["1", "2"]);
   await expect(markers.nth(1)).toHaveAttribute("aria-label", "脚注 2：小潮在上下弦月");
   const area = window.getByTestId("footnote-area");
-  await expect(area.getByRole("heading")).toHaveText("脚注");
+  // Footnotes alone are headed only by their rule; the area is named for them.
+  await expect(area.getByRole("heading")).toHaveCount(0);
+  await expect(area).toHaveAttribute("aria-label", "脚注");
   await expect(areaTexts(window)).toHaveText(["每月两次。", "小潮在上下弦月"]);
 
   // An Answer's Citation, added to the note after them, is 3, in the text and the area.
@@ -344,7 +347,7 @@ test("in Chinese: footnotes typed with an input method number together with an A
     return view.serializeForClipboard(view.state.doc.slice(at, at + 1)).dom.innerHTML;
   });
   await clickEndOf(window, editor.locator(":scope > p").first());
-  await window.keyboard.press("ControlOrMeta+Alt+F");
+  await runCommand(window, "footnote.insert", "插入脚注");
   await expect(field).toBeFocused();
   await window.keyboard.type("参见");
   // Pasted as the editor pastes it (the system clipboard is shared with the machine).
@@ -428,7 +431,7 @@ for (const motion of ["on", "off"] as const) {
       return view.serializeForClipboard(view.state.doc.slice(at, at + 1)).dom.innerHTML;
     });
     await clickEndOf(window, editor.locator(":scope > p").first());
-    await window.keyboard.press("ControlOrMeta+Alt+F");
+    await runCommand(window, "footnote.insert", "Insert Footnote");
     const popover = window.getByTestId("footnote-popover");
     const field = popover.getByTestId("footnote-text");
     await expect(field).toBeFocused();
