@@ -8661,8 +8661,9 @@
     padding: 0 var(--edge) 10px;
 
     /*
-     * The card keeps the height its step needs while the Answer above it grows, and scrolls past
-     * the room it leaves the thread (#2147).
+     * The card above keeps the height its step needs while the Answer above it grows, and scrolls
+     * past the room it leaves the thread, with the line and the composer kept whole below it
+     * (#2147, #2310).
      */
     &[data-setup] {
       display: flex;
@@ -8672,15 +8673,25 @@
       max-height: max(60%, calc(100% - 10rem));
     }
 
+    /* The card above scrolls in its room; the line and the composer keep theirs (#2310). */
+    &[data-setup] > .composer,
+    &[data-setup] > .assistant-setup-line {
+      flex: none;
+    }
+
     &:empty {
       display: none;
     }
   }
   /*
-   * Steps 2 and 3 still to do wait as one quiet line here, above the composer (#2310); opening
-   * it shows the card, which keeps the layout it always had in this slot.
+   * Steps 2 and 3 still to do wait as one line here, above the composer (#2310): Set up opens the
+   * next step above it, and ✕ keeps them in Settings › Models.
    */
   .assistant-setup-line {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
     margin: 0;
     padding: 0 0 6px;
     font-family: var(--font-sans);

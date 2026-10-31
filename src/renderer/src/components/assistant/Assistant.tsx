@@ -279,8 +279,8 @@ function AssistantMain({
   const mind = seat !== null && seat.mindId === readMindId ? seat : null;
   const settingUp = useSettingUp();
   const stepsWaiting = useSetupStepsWaiting();
-  const stepsOpen = useModelSetup((state) => state.stepsOpen);
-  const setupCardShown = settingUp || (stepsWaiting && stepsOpen);
+  const stepOpen = useModelSetup((state) => state.step !== null);
+  const setupCardShown = settingUp || (stepsWaiting && stepOpen);
   const thread = useRef<HTMLDivElement>(null);
   useKeepInView(thread);
   /** Where the conversation was scrolled to, put back when it shows again. */
@@ -307,9 +307,16 @@ function AssistantMain({
         data-setup={setupCardShown || undefined}
         className="assistant-composer"
       >
-        {stepsWaiting && !stepsOpen && <SetupLine />}
         <TaskTray mindId={mind?.mindId ?? null} />
-        {setupCardShown ? <ModelSetupCard /> : <Composer mind={mind} />}
+        {settingUp ? (
+          <ModelSetupCard />
+        ) : (
+          <>
+            {stepsWaiting && <SetupLine />}
+            {stepsWaiting && stepOpen && <ModelSetupCard />}
+            <Composer mind={mind} />
+          </>
+        )}
       </div>
     </div>
   );

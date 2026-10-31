@@ -14,6 +14,7 @@ import {
   addDocuments,
   askFirstQuestion,
   assistantAnswers,
+  controlReads,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -88,10 +89,7 @@ test("a pasted key is named by its form and works at once: the waiting Question 
     await expect(window.getByTestId("composer-input")).toBeVisible();
     await expect(card).toHaveCount(0);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toHaveText("Anthropic works", {
-      timeout: 15_000,
-    });
-    await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
+    await expect(card.getByTestId("setup-step-transcription")).toBeVisible({ timeout: 15_000 });
 
     // Step 2: this computer, free, nothing leaves, and one click uses it.
     const transcription = card.getByTestId("setup-transcription");
@@ -127,61 +125,109 @@ test("a pasted key is named by its form and works at once: the waiting Question 
   }
 });
 
+/** The line above the composer, as it reads with `count` steps left. */
+function setupLine(language: "en" | "zh-CN", count: 1 | 2): string {
+  const titles = (
+    count === 2
+      ? [translate(language, "setup.step.transcription"), translate(language, "setup.step.sorting")]
+      : [translate(language, "setup.step.sorting")]
+  ).join(language === "zh-CN" ? "、" : ", ");
+  return translate(language, "setup.steps.line", { count, steps: titles });
+}
+
+/** The step in hand's line naming what goes where, above its Use this. */
+async function consentBeforeUse(card: Locator, lineId: string, useId: string): Promise<void> {
+  const consent = card.getByTestId(lineId);
+  const useThis = card.getByTestId(useId);
+  await expect(consent).toBeVisible();
+  await expect(useThis).toBeVisible();
+  const consentBox = await consent.boundingBox();
+  const useBox = await useThis.boundingBox();
+  if (!consentBox || !useBox) throw new Error("The line and its Use this aren't on screen.");
+  expect(consentBox.y + consentBox.height).toBeLessThanOrEqual(useBox.y);
+}
+
 for (const language of ["en", "zh-CN"] as const) {
-  for (const [width, height] of [
-    [900, 700],
-    [1600, 900],
-  ] as const) {
-    test(`after the first Answer the composer is there, ⌘J takes it and a follow-up is asked, with the steps left a line above it (${language}, ${width} px) (#2310)`, async () => {
-      const { app, window } = await launchApp(dataDir, {
-        fakeChat: true,
-        ollama: "http://127.0.0.1:9",
-      });
-      try {
-        await setWindowSize(app, window, width, height);
-        await acceptPlainTextKeys(window);
-        await setLanguage(window, language);
-        const card = await askFirstQuestion(window);
-        const field = card.getByTestId("setup-key");
-        await field.fill(ANTHROPIC_KEY);
-        await field.press("Enter");
-        await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
-          timeout: 20_000,
-        });
-
-        // The setup no longer takes the composer's place: meeting transcription and sorting wait
-        // as one quiet line above it, which is not the composer and is not its card.
-        const composer = window.getByTestId("composer-input");
-        const line = window.getByTestId("assistant-setup-line");
-        await expect(composer).toBeVisible();
-        await expect(card).toHaveCount(0);
-        await expect(line).toBeVisible();
-        await expect(line).toHaveText(translate(language, "setup.steps.line"));
-        await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
-
-        // ⌘J puts the cursor in the composer, from the Mind.
-        await window.getByTestId("mind-editor").click();
-        await window.keyboard.press("ControlOrMeta+j");
-        await expect(composer).toBeFocused();
-
-        // A follow-up is typed and sent, with no setup step ever taken.
-        const followUp = language === "zh-CN" ? "再说得具体一点？" : "Tell me more about that?";
-        await window.keyboard.type(followUp);
-        await window.keyboard.press("Enter");
-        await expect(assistantAnswers(window)).toHaveCount(2, { timeout: 20_000 });
-        await expect(window.getByTestId("assistant-question").last()).toContainText(followUp);
-        await expect(line).toBeVisible();
-        await expect(composer).toBeVisible();
-        // Neither step was used: sorting stays automatic and the audio stays on this computer.
-        expect((await bridge(window).library()).classifier).toEqual({ kind: "automatic" });
-        expect((await bridge(window).settings()).device.transcriptionRoute ?? "local").toBe(
-          "local",
-        );
-      } finally {
-        await app.close();
-      }
+  test(`after the first Answer the composer is there, ⌘J takes it and a follow-up is asked, then Set up opens step 2 and step 3 above it (${language}, 1280 × 800) (#2310)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
     });
-  }
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+
+      // The setup no longer takes the composer's place: meeting transcription and sorting wait
+      // by name in one quiet line above it, which is not the composer and is not its card.
+      const composer = window.getByTestId("composer-input");
+      const line = window.getByTestId("assistant-setup-line");
+      await expect(composer).toBeVisible();
+      await expect(card).toHaveCount(0);
+      await expect(line).toBeVisible();
+      await expect(line).toHaveText(setupLine(language, 2));
+      await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
+
+      // ⌘J puts the cursor in the composer, from the Mind.
+      await window.getByTestId("mind-editor").click();
+      await window.keyboard.press("ControlOrMeta+j");
+      await expect(composer).toBeFocused();
+
+      // A follow-up is typed and sent, with no setup step ever taken.
+      const followUp = language === "zh-CN" ? "再说得具体一点？" : "Tell me more about that?";
+      await window.keyboard.type(followUp);
+      await window.keyboard.press("Enter");
+      await expect(assistantAnswers(window)).toHaveCount(2, { timeout: 20_000 });
+      await expect(window.getByTestId("assistant-question").last()).toContainText(followUp);
+      await expect(line).toBeVisible();
+      await expect(composer).toBeVisible();
+
+      // Set up opens step 2 above the composer, which stays at the panel's foot and takes keys.
+      await pointAndClick(window, line);
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible({ timeout: 15_000 });
+      await expect(line).toHaveText(setupLine(language, 2));
+      await expect(composer).toBeVisible();
+      const cardBox = await card.boundingBox();
+      const composerBox = await composer.boundingBox();
+      if (!cardBox || !composerBox) throw new Error("The card and the composer aren't on screen.");
+      expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(composerBox.y + 1);
+      await composer.click();
+      await expect(composer).toBeFocused();
+      await window.keyboard.type("x");
+      await expect(composer).toHaveValue("x");
+      await composer.fill("");
+
+      // What goes where is on screen before the button that is its consent.
+      await consentBeforeUse(card, "setup-transcription-line", "setup-transcription-use");
+      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+
+      // Step 3 opens in turn, under the same line; one step is left.
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-open", "true");
+      await expect(line).toHaveText(setupLine(language, 1));
+      await expect(composer).toBeVisible();
+      await consentBeforeUse(card, "models-sorting-line", "setup-sorting-use");
+      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled();
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+
+      // After the last, the card and its line go, and the composer has the panel.
+      await expect(card).toHaveCount(0);
+      await expect(line).toHaveCount(0);
+      await expect(composer).toBeVisible();
+      await expect
+        .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
+        .toBe("local");
+      expect((await bridge(window).library()).classifier.kind).toBe("chat");
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 /** Where the card and its step in hand's buttons are, as the User's eye holds them. */
@@ -189,7 +235,6 @@ interface StepsFrame {
   step: string;
   card: Box;
   buttons: Box[];
-  later: Box;
   /** How tall the conversation above the card is, so a test can tell the Answer grew. */
   thread: number;
   /** Whether step 2 shows its consent line for a cloud route, and its Add a key link. */
@@ -209,14 +254,12 @@ function stepsFrame(window: Page): Promise<StepsFrame> {
     };
     const card = document.querySelector('[data-testid="model-setup"]');
     const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
-    const later = card?.querySelector('[data-testid="setup-later"]');
     const thread = document.querySelector('[data-testid="assistant-thread"]');
-    if (!card || !open || !later || !thread) throw new Error("The steps aren't showing.");
+    if (!card || !open || !thread) throw new Error("The steps aren't showing.");
     return {
       step: open.getAttribute("data-testid") ?? "",
       card: box(card),
       buttons: [...open.querySelectorAll("button")].map(box),
-      later: box(later),
       thread: thread.scrollHeight,
       consent: card.querySelector('[data-testid="meetings-route-consent"]') !== null,
       addKey: card.querySelector('[data-testid="setup-transcription-add-key"]') !== null,
@@ -241,14 +284,12 @@ async function recordSteps(window: Page): Promise<void> {
       if (!record.running) return;
       const card = document.querySelector('[data-testid="model-setup"]');
       const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
-      const later = card?.querySelector('[data-testid="setup-later"]');
       const thread = document.querySelector('[data-testid="assistant-thread"]');
-      if (card && open && later && thread) {
+      if (card && open && thread) {
         record.frames.push({
           step: open.getAttribute("data-testid"),
           card: box(card),
           buttons: [...open.querySelectorAll("button")].map(box),
-          later: box(later),
           thread: thread.scrollHeight,
           consent: card.querySelector('[data-testid="meetings-route-consent"]') !== null,
           addKey: card.querySelector('[data-testid="setup-transcription-add-key"]') !== null,
@@ -293,15 +334,13 @@ function buttonsInView(window: Page): Promise<{
   return window.evaluate(() => {
     const card = document.querySelector('[data-testid="model-setup"]');
     const open = card?.querySelector('[data-testid^="setup-step-"][data-open]');
-    const foot = card?.querySelector("[data-setup-foot]");
     const thread = document.querySelector('[data-testid="assistant-thread"]');
-    if (!card || !open || !foot || !thread) throw new Error("The steps aren't showing.");
+    if (!card || !open || !thread) throw new Error("The steps aren't showing.");
     const room = card.getBoundingClientRect();
-    const under = foot.getBoundingClientRect().top;
     const outside = [...open.querySelectorAll("button")]
       .filter((button) => {
         const { top, bottom } = button.getBoundingClientRect();
-        return top < room.top - 0.5 || bottom > room.bottom + 0.5 || bottom > under + 0.5;
+        return top < room.top - 0.5 || bottom > room.bottom + 0.5;
       })
       .map((button) => button.getAttribute("data-testid") ?? button.textContent ?? "a button");
     return {
@@ -331,20 +370,6 @@ function foldedLine(window: Page, step: "transcription" | "sorting") {
       offset: below ? tail.left - head.left : tail.left - head.right,
     };
   }, step);
-}
-
-/** Whether the "·" of a line of text and a link sits on the line where the text before it ends. */
-function separatorFollowsText(window: Page, testId: string) {
-  return window.evaluate((id) => {
-    const text = document.querySelector(`[data-testid="${id}"] p`)?.firstChild;
-    const dot = document.querySelector(`[data-testid="${id}"] [aria-hidden="true"]`);
-    if (!text || !dot) throw new Error("The line isn't showing.");
-    const range = document.createRange();
-    range.selectNodeContents(text);
-    const lines = [...range.getClientRects()];
-    const last = lines[lines.length - 1];
-    return last ? Math.abs(dot.getBoundingClientRect().top - last.top) < 3 : false;
-  }, testId);
 }
 
 /** Notes the sorting step's line, its use button and the card's box at every change the page makes, from now on. */
@@ -425,80 +450,6 @@ function servicesRead(app: ElectronApplication): Promise<number> {
   );
 }
 
-/**
- * The core's `channel` as a core that can't always answer would: while `failing`, every call
- * fails, and the next `failNext` calls fail; the next `hold` calls wait, before the core's handler or, with `after`, after it has
- * answered; and `settle` ends the oldest one held (`resolveAll`, all of them). Resolves to how
- * many calls are held.
- */
-function controlReads(
-  app: ElectronApplication,
-  channel: string,
-  change: {
-    failing?: boolean;
-    failNext?: number;
-    hold?: number;
-    after?: boolean;
-    settle?: "reject" | "resolve" | "resolveAll";
-  },
-): Promise<number> {
-  return app.evaluate(
-    ({ ipcMain }, { name, what }) => {
-      interface Control {
-        failing: boolean;
-        failNext: number;
-        hold: number;
-        after: boolean;
-        held: ((how: "reject" | "resolve") => void)[];
-      }
-      const store = globalThis as unknown as { readControls?: Record<string, Control> };
-      const controls = store.readControls ?? {};
-      store.readControls = controls;
-      let control = controls[name];
-      if (!control) {
-        const own: Control = { failing: false, failNext: 0, hold: 0, after: false, held: [] };
-        control = own;
-        controls[name] = own;
-        const handlers = (
-          ipcMain as unknown as {
-            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
-          }
-        )._invokeHandlers;
-        const original = handlers.get(name);
-        if (!original) throw new Error(`The ${name} handler is unavailable.`);
-        ipcMain.removeHandler(name);
-        ipcMain.handle(name, (event, ...args) => {
-          if (own.hold > 0) {
-            own.hold -= 1;
-            const answered = own.after ? Promise.resolve(original(event, ...args)) : null;
-            return new Promise((resolve, reject) => {
-              own.held.push((how) =>
-                how === "reject"
-                  ? reject(new Error(`${name} is temporarily unavailable.`))
-                  : resolve(answered ?? original(event, ...args)),
-              );
-            });
-          }
-          if (own.failing || own.failNext > 0) {
-            own.failNext = Math.max(0, own.failNext - 1);
-            throw new Error(`${name} is temporarily unavailable.`);
-          }
-          return original(event, ...args);
-        });
-      }
-      if (what.failing !== undefined) control.failing = what.failing;
-      if (what.failNext !== undefined) control.failNext = what.failNext;
-      if (what.hold !== undefined) control.hold = what.hold;
-      if (what.after !== undefined) control.after = what.after;
-      if (what.settle === "resolveAll") {
-        for (const end of control.held.splice(0)) end("resolve");
-      } else if (what.settle) control.held.shift()?.(what.settle);
-      return control.held.length;
-    },
-    { name: channel, what: change },
-  );
-}
-
 const failReads = async (app: ElectronApplication, channel: string, failing: boolean) => {
   await controlReads(app, channel, { failing });
 };
@@ -555,26 +506,6 @@ async function removeOllama(window: Page): Promise<void> {
 const OPENAI_KEY = "sk-proj-a-test-key-for-first-run";
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the line naming where the questions go never starts with its separator at 1280 × 800 (${language})`, async () => {
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
-    try {
-      await setWindowSize(app, window, 1280, 800);
-      await acceptPlainTextKeys(window);
-      await setLanguage(window, language);
-      const card = await askFirstQuestion(window);
-      const field = card.getByTestId("setup-key");
-      await field.fill(ANTHROPIC_KEY);
-      await field.press("Enter");
-      await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-sends")).toBeVisible({ timeout: 15_000 });
-      expect(await separatorFollowsText(window, "setup-ready-sends")).toBe(true);
-    } finally {
-      await app.close();
-    }
-  });
-}
-
-for (const language of ["en", "zh-CN"] as const) {
   test(`the card holds its place and every button of the step in hand shows at 1280 × 800, before the Answer and as it grows (${language}) (#2147)`, async () => {
     test.setTimeout(150_000);
     const sources = await mkdtemp(join(tmpdir(), "incarnamind-2147-"));
@@ -603,7 +534,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible({
+        timeout: 15_000,
+      });
 
       const first = await buttonsInView(window);
       expect(first.outside, "buttons outside the card at first paint").toEqual([]);
@@ -621,7 +554,6 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(frames.length).toBeGreaterThan(30);
       expect(frames.every((frame) => frame.buttons.length === before.buttons.length)).toBe(true);
       expect(spread(frames, (frame) => frame.card)).toBeLessThan(0.5);
-      expect(spread(frames, (frame) => frame.later)).toBeLessThan(0.5);
       for (const index of before.buttons.keys()) {
         expect(
           spread(frames, (frame) => buttonOf(frame, index)),
@@ -671,7 +603,12 @@ test("a later step's title opens it, a finished step is a line with its choice t
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      card
+        .getByTestId("setup-step-transcription")
+        .or(card.getByTestId("setup-step-sorting"))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     // Only the step in hand shows its details; the later step is its title, as a button.
     const transcription = card.getByTestId("setup-step-transcription");
@@ -759,29 +696,26 @@ for (const [width, height, mustScroll] of [
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window);
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible({
+        timeout: 15_000,
+      });
 
       // The conversation keeps room, whatever the step needs.
       expect((await buttonsInView(window)).thread).toBeGreaterThanOrEqual(100);
 
-      // Whether a part of the card shows between its title and its foot, which stay in view.
+      // Whether a part of the step in hand shows within the card.
       const shows = (selector: string) =>
         window.evaluate((query) => {
           const card = document.querySelector('[data-testid="model-setup"]');
           const target = document.querySelector(query);
-          const head = card?.querySelector("[data-setup-title]");
-          const foot = card?.querySelector("[data-setup-foot]");
-          if (!card || !target || !head || !foot) throw new Error("The steps aren't showing.");
+          if (!card || !target) throw new Error("The steps aren't showing.");
           const { top, bottom } = target.getBoundingClientRect();
-          const floor = Math.min(
-            card.getBoundingClientRect().bottom,
-            foot.getBoundingClientRect().top,
-          );
-          return top >= head.getBoundingClientRect().bottom - 0.5 && bottom <= floor + 0.5;
+          const box = card.getBoundingClientRect();
+          return top >= box.top - 0.5 && bottom <= box.bottom + 0.5;
         }, selector);
 
-      // Step 3 is taller than the room: the card scrolls, and the step opens with its title
-      // and its choice in view; its buttons are a scroll away.
+      // Step 3 is taller than the room: the card scrolls, and the step opens with its title and
+      // its choice in view; its buttons are a scroll away.
       await pointAndClick(window, card.getByTestId("setup-transcription-use"));
       await expect(card.getByTestId("models-sorting")).toBeEnabled({ timeout: 15_000 });
       const taller = await buttonsInView(window);
@@ -821,7 +755,12 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window, "qwen3.5:4b");
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(
+        card
+          .getByTestId("setup-step-transcription")
+          .or(card.getByTestId("setup-step-sorting"))
+          .first(),
+      ).toBeVisible({ timeout: 15_000 });
       const first = await stepsFrame(window);
       expect(first.step).toBe("setup-step-transcription");
 
@@ -846,10 +785,9 @@ for (const language of ["en", "zh-CN"] as const) {
       const settled = await stepsFrame(window);
       expect(settled.reading).toBe(false);
 
-      // Nothing moved: the card's edge, step 3's buttons and Set up later are where they were.
+      // Nothing moved: the card's edge and step 3's buttons are where they were.
       expect(settled.card).toEqual(opened.card);
       expect(settled.buttons).toEqual(opened.buttons);
-      expect(settled.later).toEqual(opened.later);
       // The words were there from the first paint, and only the list changed under them.
       expect(opened.line).toContain(
         translate(language, "setup.sorting.chat", { model: "Qwen 3.5 4B" }),
@@ -883,7 +821,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(problem).toContainText(translate(language, "setup.services.failed"), {
         timeout: 15_000,
       });
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible();
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
       await expect(card.getByTestId("setup-transcription-add-key")).toHaveCount(0);
 
@@ -924,7 +861,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`when the read of the transcription services fails, the focus goes to Try again, and stays there as a retry fails again (${language})`, async () => {
+  test(`a failed read of the transcription services stays above the composer, and Try again keeps the focus as a retry fails again (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
@@ -936,13 +873,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
 
-      // The problem replaces the key field the focus was in: it takes the focus.
+      // The problem is above the composer, which stays usable: a failed read never takes it away
+      // (#2310).
       await openSetupSteps(window);
       const retry = card.getByTestId("setup-services-problem-retry");
       await expect(retry).toBeVisible({ timeout: 15_000 });
-      await expect(retry).toBeFocused();
+      await expect(window.getByTestId("composer-input")).toBeVisible();
 
-      // Enter retries, the second read fails too, and the focus is on Try again again.
+      // Focused, Try again disables itself as the retry runs, and that failing too gives it back.
+      await retry.focus();
       await window.keyboard.press("Enter");
       await expect.poll(() => servicesRead(app)).toBeGreaterThanOrEqual(2);
       await expect(retry).toBeEnabled();
@@ -1013,7 +952,12 @@ for (const language of ["en", "zh-CN"] as const) {
         await field.fill(ANTHROPIC_KEY);
         await field.press("Enter");
         await openSetupSteps(window);
-        await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+        await expect(
+          card
+            .getByTestId("setup-step-transcription")
+            .or(card.getByTestId("setup-step-sorting"))
+            .first(),
+        ).toBeVisible({ timeout: 15_000 });
         // The model to save for sorting is the chat default, which step 3 offers as the AI model.
         await saveAnthropicAsDefault(window, modelId);
         await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
@@ -1167,7 +1111,12 @@ for (const language of ["en", "zh-CN"] as const) {
         await field.fill(ANTHROPIC_KEY);
         await field.press("Enter");
         await openSetupSteps(window);
-        await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+        await expect(
+          card
+            .getByTestId("setup-step-transcription")
+            .or(card.getByTestId("setup-step-sorting"))
+            .first(),
+        ).toBeVisible({ timeout: 15_000 });
         const problem = card.getByTestId("setup-sorting-problem");
         const retry = card.getByTestId("setup-sorting-problem-retry");
         const words = translate(language, "setup.sorting.failed");
@@ -1347,7 +1296,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(
+        card
+          .getByTestId("setup-step-transcription")
+          .or(card.getByTestId("setup-step-sorting"))
+          .first(),
+      ).toBeVisible({ timeout: 15_000 });
 
       // Step 3 opens and its read is held. The User opens Document Info, which takes the focus.
       await controlReads(app, "core:getTaggingModels", { hold: 1 });
@@ -1464,7 +1418,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const retry = card.getByTestId("setup-services-problem-retry");
       await expect(problem).toBeVisible({ timeout: 15_000 });
       await expect(retry).toBeEnabled();
-      await expect(retry).toBeFocused();
+      // The card is above the composer, which stays usable (#2310).
+      await expect(window.getByTestId("composer-input")).toBeVisible();
 
       // The two older reads land with the list: the card's problem is its own, and stays.
       await controlReads(app, SERVICES, { settle: "resolveAll" });
@@ -1472,10 +1427,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(problem).toBeVisible();
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
       await expect(retry).toBeEnabled();
-      await expect(retry).toBeFocused();
+      await expect(window.getByTestId("composer-input")).toBeVisible();
 
       // The User retries: the card's read ends, and the steps open once.
-      await window.keyboard.press("Enter");
+      await pointAndClick(window, retry);
       await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
       await expect(problem).toHaveCount(0);
     } finally {
@@ -1654,7 +1609,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(
+        card
+          .getByTestId("setup-step-transcription")
+          .or(card.getByTestId("setup-step-sorting"))
+          .first(),
+      ).toBeVisible({ timeout: 15_000 });
 
       // Step 3 first: its choice, the AI model that works, is saved and the step folds to a line.
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
@@ -1703,7 +1663,12 @@ for (const language of ["en", "zh-CN"] as const) {
           const card = await askFirstQuestion(window);
           await setLocalChatModel(window);
           await openSetupSteps(window);
-          await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+          await expect(
+            card
+              .getByTestId("setup-step-transcription")
+              .or(card.getByTestId("setup-step-sorting"))
+              .first(),
+          ).toBeVisible({ timeout: 15_000 });
           await saveSortingOnOllama(window, modelId);
           if (chatDefault === "the same") await saveOllamaDefault(window, modelId);
           else await saveOpenAiAsDefault(window);
@@ -1771,7 +1736,12 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window);
       await openSetupSteps(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await expect(
+        card
+          .getByTestId("setup-step-transcription")
+          .or(card.getByTestId("setup-step-sorting"))
+          .first(),
+      ).toBeVisible({ timeout: 15_000 });
       await card.getByTestId("setup-transcription").selectOption("soniox");
       await pointAndClick(window, card.getByTestId("setup-transcription-use"));
       await expect(card.getByTestId("setup-step-transcription")).toHaveAttribute(
@@ -1997,7 +1967,12 @@ test("each step is skippable: Set up when I record and Skip leave both settings 
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      card
+        .getByTestId("setup-step-transcription")
+        .or(card.getByTestId("setup-step-sorting"))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     await expect(card.getByTestId("setup-step-transcription")).toContainText("会议转写");
     await expect(card.getByTestId("setup-step-sorting")).toContainText("整理和会议提示");
@@ -2088,7 +2063,12 @@ test("with a Soniox key a cloud route is offered in step 2 and named as the cons
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      card
+        .getByTestId("setup-step-transcription")
+        .or(card.getByTestId("setup-step-sorting"))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     const route = card.getByTestId("setup-transcription");
     await expect(route).toHaveValue("local");
     await expect(route.locator("option")).toHaveText(["On this computer", "Soniox"]);
@@ -2132,7 +2112,12 @@ test("Local mode offers only choices on this computer, in step 1 and in the step
 
     await setLocalChatModel(window);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      card
+        .getByTestId("setup-step-transcription")
+        .or(card.getByTestId("setup-step-sorting"))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
       "On this computer",
     ]);
@@ -2203,13 +2188,17 @@ test("when the model that worked goes, the card asks for one again", async () =>
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
     await openSetupSteps(window);
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      card
+        .getByTestId("setup-step-transcription")
+        .or(card.getByTestId("setup-step-sorting"))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       for (const provider of await core.listChatProviders())
         await core.deleteChatProvider(provider.id);
     });
-    await expect(window.getByTestId("setup-ready-title")).toHaveCount(0);
     await expect(card.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
     await expect(card.getByTestId("setup-key")).toBeVisible();
   } finally {

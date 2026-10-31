@@ -22,7 +22,7 @@ import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
 import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
-import { useModelSetup, waitForModel } from "./modelSetup";
+import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
@@ -321,40 +321,50 @@ function askWaitingQuestion(): void {
   (async () => {
     // The conversation it was typed in, whichever is open now.
     if (useConversations.getState().openId !== conversationId) {
-      if (conversationId) await openConversation(conversationId);
-      else startNewChat();
+      if (conversationId) {
+        // The User moved on (New chat, another row) while the read was on its way: the words go
+        // back to the composer rather than being asked in a chat they didn't mean (#2310).
+        if (!(await openConversation(conversationId))) {
+          returnQuestion(waiting);
+          return;
+        }
+      } else startNewChat();
     }
     await askInAssistant(question);
   })().catch((error: unknown) => useAppStore.getState().reportError(error));
 }
 
+/**
+ * The cursor goes where the User asks next, unless they are typing in the Note or another field:
+ * a model that starts working never pulls their next keys into the composer draft (#2310).
+ */
+function focusComposerUnlessTyping(): void {
+  const active = document.activeElement;
+  const inSetup =
+    active instanceof Element && active.closest('[data-testid="model-setup"]') !== null;
+  const typing =
+    active instanceof HTMLElement &&
+    (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+  if (!typing || inSetup) useComposer.getState().requestFocus();
+}
+
 core.on("chatReadiness.changed", (readiness) => {
   if (!readiness.ready) {
-    // The model that worked is gone: the card asks for one again. The steps the User had opened
-    // stay open across a check that comes back ready, so a model read that blinks never shuts
-    // the card under them (#2310).
+    // The model that worked is gone: the card asks for one again. A step the User had open stays
+    // open across a check that comes back ready (#2310).
     useModelSetup.setState({ ready: false });
     return;
   }
-  const { wanted, waiting, ready, stepsOpen } = useModelSetup.getState();
+  const { wanted, waiting, ready } = useModelSetup.getState();
   if (!wanted && !waiting) return;
-  // Only the readiness that brings the first working model in moves the cursor, and gives the
-  // composer back: a later one (the key checked again, another model saved) leaves the card the
-  // User has opened where it is (#2310).
+  // Only the readiness that brings the first working model in moves the cursor and gives the
+  // composer the panel: a later one (the key checked again, another model saved) leaves it, and
+  // the steps, where the User has them (#2310).
   if (ready) return;
   useModelSetup.setState({ ready: true, wanted: true });
-  // The cursor goes where the User asks next: the Question that waited is already in the thread.
-  if (!stepsOpen) useComposer.getState().requestFocus();
+  focusComposerUnlessTyping();
   askWaitingQuestion();
 });
-
-/** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
-export function continueSetup(): void {
-  useModelSetup.setState({ wanted: false, ready: false, stepsOpen: false });
-  // The setup card goes with the focus in it: the composer, where the User asks next, takes it.
-  useComposer.getState().requestFocus();
-  askWaitingQuestion();
-}
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.

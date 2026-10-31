@@ -47,15 +47,11 @@ export function ModelSetupCard() {
   if (!ready) return <ChooseAnAi />;
   if (services.state === "loading") {
     return (
-      <section
-        data-testid="model-setup"
-        aria-busy="true"
-        className="setup-card flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4"
-      >
-        <p data-testid="setup-services-reading" className={hintClass}>
+      <SetupCard>
+        <p data-testid="setup-services-reading" role="status" className={hintClass}>
           {t("setup.services.reading")}
         </p>
-      </section>
+      </SetupCard>
     );
   }
   if (services.state === "ready") return <SetupSteps />;

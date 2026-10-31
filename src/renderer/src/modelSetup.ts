@@ -3,6 +3,9 @@
  * the composer becomes the setup card, and is asked as it was as soon as its first step works,
  * without being typed again (`askWaitingQuestion`, in ./conversations). "Set up later" gives its
  * words back to the composer.
+ *
+ * Once step 1 works the composer is back and stays: steps 2 and 3 wait as one line above it, and
+ * Set up opens the next one above the composer, which works on below (#2310).
  */
 import { create } from "zustand";
 import type { AskInConversationInput } from "../../core/api";
@@ -14,18 +17,32 @@ export type WaitingQuestion = Omit<AskInConversationInput, "conversationId"> & {
   conversationId: string | null;
 };
 
+/** Steps 2 and 3, in the order they are offered (#1922). */
+export type SetupStep = "transcription" | "sorting";
+
+export const SETUP_STEPS: readonly SetupStep[] = ["transcription", "sorting"];
+
+/** What a step is called, in the card and in the line above the composer (#2310). */
+export const setupStepTitle = (
+  step: SetupStep,
+): "setup.step.transcription" | "setup.step.sorting" =>
+  step === "transcription" ? "setup.step.transcription" : "setup.step.sorting";
+
 export const useModelSetup = create<{
   waiting: WaitingQuestion | null;
   wanted: boolean;
   /** A model works: the steps that come after it are still to do (#1922). */
   ready: boolean;
-  /** The steps still to do are open from their line, above the composer (#2310). */
-  stepsOpen: boolean;
+  /** The step in hand, in its card above the composer; null while the line alone shows (#2310). */
+  step: SetupStep | null;
+  /** What each step was finished or skipped with; the line counts the ones still null (#2310). */
+  done: Readonly<Record<SetupStep, string | null>>;
 }>(() => ({
   waiting: null,
   wanted: false,
   ready: false,
-  stepsOpen: false,
+  step: null,
+  done: { transcription: null, sorting: null },
 }));
 
 const KEPT = "incarnamind.setup.waiting";
@@ -69,18 +86,50 @@ export const openModelSetup = (): void => useModelSetup.setState({ wanted: true 
 
 /**
  * The setup card takes the composer's place only while no model works: the first step is what the
- * waiting Question needs (#2310). Once one works, the composer and ⌘J are there, and the steps
- * left wait above it as one quiet line.
+ * waiting Question needs (#2310). Once one works, the composer and ⌘J are there.
  */
 export const useSettingUp = (): boolean =>
   useModelSetup((state) => (state.waiting !== null || state.wanted) && !state.ready);
 
-/** Steps 2 and 3 after a model works: one quiet line above the composer (#2310). */
+/** Steps 2 and 3 after a model works: they wait as one line above the composer (#2310). */
 export const useSetupStepsWaiting = (): boolean =>
   useModelSetup((state) => state.ready && state.wanted);
 
-/** Opens the steps left from their line; the card takes the composer's slot until they are done or put off (#2310). */
-export const openSetupSteps = (): void => useModelSetup.setState({ stepsOpen: true });
+/** The next step still to do, or null when both are done or skipped. */
+function nextStep(done: Readonly<Record<SetupStep, string | null>>): SetupStep | null {
+  return SETUP_STEPS.find((step) => done[step] === null) ?? null;
+}
+
+/**
+ * Set up, on the line, opens the next step still to do above the composer (#2310); a later step
+ * the User opened ahead gives way to it.
+ */
+export function openSetupSteps(): void {
+  const { ready, wanted, step, done } = useModelSetup.getState();
+  if (!ready || !wanted) return;
+  const next = nextStep(done);
+  if (next !== null && next !== step) useModelSetup.setState({ step: next });
+}
+
+/** A later step's title, in the card, opens it: an order, never a gate (#2310). */
+export const openSetupStep = (step: SetupStep): void => useModelSetup.setState({ step });
+
+/**
+ * A step is finished or skipped: the next one opens, and after the last the card and its line go,
+ * with the composer left where the User asks next (#2310).
+ */
+export function finishSetupStep(step: SetupStep, choice: string): void {
+  const { done } = useModelSetup.getState();
+  const nextDone = { ...done, [step]: choice };
+  const next = nextStep(nextDone);
+  if (next === null) {
+    useModelSetup.setState({ done: nextDone, step: null, wanted: false });
+    useComposer.getState().requestFocus();
+  } else useModelSetup.setState({ done: nextDone, step: next });
+}
+
+/** The line's ✕: what is left waits in Settings › Models, and the composer has the panel (#2310). */
+export const skipSetupSteps = (): void => useModelSetup.setState({ wanted: false, step: null });
 
 /** Keeps a Question that couldn't be asked for want of a model, for the setup card to wait on. */
 export const waitForModel = (question: WaitingQuestion): void =>
@@ -89,8 +138,20 @@ export const waitForModel = (question: WaitingQuestion): void =>
 /** "Set up later": the Question's words and quotes go back to the composer they were typed in. */
 export function giveUpWaiting(): void {
   const { waiting } = useModelSetup.getState();
-  useModelSetup.setState({ waiting: null, wanted: false, ready: false, stepsOpen: false });
+  useModelSetup.setState({ waiting: null, wanted: false, step: null });
   if (waiting) giveBack(waiting);
+  useComposer.getState().requestFocus();
+}
+
+/**
+ * A Question that couldn't be asked — the User moved to another chat while its conversation was
+ * read — goes back to the composer it was typed in, with the cursor, rather than being asked in a
+ * chat the User didn't mean (#2310).
+ */
+export function returnQuestion(
+  question: Pick<WaitingQuestion, "mindId" | "text" | "quotes">,
+): void {
+  giveBack(question);
   useComposer.getState().requestFocus();
 }
 
