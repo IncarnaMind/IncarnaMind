@@ -1,12 +1,14 @@
 import type { Editor } from "@tiptap/core";
 import { create } from "zustand";
 
-/** Where a column is: the Mind and editor that hold it, and its table. */
-export interface ComparisonColumnHandle {
+/** Where a table or one of its parts is: the Mind and editor that hold it, and its table. */
+export interface ComparisonHandle {
   editor: Editor;
   mindId: string;
   tableId: string;
 }
+
+export type ComparisonColumnHandle = ComparisonHandle;
 
 /** The heads with an editor showing them, by Question id: what a menu or ⌘K acts on. */
 export const comparisonColumnHandles = new Map<string, ComparisonColumnHandle>();

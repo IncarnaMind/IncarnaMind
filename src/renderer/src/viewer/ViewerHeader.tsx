@@ -25,6 +25,8 @@ import { OpenExternallyIcon } from "./icons";
 export interface ViewerFrame {
   /** Undefined when its Document was deleted. */
   document: Document | undefined;
+  /** The tab it is drawn in. */
+  tabId: string;
   /** The tab is a preview: the toolbar offers to keep it open. */
   preview: boolean;
   keep(): void;
@@ -34,6 +36,7 @@ export interface ViewerFrame {
 
 export const ViewerFrameContext = createContext<ViewerFrame>({
   document: undefined,
+  tabId: "",
   preview: false,
   keep: () => undefined,
 });
@@ -56,6 +59,7 @@ export function ViewerHeader({
   children,
   openable = true,
   onRetry,
+  showingCited = false,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -65,6 +69,12 @@ export function ViewerHeader({
    */
   openable?: boolean;
   onRetry?: () => void;
+  /**
+   * The view shows the version a Citation was made from (#2159): the header
+   * says nothing of the Document's newer version, which that view's own bar
+   * does, and a saved page's date is the cited version's.
+   */
+  showingCited?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -92,7 +102,8 @@ export function ViewerHeader({
   );
   const changedState = citedState?.changedAfterCited ?? false;
   const recheck = useCitationRecheck(
-    cited && target?.quote
+    // The cited version's own view says how it stands, not the newer one's.
+    !showingCited && cited && target?.quote
       ? {
           documentId: target.documentId,
           contentHash: cited.contentHash ?? null,
@@ -103,21 +114,30 @@ export function ViewerHeader({
       : null,
     changedState,
     document?.contentHash,
+    // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
+    null,
   );
-  const changed = citedState
-    ? changedSourceLines(
-        changedState,
-        {
-          pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
-          pageTo: cited?.pageTo ?? target?.pageTo ?? null,
-          location: cited?.location ?? null,
-        },
-        recheck,
-        document,
-        language,
-        t,
-      ).note
-    : null;
+  const changed =
+    !showingCited && citedState
+      ? changedSourceLines(
+          changedState,
+          {
+            pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+            pageTo: cited?.pageTo ?? target?.pageTo ?? null,
+            location: cited?.location ?? null,
+          },
+          recheck,
+          document,
+          language,
+          t,
+        ).note
+      : null;
+  // A saved page's date is the shown version's: the cited one while it is shown (#2159).
+  const fetchedAt =
+    showingCited && document?.web
+      ? (document.web.versions.find((each) => each.contentHash === cited?.contentHash)?.fetchedAt ??
+        document.web.fetchedAt)
+      : (document?.web?.fetchedAt ?? null);
   /** Why the Document's own app couldn't open it, until it is tried again. */
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
@@ -197,9 +217,9 @@ ${sourceOf(document)}`
             <span>{t("viewer.keep")}</span>
           </button>
         )}
-        {document?.web && (
+        {fetchedAt && (
           <span data-testid="viewer-web-fetched" className="viewer-meta">
-            {t("webPages.fetched", { date: pageDate(document.web.fetchedAt, language) })}
+            {t("webPages.fetched", { date: pageDate(fetchedAt, language) })}
           </span>
         )}
         {document &&

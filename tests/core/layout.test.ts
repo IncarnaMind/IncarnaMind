@@ -44,6 +44,13 @@ function describeLayout(layout: WindowLayout, names: Record<string, string>): st
 const focusedIndex = (layout: WindowLayout) =>
   layout.groups.findIndex((group) => group.id === layout.focusedGroupId);
 
+/** The Mind the window shows: the focused group's shown tab, as the page the User is in. */
+const shownMind = (layout: WindowLayout): string | null => {
+  const group = layout.groups[focusedIndex(layout)];
+  const tab = group?.tabs.find((each) => each.id === group.activeTabId);
+  return tab?.item.kind === "mind" ? tab.item.mindId : null;
+};
+
 const tabOf = (layout: WindowLayout, item: TabItem) => {
   for (const group of layout.groups) {
     const tab = group.tabs.find((each) => JSON.stringify(each.item) === JSON.stringify(item));
@@ -238,6 +245,10 @@ describe("Tabs and groups", () => {
     await expect(
       change({ type: "open", item: notes, place: { wordPlace: "w:r#1" } }),
     ).rejects.toThrow(InvalidInputError);
+
+    // A Citation's Document opened at its current version, out of the version it quotes (#2159).
+    layout = await change({ type: "open", item: notes, place: { currentVersion: true } });
+    expect(tabOf(layout, notes).tab.place).toEqual({ currentVersion: true });
   });
 
   test("a Document already open is shown where it is, even in the group it is opened from; Open the page keeps its preview; only Open in a new tab makes a second tab", async () => {
@@ -584,7 +595,7 @@ describe("Tabs and groups", () => {
     expect(shown(layout)).toEqual(["Notes *Draft", "*Draft"]);
   });
 
-  test("a deleted Mind's tab closes in every window, with an event", async () => {
+  test("a deleted Mind's tab closes in every window, with an event, and comes back there when it is restored", async () => {
     const { core, mind } = await setUp();
     const alpha = await mind("Alpha");
     const beta = await mind("Beta");
@@ -601,6 +612,209 @@ describe("Tabs and groups", () => {
 
     expect(events.sort()).toEqual(["main:1", "second:0"]);
     expect((await core.getLayout("main")).groups[0]?.tabs.map((tab) => tab.item)).toEqual([beta]);
+
+    await core.restore([{ kind: "mind", id: alpha.mindId }], { reopen: true });
+
+    expect(events.sort()).toEqual(["main:1", "main:2", "second:0", "second:1"]);
+    expect(shownMind(await core.getLayout("main"))).not.toBe(alpha.mindId);
+    expect(shownMind(await core.getLayout("second"))).toBe(alpha.mindId);
+  });
+
+  test("a restored Mind is the one on screen again: its tab comes back where it was, shown", async () => {
+    const { core, mind, change, shown } = await setUp();
+    const beta = await mind("Beta");
+    const alpha = await mind("Alpha");
+    await change({ type: "open", item: beta });
+    let layout = await change({ type: "open", item: alpha });
+    expect(shown(layout)).toEqual(["Beta *Alpha"]);
+
+    if (alpha.kind !== "mind" || beta.kind !== "mind") throw new Error("Minds.");
+    await core.deleteMind(alpha.mindId);
+    layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["*Beta"]);
+    expect(shownMind(layout)).toBe(beta.mindId);
+    expect((await core.listDeleted()).map((item) => item.kind)).toEqual(["mind"]);
+
+    await core.restore([{ kind: "mind", id: alpha.mindId }], { reopen: true });
+
+    layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["Beta *Alpha"]);
+    expect(shownMind(layout)).toBe(alpha.mindId);
+    expect(await core.listDeleted()).toEqual([]);
+  });
+
+  test("every tab a Mind's delete closed comes back, in its group, shown as it was", async () => {
+    const { core, mind, change, shown } = await setUp();
+    const notes = await mind("Notes");
+    const draft = await mind("Draft");
+    await change({ type: "open", item: notes });
+    let layout = await change({ type: "open", item: draft });
+    layout = await change({
+      type: "split",
+      tabId: tabOf(layout, draft).tab.id,
+      side: "right",
+      copy: true,
+    });
+    expect(shown(layout)).toEqual(["Notes *Draft", "*Draft"]);
+    expect(focusedIndex(layout)).toBe(1);
+
+    if (draft.kind !== "mind") throw new Error("A Mind.");
+    await core.deleteMind(draft.mindId);
+    layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["*Notes"]);
+    expect(layout.groups).toHaveLength(1);
+
+    await core.restore([{ kind: "mind", id: draft.mindId }], { reopen: true });
+    layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["Notes *Draft", "*Draft"]);
+    expect(focusedIndex(layout)).toBe(1);
+    expect(layout.groups.map((group) => group.width)).toEqual([0.5, 0.5]);
+  });
+
+  test("the figure schedule's tab comes back with the Mind's own, each in its group", async () => {
+    const { core, mind, change } = await setUp();
+    const draft = await mind("Draft");
+    await change({ type: "open", item: draft });
+    await change({
+      type: "open",
+      item: { kind: "figures", mindId: draft.mindId },
+      where: { in: "side" },
+    });
+    const tabs = async () =>
+      (await core.getLayout(WINDOW)).groups.map((group) => group.tabs.map((tab) => tab.item));
+    const both = [
+      [{ kind: "mind", mindId: draft.mindId }],
+      [{ kind: "figures", mindId: draft.mindId }],
+    ];
+    expect(await tabs()).toEqual(both);
+
+    if (draft.kind !== "mind") throw new Error("A Mind.");
+    await core.deleteMind(draft.mindId);
+    expect(await tabs()).toEqual([[]]);
+
+    await core.restore([{ kind: "mind", id: draft.mindId }], { reopen: true });
+    expect(await tabs()).toEqual(both);
+  });
+
+  test("Minds that were tabs of one group come back into that group, not one group each", async () => {
+    const { core, mind, report, change, shown } = await setUp();
+    const alpha = await mind("Alpha");
+    const beta = await mind("Beta");
+    await change({ type: "open", item: alpha });
+    await change({ type: "open", item: beta });
+    await change({ type: "open", item: report, where: { in: "side" } });
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["Alpha *Beta", "*Report"]);
+
+    if (alpha.kind !== "mind" || beta.kind !== "mind") throw new Error("Minds.");
+    await core.deleteMind(alpha.mindId);
+    await core.deleteMind(beta.mindId);
+    // Their group went with the last of its tabs.
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["*Report"]);
+
+    await core.restore(
+      [
+        { kind: "mind", id: alpha.mindId },
+        { kind: "mind", id: beta.mindId },
+      ],
+      { reopen: true },
+    );
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["Alpha *Beta", "*Report"]);
+  });
+
+  test("Minds restored together come back with their groups in the order the groups had", async () => {
+    const { core, mind, change, shown } = await setUp();
+    const alpha = await mind("Alpha");
+    const beta = await mind("Beta");
+    const charlie = await mind("Charlie");
+    for (const item of [alpha, beta, charlie]) {
+      await change({ type: "open", item, where: { in: "side" } });
+    }
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["*Alpha", "*Beta", "*Charlie"]);
+
+    if (alpha.kind !== "mind" || charlie.kind !== "mind") throw new Error("Minds.");
+    await core.deleteMind(alpha.mindId);
+    await core.deleteMind(charlie.mindId);
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["*Beta"]);
+
+    await core.restore(
+      [
+        { kind: "mind", id: alpha.mindId },
+        { kind: "mind", id: charlie.mindId },
+      ],
+      { reopen: true },
+    );
+    const layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["*Alpha", "*Beta", "*Charlie"]);
+    expect(focusedIndex(layout)).toBe(2);
+  });
+
+  test("a Note restored from Recently deleted leaves the Library in front, and no tab opens", async () => {
+    const { core, mind, change, shown } = await setUp();
+    const beta = await mind("Beta");
+    const alpha = await mind("Alpha");
+    await change({ type: "open", item: beta });
+    await change({ type: "open", item: alpha });
+
+    if (alpha.kind !== "mind") throw new Error("A Mind.");
+    await core.deleteMind(alpha.mindId);
+    await change({ type: "open", item: { kind: "library" } });
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["Beta *Library"]);
+
+    await core.restore([{ kind: "mind", id: alpha.mindId }]);
+
+    const layout = await core.getLayout(WINDOW);
+    expect(shown(layout)).toEqual(["Beta *Library"]);
+    expect(shownMind(layout)).toBeNull();
+    expect(focusedIndex(layout)).toBe(0);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(alpha.mindId);
+  });
+
+  test("a Mind restored, deleted and restored again comes back once each time, never as a second tab", async () => {
+    const { core, mind, change, shown } = await setUp();
+    const beta = await mind("Beta");
+    const alpha = await mind("Alpha");
+    await change({ type: "open", item: beta });
+    await change({ type: "open", item: alpha });
+
+    if (alpha.kind !== "mind") throw new Error("A Mind.");
+    for (let round = 0; round < 2; round++) {
+      await core.deleteMind(alpha.mindId);
+      expect(shown(await core.getLayout(WINDOW))).toEqual(["*Beta"]);
+      await core.restore([{ kind: "mind", id: alpha.mindId }], { reopen: true });
+      expect(shown(await core.getLayout(WINDOW))).toEqual(["Beta *Alpha"]);
+    }
+  });
+
+  test("a deleted Document's tab was never closed, so the restore leaves the Document on screen", async () => {
+    const { core, report, change, shown } = await setUp();
+    const layout = await change({ type: "open", item: report });
+    expect(shown(layout)).toEqual(["*Report"]);
+
+    if (report.kind !== "document") throw new Error("A Document.");
+    await core.deleteDocument(report.documentId);
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["*Report"]);
+
+    await core.restore([{ kind: "document", id: report.documentId }]);
+    expect(shown(await core.getLayout(WINDOW))).toEqual(["*Report"]);
+  });
+
+  test("a Mind deleted before a restart comes back in the list with no tab left behind", async () => {
+    const { core, dataDir, mind, change } = await setUp();
+    const alpha = await mind("Alpha");
+    await change({ type: "open", item: alpha });
+
+    if (alpha.kind !== "mind") throw new Error("A Mind.");
+    await core.deleteMind(alpha.mindId);
+    core.close();
+
+    const restarted = startCore(dataDir);
+    expect(await restarted.listMinds()).toEqual([]);
+    expect((await restarted.getLayout(WINDOW)).groups[0]?.tabs).toEqual([]);
+
+    await restarted.restore([{ kind: "mind", id: alpha.mindId }], { reopen: true });
+    expect((await restarted.listMinds()).map((mind) => mind.id)).toEqual([alpha.mindId]);
+    expect((await restarted.getLayout(WINDOW)).groups[0]?.tabs).toEqual([]);
+    restarted.close();
   });
 
   test("groups, tabs, previews, pins, widths and the focused group survive a restart; deleted Minds and Documents don't", async () => {

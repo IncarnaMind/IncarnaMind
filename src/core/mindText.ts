@@ -62,6 +62,7 @@ import {
   readProposalRef,
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
+import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
@@ -83,14 +84,19 @@ import {
   GENERATED_MARK,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
+  PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
   QUESTION_BLOCK,
+  type RecordCiteResult,
+  type SignOffNow,
+  type SignOffTarget,
   type StyledRun,
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
+  TABLE_OF_CONTENTS_NODE,
   TEXT_COLOR_MARK,
   TEXT_FONT_MARK,
   TEXT_SIZE_MARK,
@@ -143,12 +149,31 @@ export interface FailedCheck {
   verdict: string | null;
 }
 
-/** A sentence whose check isn't good, with what a Word file's comment on it says. */
-export type FailedSentence = { id: string } & (
+export interface RecordCiteComment {
+  raw: string;
+  outcome: RecordCiteResult["outcome"];
+  source: string | null;
+  passage: string | null;
+  covered: string | null;
+  uncovered: string | null;
+  candidates: string[];
+  nearby: { source: string; passage: string } | null;
+}
+
+/** A sentence whose check has a Word comment, with what the comment says. */
+export type FailedSentence = {
+  id: string;
+  recordCites?: RecordCiteComment[];
+  /** A verified document's table row checked as one claim: its comment covers the whole row. */
+  row?: true;
+} & (
+  | { check: "record-cites" }
   | {
       check: "contradicted";
       says: string | null;
       worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
+      /** The Passage that says otherwise, and its Document and Location, as its card shows them. */
+      quoted: { quote: string; source: string } | null;
     }
   | {
       check: "unsupported";
@@ -319,6 +344,8 @@ export type Block = (
       picture?: Image;
     }
   | { kind: "question"; content: Inline[] }
+  /** A table of contents (#1935): built from the Note's headings by whatever draws it. */
+  | { kind: "toc" }
   /** The Bibliography a citation style adds at the end of an export (./exports/citations). */
   | { kind: "bibliography"; heading: string; items: BibliographyItem[]; hangingIndent: boolean }
 ) &
@@ -353,6 +380,8 @@ export interface ReadOptions {
    * reader keeps them, as hiding is display only.
    */
   leaveOutHiddenColumns?: boolean;
+  /** People's marks on a comparison table's cell, as each shows now (#1933). Absent: none are read. */
+  cellSignOffs?(target: SignOffTarget, cell: Y.XmlElement): SignOffNow[];
   /**
    * Read for a Word file's review (#107, see `reviewReading`): what changes still
    * waiting add is read too, and each part of one is marked (`Pendings`), and
@@ -532,6 +561,43 @@ export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: st
   return { line: "", question: "" };
 }
 
+export interface HeadingEntry {
+  block: Extract<Block, { kind: "heading" }>;
+  level: number;
+  text: string;
+}
+
+/** Every heading of the Blocks, in the order a writer meets them (a table of contents, #1935). */
+export function headingEntries(blocks: readonly Block[]): HeadingEntry[] {
+  const entries: HeadingEntry[] = [];
+  const visit = (block: Block) => {
+    switch (block.kind) {
+      case "heading": {
+        const text = block.content
+          .flatMap((inline) => (inline.kind === "text" ? [inline.text] : []))
+          .join("")
+          .trim();
+        if (text !== "") entries.push({ block, level: block.level, text });
+        break;
+      }
+      case "list":
+        for (const item of block.items) for (const child of item) visit(child);
+        break;
+      case "quote":
+        for (const child of block.content) visit(child);
+        break;
+      case "table":
+        for (const row of block.rows)
+          for (const cell of row) for (const child of cell.content) visit(child);
+        break;
+      default:
+        break;
+    }
+  };
+  for (const block of blocks) visit(block);
+  return entries;
+}
+
 /** How many Question Blocks the Mind has. */
 export function countQuestions(blocks: Y.XmlFragment): number {
   return blocks
@@ -676,6 +742,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "quote", content: readChildren(element.toArray(), options) }];
     case "horizontalRule":
       return [{ kind: "rule" }];
+    case TABLE_OF_CONTENTS_NODE:
+      return [{ kind: "toc" }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
     case COMPARISON_TABLE_NODE: {
@@ -689,6 +757,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       ];
     }
     case "image":
+      return [{ kind: "image", image: readImage(element) }];
+    case PICTURE_NODE:
       return [{ kind: "image", image: readImage(element) }];
     case CHART_NODE:
       return [readChartBlock(element, options)];
@@ -740,16 +810,35 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
         content: readChildren(cell.toArray(), options),
       });
     }
+    spreadRowCheck(cells.flatMap((cell) => textOfBlocks(cell.content)));
     if (cells.length > 0) rows.push(cells);
   }
   return rows;
 }
 
+type TextInline = Extract<Inline, { kind: "text" }>;
+
+function textOfBlocks(blocks: readonly Block[]): TextInline[] {
+  return blocks.flatMap((block) =>
+    block.kind === "paragraph" || block.kind === "heading"
+      ? block.content.filter((inline): inline is TextInline => inline.kind === "text")
+      : [],
+  );
+}
+
+/** A row checked as one claim: its other cells' words carry its check too, as the row's text. */
+function spreadRowCheck(row: TextInline[]): void {
+  const check = row.find((each) => each.sentenceCheck?.row)?.sentenceCheck;
+  if (!check) return;
+  for (const each of row) each.sentenceCheck ??= check;
+}
+
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */
-export type ComparisonCellReading =
-  | { kind: "answer"; content: Block[] }
+export type ComparisonCellReading = (
+  | { kind: "answer"; content: Block[]; failure?: string }
   | { kind: "words"; text: string }
-  | { kind: "empty" };
+  | { kind: "empty" }
+) & { edited?: boolean; signOffs?: SignOffNow[] };
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
@@ -767,6 +856,7 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
   const columns = comparisonQuestionsOf(table.getAttributes());
   const questions = options.leaveOutHiddenColumns ? visibleComparisonQuestions(columns) : columns;
+  const tableId = stringAttribute(table, "id");
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -784,12 +874,29 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
         const element = cells.get(question.id);
         if (!element) return { kind: "empty" };
         const state = comparisonCellOf(element.getAttributes());
-        if (state.status === "done") {
-          return { kind: "answer", content: readChildren(element.toArray(), options) };
+        const signOffs =
+          options.cellSignOffs?.(comparisonCellTarget(tableId, documentId, question.id), element) ??
+          [];
+        const marks = {
+          ...(state.edited && { edited: true }),
+          ...(signOffs.length > 0 && { signOffs }),
+        };
+        if (
+          state.status === "done" ||
+          (state.status === "failed" && plainText(element).trim() !== "")
+        ) {
+          const problem = state.problem ? cellProblemMessage(state.problem, state.message) : null;
+          return {
+            kind: "answer",
+            content: readChildren(element.toArray(), options),
+            ...marks,
+            ...(state.status === "failed" &&
+              problem && { failure: say(problem.key, problem.params) }),
+          };
         }
-        if (!state.problem) return { kind: "words", text: "…" };
+        if (!state.problem) return { kind: "words", text: "…", ...marks };
         const { key, params } = cellProblemMessage(state.problem, state.message);
-        return { kind: "words", text: say(key, params) };
+        return { kind: "words", text: say(key, params), ...marks };
       }),
     });
   }
@@ -838,7 +945,11 @@ function readComparison(
         cell(words(row.name)),
         ...row.cells.map((each) =>
           cell(
-            each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : [],
+            each.kind === "answer"
+              ? [...each.content, ...(each.failure ? words(each.failure) : [])]
+              : each.kind === "words"
+                ? words(each.text)
+                : [],
           ),
         ),
       ]),

@@ -3,6 +3,7 @@ import {
   type CSSProperties,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -10,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import type { ClaimCalculation } from "../../../core/api";
+import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
@@ -21,17 +22,20 @@ import {
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
+import { stoppedAtBudget } from "../../../shared/readBudget";
 import { comparableSentence } from "../../../shared/sentences";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
 import {
   addAsCitation,
+  addPartCitations,
   checkAgain,
   closeOpenClaim,
   removeClaimMark,
   replaceCitation,
   setClaimFocus,
+  setDocumentAsk,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -43,15 +47,18 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { reasonText } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
+import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
-import { openCitedFollowing } from "../openCited";
+import { openCited } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
+  applyDocumentWording,
   applyFigure,
   checkStateKey,
   cutSentence,
@@ -69,15 +76,20 @@ import {
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
+import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
-import { claimCardPlace } from "./claimCardPlace";
-import type { ShownClaim } from "./claimChecks";
+import { badgeCorner, claimCardPlace } from "./claimCardPlace";
+import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
+import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { MindIdContext } from "./mindContext";
+import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { isQuietFocus } from "./quietFocus";
+import { RecordCiteResults } from "./RecordCiteResults";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -122,24 +134,29 @@ export function ClaimMark({
   editor,
   mindId,
   doc,
-  label,
   style,
   reveal,
   onRevealed,
+  inline = false,
 }: {
   claim: ShownClaim;
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
-  label: string;
-  style: CSSProperties;
+  style?: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
+  /** A folded Mind draws it in the text, at its sentence's end (`MarginChecks`). */
+  inline?: boolean;
 }) {
   const t = useT();
   const state = claim.shown.state;
+  const running = useChecks((store) => store.running[mindId] !== undefined);
+  // Its old verdict stands until the read's comes, but the mark says what its card says.
+  const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
+  const mark = reading ? "checking" : markOf(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = state === "not-checked";
+  const silent = mark === "not-checked";
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -149,6 +166,7 @@ export function ClaimMark({
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const card = useRef<HTMLDivElement>(null);
+  const sourcePickerOpen = useRef(false);
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
@@ -156,9 +174,15 @@ export function ClaimMark({
     state === "supported" && claim.kind !== "chart"
       ? citationDecision(editor.state, claim)
       : NO_DECISION;
-  const plus = decision.kind === "add";
+  const rows = claimPartRows(claim.check);
+  const plus = rows
+    ? state === "supported" && citesMore(editor.state, claim, rows)
+    : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
+  const label = t("claim.mark.label", {
+    state: reading ? t("claim.state.checking") : heading,
+  });
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -167,6 +191,13 @@ export function ClaimMark({
     const wanted = askers.current.size > 0;
     timer.current = window.setTimeout(() => setPeeking(wanted), wanted ? SHOW_MS : HIDE_MS);
   }, []);
+  const sourcePickerChanged = useCallback(
+    (open: boolean) => {
+      sourcePickerOpen.current = open;
+      hold("source-picker", open);
+    },
+    [hold],
+  );
   const dismiss = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
@@ -184,16 +215,25 @@ export function ClaimMark({
   useEffect(() => {
     if (requestedFocus) openedByKeyboard.current = true;
   }, [requestedFocus]);
+  /** The focus fell out of the card when its action went, and waits on the mark for the next one (#2002). */
+  const parked = useRef(false);
   // Another card can take this one's place without dismissing it: a later mouse opening must not steal the focus.
   useEffect(() => {
-    if (!open) openedByKeyboard.current = false;
+    if (!open) {
+      openedByKeyboard.current = false;
+      parked.current = false;
+    }
   }, [open]);
   // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the verdict is when the action can go.
+  // A mark the User focused keeps the focus when the verdict comes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a verdict or finished run can replace the available actions.
   useEffect(() => {
-    if (!open || !openedByKeyboard.current || document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    const waiting = parked.current && active === button;
+    if (!open || !openedByKeyboard.current || (active !== document.body && !waiting)) return;
     focusFirstAction(card.current, button);
-  }, [open, state, button]);
+    parked.current = document.activeElement === button;
+  }, [open, state, running, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
   useEffect(() => {
     if (!requestedFocus || !open) return;
@@ -230,18 +270,20 @@ export function ClaimMark({
     else inTheNote();
   };
 
+  const outlineLayer = button?.parentElement ?? null;
+
   return (
     <>
       <button
         ref={setButton}
         type="button"
         data-testid="claim-mark"
-        data-check={state}
+        data-check={mark}
         data-claim={claim.check.id}
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
-        className={`margin-check claim-mark ${reveal ? "margin-check--reveal" : ""}`}
+        className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
         title={label}
@@ -271,12 +313,10 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        {!silent && <ClaimMarkIcon state={state} className="margin-check-icon" />}
+        {!silent && <ClaimMarkIcon state={mark} className="margin-check-icon" />}
         {plus && <span aria-hidden="true">+</span>}
       </button>
-      {open && button?.parentElement && (
-        <ClaimOutline editor={editor} id={id} layer={button.parentElement} />
-      )}
+      {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
       {open &&
         button &&
         createPortal(
@@ -284,7 +324,9 @@ export function ClaimMark({
             anchor={button}
             placement="bottom-end"
             middleware={() => claimCardPlace(button)}
+            follows={() => badgeCorner(button)}
             onDismiss={(how) => {
+              if (sourcePickerOpen.current) return;
               if (how === "escape" && openedByKeyboard.current) returnToNote();
               dismiss();
             }}
@@ -305,6 +347,9 @@ export function ClaimMark({
               rootRef={card}
               claim={claim}
               heading={heading}
+              doc={doc}
+              onSourcePickerChange={sourcePickerChanged}
+              checking={state === "checking" || running}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
               fixes={offersFixes(editor, claim)}
@@ -325,9 +370,39 @@ export function ClaimMark({
                 if (decision.kind === "replace") replaceCitation(editor, decision);
                 done(true);
               }}
+              partCitations={{
+                claim,
+                onAdd: (parts) => {
+                  if (addPartCitations(editor, claim, parts) === "changed")
+                    useNotices
+                      .getState()
+                      .showError(new Error(translateNow("error.check.partChanged")));
+                  done(true);
+                },
+                onWiden: (part) => {
+                  widenCitation(editor, part);
+                  done(true);
+                },
+                onReplace: (part) => {
+                  replaceCitation(editor, part);
+                  done(true);
+                },
+              }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
-                done();
+                // A whole read is asked again in this card, which stays open for it.
+                if (allDocuments || claim.check.action !== "check-against-document") done();
+              }}
+              onUseWording={(part) => {
+                applyDocumentWording(editor, claim, part);
+                done(true);
+              }}
+              onCheckPart={(span) => {
+                const opinion = opinionChecks(editor, doc).find(
+                  (each) =>
+                    each.id === id && each.span.start === span.start && each.span.end === span.end,
+                );
+                if (opinion) checkOpinion(editor, mindId, doc, opinion, place);
               }}
               onOpen={done}
               onFix={() => {
@@ -369,7 +444,8 @@ export function ClaimMark({
               use={offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
-                done(true);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
             />
           </Popover>,
@@ -428,7 +504,7 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
                 className="claim-card-input"
                 title={input.citation.quote}
                 onClick={() => {
-                  void openCitedFollowing(input.citation, {
+                  void openCited(input.citation, {
                     check: "found",
                     withQuote: true,
                     label: where,
@@ -471,10 +547,13 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * where the check looked (#1623). Documents IncarnaMind wrote that matched are
  * named, with Count it.
  */
-function ClaimCard({
+export function ClaimCard({
   rootRef,
   claim,
   heading,
+  doc,
+  onSourcePickerChange,
+  checking,
   verified,
   cited,
   fixes,
@@ -486,7 +565,10 @@ function ClaimCard({
   onAdd,
   onWiden,
   onReplace,
+  partCitations,
   onCheckAgain,
+  onCheckPart,
+  onUseWording,
   onOpen,
   onFix,
   onFindSources,
@@ -502,6 +584,9 @@ function ClaimCard({
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
+  doc: Y.Doc;
+  onSourcePickerChange(open: boolean): void;
+  checking: boolean;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
   verified: string | null;
   cited: readonly NumberedCitation[];
@@ -514,7 +599,10 @@ function ClaimCard({
   onAdd(): void;
   onWiden(): void;
   onReplace(): void;
+  partCitations: PartCitations;
   onCheckAgain(allDocuments?: boolean): void;
+  onCheckPart(span: ClaimPartSpan): void;
+  onUseWording(part: ClaimCheckPart): void;
   onOpen(): void;
   onFix(): void;
   onFindSources(): void;
@@ -528,6 +616,7 @@ function ClaimCard({
   onUse(): void;
 }) {
   const t = useT();
+  const mindId = useContext(MindIdContext);
   const language = useLanguage();
   const citesWorks = useCitesWorks(editor);
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
@@ -535,6 +624,7 @@ function ClaimCard({
   const [webOffShown, setWebOffShown] = useState(false);
   const { shown, check } = claim;
   const state = shown.state;
+  const mark = markOf(claim);
   const sentence = comparableSentence(claim.sentence.text);
   const decided = state === "supported" || state === "contradicted";
   const calculation = decided ? check.calculation : null;
@@ -542,7 +632,17 @@ function ClaimCard({
   const fromPassage = !calculation || (state === "contradicted" && calculation.agrees);
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
-  const decisionMissing = state === "unsupported" && check.citedCaseUnchecked;
+  const partRows = claimPartRows(check);
+  // A one-part sentence takes this card, not the parts rows, and its clause is on its one part.
+  const currencyClause =
+    !partRows && state === "supported" ? (check.parts?.[0]?.currencyClause ?? null) : null;
+  const unsupportedParts = partRows?.filter((part) => part.verdict === "unsupported") ?? [];
+  // A parts card blames a court decision only when it is why every unsupported part is.
+  const decisionMissing =
+    state === "unsupported" &&
+    (partRows
+      ? unsupportedParts.length > 0 && unsupportedParts.every((part) => part.citedCaseUnchecked)
+      : check.citedCaseUnchecked);
   const ownWorkings =
     state === "unsupported" && check.excluded.some((left) => left.reason === "own-workings");
   const covers =
@@ -563,7 +663,13 @@ function ClaimCard({
   const citedQuote = already?.attributes.quote ? already.attributes : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
-  const decisionUnchecked = decided && check.citedCaseUnchecked;
+  const decisionUnchecked = partRows
+    ? partRows.some(
+        (part) =>
+          (part.verdict === "supported" || part.verdict === "contradicted") &&
+          part.citedCaseUnchecked,
+      )
+    : decided && check.citedCaseUnchecked;
   const decisionHeld =
     check.citedCaseFound &&
     (state === "supported" || state === "contradicted" || state === "unsupported") &&
@@ -572,6 +678,13 @@ function ClaimCard({
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
   const documents = useAppStore((store) => store.documents);
+  const wholeRead = (check.readDocuments ?? [])
+    .map((document) => {
+      const name = shownDocumentName(document, documents) || document.documentName;
+      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
+      return places ? `${name} (${places})` : name;
+    })
+    .join(t("claim.readDocuments.separator"));
   const savedPage = evidence
     ? documents.find((each) => each.id === evidence.documentId)?.web
     : undefined;
@@ -582,176 +695,287 @@ function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
+  const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
+  // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
+  // on those it did: Continue sizes what is left and asks again.
+  const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
+  const stoppedPart = check.parts?.find(stoppedAtBudget);
+  const stopLine =
+    sentenceStopped || stoppedPart
+      ? reasonText(
+          t,
+          language,
+          "read-budget",
+          sentenceStopped ? check.detail : (stoppedPart?.detail ?? null),
+        )
+      : null;
   const reason =
     shown.state === "not-checked"
-      ? t(`claim.reason.${shown.reason}`, {
-          detail: check.detail ?? "",
-          cap: SENTENCES_CHECKED_AT_MOST,
-        })
+      ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;
+  const reading = useChecks((store) => {
+    const read = store.running[mindId ?? ""]?.read;
+    return read !== undefined && read.checkId === check.id;
+  });
+  const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // Closing the card drops its question: opened again, it sizes the read afresh.
+  useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
+
+  const figureSources = mismatched.map((figure) => {
+    const cited = figure.sourceInput?.citation;
+    const at = cited ? citationLocation(cited) : null;
+    const source = [
+      cited ? shownDocumentName(cited, documents) : null,
+      at ? formatLocation(at, t) : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <p key={figure.id} data-testid="claim-figure-source" className="claim-card-says">
+        {t("figures.card.source", {
+          figure: figure.reading.chars,
+          value: quotedSourceText(figure) ?? "",
+          source,
+        })}
+      </p>
+    );
+  });
+
+  // While the sentence's own read runs, or the card asks about the next, the card is that read's:
+  // its question, or its progress and Stop, nothing it would replace, so no Continue or Check
+  // again starts a second read beside it.
+  if ((reading || asking) && mindId) {
+    const shownMark = reading ? "checking" : mark;
+    return (
+      <div
+        ref={rootRef}
+        className={`citation-card citation-card--${TONE[shownMark]}`}
+        contentEditable={false}
+        {...objectMenu.rowProps}
+      >
+        <div className="citation-card-head">
+          <p data-testid="claim-badge" data-check={shownMark} className="citation-badge">
+            <ClaimMarkIcon state={shownMark} className="citation-badge-icon" />
+            <span>{reading ? t("claim.state.checking") : heading}</span>
+          </p>
+          <p data-testid="claim-sentence" className="claim-card-sentence">
+            {t("claim.sentence", { sentence })}
+          </p>
+        </div>
+        <div className="citation-card-actions">
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={false}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={rootRef}
-      className={`citation-card citation-card--${TONE[state]}`}
+      className={`citation-card citation-card--${TONE[mark]} ${partRows ? "citation-card--parts" : ""}`}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
-      <div className="citation-card-head">
-        <p data-testid="claim-badge" data-check={state} className="citation-badge">
-          <ClaimMarkIcon state={state} className="citation-badge-icon" />
-          <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
-        </p>
-        {sentence && (
-          <p data-testid="claim-sentence" className="claim-card-sentence">
-            {t("claim.sentence", { sentence })}
-          </p>
-        )}
-        {state === "contradicted" && check.says && (
-          <p data-testid="claim-says" className="claim-card-says">
-            {check.says}
-          </p>
-        )}
-        {mismatched.map((figure) => {
-          const cited = figure.sourceInput?.citation;
-          const at = cited ? citationLocation(cited) : null;
-          const source = [
-            cited ? shownDocumentName(cited, documents) : null,
-            at ? formatLocation(at, t) : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <p key={figure.id} data-testid="claim-figure-source" className="claim-card-says">
-              {t("figures.card.source", {
-                figure: figure.reading.chars,
-                value: quotedSourceText(figure) ?? "",
-                source,
+      {partRows ? (
+        <>
+          <div className="citation-card-head">
+            <p data-testid="claim-badge" data-check={mark} className="citation-badge">
+              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
+              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+            </p>
+            <p data-testid="claim-sentence" className="claim-card-sentence">
+              {t("claim.sentence", { sentence })}
+            </p>
+            {decisionMissing && (
+              <p data-testid="claim-court-decision" className="citation-card-note">
+                {t("claim.courtDecision.body")}
+              </p>
+            )}
+            {decisionUnchecked && (
+              <p data-testid="claim-cited-case-unchecked" className="citation-card-note">
+                {t("claim.citedCaseUnchecked")}
+              </p>
+            )}
+          </div>
+          {figureSources}
+          <ChangedCitations cited={cited} />
+          <ClaimPartRows
+            editor={editor}
+            id={check.id}
+            text={check.text}
+            parts={partRows}
+            stale={state === "needs-recheck"}
+            checking={checking}
+            onCheck={onCheckPart}
+            onUseWording={onUseWording}
+            scope={check.scope}
+            read={pickRead ?? undefined}
+            citations={partCitations}
+            onOpen={onOpen}
+            working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
+          />
+        </>
+      ) : (
+        <>
+          <div className="citation-card-head">
+            <p data-testid="claim-badge" data-check={mark} className="citation-badge">
+              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
+              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+            </p>
+            {sentence && (
+              <p data-testid="claim-sentence" className="claim-card-sentence">
+                {t("claim.sentence", { sentence })}
+              </p>
+            )}
+            {state === "contradicted" && check.says && (
+              <p data-testid="claim-says" className="claim-card-says">
+                {check.says}
+              </p>
+            )}
+            {currencyClause && (
+              <p data-testid="claim-currency-clause" className="citation-card-note">
+                {currencyClause}
+              </p>
+            )}
+            {figureSources}
+            {differs && (
+              <p data-testid="claim-differs" className="claim-card-says">
+                {t("claim.unsupported.differs")}
+              </p>
+            )}
+            {covers && (
+              <p data-testid="claim-covers" className="claim-card-says">
+                {t("claim.unsupported.documentsCover", {
+                  covered: covers.covered,
+                  uncovered: covers.uncovered,
+                })}
+              </p>
+            )}
+            {evidence && (
+              <p data-testid="claim-source" className="citation-card-source">
+                {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            {savedFrom && (
+              <p
+                data-testid="claim-web-source"
+                className="citation-card-source whitespace-normal"
+                title={savedPageSource(savedFrom, language, t, { compact: false })}
+              >
+                {savedPageSource(savedFrom, language, t, { compact: true })}
+              </p>
+            )}
+            {!partRows && decision.kind === "widen" && (
+              <p data-testid="claim-widen-note" className="claim-card-says">
+                {t("claim.widenCitation.note")}{" "}
+                <CitationChip citation={decision.citation} testId="claim-widen-chip" />
+              </p>
+            )}
+            {!partRows && decision.kind === "replace" && (
+              <p data-testid="claim-replace-note" className="claim-card-says">
+                {t(
+                  decision.citation.attributes.check === "not-found"
+                    ? "claim.replaceCitation.quoteNotFound"
+                    : "claim.replaceCitation.doesntSupport",
+                )}{" "}
+                <CitationChip citation={decision.citation} testId="claim-replace-chip" />
+              </p>
+            )}
+          </div>
+          {citedQuote?.quote && (
+            <figure className="citation-card-quote">
+              <figcaption className="sr-only">{t("citation.quote")}</figcaption>
+              <blockquote>
+                <span data-testid="claim-quote" className="citation-card-wash">
+                  {quote}
+                </span>
+              </blockquote>
+            </figure>
+          )}
+          <ChangedCitations cited={cited} />
+          {already && (
+            <OpenCitation
+              citation={already}
+              label={t("claim.alreadyCited.open", { number: already.number })}
+              onOpen={onOpen}
+            >
+              <span data-testid="claim-already-cited">{t("claim.alreadyCited")}</span>
+              <CitationChip citation={already} testId="claim-already-chip" />
+            </OpenCitation>
+          )}
+          {calculation && <Working calculation={calculation} onOpen={onOpen} />}
+          {decisionMissing && (
+            <p data-testid="claim-court-decision" className="citation-card-note">
+              {t("claim.courtDecision.body")}
+            </p>
+          )}
+          {decisionUnchecked && (
+            <p data-testid="claim-cited-case-unchecked" className="citation-card-note">
+              {t("claim.citedCaseUnchecked")}
+            </p>
+          )}
+          {decisionHeld && evidence && (
+            <p data-testid="claim-court-decision-held" className="citation-card-note">
+              {t("claim.courtDecision.held", {
+                document: shownDocumentName(evidence, documents) ?? "",
+                location: where ?? "",
               })}
             </p>
-          );
-        })}
-        {differs && (
-          <p data-testid="claim-differs" className="claim-card-says">
-            {t("claim.unsupported.differs")}
-          </p>
-        )}
-        {covers && (
-          <p data-testid="claim-covers" className="claim-card-says">
-            {t("claim.unsupported.documentsCover", {
-              covered: covers.covered,
-              uncovered: covers.uncovered,
-            })}
-          </p>
-        )}
-        {evidence && (
-          <p data-testid="claim-source" className="citation-card-source">
-            {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
-          </p>
-        )}
-        {savedFrom && (
-          <p
-            data-testid="claim-web-source"
-            className="citation-card-source whitespace-normal"
-            title={savedPageSource(savedFrom, language, t, { compact: false })}
-          >
-            {savedPageSource(savedFrom, language, t, { compact: true })}
-          </p>
-        )}
-        {decision.kind === "widen" && (
-          <p data-testid="claim-widen-note" className="claim-card-says">
-            {t("claim.widenCitation.note")}{" "}
-            <CitationChip citation={decision.citation} testId="claim-widen-chip" />
-          </p>
-        )}
-        {decision.kind === "replace" && (
-          <p data-testid="claim-replace-note" className="claim-card-says">
-            {t(
-              decision.citation.attributes.check === "not-found"
-                ? "claim.replaceCitation.quoteNotFound"
-                : "claim.replaceCitation.doesntSupport",
-            )}{" "}
-            <CitationChip citation={decision.citation} testId="claim-replace-chip" />
-          </p>
-        )}
-      </div>
-      {citedQuote?.quote && (
-        <figure className="citation-card-quote">
-          <figcaption className="sr-only">{t("citation.quote")}</figcaption>
-          <blockquote>
-            <span data-testid="claim-quote" className="citation-card-wash">
-              {quote}
-            </span>
-          </blockquote>
-        </figure>
-      )}
-      <ChangedCitations cited={cited} />
-      {already && (
-        <OpenCitation
-          citation={already}
-          label={t("claim.alreadyCited.open", { number: already.number })}
-          onOpen={onOpen}
-        >
-          <span data-testid="claim-already-cited">{t("claim.alreadyCited")}</span>
-          <CitationChip citation={already} testId="claim-already-chip" />
-        </OpenCitation>
-      )}
-      {calculation && <Working calculation={calculation} onOpen={onOpen} />}
-      {decisionMissing && (
-        <p data-testid="claim-court-decision" className="citation-card-note">
-          {t("claim.courtDecision.body")}
-        </p>
-      )}
-      {decisionUnchecked && (
-        <p data-testid="claim-cited-case-unchecked" className="citation-card-note">
-          {t("claim.citedCaseUnchecked")}
-        </p>
-      )}
-      {decisionHeld && evidence && (
-        <p data-testid="claim-court-decision-held" className="citation-card-note">
-          {t("claim.courtDecision.held", {
-            document: shownDocumentName(evidence, documents) ?? "",
-            location: where ?? "",
-          })}
-        </p>
-      )}
-      {state === "unsupported" && !differs && !decisionMissing && (
-        <>
-          {fixes && (
-            <UnsupportedCited
-              cited={cited}
-              why={check.unsupported}
-              onCheckAgain={() => onCheckAgain()}
-              onOpen={onOpen}
-            />
           )}
-          {ownWorkings && (
-            <p data-testid="claim-own-workings" className="citation-card-note">
-              {t("claim.unsupported.ownWorkings")}
-            </p>
-          )}
-          {nothingFound && (
-            <p data-testid="claim-nothing" className="citation-card-note">
-              {looked && looked.more > 0
-                ? t("claim.unsupported.notFound.more", {
-                    scope: lookedIn,
-                    count: looked.more,
-                    total: looked.more + 1,
-                  })
-                : t("claim.unsupported.notFound", { scope: lookedIn })}
-            </p>
-          )}
-          {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
-            <p data-testid="claim-why" className="claim-card-says">
-              {check.unsupported.reason}
-            </p>
+          {state === "unsupported" && !differs && !decisionMissing && (
+            <>
+              {fixes && (
+                <UnsupportedCited
+                  cited={cited}
+                  why={check.unsupported}
+                  onCheckAgain={() => onCheckAgain()}
+                  onOpen={onOpen}
+                />
+              )}
+              {ownWorkings && (
+                <p data-testid="claim-own-workings" className="citation-card-note">
+                  {t("claim.unsupported.ownWorkings")}
+                </p>
+              )}
+              {nothingFound && (
+                <p data-testid="claim-nothing" className="citation-card-note">
+                  {pickRead
+                    ? t(
+                        pickRead.pages === pickRead.of
+                          ? "claim.readAll.notFound"
+                          : pickRead.of === 1
+                            ? "claim.readSome.notFound.one"
+                            : "claim.readSome.notFound",
+                        { scope: lookedIn, pages: pickRead.pages, of: pickRead.of },
+                      )
+                    : looked && looked.more > 0
+                      ? t("claim.unsupported.notFound.more", {
+                          scope: lookedIn,
+                          count: looked.more,
+                          total: looked.more + 1,
+                        })
+                      : t("claim.unsupported.notFound", { scope: lookedIn })}
+                </p>
+              )}
+              {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
+                <p data-testid="claim-why" className="claim-card-says">
+                  {check.unsupported.reason}
+                </p>
+              )}
+            </>
           )}
         </>
       )}
@@ -786,7 +1010,25 @@ function ClaimCard({
           />
         </div>
       )}
-      {reason && !pastCap && (
+      {stopLine && (
+        <div className="citation-card-note">
+          <MetaLine
+            data-testid="claim-read-stopped"
+            parts={[
+              stopLine,
+              <LineAction
+                key="continue"
+                action={{
+                  label: t("claim.readBudget.continue"),
+                  testId: "claim-read-continue",
+                  onClick: () => onCheckAgain(),
+                }}
+              />,
+            ]}
+          />
+        </div>
+      )}
+      {reason && !pastCap && !sentenceStopped && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>
@@ -810,6 +1052,11 @@ function ClaimCard({
             ]}
           />
         </div>
+      )}
+      {wholeRead && (
+        <p data-testid="claim-read-documents" className="citation-card-note">
+          {t("claim.readDocuments", { documents: wholeRead })}
+        </p>
       )}
       {checkedIn && !nothingFound && (
         <p data-testid="claim-checked-in" className="citation-card-note">
@@ -849,7 +1096,7 @@ function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
-        {decision.kind === "add" && (
+        {!partRows && decision.kind === "add" && (
           <button
             type="button"
             data-testid="claim-add-citation"
@@ -859,7 +1106,7 @@ function ClaimCard({
             {t("claim.addAsCitation")}
           </button>
         )}
-        {decision.kind === "widen" && (
+        {!partRows && decision.kind === "widen" && (
           <button
             type="button"
             data-testid="claim-widen-citation"
@@ -869,7 +1116,7 @@ function ClaimCard({
             {t("claim.widenCitation")}
           </button>
         )}
-        {decision.kind === "replace" && (
+        {!partRows && decision.kind === "replace" && (
           <button
             type="button"
             data-testid="claim-replace-citation"
@@ -889,7 +1136,7 @@ function ClaimCard({
             {t("claim.useFigure", { figure: calculation.figure.shown })}
           </button>
         )}
-        {evidence?.documentId && (
+        {!partRows && evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"
@@ -900,7 +1147,7 @@ function ClaimCard({
             }`}
             onClick={() => {
               if (!evidence.documentId) return;
-              void openCitedFollowing(
+              void openCited(
                 { ...evidence, documentId: evidence.documentId },
                 { check: "found", withQuote: true, label: where },
               );
@@ -939,6 +1186,15 @@ function ClaimCard({
           >
             {t("claim.searchAll")}
           </button>
+        )}
+        {(notFound || check.action === "check-against-document") && verified === null && mindId && (
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={notFound}
+          />
         )}
         {notFound && verified === null && (
           <button
@@ -1004,6 +1260,15 @@ function ClaimCard({
           </button>
         )}
       </div>
+      {mindId && (
+        <RecordCiteResults
+          mindId={mindId}
+          checkId={check.id}
+          cites={check.recordCites ?? []}
+          onOpen={onOpen}
+          onPickerChange={onSourcePickerChange}
+        />
+      )}
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

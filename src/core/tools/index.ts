@@ -94,6 +94,12 @@ export interface Tool {
   /** Calls it; resolves with what the model reads, rejects when it fails (the model is told why). */
   call(input: Record<string, unknown>, context: ToolCallContext): Promise<string>;
   /**
+   * Whether a call that resolved with this result, given this input, ends the turn: when every
+   * call of a step does, no model reply follows, and what the call shows stands as the reply.
+   * Absent: never.
+   */
+  endsTurn?(result: string, input: Record<string, unknown>): boolean;
+  /**
    * Hears a call's input while the model is still writing it, as the JSON text
    * so far, before `call`: for a Tool that shows its work as it goes, such as
    * the Minds' Tools writing a Mind's new text (#202). Only for a Tool whose
@@ -103,16 +109,23 @@ export interface Tool {
   streamInput?(toolCallId: string, text: string): void;
 }
 
+/** What a provider's Tools may know of the Answer they are offered to. */
+export interface ToolTurn {
+  /** Whether the Answer may read a Document across the Folder walls (#1934). */
+  readable(documentId: string): boolean;
+}
+
 /** Hands out Tools to a Run: the User's Connectors now; later Files, a Browser, a Shell. */
 export interface ToolProvider {
   kind: ToolProviderKind;
   /** The Tools it offers now: none from a Connector that isn't ready. */
-  tools(signal: AbortSignal): Promise<Tool[]>;
+  tools(signal: AbortSignal, turn: ToolTurn): Promise<Tool[]>;
 }
 
 /** The names of the Documents' Tools. */
 export const DOCUMENT_TOOLS = {
   search: "search_documents",
+  read: "read_document",
   cite: "cite",
   calculate: "calculate",
 } as const;

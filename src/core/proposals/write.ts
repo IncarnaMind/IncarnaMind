@@ -253,21 +253,26 @@ export function textBlocks(
   blocks: Y.XmlFragment,
   { charts = false }: { charts?: boolean } = {},
 ): { element: Y.XmlElement; busy: boolean }[] {
+  return blocks.toArray().flatMap((child) => textBlocksOf(child, { charts }));
+}
+
+/** `textBlocks` of one of the Mind's top-level Blocks. */
+export function textBlocksOf(
+  block: unknown,
+  { charts = false }: { charts?: boolean } = {},
+): { element: Y.XmlElement; busy: boolean }[] {
   const found: { element: Y.XmlElement; busy: boolean }[] = [];
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, busy: boolean) => {
-    for (const child of parent.toArray()) {
-      if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) continue;
-      if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
-        found.push({ element: child, busy });
-        continue;
-      }
-      visit(
-        child,
-        busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming"),
-      );
+  const visit = (child: unknown, busy: boolean) => {
+    if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) return;
+    if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
+      found.push({ element: child, busy });
+      return;
     }
+    const answering =
+      busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming");
+    for (const each of child.toArray()) visit(each, answering);
   };
-  visit(blocks, false);
+  visit(block, false);
   return found;
 }
 

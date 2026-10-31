@@ -25,6 +25,7 @@ import { writeCedarDocuments } from "./cedar";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
 import { type DecisionProvider, decide, forcing } from "./decisions";
+import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
@@ -53,12 +54,14 @@ async function runModel(
   const decider = decidingOf();
   const config = readConfig(ROOT);
   const datedFolder = await mkdtemp(join(tmpdir(), "incarnamind-everyday-dated-"));
+  const filingFolder = await mkdtemp(join(tmpdir(), "incarnamind-everyday-filings-"));
   const needed = new Set(cases.map((each) => each.library));
   const sets: Record<LibraryName, EvalDocument[]> = {
     papers: needed.has("papers") ? await fetchPapers(config.cacheDir, log) : [],
     reports: needed.has("reports") ? await reports() : [],
     dated: needed.has("dated") ? await writeDatedDocuments(datedFolder) : [],
     reserves: needed.has("reserves") ? await fetchReserves(config.cacheDir, log) : [],
+    filings: needed.has("filings") ? await writeFilingDocuments(filingFolder) : [],
     cedar: needed.has("cedar") ? await writeCedarDocuments(datedFolder, "en") : [],
     "cedar-zh": needed.has("cedar-zh") ? await writeCedarDocuments(datedFolder, "zh-CN") : [],
   };
@@ -68,7 +71,15 @@ async function runModel(
   const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
   const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
-  for (const name of ["papers", "reports", "dated", "reserves", "cedar", "cedar-zh"] as const) {
+  for (const name of [
+    "papers",
+    "reports",
+    "dated",
+    "reserves",
+    "filings",
+    "cedar",
+    "cedar-zh",
+  ] as const) {
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
@@ -160,6 +171,7 @@ async function runModel(
     }
   }
   await rm(datedFolder, { recursive: true, force: true });
+  await rm(filingFolder, { recursive: true, force: true });
   return results;
 }
 

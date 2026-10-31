@@ -1,4 +1,6 @@
+import { modelName } from "../../../../shared/modelName";
 import { useT } from "../../i18n";
+import { ollamaRead } from "../../ollamaRead";
 import {
   buttonClass,
   buttonStyle,
@@ -38,6 +40,7 @@ function LocalModelChoice({ onClose }: { onClose(): void }) {
   const t = useT();
   const ollama = useOllama(onClose);
   const { status } = ollama;
+  const read = ollamaRead(ollama);
   return (
     <div className={dialogBodyClass}>
       <h2 id="local-model-title" className={`${dialogTitleClass} break-words`}>
@@ -45,13 +48,19 @@ function LocalModelChoice({ onClose }: { onClose(): void }) {
       </h2>
       <div className="flex flex-col gap-2">
         <p data-testid="local-model-status" className={dialogTextClass}>
-          {status && !status.running && status.installed
+          {read === "not-running" && status !== null && !status.running && status.installed
             ? t("localModel.installed")
             : ollamaDescription(ollama, t)}
         </p>
         {status?.recommendedModel && (
-          <p data-testid="local-model-recommended" className={dialogTextClass}>
-            {t("localModel.recommended", { model: status.recommendedModel })}
+          <p
+            data-testid="local-model-recommended"
+            title={status.recommendedModel}
+            className={dialogTextClass}
+          >
+            {t("localModel.recommended", {
+              model: modelName(status.recommendedModel, { kind: "ollama" }),
+            })}
           </p>
         )}
         <OllamaProgress ollama={ollama} />
@@ -68,32 +77,35 @@ function LocalModelChoice({ onClose }: { onClose(): void }) {
 
 function LocalModelActions({ ollama }: { ollama: Ollama }) {
   const t = useT();
-  const { status, opening } = ollama;
-  if (status?.running) return <OllamaAction ollama={ollama} />;
+  const { opening } = ollama;
+  const read = ollamaRead(ollama);
+  if (read === "running") return <OllamaAction ollama={ollama} />;
   return (
     <>
       <button
         type="button"
         data-testid="ollama-check-again"
-        disabled={status === null || opening}
+        disabled={read === "looking" || opening}
         onClick={() => void ollama.detect()}
         className={buttonClass}
       >
         {t("providers.ollama.checkAgain")}
       </button>
-      {status?.installed ? (
-        <button
-          type="button"
-          data-testid="ollama-open"
-          disabled={opening}
-          onClick={() => void ollama.open()}
-          className={buttonStyle("primary")}
-        >
-          {t(opening ? "localModel.opening" : "localModel.open")}
-        </button>
-      ) : (
-        status !== null && <GetOllamaButton />
-      )}
+      {/* A look that wasn't answered offers neither Open nor Get: neither can be claimed. */}
+      {read === "not-running" &&
+        (ollama.status !== null && !ollama.status.running && ollama.status.installed ? (
+          <button
+            type="button"
+            data-testid="ollama-open"
+            disabled={opening}
+            onClick={() => void ollama.open()}
+            className={buttonStyle("primary")}
+          >
+            {t(opening ? "localModel.opening" : "localModel.open")}
+          </button>
+        ) : (
+          <GetOllamaButton />
+        ))}
     </>
   );
 }

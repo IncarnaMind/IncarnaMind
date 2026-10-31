@@ -1,48 +1,63 @@
-import { useEffect, useState } from "react";
-import type { ExternalService } from "../../../core/api";
+import { useEffect, useRef, useState } from "react";
+import type { RegisteredDataFlow, TaggingFlow, TaggingRoute } from "../../../core/api";
 import { core } from "../core";
 import { useAppStore } from "../store";
-
-export interface TaggingService {
-  service: ExternalService;
-  allowed: boolean;
-}
+import { serviceOf, type TaggingService, unknownService } from "../taggingDestination";
 
 /**
- * The service automatic tagging, or Organize, sends to now, and whether the
- * User has allowed it; null for a model on this computer. Tagging is
- * background work and never asks (ADR-0022): where its Documents wait says
- * so, and offers Allow in place. Read only while `watching`.
+ * Where automatic tagging, or Organize, sends now, and whether the User allowed
+ * it; read while `watching`. The model's route and the flows are read apart, so
+ * the row can name the service before the flows are known; a failed read keeps
+ * the last answer, and the flows alone never say a model is on this computer.
  */
-export function useTaggingService(
-  flow: "tagging" | "classification" | "scan-images",
-  watching: boolean,
-): TaggingService | null {
-  const [tagging, setTagging] = useState<TaggingService | null>(null);
+export function useTaggingService(flow: TaggingFlow, watching: boolean): TaggingService {
+  const [service, setService] = useState<TaggingService>(unknownService);
+  const route = useRef<TaggingRoute | null>(null);
 
   useEffect(() => {
-    if (!watching) {
-      setTagging(null);
-      return;
-    }
+    route.current = null;
+    setService(unknownService);
+    if (!watching) return;
     let stopped = false;
-    const load = () => {
+    let generation = 0;
+    const load = (reset = false) => {
+      const reading = ++generation;
+      if (reset) {
+        route.current = null;
+        setService(unknownService);
+      }
+      let nextRoute: TaggingRoute | null = null;
+      let nextFlows: RegisteredDataFlow[] | null = null;
+      const settle = () => {
+        if (stopped || reading !== generation || !nextRoute) return;
+        if (nextFlows) {
+          route.current = nextRoute;
+          setService(serviceOf(flow, nextRoute, nextFlows));
+        } else if (JSON.stringify(nextRoute) !== JSON.stringify(route.current)) {
+          setService(serviceOf(flow, nextRoute, null));
+        }
+      };
+      core.getTaggingRoute(flow).then(
+        (next) => {
+          nextRoute = next;
+          settle();
+        },
+        (error: unknown) => useAppStore.getState().reportError(error),
+      );
       core.listRegisteredDataFlows().then(
-        (flows) => {
-          if (stopped) return;
-          // The flow goes only to the service the Tagging setting tags or organizes with now.
-          const to = flows.find((each) => each.id === flow)?.services[0];
-          setTagging(to ? { service: to.flow.service, allowed: to.consent === "accepted" } : null);
+        (next) => {
+          nextFlows = next;
+          settle();
         },
         (error: unknown) => useAppStore.getState().reportError(error),
       );
     };
     load();
     const stops = [
-      core.on("dataFlows.changed", load),
-      core.on("jev.changed", load),
-      core.on("chatReadiness.changed", load),
-      core.on("library.changed", load),
+      core.on("dataFlows.changed", () => load(true)),
+      core.on("jev.changed", () => load(true)),
+      core.on("chatReadiness.changed", () => load(true)),
+      core.on("library.changed", () => load()),
     ];
     return () => {
       stopped = true;
@@ -50,5 +65,5 @@ export function useTaggingService(
     };
   }, [flow, watching]);
 
-  return tagging;
+  return service;
 }

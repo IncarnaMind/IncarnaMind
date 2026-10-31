@@ -28,6 +28,7 @@ import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
+import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
 import {
   failUpdate,
@@ -75,9 +76,13 @@ if (import.meta.env.MODE === "test") {
   }
 }
 
-// Points the app at another data folder: the smoke test uses a temporary one.
-// Set before anything reads `userData`, so Chromium's own data moves there too.
-const dataDirOverride = process.env.INCARNAMIND_DATA_DIR;
+/** Where the engine check (./engineCheck) writes its report: given, the app does nothing else. */
+const engineCheckReport = app.commandLine.getSwitchValue(CHECK_ENGINES_SWITCH);
+
+// Points the app at another data folder: the smoke test uses a temporary one, and the engine check
+// one of its own. Set before anything reads `userData`, so Chromium's own data moves there too.
+const dataDirOverride =
+  process.env.INCARNAMIND_DATA_DIR ?? (engineCheckReport ? engineCheckDataFolder() : undefined);
 if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
@@ -142,6 +147,13 @@ if (instance.kind === "owner") {
 }
 const startWaitsForQuit = reopenAfterQuit(app, canReopenAfterUpdate, logger);
 
+if (engineCheckReport && ownsDataFolder) {
+  app.whenReady().then(() => {
+    app.dock?.hide();
+    return runEngineCheck(engineCheckReport, logger);
+  });
+}
+
 // Whether Skill scripts run in the OS sandbox, found out while Electron starts.
 const scriptExecutor = ownsDataFolder ? chooseExecutor(logger) : Promise.resolve(undefined);
 
@@ -193,18 +205,54 @@ let core: Core | undefined;
 
 /** The window that watches each comparison table's Mind, by the content it came from. */
 const comparisonClients = new Map<number, string>();
+/** The window that asked the assistant, by the content it came from: it runs the Answer's commands. */
+const commandClients = new Map<number, string>();
+const ASKS_IN_A_WINDOW = new Set<string>(["askInConversation", "regenerateConversationAnswer"]);
+/** The window planning a Check, by the content it came from: its Note is free once it is gone. */
+const checkClients = new Map<number, string>();
+
+/** The window's page is gone: the commands the assistant asked it to run won't be done there (#1421). */
+function forgetCommandWindow(contentsId: number): void {
+  const clientId = commandClients.get(contentsId);
+  if (!clientId) return;
+  commandClients.delete(contentsId);
+  core
+    ?.forgetCommandWindow({ clientId })
+    .catch((error: unknown) => logger.exception("app.commandWindowForgotten", error));
+}
+
+/** The window's page is gone: a Check it was planning for a Note that never ran holds nothing (#2240). */
+function forgetCheckWindow(contentsId: number): void {
+  const clientId = checkClients.get(contentsId);
+  if (!clientId) return;
+  checkClients.delete(contentsId);
+  core
+    ?.forgetCheckWindow({ clientId })
+    .catch((error: unknown) => logger.exception("app.checkWindowForgotten", error));
+}
 
 // Any window that shows a Note can watch its comparison tables: when it is gone, the core
 // stops waiting for it.
 app.on("browser-window-created", (_event, created) => {
   const contentsId = created.webContents.id;
   created.on("closed", () => {
+    forgetCommandWindow(contentsId);
+    forgetCheckWindow(contentsId);
     const clientId = comparisonClients.get(contentsId);
     if (!clientId) return;
     comparisonClients.delete(contentsId);
     core
       ?.forgetComparisonWindow({ clientId })
       .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
+  });
+  created.webContents.on("render-process-gone", () => {
+    forgetCommandWindow(contentsId);
+    forgetCheckWindow(contentsId);
+  });
+  created.webContents.on("did-start-navigation", (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    forgetCommandWindow(contentsId);
+    forgetCheckWindow(contentsId);
   });
 });
 let startupComplete = false;
@@ -281,6 +329,12 @@ function exposeCore(core: Core): void {
         typeof input.clientId === "string"
       ) {
         comparisonClients.set(event.sender.id, input.clientId);
+      }
+      if (ASKS_IN_A_WINDOW.has(method) && isRecord(input) && typeof input.clientId === "string") {
+        commandClients.set(event.sender.id, input.clientId);
+      }
+      if (method === "holdMindCheck" && isRecord(input) && typeof input.clientId === "string") {
+        checkClients.set(event.sender.id, input.clientId);
       }
       return Reflect.apply(core[method], core, args) as Promise<unknown>;
     });
@@ -422,7 +476,7 @@ async function showUpdateProblem(
 }
 
 app.whenReady().then(async () => {
-  if (!ownsDataFolder) return;
+  if (!ownsDataFolder || engineCheckReport) return;
   if (instance.kind === "owner") instance.owner.starting();
   showDevelopmentDockIcon();
   const createChatModel = await testChatModel();
@@ -590,7 +644,8 @@ app.on("select-client-certificate", (event, _contents, _url, _list, callback) =>
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // The engine check's only window, the hidden Analyses one, may close and open again.
+  if (process.platform !== "darwin" && !engineCheckReport) app.quit();
 });
 
 app.on("will-quit", () => {

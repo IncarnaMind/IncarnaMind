@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
+import type * as Y from "yjs";
 import type { MindCheckRun } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { useChecks } from "../checks";
@@ -10,6 +11,8 @@ import { type EstimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
+import { OpinionsLine } from "./OpinionsLine";
+import { useOpinionChecks } from "./opinionChecks";
 
 /**
  * A question before a run billed per token, in the check badge's card: what
@@ -151,20 +154,49 @@ export function RunningText({
   );
 }
 
-/** When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", and what stopped it. */
-export function CheckedWhen({ run }: { run: MindCheckRun }) {
+/**
+ * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
+ * and how many of its sentences it didn't examine and are still to check (#1682).
+ */
+export function CheckedWhen({
+  run,
+  editor,
+  doc,
+  mindId,
+  unexamined,
+}: {
+  run: MindCheckRun;
+  editor: Editor;
+  doc: Y.Doc;
+  mindId: string;
+  unexamined: number;
+}) {
   const t = useT();
   const language = useLanguage();
+  const opinions = useOpinionChecks(editor, doc);
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const when = formatDateTime(run.at, language);
-  const count = new Intl.NumberFormat(language).format(run.sentences);
   const said = t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
-    count,
+    count: format(run.sentences),
     when,
   });
   return (
     <MetaLine
       data-testid="health-checked-all"
-      parts={[said, ...(run.stop ? runStopParts(run.stop, t, language) : [])]}
+      parts={[
+        said,
+        ...(unexamined > 0
+          ? [
+              t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
+                count: format(unexamined),
+              }),
+            ]
+          : []),
+        opinions.length > 0 && (
+          <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
+        ),
+        ...(run.stop ? runStopParts(run.stop, t, language) : []),
+      ]}
     />
   );
 }

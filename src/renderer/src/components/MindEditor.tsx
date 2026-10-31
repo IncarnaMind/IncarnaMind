@@ -1,4 +1,6 @@
 import { fingerprintOfMind } from "../../../shared/mindState";
+import { OpinionMenu } from "../editor/OpinionMenu";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
@@ -15,7 +17,7 @@ import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
-import { checkSentences } from "../checks";
+import { checkSentences, useChecks } from "../checks";
 import {
   citationForm,
   useCitationFormattingFor,
@@ -41,6 +43,8 @@ import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { comparisonCellView } from "../editor/ComparisonCellView";
+import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
@@ -48,7 +52,6 @@ import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
-import { comparisonCellView, comparisonRowView } from "../editor/comparisonViews";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -87,7 +90,9 @@ import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
 import { PageMenu } from "../editor/PageMenu";
+import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
+import { Pictures } from "../editor/pictures";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
 import { QuestionView } from "../editor/QuestionView";
@@ -99,10 +104,12 @@ import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
+import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
+import { TableOfContentsView } from "../editor/TableOfContentsView";
 import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
@@ -260,25 +267,38 @@ const chartView = ReactNodeViewRenderer(ChartView, {
 });
 
 /**
+ * A picture pasted into the Note (#1937): it takes its own pointer over the
+ * alt text's line, so the editor doesn't type into it; the picture itself is
+ * the editor's to select and drag like any Block.
+ */
+const pictureView = ReactNodeViewRenderer(PictureView, {
+  stopEvent: ({ event }) => {
+    const target = event.target;
+    return target instanceof Element && target.closest("[data-picture-alt]") !== null;
+  },
+});
+
+/**
  * A comparison table (#98): its title line, heading row and "+ Question" take
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
  */
+const comparisonStopEvent = ({ event }: { event: Event }) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
+  if (event.type.startsWith("drag") || event.type === "drop") return false;
+  const undo =
+    event instanceof KeyboardEvent &&
+    (event.metaKey || event.ctrlKey) &&
+    /^[zy]$/i.test(event.key) &&
+    !(target instanceof HTMLInputElement);
+  return !undo;
+};
+
 const comparisonViews = {
-  table: ReactNodeViewRenderer(ComparisonTableView, {
-    stopEvent: ({ event }) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
-      if (event.type.startsWith("drag") || event.type === "drop") return false;
-      const undo =
-        event instanceof KeyboardEvent &&
-        (event.metaKey || event.ctrlKey) &&
-        /^[zy]$/i.test(event.key) &&
-        !(target instanceof HTMLInputElement);
-      return !undo;
-    },
-  }),
-  row: comparisonRowView,
+  table: ReactNodeViewRenderer(ComparisonTableView, { stopEvent: comparisonStopEvent }),
+  // A row's head takes its own pointer and keys: its menu, Open, Delete and its drag.
+  row: ReactNodeViewRenderer(ComparisonRowView, { stopEvent: comparisonStopEvent }),
   cell: comparisonCellView,
 };
 
@@ -383,9 +403,13 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
+          pictureView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
         CitationNumbers.configure({ form: () => formRef.current }),
+        // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
+        Pictures,
         CitationClusters,
         ClaimChecks,
         CopyCitations.configure({
@@ -445,6 +469,7 @@ function MindEditorView({
         BlockCommands,
         FindInMind,
         HeldSelection,
+        ShiftClickSelection,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({
@@ -494,26 +519,22 @@ function MindEditorView({
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
-  const signOffRecords = useSignOffs(doc);
-  const signOffs = useMemo(
-    () => ({
-      records: signOffRecords,
-      rows: schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null,
-    }),
-    [signOffRecords, schedule, doc],
-  );
-  const figureContexts = useMemo(
-    () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
-        ? new Map(schedule.rows.map((row) => [row.id, row.context ?? ""]))
-        : null,
+  // The same array while a change leaves the rows as they were, so what is read from them is too.
+  const rows = useMemo(
+    () => (schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null),
     [schedule, doc],
+  );
+  const signOffRecords = useSignOffs(doc);
+  const signOffs = useMemo(() => ({ records: signOffRecords, rows }), [signOffRecords, rows]);
+  const figureContexts = useMemo(
+    () => (rows ? new Map(rows.map((row) => [row.id, row.context ?? ""])) : null),
+    [rows],
   );
   const figurePlaces = useMemo(
     () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
+      rows
         ? figurePlacesOf(
-            schedule.rows.flatMap(({ locator, place }) =>
+            rows.flatMap(({ locator, place }) =>
               locator.kind === "text" && place.table
                 ? [
                     {
@@ -526,7 +547,7 @@ function MindEditorView({
             ),
           )
         : null,
-    [schedule, doc],
+    [rows],
   );
   useEffect(() => {
     if (!editor.isDestroyed)
@@ -635,6 +656,17 @@ function MindEditorView({
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
       {
+        id: "check-anyway",
+        label: "claim.checkAnyway",
+        icon: <CheckLineIcon className="size-3.5" />,
+        available: (current) =>
+          !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
+        run: (current) => {
+          const opinion = opinionAt(current, doc);
+          if (opinion) checkOpinion(current, mindId, doc, opinion, place);
+        },
+      },
+      {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
         icon: <CheckLineIcon className="size-3.5" />,
@@ -652,7 +684,7 @@ function MindEditorView({
         run: (current) => void markSelectionAsMine(current),
       },
     ];
-  }, [mindId, doc, hasDocuments]);
+  }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
   const editField = useMemo(
@@ -884,7 +916,9 @@ function MindEditorView({
           {wordLook && <style>{wordLook.css}</style>}
           {wordLook && <WordTableFades frame={frame} />}
           {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-          <EditorContent editor={editor} />
+          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+            <EditorContent editor={editor} />
+          </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           {!readOnly && <TableMenu editor={editor} />}

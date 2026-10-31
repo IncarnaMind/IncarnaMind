@@ -28,9 +28,11 @@ import {
   startColumnEdit,
   stepColumn,
 } from "../comparisonColumns";
+import { comparisonCellsInTable } from "../comparisonSelection";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ResizeRod } from "../components/ResizeRod";
 import { useT } from "../i18n";
+import { ComparisonRefillEstimate } from "./ComparisonRefillEstimate";
 
 /** Where a heading dropped, among the columns the table shows: before that one, or after the last. */
 export type ColumnDrop = "before" | "after" | null;
@@ -218,7 +220,8 @@ export function ComparisonColumnHeading({
       startColumnEdit(handle, question.id);
       return;
     }
-    if (event.key === "Delete" && count > 1) {
+    // Backspace as well: a MacBook has no Delete except under fn.
+    if ((event.key === "Delete" || event.key === "Backspace") && count > 1) {
       event.preventDefault();
       void removeColumn(handle, question.id);
       return;
@@ -284,6 +287,16 @@ export function ComparisonColumnHeading({
               label={t("comparison.column.more", { label })}
               tabIndex={-1}
               className="comparison-question-menu"
+              foot={
+                <ComparisonRefillEstimate
+                  handle={handle}
+                  mode="refill"
+                  scope="column"
+                  requested={comparisonCellsInTable(handle, false).filter(
+                    (cell) => cell.questionId === question.id,
+                  )}
+                />
+              }
             />
           )}
         </>

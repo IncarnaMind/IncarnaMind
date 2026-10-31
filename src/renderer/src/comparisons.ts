@@ -7,10 +7,12 @@
  */
 import { create } from "zustand";
 import type {
+  ChatModelChoice,
   ComparisonFillRequest,
   ComparisonResult,
-  ComparisonTableRef,
+  ComparisonStopRequest,
   Document,
+  RunEstimate,
 } from "../../core/api";
 import { MAX_COMPARISON_DOCUMENTS } from "../../shared/comparisons";
 import { leftOutOfEvidence } from "../../shared/evidence";
@@ -222,6 +224,17 @@ export async function makeComparisonTable(
   }
 }
 
+/** Estimates the cells a Compare or Add Documents action will fill, using the table's model. */
+export function estimateComparisonCells(
+  cells: number,
+  model: ChatModelChoice | null,
+): Promise<RunEstimate | null> {
+  return core.estimateRun({ items: cells, ...(model && { model }) }).catch((error: unknown) => {
+    console.warn(`Couldn't estimate comparing ${cells} cells; it goes on without one.`, error);
+    return null;
+  });
+}
+
 /** Fills a table's cells that have no Answer: a column just added or reworded alone, or those a fill left. */
 export async function fillComparisonTable(ref: ComparisonFillRequest): Promise<void> {
   setProblem(ref.tableId, null);
@@ -233,7 +246,7 @@ export async function fillComparisonTable(ref: ComparisonFillRequest): Promise<v
   }
 }
 
-export function stopComparisonTable(ref: ComparisonTableRef): void {
+export function stopComparisonTable(ref: ComparisonStopRequest): void {
   core.stopComparisonTable(ref).catch(report);
 }
 

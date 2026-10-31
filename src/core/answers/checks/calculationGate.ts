@@ -1,4 +1,4 @@
-import { type Figure, readFigures, readingsOf, readStatedUnits } from "../../../shared/figures";
+import { type Figure, readingsOf, readStatedUnits } from "../../../shared/figures";
 import type { Citation, InputNumber } from "../../api";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
@@ -25,7 +25,8 @@ export async function needsCalculation({
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
-  if (claimFigures.length === 0 && !attempted) return false;
+  if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
+  if (attempted && computed.length === 0) return true;
   if (
     verdict.verdict === "unsupported" &&
     verdict.topic === "not found" &&
@@ -67,8 +68,8 @@ export async function needsCalculation({
     const context = documentFigureContext(units);
     const statements = readStatedUnits(units.map((unit) => unit.text).join("\n"), context);
     const header = statements.length === 1 ? statements[0]?.chars : undefined;
-    const figures = readFigures(citation.quote, context);
-    const alternatives = header ? readFigures(citation.quote, { ...context, header }) : [];
+    const figures = figuresInClaim(citation.quote, context);
+    const alternatives = header ? figuresInClaim(citation.quote, { ...context, header }) : [];
     return {
       citation,
       figures: figures.map((figure) => [

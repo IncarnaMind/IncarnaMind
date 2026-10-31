@@ -13,6 +13,8 @@ registerMenu("mind", [
   "mind.openTab",
   "mind.openChat",
   "mind.outline",
+  "mind.duplicate",
+  "mind.tidy",
   ...EXPORTS,
   "mind.history",
   "mind.check",
@@ -65,6 +67,7 @@ registerMenu("folder", [
   "folder.organize",
   "folder.tagWithAi",
   "folder.editDescription",
+  "folder.keepInside",
   "folder.sort",
   "folder.rename",
   "file.info",
@@ -94,6 +97,7 @@ registerMenu(
   [
     "mind.openChat",
     "mind.outline",
+    "mind.duplicate",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",
@@ -129,7 +133,7 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("check", ["check.findSources"]);
+registerMenu("check", ["check.anyway", "check.useDocumentWording", "check.findSources"]);
 
 registerMenu("citation", [
   "citation.open",
@@ -145,10 +149,34 @@ registerMenu("comparisonColumn", [
   "comparison.column.insertLeft",
   "comparison.column.insertRight",
   "comparison.column.duplicate",
+  "comparison.column.reviewed",
   "comparison.column.moveLeft",
   "comparison.column.moveRight",
   "comparison.column.hide",
   "comparison.column.remove",
+]);
+
+registerMenu("comparisonTable", [
+  "comparison.table.addDocuments",
+  "comparison.table.rename",
+  "comparison.table.refillAll",
+  "comparison.table.refillProblems",
+]);
+
+registerMenu("comparisonCell", [
+  "comparison.cell.open",
+  "comparison.cell.refill",
+  "comparison.cell.edit",
+  "comparison.cell.reviewed",
+  "comparison.cell.copy",
+]);
+
+registerMenu("comparisonRow", [
+  "comparisonRow.open",
+  "comparisonRow.moveUp",
+  "comparisonRow.moveDown",
+  "comparison.row.refill",
+  "comparisonRow.remove",
 ]);
 
 registerMenu("chart", [

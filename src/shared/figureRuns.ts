@@ -21,6 +21,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
+import { perBlock } from "./memo";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -314,27 +315,31 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
   for (const [key, value] of planned) runs.set(key, value);
 }
 
+const figuresOfBlock = perBlock((block) => {
+  const found: Record<string, unknown>[] = [];
+  const visit = (element: Y.XmlElement) => {
+    if (element.nodeName === CALCULATED_FIGURE_NODE) found.push(element.getAttributes());
+    for (const node of element.toArray()) if (node instanceof Y.XmlElement) visit(node);
+  };
+  visit(block);
+  return found;
+});
+
 /** Prune inside the same transaction as the content change, before its Undo item is captured. */
 export function pruneFigureRuns(doc: Y.Doc): void {
   if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
+  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
+  if (runs.size === 0) return;
   const needed: FigureUses = new Map();
-  let valid = true;
-  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
-    for (const node of parent.toArray()) {
-      if (!(node instanceof Y.XmlElement)) continue;
-      if (node.nodeName === CALCULATED_FIGURE_NODE && !collectUse(node.getAttributes(), needed))
-        valid = false;
-      visit(node);
-    }
-  };
-  visit(doc.getXmlFragment(MIND_CONTENT_FIELD));
-  if (!valid) return;
+  for (const node of doc.getXmlFragment(MIND_CONTENT_FIELD).toArray()) {
+    if (!(node instanceof Y.XmlElement)) continue;
+    for (const attributes of figuresOfBlock(node)) if (!collectUse(attributes, needed)) return;
+  }
   const keys = new Set<string>();
   for (const [id, names] of needed) {
     keys.add(runKey(id));
     for (const name of names.keys()) keys.add(valueKey(id, name));
   }
-  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
   for (const key of runs.keys()) {
     if (!keys.has(key)) runs.delete(key);
   }

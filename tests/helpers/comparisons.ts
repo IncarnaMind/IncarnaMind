@@ -13,6 +13,7 @@ import {
   type CoreEvents,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
+import { plainText } from "../../src/core/mindText";
 import { type ShownPassage, setUpWithDocuments, shownPassages } from "./citations";
 import type { MindClient } from "./mindClient";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "./models";
@@ -151,6 +152,40 @@ export async function compareReports() {
     questions: REPORT_QUESTIONS,
   });
   return { ...setup, tableId };
+}
+
+/** The Mind's comparison table as its rows read: each row's Document, name and cells. */
+export function comparisonRowsIn(client: MindClient) {
+  const table = client.doc
+    .getXmlFragment(MIND_CONTENT_FIELD)
+    .toArray()
+    .find(
+      (block): block is Y.XmlElement =>
+        block instanceof Y.XmlElement && block.nodeName === COMPARISON_TABLE_NODE,
+    );
+  if (!table) throw new Error("There is no comparison table in the Mind.");
+  return table.toArray().flatMap((row) =>
+    row instanceof Y.XmlElement && row.nodeName === COMPARISON_ROW_NODE
+      ? [
+          {
+            documentId: String(row.getAttribute("documentId") ?? ""),
+            name: String(row.getAttribute("documentName") ?? ""),
+            cells: row.toArray().flatMap((cell) =>
+              cell instanceof Y.XmlElement
+                ? [
+                    {
+                      questionId: String(cell.getAttribute("questionId") ?? ""),
+                      status: String(cell.getAttribute("status") ?? ""),
+                      problem: cell.getAttribute("problem") ?? null,
+                      text: plainText(cell).trim(),
+                    },
+                  ]
+                : [],
+            ),
+          },
+        ]
+      : [],
+  );
 }
 
 /** Copies the table's first row until it has `rows` rows, for a table as long as no fill would make. */

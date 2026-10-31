@@ -3,9 +3,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { ChangeItem, ReviewItem } from "./editor/theirChanges";
 import { heldByMind } from "./heldByMind";
-
-/** Under a Mind this wide the pane folds to its button (DESIGN.md, the reviewing pane). */
-export const NARROWEST_MIND = 760;
+import { mindFolded } from "./mindColumn";
 
 export type ReviewFilter = "all" | "unresolved";
 
@@ -119,7 +117,7 @@ export function useRoomBeside(row: HTMLElement | null): boolean {
   const [beside, setBeside] = useState(true);
   useEffect(() => {
     if (!row) return;
-    const measure = () => setBeside(row.clientWidth >= NARROWEST_MIND);
+    const measure = () => setBeside(!mindFolded(row.clientWidth));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(row);

@@ -115,12 +115,17 @@ export function KeyEntry({
 
   return (
     <div className="flex flex-col gap-1">
+      <label
+        htmlFor={`${id}-key`}
+        className="text-[13px] leading-5 font-semibold text-ink-secondary"
+      >
+        {t("setup.key.useOwn")}
+      </label>
       <input
         ref={field}
         id={`${id}-key`}
         type="password"
         value={value}
-        aria-label={t("setup.key.label")}
         aria-invalid={problem !== null || undefined}
         aria-describedby={`${id}-line`}
         autoComplete="off"

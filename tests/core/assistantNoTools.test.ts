@@ -23,7 +23,7 @@ import {
 const NO_TOOLS: ScriptedReply = {
   error: { status: 400, message: "this model does not support tools" },
 };
-const TOLD = "You can't change the User's Minds";
+const TOLD = "You can't change the User's Notes";
 const SUMMARY = "## Summary\n\nThe quarter was good.";
 
 const lastSystem = (calls: ModelCall[]) => calls.at(-1)?.system ?? "";

@@ -202,7 +202,7 @@ test("with no Mind open, a request to change one says so, and New note makes one
   await expect(window.getByTestId("mind-tab")).toHaveCount(0);
 
   const answer = await askInAssistant(window, "Add a risks section");
-  await expect(answer.getByTestId("assistant-answer-text")).toContainText("No Mind is open");
+  await expect(answer.getByTestId("assistant-answer-text")).toContainText("No Note is open");
   const offer = answer.getByTestId("mind-changes-no-mind");
   await expect(offer).toContainText("No note was open to change.");
   await screenshot(window, "no-mind-open");

@@ -1,0 +1,629 @@
+{
+  "benchmark": "IncarnaMind citation benchmark",
+  "set": {
+    "version": 1,
+    "questions": "ab17b69ea42ce560fa1981061932059d84e124b70e08b98fdd34c9ea121d1923",
+    "documents": "8942e783979679ca06babaf476867b4aefac6865ab81e7b944d0e29093c9b79e"
+  },
+  "model": {
+    "kind": "ollama",
+    "modelId": "qwen3.5:4b",
+    "endpoint": null,
+    "service": null,
+    "label": "ollama/qwen3.5:4b"
+  },
+  "language": "en",
+  "settings": {
+    "check": true,
+    "answerTimeoutMs": 300000,
+    "rerankDepth": null,
+    "maxPassages": null,
+    "numCtx": 8192,
+    "citing": null,
+    "price": null
+  },
+  "app": {
+    "version": "0.1.0-alpha.4",
+    "commit": "218ac9412"
+  },
+  "host": {
+    "platform": "darwin arm64",
+    "cpu": "Apple M2 Max (12 cores)",
+    "node": "v26.11.1"
+  },
+  "startedAt": "2026-10-29T15:27:25.577Z",
+  "updatedAt": "2026-10-29T15:29:26.427Z",
+  "documents": [
+    {
+      "key": "mamba",
+      "name": "Mamba Linear-Time Sequence Modeling with Selective State Spaces",
+      "status": "ready",
+      "pages": 36,
+      "pagesSha256": "80a6329d63813808deecee87c3e9b3e47266449a3e5a505071907fdf61c6d7ca"
+    },
+    {
+      "key": "world-development-report",
+      "name": "World Development Report 2023 Overview",
+      "status": "ready",
+      "pages": 20,
+      "pagesSha256": "5c62b378b6460155d3ff54f0cd54505e916b002e507c872e6da1a7c032060e62"
+    },
+    {
+      "key": "national-risk-register",
+      "name": "National Risk Register 2023",
+      "status": "ready",
+      "pages": 192,
+      "pagesSha256": "b8c3fa915908551fb5ae9731cc67d63bfe05e0cc78e0e2be3b4015068231a681"
+    },
+    {
+      "key": "nbs-communique-2023",
+      "name": "中华人民共和国2023年国民经济和社会发展统计公报",
+      "status": "ready",
+      "pages": 22,
+      "pagesSha256": "ee71f2895f164853dc9166fff5ffbbdad6a841d7e47f70c45ea73f290c1802a4"
+    },
+    {
+      "key": "fomc-minutes-1950",
+      "name": "FOMC Historical Minutes 13 June 1950",
+      "status": "ready",
+      "pages": 14,
+      "pagesSha256": "08322b21ff0689514a7f52216849821034760d28c30b825a93b6b1404f5b05e8"
+    },
+    {
+      "key": "cia-reading-room-scan",
+      "name": "CIA Reading Room record 22 October 1965",
+      "status": "no-text",
+      "pages": 0,
+      "pagesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "key": "scotus-biden-nebraska",
+      "name": "Biden v. Nebraska 600 U.S. (2023) 22-506",
+      "status": "ready",
+      "pages": 77,
+      "pagesSha256": "892d0e989b5452f8e8ff0da328a35d8bfeeab70e5af33f2f6192ff820adcb0bd"
+    },
+    {
+      "key": "guiding-case-2",
+      "name": "指导案例2号 吴梅诉四川省眉山西城纸业有限公司买卖合同纠纷案",
+      "status": "ready",
+      "pages": 2,
+      "pagesSha256": "cdae78fe6028afbd63a7b88f3a785a286b2bc6e8a02792f0ad7b305499f5dad6"
+    },
+    {
+      "key": "nbs-communique-2024",
+      "name": "中华人民共和国2024年国民经济和社会发展统计公报",
+      "status": "ready",
+      "pages": 34,
+      "pagesSha256": "f50f096d34bb6e9dc56a6c63535f9ce949674169908f0d9f673aa996194ef880"
+    },
+    {
+      "key": "nbs-gdp-revision",
+      "name": "国家统计局关于修订2023年国内生产总值数据的公告",
+      "status": "ready",
+      "pages": 1,
+      "pagesSha256": "c468b30f451fda4a2ebf547c0ff64ec22155792f9db6560769bb592d8f503974"
+    },
+    {
+      "key": "cern-soil-elements",
+      "name": "1995-2011年CERN土壤环境元素含量数据集",
+      "status": "ready",
+      "pages": 16,
+      "pagesSha256": "8eeda2eaa234e2d710e2974667dd5ceca5b6aec0b6d4561fbf4afa81357fd5de"
+    },
+    {
+      "key": "treasury-financial-statements-2023",
+      "name": "Treasury Financial Statements of the United States Government FY2023",
+      "status": "ready",
+      "pages": 20,
+      "pagesSha256": "74976e506ee1409e527929855abbcdcb7afe3c201b2460e77fa30ed72c2ff6ed"
+    }
+  ],
+  "answers": [
+    {
+      "questionId": "en-001",
+      "kind": "table-figure",
+      "crossLingual": true,
+      "question": "In Table 1 of the CERN soil dataset paper, on what date was the Yucheng station's 2010 surface soil mercury sample taken?",
+      "askedAt": "2026-10-29T15:27:25.577Z",
+      "status": "done",
+      "error": null,
+      "text": "The Documents do not record a specific calendar date for when the Yucheng station's 2010 surface soil mercury sample was taken. Table 1 in the dataset lists the sampling date as '10 5', which corresponds to May 10, but the document does not explicitly state this conversion or provide the full date beyond these digits [^1]. The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 [^2].",
+      "sentences": [
+        {
+          "text": "The Documents do not record a specific calendar date for when the Yucheng station's 2010 surface soil mercury sample was taken.",
+          "cited": false
+        },
+        {
+          "text": "Table 1 in the dataset lists the sampling date as '10 5', which corresponds to May 10, but the document does not explicitly state this conversion or provide the full date beyond these digits .",
+          "cited": true
+        },
+        {
+          "text": "The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 .",
+          "cited": true
+        }
+      ],
+      "citations": [
+        {
+          "sentence": "Table 1 in the dataset lists the sampling date as '10 5', which corresponds to May 10, but the document does not explicitly state this conversion or provide the full date beyond these digits .",
+          "quote": "1)农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 0–10 0.047",
+          "document": "cern-soil-elements",
+          "documentName": "1995-2011年CERN土壤环境元素含量数据集",
+          "pageFrom": 10,
+          "pageTo": 10,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "需要获得该样地监测当年的农田管理信息时，可以在“农田样地管理记录”表的“台站代码”“年”“样地代码”字段依次使用“YCA”“2010”“YCAZH01ABC_01”\n进行搜索，获得该样地在 2010 年土壤汞监测时的作物、灌溉（排水）、施肥、产量以及灾害情况等信息（表 4）；需要了解土壤汞的分析方法时，可以在“分析方法记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”\n进行搜索，获得禹城站在 2010 年土壤汞分析中使用的具体方法及出处（表 5）；\n需要了解土壤汞的分析质控信息时，可以在“标准样品质控记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”进行搜索，获得禹城站在 2010 年土壤汞分析中使用的标准样品信息和标准样品测定的信息（表 6）。\n\n表 1 “中国土壤环境元素含量”表中禹城站 2010 年农田表层土壤汞含量数据生态系统类型 台站代码 年 月 日 样地代码 采样分区描述（微地形） 土壤类型 母质 植被 / 作物 采样深度（cm） 汞（mg Hg/\nkg） 备注 1)农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 0–10 0.047农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 10–20 0.042表 2 “台站信息”表中禹城站基本信息台站代码 台站名称 台站简称省 / 直辖市/ 自治区市 / 盟/ 地区 /自治州县 / 区 /县级市 /旗 / 自治县镇 / 乡 / 农场 / 牧场 /垦区 / 保护区东经（°） 北纬（°） 海拔（m）",
+          "passagePages": [
+            9,
+            10
+          ]
+        },
+        {
+          "sentence": "The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 .",
+          "quote": "1995-2011年CERN土壤环境元素含量数据集摘要：土壤环境是地球环境的重要组成部分。目前土壤环境问题的关注重点在于土壤污染。",
+          "document": "cern-soil-elements",
+          "documentName": "1995-2011年CERN土壤环境元素含量数据集",
+          "pageFrom": 9,
+          "pageTo": 10,
+          "check": "not-found",
+          "checkReason": "quote-not-on-pages",
+          "passageText": "需要获得该样地监测当年的农田管理信息时，可以在“农田样地管理记录”表的“台站代码”“年”“样地代码”字段依次使用“YCA”“2010”“YCAZH01ABC_01”\n进行搜索，获得该样地在 2010 年土壤汞监测时的作物、灌溉（排水）、施肥、产量以及灾害情况等信息（表 4）；需要了解土壤汞的分析方法时，可以在“分析方法记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”\n进行搜索，获得禹城站在 2010 年土壤汞分析中使用的具体方法及出处（表 5）；\n需要了解土壤汞的分析质控信息时，可以在“标准样品质控记录”表的“台站代码”“年”“分析项目代码”字段依次使用“YCA”“2010”“Hg”进行搜索，获得禹城站在 2010 年土壤汞分析中使用的标准样品信息和标准样品测定的信息（表 6）。\n\n表 1 “中国土壤环境元素含量”表中禹城站 2010 年农田表层土壤汞含量数据生态系统类型 台站代码 年 月 日 样地代码 采样分区描述（微地形） 土壤类型 母质 植被 / 作物 采样深度（cm） 汞（mg Hg/\nkg） 备注 1)农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 0–10 0.047农田 YCA 2010 10 5 YCAZH01ABC_01 农田（平地） 盐化潮土 黄河冲积物 玉米 10–20 0.042表 2 “台站信息”表中禹城站基本信息台站代码 台站名称 台站简称省 / 直辖市/ 自治区市 / 盟/ 地区 /自治州县 / 区 /县级市 /旗 / 自治县镇 / 乡 / 农场 / 牧场 /垦区 / 保护区东经（°） 北纬（°） 海拔（m）",
+          "passagePages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "figures": [],
+      "searches": [
+        "In Table 1 of the CERN soil dataset paper, on what date was the Yucheng station's 2010 surface soil mercury sample taken?",
+        "在 CERN 土壤数据集论文的表 1 中，Yucheng 站 2010 年地表土壤汞样本的采集日期是哪一天？"
+      ],
+      "check": {
+        "kind": "checked",
+        "sentences": [
+          {
+            "sentence": "Table 1 in the dataset lists the sampling date as '10 5', which corresponds to May 10, but the document does not explicitly state this conversion or provide the full date beyond these digits .",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7888 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "The table provides the month and day (May 10) but does not specify the year of collection for that specific entry, although the dataset covers the period from 1995 to 2011 .",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7629 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          }
+        ]
+      },
+      "tokens": {
+        "answer": {
+          "requests": 3,
+          "inputTokens": 5301,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 396
+        },
+        "check": {
+          "requests": 5,
+          "inputTokens": 2962,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 234
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 18.863,
+        "check": 11.853689708999998
+      }
+    },
+    {
+      "questionId": "en-005",
+      "kind": "superseded",
+      "crossLingual": true,
+      "question": "On the latest figures, what was China's gross domestic product in 2023?",
+      "askedAt": "2026-10-29T15:27:56.296Z",
+      "status": "failed",
+      "error": {
+        "kind": "too-long",
+        "message": "The request needs about 8068 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+      },
+      "text": "",
+      "sentences": [],
+      "citations": [],
+      "figures": [],
+      "searches": [
+        "On the latest figures, what was China's gross domestic product in 2023?",
+        "根据最新数据，2023 年中国的国内生产总值是多少？"
+      ],
+      "check": {
+        "kind": "off"
+      },
+      "tokens": {
+        "answer": {
+          "requests": 1,
+          "inputTokens": 111,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 15
+        },
+        "check": {
+          "requests": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 1.217,
+        "check": 0.000002666000000317581
+      }
+    },
+    {
+      "questionId": "en-010",
+      "kind": "single-fact",
+      "crossLingual": false,
+      "question": "In the FY 2023 Statement of Net Cost, which entity reports the largest net cost, and how much is it?",
+      "askedAt": "2026-10-29T15:27:57.514Z",
+      "status": "failed",
+      "error": {
+        "kind": "too-long",
+        "message": "The request needs about 8286 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+      },
+      "text": "",
+      "sentences": [],
+      "citations": [],
+      "figures": [],
+      "searches": [
+        "In the FY 2023 Statement of Net Cost, which entity reports the largest net cost, and how much is it?",
+        "在 2023 财年净成本表中，哪个实体报告的净成本最大，金额是多少？"
+      ],
+      "check": {
+        "kind": "off"
+      },
+      "tokens": {
+        "answer": {
+          "requests": 1,
+          "inputTokens": 119,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 22
+        },
+        "check": {
+          "requests": 0,
+          "inputTokens": 0,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 0
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 1.78,
+        "check": 0.000003125000002910383
+      }
+    },
+    {
+      "questionId": "en-019",
+      "kind": "calculated",
+      "crossLingual": false,
+      "question": "Subtracting earned revenue from gross cost gives what subtotal, and after the gain or loss from changes in assumptions, what net cost?",
+      "askedAt": "2026-10-29T15:27:59.295Z",
+      "status": "done",
+      "error": null,
+      "text": "Subtracting earned revenue from gross cost yields a subtotal known as net cost before adjustments. After adjusting this figure by the (gain)/loss from changes in assumptions regarding pensions and other benefits, the final result is the Net Cost.\n\nThe Treasury Financial Statements of the United States Government FY2023 describe these components explicitly:\n\nGross Cost: Defined as the total cost of providing federal goods and services, excluding gains or losses from changes in assumptions and before considering related exchange revenue[^1].\n\nEarned Revenue: Defined as exchange revenue resulting from the government providing goods and services to the public at a price[^2].\n\n(Gain)/Loss from Changes in Assumptions: Defined as the gain or loss from changes in long-term assumptions used to measure liabilities for federal civilian and military employee pensions, OPEB, and ORB[^3].\n\nNet Cost: Computed by subtracting earned revenue from gross cost, then adjusting that result by the (gain)/loss from changes in assumptions[^4].\n\nThis process ensures that the final Net Cost accurately reflects the total cost of operations for each entity at the government-wide level, including reallocations of intra-governmental costs and imputed costs related to benefits like post-retirement health care.\n\n[^5] Treasury Financial Statements of the United States Government FY2023, page 1: \"Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in assumptions.\"",
+      "sentences": [
+        {
+          "text": "Subtracting earned revenue from gross cost yields a subtotal known as net cost before adjustments.",
+          "cited": false
+        },
+        {
+          "text": "After adjusting this figure by the (gain)/loss from changes in assumptions regarding pensions and other benefits, the final result is the Net Cost.",
+          "cited": false
+        },
+        {
+          "text": "The Treasury Financial Statements of the United States Government FY2023 describe these components explicitly:",
+          "cited": false
+        },
+        {
+          "text": "Gross Cost: Defined as the total cost of providing federal goods and services, excluding gains or losses from changes in assumptions and before considering related exchange revenue.",
+          "cited": true
+        },
+        {
+          "text": "Earned Revenue: Defined as exchange revenue resulting from the government providing goods and services to the public at a price.",
+          "cited": true
+        },
+        {
+          "text": "(Gain)/Loss from Changes in Assumptions: Defined as the gain or loss from changes in long-term assumptions used to measure liabilities for federal civilian and military employee pensions, OPEB, and ORB.",
+          "cited": true
+        },
+        {
+          "text": "Net Cost: Computed by subtracting earned revenue from gross cost, then adjusting that result by the (gain)/loss from changes in assumptions.",
+          "cited": true
+        },
+        {
+          "text": "This process ensures that the final Net Cost accurately reflects the total cost of operations for each entity at the government-wide level, including reallocations of intra-governmental costs and imputed costs related to benefits like post-retirement health care.",
+          "cited": false
+        },
+        {
+          "text": "Treasury Financial Statements of the United States Government FY2023, page 1: \"Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in assumptions.\"",
+          "cited": true
+        }
+      ],
+      "citations": [
+        {
+          "sentence": "Gross Cost: Defined as the total cost of providing federal goods and services, excluding gains or losses from changes in assumptions and before considering related exchange revenue.",
+          "quote": "• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "Financial Statements\nof the United States Government\nfor the Fiscal Years Ended September 30,\n2023, and 2022\nThe consolidated financial statements of the U.S. government were prepared using GAAP. These statements include the\naccrual-based financial statements and the sustainability financial statements, which are discussed in more detail below, and\nthe related notes to the consolidated financial statements. Collectively, the accrual-based financial statements, the\nsustainability financial statements, and the notes represent basic information that is deemed essential for the consolidated\nfinancial statements to be presented in conformity with GAAP.\nACCRUAL-BASED FINANCIAL STATEMENTS\nThe accrual-based financial statements present historical information on what the federal government owns (assets) and\nowes (liabilities) at the end of the year, what came in (revenues) and what went out (net costs) during the year, and how\naccrual-based net operating costs of the federal government reconcile to the budget deficit and changes in its cash balance\nduring the year. The following sections discuss each of the accrual-based financial statements.\nStatements of Net Cost\nThese statements present the net cost of the government operations for FYs 2023 and 2022. Costs and earned revenues\nare categorized on the Statement of Net Cost by significant entity, providing greater accountability by showing the\nrelationship of the entities’ net cost to the government-wide net cost. Costs and earned revenues are presented in this\nFinancial Report on an accrual basis, while the Budget presents outlays and receipts, generally on a cash basis. The focus of\nthe Budget is by entity.\nThe Statements of Net Cost contain the following four components:\n• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in\nassumptions and before considering related exchange revenue. The gross costs are the amounts reported by each",
+          "passagePages": [
+            1,
+            1
+          ]
+        },
+        {
+          "sentence": "Earned Revenue: Defined as exchange revenue resulting from the government providing goods and services to the public at a price.",
+          "quote": "• Earned revenue—is exchange revenue resulting from the government providing goods and services to the public at a",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "These statements present the net cost of the government operations for FYs 2023 and 2022. Costs and earned revenues\nare categorized on the Statement of Net Cost by significant entity, providing greater accountability by showing the\nrelationship of the entities’ net cost to the government-wide net cost. Costs and earned revenues are presented in this\nFinancial Report on an accrual basis, while the Budget presents outlays and receipts, generally on a cash basis. The focus of\nthe Budget is by entity.\nThe Statements of Net Cost contain the following four components:\n• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in\nassumptions and before considering related exchange revenue. The gross costs are the amounts reported by each\nentity, adjusted to reflect certain cost assignments made on a cause-and-effect or other reasonable basis (see\ndiscussion below).\n• Earned revenue—is exchange revenue resulting from the government providing goods and services to the public at a\nprice.\n• (Gain)/loss from changes in assumptions—is the gain or loss from changes in long-term assumptions used to\nmeasure the liabilities reported for federal civilian and military employee pensions, OPEB, and ORB, including\nveterans’ compensation.\n• Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in\nassumptions.\nIndividual entity net cost amounts will differ from the entity’s financial statements primarily because of the elimination\nof intra-governmental activity and the subsequent reallocation of certain costs to individual entities at the government-wide\nlevel. While intra-governmental costs are eliminated from the face of the financial statements, the consolidated Statements of\nNet Cost is intended to show the total cost for each entity, therefore, reallocations are completed at the government-wide",
+          "passagePages": [
+            1,
+            1
+          ]
+        },
+        {
+          "sentence": "(Gain)/Loss from Changes in Assumptions: Defined as the gain or loss from changes in long-term assumptions used to measure liabilities for federal civilian and military employee pensions, OPEB, and ORB.",
+          "quote": "measure the liabilities reported for federal civilian and military employee pensions, OPEB, and ORB, including",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "These statements present the net cost of the government operations for FYs 2023 and 2022. Costs and earned revenues\nare categorized on the Statement of Net Cost by significant entity, providing greater accountability by showing the\nrelationship of the entities’ net cost to the government-wide net cost. Costs and earned revenues are presented in this\nFinancial Report on an accrual basis, while the Budget presents outlays and receipts, generally on a cash basis. The focus of\nthe Budget is by entity.\nThe Statements of Net Cost contain the following four components:\n• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in\nassumptions and before considering related exchange revenue. The gross costs are the amounts reported by each\nentity, adjusted to reflect certain cost assignments made on a cause-and-effect or other reasonable basis (see\ndiscussion below).\n• Earned revenue—is exchange revenue resulting from the government providing goods and services to the public at a\nprice.\n• (Gain)/loss from changes in assumptions—is the gain or loss from changes in long-term assumptions used to\nmeasure the liabilities reported for federal civilian and military employee pensions, OPEB, and ORB, including\nveterans’ compensation.\n• Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in\nassumptions.\nIndividual entity net cost amounts will differ from the entity’s financial statements primarily because of the elimination\nof intra-governmental activity and the subsequent reallocation of certain costs to individual entities at the government-wide\nlevel. While intra-governmental costs are eliminated from the face of the financial statements, the consolidated Statements of\nNet Cost is intended to show the total cost for each entity, therefore, reallocations are completed at the government-wide",
+          "passagePages": [
+            1,
+            1
+          ]
+        },
+        {
+          "sentence": "Net Cost: Computed by subtracting earned revenue from gross cost, then adjusting that result by the (gain)/loss from changes in assumptions.",
+          "quote": "• Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "These statements present the net cost of the government operations for FYs 2023 and 2022. Costs and earned revenues\nare categorized on the Statement of Net Cost by significant entity, providing greater accountability by showing the\nrelationship of the entities’ net cost to the government-wide net cost. Costs and earned revenues are presented in this\nFinancial Report on an accrual basis, while the Budget presents outlays and receipts, generally on a cash basis. The focus of\nthe Budget is by entity.\nThe Statements of Net Cost contain the following four components:\n• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in\nassumptions and before considering related exchange revenue. The gross costs are the amounts reported by each\nentity, adjusted to reflect certain cost assignments made on a cause-and-effect or other reasonable basis (see\ndiscussion below).\n• Earned revenue—is exchange revenue resulting from the government providing goods and services to the public at a\nprice.\n• (Gain)/loss from changes in assumptions—is the gain or loss from changes in long-term assumptions used to\nmeasure the liabilities reported for federal civilian and military employee pensions, OPEB, and ORB, including\nveterans’ compensation.\n• Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in\nassumptions.\nIndividual entity net cost amounts will differ from the entity’s financial statements primarily because of the elimination\nof intra-governmental activity and the subsequent reallocation of certain costs to individual entities at the government-wide\nlevel. While intra-governmental costs are eliminated from the face of the financial statements, the consolidated Statements of\nNet Cost is intended to show the total cost for each entity, therefore, reallocations are completed at the government-wide",
+          "passagePages": [
+            1,
+            1
+          ]
+        },
+        {
+          "sentence": "Treasury Financial Statements of the United States Government FY2023, page 1: \"Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in assumptions.\"",
+          "quote": "Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in assumptions.",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 1,
+          "pageTo": 1,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "Financial Statements\nof the United States Government\nfor the Fiscal Years Ended September 30,\n2023, and 2022\nThe consolidated financial statements of the U.S. government were prepared using GAAP. These statements include the\naccrual-based financial statements and the sustainability financial statements, which are discussed in more detail below, and\nthe related notes to the consolidated financial statements. Collectively, the accrual-based financial statements, the\nsustainability financial statements, and the notes represent basic information that is deemed essential for the consolidated\nfinancial statements to be presented in conformity with GAAP.\nACCRUAL-BASED FINANCIAL STATEMENTS\nThe accrual-based financial statements present historical information on what the federal government owns (assets) and\nowes (liabilities) at the end of the year, what came in (revenues) and what went out (net costs) during the year, and how\naccrual-based net operating costs of the federal government reconcile to the budget deficit and changes in its cash balance\nduring the year. The following sections discuss each of the accrual-based financial statements.\nStatements of Net Cost\nThese statements present the net cost of the government operations for FYs 2023 and 2022. Costs and earned revenues\nare categorized on the Statement of Net Cost by significant entity, providing greater accountability by showing the\nrelationship of the entities’ net cost to the government-wide net cost. Costs and earned revenues are presented in this\nFinancial Report on an accrual basis, while the Budget presents outlays and receipts, generally on a cash basis. The focus of\nthe Budget is by entity.\nThe Statements of Net Cost contain the following four components:\n• Gross cost—is the total cost of providing federal goods and services, excluding (gain)/loss from changes in\nassumptions and before considering related exchange revenue. The gross costs are the amounts reported by each",
+          "passagePages": [
+            1,
+            1
+          ]
+        }
+      ],
+      "figures": [],
+      "searches": [
+        "Subtracting earned revenue from gross cost gives what subtotal, and after the gain or loss from changes in assumptions, what net cost?",
+        "从总收入中扣除总成本得到什么子总额，在扣除假设变化带来的收益或损失后，净成本是多少？"
+      ],
+      "check": {
+        "kind": "checked",
+        "sentences": [
+          {
+            "sentence": "The Treasury Financial Statements of the United States Government FY2023 describe these components explicitly:",
+            "outcome": "supported",
+            "says": "The Treasury Financial Statements of the United States Government FY2023 describe these components explicitly:",
+            "quote": "The Statements of Net Cost contain the following four components:",
+            "failure": null
+          },
+          {
+            "sentence": "Gross Cost: Defined as the total cost of providing federal goods and services, excluding gains or losses from changes in assumptions and before considering related exchange revenue.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7632 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "Earned Revenue: Defined as exchange revenue resulting from the government providing goods and services to the public at a price.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7624 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "(Gain)/Loss from Changes in Assumptions: Defined as the gain or loss from changes in long-term assumptions used to measure liabilities for federal civilian and military employee pensions, OPEB, and ORB.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 8002 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "Treasury Financial Statements of the United States Government FY2023, page 1: \"Net cost—is computed by subtracting earned revenue from gross cost, adjusted by the (gain)/loss from changes in assumptions.\"",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 8047 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          }
+        ]
+      },
+      "tokens": {
+        "answer": {
+          "requests": 2,
+          "inputTokens": 4640,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 423
+        },
+        "check": {
+          "requests": 12,
+          "inputTokens": 9304,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 480
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 19.933,
+        "check": 32.052415833
+      }
+    },
+    {
+      "questionId": "en-025",
+      "kind": "absent",
+      "crossLingual": false,
+      "question": "How many federal employees were on the payroll at September 30, 2023?",
+      "askedAt": "2026-10-29T15:28:51.283Z",
+      "status": "done",
+      "error": null,
+      "text": "The provided documents do not contain information regarding the number of federal employees on the payroll as of September 30, 2023. The Treasury Financial Statements for FY2023 detail revenue, costs, and net position but do not list employee headcounts. The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure[^1][^2].",
+      "sentences": [
+        {
+          "text": "The provided documents do not contain information regarding the number of federal employees on the payroll as of September 30, 2023.",
+          "cited": false
+        },
+        {
+          "text": "The Treasury Financial Statements for FY2023 detail revenue, costs, and net position but do not list employee headcounts.",
+          "cited": false
+        },
+        {
+          "text": "The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure.",
+          "cited": true
+        }
+      ],
+      "citations": [
+        {
+          "sentence": "The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure.",
+          "quote": "Individual income tax and tax withholdings 2,122.4",
+          "document": "treasury-financial-statements-2023",
+          "documentName": "Treasury Financial Statements of the United States Government FY2023",
+          "pageFrom": 10,
+          "pageTo": 10,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "Statement of Operations and Changes in Net Position\nfor the Year Ended September 30, 2023 (Consolidated)\nFunds other than Funds from\nthose from Dedicated\nDedicated Collections\nCollections (Note 22) Eliminations Total\n(In billions of dollars) 2023\nRevenue (Note 19):\nIndividual income tax and tax withholdings 2,122.4 1,590.7 - 3,713.1\nCorporate income taxes 368.2 - - 368.2\nExcise taxes 27.4 66.3 - 93.7\nUnemployment taxes 7.8 39.3 - 47.1\nCustoms duties 78.1 0.1 - 78.2\nEstate and gift taxes 33.7 - - 33.7\nOther taxes and receipts 86.6 28.7 - 115.3\nMiscellaneous earned revenues 16.3 - - 16.3\nIntra-governmental revenue - 106.0 (106.0) -\nTotal revenue 2,740.5 1,831.1 (106.0) 4,465.6\nNet Cost of Government Operations:\nNet cost 5,504.6 2,378.2 - 7,882.8\nIntra-governmental cost 106.0 - (106.0) -\nTotal net cost 5,610.6 2,378.2 (106.0) 7,882.8\nIntra-governmental transfers (611.0) 611.0 - -\nNet operating (cost)/revenue (3,481.1) 63.9 - (3,417.2)\nNet position, beginning of period (37,757.6) 3,696.4 - (34,061.2)\nAdjustments to beginning net position\nChanges in accounting principles (Note 1.U) (1.0) 0.2 - (0.8)\nNet operating (cost)/revenue (3,481.1) 63.9 - (3,417.2)\nNet position, end of period (41,239.7) 3,760.5 - (37,479.2)\n\nStatement of Operations and Changes in Net Position\nfor the Year Ended September 30, 2022 (Consolidated)*\nFunds other than Funds from\nthose from Dedicated\nDedicated Collections\nCollections (Note 22) Eliminations Total\n(In billions of dollars) 2022\nRevenue (Note 19):\nIndividual income tax and tax withholdings 2,571.1 1,441.5 - 4,012.6\nCorporate income taxes 383.2 - - 383.2\nExcise taxes 34.4 58.4 - 92.8\nUnemployment taxes 6.9 56.7 - 63.6\nCustoms duties 98.6 0.1 - 98.7\nEstate and gift taxes 32.6 - - 32.6\nOther taxes and receipts 182.3 16.2 - 198.5\nMiscellaneous earned revenues 43.9 - - 43.9\nIntra-governmental revenue - 99.8 (99.8) -\nTotal revenue 3,353.0 1,672.7 (99.8) 4,925.9",
+          "passagePages": [
+            10,
+            11
+          ]
+        },
+        {
+          "sentence": "The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure.",
+          "quote": "年末全国参加城镇职工基本养老保险人数52121万人",
+          "document": "nbs-communique-2023",
+          "documentName": "中华人民共和国2023年国民经济和社会发展统计公报",
+          "pageFrom": 14,
+          "pageTo": 14,
+          "check": "found",
+          "checkReason": null,
+          "passageText": "全年全国居民⼈均消费⽀出26796元，⽐上年增长9.2%，扣除价格因素，实际增长9.0%。其中，⼈均服务性消费⽀出[59]12114元，⽐上年增长14.4%，占居民⼈均消费⽀出⽐重为45.2%。按常住地分，城镇居民⼈均消费⽀出32994元，增长8.6%，扣除价格因素，实际增长8.3%；农村居民⼈均消费⽀出18175元，增长9.3%，扣除价格因素，实际增长9.2%。全国居民恩格尔系数为29.8%，其中城镇为28.8%，农村为32.4%。\n\n年末全国参加城镇职⼯基本养⽼保险⼈数52121万⼈，⽐上年末增加1766万⼈。参加城乡居民基本养⽼保险⼈数54522万⼈，减少430万⼈。参加基本医疗保险⼈数[60]133387万⼈，其中参加职⼯基本医疗保险⼈数37094万⼈，参加城乡居民基本医疗保险⼈数96293万⼈。参加失业保险⼈数24373万⼈，增加566万⼈。领取失业保险⾦⼈数352万⼈。参加⼯伤保险⼈数30170万⼈，增加1054万⼈。参加⽣育保险⼈数24907万⼈。年末全国共有664万⼈享受城市最低⽣活保障，3399万⼈享受农村最低⽣活保障，435万⼈享受农村特困⼈员[61]救助供养，全年临时救助[62]742万⼈次。全年领取国家定期抚恤⾦、定期⽣活补助⾦的退役军⼈和其他优抚对象834万⼈。\n年末全国共有各类提供住宿的民政服务机构4.4万个，其中养⽼机构4.1万个，⼉童福利和救助保护机构971个。民政服务床位[63]846.3万张，其中养⽼服务床位820.1万张，⼉童福利和救助保护机构床位9.8万张。",
+          "passagePages": [
+            13,
+            14
+          ]
+        }
+      ],
+      "figures": [],
+      "searches": [
+        "How many federal employees were on the payroll at September 30, 2023?",
+        "截至 2023 年 9 月 30 日，联邦员工的薪酬人数是多少？"
+      ],
+      "check": {
+        "kind": "checked",
+        "sentences": [
+          {
+            "sentence": "The provided documents do not contain information regarding the number of federal employees on the payroll as of September 30, 2023.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7952 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "The Treasury Financial Statements for FY2023 detail revenue, costs, and net position but do not list employee headcounts.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 7945 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          },
+          {
+            "sentence": "The Chinese National Statistical Bulletin for 2023 mentions the number of people participating in social insurance schemes (such as basic endowment insurance), but does not provide a total federal payroll figure.",
+            "outcome": "not-checked",
+            "says": null,
+            "quote": null,
+            "failure": "failed: The request needs about 8001 tokens, but the model's context window holds 8192, 2048 of them kept for the Answer."
+          }
+        ]
+      },
+      "tokens": {
+        "answer": {
+          "requests": 2,
+          "inputTokens": 6695,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 275
+        },
+        "check": {
+          "requests": 7,
+          "inputTokens": 3297,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 291
+        }
+      },
+      "usd": {
+        "answer": null,
+        "check": null
+      },
+      "seconds": {
+        "answer": 18.348,
+        "check": 16.796041958
+      }
+    }
+  ],
+  "retriedUsd": 0,
+  "stopped": null
+}

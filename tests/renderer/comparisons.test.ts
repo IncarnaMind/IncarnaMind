@@ -3,8 +3,10 @@ import type { ComparisonProblem } from "../../src/core";
 import {
   cellProblemMessage,
   cellToFill,
+  comparisonCellCounts,
   comparisonCellOf,
   comparisonQuestionsOf,
+  comparisonRowMatchesFilter,
 } from "../../src/shared/comparisons";
 import { translate } from "../../src/shared/i18n";
 import { en } from "../../src/shared/i18n/en";
@@ -20,6 +22,62 @@ describe("Reading a comparison table", () => {
     ).toEqual([{ id: "q1", text: "A" }]);
     expect(comparisonCellOf({ status: "odd" })).toMatchObject({ status: "waiting", problem: null });
     expect(comparisonCellOf({ status: "failed" })).toMatchObject({ problem: "unknown" });
+  });
+
+  test("title counts distinguish found nothing from failure and follow the latest cells", () => {
+    const cells = [
+      { questionId: "q1", status: "done" },
+      { questionId: "q2", status: "failed", problem: "not-found" },
+      { questionId: "q3", status: "failed", problem: "network" },
+      { questionId: "q4", status: "waiting" },
+      { questionId: "q5", status: "writing" },
+    ].map(comparisonCellOf);
+    expect(comparisonCellCounts(cells)).toMatchObject({
+      total: 5,
+      settled: 3,
+      notFound: 1,
+      failed: 1,
+    });
+    const refilled = cells.map((cell) =>
+      comparisonCellOf({ ...cell, status: "done", problem: null }),
+    );
+    expect(comparisonCellCounts(refilled)).toMatchObject({
+      total: 5,
+      settled: 5,
+      notFound: 0,
+      failed: 0,
+    });
+    expect(comparisonCellCounts([])).toMatchObject({ total: 0, notFound: 0, failed: 0 });
+  });
+
+  test("problem filters match rows by any cell, and combine only where both kinds occur", () => {
+    const done = comparisonCellOf({ questionId: "done", status: "done" });
+    const notFound = comparisonCellOf({ questionId: "nf", status: "failed", problem: "not-found" });
+    const failed = comparisonCellOf({ questionId: "failed", status: "failed", problem: "network" });
+    const rows = [[done, notFound], [done, failed], [notFound, failed], [done]];
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["not-found"]))).toEqual([
+      rows[0],
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["failed"]))).toEqual([
+      rows[1],
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, ["not-found", "failed"]))).toEqual([
+      rows[2],
+    ]);
+    expect(rows.filter((row) => comparisonRowMatchesFilter(row, []))).toEqual(rows);
+  });
+
+  test("a cell's edited and reviewed marks read as booleans, including HTML's strings", () => {
+    expect(comparisonCellOf({ status: "done", edited: true, reviewed: "true" })).toMatchObject({
+      edited: true,
+      reviewed: true,
+    });
+    expect(comparisonCellOf({ status: "done", edited: "false", reviewed: false })).toMatchObject({
+      edited: false,
+      reviewed: false,
+    });
   });
 
   test("filling again writes cells with no Answer, but not those whose Document can't answer", () => {

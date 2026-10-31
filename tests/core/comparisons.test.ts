@@ -4,6 +4,8 @@ import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
   type CitationAttributes,
+  COMPARISON_CELL_NODE,
+  COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   InvalidInputError,
   MIND_CONTENT_FIELD,
@@ -13,7 +15,7 @@ import { CLOUD_CELLS_AT_ONCE } from "../../src/core/comparisons";
 import { readBlocks } from "../../src/core/mindText";
 import { comparisonQuestionsOf } from "../../src/shared/comparisons";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
-import { cellModel, compare, fillEnded } from "../helpers/comparisons";
+import { type cellAsked, cellModel, compare, fillEnded } from "../helpers/comparisons";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, part, textOf, unzip } from "../helpers/docx";
@@ -203,6 +205,77 @@ describe("Compare Documents", () => {
     for (const call of model.doStreamCalls) {
       expect(call.tools?.map((tool) => tool.name).sort()).toEqual(["cite", "search_documents"]);
     }
+  });
+
+  test("filling newly added Documents asks only their cells, never an old waiting or done cell", async () => {
+    const asked: ReturnType<typeof cellAsked>[] = [];
+    const model = cellModel((_call, cell) => {
+      asked.push(cell);
+      return null;
+    });
+    const files = Array.from({ length: 8 }, (_, at) => ({
+      name: `Supplier ${at + 1}.txt`,
+      contents: `Supplier ${at + 1}.\nTermination notice: ${at + 1} days.`,
+    }));
+    const { core, client, mind, documents } = await setUpWithDocuments(model, files);
+    const tableId = await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.slice(0, 5).map((document) => document.id),
+      questions: ["Termination notice"],
+    });
+    const fresh = documents.slice(5);
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (element): element is Y.XmlElement =>
+            element instanceof Y.XmlElement &&
+            element.nodeName === COMPARISON_TABLE_NODE &&
+            element.getAttribute("id") === tableId,
+        );
+      if (!table) throw new Error("The table is gone.");
+      const [question] = comparisonQuestionsOf(table.getAttributes());
+      if (!question) throw new Error("The table has no Question.");
+      const rows = fresh.map((document) =>
+        createElement({
+          type: COMPARISON_ROW_NODE,
+          attrs: { documentId: document.id, documentName: document.name },
+          content: [
+            {
+              type: COMPARISON_CELL_NODE,
+              attrs: { questionId: question.id, status: "waiting" },
+              content: [{ type: "paragraph" }],
+            },
+          ],
+        }),
+      );
+      table.push(rows);
+      const firstRow = table.toArray()[0];
+      const oldWaiting = firstRow instanceof Y.XmlElement ? firstRow.toArray()[0] : undefined;
+      if (!(oldWaiting instanceof Y.XmlElement)) throw new Error("The old cell is gone.");
+      oldWaiting.setAttribute("status", "waiting");
+    });
+    await client.settled();
+    const before = asked.length;
+    const ended = fillEnded(core, tableId);
+    const result = await core.fillComparisonTable({
+      mindId: mind.id,
+      tableId,
+      documentIds: fresh.map((document) => document.id),
+    });
+    if (!result.started) throw new Error("The added rows didn't fill.");
+    await ended;
+    await client.settled();
+
+    const requested = asked.slice(before);
+    expect([...new Set(requested.map((call) => call.document))].sort()).toEqual(
+      fresh.map((document) => document.name.replace(/\.txt$/, "")).sort(),
+    );
+    expect(requested.some((call) => call.document === "Supplier 1")).toBe(false);
+    const rows = tableIn(client).rows;
+    expect(rows[0]?.cells[0]?.status).toBe("waiting");
+    expect(rows.slice(5).map((row) => row.cells[0]?.status)).toEqual(["done", "done", "done"]);
   });
 
   test("a table's Task names each cell's step by its Document and its Question, and offers Pause and Stop", async () => {
@@ -789,6 +862,66 @@ describe("Compare Documents", () => {
     ]);
     expect(tableIn(client).rows[2]?.cells[1]?.problem).toBe("not-found");
     expect(asked.filter((question) => question === "Liability cap")).toHaveLength(3);
+  });
+
+  test("a column asked for while a new row fills writes that column's other rows, not the cells the two don't share", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    /** Each cell asked, once: its row's Document and its Question. */
+    const asked: string[] = [];
+    const model = cellModel(
+      (call, asking) => {
+        if (call.results.length === 0) asked.push(`${asking.document}: ${asking.question}`);
+        return null;
+      },
+      held,
+      (asking) => asking.document === "Lumeric",
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(model, SUPPLIERS);
+    const questions = [
+      { id: "q-notice", text: "Termination notice" },
+      { id: "q-liability", text: "Liability cap" },
+    ];
+    client.doc.transact(() =>
+      client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .push([createElement(waitingTable(documents, questions))]),
+    );
+    await client.settled();
+    const tableId = "held-table";
+
+    // The added Document's row fills alone, held mid-answer, and the notice column is asked
+    // for meanwhile, as a column the User adds later is.
+    const third = documents[2];
+    if (!third) throw new Error("No third Document.");
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, documentIds: [third.id] }),
+    ).toEqual({ started: true, tableId });
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    expect(
+      await core.fillComparisonTable({ mindId: mind.id, tableId, questionIds: ["q-notice"] }),
+    ).toEqual({ started: true, tableId });
+    release();
+    await fillEnded(core, tableId);
+    await client.settled();
+
+    // The two requests' cells together: the new row by both Questions, and the notice
+    // column of the other rows. Their other liability cells were never asked for.
+    expect(new Set(asked)).toEqual(
+      new Set([
+        "Corvane: Termination notice",
+        "Halvard: Termination notice",
+        "Lumeric: Termination notice",
+        "Lumeric: Liability cap",
+      ]),
+    );
+    expect(tableIn(client).rows.map((row) => row.cells.map((cell) => cell.status))).toEqual([
+      ["done", "waiting"],
+      ["done", "waiting"],
+      ["done", "failed"],
+    ]);
   });
 
   test("a column queued while another fills is still filled after a quit", async () => {

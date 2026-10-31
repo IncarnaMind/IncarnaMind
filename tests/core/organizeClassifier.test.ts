@@ -15,7 +15,13 @@ type CallOptions = Parameters<MockLanguageModelV4["doGenerate"]>[0];
 const groups: LibraryGroup[] = [
   { id: "g-finance", name: "Finance", description: "Invoices, budgets and accounts" },
   { id: "g-reports", name: "Reports", description: "Reports and decks" },
-].map((group) => ({ ...group, countsOwnFiles: false, createdAt: "", updatedAt: "" }));
+].map((group) => ({
+  ...group,
+  countsOwnFiles: false,
+  keepInside: false,
+  createdAt: "",
+  updatedAt: "",
+}));
 const tags = [
   { id: "t-report", name: "Report", description: "A report of findings" },
   { id: "t-slides", name: "Slides", description: "A presentation deck" },

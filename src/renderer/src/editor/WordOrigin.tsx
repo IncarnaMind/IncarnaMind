@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import {
@@ -121,10 +122,13 @@ export function openOriginalAtCaret(originalId: string, editor: Editor | null, d
 
 /** The paragraph's or table's place in the Word file, of the Block the caret is in, as the import recorded it. */
 function caretWordPlace(editor: Editor | null, doc: Y.Doc): string | null {
-  if (!editor) return null;
-  const { $from } = editor.state.selection;
-  for (let depth = $from.depth; depth > 0; depth--) {
-    const id: unknown = $from.node(depth).attrs[BLOCK_ID_ATTRIBUTE];
+  return editor ? wordPlaceAt(doc, editor.state.selection.$from) : null;
+}
+
+/** The paragraph's or table's place in the Word file, of the Block at a position, as the import recorded it. */
+export function wordPlaceAt(doc: Y.Doc, at: ResolvedPos): string | null {
+  for (let depth = at.depth; depth > 0; depth--) {
+    const id: unknown = at.node(depth).attrs[BLOCK_ID_ATTRIBUTE];
     const place = typeof id === "string" ? wordSourceOf(doc, id)?.n : undefined;
     if (place && /^w:(p|tbl)#\d+$/.test(place)) return place;
   }

@@ -1,0 +1,122 @@
+{
+  "about": "What Anthropic reported for whole reads (#1554) with Claude Haiku 5.5, on the direct route, core only: a made-up Markdown lease of 60 parts of about 500 words and a rent clause, which the app reads as 61 sections (made again in tests/core/wholeReadCost.test.ts), read in two windows, the rent clause last. Each sentence was read twice on 2026-10-30, when each search of a window still returned the whole window (windowOnce false), and twice on 2026-10-31, once each window reached the model once (windowOnce true). Two more were read on 2026-10-31 after the price tiers: the rent sentence with its parts sorted first by a check of the Note (sorted), and the break clause unsorted. absence: the sentence says something is absent. Input counts all input tokens; usd is the tokens at the catalog's price, meteredUsd what the app's meter recorded with the prompt cache.",
+  "model": "claude-haiku-5-5",
+  "lease": {
+    "parts": 60,
+    "words": 500,
+    "characters": 187250,
+    "tokens": 51208
+  },
+  "reads": [
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 6,
+      "inputTokens": 256995,
+      "outputTokens": 1521,
+      "usd": 0.02646,
+      "meteredUsd": 0.019998275,
+      "windowOnce": false,
+      "sorted": false,
+      "absence": false
+    },
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 10,
+      "inputTokens": 570987,
+      "outputTokens": 2450,
+      "usd": 0.0583237,
+      "meteredUsd": 0.031100795,
+      "windowOnce": false,
+      "sorted": false,
+      "absence": false
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 7,
+      "inputTokens": 241704,
+      "outputTokens": 769,
+      "usd": 0.0245549,
+      "meteredUsd": 0.02597431,
+      "windowOnce": false,
+      "sorted": false,
+      "absence": true
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 6,
+      "inputTokens": 241060,
+      "outputTokens": 731,
+      "usd": 0.0244715,
+      "meteredUsd": 0.02542562,
+      "windowOnce": false,
+      "sorted": false,
+      "absence": true
+    },
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 8,
+      "inputTokens": 224821,
+      "outputTokens": 2098,
+      "usd": 0.01357718,
+      "meteredUsd": 0.01357718,
+      "windowOnce": true,
+      "sorted": false,
+      "absence": false
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 8,
+      "inputTokens": 172534,
+      "outputTokens": 782,
+      "usd": 0.017303835,
+      "meteredUsd": 0.017303835,
+      "windowOnce": true,
+      "sorted": false,
+      "absence": true
+    },
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 7,
+      "inputTokens": 151554,
+      "outputTokens": 1802,
+      "usd": 0.011715305,
+      "meteredUsd": 0.011715305,
+      "windowOnce": true,
+      "sorted": false,
+      "absence": false
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 7,
+      "inputTokens": 171556,
+      "outputTokens": 801,
+      "usd": 0.016750295,
+      "meteredUsd": 0.016750295,
+      "windowOnce": true,
+      "sorted": false,
+      "absence": true
+    },
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 7,
+      "inputTokens": 205448,
+      "outputTokens": 1631,
+      "usd": 0.01304,
+      "meteredUsd": 0.01304,
+      "windowOnce": true,
+      "sorted": true,
+      "absence": false
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 7,
+      "inputTokens": 171565,
+      "outputTokens": 714,
+      "usd": 0.01717,
+      "meteredUsd": 0.01717,
+      "windowOnce": true,
+      "sorted": false,
+      "absence": true
+    }
+  ]
+}

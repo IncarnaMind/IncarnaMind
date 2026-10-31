@@ -641,6 +641,7 @@ const oneDocument = (thirdParty?: "web-page"): AnswerTools => ({
     passageCount: 1,
     ...(thirdParty && { thirdParty: [thirdParty] }),
   }),
+  readDocument: async () => ({ text: "", passageCount: 0 }),
   cite: () => "Recorded.",
 });
 
@@ -729,6 +730,7 @@ describe("Tool sets per Run", () => {
     expect([...(offered[0] ?? [])].sort()).toEqual(
       [
         "cite",
+        "read_document",
         "read_skill_file",
         "run_skill_script",
         "search_documents",

@@ -299,6 +299,11 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     expect(steer).toMatch(/call calculate/);
     expect(steer.length).toBeLessThan(1000);
     expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toContain("calculate");
+    const tool = model.doStreamCalls[0]?.tools?.find((each) => each.name === "calculate");
+    if (tool?.type !== "function") throw new Error("The calculate Tool is not a function tool.");
+    expect(tool.description).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // The model is told what each came to, with the numbers it read, in one line each.
     expect(told(model, "calculate")).toEqual([
       [
@@ -855,7 +860,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       '- [=10] share: "2–3%" is a range; give reading: 1 for 2%, 2 for 3%.',
       '- [=11]: formula: unexpected ")" at character 8.',
       "- [=12]: the formula uses rev2026, which isn't one of its inputs (a).",
-      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, ROUND, RRI, SQRT.",
+      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT.",
       "- [=14]: losses is 0, so the formula divides by zero.",
     ]);
     expect(second).toBe(

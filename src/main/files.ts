@@ -35,6 +35,7 @@ import {
   setMenuSidebarHidden,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
+import { decodePictureToPng } from "./pictureDecode";
 import { showOpenDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
@@ -71,6 +72,12 @@ export function serveFileActions(
   handle(FILES_CHANNELS.showSavedFile, async (event, path: unknown) => {
     refuseUnknown(event);
     await core.showSavedFile(path as string);
+  });
+
+  // A picture the web engine can't read (HEIC), read by this computer's own decoder (#1937).
+  handle(FILES_CHANNELS.decodePicture, async (event, bytes: unknown) => {
+    refuseUnknown(event);
+    return bytes instanceof Uint8Array ? decodePictureToPng(bytes) : null;
   });
 
   handle(FILES_CHANNELS.openSavedFile, async (event, path: unknown) => {
@@ -270,14 +277,14 @@ export function serveFileActions(
     event: IpcMainInvokeEvent,
     title: MessageKey,
     filter: MessageKey,
-    extension: string,
+    extensions: string[],
   ): Promise<string | null> => {
     refuseUnknown(event);
     const { language } = await core.getSettings();
     const openOptions: OpenDialogOptions = {
       title: translate(language, title),
       properties: ["openFile"],
-      filters: [{ name: translate(language, filter), extensions: [extension] }],
+      filters: [{ name: translate(language, filter), extensions }],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
     const { canceled, filePaths } = await showOpenDialog(
@@ -291,11 +298,11 @@ export function serveFileActions(
 
   // The core reads the file and keeps a copy for the Mind (#104).
   handle(FILES_CHANNELS.pickWordFile, (event) =>
-    pickOneFile(event, "wordImport.pick.title", "wordImport.pick.filter", "docx"),
+    pickOneFile(event, "wordImport.pick.title", "wordImport.pick.filter", ["docx"]),
   );
-  // The core adds it to the Library and makes a Mind of its text (#97).
-  handle(FILES_CHANNELS.pickPdfFile, (event) =>
-    pickOneFile(event, "verify.pick.title", "verify.pick.filter", "pdf"),
+  // The core adds it to the Library and makes a Mind of its text (#97), or of the Word file (#110).
+  handle(FILES_CHANNELS.pickFileToVerify, (event) =>
+    pickOneFile(event, "verify.pick.title", "verify.pick.filter", ["pdf", "docx"]),
   );
 
   // Only a folder the User linked: its path comes from the core's list, never from the page.

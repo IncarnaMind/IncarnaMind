@@ -34,6 +34,7 @@
  * Pure, with no Node or DOM imports: the core, the renderer and a later
  * phone build share it.
  */
+import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
 import { normaliseWithOffsets } from "./text";
 
@@ -208,6 +209,12 @@ function prepare(text: string, midLine = false): Prepared {
   for (const unit of units) {
     if (unit.removed) continue;
     const gap = text.slice(previousEnd, unit.start);
+    // "is ＄54,000": the space normalising drops before a full-width sign still sets it apart.
+    if (/[^\S\n]/.test(gap) && CURRENCY_SIGN.test(unit.char) && s !== "" && !/\s$/.test(s)) {
+      s += " ";
+      from.push(previousEnd);
+      to.push(unit.start);
+    }
     if (LINE_BREAK.test(gap)) lineStarts.add(s.length);
     if (/\s/.test(gap)) spaced.add(s.length);
     if (gap.includes("\t")) tabbed.add(s.length);
@@ -551,19 +558,30 @@ const EVIDENCE: readonly [RegExp, Separators][] = [
 /** Below this share of a Document's telling numbers, the other convention is taken for stray text. */
 const MAX_STRAY_SHARE = 0.1;
 
-/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
-function separatorsIn(s: string): Separators | null {
-  const counts = new Map<string, { separators: Separators; count: number }>();
+/** How often each convention's telling numbers appear in a text, by decimal and group. */
+type Evidence = Readonly<Record<string, number>>;
+
+const keyOf = (separators: Separators) => `${separators.decimal}${separators.group}`;
+
+/** Each convention once, by its key, in `EVIDENCE`'s order: a tie goes to the earlier. */
+const CONVENTIONS = new Map(EVIDENCE.map(([, separators]) => [keyOf(separators), separators]));
+
+function evidenceIn(s: string): Evidence {
+  const counts: Record<string, number> = {};
   for (const [pattern, separators] of EVIDENCE) {
     const found = s.match(pattern)?.length ?? 0;
-    if (found === 0) continue;
-    const key = `${separators.decimal}${separators.group}`;
-    const known = counts.get(key);
-    counts.set(key, { separators, count: (known?.count ?? 0) + found });
+    if (found > 0) counts[keyOf(separators)] = (counts[keyOf(separators)] ?? 0) + found;
   }
+  return counts;
+}
+
+/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
+function separatorsFrom(evidence: Evidence): Separators | null {
   const byDecimal = (decimal: string) =>
-    [...counts.values()]
-      .filter((entry) => entry.separators.decimal === decimal)
+    [...CONVENTIONS.values()]
+      .filter((separators) => separators.decimal === decimal)
+      .map((separators) => ({ separators, count: evidence[keyOf(separators)] ?? 0 }))
+      .filter((entry) => entry.count > 0)
       .sort((a, b) => b.count - a.count);
   const point = byDecimal(".");
   const comma = byDecimal(",");
@@ -605,15 +623,50 @@ export function figureLanguageTag(name: string | null): string | null {
  * a Passage alone may hold no number that tells.
  */
 export function figureContextOf(text: string, language?: string | null): FigureContext {
+  return figureContextOfFacts([figureFactsOf(text, language ?? null)], language ?? null);
+}
+
+/**
+ * What one part of a Document tells of how the whole writes its figures. The parts' facts add
+ * up to the whole's, as their lines do: a telling number, a currency's name or a statement
+ * never runs across a line break.
+ */
+export interface FigureFacts {
+  evidence: Evidence;
+  cny: boolean;
+  jpy: boolean;
+  accounts: boolean;
+}
+
+export function figureFactsOf(text: string, language: string | null): FigureFacts {
   const prepared = prepare(text);
   const { s } = prepared;
-  const cny = CNY_WORDS.test(s);
-  const jpy = JPY_WORDS.test(s);
   return {
-    language: language ?? null,
-    separators: separatorsIn(s),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    evidence: evidenceIn(s),
+    cny: CNY_WORDS.test(s),
+    jpy: JPY_WORDS.test(s),
     accounts: writesAccounts(s, statementsIn(prepared, text, settle({ language }))),
+  };
+}
+
+/** `figureContextOf` the text its parts make, one a line, from each part's facts. */
+export function figureContextOfFacts(
+  parts: readonly FigureFacts[],
+  language: string | null,
+): FigureContext {
+  const evidence: Record<string, number> = {};
+  for (const part of parts) {
+    for (const [key, count] of Object.entries(part.evidence)) {
+      evidence[key] = (evidence[key] ?? 0) + count;
+    }
+  }
+  const cny = parts.some((part) => part.cny);
+  const jpy = parts.some((part) => part.jpy);
+  return {
+    language,
+    separators: separatorsFrom(evidence),
+    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    accounts: parts.some((part) => part.accounts),
   };
 }
 
@@ -736,16 +789,12 @@ const EN_SCALES: Readonly<Record<string, number>> = {
 const EN_SCALE_AFTER =
   /(?:[ \n]?(?:[Tt]rillion|[Bb]illion|[Mm]illion|[Tt]housand|[Ll]akh|[Cc]rore)s?|[ \u00a0]?(?:Mio|Mrd|Tsd)(?:\.|(?![A-Za-z]))|(?: ?(?:tn|trn|bn|Bn|BN|mn|Mn|MN|MM)|[kKmMbB])(?![A-Za-z0-9])|mm(?![A-Za-z0-9]))/y;
 
-const CURRENCY_ISO_CODES =
+export const CURRENCY_ISO_CODES =
   "USD|CNY|RMB|Rmb|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR|KRW|NZD|MOP|BRL|RUB|SEK|NOK|DKK|ZAR|MXN|THB|MYR|IDR|PHP|VND|TRY|SAR|AED";
-const CURRENCY_TOKEN = new RegExp(
-  `(?:(?<![A-Za-z])(?:US|HK|AU|CA|NZ|SG|NT|MX|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|人民币|美元|港币|港元|欧元|日元|英镑)`,
-);
-/** Currency signs before a number, and codes and names before it, with a space allowed. */
-const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 const CURRENCY_CODES: Readonly<Record<string, string>> = {
   US$: "USD",
+  "U.S.$": "USD",
   HK$: "HKD",
   AU$: "AUD",
   A$: "AUD",
@@ -811,6 +860,19 @@ const CURRENCY_CODES: Readonly<Record<string, string>> = {
   "United States dollars": "USD",
   "Swiss francs": "CHF",
 };
+
+// Every Chinese name the table gives a currency, longest first: "新台币54,000元" is in TWD (#1452).
+const HAN_CURRENCIES = Object.keys(CURRENCY_CODES)
+  .filter((word) => /^\p{Script=Han}{2,}$/u.test(word))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+// "US $54m" is US$54m. "CA" and "NT" are also a US state and an Australian territory ("CA $54m"),
+// and a lone letter an article ("A $54,000 fee"), so those take the "$" only joined.
+const CURRENCY_TOKEN = new RegExp(
+  `(?:(?<![A-Za-z])(?:(?:US|U\\.S\\.|HK|AU|NZ|SG|MX)[ \\u00a0]?|CA|NT|A|C|S|R)?\\$|CN¥|JP¥|[¥€£₹₩₽₺฿₫₱]|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES}|Rs\\.?)|${HAN_CURRENCIES})`,
+);
+/** Currency signs before a number, and codes and names before it, with a space allowed. */
+const CURRENCY_BEFORE = new RegExp(`${CURRENCY_TOKEN.source}[ \\u00a0]?$`);
 
 // Contracts write "in Pounds Sterling" and "ALL AMOUNTS ARE IN US DOLLARS".
 const NAMED_CODES = new Map(
@@ -911,14 +973,14 @@ const CN_MEASURES =
   );
 /** Counting words: a figure's unit after a numeral of two characters or more ("十二家"), not after one. */
 const CN_COUNTS =
-  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋".split(
+  "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋 单元 室 层 楼 章".split(
     " ",
   );
 const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
 const EN_UNIT_AFTER =
-  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F)(?![A-Za-z0-9])/y;
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 
 /** Written before a figure that is approximate or a bound; outside its characters. */
 const APPROXIMATE_BEFORE =
@@ -1005,15 +1067,15 @@ interface Statement extends Span {
   unit: FigureUnit;
 }
 
-const CN_UNIT_WORDS = "新加坡元|新台币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|元";
+const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
     "dg",
   ),
-  /币种[:：]?(?<before>人民币|美元|港元|港币|欧元|日元|英镑)/dg,
+  new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
-    `[(（](?<before>人民币|RMB|美元|USD|港元|港币|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
+    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
     "dg",
   ),
   new RegExp(
@@ -1039,7 +1101,7 @@ export function scaleExponent(word: string): number {
 
 /** The unit a currency or unit word names, with the context's "$", "元" and "¥". */
 function currencyCodes(word: string, settled: Settled): string[] {
-  const trimmed = word.trim();
+  const trimmed = word.trim().replace(/(?<=\S)[ \u00a0](?=\$$)/, "");
   if (trimmed === "$" || trimmed.toLowerCase() === "dollars") return [settled.dollar];
   if (trimmed === "元" || trimmed === "圆") return [settled.yuan];
   if (trimmed === "¥") return settled.yen;
@@ -1058,7 +1120,9 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       const groups = match.groups ?? {};
       const at = match.indices?.groups ?? {};
       const scale = groups.scale ?? null;
-      const words = groups.unit ?? groups.before ?? groups.cur ?? null;
+      // "单位：港币千元" is in Hong Kong dollars: 元 only names the yuan when nothing comes before it.
+      const generic = groups.unit !== undefined && /^[元圆]$/.test(groups.unit) && groups.before;
+      const words = (generic ? groups.before : groups.unit) ?? groups.before ?? groups.cur ?? null;
       let unit: FigureUnit = { kind: "plain" };
       if (match[0].includes("%") || /per ?cent/i.test(match[0])) unit = { kind: "percent" };
       else if (words) {
@@ -1456,6 +1520,34 @@ function lexChinese(s: string, start: number): Core | null {
   const point = run.indexOf("点");
   const span = { from: start, to: end };
   const capitals = CAPITALS.test(run);
+  const digit = CN_DIGITS[run[0] ?? ""];
+  const place = run[1] ?? "";
+  // "两万半" is 25,000, but "两千半导体" is 2,000 semiconductors.
+  const halfEnds =
+    !/\p{Script=Han}/u.test(s[end + 1] ?? "") ||
+    matchAt(CN_CURRENCY_AFTER, s, end + 1) !== null ||
+    matchAt(APPROXIMATE_AFTER, s, end + 1) !== null;
+  if (s[end] === "半" && run.length === 2 && digit && halfEnds) {
+    const halfSpan = { from: start, to: end + 1 };
+    const exponent = place === "万" || place === "亿" ? CN_SCALES[place] : undefined;
+    if (exponent !== undefined) {
+      return core(
+        halfSpan,
+        { digits: `${digit}5`, point: 1 },
+        {
+          chinese: true,
+          capitals,
+          exponent,
+          scaleWord: place,
+          scaleAt: { from: end - 1, to: end },
+        },
+      );
+    }
+    const unit = CN_PLACES[place];
+    if (unit !== undefined && unit >= 100) {
+      return core(halfSpan, integer(String(digit * unit + unit / 2)), { chinese: true, capitals });
+    }
+  }
   if (point >= 0) {
     const whole = cnInteger(run.slice(0, point));
     const after = run.slice(point + 1);
@@ -1715,6 +1807,34 @@ function readAround(
       draft.scaleWord = scale.word;
       draft.scaleAt = scale.at;
       draft.exponent = scaleExponent(scale.word);
+      // "2万5千", "2亿5000万": the lower places go on with the same amount, at its scale.
+      let place =
+        found.number.point === found.number.digits.length && !found.otherReading
+          ? CN_SCALES[scale.word]
+          : undefined;
+      let value = decimalValue(found.number, draft.exponent, false);
+      let joined = false;
+      while (place !== undefined) {
+        const at = right;
+        const digits = take(/\d{1,4}(?![\d.,])/y);
+        const lower = digits ? take(CN_SCALE_AFTER) : null;
+        const exponent = lower ? CN_SCALES[lower.word] : undefined;
+        if (
+          !digits ||
+          exponent === undefined ||
+          Number(digits.word) * 10 ** exponent >= 10 ** place
+        ) {
+          right = at;
+          break;
+        }
+        value += Number(digits.word) * 10 ** exponent;
+        place = exponent;
+        joined = true;
+      }
+      if (joined) {
+        const [whole = "", fraction = ""] = String(value / 10 ** draft.exponent).split(".");
+        draft.core = { ...draft.core, number: { digits: whole + fraction, point: whole.length } };
+      }
     }
   }
   const currencyAfter =
@@ -1723,10 +1843,15 @@ function readAround(
       : null;
   if (currencyAfter) {
     const codes = currencyCodes(currencyAfter.word.replace(/(.)人民币$/, "$1"), settled);
-    // "¥3,500元": the word after settles the sign before.
-    if (draft.currencies.length === 0 || codes.every((code) => draft.currencies.includes(code)))
-      draft.currencies = codes;
-    else draft.currencies = [...new Set([...draft.currencies, ...codes])];
+    // "新台币54,000元" is in TWD: 元 after one named currency is that currency's unit.
+    const unitOfNamed = /^[元圆]$/.test(currencyAfter.word) && draft.currencies.length === 1;
+    // "¥3,500元" and "$54,000 AUD": the word after settles the sign before.
+    if (!unitOfNamed) {
+      const sign = draft.currencyAt ? s.slice(draft.currencyAt.from, draft.currencyAt.to) : "";
+      const mayBe = [...draft.currencies, ...(SIGN_CURRENCIES[sign.normalize("NFKC")] ?? [])];
+      const settles = draft.currencies.length === 0 || codes.every((code) => mayBe.includes(code));
+      draft.currencies = settles ? codes : [...new Set([...draft.currencies, ...codes])];
+    }
     draft.currencyAt ??= currencyAfter.at;
     if (found.capitals) {
       const jiao = take(/([壹贰叁肆伍陆柒捌玖])角/y);
@@ -2019,6 +2144,8 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
   if (draft.unit.kind !== "plain" && draft.unit.kind !== "currency") return [];
   const readings: Reading[] = [];
   for (const statement of statements) {
+    // A numeral in words writes the whole amount: "一万二" under "单位：万元" is still 12,000 (#2189).
+    if (draft.core.chinese && statement.exponent !== 0) continue;
     let unit: FigureUnit = draft.unit;
     let unitExponent = 0;
     if (statement.unit.kind === "percent") {
@@ -2231,11 +2358,16 @@ const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
   "¥": ["CNY", "JPY"],
 };
 
+// "￥" and "＄" are what Chinese input methods type for "¥" and "$" (#2226).
+const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? null;
+
 /** Every currency a figure's own sign stands for in some Document: "$" or "dollars" for any dollar, "元" for yuan, or Hong Kong, Taiwan or Macau dollars. */
-export const currenciesOfSign = (figure: Figure): readonly string[] =>
-  (figure.currency !== null &&
-    (SIGN_CURRENCIES[figure.currency] ?? SIGN_CURRENCIES[figure.currency.toLowerCase()])) ||
-  [];
+export const currenciesOfSign = (figure: Figure): readonly string[] => {
+  const sign = signOf(figure);
+  // "$54,000 AUD" is in the dollar it names, not in any dollar.
+  if (sign !== null && BARE_DOLLAR.test(sign) && !bareDollar(figure)) return [];
+  return (sign !== null && (SIGN_CURRENCIES[sign] ?? SIGN_CURRENCIES[sign.toLowerCase()])) || [];
+};
 
 const longestFirst = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length);
 const CURRENCY_NAMES = new RegExp(
@@ -2273,34 +2405,187 @@ function besideNumber(text: string, from: number, to: number): boolean {
 }
 
 /**
+ * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
+ * "家", "岁") is no measure: what a Document counts is its own business, not a unit it must state.
+ * A symbol is one letter or one character, which a word can hide; the rest are words.
+ */
+const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
+  mass: {
+    symbols: "t|g|吨|克",
+    words:
+      "tonnes?|tons?|kt|Mt|kg|kilograms?|grams?|mg|lbs?|ounces?|oz|k?t-?CO2e?|MtCO2e|千克|公斤|吨钢",
+  },
+  length: {
+    symbols: "m|米",
+    words:
+      "km|kilomet(?:re|er)s?|met(?:re|er)s?|cm|centimet(?:re|er)s?|mm|millimet(?:re|er)s?|miles?|ft|feet|foot|inch(?:es)?|公里|千米|厘米|毫米",
+  },
+  area: {
+    symbols: "亩",
+    words:
+      "m2|m²|㎡|km2|km²|sq\\.? ?ft|sq\\.? ?m|square (?:feet|foot|met(?:re|er)s?|kilomet(?:re|er)s?)|acres?|hectares?|ha|平方公里|平方米|平米|公顷",
+  },
+  volume: {
+    symbols: "l|升|桶",
+    words: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|barrels?|bbl|立方米",
+  },
+  power: { symbols: "", words: "kW|MW|GW|(?:kilo|mega|giga)watts?|千瓦|兆瓦|吉瓦" },
+  energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
+};
+
+// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).
+const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
+const WHOLE_NAME = `(?!${HAN})`;
+// A rate after a bare figure may go on with a particle ("540/吨的货物", "540/吨左右", "540/吨钢") but not a word ("2026/克林工厂").
+const NAME_END = `(?:(?!${HAN})|(?=的|计|以|左右|、|和|与|及|或|钢))`;
+// The words a symbol begins ("每升高", "每克拉", "美元/升级"), which a free name after 每 or a currency must not run into; a figure's own unit stays free ("50升到油箱", "3米其余").
+const WORD_START: Readonly<Record<string, string>> = {
+  克: "服|隆|制|拉",
+  升: "高|级|值|至(?![0-9])|温|降|迁",
+  米: "其林|兰|饭|粒",
+};
+const wordStart = (symbol: string) => {
+  const words = WORD_START[symbol];
+  return words ? `(?!${words})` : "";
+};
+// A Latin symbol stands alone, or is attached to a figure: a letter, apostrophe, dot or hyphen joins it to a word ("e.g.", "T-shirt"), a digit after it makes a product ("27m3"), and a Han scale or text beside it doesn't ("10万t", "60,000t左右").
+const latinSymbol = (symbol: string) =>
+  [
+    `[0-9百千万亿][ \\u00a0\\-]?${symbol}(?![A-Za-z\\p{N}])(?![.\\-]\\p{L})`,
+    `(?<![\\p{L}'’ʼ.\\-])${symbol}(?![\\p{L}\\p{N}])(?![.\\-]\\p{L})`,
+  ].join("|");
+// NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
+const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
+const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
+// A price's currency before the slash leaves the unit free: "元/吨和运费", "美元/吨"; 元 at the end of 单元 is no currency.
+const PRICE_CURRENCY = `(?:${CURRENCY_TOKEN.source}|(?<![单多公纪])元|(?<![汤团])圆|円)`;
+const HAN_AFTER_CURRENCY = `${PRICE_CURRENCY}\\s*[/⁄][ \\u00a0]?`;
+const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
+const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
+const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
+const HAN_AFTER_EACH = `每[ \\u00a0]?`;
+// After a bare slash, a lone numeral or a label, a Han symbol must end its name there; a digit, 每 or a currency's slash leaves it free unless a word begins there ("54,000吨的货物", "每吨成本", "元/吨和运费").
+const hanSymbol = (symbol: string) =>
+  [
+    `${HAN_AFTER_FIGURE}${symbol}`,
+    `${HAN_AFTER_RATE}${symbol}${NAME_END}`,
+    `${HAN_AFTER_CURRENCY}${symbol}${wordStart(symbol)}`,
+    `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
+    `${HAN_AFTER_EACH}${symbol}${wordStart(symbol)}`,
+    `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
+  ].join("|");
+
+const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
+  const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
+  const singles = symbols.split("|").filter(Boolean);
+  const latin = singles.filter((symbol) => /^[A-Za-z]$/.test(symbol)).map(latinSymbol);
+  const han = singles.filter((symbol) => !/^[A-Za-z]$/.test(symbol)).map(hanSymbol);
+  return new RegExp([word, ...latin, ...han].join("|"), "iu");
+};
+
+// The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
+const WRITES: Readonly<Record<string, RegExp>> = {
+  percent: /[%‰]|(?<![A-Za-z])(?:per[ \n]?cent|percent|pcts?)(?![A-Za-z])|百分之|百分比/i,
+  points:
+    /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
+  ...Object.fromEntries(
+    Object.entries(MEASURES).map(([name, units]) => [name, measureRule(units)]),
+  ),
+};
+
+/** What `unit` measures: "percent", "points", or a standard unit's kind ("mass", "area"); null for a count. */
+export function measureOf(unit: FigureUnit): string | null {
+  if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
+  if (unit.kind !== "other") return null;
+  const found = Object.entries(MEASURES).find(([, { symbols, words }]) =>
+    new RegExp(`^(?:${[symbols, words].filter(Boolean).join("|")})$`, "i").test(unit.word),
+  );
+  return found?.[0] ?? null;
+}
+
+/**
+ * Whether `text` writes any unit of `measure`: a word ("tonnes"), a Latin symbol that stands alone
+ * ("54,000 t", "540 €/t", "(t, 2024)"), or, in Chinese, a symbol that names the unit after a figure,
+ * a slash, a lone numeral or a unit line ("54,000吨", "元/吨", "一吨", "单位：吨"). Converting one
+ * unit into another isn't attempted.
+ */
+export function writesMeasure(text: string, measure: string): boolean {
+  return WRITES[measure]?.test(text.normalize("NFKC")) ?? false;
+}
+
+// A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
+const BARE_DOLLAR = /^(?:\$|dollars?)$/i;
+const NAMES_A_DOLLAR = new RegExp(
+  `${longestFirst(
+    Object.entries(CURRENCY_CODES)
+      .filter(([, code]) => ANY_DOLLAR.includes(code))
+      .map(([word]) => word),
+  )
+    .map((word) => word.replace(/[$.]/g, "\\$&"))
+    .join("|")}|(?<![A-Za-z])(?:${ANY_DOLLAR.join("|")})(?![A-Za-z])`,
+  "i",
+);
+
+/** Whether a figure's dollar is only its bare "$" or "dollars": "$54,000", not "$54,000 AUD". */
+export const bareDollar = (figure: Figure): boolean =>
+  BARE_DOLLAR.test(signOf(figure) ?? "") && !NAMES_A_DOLLAR.test(figure.chars.normalize("NFKC"));
+
+export const isDollar = (code: string): boolean => ANY_DOLLAR.includes(code);
+
+/** Whether `statement` gives a dollar by a bare "$" or "dollars": "Amount ($)", "($m)", "金额（$）". */
+export function bareDollarStatement(statement: StatedUnit): boolean {
+  if (statement.unit.kind !== "currency" || !ANY_DOLLAR.includes(statement.unit.code)) return false;
+  const chars = statement.chars.normalize("NFKC");
+  return (
+    /(?<![A-Za-z])\$|(?<![A-Za-z])dollars?(?![A-Za-z])/i.test(chars) && !NAMES_A_DOLLAR.test(chars)
+  );
+}
+
+/**
+ * Every dollar `reading` of `figure` may be when nothing says which: by its own bare "$", or by a
+ * bare "$" in the heading or unit line of `text` it is read under. Null when it is in a named one.
+ */
+export function unsaidDollars(
+  figure: Figure,
+  reading: Reading,
+  text: string,
+  context: FigureContext,
+): readonly string[] | null {
+  if (reading.unit.kind !== "currency" || !ANY_DOLLAR.includes(reading.unit.code)) return null;
+  if (figure.currency !== null) return bareDollar(figure) ? ANY_DOLLAR : null;
+  const { code } = reading.unit;
+  const stated = readStatedUnits(text, context).filter(
+    ({ unit }) => unit.kind === "currency" && unit.code === code,
+  );
+  return stated.length > 0 && stated.every(bareDollarStatement) ? ANY_DOLLAR : null;
+}
+
+/**
  * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
  * in a unit it states ("单位：元", "Salary (£)", "in £'000", "All figures are in £") and on
  * `figures`, its figures as read. With no figures given (null), the currency on its figures counts
  * only when they all carry the same one: a Document that mixes "HK$" and "$" says nothing of a
- * plain "54,000".
+ * plain "54,000". With `which`, only a currency it names by which counts: a bare "$" or "dollars"
+ * names none, "Australian dollars", "AUD" and "A$" do.
  */
 export function namedCurrencies(
-  text: string,
+  written: string,
   context: FigureContext,
   figures: readonly Figure[] | null,
+  which = false,
 ): Set<string> {
+  const text = normaliseCurrencies(written);
   const settled = settle(context);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {
     for (const code of codes) named.add(code);
   };
-  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
-    for (const match of text.matchAll(pattern)) {
-      if (!besideNumber(text, match.index, match.index + match[0].length))
-        add(currencyCodes(match[0], settled));
-    }
-  }
-  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
-    for (const match of text.matchAll(pattern)) add(currencyCodes(match[1] ?? "", settled));
-  }
-  for (const stated of readStatedUnits(figures ? text : unitLinesOf(text), context)) {
-    if (stated.unit.kind === "currency") add([stated.unit.code]);
-  }
+  for (const { code } of currencyMentions(text, context, settled, which, figures === null))
+    add([code]);
+  // Another figure's "HK$10m" says nothing of which dollar a bare "$54m" is.
+  if (which) return named;
   if (figures) {
     for (const figure of figures) add(currenciesOf(figure));
     return named;
@@ -2308,12 +2593,145 @@ export function namedCurrencies(
   const onFigures = new Map<string, string[]>();
   for (const match of text.matchAll(CURRENCY_ANYWHERE)) {
     if (!besideNumber(text, match.index, match.index + match[0].length)) continue;
-    const codes = currencyCodes(match[0], settled);
+    const codes = currencyCodesOf(match[0], settled, which);
     if (codes.length > 0) onFigures.set(codes.join(), codes);
   }
   const [only] = onFigures.values();
   if (onFigures.size === 1 && only) add(only);
   return named;
+}
+
+// "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
+const normaliseCurrencies = (written: string) =>
+  written.normalize("NFKC").replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+
+const currencyCodesOf = (word: string, settled: Settled, which: boolean) =>
+  which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
+
+interface CurrencyMention {
+  code: string;
+  /** Where in the normalised text it stands; -1 for one a unit line states. */
+  at: number;
+}
+
+/** Every place `text` names a currency: its words or code in body text, a heading, "in …", or a unit line. */
+function currencyMentions(
+  text: string,
+  context: FigureContext,
+  settled: Settled,
+  which: boolean,
+  unitLinesOnly: boolean,
+): CurrencyMention[] {
+  const found: CurrencyMention[] = [];
+  const add = (codes: readonly string[], at: number) => {
+    for (const code of codes) found.push({ code, at });
+  };
+  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
+    for (const match of text.matchAll(pattern)) {
+      if (!besideNumber(text, match.index, match.index + match[0].length))
+        add(currencyCodesOf(match[0], settled, which), match.index);
+    }
+  }
+  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
+    for (const match of text.matchAll(pattern))
+      add(currencyCodesOf(match[1] ?? "", settled, which), match.index);
+  }
+  for (const stated of readStatedUnits(unitLinesOnly ? unitLinesOf(text) : text, context)) {
+    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
+      add([stated.unit.code], -1);
+  }
+  return found;
+}
+
+/** The most characters of a Document line the card shows, a window around the words that name the currency (#2226). */
+const CURRENCY_LINE_CHARS_AT_MOST = 120;
+/** The most naming lines looked in, so a Document that names a currency on every line stays fast (#2226). */
+const MOST_CLAUSE_LINES = 200;
+
+const clauseWindow = (line: string, at: number, chars: number): string => {
+  if (line.length <= chars) return line.trim();
+  const room = chars - 2;
+  const from = Math.max(0, Math.min(at - Math.floor(room / 2), line.length - room));
+  const start = graphemeBoundary(line, from);
+  const end = graphemeBoundary(line, Math.min(line.length, start + room));
+  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
+};
+
+/** `at`'s line among starts sorted by position, the last start at or before it. */
+const lineAt = (starts: readonly number[], at: number): number => {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if ((starts[mid] as number) <= at) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+};
+
+/** The original line's offset for a position in its normalised words ("™" grows to "TM", "½" to "1⁄2"). */
+const originalOffset = (line: string, at: number): number => {
+  let seen = 0;
+  let offset = 0;
+  for (const char of line) {
+    if (seen >= at) break;
+    seen += normaliseCurrencies(char).length;
+    offset += char.length;
+  }
+  return offset;
+};
+
+/**
+ * The earliest line of `written` that names which currency one of `codes` is, by the same words,
+ * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`, and that
+ * `accept` takes when it is given: at most `CURRENCY_LINE_CHARS_AT_MOST` characters around those
+ * words; null when no line does (#2226).
+ */
+export function currencyNamingLine(
+  written: string,
+  context: FigureContext,
+  codes: ReadonlySet<string>,
+  accept?: (line: string) => boolean,
+): string | null {
+  const text = normaliseCurrencies(written);
+  const settled = settle(context);
+  const lines = written.split(LINE_BREAK);
+  const starts: number[] = [];
+  let start = 0;
+  for (const line of text.split(LINE_BREAK)) {
+    starts.push(start);
+    start += line.length + 1;
+  }
+  const unitLines = new Map<string, number>();
+  const unitLineFor = (code: string): number => {
+    const known = unitLines.get(code);
+    if (known !== undefined) return known;
+    const found = lines.findIndex(
+      (line) =>
+        UNIT_LINE.test(line) &&
+        readStatedUnits(line, context).some(
+          (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
+        ),
+    );
+    unitLines.set(code, found);
+    return found;
+  };
+  const candidates = new Map<number, number>();
+  for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
+    if (!codes.has(code)) continue;
+    const index = at < 0 ? unitLineFor(code) : lineAt(starts, at);
+    if (index < 0) continue;
+    const within = at < 0 ? 0 : at - (starts[index] as number);
+    const known = candidates.get(index);
+    if (known === undefined || within < known) candidates.set(index, within);
+  }
+  for (const index of [...candidates.keys()].sort((a, b) => a - b).slice(0, MOST_CLAUSE_LINES)) {
+    const line = lines[index] ?? "";
+    if (line.trim() === "" || (accept && !accept(line))) continue;
+    const within = originalOffset(line, candidates.get(index) ?? 0);
+    return clauseWindow(line, within, CURRENCY_LINE_CHARS_AT_MOST);
+  }
+  return null;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */

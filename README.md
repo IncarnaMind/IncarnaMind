@@ -37,11 +37,11 @@
 
 | System | File on the [Releases page](https://github.com/IncarnaMind/IncarnaMind/releases) |
 |---|---|
-| macOS (Apple silicon or Intel) | `.dmg` |
+| macOS on Apple silicon (M1 or later) | `.dmg` |
 | Windows | `.exe` |
 | Linux | `.deb` for Ubuntu and Debian, or `.AppImage` |
 
-Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
+Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
 
 <details>
 <summary>If your system won't open it</summary>
@@ -91,7 +91,7 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 ## How the check works
 
-For each sentence, the check finds the passages in your files that it relies on and marks whether they support it. The page is one click away.
+For each sentence, the check finds or reads the passages in your files that it relies on and marks whether they support it. The page is one click away.
 
 Figures are compared as numbers. One rounded from the source passes, a different one is marked, and a calculated one shows its formula and where each input came from.
 
