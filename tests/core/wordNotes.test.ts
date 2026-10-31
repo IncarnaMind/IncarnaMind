@@ -30,6 +30,7 @@ import { unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
 import {
+  field,
   note,
   noteMark,
   PNG,
@@ -559,18 +560,58 @@ describe("what another file's import kept as is: a field, a note and a picture (
   ];
   const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
 
-  /** As A's import kept them, with A's places, or with none, as this device's editor leaves a paste. */
-  const keptFromA = (a: FromA, placed: boolean): JSONContent[] => {
-    const atom = (source: string, attrs: Record<string, unknown>): JSONContent => ({
-      type: WORD_ATOM_NODE,
-      attrs: { label: "", text: "", ...attrs, source: placed ? source : null },
+  /** A note a footnote can't hold, so the import keeps it as is: it has a table. */
+  const keptNote = (id: number, text: string, type = "") =>
+    `<w:footnote${type ? ` w:type="${type}"` : ""} w:id="${id}"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:footnoteRef/></w:r>${run(` ${text}`)}</w:p>${table([["In a table"]])}</w:footnote>`;
+
+  /**
+   * File A, imported: a field at its runs 5 to 9, a note kept as is at its
+   * second note's mark, an SVG at its first drawing, and a field in a note.
+   */
+  const fileA = (a: FromA): WordFileInput => ({
+    body: [
+      paragraph(["A0", "A1", "A2", "A3", "A4"].map((each) => run(each)).join("")),
+      paragraph(field("DATE", a.field)),
+      paragraph(`${run("Own.")}${noteMark("footnote", 1)}`),
+      paragraph(`${run("Kept.")}${noteMark("footnote", 2)}`),
+      paragraph(`${run("Chart: ")}${picture("rIdSvg", a.chart)}`),
+    ].join(""),
+    footnotes: [
+      note("footnote", 1, [`${run("See ")}${field("DATE", a.field)}`]),
+      keptNote(2, a.note),
+    ].join(""),
+    media: { rIdSvg: { name: "media/image1.svg", data: SVG } },
+  });
+
+  /**
+   * What A's import kept as is, as pasting it from A's Note carries it: with
+   * A's places, or with none, as this device's editor leaves a paste.
+   */
+  async function keptFromA(core: Core, a: FromA, placed: boolean) {
+    const { client } = await importWordBytes(
+      core,
+      await createTempDataFolder(),
+      wordFile(fileA(a)),
+      {
+        origin: "own",
+        name: "A.docx",
+      },
+    );
+    const atoms: JSONContent[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === WORD_ATOM_NODE) atoms.push(node.toJSON());
     });
-    return [
-      atom("w:r#5..w:r#7", { kind: "field", label: a.field, info: { field: "DATE" } }),
-      atom("w:footnoteReference#1", { kind: "footnote", label: "1", text: a.note }),
-      atom("w:drawing#0", { kind: "picture", label: a.chart }),
-    ];
-  };
+    const inNote = atoms.filter((atom) => String(atom.attrs?.source).includes("!"));
+    const body = atoms
+      .filter((atom) => !inNote.includes(atom))
+      .map((atom) => (placed ? atom : { ...atom, attrs: { ...atom.attrs, source: null } }));
+    expect(body.map((atom) => [atom.attrs?.kind, atom.attrs?.source])).toEqual([
+      ["field", placed ? "w:r#5..w:r#9" : null],
+      ["footnote", placed ? "w:footnoteReference#1" : null],
+      ["picture", placed ? "w:drawing#0" : null],
+    ]);
+    return { body, inNote: inNote[0] as JSONContent };
+  }
 
   /** Puts A's atoms at the end of B's first paragraph, which reads "Target here.". */
   const pasteInto = (client: MindClient, atoms: JSONContent[]) =>
@@ -601,7 +642,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
     expect(noteXml(part("word/footnotes.xml"), "footnote", ids[0] ?? 0)).toContain(a.note);
     expect(result.word?.notKept).toEqual([
       expect.objectContaining({ kind: "copy", text: a.field }),
-      expect.objectContaining({ kind: "copy", text: a.note }),
+      expect.objectContaining({ kind: "copy", text: expect.stringContaining(a.note) }),
       expect.objectContaining({ kind: "copy", text: a.chart }),
     ]);
     return { files, part };
@@ -615,6 +656,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
         `${run("Dated ")}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> DATE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${run("2025-12-31")}<w:r><w:fldChar w:fldCharType="end"/></w:r>`,
       );
       const secret = paragraph(["B5", "B6", "B7", "B8"].map((each) => run(each)).join(""));
+      // B's runs 5 to 9 are B5 to B8 and "Dated ", where A's field is.
       const { core, bytes, mindId, client } = await setUp({
         body: [
           paragraph("Target here."),
@@ -626,7 +668,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
         ].join(""),
         footnotes: [
           note("footnote", 1, ["B's first note."]),
-          `<w:footnote w:id="2"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:footnoteRef/></w:r>${run(" B's deleted note.")}</w:p>${table([["In a table"]])}</w:footnote>`,
+          keptNote(2, "B's deleted note."),
         ].join(""),
         media: { rIdSvg: { name: "media/image1.svg", data: SVG } },
       });
@@ -644,7 +686,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
           ),
         })),
       );
-      pasteInto(client, keptFromA(a, true));
+      pasteInto(client, (await keptFromA(core, a, true)).body);
       await client.settled();
 
       const before = unzip(bytes);
@@ -657,7 +699,8 @@ describe("what another file's import kept as is: a field, a note and a picture (
       expect(noteXml(footnotes, "footnote", 1)).toBe(
         noteXml(before.get("word/footnotes.xml")?.toString("utf8") ?? "", "footnote", 1),
       );
-      for (const own of ["B5", "B6", "B7"]) expect(document.split(own)).toHaveLength(2);
+      for (const own of ["B5", "B6", "B7", "B8", "Dated "])
+        expect(document.split(own)).toHaveLength(2);
       expect(document).toContain(secret);
       expect(document).toContain(dated);
       expect(document).toContain(diagram);
@@ -669,7 +712,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
     "pasted into a file with none of their places is A's, never left out (%s)",
     async (_, a) => {
       const { core, mindId, client } = await setUp({ body: paragraph("Target here.") });
-      pasteInto(client, keptFromA(a, true));
+      pasteInto(client, (await keptFromA(core, a, true)).body);
       await client.settled();
       const { part } = await expectWrittenAsA(core, mindId, a);
       expect(part("word/document.xml").match(/<w:footnoteReference /g)).toHaveLength(1);
@@ -686,30 +729,54 @@ describe("what another file's import kept as is: a field, a note and a picture (
         ].join(""),
         footnotes: note("footnote", 1, ["B's first note."]),
       });
-      pasteInto(client, keptFromA(a, false));
+      pasteInto(client, (await keptFromA(core, a, false)).body);
       await client.settled();
       await expectWrittenAsA(core, mindId, a);
+    },
+  );
+
+  test.each([
+    ["English", "Target here."],
+    ["Chinese", "此处粘贴。"],
+  ])(
+    "a note kept as is with no text the Note knows, pasted with no place, keeps its mark as a new footnote, and is listed (%s)",
+    async (_, body) => {
+      const { core, mindId, client } = await setUp({ body: paragraph(body) });
+      editMind(client, (blocks) => [
+        {
+          ...(blocks[0] as JSONContent),
+          content: [
+            ...(blocks[0]?.content ?? []),
+            {
+              type: WORD_ATOM_NODE,
+              attrs: { kind: "footnote", label: "1", text: "", source: null },
+            },
+          ],
+        },
+      ]);
+      await client.settled();
+      const result = await core.exportMind(mindId, { format: "docx" });
+      const files = unzip(result.data);
+      const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+      const id = /<w:footnoteReference w:id="(\d+)"\/>/.exec(paragraphWith(document, body))?.[1];
+      expect(
+        noteXml(files.get("word/footnotes.xml")?.toString("utf8") ?? "", "footnote", Number(id)),
+      ).not.toBeNull();
+      expect(result.word?.notKept).toEqual([expect.objectContaining({ kind: "note", text: "" })]);
     },
   );
 
   test.each(LANGUAGES)(
     "a field pasted into one of B's notes, naming the place of that note's own runs, is A's text there (%s)",
     async (_, a) => {
+      // The footnotes part's runs 5 to 9 are B2 to B6 in B, and A's note's field in A.
+      const own = ["B1", "B2", "B3", "B4", "B5", "B6", "B7"];
       const { core, bytes, mindId, client } = await setUp({
         body: paragraph(`${run("Kept.")}${noteMark("footnote", 1)}`),
-        footnotes: note("footnote", 1, ["B's first note."]),
+        footnotes: note("footnote", 1, [own.map((each) => run(each)).join("")]),
       });
-      // The note's mark, its space and its text are the footnotes part's third to fifth runs.
-      const field: JSONContent = {
-        type: WORD_ATOM_NODE,
-        attrs: {
-          kind: "field",
-          label: a.field,
-          text: "",
-          source: "word/footnotes.xml!w:r#2..w:r#4",
-          info: { field: "DATE" },
-        },
-      };
+      const field = (await keptFromA(core, a, true)).inNote;
+      expect(field.attrs?.source).toBe("word/footnotes.xml!w:r#5..word/footnotes.xml!w:r#9");
       const withField = (node: JSONContent): JSONContent =>
         node.type === FOOTNOTE_NODE
           ? { ...node, content: [...(node.content ?? []), field] }
@@ -725,7 +792,7 @@ describe("what another file's import kept as is: a field, a note and a picture (
         1,
       );
       expect(written).toContain(a.field);
-      expect(written?.split("B's first note.")).toHaveLength(2);
+      for (const each of own) expect(written?.split(each)).toHaveLength(2);
       expect(written?.match(/<w:footnoteRef\/>/g)).toHaveLength(1);
       expect(
         files
@@ -865,6 +932,44 @@ describe("a Note imported before its notes were its own", () => {
     const again = await exported(core, mindId);
     expect(changed(unzip(bytes), again.files)).toEqual(["word/endnotes.xml"]);
   });
+
+  test.each([
+    ["English", "The lease ends.", "A note with a table."],
+    ["Chinese", "租约到期。", "带表格的脚注。"],
+  ])(
+    "a note kept as is, stored as an import before stored it, with no text and no hash, exports byte for byte (%s)",
+    async (_, body, text) => {
+      const { core, bytes, mindId, client } = await setUp({
+        body: [paragraph(`${run(body)}${noteMark("footnote", 1)}`), paragraph("After.")].join(""),
+        footnotes: `<w:footnote w:type="normal" w:id="1"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:footnoteRef/></w:r>${run(` ${text}`)}</w:p>${table([["In a table"]])}</w:footnote>`,
+      });
+      // An import before #746 read a note typed "normal" as one with no text, and recorded no hash.
+      client.doc.transact(() => {
+        for (const block of client.blocks.toArray()) {
+          if (!(block instanceof Y.XmlElement)) continue;
+          for (const child of block.toArray()) {
+            if (!(child instanceof Y.XmlElement) || child.nodeName !== WORD_ATOM_NODE) continue;
+            expect(child.getAttribute("text")).toContain(text);
+            child.setAttribute("text", "");
+            child.removeAttribute("hash");
+            const id = block.getAttribute("id");
+            const source = typeof id === "string" ? wordSourceOf(client.doc, id) : null;
+            if (typeof id === "string" && source) {
+              setWordSource(client.doc, id, { ...source, f: wordFingerprint(block) });
+            }
+          }
+        }
+        client.doc.getMap(MIND_WORD_FIELD).delete("notes");
+      });
+      await client.settled();
+      await core.closeMind(mindId);
+      await connectToMind(core, mindId);
+
+      const result = await core.exportMind(mindId, { format: "docx" });
+      expect(changed(unzip(bytes), unzip(result.data))).toEqual([]);
+      expect(result.word?.notKept).toEqual([]);
+    },
+  );
 });
 
 describe("note numbers", () => {

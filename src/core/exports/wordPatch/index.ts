@@ -32,7 +32,7 @@ import {
   type WordExportLoss,
   type WordExportReport,
 } from "../../api";
-import { nodesByPlace, readWordDocument } from "../../documents/formats/docxImport";
+import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, relationshipsOf, reviewOf } from "../../documents/formats/docxPackage";
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
@@ -47,7 +47,7 @@ import {
 import { DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { Review, type ReviewChoices } from "../wordReview";
-import { AtomPlan } from "./atoms";
+import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
 import { DocumentPatch } from "./document";
 import {
@@ -184,7 +184,14 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     current,
     baseKey,
     currentKey,
-    base.places,
+    {
+      text: base.text,
+      places: base.places,
+      noteXml: (kind, id) => {
+        const part = base.notes[kind];
+        return part ? noteXmlIn(part, kind, id) : undefined;
+      },
+    },
     input.review.trackAs !== null,
     (node) => {
       const kept = keptSourceOf(node);
@@ -226,7 +233,12 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       node.type === IMAGE_NODE ||
       kind === "footnote" ||
       kind === "endnote";
-    return element && special ? readInlineNodes([element], options) : [];
+    if (!element || !special) return [];
+    const read = readInlineNodes([element], options);
+    // A note kept as is with no text the Note knows is still a note: its mark is never left out.
+    return read.length > 0 || node.type !== WORD_ATOM_NODE
+      ? read
+      : [{ kind: "footnote" as const, content: [] }];
   };
   const textOf = (node: NodeJSON) => {
     const element = yOf.get(node);
@@ -341,7 +353,14 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       const element = yOf.get(footnote);
       return !source || !element || wordFingerprint(element) !== source.f;
     },
-    tokensOf: (content) => currentTokens(content, specialOf, textOf, reading),
+    // A note kept as is can't be a note inside a note: its text goes in.
+    tokensOf: (content) =>
+      currentTokens(
+        content,
+        (node) => (node.type === WORD_ATOM_NODE ? [] : specialOf(node)),
+        (node) => (node.type === WORD_ATOM_NODE ? copiedText(node) : textOf(node)),
+        reading,
+      ),
     special: (inline) => docxWriter.inlineXml([inline], { note: true }),
     link: (kind, href) =>
       kind === "footnote" || !endnoteLinks

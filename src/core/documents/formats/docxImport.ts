@@ -179,6 +179,44 @@ export interface Places {
   placeOf(element: XmlElement): string | null;
 }
 
+/** A part of the package as the file has it: its text, what is at each place, and its notes. */
+export interface PlaceFile {
+  text: string;
+  places: Places;
+  /** The XML of the note a mark refers to, in its part. */
+  noteXml?(kind: NoteKind, id: string): string | undefined;
+}
+
+/** The XML of a note in its part, by its id, whatever its type: as the file has it. */
+export function noteXmlIn(part: { text: string; root: XmlElement }, kind: NoteKind, id: string) {
+  const note = elements(part.root).find(
+    (each) => each.name === `w:${kind}` && each.attrs["w:id"] === id,
+  );
+  return note ? part.text.slice(note.start ?? 0, note.end ?? 0) : undefined;
+}
+
+const NOTE_MARKS: Readonly<Record<string, NoteKind>> = {
+  "w:footnoteReference": "footnote",
+  "w:endnoteReference": "endnote",
+};
+
+/**
+ * A hash of the XML a place names in its part (#746): the element, a field's
+ * runs from the first to the last, a note's mark with its note; null where
+ * the part has none. Taken from the file's own bytes, so no import reads it
+ * otherwise.
+ */
+export function placeHash(file: PlaceFile, source: string): string | null {
+  const ends = source.split("..").map((place) => file.places.get(place));
+  const first = ends[0];
+  const last = ends.at(-1);
+  if (!first || !last || ends.includes(undefined)) return null;
+  const xml = file.text.slice(first.start ?? 0, last.end ?? 0);
+  const kind = ends.length === 1 ? NOTE_MARKS[first.name] : undefined;
+  const note = kind ? file.noteXml?.(kind, first.attrs["w:id"] ?? "") : undefined;
+  return targetHash(note === undefined ? xml : `${xml}${note}`);
+}
+
 export async function readWordDocument(
   pkg: WordPackage,
   review: WordReview,
@@ -726,6 +764,7 @@ class Reader {
   /** Someone's changes kept as is, by kind. */
   private readonly kept: Partial<Record<KeptChangeKind, number>> = {};
   private paragraphLook: ParagraphLookContext = { look: {}, format: {}, runs: [] };
+  private placeFile: PlaceFile | null = null;
   private tableLook: TableLookContext | null = null;
 
   private constructor(
@@ -912,7 +951,7 @@ class Reader {
     this.count(kind);
     return {
       type: WORD_ATOM_NODE,
-      attrs: { kind, label, text, source, ...(info && { info }) },
+      attrs: { kind, label, text, source, hash: this.hashOf(source), ...(info && { info }) },
     };
   }
 
@@ -930,9 +969,22 @@ class Reader {
         label,
         text,
         source,
+        hash: this.hashOf(source),
         ...(info && { info }),
       },
     };
+  }
+
+  private hashOf(source: string): string | null {
+    this.placeFile ??= {
+      text: this.documentText,
+      places: this.places(),
+      noteXml: (kind, id) => {
+        const part = this.noteParts[kind];
+        return part ? noteXmlIn(part, kind, id) : undefined;
+      },
+    };
+    return placeHash(this.placeFile, source);
   }
 
   readDocument(): WordDocument {

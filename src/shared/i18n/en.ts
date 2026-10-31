@@ -4177,7 +4177,9 @@ export const en = {
   "export.word.change": "{author}’s tracked change “{text}” is in text you deleted",
   "export.word.change.anonymous": "The tracked change “{text}” is in text you deleted",
   "export.word.copy": "Your copy of “{text}” goes in as plain text",
-  "export.word.copy.empty": "Your copy of a picture or shape is left out",
+  "export.word.copy.empty": "Your copy of a picture, shape or other object is left out",
+  "export.word.copy.note":
+    "Your copy of a footnote or endnote goes in as a new footnote, without its text",
   "export.word.edit": "Your edit “{text}” can’t be written: the original stays",
   "export.word.signature": "The file’s digital signature won’t match once it changes",
   "export.word.more.one": "1 more",

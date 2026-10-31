@@ -18,7 +18,13 @@
  * out, and every pair stays whole.
  */
 import type { NodeJSON } from "../../../shared/blockJson";
-import { COPYABLE_WORD_ATOMS, readWordAtom, wordAtomText } from "../../../shared/wordFiles";
+import {
+  BREAK_WORD_ATOMS,
+  COPYABLE_WORD_ATOMS,
+  INVISIBLE_WORD_ATOMS,
+  readWordAtom,
+  wordAtomText,
+} from "../../../shared/wordFiles";
 import {
   FOOTNOTE_NODE,
   IMAGE_NODE,
@@ -28,8 +34,7 @@ import {
   type WordAtomKind,
   type WordExportLoss,
 } from "../../api";
-import type { Places } from "../../documents/formats/docxImport";
-import type { XmlElement } from "../../documents/formats/xml";
+import { type PlaceFile, placeHash } from "../../documents/formats/docxImport";
 import { type Counterpart, counterpartsOf } from "./mind";
 import { sourceOf } from "./paragraph";
 
@@ -81,7 +86,8 @@ export class AtomPlan {
     current: readonly NodeJSON[],
     baseKey: (node: NodeJSON) => string | null,
     currentKey: (node: NodeJSON) => string | null,
-    places: Places,
+    /** The document part as the file has it. */
+    file: PlaceFile,
     /** The User's edits are tracked: what they deleted stays, as deleted. */
     track = false,
     /** Whether a node is the one the import read its atom into, not a copy with a new id. */
@@ -96,7 +102,7 @@ export class AtomPlan {
     );
     for (const [source, all] of now) {
       const found = all.filter((each) => {
-        const fits = isAt(each.node, places.get(source), baseAtoms.get(source)?.[0]?.node);
+        const fits = isAt(each.node, file, baseAtoms.get(source)?.[0]?.node);
         if (!fits) this.foreign.add(each.node);
         return fits;
       });
@@ -113,7 +119,7 @@ export class AtomPlan {
     // Pairs: a half whose other half isn't written goes too.
     const halves = new Map<string, Map<"start" | "end" | "mark", string>>();
     for (const source of baseAtoms.keys()) {
-      const element = places.get(source);
+      const element = file.places.get(source);
       const pair = element && PAIRED[element.name];
       const id = element?.attrs["w:id"];
       if (!pair || id === undefined) continue;
@@ -187,29 +193,30 @@ export class AtomPlan {
     return this.writer.has(source);
   }
 
-  /** A copy written as its text: said, unless it shows nothing. */
+  /**
+   * A copy written as its text, or a note kept as is as a new footnote: said,
+   * unless it shows nothing (a bookmark, a range, a break).
+   */
   copied(node: NodeJSON): void {
     const atom = readWordAtom(node.attrs ?? {});
     const note = atom.kind === "footnote" || atom.kind === "endnote";
     const text = (note ? atom.text : atom.label || atom.text || wordAtomText(atom)).trim();
-    if (!text && atom.kind !== "picture" && atom.kind !== "textBox" && atom.kind !== "shape")
-      return;
+    if (!text && (INVISIBLE_WORD_ATOMS.has(atom.kind) || BREAK_WORD_ATOMS.has(atom.kind))) return;
     const key = `copy:${atom.source ?? `${atom.kind}:${text}`}`;
     if (this.losses.some((each) => each.key === key)) return;
-    this.losses.push({ key, kind: "copy", author: null, text: text.slice(0, QUOTED) });
+    const kind = note && !text ? "note" : "copy";
+    this.losses.push({ key, kind, author: null, text: text.slice(0, QUOTED) });
   }
 }
 
 /**
  * Whether a node is at the place it names: the file has a note's mark of its
- * kind or a page break there (`element`), or the same picture or the same
- * atom (`imported`, what the import read there: its kind and what it shows).
+ * kind or a page break there, the same picture (`imported`, what the import
+ * read there), or the atom itself (`isFilesAtom`).
  */
-function isAt(
-  node: NodeJSON,
-  element: XmlElement | undefined,
-  imported: NodeJSON | undefined,
-): boolean {
+function isAt(node: NodeJSON, file: PlaceFile, imported: NodeJSON | undefined): boolean {
+  const source = sourceOf(node);
+  const element = source ? file.places.get(source) : undefined;
   if (node.type === IMAGE_NODE) {
     return imported?.type === IMAGE_NODE && imported.attrs?.src === node.attrs?.src;
   }
@@ -220,18 +227,26 @@ function isAt(
   if (node.type === PAGE_BREAK_NODE) {
     return element?.name === "w:br" && element.attrs["w:type"] === "page";
   }
-  return sameAtom(node, imported);
+  return isFilesAtom(node, file);
 }
 
-/** What an atom is, as the import read it, wherever it is: its kind, what it shows and says. */
-function keptAs(node: NodeJSON): string {
-  const { kind, label, text, info } = readWordAtom(node.attrs ?? {});
-  return JSON.stringify([kind, label, text, info]);
-}
-
-/** Whether an atom is the one the import read at its place (`imported`), not another file's. */
-export function sameAtom(node: NodeJSON, imported: NodeJSON | undefined): boolean {
-  return imported?.type === node.type && keptAs(imported) === keptAs(node);
+/**
+ * Whether what the import kept as is is the file's own at the place it names
+ * (#746), judged by what the file has there, never by the text an import
+ * read, which another version reads otherwise: the file's XML there hashes as
+ * it did when the atom was imported. One imported before the hash was
+ * recorded is the file's where the file has something there, a note's mark
+ * for a note.
+ */
+export function isFilesAtom(node: NodeJSON, file: PlaceFile): boolean {
+  const { kind, source, hash } = readWordAtom(node.attrs ?? {});
+  if (!source) return false;
+  const now = placeHash(file, source);
+  if (hash !== null || now === null) return now !== null && now === hash;
+  const mark = file.places.get(source)?.name;
+  if (kind === "footnote") return mark === "w:footnoteReference";
+  if (kind === "endnote") return mark === "w:endnoteReference";
+  return true;
 }
 
 /** What a copy of an atom written as its text reads: a note's text for a note kept as is. */

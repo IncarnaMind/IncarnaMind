@@ -1469,6 +1469,12 @@ export interface WordAtomAttributes {
   /** Its text, read for Questions and search: a text box's, a comment's, a footnote's. */
   text: string;
   source: string | null;
+  /**
+   * What the file has at its place, as the import found it (#746): a hash of
+   * its XML there, which no later import reads otherwise, so export tells the
+   * file's own atom from a copy. Null for one imported before it was recorded.
+   */
+  hash: string | null;
   /** More about it: a change's or a comment's author and date, a field's type. */
   info: WordAtomInfo | null;
 }
@@ -1837,13 +1843,14 @@ export interface WordSource {
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
+ * - "note": a copy of a note kept as is that holds no text the Note knows, written as an empty footnote;
  * - "edit": an edit next to a field, which is written as it was;
  * - "signature": the file's digital signature, which no longer matches once it changes.
  */
 export interface WordExportLoss {
   /** The same for the same thing at the next export, so going ahead applies to what the User saw. */
   key: string;
-  kind: "comment" | "change" | "copy" | "edit" | "signature";
+  kind: "comment" | "change" | "copy" | "note" | "edit" | "signature";
   /** Whose comment or change it is. */
   author: string | null;
   /** Its text, shortened; "" for none. */

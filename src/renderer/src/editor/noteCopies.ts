@@ -26,8 +26,9 @@ const isPlaced = (node: ProseMirrorNode) =>
 /** A copy of a node, with no place in the file: a footnote, as export writes a note's copy. */
 function withoutPlace(node: ProseMirrorNode): Attrs {
   if (node.type.name === FOOTNOTE_NODE) return { ...node.attrs, source: null, endnote: null };
-  if (node.attrs.kind === "endnote") return { ...node.attrs, source: null, kind: "footnote" };
-  return { ...node.attrs, source: null };
+  if (!KEPT.has(node.type.name)) return { ...node.attrs, source: null };
+  const kind: unknown = node.attrs.kind === "endnote" ? "footnote" : node.attrs.kind;
+  return { ...node.attrs, source: null, hash: null, kind };
 }
 
 /** The Note's Word file, by its content's hash; undefined for an editor not bound to a Note. */

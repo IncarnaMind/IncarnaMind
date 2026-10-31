@@ -85,6 +85,7 @@ export function readWordAtom(attributes: Record<string, unknown>): WordAtomAttri
     label: text(attributes.label),
     text: text(attributes.text),
     source: typeof attributes.source === "string" ? attributes.source : null,
+    hash: typeof attributes.hash === "string" ? attributes.hash : null,
     info: info && {
       ...(typeof info.author === "string" && { author: info.author }),
       ...(typeof info.date === "string" && { date: info.date }),

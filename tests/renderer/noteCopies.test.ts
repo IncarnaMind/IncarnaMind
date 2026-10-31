@@ -139,7 +139,7 @@ const placesOf = (editor: Editor) => {
 
 const kept = (kind: string, source: string, attrs: Record<string, unknown> = {}): JSONContent => ({
   type: WORD_ATOM_NODE,
-  attrs: { kind, label: "", text: "", source, ...attrs },
+  attrs: { kind, label: "", text: "", source, hash: null, ...attrs },
 });
 
 /** What the import kept as is, in the Note: each atom's kind and place. */
@@ -147,7 +147,7 @@ const keptIn = (editor: Editor) => {
   const found: [unknown, unknown][] = [];
   editor.state.doc.descendants((node) => {
     if (node.type.name === WORD_ATOM_NODE || node.type.name === WORD_BLOCK_NODE)
-      found.push([node.attrs.kind, node.attrs.source]);
+      found.push([node.attrs.kind, node.attrs.hash === null ? node.attrs.source : "hash"]);
   });
   return found;
 };
@@ -262,7 +262,7 @@ describe("a copy of what a Word file's import kept as is", () => {
           paragraph(
             "a",
             text("One"),
-            kept("field", "w:r#5..w:r#7", { label: date, info: { field: "DATE" } }),
+            kept("field", "w:r#5..w:r#7", { label: date, hash: "a1", info: { field: "DATE" } }),
             kept("endnote", "w:endnoteReference#0", { label: "1", text: noteText }),
             kept("picture", "w:drawing#0", { label: chart }),
           ),
