@@ -14,6 +14,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setLanguage,
+  setWindowSize,
   urlsOpened,
 } from "./app";
 
@@ -47,8 +48,11 @@ async function writeUnreadableProfile() {
   await writeFile(secretsFile, JSON.stringify({ "chatgpt:account": stored }), { mode: 0o600 });
 }
 
-for (const language of ["en", "zh-CN"] as const) {
-  test(`a chat-plan sign-in on a profile that can't be read says so and writes nothing, until it finishes (${language})`, async () => {
+for (const { language, width, height } of [
+  { language: "en", width: 1600, height: 900 },
+  { language: "zh-CN", width: 900, height: 700 },
+] as const) {
+  test(`a chat-plan sign-in on a profile that can't be read says so and writes nothing, until it finishes (${language}, ${width} px)`, async () => {
     // The owner's profile and keychain are never touched: this one is inside a temporary home.
     expect(home.startsWith(tmpdir())).toBe(true);
     expect(profile.startsWith(home)).toBe(true);
@@ -63,6 +67,7 @@ for (const language of ["en", "zh-CN"] as const) {
       extraEnv: { INCARNAMIND_CHATGPT_PROFILE: profile },
     });
     try {
+      await setWindowSize(app, window, width, height);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
       await interceptOpenExternal(app);
