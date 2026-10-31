@@ -442,6 +442,51 @@ describe("a long paste saved as a Document from a Note's composer", () => {
     const { assignments } = await s.core.getLibrary();
     expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();
   });
+
+  /** The paste pasted into the General Note and saved with its Folder keeping its work as `keepInside` has it then. */
+  async function pasteAfterFolderGainsWall(keepInside: boolean) {
+    const s = await setUp({});
+    // The paste waits in the composer: nothing is saved until Save, and the Folder's wall is switched meanwhile.
+    await s.core.updateLibraryGroup(s.folderX.id, {
+      name: "General",
+      description: "",
+      keepInside,
+    });
+    const saved = await s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: OFFER,
+      mindId: s.noteX.id,
+      conversationId: null,
+    });
+    const { assignments } = await s.core.getLibrary();
+    const filed = assignments.find((each) => each.documentId === saved.id)?.groupId ?? null;
+    return {
+      filed: filed === s.folderX.id ? "General" : (filed ?? "no Folder"),
+    };
+  }
+
+  test("a Folder that gains a wall between the paste and the Save files the paste by the wall at Save", async () => {
+    expect(await pasteAfterFolderGainsWall(true)).toEqual({ filed: "General" });
+  });
+
+  test("control: the same paste with no wall switched is filed in no Folder", async () => {
+    expect(await pasteAfterFolderGainsWall(false)).toEqual({ filed: "no Folder" });
+  });
+
+  test("a paste whose Note is deleted while it is written is saved and filed nowhere", async () => {
+    const s = await setUp();
+    // The Note is deleted after the paste's own wall was read, while its text is written.
+    const saving = s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: OFFER,
+      mindId: s.noteA.id,
+      conversationId: null,
+    });
+    await s.core.deleteMind(s.noteA.id);
+    const saved = await saving;
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();
+  });
 });
 
 describe("earlier turns are judged by the wall, not by this turn's Search scope", () => {

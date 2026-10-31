@@ -1300,7 +1300,12 @@ export function createAnswers(options: AnswersOptions) {
     const turnWall = input.assistant?.wallId ?? options.walledFolder(mindIn ?? place.mindId);
     const filing = (asked: string | null) => options.filedWithin(turnWall, asked);
     /** Why a Tool refused across the Folder wall, said after the model's reply. */
-    const wallRefusals = new Set<"folder.wall.refusal" | "folder.wall.notFiled">();
+    const wallRefusals = new Set<
+      | "folder.wall.refusal"
+      | "folder.wall.notFiled"
+      | "folder.wall.pageNotFiled"
+      | "folder.wall.pageNotFiledGone"
+    >();
     const originalId =
       inAssistant && mindIn !== null ? (options.workingCopyOf?.(mindIn) ?? null) : null;
     const [original = null] =
@@ -2288,6 +2293,11 @@ export function createAnswers(options: AnswersOptions) {
               passages: (documentId, query, signal) =>
                 session.searchDocument(documentId, query, signal),
               read: (toolCallId, call) => webPages.set(toolCallId, call),
+              notFiled: (reason) => {
+                wallRefusals.add(
+                  reason === "walled" ? "folder.wall.pageNotFiled" : "folder.wall.pageNotFiledGone",
+                );
+              },
             })
           : [];
       const questions = outside ? undefined : options.questions;
@@ -2978,12 +2988,6 @@ export function createAnswers(options: AnswersOptions) {
                 ];
                 return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
               },
-              refusalSuffix: () =>
-                wallRefusals.size === 0
-                  ? null
-                  : [...wallRefusals]
-                      .map((key) => translate(answerLanguage(context.question), key))
-                      .join(" "),
             }
           : input.checkScales
             ? {
@@ -3000,6 +3004,16 @@ export function createAnswers(options: AnswersOptions) {
                 ],
               }
             : readByUser && { turnChecks: [claimedTools] }),
+        // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
+        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250).
+        refusalSuffix: () => {
+          if (wallRefusals.size === 0) return null;
+          const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+          return [...wallRefusals]
+            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
+            .map((key) => translate(answerLanguage(context.question), key))
+            .join(" ");
+        },
         signal: controller.signal,
       })) {
         if (finished) break;

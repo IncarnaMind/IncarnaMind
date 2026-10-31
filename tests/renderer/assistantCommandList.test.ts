@@ -110,6 +110,7 @@ const request = (command: Command) => {
     run: "run",
     mindId: null,
     clientId: "window",
+    wall: null,
     command: command.id,
     targets: kind && isTarget(kind) ? [{ kind, id: "one" }] : [],
   };
@@ -221,6 +222,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run",
         mindId: "note",
         clientId: "window",
+        wall: null,
         command: "mind.check",
         targets: [],
       }).ended;
@@ -254,6 +256,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run",
         mindId: null,
         clientId: "window",
+        wall: null,
         command: "test.goesOn",
         targets: [],
       });
@@ -295,6 +298,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run",
         mindId: "note",
         clientId: "window",
+        wall: null,
         command: "mind.check",
         targets: [],
       });
@@ -335,6 +339,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run",
         mindId: "note",
         clientId: "window",
+        wall: null,
         command: "mind.check",
         targets: [],
       });
@@ -383,6 +388,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run-2",
         mindId: "note",
         clientId: "window",
+        wall: null,
         command: "mind.check",
         targets: [],
       });
@@ -423,6 +429,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         run: "run",
         mindId: null,
         clientId: "window",
+        wall: null,
         command: "test.addedLater",
         targets: [{ kind: "document", id: "one" }],
       }).ended;
