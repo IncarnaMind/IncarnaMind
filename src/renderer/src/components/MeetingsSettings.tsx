@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useAudioKeptKey, useTranscriptionServicesRead } from "../transcriptionServices";
+import { FillSettings } from "./meetings/FillSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { TranscriptionRouteSelect } from "./meetings/TranscriptionRouteSelect";
 import { TranscriptionKeyRows, TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
@@ -90,6 +91,7 @@ export function MeetingsSettings() {
         </div>
         <p className={hintClass}>{t(keptKey)}</p>
       </section>
+      <FillSettings />
       <HelpSettings />
     </>
   );

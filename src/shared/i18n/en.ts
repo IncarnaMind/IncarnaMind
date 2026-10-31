@@ -5695,6 +5695,10 @@ export const en = {
   "meetings.settings.route": "Transcribe on",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.settings.notes": "Notes after the call",
+  "meetings.settings.fillUncovered": "Fill sections my notes don’t cover",
+  "meetings.settings.fillUncoveredBody":
+    "Sections your own lines don’t cover, such as Action items, follow them as AI text.",
 
   "sources.title": "Find sources",
   "sources.intro":

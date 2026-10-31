@@ -424,6 +424,8 @@ export interface AnswerRequest {
   streamsInput?(tool: Tool): boolean;
   /** Which Tools the Run is offered. Absent: "answer", every Tool. */
   toolSet?: ToolSet;
+  /** The output limit of each of its replies, when it writes more than an Answer. Absent: by `toolSet`. */
+  outputKind?: ModelCallKind;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -639,7 +641,10 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
 }
 
 const writingKind = (request: AnswerRequest): ModelCallKind =>
-  request.toolSet === "check" ? "check-step" : "answer";
+  request.outputKind ?? (request.toolSet === "check" ? "check-step" : "answer");
+
+const stepKind = (request: AnswerRequest): ModelCallKind =>
+  request.outputKind ?? (request.toolSet === "check" ? "check-step" : "answer-step");
 
 /** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
@@ -1986,7 +1991,7 @@ async function* toolLoop(
     ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
     outputTokens: {
-      step: outputOf(request, request.toolSet === "check" ? "check-step" : "answer-step"),
+      step: outputOf(request, stepKind(request)),
       last: outputOf(request, writingKind(request)),
     },
     lastStep: { ...(request.toolsEveryRequest && { keepTools: true }) },

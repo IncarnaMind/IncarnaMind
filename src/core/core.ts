@@ -4201,6 +4201,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return cues;
     },
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
+    fillUncovered: () => settings.get().user.meetingFillUncovered,
     language: () => settings.get().language,
     filled(meeting) {
       const notifications = adapters.notifications;

@@ -2492,6 +2492,12 @@ export interface UserSettings {
    * Mind's Style. Minds already made keep theirs.
    */
   newMindStyle: MindStyle;
+  /**
+   * Settings › Meetings › "Fill sections my notes don't cover": after a call the User took notes
+   * in, the sections of the notes those don't cover (Summary, Decisions, Action items…) follow
+   * them. On by default; off, only the User's own lines are filled out (#2306).
+   */
+  meetingFillUncovered: boolean;
 }
 
 /**

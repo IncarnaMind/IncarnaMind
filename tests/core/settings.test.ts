@@ -77,6 +77,7 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
+        meetingFillUncovered: true,
       },
       device: {
         sidebarWidth: 248,
@@ -189,6 +190,7 @@ describe("Settings", () => {
       taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
+      meetingFillUncovered: true,
     });
     expect(settings.device).toEqual({
       sidebarWidth: 320,
@@ -497,6 +499,7 @@ describe("Settings", () => {
         webSearch: true,
         keepWebPageLook: true,
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingFillUncovered: false,
       },
       device,
     });
@@ -521,6 +524,7 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingFillUncovered: false,
       },
       device,
       language: "zh-CN",
