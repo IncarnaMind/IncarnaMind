@@ -462,7 +462,8 @@ for (const language of ["en", "zh-CN"] as const) {
       }
 
       await pointAndClick(window, done.getByTestId("export-unread-show"));
-      const card = await checkCard(window);
+      const card = window.getByTestId("check-card");
+      await expect(card).toBeVisible();
       const unread = card.getByTestId("checks-unread");
       await expect(unread).toContainText(WORDS[language].count);
       await pointAndClick(window, unread.getByTestId("checks-unread-show"));
