@@ -235,6 +235,7 @@ export function withPassageNotes(
 ): string {
   return [
     passages,
+    continuingNote(passages),
     datedDocumentsNote(passages),
     fileDatesNote(passages),
     notCitedNote(passages),
@@ -433,6 +434,17 @@ export function bracketedAmountsNote(passages: string): string {
 
 /** What marks a Passage of a Document the User keeps as their own workings, in a search's result. */
 export const NOT_CITED_ATTRIBUTE = ' cite="never"';
+
+/** The attribute naming the Passage whose end a Passage's left-out start repeats. */
+export const CONTINUES_ATTRIBUTE = "continues";
+
+const CONTINUING_PASSAGE = new RegExp(`<passage [^>]*\\b${CONTINUES_ATTRIBUTE}="`);
+
+/** A reminder after Passages one of which leaves out the start it shares with the one before; empty when none does. */
+export function continuingNote(passages: string): string {
+  if (!CONTINUING_PASSAGE.test(passages)) return "";
+  return `A Passage marked ${CONTINUES_ATTRIBUTE}="P1" goes on where P1 ends: the lines they share are shown once, at the end of P1.`;
+}
 
 const NOT_CITED_PASSAGE = new RegExp(`<passage [^>]*${NOT_CITED_ATTRIBUTE}`);
 

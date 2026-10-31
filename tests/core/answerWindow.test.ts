@@ -154,6 +154,39 @@ describe("A window's budget", () => {
     expect(ids(budget.fitPassages(passages, "Answer well.", "Why?"))).toEqual(["P1", "P2"]);
   });
 
+  test("a Passage that leaves out the start it shares with the one before is kept only with it (#1634)", () => {
+    const budget = createWindowBudget(window);
+    const continuing = passage("P2", 2_000).replace(
+      'document="Tides"',
+      'document="Tides" continues="P1"',
+    );
+    const passages = [passage("P1", 2_000), continuing, passage("P3", 2_000)].join("\n\n");
+    const ids = (text: string) => [...text.matchAll(/id="(P\d)"/g)].map((match) => match[1]);
+
+    // Room for two: P2 is the most relevant, and goes with the P1 it continues, before P3.
+    expect(ids(budget.fitPassages(passages, "Answer well.", "Why?", [1, 0, 2]))).toEqual([
+      "P1",
+      "P2",
+    ]);
+    // Room for one: P2 never goes without the start P1 holds, so the next most relevant does.
+    expect(
+      ids(budget.fitPassages(passages, "Answer well.", "Why? ".repeat(1_200), [2, 0, 1])),
+    ).toEqual(["P3"]);
+  });
+
+  test("a Passage naming itself, or a later one, as the one it continues is fitted on its own", () => {
+    const budget = createWindowBudget(window);
+    const naming = (id: string, continued: string) =>
+      passage(id, 2_000).replace('document="Tides"', `document="Tides" continues="${continued}"`);
+    const passages = [naming("P1", "P1"), naming("P2", "P3"), passage("P3", 2_000)].join("\n\n");
+    const ids = (text: string) => [...text.matchAll(/id="(P\d)"/g)].map((match) => match[1]);
+
+    expect(ids(budget.fitPassages(passages, "Answer well.", "Why?", [0, 1, 2]))).toEqual([
+      "P1",
+      "P2",
+    ]);
+  });
+
   test("a search the first request carries counts once, in that request (#1633)", () => {
     const budget = createWindowBudget(window);
     const loop = budget.loop(1_000);

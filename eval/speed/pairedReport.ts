@@ -185,6 +185,21 @@ export function pairedSection(
       ) ?? "–";
     return `${median((each) => each.inputTokens)} / ${median((each) => each.outputTokens)}`;
   };
+  const perRequest = (run: (row: PairedRow) => ArmRun) => {
+    const runs = rows.map(run);
+    const calls = runs.reduce((sum, each) => sum + each.modelCalls, 0);
+    const input = runs.reduce((sum, each) => sum + each.inputTokens, 0);
+    if (calls === 0 || input === 0) return "–";
+    const share = runs.some((each) => each.cachedInputTokens === null)
+      ? "–"
+      : `${Math.round((100 * runs.reduce((sum, each) => sum + (each.cachedInputTokens ?? 0), 0)) / input)}%`;
+    return `${Math.round(input / calls)} (${share} cached)`;
+  };
+  const cost = (run: (row: PairedRow) => ArmRun) => {
+    const costs = rows.map((row) => run(row).costUsd);
+    if (costs.some((each) => each === null)) return "–";
+    return `$${((costs as number[]).reduce((sum, each) => sum + each, 0) / costs.length).toFixed(4)}`;
+  };
   const found = (run: (row: PairedRow) => ArmRun) =>
     `${rows.reduce((sum, row) => sum + run(row).found, 0)} of ${rows.reduce((sum, row) => sum + run(row).citations, 0)}`;
   const oneCall = (run: (row: PairedRow) => ArmRun) => {
@@ -201,6 +216,8 @@ export function pairedSection(
     `| Done ${of((run) => run.doneMs)}`,
     `| Model calls (mean) | ${mean(rows.map((row) => row.baseline.modelCalls))} | ${mean(rows.map((row) => row.candidate.modelCalls))} | |`,
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
+    `| Input tokens a request (mean) | ${perRequest((row) => row.baseline)} | ${perRequest((row) => row.candidate)} | |`,
+    `| Cost an item (mean) | ${cost((row) => row.baseline)} | ${cost((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
     `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
     "",

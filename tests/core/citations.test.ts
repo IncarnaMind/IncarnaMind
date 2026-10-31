@@ -3,7 +3,11 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { Citation, Core, CoreEvents } from "../../src/core";
+import { createCitationSession } from "../../src/core/answers/citations";
 import { ANSWER_TEMPERATURE, mergeSearches, searchLanguage } from "../../src/core/answers/engine";
+import { withPassageNotes } from "../../src/core/answers/prompt";
+import { buildPassages, type PageText } from "../../src/core/documents/passages";
+import type { WindowedPassage } from "../../src/core/documents/search";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   answerEnded,
@@ -1211,5 +1215,182 @@ describe("Searching across languages without Tools", { timeout: 30_000 }, () => 
       { text: [shown("P2"), shown("P3")].join("\n\n"), passageCount: 2, passageIds: ["b", "c"] },
     ]);
     expect(merged.passageIds).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("Consecutive Passages in a check Run (#1634)", () => {
+  const PAGES: PageText[] = [1, 2, 3].map((page) => ({
+    page,
+    kind: "page",
+    text: Array.from(
+      { length: 30 },
+      (_, line) => `Page ${page}, line ${line + 1}: the harbour logged ${page * 100 + line} calls.`,
+    ).join("\n"),
+  }));
+  const windowed = (positions: readonly number[]): WindowedPassage[] =>
+    buildPassages(PAGES)
+      .filter((built) => positions.includes(built.position))
+      .map((built) => ({
+        passageId: `p${built.position}`,
+        documentId: "port",
+        documentName: "Port report",
+        contentHash: "v1",
+        pageFrom: built.pageFrom,
+        pageTo: built.pageTo,
+        position: built.position,
+        text: built.text,
+        seq: built.position,
+        documentKind: "pdf",
+        windowFrom: built.windowFrom,
+        windowTo: built.windowTo,
+      }));
+
+  function searching(found: readonly WindowedPassage[], once = true) {
+    const cited: Citation[] = [];
+    const session = createCitationSession(
+      {
+        searchableCount: () => 1,
+        search: async () => [...found],
+        citationSource: (passageId) => {
+          const passage = found.find((each) => each.passageId === passageId);
+          return passage
+            ? { ...passage, documentKind: "pdf", documentDeleted: false, notCited: false }
+            : null;
+        },
+        pageTexts: (_id, _hash, from, to) =>
+          PAGES.filter((unit) => (unit.page ?? 0) >= (from ?? 0) && (unit.page ?? 0) <= (to ?? 0)),
+        documentDate: () => null,
+      },
+      { onRecord: (_marker, citation) => cited.push(citation), showsSharedLinesOnce: once },
+    );
+    return { session, cited };
+  }
+
+  const lineText = (line: string) => line.replace(/^\[p\. \d+\] /, "");
+
+  test("shows the lines a Passage shares with the one before once, saying which it goes on from", async () => {
+    const found = windowed([0, 1, 2]);
+    expect(found).toHaveLength(3);
+    const { session } = searching(found);
+    const result = await session.tools.searchDocuments("harbour");
+    const shown = shownPassages(result.text);
+
+    expect(shown.map((passage) => passage.continues)).toEqual([null, "P1", "P2"]);
+    const lines = shown.flatMap((passage) => passage.text.split("\n")).filter(Boolean);
+    expect(new Set(lines.map(lineText)).size).toBe(lines.length);
+    expect(new Set(lines.map(lineText))).toEqual(
+      new Set(found.flatMap((passage) => passage.text.split("\n")).filter(Boolean)),
+    );
+    // Each starts with the page it now starts on, when that isn't its first.
+    for (const [index, passage] of shown.entries()) {
+      const page = Number(/^Page (\d+)/.exec(lineText(passage.text))?.[1]);
+      if (page !== found[index]?.pageFrom)
+        expect(passage.text.startsWith(`[p. ${page}] `)).toBe(true);
+    }
+    expect(withPassageNotes(result.text, [])).toContain(
+      'A Passage marked continues="P1" goes on where P1 ends',
+    );
+    expect(withPassageNotes(found[0]?.text ?? "", [])).not.toContain("continues=");
+  });
+
+  test("a quote from the shared lines checks under either Passage", async () => {
+    const found = windowed([0, 1]);
+    const shared = found[1]?.text.split("\n")[0] ?? "";
+    expect(found[0]?.text.endsWith(shared) || found[0]?.text.includes(`${shared}\n`)).toBe(true);
+    const { session } = searching(found);
+    await session.tools.searchDocuments("harbour");
+
+    expect(session.tools.quoteFound?.("P1", shared)).toBe(true);
+    expect(session.tools.quoteFound?.("P2", shared)).toBe(true);
+    // What later steps read of a Passage, for its figures and quotes, is still all of it.
+    expect(session.shownPassages().find((each) => each.id === "P2")?.text).toContain(shared);
+  });
+
+  test("a Passage leaves out only lines the one before it still shows", async () => {
+    const line = (name: string) => `Line ${name}: the harbour logged its calls for the year.`;
+    const found = [
+      ["A", "B", "C"],
+      ["B", "C", "D"],
+      ["C", "D", "E"],
+    ].map(
+      (names, position): WindowedPassage => ({
+        passageId: `q${position}`,
+        documentId: "port",
+        documentName: "Port report",
+        contentHash: "v1",
+        pageFrom: 1,
+        pageTo: 1,
+        position,
+        text: names.map(line).join("\n"),
+        seq: position,
+        documentKind: "pdf",
+        windowFrom: 0,
+        windowTo: position,
+      }),
+    );
+    const { session } = searching(found);
+    const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+
+    // P2 shows only D, so the C that P3 shares is at the end of P1: P3 is shown whole.
+    expect(shown.map((passage) => passage.continues)).toEqual([null, "P1", null]);
+    expect(shown.map((passage) => passage.text)).toEqual([
+      found[0]?.text,
+      line("D"),
+      found[2]?.text,
+    ]);
+  });
+
+  // protects=only whole lines count as shared, so a Passage whose first line merely ends the one before it is shown whole, in English and Chinese; fails_when=that line is left out and the Passage marked as going on from the one before; no_claim=Passages of different Documents, which never share lines.
+  test.each([
+    [
+      "The harbour logged 412 calls in 2025, up from 398.",
+      "up from 398.\nThe dredging finished in March.",
+    ],
+    ["港口2025年停靠412艘次，高于398艘次。", "高于398艘次。\n疏浚工程于三月完工。"],
+  ])(
+    "a line that only ends with the next Passage's first line is not shared: %s",
+    async (...texts) => {
+      const found = texts.map(
+        (text, position): WindowedPassage => ({
+          passageId: `r${position}`,
+          documentId: "port",
+          documentName: "Port report",
+          contentHash: "v1",
+          pageFrom: 1,
+          pageTo: 1,
+          position,
+          text,
+          seq: position,
+          documentKind: "pdf",
+          windowFrom: 0,
+          windowTo: position,
+        }),
+      );
+      const { session } = searching(found);
+      const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+
+      expect(shown.map((passage) => passage.continues)).toEqual([null, null]);
+      expect(shown.map((passage) => passage.text)).toEqual(texts);
+    },
+  );
+
+  test("an Answer's Passages are shown whole", async () => {
+    const found = windowed([0, 1, 2]);
+    const { session } = searching(found, false);
+    const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+    expect(shown.map((passage) => passage.continues)).toEqual([null, null, null]);
+    expect(shown.map((passage) => passage.text.split("\n")[0])).toEqual(
+      found.map((passage) => passage.text.split("\n")[0]),
+    );
+  });
+
+  test("Passages that aren't next to each other are shown whole", async () => {
+    const found = windowed([0, 2]);
+    const { session } = searching(found);
+    const shown = shownPassages((await session.tools.searchDocuments("harbour")).text);
+    expect(shown.map((passage) => passage.continues)).toEqual([null, null]);
+    expect(shown.map((passage) => passage.text.split("\n")[0])).toEqual(
+      found.map((passage) => passage.text.split("\n")[0]),
+    );
   });
 });

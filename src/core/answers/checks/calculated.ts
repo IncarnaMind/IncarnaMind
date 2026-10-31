@@ -10,6 +10,7 @@ import {
   type Figure,
   type FigureContext,
   type FigureUnit,
+  figureContextOf,
   readFigures,
 } from "../../../shared/figures";
 import {
@@ -121,6 +122,19 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
     if (unit) counts.push(count(start, unitAt + match[0].length, figure.value, unit));
   }
   return counts;
+}
+
+/**
+ * Whether `sentence` states a figure in its own way of writing numbers or in English or Chinese
+ * ones: `calculate` settles only a figure the sentence states (`statedFigure`), so a check of a
+ * sentence with none isn't offered it, nor its instructions (#1634).
+ */
+export function statesAFigure(sentence: string): boolean {
+  return [
+    documentFigureContext([{ text: sentence }]),
+    figureContextOf(sentence, "en"),
+    figureContextOf(sentence, "zh-CN"),
+  ].some((context) => figuresInClaim(sentence, context).length > 0);
 }
 
 /**

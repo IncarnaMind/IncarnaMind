@@ -7,6 +7,7 @@
 import type { Reading } from "../../../shared/figures";
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
+import { continuingNote } from "../prompt";
 import { PART_RULES, PARTS_LINE } from "./claims";
 
 const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
@@ -174,6 +175,7 @@ export function checkInstructions(
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
+        ...[continuingNote(passages)].filter(Boolean),
         "",
         'Reply with one JSON object: {"answer": "…", "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
         figures
@@ -188,6 +190,7 @@ export function checkInstructions(
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
+        ...[continuingNote(passages)].filter(Boolean),
         "",
         REPLY,
       ].join("\n");

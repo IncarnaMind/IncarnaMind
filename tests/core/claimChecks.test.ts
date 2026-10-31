@@ -1019,6 +1019,60 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     expect(localCalls[0]?.system).not.toContain("isn't judged in your head");
   });
 
+  test("a check's search shows the lines consecutive Passages share once (#1634)", async () => {
+    const claim = "The harbour logged 412 calls in 2025.";
+    const calls: ModelCall[] = [];
+    const lines = Array.from(
+      { length: 120 },
+      (_, line) => `Line ${line + 1}: the harbour logged ${400 + line} calls in the year.`,
+    );
+    const log = { name: "Harbour log.md", contents: lines.join("\n") };
+    const setup = await setUpWithDocuments(
+      checkingModel({ [claim]: { verdict: "unsupported" } }, calls),
+      [log],
+    );
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    await setup.core.checkClaim({ claim });
+    const searched = calls
+      .flatMap((call) => call.results)
+      .find((each) => each.tool === "search_documents");
+    const shown = shownPassages(searched?.text ?? "");
+    expect(shown.some((passage) => passage.continues !== null)).toBe(true);
+    const shownLines = shown.flatMap((passage) => passage.text.split("\n")).filter(Boolean);
+    expect(new Set(shownLines).size).toBe(shownLines.length);
+    expect(searched?.text).toContain('A Passage marked continues="P1" goes on where P1 ends');
+  });
+
+  test.each([
+    ["Net debt fell sharply over the year.", "Net debt fell to 1.1x over the year."],
+    ["净负债在本年度大幅下降。", "净负债在本年度降至1.1倍。"],
+  ])(
+    "a sentence that states no figure isn't offered calculate, one that does is (#1634): %s",
+    async (none, one) => {
+      const calls: ModelCall[] = [];
+      const plans = {
+        [none]: { verdict: "unsupported" },
+        [one]: { verdict: "unsupported", calculation: { ...RATIO, stated: "1.1x" } },
+      } as const;
+      const { core } = await calculatingCheck(checkingModel(plans, calls));
+
+      await core.checkClaim({ claim: none });
+      expect(calls[0]?.tools.sort()).toEqual(["cite", "search_documents"]);
+      expect(calls[0]?.system).not.toContain("calculate");
+
+      const from = calls.length;
+      await core.checkClaim({ claim: one });
+      expect(calls[from]?.tools.sort()).toEqual(["calculate", "cite", "search_documents"]);
+      expect(calls[from]?.system).toContain("isn't judged in your head");
+    },
+  );
+
   test("the sentence's mark keeps the working: the figure, its inputs' Citations and the sentence's number, and their Documents' versions are kept", async () => {
     const claim = "Net debt to EBITDA fell to 1.1x.";
     const plans = {

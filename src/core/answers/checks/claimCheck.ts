@@ -89,7 +89,7 @@ import {
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
-import { agreesWith, statedFigure } from "./calculated";
+import { agreesWith, statedFigure, statesAFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
   checkFigureReply,
@@ -502,8 +502,11 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
   windowTo: 0,
 });
 
-const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
-  model.support === "tools" && calculates(model.capabilities);
+// A calculation only judges a figure the sentence states, so a sentence with none isn't offered it (#1634).
+const calculatesIn = (
+  model: Pick<PreparedChatModel, "support" | "capabilities">,
+  claim: string,
+): boolean => model.support === "tools" && calculates(model.capabilities) && statesAFigure(claim);
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
@@ -537,7 +540,7 @@ export function checkRunStart(
   request: CheckStart & { scope: EvidenceScope },
   model: Pick<PreparedChatModel, "support" | "capabilities">,
 ): { instructions: string; prompt: string; tools: string } {
-  const calculating = calculatesIn(model);
+  const calculating = calculatesIn(model, request.claim);
   const start = runStart(request, deps.language(), calculating);
   const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
   const { documents } = deps;
@@ -644,7 +647,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       passagesBetween: (documentId, from, to) =>
         deps.documents.passagesBetween(documentId, from, to),
     };
-    const session = createCitationSession(scoped, { onRecord: () => undefined });
+    const session = createCitationSession(scoped, {
+      onRecord: () => undefined,
+      showsSharedLinesOnce: true,
+    });
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
@@ -653,7 +659,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
-    const calculating = calculatesIn(model);
+    const calculating = calculatesIn(model, request.claim);
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;

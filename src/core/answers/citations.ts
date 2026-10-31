@@ -91,7 +91,7 @@ import type {
   SearchResultForModel,
   UnfoundQuote,
 } from "./engine";
-import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import { CONTINUES_ATTRIBUTE, NOT_CITED_ATTRIBUTE } from "./prompt";
 import { readDocumentPages } from "./readDocumentPages";
 
 const SEARCHED_ALREADY =
@@ -1055,12 +1055,14 @@ interface ShownPassage {
   location: string | null;
   text: string;
   notCited: boolean;
+  /** The id of the Passage shown just before it whose end its start repeats, which is left out. */
+  continues: string | null;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, continues }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1070,11 +1072,48 @@ function formatPassages(passages: readonly ShownPassage[]): string {
       const dated = date
         ? ` ${date.of === "document" ? "date" : date.of}="${attribute(date.date)}"`
         : "";
+      const after = continues ? ` ${CONTINUES_ATTRIBUTE}="${continues}"` : "";
       const never = notCited ? NOT_CITED_ATTRIBUTE : "";
-      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${never}>\n${text}\n</passage>`;
+      return `<passage id="${id}" document="${attribute(documentName)}"${dated}${where}${after}${never}>\n${text}\n</passage>`;
     })
     .join("\n\n");
 }
+
+/**
+ * How many of `text`'s first lines are `before`'s last whole lines: what a Passage repeats of the
+ * one before it. Passages share whole lines, so a line that only ends with another isn't shared.
+ */
+function repeatedLines(before: string, text: string): number {
+  const lines = text.split("\n");
+  for (let count = lines.length - 1; count > 0; count--) {
+    const shared = lines.slice(0, count).join("\n");
+    if (before === shared || before.endsWith(`\n${shared}`)) return count;
+  }
+  return 0;
+}
+
+/**
+ * A Passage's shown text without its first `repeated` lines, which the Passage before it ends
+ * with, starting with the mark of the Unit it now starts in: its own start no longer says.
+ */
+function withoutRepeatedStart(text: string, repeated: number, units: readonly PageText[]): string {
+  const lines = text.split("\n");
+  const rest = lines.slice(repeated).join("\n").replace(/^\n+/, "");
+  const marks = units.map(unitMark);
+  if (marks.some((mark) => mark && rest.startsWith(`${mark} `))) return rest;
+  let startsIn: string | null = null;
+  for (const line of lines.slice(0, repeated)) {
+    const mark = marks.find((each, index) => index > 0 && each && line.startsWith(`${each} `));
+    if (mark) startsIn = mark;
+  }
+  return startsIn ? `${startsIn} ${rest}` : rest;
+}
+
+const follows = (before: WindowedPassage | undefined, passage: WindowedPassage) =>
+  before !== undefined &&
+  before.documentId === passage.documentId &&
+  before.contentHash === passage.contentHash &&
+  passage.position === before.position + 1;
 
 /** A record the core accepted, with what it points to. */
 interface Accepted {
@@ -1137,6 +1176,12 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
 export interface CitationSessionEvents {
   /** The model gave a valid record for a marker (again: it replaces the earlier one). */
   onRecord(marker: number, citation: Citation): void;
+  /**
+   * Shows the lines a Passage shares with the one before it once, as a check Run's are (#1634).
+   * An Answer's Passages stay whole: shown once, Claude Haiku 5.5 searched a cross-lingual
+   * Question in its Documents' language less often, and cited fewer of the Passages it needed.
+   */
+  showsSharedLinesOnce?: boolean;
 }
 
 /**
@@ -1570,7 +1615,10 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
-    const formatted = found.map((passage): ShownPassage => {
+    const shownIds: string[] = [];
+    /** Each Passage's own text as far as it is shown: what the next one may leave out the end of. */
+    const shownEnds: string[] = [];
+    const formatted = found.map((passage, index): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
       const units =
         passage.pageFrom !== null && passage.pageTo !== null
@@ -1593,11 +1641,20 @@ export function createCitationSession(
       const id = measuring
         ? (handleOf.get(passage.passageId) ?? `P${handleOf.size + ++unseen}`)
         : handleFor(passage.passageId);
+      shownIds.push(id);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
       const text = foldRadicals(withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units));
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
       // What later requests offer for citing is what was shown here: never a Passage no record may name.
       if (!notCited && !measuring) shownTexts.set(id, text);
+      // Consecutive Passages share up to 200 tokens (../documents/passages): a quarter of what a
+      // search hands the model. The quote check reads each Passage's own pages, so a quote from
+      // the lines shown only in the Passage before still checks under either id.
+      const repeated =
+        events.showsSharedLinesOnce && follows(found[index - 1], passage)
+          ? repeatedLines(shownEnds[index - 1] ?? "", passage.text)
+          : 0;
+      shownEnds.push(passage.text.split("\n").slice(repeated).join("\n"));
       if (!measuring) {
         read.push({
           documentId: passage.documentId,
@@ -1612,8 +1669,9 @@ export function createCitationSession(
         date: dateOf(passage.documentId),
         range,
         location: severalSections ? null : passageLocation(units),
-        text,
+        text: repeated > 0 ? withoutRepeatedStart(text, repeated, units) : text,
         notCited,
+        continues: repeated > 0 ? (shownIds[index - 1] ?? null) : null,
       };
     });
     return formatPassages(formatted);
