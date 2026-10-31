@@ -118,7 +118,8 @@ export function DocumentsSection() {
   );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
-  // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
+  // Documents (#1942); once the fold's Mind is deleted, its row opens the Source locations view on
+  // that folder, the examples' Documents included (#1944).
   const hasLinkedFolders = useAppStore((state) => {
     const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
     const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));

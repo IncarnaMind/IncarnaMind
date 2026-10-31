@@ -87,7 +87,7 @@ const SOURCE_REQUEST = /^source:(.+)$/;
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
-  const documents = useLibraryDocuments();
+  const libraryDocuments = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
@@ -97,6 +97,11 @@ export function LibraryPane() {
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // A source's view lists that source's Documents even when they are the examples': the examples
+  // leave the Library once the User has a Document of their own, but their Linked folder's row
+  // stays the way back to them (#1944).
+  const everyDocument = useAppStore((state) => state.documents);
+  const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLDivElement>(null);
