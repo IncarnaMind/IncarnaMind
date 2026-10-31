@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import type { WordRunLook } from "../../../core/api";
 
 type Script = "latin" | "zh-Hans" | "zh-Hant" | "ja" | "ko";
@@ -258,6 +259,35 @@ const PROBES: Record<Script, string> = {
 const installed = new Map<string, boolean>();
 let measure: CanvasRenderingContext2D | null | undefined;
 
+/** How many times the window has finished loading fonts since one was found missing. */
+let fontLoads = 0;
+const fontLoadListeners = new Set<() => void>();
+let watchingLoads = false;
+
+/**
+ * A font found missing may only not have loaded yet, as the app's own faces load when first
+ * drawn: it is looked for again once the window has loaded fonts.
+ */
+function watchFontLoads(): void {
+  if (watchingLoads || typeof document === "undefined" || !document.fonts) return;
+  watchingLoads = true;
+  document.fonts.addEventListener("loadingdone", () => {
+    for (const [name, found] of installed) if (!found) installed.delete(name);
+    fontLoads++;
+    for (const listener of fontLoadListeners) listener();
+  });
+}
+
+function onFontLoads(listener: () => void): () => void {
+  fontLoadListeners.add(listener);
+  return () => fontLoadListeners.delete(listener);
+}
+
+/** Draws the caller again once the window has loaded fonts, so what it says is missing is current. */
+export function useFontLoads(): number {
+  return useSyncExternalStore(onFontLoads, () => fontLoads);
+}
+
 /**
  * Whether a font is on this computer, as `font-family` would find it. Its own script's text is
  * measured with it before three different generic faces: an installed font draws all three the
@@ -281,6 +311,7 @@ export function fontInstalled(name: string): boolean {
   const result =
     drawn.every((each) => each === drawn[0]) && drawn.some((each, at) => each !== alone[at]);
   installed.set(name, result);
+  if (!result) watchFontLoads();
   return result;
 }
 

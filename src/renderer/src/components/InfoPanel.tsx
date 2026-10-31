@@ -14,7 +14,7 @@ import { copyText } from "../copied";
 import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
-import { missingFonts } from "../editor/wordFonts";
+import { missingFonts, useFontLoads } from "../editor/wordFonts";
 import { providerErrorText } from "../errors";
 import { addedDate, documentSummary, fileDate, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
@@ -266,7 +266,8 @@ function useMissingFonts(mindId: string | undefined): string[] {
       live = false;
     };
   }, [mindId]);
-  return useMemo(() => missingFonts(fonts), [fonts]);
+  useFontLoads();
+  return missingFonts(fonts);
 }
 
 function DocumentInfo({ document }: { document: Document }) {

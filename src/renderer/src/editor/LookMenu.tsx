@@ -6,7 +6,7 @@ import { menuItemClass, menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useWordLooks } from "../wordLooks";
-import { missingFonts } from "./wordFonts";
+import { missingFonts, useFontLoads } from "./wordFonts";
 
 const LOOK_COMMANDS: Record<MindLook, CommandId> = {
   word: "mind.look.word",
@@ -21,6 +21,7 @@ const LOOK_COMMANDS: Record<MindLook, CommandId> = {
 export function LookMenuItems({ mindId, close }: { mindId: string; close(): void }) {
   const t = useT();
   const shown = useWordLooks((state) => state[mindId]);
+  useFontLoads();
   if (!shown) return null;
   const ctx: CommandContext = {
     selection: [],
