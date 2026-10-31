@@ -234,7 +234,7 @@ import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { TaggingClassifier } from "./library/types";
-import { createMeetings, isMemo } from "./meetings";
+import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -2352,22 +2352,32 @@ export function createCore(adapters: CoreAdapters): Core {
     return { style, textLanguage: chineseText ? ("zh-CN" as const) : ("en" as const) };
   };
   const mindCitationStyle = (mindId: string): MindCitationStyle => mindStyleAndText(mindId).style;
-  /** Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again. */
-  const removeMind = (mindId: unknown, at: string = now()) => {
-    const deleted = db.transaction(() => {
-      const mind = minds.delete(mindId, at);
-      content.remove(mind.id, at);
-      return mind;
-    });
-    content.removed(deleted.id, at);
-    meetings.mindDeleted(deleted.id);
-    mindsChanged();
-    layouts.forgetDeletedMinds();
-  };
-
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+
+  /**
+   * Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again.
+   * Its Meeting goes with it, stopped first as Stop stops it, and its Transcript Document (#1253).
+   */
+  const removeMind = (mindId: unknown, at: string = now()) => {
+    const recording = typeof mindId === "string" ? meetings.liveOf(mindId) : null;
+    if (recording) stopMeeting(recording.id);
+    const { deleted, meetingIds } = db.transaction(() => {
+      const mind = minds.delete(mindId, at);
+      content.remove(mind.id, at);
+      const meeting = meetings.deletedWith(mind.id, at);
+      removeDocuments(
+        meeting.transcripts.filter((id) => liveDocument(id)),
+        at,
+      );
+      return { deleted: mind, meetingIds: meeting.meetingIds };
+    });
+    for (const meetingId of meetingIds) meetingFill.halt(meetingId);
+    content.removed(deleted.id, at);
+    mindsChanged();
+    layouts.forgetDeletedMinds();
   };
 
   /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
@@ -3385,6 +3395,32 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
+    meetings: {
+      transcriptsDeletedWith: (mindId, deletedAt) =>
+        meetings.transcriptsDeletedWith(mindId, deletedAt),
+      recordingDeletedWith: (mindId, deletedAt) => meetings.recordingDeletedWith(mindId, deletedAt),
+      restoreWith: (mindId, deletedAt) => meetings.restoreWith(mindId, deletedAt),
+      restored: (restoredMeetings) => {
+        const audio = meetings.restored(restoredMeetings);
+        const meetingIds = restoredMeetings.map((each) => each.meetingId);
+        // One made while its note waited in Recently deleted goes to the note's Folder now.
+        for (const meetingId of meetingIds) {
+          const documentId = meetings.transcriptOf(meetingId);
+          const folderId = minds.get(meetings.get(meetingId).mindId).folderId;
+          if (!documentId || !folderId || !liveDocument(documentId)) continue;
+          const filed = db.get("SELECT 1 FROM document_groups WHERE document_id = ?", [documentId]);
+          if (!filed) library.assign(documentId, folderId);
+        }
+        meetingFill.restored(meetingIds);
+        return {
+          lost: audio.lost,
+          expired: audio.expired.map(({ mindId, meetingId, memo }) => {
+            const documentId = meetings.transcriptOf(meetingId);
+            return { mindId, memo, transcript: !!documentId && !!liveDocument(documentId) };
+          }),
+        };
+      },
+    },
     mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
@@ -3859,6 +3895,19 @@ export function createCore(adapters: CoreAdapters): Core {
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   let transcriptSaved = (_meetingId: string) => {};
+  /** "Transcript · {meeting}", named for its note, in Recently deleted too, in the interface's language. */
+  const transcriptName = (meeting: ReturnType<typeof meetingRecord>) => {
+    const language = settings.get().language;
+    // A voice memo's Mind is named by its note, which is written from the saved Transcript.
+    const title =
+      (meeting ? (minds.locate(meeting.mindId)?.name ?? "") : "") ||
+      (meeting?.kind === "memo"
+        ? memoTitle(language, Date.parse(meeting.startedAt ?? meeting.createdAt))
+        : "");
+    return title
+      ? translate(language, "meetings.transcript.name", { meeting: title })
+      : translate(language, "meetings.transcript.nameAlone");
+  };
   const meetingsChanged = () => {
     if (listMeetings) events.emit("meetings.changed", listMeetings());
   };
@@ -3924,8 +3973,18 @@ export function createCore(adapters: CoreAdapters): Core {
       cloud: cloudTranscription,
       ...(speakerPass && { speakers: speakerPass }),
       documents: {
-        add: (id, name, file) => documents.addSnapshot(id, name, file, () => {}, "transcript"),
-        file: (documentId, folderId) => library.assign(documentId, folderId),
+        add: (meetingId, id, file) => {
+          const meeting = meetingRecord(db, meetingId);
+          const name = transcriptName(meeting);
+          const link = () => linkTranscript(db, meetingId, id);
+          if (meeting?.deletedAt) {
+            documents.addDeletedTranscript(id, name, file, link, meeting.deletedAt);
+            return;
+          }
+          documents.addSnapshot(id, name, file, link, "transcript");
+          const folderId = meeting ? minds.get(meeting.mindId).folderId : null;
+          if (folderId) library.assign(id, folderId);
+        },
         check: (path) => documents.check(path),
         checkNow: async (documentId, path) => {
           await documents.checkNow(path);
@@ -3938,24 +3997,6 @@ export function createCore(adapters: CoreAdapters): Core {
             return null;
           }
         },
-      },
-      name: (meetingId) => {
-        const meeting = listMeetings?.().find((each) => each.id === meetingId);
-        const mind = meeting ? minds.get(meeting.mindId) : null;
-        const language = settings.get().language;
-        // A voice memo's Mind is named by its note, which is written from the saved Transcript.
-        const title =
-          (mind ? mind.title || mind.autoTitle : "") ||
-          (meeting?.kind === "memo"
-            ? memoTitle(language, Date.parse(meeting.startedAt ?? meeting.createdAt))
-            : "");
-        return title
-          ? translate(language, "meetings.transcript.name", { meeting: title })
-          : translate(language, "meetings.transcript.nameAlone");
-      },
-      folderOf: (meetingId) => {
-        const meeting = listMeetings?.().find((each) => each.id === meetingId);
-        return meeting ? minds.get(meeting.mindId).folderId : null;
       },
       partsOf: (meetingId) => listParts(meetingFolder(dataDir, meetingId)),
       audioDeleted: (meetingId) =>
@@ -4228,6 +4269,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
   meetingFill.resume();
+  /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
+  const stopMeeting = (meetingId: unknown): Meeting => {
+    const stopped = meetings.stop(meetingId);
+    meetingFill.stopped(stopped.id);
+    return meetings.get(stopped.id);
+  };
 
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
@@ -5309,7 +5356,8 @@ export function createCore(adapters: CoreAdapters): Core {
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
     deletePermanently: async (refs) => {
-      recentlyDeleted.deletePermanently(refs);
+      const purged = recentlyDeleted.deletePermanently(refs);
+      const notRemoved = meetings.dropPurged();
       await Promise.all([
         webPages.dropPurged(),
         sources.dropPurged(),
@@ -5317,6 +5365,10 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.dropPurged(),
       ]);
       transcripts?.dropPurged();
+      // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
+      if (notRemoved.some((mindId) => purged.includes(mindId))) {
+        throw new TranslatableError({ key: "error.meeting.purgeFailed" });
+      }
     },
     acceptAssignments: async (ids, checked, wall) => {
       if (checked !== undefined && wall !== undefined) {
@@ -5886,11 +5938,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordMemo: async (input) => meetings.recordMemo(input),
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
-    stopMeeting: async (meetingId) => {
-      const stopped = meetings.stop(meetingId);
-      meetingFill.stopped(stopped.id);
-      return meetings.get(stopped.id);
-    },
+    stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),

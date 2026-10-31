@@ -349,6 +349,36 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=deleting the note while its notes are filled in stops the fill: nothing is written, and once Undo brings the Meeting back its line says it stopped, with Try again (#1253); fails_when=the fill writes into the deleted note, or the Meeting comes back still filling; no_claim=none beyond protects.
+  test("a note deleted while it fills in gets nothing written, and Undo brings it back saying the fill stopped", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = fillingModel(
+      "### L1\nThe enterprise price is 45 dollars a seat [^1].",
+      { 1: MY_LINES[0] as string },
+      {},
+      { held },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    const before = shown(client);
+    await vi.waitFor(async () =>
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" }),
+    );
+
+    await core.deleteMind(meeting.mindId);
+    release();
+    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    core.close();
+  });
+
   // protects=quitting while the notes are filled in leaves the Mind as it was, and the next start says so with Try again; fails_when=anything half-written stays, or the Meeting says it is still filling; no_claim=none beyond protects.
   test("a quit while it fills in leaves nothing written, and the next start says so", async () => {
     const held = new Promise<void>(() => {});
