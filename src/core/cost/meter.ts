@@ -179,6 +179,18 @@ export interface EstimatedRequest {
   outputTokens: number;
 }
 
+/**
+ * The tokens a provider counts for each one `estimateTokens` counts, at the most measured: Claude
+ * Haiku 5.5 counted 1.33 to 1.41 times as many in a whole read's requests (a Document's text, and
+ * a check's instructions and Tools; tests/fixtures/cost/recorded-whole-read.json). One not measured
+ * is counted high. Counted on this computer: a provider's own count would send the Document.
+ */
+const COUNTED_PER_TOKEN: Partial<Record<ChatProviderKind, number>> = { anthropic: 1.45 };
+const UNMEASURED_PER_TOKEN = 1.5;
+
+const countedInput = (kind: ChatProviderKind, tokens: number) =>
+  Math.ceil(tokens * (COUNTED_PER_TOKEN[kind] ?? UNMEASURED_PER_TOKEN));
+
 /** A request's own web searches (#128), by the name the request gives each, with what one costs. */
 function searchesOffered(tools: CallOptions["tools"]): Map<string, Money> {
   const offered = new Map<string, Money>();
@@ -773,10 +785,11 @@ export function createMeter(options: {
       };
     },
 
-    /** The estimate of an explicit whole read in windows of these many tokens (#1554). */
     /**
      * A whole read's cost (../answers/checks/wholeRead): the requests it sends, and the most it
-     * costs with those it sends only when what it reads asks for them (`mayAlsoSend`).
+     * costs with those it sends only when what it reads asks for them (`mayAlsoSend`), all of
+     * their input written to the prompt cache where the provider bills that higher. Input comes
+     * as `estimateTokens` counts it, and is priced as the provider counts it.
      */
     estimateRead(
       model: MeteredModel,
@@ -787,23 +800,38 @@ export function createMeter(options: {
       const at = now();
       const cap = options.cap();
       const { price } = model;
-      const priced = (requests: readonly EstimatedRequest[]) => ({
+      const cacheWrites = writesCache(model);
+      const counted = (requests: readonly EstimatedRequest[]) =>
+        requests.map((each) => ({
+          ...each,
+          inputTokens: countedInput(model.kind, each.inputTokens),
+        }));
+      const priced = (
+        requests: readonly EstimatedRequest[],
+        cost: (request: EstimatedRequest, price: Price) => number,
+      ) => ({
         calls: requests.length,
         tokens: requests.reduce((sum, each) => sum + each.inputTokens + each.outputTokens, 0),
         cost: price
           ? {
               currency: price.currency,
-              amount: requests.reduce(
-                (sum, each) => sum + costOf(each, price, at, { cacheWrites: writesCache(model) }),
-                0,
-              ),
+              amount: requests.reduce((sum, each) => sum + cost(each, price), 0),
             }
           : null,
       });
+      const likely = counted(sent);
       return {
         billing: "per-token",
-        ...priced(sent),
-        ...(mayAlsoSend.length > 0 && { upTo: priced([...sent, ...mayAlsoSend]) }),
+        ...priced(likely, (each, known) => costOf(each, known, at, { cacheWrites })),
+        ...(mayAlsoSend.length > 0 && {
+          upTo: priced([...likely, ...counted(mayAlsoSend)], (each, known) =>
+            reservationOf(
+              { promptTokens: each.inputTokens, outputTokens: each.outputTokens, cacheWrites },
+              known,
+              at,
+            ),
+          ),
+        }),
         ...towardCap(cap, monthStart(at)),
         cap,
       };

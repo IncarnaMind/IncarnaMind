@@ -5220,8 +5220,9 @@ export type RunEstimate =
       cost: Money | null;
       /**
        * The most it may come to, with the requests it sends only when what it reads asks for
-       * them: in a whole read, the looks at a quote a window's judgement gives, and a judgement
-       * its sentence's last check said it wouldn't need (#1554).
+       * them: in a whole read (#1554), every other call each check's Run may make, what a check
+       * may ask after its Run, the looks at a quote a window's judgement gives, and a judgement
+       * its sentence's last check said it wouldn't need.
        */
       upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;

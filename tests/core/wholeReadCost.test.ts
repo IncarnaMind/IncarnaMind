@@ -1,0 +1,219 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { checkGenerate, checkReply } from "../helpers/checks";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
+import { scriptedModel, scriptedModels } from "../helpers/models";
+
+interface RecordedRead {
+  sentence: string;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Tokens times the catalog's price. */
+  usd: number;
+  /** What the app's own meter recorded, with the prompt cache's reads and writes. */
+  meteredUsd: number;
+}
+
+interface Recorded {
+  model: string;
+  lease: { parts: number; words: number; characters: number; tokens: number };
+  reads: RecordedRead[];
+}
+
+const FILLER = [
+  "The Tenant shall use the Property only as a private residence for the Tenant and the members of the Tenant's household named in the Schedule.",
+  "The Tenant shall pay for electricity, gas, water and broadband supplied to the Property during the tenancy, and shall put each account in the Tenant's own name within seven days of the start of the Term.",
+  "The Tenant shall pay the council tax for the Property for the whole of the Term.",
+  "The Tenant shall keep the interior of the Property clean, tidy and in good decorative condition, and shall replace light bulbs and smoke alarm batteries when they fail.",
+  "The Landlord shall keep in repair the structure and exterior of the Property, including the roof, walls, windows and external doors, and the installations for the supply of water, gas, electricity and heating.",
+  "The Tenant shall report any defect or damage in the Property to the Landlord as soon as the Tenant becomes aware of it.",
+  "The Landlord or the Landlord's agent may enter the Property to inspect it or carry out repairs on giving the Tenant at least 24 hours' notice, except in an emergency.",
+  "The Tenant shall allow gas and electrical safety inspections to be carried out at the times the Landlord reasonably requires.",
+  "The Landlord confirms that smoke alarms are fitted on each floor and a carbon monoxide alarm is fitted in each room with a fuel-burning appliance.",
+  "The Tenant shall not cause a nuisance or annoyance to neighbours, and shall keep noise to a reasonable level between 11 pm and 7 am.",
+  "The Tenant shall place household rubbish in the bins provided and shall put out the bins on the collection days set by the local council.",
+  "The Tenant shall keep bicycles in the cycle store on the ground floor and not in the common stairwell.",
+  "The Tenant shall not smoke or allow anyone else to smoke in the Property or in the common parts of the building.",
+  "The Tenant shall not decorate the Property in a way that cannot easily be reversed without the Landlord's written consent.",
+  "The Landlord has provided the contents listed in the inventory attached to this lease, and the Tenant shall take reasonable care of them.",
+  "The Tenant shall pay for the repair or replacement of any item in the inventory that is damaged or lost through the act or neglect of the Tenant or a visitor.",
+  "The Tenant shall keep the garden terrace free of weeds and shall not plant trees or shrubs in the ground there.",
+  "The Tenant shall ventilate the Property and keep it heated sufficiently to prevent condensation and damp.",
+  "The Tenant shall take reasonable precautions to prevent frozen or burst pipes, and shall know where the stop tap is.",
+  "The Tenant shall take out contents insurance for the Tenant's own belongings; the Landlord insures the building.",
+  "The Landlord shall insure the building against fire, flood and other usual risks and shall give the Tenant a copy of the policy summary on request.",
+  "The Tenant shall return all keys, fobs and entry cards to the Landlord on the last day of the tenancy and shall not make copies of them.",
+  "The Tenant shall pay the Landlord a reasonable charge for a replacement key or fob if one is lost.",
+  "The Tenant shall leave the Property clean and in the same condition as at the start of the Term, fair wear and tear excepted.",
+  "The Tenant shall give the Landlord a forwarding address before leaving the Property.",
+  "The Landlord shall give the Tenant a copy of the current gas safety certificate and energy performance certificate before the Term begins.",
+  "The Tenant shall not install any satellite dish, aerial or wiring on the outside of the building.",
+  "The Landlord's agent for day-to-day management is Quayside Lettings, whose address is in the Schedule.",
+  "Any notice under this lease shall be in writing and may be delivered by hand or sent by first-class post to the address in the Schedule.",
+  "A notice sent by first-class post is treated as received on the second working day after posting.",
+  "The Tenant shall not use the Property for any business that brings customers or deliveries to the building.",
+  "The Landlord's rights under this lease are not lost if the Landlord delays in using them.",
+  "If any part of this lease is found to be invalid, the rest of it remains in force.",
+  "The Tenant acknowledges having been given the How to Rent guide before signing this lease.",
+];
+const ASSETS = [
+  "fire alarm panel",
+  "emergency lighting",
+  "lift car",
+  "entry phone system",
+  "roof drains",
+  "water booster pumps",
+  "door closers",
+  "CCTV cameras",
+  "sprinkler valves",
+  "communal boiler",
+  "gutters",
+  "extractor fans",
+];
+const AREAS = [
+  "the east stairwell",
+  "the basement store",
+  "the roof terrace",
+  "the cycle store",
+  "the refuse store",
+  "the ground-floor lobby",
+  "the plant room",
+  "the courtyard garden",
+  "the first-floor corridor",
+  "the laundry room",
+  "the post room",
+];
+const FREQUENCIES = [
+  "every month",
+  "every quarter",
+  "twice a year",
+  "every six weeks",
+  "every year",
+];
+const ITEMS = ["furniture", "bicycles", "refuse sacks", "building materials", "garden waste"];
+const PROVIDERS = ["lift engineer", "cleaning contractor", "building contractor", "electrician"];
+const RECORDS = ["maintenance log", "inspection file", "contractor register", "risk assessment"];
+const SERVICES = ["window cleaning", "landscaping", "lift maintenance", "gutter clearing"];
+const RENT =
+  "Rent. The Tenant shall pay the Landlord rent of £1,850 per month, in advance, on the first day of each month, by standing order to the account named in the Schedule.";
+
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32;
+  };
+}
+
+/** The recorded lease: `sections` parts of about `words` words each, the rent clause last. */
+function leaseMarkdown(sections: number, words: number): string {
+  const next = seeded(60);
+  const pick = <T>(from: readonly T[]): T => from[Math.floor(next() * from.length)] as T;
+  const generated = () =>
+    pick([
+      () =>
+        `The Managing Agent shall inspect the ${pick(ASSETS)} in ${pick(AREAS)} ${pick(FREQUENCIES)} and record each inspection in the ${pick(RECORDS)}.`,
+      () =>
+        `The ${pick(PROVIDERS)} shall service the ${pick(ASSETS)} in ${pick(AREAS)} ${pick(FREQUENCIES)}, and the cost forms part of the service charge.`,
+      () =>
+        `The Tenant shall not leave ${pick(ITEMS)} in ${pick(AREAS)}, and the Managing Agent may remove them without notice.`,
+      () => `The Tenant shall not obstruct ${pick(AREAS)}, which is used as a fire escape route.`,
+      () =>
+        `Charges for ${pick(SERVICES)} are shared among all flats in the building and form part of the service charge.`,
+    ])();
+  const parts = [
+    "# Residential Tenancy Agreement",
+    "",
+    "Harbourside Court, Flat 14, Quay Road",
+    "Between Marlow Property Holdings Ltd (the Landlord) and the Tenant named in the Schedule",
+    "",
+  ];
+  let number = 0;
+  let filler = 0;
+  for (let section = 1; section <= sections; section++) {
+    parts.push(`## Part ${section}`, "");
+    let count = 0;
+    while (count < words) {
+      const clause = next() < 0.45 ? (FILLER[filler++ % FILLER.length] as string) : generated();
+      number++;
+      parts.push(`${number}. ${clause}`, "");
+      count += clause.split(" ").length;
+    }
+  }
+  parts.push(`${number + 1}. ${RENT}`, "");
+  return parts.join("\n");
+}
+
+async function readPlans(recorded: Recorded) {
+  const lease = leaseMarkdown(recorded.lease.parts, recorded.lease.words);
+  expect(lease.length).toBe(recorded.lease.characters);
+  const scripted = scriptedModel((call) => checkReply(call, {}), { generate: checkGenerate({}) });
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(scripted).createChatModel,
+  });
+  const provider = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: recorded.model,
+  });
+  if (!provider.service) throw new Error("The test provider has no service.");
+  await core.allowDataFlow("document-check", provider.service.id);
+  const model = { providerId: provider.id, modelId: recorded.model };
+  const sources = await createTempDataFolder();
+  const [document] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Harbourside lease.md", lease),
+    await writeSourceFile(
+      sources,
+      "Walled notes.md",
+      "The walled Folder holds this private note about a 90-day notice.",
+    ),
+  ]);
+  if (!document) throw new Error("The lease wasn't added.");
+  const mind = await core.createMind({ title: "Lease checks" });
+  const client = await connectToMind(core, mind.id);
+  const sentences = [...new Set(recorded.reads.map((each) => each.sentence))];
+  const blocks = sentences.map((each) => note(each));
+  writeMind(client, blocks);
+  await client.settled();
+  const plans = new Map<string, Awaited<ReturnType<typeof core.planDocumentCheck>>>();
+  for (const [index, sentence] of sentences.entries()) {
+    const blockId = String(blocks[index]?.attrs?.id);
+    plans.set(
+      sentence,
+      await core.planDocumentCheck({
+        mindId: mind.id,
+        from: { blockId, offset: 0 },
+        to: { blockId, offset: sentence.length },
+        within: { folderIds: [], tagIds: [], documentIds: [document.id] },
+        model,
+      }),
+    );
+  }
+  return plans;
+}
+
+test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded", async () => {
+  const recorded: Recorded = JSON.parse(
+    await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-whole-read.json"), "utf8"),
+  );
+  const plans = await readPlans(recorded);
+  for (const read of recorded.reads) {
+    const plan = plans.get(read.sentence);
+    if (plan?.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+      throw new Error("The read has no per-token estimate.");
+    }
+    expect(plan.tokens).toBe(recorded.lease.tokens);
+    const most = plan.estimate.upTo;
+    expect(most?.calls).toBeGreaterThanOrEqual(read.requests);
+    expect(most?.tokens).toBeGreaterThanOrEqual(read.inputTokens + read.outputTokens);
+    expect(most?.cost?.amount).toBeGreaterThanOrEqual(Math.max(read.usd, read.meteredUsd));
+  }
+});

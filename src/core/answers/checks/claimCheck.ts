@@ -77,6 +77,7 @@ import {
   type CiteOptions,
   type DocumentLanguage,
   documentToolDefinitions,
+  type SearchResultForModel,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
@@ -250,6 +251,12 @@ export function recordJudged(
 
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
+
+/** A whole read's window, searched again: every search of it finds the same Passages. */
+const WINDOW_SHOWN: SearchResultForModel = {
+  text: "Every search in this check finds the same Passages, and an earlier search returned them all: answer with them.",
+  passageCount: 0,
+};
 
 export type AtomicClaimCheckResult = ClaimCheckResult & {
   checkedEvidence?: readonly Citation[];
@@ -565,6 +572,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     });
     /** The sentence's number each figure is for, as the model named it, and how, by marker. */
     const stated = new Map<number, StatedNumber>();
+    /** In a whole read's window: whether a search has returned the window, the searches in turn. */
+    let windowShown: Promise<boolean> = Promise.resolve(false);
     const tools: AnswerTools = {
       get documentCount() {
         return session.tools.documentCount;
@@ -573,7 +582,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
-        return session.tools.searchDocuments(query, searchSignal, options);
+        if (!request.window) return session.tools.searchDocuments(query, searchSignal, options);
+        // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
+        // search returned the whole window again: its verdict request carried it two or three
+        // times (#1554).
+        const found = windowShown.then((shown) =>
+          shown ? WINDOW_SHOWN : session.tools.searchDocuments(query, searchSignal, options),
+        );
+        windowShown = found.then(
+          (result) => result === WINDOW_SHOWN || result.passageCount > 0,
+          () => false,
+        );
+        return found;
       },
       cite: (records, options) => session.tools.cite(records, options),
       hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
@@ -1496,6 +1516,24 @@ function calculated(
   return checked;
 }
 
+/** The most a request for one record writes, and for several. */
+const EVIDENCE_OUTPUT_TOKENS = 600;
+const MOST_EVIDENCE_OUTPUT_TOKENS = 4000;
+
+/**
+ * The most requests a check sends once its Run has ended, beside a whole read's absence judgement
+ * and looks: its evidence asked for twice with every Passage it read, once for the records it
+ * named and once for the one it rests on (`writes`, what each may write); and its quotes compared
+ * with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the nearest
+ * line, and for a sentence with figures the rest's two looks and one for each figure.
+ */
+export function afterRun(figures: number): { writes: number[]; comparisons: number } {
+  return {
+    writes: [MOST_EVIDENCE_OUTPUT_TOKENS, EVIDENCE_OUTPUT_TOKENS],
+    comparisons: 4 + (figures > 0 ? 2 + figures : 0),
+  };
+}
+
 /**
  * A model that gave a verdict without a record of the Passage that decides
  * it, or with a quote the check doesn't find, is asked once more, in one
@@ -1522,7 +1560,10 @@ async function askForEvidence(
       instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
       prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: Math.min(4000, 600 * Math.max(1, markers.length)),
+      maxOutputTokens: Math.min(
+        MOST_EVIDENCE_OUTPUT_TOKENS,
+        EVIDENCE_OUTPUT_TOKENS * Math.max(1, markers.length),
+      ),
       maxRetries: 1,
       abortSignal: signal,
     }));

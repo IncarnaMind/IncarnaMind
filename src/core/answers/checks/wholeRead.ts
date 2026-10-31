@@ -24,15 +24,23 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type AnswerDocuments, createCitationSession } from "../citations";
 import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
+import { MOST_TOOL_LOOP_CALLS } from "../engine";
 import { ABSENCE_OUTPUT_TOKENS, absencePrompt, WHOLE_READ } from "./absence";
 import {
   type AtomicClaimCheckResult,
+  afterRun,
   type CheckStart,
   type ClaimCheckRequest,
   CONFIRM_OUTPUT_TOKENS,
   runFailureOf,
 } from "./claimCheck";
-import { PRESENCE_INSTRUCTIONS, presencePrompt, STRICT_PRESENCE_INSTRUCTIONS } from "./prompt";
+import {
+  confirmPrompt,
+  PRESENCE_INSTRUCTIONS,
+  presencePrompt,
+  STRICT_INSTRUCTIONS,
+  STRICT_PRESENCE_INSTRUCTIONS,
+} from "./prompt";
 
 export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as const;
 
@@ -205,9 +213,10 @@ export function createWholeRead(options: WholeReadOptions) {
   /**
    * The requests a read of `windows` sends for each of its checks, as their Runs build them: a
    * search, the verdict with the window's Passages, and the absence judgement that follows for a
-   * sentence that says something is absent; and those it sends only when what it reads asks for
-   * them: a judgement its last check said it wouldn't need, and the two looks at a quote a window's
-   * judgement gives.
+   * sentence that says something is absent; and the most it may also send when what it reads asks
+   * for more: every other call its Run may make, each with the window and what the calls before it
+   * wrote, the requests its check may send after the Run (`afterRun`), a judgement its last check
+   * said it wouldn't need, and the two looks at a quote a window's judgement gives.
    */
   function readRequests(
     windows: readonly { passages: WindowedPassage[] }[],
@@ -224,6 +233,7 @@ export function createWholeRead(options: WholeReadOptions) {
       ),
     }));
     const searches = (model.support ?? "tools") === "tools";
+    const runCalls = searches ? MOST_TOOL_LOOP_CALLS : 1;
     const sent: EstimatedRequest[] = [];
     const mayAlsoSend: EstimatedRequest[] = [];
     for (const check of checks) {
@@ -234,25 +244,32 @@ export function createWholeRead(options: WholeReadOptions) {
         estimateTokens(start.tools);
       const query = estimateTokens(JSON.stringify({ query: check.claim }));
       const judged = estimateTokens(WHOLE_READ) + estimateTokens(absencePrompt(check.claim, ""));
+      const after = afterRun(check.figures?.length ?? 0);
       for (const window of sized) {
+        const verdict = fixed + (searches ? query : 0) + window.tokens;
         if (searches) sent.push({ inputTokens: fixed, outputTokens: SEARCH_OUTPUT_TOKENS });
-        sent.push({
-          inputTokens: fixed + (searches ? query : 0) + window.tokens,
-          outputTokens: VERDICT_OUTPUT_TOKENS,
-        });
+        sent.push({ inputTokens: verdict, outputTokens: VERDICT_OUTPUT_TOKENS });
+        for (let call = 2; call < runCalls; call++) {
+          mayAlsoSend.push({
+            inputTokens: verdict + (call - 1) * VERDICT_OUTPUT_TOKENS,
+            outputTokens: VERDICT_OUTPUT_TOKENS,
+          });
+        }
+        for (const writes of after.writes) {
+          mayAlsoSend.push({ inputTokens: verdict, outputTokens: writes });
+        }
         const judgement = {
           inputTokens: judged + window.tokens,
           outputTokens: ABSENCE_OUTPUT_TOKENS,
         };
         (check.judgesAbsence ? sent : mayAlsoSend).push(judgement);
-        const looked = estimateTokens(
-          presencePrompt({
-            claim: check.claim,
-            absent: check.claim,
-            quote: window.longest,
-            passage: window.longest,
-          }),
-        );
+        const quoted = { claim: check.claim, quote: window.longest, passage: window.longest };
+        const compared =
+          estimateTokens(STRICT_INSTRUCTIONS) + estimateTokens(confirmPrompt(quoted));
+        for (let each = 0; each < after.comparisons; each++) {
+          mayAlsoSend.push({ inputTokens: compared, outputTokens: CONFIRM_OUTPUT_TOKENS });
+        }
+        const looked = estimateTokens(presencePrompt({ ...quoted, absent: check.claim }));
         for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
           mayAlsoSend.push({
             inputTokens: estimateTokens(instructions) + looked,

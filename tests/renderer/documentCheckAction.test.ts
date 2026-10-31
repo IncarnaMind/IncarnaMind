@@ -288,6 +288,39 @@ test("a read whose second looks may take it over $0.50 asks its cost; one that s
   expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: "plan-0.45" });
 });
 
+// An unsorted sentence's parts, and so its most, aren't known before a model call.
+test.each([
+  { sorted: "sorted", parts: 1, most: 0.6, reads: false },
+  { sorted: "unsorted", parts: null, most: 0.6, reads: false },
+  { sorted: "sorted", parts: 1, most: 0.4, reads: true },
+  { sorted: "unsorted", parts: null, most: 0.4, reads: false },
+])(
+  "a read of $sorted parts, about 0.12 and at most $most dollars, starts unasked: $reads",
+  async ({ parts, most, reads }) => {
+    const plan = ready(3, 0.12, `plan-${parts}-${most}`, parts);
+    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") return;
+    bridge.planDocumentCheck.mockResolvedValue({
+      ...plan,
+      estimate: {
+        ...plan.estimate,
+        upTo: { calls: 40, tokens: 9000, cost: { amount: most, currency: "USD" } },
+      },
+    });
+    await click("claim-check-document");
+    await click("pick-A");
+
+    if (reads) {
+      await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+      expect(container.querySelector('[data-testid="document-check-ask"]')).toBeNull();
+      return;
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull();
+    await click("document-check-read");
+    expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: plan.id });
+  },
+);
+
 test("a read asked again waits while the Note's check runs, then sizes it and asks", async () => {
   bridge.planDocumentCheck.mockResolvedValue(ready(12, 2));
   checksState.running = { mind: { requestId: "earlier", action: "check-against-document" } };

@@ -213,6 +213,87 @@ describe("Check against a Document, read whole", () => {
     },
   );
 
+  test.each([
+    {
+      language: "en" as const,
+      claim: "The tenant may keep a cat.",
+      quote: "The tenant may keep a cat",
+    },
+    { language: "zh-CN" as const, claim: "乙方可以养猫。", quote: "乙方可以养猫" },
+  ])("sends its window once however often a check searches it ($language)", async (example) => {
+    const filler = Array.from(
+      { length: 40 },
+      (_, index) => `Clause ${index + 1} covers the ordinary upkeep of the flat.`,
+    );
+    const lease = [...filler, `${example.quote}.`].join("\n\n");
+    const runs: ModelCall[] = [];
+    const plan = { [example.claim]: { verdict: "supported" as const, quote: example.quote } };
+    const model = scriptedModel(
+      (call) => {
+        runs.push(call);
+        const searched = call.results.filter((result) => result.tool === "search_documents");
+        // Two searches at once, as Claude Haiku 5.5 searched, then one more.
+        if (searched.length === 0) {
+          return {
+            calls: [
+              { tool: "search_documents", input: { query: example.claim } },
+              { tool: "search_documents", input: { query: "pets" } },
+            ],
+          };
+        }
+        if (searched.length === 2) {
+          return { calls: [{ tool: "search_documents", input: { query: "animals" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const holding = searched
+            .flatMap((result) => shownPassages(result.text))
+            .find((passage) => passage.text.includes(example.quote));
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage: holding?.id, quote: example.quote }] },
+              },
+            ],
+          };
+        }
+        return checkReply(call, plan);
+      },
+      { generate: checkGenerate(plan) },
+    );
+    const { core, client, mind, block, documents } = await setup(
+      [{ name: "Lease.md", contents: lease }],
+      plan,
+      example.claim,
+      [],
+      undefined,
+      model,
+    );
+    await core.updateSettings({ user: { language: example.language } });
+
+    await core.checkSentences(
+      await readInput(core, mind.id, block, example.claim, within([documents[0]?.id ?? ""])),
+    );
+
+    expect(await onlyMark(client)).toMatchObject({
+      state: "supported",
+      evidence: { quote: example.quote },
+    });
+    const read = runs.filter(isCheckRun);
+    expect(read.length).toBeGreaterThanOrEqual(4);
+    const copies = (call: ModelCall) =>
+      JSON.stringify(call.options.prompt).split("Clause 7 covers").length - 1;
+    expect(copies(read[0] as ModelCall)).toBe(0);
+    for (const call of read.slice(1)) expect(copies(call)).toBe(1);
+    const results = read.at(-1)?.results.filter((result) => result.tool === "search_documents");
+    expect(results?.map((result) => shownPassages(result.text).length > 0)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(results?.[2]?.text).toContain("an earlier search returned them all");
+  });
+
   test("stops after the first settling window", async () => {
     const lines = [
       EN.quote,
@@ -1809,7 +1890,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
   );
 
   test.each(SPLIT)(
-    "the estimate is the requests and the input a read sends, from one window to a 220-page pick ($language)",
+    "the estimate is the requests a read sends and their input as the provider counts it, from one window to a 220-page pick ($language)",
     async (example) => {
       const ordinary = {
         en: "The lease sets a pet deposit.",
@@ -1854,11 +1935,15 @@ describe("A whole read's windows, on a sentence that says something is absent", 
         const written =
           runs * (SEARCH_OUTPUT_TOKENS + VERDICT_OUTPUT_TOKENS) +
           read.judged.length * ABSENCE_OUTPUT_TOKENS;
-        expect(Math.abs(estimate.tokens - written - sent)).toBeLessThanOrEqual(0.02 * sent);
-        // A window that says the thing is there may take two looks more at its quote, and a
-        // sentence found not stated a judgement it shouldn't need.
+        // Claude Haiku 5.5 counted up to 1.41 tokens for each of this computer's; a provider not
+        // measured is counted at 1.5.
+        const counted = (options.priced?.kind === "anthropic" ? 1.45 : 1.5) * sent;
+        expect(Math.abs(estimate.tokens - written - counted)).toBeLessThanOrEqual(0.02 * counted);
+        // Each window a part reads may also take nine more calls of its Run (eleven in all), two
+        // asks for its evidence, four comparisons of a quote and two looks at one; and a sentence
+        // found not stated a judgement it shouldn't need.
         expect(estimate.upTo?.calls).toBe(
-          estimate.calls + 2 * runs + (options.ordinary ? runs : 0),
+          estimate.calls + 17 * runs + (options.ordinary ? runs : 0),
         );
       }
     },
@@ -1866,7 +1951,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
 });
 
 describe("The estimate a whole read's cost question shows", () => {
-  test("prices the requests a read sends, and its second looks only as the most it may cost", async () => {
+  test("prices the requests a read sends as its provider counts them, and what it may also send only as the most", async () => {
     const db = openDatabase(join(await createTempDataFolder(), DATABASE_FILE));
     const meter = createMeter({ db, now: () => new Date(), cap: () => null });
     const model: MeteredModel = {
@@ -1892,10 +1977,22 @@ describe("The estimate a whole read's cost question shows", () => {
     const estimate = meter.estimateRead(model, sent, looks);
 
     if (estimate.billing !== "per-token") throw new Error("No per-token estimate.");
-    expect(estimate).toMatchObject({ calls: 3, tokens: 117_500 });
-    expect(estimate.cost?.amount).toBeCloseTo((116_500 + 1_000 * 5) / 1e6, 10);
-    expect(estimate.upTo).toMatchObject({ calls: 5, tokens: 120_600 });
-    expect(estimate.upTo?.cost?.amount).toBeCloseTo((119_000 + 1_600 * 5) / 1e6, 10);
+    // A provider with no measured count: 1.5 tokens for each of this computer's.
+    expect(estimate).toMatchObject({ calls: 3, tokens: 175_750 });
+    expect(estimate.cost?.amount).toBeCloseTo((174_750 + 1_000 * 5) / 1e6, 10);
+    expect(estimate.upTo).toMatchObject({ calls: 5, tokens: 180_100 });
+    expect(estimate.upTo?.cost?.amount).toBeCloseTo((178_500 + 1_600 * 5) / 1e6, 10);
     expect(meter.estimateRead(model, sent)).not.toHaveProperty("upTo");
+
+    // Anthropic: 1.45 tokens for each, and the most with all of its input written to the cache.
+    const anthropic = meter.estimateRead({ ...model, kind: "anthropic" }, sent, looks);
+    if (anthropic.billing !== "per-token") throw new Error("No per-token estimate.");
+    expect(anthropic).toMatchObject({ calls: 3, tokens: 169_925 });
+    expect(anthropic.cost?.amount).toBeCloseTo((168_925 + 1_000 * 5) / 1e6, 10);
+    expect(anthropic.upTo).toMatchObject({ calls: 5, tokens: 174_150 });
+    expect(anthropic.upTo?.cost?.amount).toBeCloseTo(
+      ((168_925 + 3_625) * 1.25 + 1_600 * 5) / 1e6,
+      10,
+    );
   });
 });

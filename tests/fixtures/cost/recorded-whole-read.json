@@ -1,0 +1,44 @@
+{
+  "about": "What Anthropic reported for whole reads (#1554) with Claude Haiku 5.5 on 2026-10-30, on the direct route, core only, before each search of a window stopped returning the window again: a made-up Markdown lease of 60 parts of about 500 words and a rent clause, which the app reads as 61 sections (made again in tests/core/wholeReadCost.test.ts), read in two windows, the rent clause last. Each sentence was read twice. Input counts all input tokens; usd is the tokens at the catalog's price, meteredUsd what the app's meter recorded with the prompt cache.",
+  "model": "claude-haiku-5-5",
+  "lease": {
+    "parts": 60,
+    "words": 500,
+    "characters": 187250,
+    "tokens": 51208
+  },
+  "reads": [
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 6,
+      "inputTokens": 256995,
+      "outputTokens": 1521,
+      "usd": 0.02646,
+      "meteredUsd": 0.019998275
+    },
+    {
+      "sentence": "The tenant pays £1,850 a month, in advance.",
+      "requests": 10,
+      "inputTokens": 570987,
+      "outputTokens": 2450,
+      "usd": 0.0583237,
+      "meteredUsd": 0.031100795
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 7,
+      "inputTokens": 241704,
+      "outputTokens": 769,
+      "usd": 0.0245549,
+      "meteredUsd": 0.02597431
+    },
+    {
+      "sentence": "The lease has no break clause.",
+      "requests": 6,
+      "inputTokens": 241060,
+      "outputTokens": 731,
+      "usd": 0.0244715,
+      "meteredUsd": 0.02542562
+    }
+  ]
+}

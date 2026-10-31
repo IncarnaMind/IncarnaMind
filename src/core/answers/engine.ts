@@ -604,6 +604,8 @@ export interface AiSdkAnswerEngineOptions {
 
 /** Model calls per Answer: a few searches, the records, and the Answer, with room to spare. */
 const MAX_STEPS = 10;
+/** The most model calls one Answer's Tool loop sends: its steps, and one more that writes after a call on the last. */
+export const MOST_TOOL_LOOP_CALLS = MAX_STEPS + 1;
 /** More model calls for an Answer offered `run_analysis` (#447): its runs, and fixing their code. */
 const ANALYSIS_STEPS = 6;
 
