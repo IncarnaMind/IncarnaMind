@@ -229,6 +229,33 @@ describe("The provider catalog", () => {
     expect(catalogModel("google", "gemini-3.8-flash")?.price?.note?.en).toContain("2027-01-01");
   });
 
+  // protects=Claude Haiku 5.5's prices over 100,000 prompt tokens stay in the catalog on every route that bills them, after any refresh; fails_when=a refresh or a hand-written price drops the tier; no_claim=that the routes' prices are current.
+  test("Claude Haiku 5.5 costs five times as much over 100,000 prompt tokens on every route that sells it", () => {
+    const global = { above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05 };
+    const regional = { above: 100_000, input: 0.55, output: 2.75, cacheRead: 0.055 };
+    expect(catalogModel("anthropic", "claude-haiku-5-5")?.price).toEqual({
+      currency: "USD",
+      input: 0.1,
+      output: 0.5,
+      cacheRead: 0.01,
+      tiers: [global],
+    });
+    const routes: [string, string, typeof global][] = [
+      ["openrouter", "anthropic/claude-haiku-5.5", global],
+      ["openrouter", "~anthropic/claude-haiku-latest", global],
+      ["venice", "claude-haiku-5-5", global],
+      ["bedrock", "anthropic.claude-haiku-5-5", global],
+      ["bedrock", "global.anthropic.claude-haiku-5-5", global],
+      ["bedrock", "us.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "eu.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "au.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "jp.anthropic.claude-haiku-5-5", regional],
+    ];
+    for (const [set, id, tier] of routes) {
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toEqual([tier]);
+    }
+  });
+
   test("a model is found by its id, or a dated snapshot by the id without its date; nothing else is guessed from a name", () => {
     expect(catalogModel("openai", "gpt-6.1-sol")?.name).toBe("GPT-6.1 Sol");
     expect(catalogModel("openai", "gpt-5-2025-08-07")?.id).toBe("gpt-5");

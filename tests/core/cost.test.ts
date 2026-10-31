@@ -127,11 +127,11 @@ const setCap = (core: Core, monthlyCap: MonthlyCap | null) =>
   core.updateSettings({ user: { monthlyCap } });
 
 /** One request through the model Answers get, streamed as Answers stream; throws what stopped it. */
-async function request(core: Core, maxOutputTokens?: number) {
+async function request(core: Core, maxOutputTokens?: number, prompt = "What is attention?") {
   const { model } = await core.prepareChatModel();
   const streamed = streamText({
     model,
-    prompt: "What is attention?",
+    prompt,
     maxRetries: 0,
     maxOutputTokens,
     onError: () => {},
@@ -1206,6 +1206,150 @@ describe("What a whole read sets aside (#2275)", () => {
     expect(reserved.sort((a, b) => a - b)).toEqual(
       expected.sort((a, b) => a - b).map((each) => expect.closeTo(each, 12)),
     );
+  });
+});
+
+describe("Claude Haiku 5.5 over 100,000 prompt tokens costs five times as much (#2285)", () => {
+  /**
+   * A core on Claude Haiku 5.5 that has sent one request of "a", and the length of text whose
+   * request the meter counts at `tokens`: each three more characters count one more token.
+   */
+  async function sizedCore(counts: readonly Counted[] = [{ input: 10, output: 10 }]) {
+    const model = reportingModel(counts);
+    const started = await cloudCore(model);
+    await request(started.core, 1_000, "a");
+    const counted = (call: number) => promptTokensOf(model.doStreamCalls[call]?.prompt ?? []);
+    const text = (tokens: number) => "a".repeat(1 + 3 * (tokens - counted(0)));
+    return { ...started, model, counted, text };
+  }
+
+  const settledCosts = (dataDir: string) => rows(dataDir).map((row) => row.cost);
+
+  // protects=a request is reserved at the prices of its prompt's length, so the cap holds for a long one; fails_when=the reservation ignores the tier, or a prompt of exactly 100,000 tokens pays the higher prices; no_claim=how many tokens the provider counts.
+  test("a prompt of 100,000 tokens is reserved at the base prices, and one of 100,001 at five times them", async () => {
+    const { core, dataDir, counted, text } = await sizedCore();
+
+    await request(core, 1_000, text(100_000));
+    await request(core, 1_000, text(100_001));
+
+    expect([counted(1), counted(2)]).toEqual([100_000, 100_001]);
+    // All of the prompt written to the cache ($0.125 or $0.625), and 1,000 tokens out ($0.50 or $2.50).
+    expect(rows(dataDir).map((row) => row.reserved)).toEqual([
+      expect.any(Number),
+      expect.closeTo(0.013, 12),
+      expect.closeTo(0.065000625, 12),
+    ]);
+  });
+
+  // protects=a request settles at the prices its reported prompt length picks, cache reads and writes counted in that length; fails_when=the tier counts only uncached input, or ignores what was reported; no_claim=what Anthropic reports.
+  test("a request settles at the base prices up to 100,000 prompt tokens and at five times them over it, its cache reads and writes counted", async () => {
+    const counts = [
+      { input: 10, output: 10 },
+      { input: 100_000, cached: 60_000, written: 30_000, output: 1_000 },
+      // Only 10,001 tokens are fresh: the cache reads and writes take it over.
+      { input: 100_001, cached: 60_000, written: 30_000, output: 1_000 },
+    ];
+    const { core, dataDir } = await sizedCore(counts);
+
+    await request(core);
+    await request(core);
+
+    // 10,000 fresh at $0.10, 60,000 read at $0.01, 30,000 written at $0.125, 1,000 out at $0.50;
+    // then 10,001 at $0.50, 60,000 at $0.05, 30,000 at $0.625 and 1,000 at $2.50.
+    expect(settledCosts(dataDir).slice(1)).toEqual([
+      expect.closeTo(0.00585, 12),
+      expect.closeTo(0.0292505, 12),
+    ]);
+  });
+
+  // protects=the monthly cap counts a long prompt's reservation at its tier, so it refuses before sending; fails_when=the cap is checked against the base prices; no_claim=the provider's own limits.
+  test("the monthly cap refuses a long prompt its higher prices would take past it, recording and sending nothing, and lets one at the threshold through", async () => {
+    const { core, dataDir, model, text } = await sizedCore();
+    await setCap(core, { currency: "USD", amount: (await spentUsd(core)) + 0.03 });
+
+    await expect(request(core, 1_000, text(100_001))).rejects.toSatisfy(
+      (error) => classifyProviderError(error).kind === "cost-cap",
+    );
+    expect(rows(dataDir)).toHaveLength(1);
+    expect(model.doStreamCalls).toHaveLength(1);
+
+    await request(core, 1_000, text(100_000));
+    expect(rows(dataDir)).toHaveLength(2);
+    expect(model.doStreamCalls).toHaveLength(2);
+  });
+
+  // protects=the month's spending is the sum of each request at its own tier, as Anthropic bills; fails_when=a long request is summed at the base prices; no_claim=Anthropic's invoice rounding.
+  test("a month with long prompts sums each request at its own prices", async () => {
+    const counts = [
+      { input: 40_000, cached: 30_000, written: 5_000, output: 2_000 },
+      { input: 150_000, cached: 120_000, written: 20_000, output: 3_000 },
+      { input: 250_000, output: 4_000 },
+    ];
+    const { core, dataDir } = await cloudCore(reportingModel(counts));
+
+    for (const _ of counts) await request(core);
+
+    // $0.0025 + $0.0003 + $0.000625 + $0.001; $0.005 + $0.006 + $0.0125 + $0.0075; $0.125 + $0.01.
+    expect(settledCosts(dataDir)).toEqual([
+      expect.closeTo(0.002425, 12),
+      expect.closeTo(0.031, 12),
+      expect.closeTo(0.135, 12),
+    ]);
+    const summary = await core.getCostSummary();
+    expect(summary.spent).toEqual([{ currency: "USD", amount: expect.closeTo(0.168425, 12) }]);
+    expect(summary.providers[0]?.spent).toEqual(summary.spent);
+  });
+
+  // protects=the estimate before a long run prices each call at its length's tier, the pages a search adds included; fails_when=an estimate of long calls is priced at the base prices; no_claim=how long a run's calls will be.
+  test("the estimate before a run of long calls prices each call, and the pages its searches read, at the higher prices", async () => {
+    const { core } = await cloudCore(reportingModel([{ input: 150_000, output: 1_000 }]));
+    for (let call = 0; call < 6; call++) await request(core);
+
+    const run = await core.estimateRun({ items: 2 });
+    const searching = await core.estimateRun({ items: 2, searches: 1 });
+
+    if (run.billing !== "per-token" || searching.billing !== "per-token") {
+      throw new Error("Not billed per token.");
+    }
+    // Six calls of 150,000 tokens at $0.50 and 1,000 out at $2.50.
+    expect(run.cost?.amount).toBeCloseTo(0.465, 12);
+    // A search's $0.01, and its 30,000 tokens of pages at $0.50.
+    expect((searching.cost?.amount ?? 0) - (run.cost?.amount ?? 0)).toBeCloseTo(0.025, 12);
+  });
+
+  // protects=a search's pages count toward the prompt a request is reserved for, so it is reserved at the tier it may reach; fails_when=the tier comes from the prompt before the search; no_claim=how much a real search reads.
+  test("a request whose search may take its prompt over 100,000 tokens is reserved at the higher prices", async () => {
+    const { core, dataDir, model, text } = await sizedCore();
+    const { model: prepared } = await core.prepareChatModel();
+
+    // The scripted reply calls no search, which the request requires; it was reserved before that.
+    await expect(
+      searchWeb(prepared, "anthropic", text(75_000), new AbortController().signal),
+    ).rejects.toThrow("web_search");
+
+    const call = model.doStreamCalls[1];
+    const prompt = promptTokensOf(call?.prompt ?? [], call?.tools);
+    expect(prompt).toBeGreaterThan(75_000);
+    expect(prompt).toBeLessThan(80_000);
+    // The prompt and 30,000 tokens of pages at $0.625, its output limit at $2.50, and the search's $0.01.
+    expect(rows(dataDir)[1]?.reserved).toBeCloseTo(
+      ((prompt + 30_000) * 0.625 + (call?.maxOutputTokens ?? Number.NaN) * 2.5) / 1_000_000 + 0.01,
+      12,
+    );
+  });
+
+  // protects=a model priced flat keeps its one price however long its prompt; fails_when=a tier applies to a model without one; no_claim=other providers' billing.
+  test("Claude Sonnet 5.5, priced flat over its whole window, costs its one price for 900,000 tokens", async () => {
+    const { core, dataDir } = await cloudCore(
+      reportingModel([{ input: 900_000, cached: 100_000, output: 1_000 }]),
+      { kind: "anthropic", modelId: "claude-sonnet-5-5" },
+    );
+
+    await request(core);
+
+    // 800,000 fresh at $2, 100,000 read at $0.10, 1,000 out at $10.
+    expect(settledCosts(dataDir)).toEqual([expect.closeTo(1.62, 12)]);
+    expect(catalogFacts("anthropic", "claude-sonnet-5-5")?.price?.tiers).toBeUndefined();
   });
 });
 

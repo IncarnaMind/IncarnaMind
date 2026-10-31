@@ -80,18 +80,6 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-sonnet-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_BETWEEN_TOOLS },
-      "claude-haiku-5-5": {
-        price: {
-          currency: "USD",
-          input: 0.1,
-          output: 0.5,
-          cacheRead: 0.01,
-          note: {
-            en: "Prompts over 100K tokens: $0.50 / $2.50",
-            zh: "提示超过 10 万 token：$0.50 / $2.50",
-          },
-        },
-      },
     },
     openai: {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
