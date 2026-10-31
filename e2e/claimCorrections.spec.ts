@@ -51,6 +51,12 @@ const paragraph = (...content: object[]) => ({ type: "paragraph", content });
 async function launched(language: "en" | "zh-CN", width: number) {
   await writeFile(join(sources, "Acceptance scan.txt"), "The accepted reviewer is 王芳.\n");
   await writeFile(join(sources, "Annual report.txt"), "The accepted reviewer is 王强.\n");
+  await writeFile(
+    join(sources, "Lease.txt"),
+    language === "en"
+      ? "The Tenant pays a break fee of $57,000.\nThe Landlord returns the deposit within 30 days.\n"
+      : "承租方支付解约费 57,000 美元。\n出租方在 30 天内退还押金。\n",
+  );
   const running = await launchApp(dataDir, { fakeChat: true });
   const { app, window } = running;
   await dismissChatSetup(window);
@@ -60,11 +66,16 @@ async function launched(language: "en" | "zh-CN", width: number) {
   await addDocuments(window, [
     join(sources, "Acceptance scan.txt"),
     join(sources, "Annual report.txt"),
+    join(sources, "Lease.txt"),
   ]);
   const documents = await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
   );
-  const evidence = (name: string, wording: string): CitationAttributes => {
+  const evidence = (
+    name: string,
+    wording: string,
+    quote = `The accepted reviewer is ${wording}.`,
+  ): CitationAttributes => {
     const document = documents.find((each) => each.name === name);
     if (!document) throw new Error(`No Document ${name}.`);
     return {
@@ -75,7 +86,7 @@ async function launched(language: "en" | "zh-CN", width: number) {
       pageFrom: null,
       pageTo: null,
       location: null,
-      quote: `The accepted reviewer is ${wording}.`,
+      quote,
       check: "found",
       checkReason: null,
     };
@@ -250,8 +261,9 @@ for (const [language, width] of [
     await pointAndClick(window, window.getByTestId("undo-action"));
 
     await pointAndClick(window, marks.nth(3));
+    // A check without a correction keeps what it offered before: Open and Keep as my view.
     await expect(card.getByTestId("claim-correct")).toHaveCount(0);
-    await expect(card.getByTestId("claim-open")).toHaveCount(0);
+    await expect(card.getByTestId("claim-open")).toBeVisible();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
     await app.close();
   });
@@ -320,7 +332,13 @@ for (const [language, width] of [
           choices: [
             {
               wording: language === "en" ? "$57,000" : "57,000",
-              evidence: evidence("Acceptance scan", "王芳"),
+              evidence: evidence(
+                "Lease",
+                "",
+                language === "en"
+                  ? "The Tenant pays a break fee of $57,000."
+                  : "承租方支付解约费 57,000 美元。",
+              ),
             },
           ],
         },
@@ -333,7 +351,13 @@ for (const [language, width] of [
           choices: [
             {
               wording: language === "en" ? "30 days" : "30 天",
-              evidence: evidence("Annual report", "王强"),
+              evidence: evidence(
+                "Lease",
+                "",
+                language === "en"
+                  ? "The Landlord returns the deposit within 30 days."
+                  : "出租方在 30 天内退还押金。",
+              ),
             },
           ],
         },
