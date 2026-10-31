@@ -13,7 +13,13 @@ import {
 } from "../../src/core";
 import { addCitedVersions, type CitedVersions } from "../../src/core/answers/citedVersions";
 import { tableGrid } from "../../src/renderer/src/editor/chartCommands";
-import { type ChartAttributes, chartFromTable, readChart } from "../../src/shared/charts";
+import {
+  type ChartAttributes,
+  chartFromTable,
+  chartSources,
+  readChart,
+} from "../../src/shared/charts";
+import { chartOf, Q1, Q2, TABLE } from "../helpers/calculatedCharts";
 import {
   answerEnded,
   askAndFinish,
@@ -476,5 +482,76 @@ describe("the versions a chart's Citations quote", () => {
     const cited: CitedVersions = new Map();
     addCitedVersions(doc.getXmlFragment(MIND_CONTENT_FIELD), cited);
     expect(cited.get("acme")).toEqual(new Set(["old-version"]));
+  });
+});
+
+describe("a chart of calculated figures (#2307)", { timeout: 30_000 }, () => {
+  test("an export says its values are calculated and footnotes each Input, never one cell as their source", async () => {
+    const model = figuresModel();
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Acme.pdf", contents: REPORT },
+    ]);
+    writeMind(client, [chartBlock(chartOf(TABLE))]);
+    await client.settled();
+
+    const markdown = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    );
+    const footnotes = markdown.split("\n").filter((line) => line.startsWith("[^"));
+    expect(footnotes.map((line) => line.replace(/^\[\^\d+\]: /, ""))).toEqual([
+      expect.stringMatching(/^Regional sales 2026, Q1 2026, row 5/),
+      expect.stringMatching(/^Regional sales 2026, Q2 2026, row 5/),
+      expect.stringMatching(/^Regional sales 2026, Q3 2026, row 5/),
+    ]);
+    expect(markdown).toContain("2 values are calculated.");
+    expect(markdown).not.toContain("no Citation");
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const chinese = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    );
+    expect(chinese).toContain("2 个数值由计算得出。");
+    // An older editor would write its figures away: the Note records the version that keeps them.
+    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(43);
+  });
+
+  test("a chart stored before its values kept figures reads its values as quoted, as it did", () => {
+    // As the version before stored it: each calculated value with the first Citation in its cell.
+    const { data } = chartOf(TABLE);
+    const before = readChart({
+      data: JSON.parse(
+        JSON.stringify(data, (key, value) =>
+          key === "figure" ? undefined : key === "citation" && value === null ? Q1.citation : value,
+        ),
+      ),
+    });
+    const west = before.data.rows[0]?.values[0];
+    expect(west?.figure).toBeUndefined();
+    expect(west?.citation?.location).toEqual(Q1.citation.location);
+    expect(chartSources(before)).toMatchObject({ values: 3, calculated: 0, uncited: 0 });
+  });
+
+  test("Question context reads a calculated value as calculated, with no one cell as its source", async () => {
+    const model = figuresModel();
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Acme.pdf", contents: REPORT },
+    ]);
+    writeMind(client, [chartBlock(chartOf(TABLE))]);
+    await client.settled();
+
+    const context = await contextOfNextQuestion(core, client, mind.id, model);
+    expect(context).toContain("| West | 52,530 (calculated) | 41.3% (calculated) |");
+  });
+
+  test("keeps the versions each Input quotes", () => {
+    const doc = new Y.Doc();
+    const element = new Y.XmlElement(CHART_NODE);
+    const { data } = chartOf(TABLE);
+    // Only West's calculated values: no quoted value's Citation to keep the version for them.
+    element.setAttribute("data", { ...data, rows: data.rows.slice(0, 1) } as unknown as string);
+    doc.getXmlFragment(MIND_CONTENT_FIELD).push([element]);
+    const cited: CitedVersions = new Map();
+    addCitedVersions(doc.getXmlFragment(MIND_CONTENT_FIELD), cited);
+    expect(cited.get(Q2.citation.documentId)).toEqual(new Set([Q2.citation.contentHash]));
   });
 });

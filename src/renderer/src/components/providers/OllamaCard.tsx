@@ -18,15 +18,20 @@ export function useOllamaStatus() {
   const [opening, setOpening] = useState(false);
   const [retryComing, setRetryComing] = useState(false);
   const retried = useRef(false);
+  const looks = useRef(0);
 
   const look = useCallback(async () => {
+    const mine = ++looks.current;
     setRetryComing(false);
     setStatus(null);
+    let found: OllamaStatus;
     try {
-      setStatus(await core.detectOllama());
+      found = await core.detectOllama();
     } catch {
-      setStatus({ running: false, baseUrl: "", installed: false, recommendedModel: "" });
+      found = { running: false, baseUrl: "", installed: false, recommendedModel: "" };
     }
+    // A look started since says how it is now; an earlier one that ran out of time doesn't (#2302).
+    if (mine === looks.current) setStatus(found);
   }, []);
 
   /** Asks again now as the User asked to, with its own look's second chance again. */

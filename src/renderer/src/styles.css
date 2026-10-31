@@ -10229,6 +10229,16 @@
       margin: 0;
     }
   }
+  /* A calculated value's card holds its figure's whole working, as the figure's own card does. */
+  .chart-card--calculated {
+    width: var(--chart-card-width, 372px);
+    max-height: min(420px, calc(100vh - 160px));
+    overflow: auto;
+  }
+  .chart-card-figure {
+    margin-top: 6px;
+    line-height: 20px;
+  }
   .chart-card-title {
     display: flex;
     justify-content: space-between;

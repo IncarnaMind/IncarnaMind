@@ -46,11 +46,11 @@ describe("The quick model's verdict", () => {
   test.each([
     "Done — the summary is now on the page.",
     "Your summary is in “Q3 review” now.",
-    "Here it is in a new Mind, “Library summary”.",
+    "Here it is in a new Note, “Library summary”.",
     "I've renamed the page to “Q3 summary”.",
     "总结已经放在页面里了。",
     "好了，第二段现在更清楚了。",
-    "已在新的 Mind 中整理好总结。",
+    "已在新的笔记中整理好总结。",
   ])("an unmade claim is returned unbacked: %s", async (reply) => {
     const result = await check(
       judge({ claims: [{ sentence: reply, kind: "changed", about: "mind", backed: false }] }),
