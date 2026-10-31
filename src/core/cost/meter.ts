@@ -361,6 +361,7 @@ export function createMeter(options: {
             promptTokens: promptTokens + offered.size * SEARCH_INPUT_TOKENS,
             outputTokens: params.maxOutputTokens ?? model.maxOutput ?? DEFAULT_OUTPUT_TOKENS,
             cacheWrites,
+            kind: model.kind,
           },
           price,
           at,
@@ -452,8 +453,11 @@ export function createMeter(options: {
         priced && reserved !== null
           ? Math.min(
               reserved,
-              reservationOf({ promptTokens, outputTokens, cacheWrites: false }, price, at) +
-                feesOf(searches),
+              reservationOf(
+                { promptTokens, outputTokens, cacheWrites: false, kind: model.kind },
+                price,
+                at,
+              ) + feesOf(searches),
             )
           : null;
       close(cost, { inputTokens: promptTokens, outputTokens });
@@ -728,15 +732,15 @@ export function createMeter(options: {
       );
       const mean = (pick: (each: Required<TokenUsage>) => number) =>
         recent.reduce((sum, each) => sum + pick(each), 0) / recent.length;
-      const call: Required<TokenUsage> =
-        recent.length >= 2 * item.calls
-          ? {
-              inputTokens: mean((each) => each.inputTokens),
-              cachedInputTokens: mean((each) => each.cachedInputTokens),
-              cacheWriteTokens: mean((each) => each.cacheWriteTokens),
-              outputTokens: mean((each) => each.outputTokens),
-            }
-          : item.call;
+      const recorded = recent.length >= 2 * item.calls;
+      const call: Required<TokenUsage> = recorded
+        ? {
+            inputTokens: mean((each) => each.inputTokens),
+            cachedInputTokens: mean((each) => each.cachedInputTokens),
+            cacheWriteTokens: mean((each) => each.cacheWriteTokens),
+            outputTokens: mean((each) => each.outputTokens),
+          }
+        : item.call;
       const calls = Math.round(Math.max(0, Math.round(items)) * item.calls);
       const at = now();
       const cap = options.cap();
@@ -747,6 +751,12 @@ export function createMeter(options: {
             (inCurrency(fee.amount, fee.currency, price.currency) +
               costOf({ inputTokens: SEARCH_INPUT_TOKENS }, price, at))
           : 0;
+      const cacheWrites = writesCache(model);
+      // A tiered price isn't linear in tokens: each recorded call is priced before they are averaged.
+      const callCost = (price: Price) =>
+        recorded
+          ? mean((each) => costOf(each, price, at, { cacheWrites }))
+          : costOf(call, price, at, { cacheWrites });
       return {
         billing: "per-token",
         calls,
@@ -757,9 +767,7 @@ export function createMeter(options: {
         cost: model.price
           ? {
               currency: model.price.currency,
-              amount:
-                calls * costOf(call, model.price, at, { cacheWrites: writesCache(model) }) +
-                searchCost(model.price),
+              amount: calls * callCost(model.price) + searchCost(model.price),
             }
           : null,
         ...towardCap(cap, monthStart(at)),

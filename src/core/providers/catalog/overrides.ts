@@ -98,7 +98,7 @@ export const OVERRIDES: CatalogOverrides = {
     },
     xai: {
       // xAI bills a prompt that reaches 200K tokens at the higher prices (docs.x.ai/docs/models);
-      // models.dev's tier starts above it.
+      // models.dev's tier starts above it. Written here, these prices don't follow a refresh.
       "grok-4.3": {
         price: {
           currency: "USD",

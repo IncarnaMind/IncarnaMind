@@ -4,7 +4,7 @@
  * price, a long prompt at its tier's prices, and off-peak hours at their cut
  * price.
  */
-import type { Currency } from "../api";
+import type { ChatProviderKind, Currency } from "../api";
 import { CNY_PER_USD } from "../providers/catalog/billing";
 import type { Price, PriceTier } from "../providers/catalog/types";
 import type { TokenUsage } from "../runs/engine";
@@ -31,6 +31,16 @@ export function rateAt(price: Price, at: Date): number {
   const hour = there.getUTCHours() + there.getUTCMinutes() / 60;
   return offPeak.peakHours.some(([from, to]) => hour >= from && hour < to) ? 1 : offPeak.factor;
 }
+
+/**
+ * At most how many tokens a provider counts for each one `promptTokensOf`
+ * counts: Claude Haiku 5.5 counted up to 1.41 times a whole read's estimate
+ * (#2126), and a provider not measured is counted higher still.
+ */
+const COUNTED_PER_TOKEN: Partial<Record<ChatProviderKind, number>> = { anthropic: 1.45 };
+
+/** The margin an estimate of a prompt's tokens takes for its provider's own count to fit. */
+export const promptTokenRatio = (kind: ChatProviderKind): number => COUNTED_PER_TOKEN[kind] ?? 1.5;
 
 /**
  * The prices one request pays whose prompt holds `promptTokens`, its cache
@@ -77,17 +87,23 @@ export function costOf(
 
 /**
  * The most a request may cost: all of its prompt at the input price (written
- * to the cache, where its provider does), and all of its output limit, at the
- * prices of a prompt of `promptTokens`. Those count what the prompt may grow
- * by while the request runs (the pages a search reads), so its tier is never
- * too low.
+ * to the cache, where its provider does), and all of its output limit.
+ * `promptTokens` is the estimate, with what the prompt may grow by while the
+ * request runs (the pages a search reads); its tier is picked from that times
+ * the provider's `promptTokenRatio`, so a prompt its provider counts higher
+ * is not reserved below its tier.
  */
 export function reservationOf(
-  request: { promptTokens: number; outputTokens: number; cacheWrites: boolean },
+  request: {
+    promptTokens: number;
+    outputTokens: number;
+    cacheWrites: boolean;
+    kind: ChatProviderKind;
+  },
   price: Price,
   at: Date,
 ): number {
-  const paid = priceFor(price, request.promptTokens);
+  const paid = priceFor(price, request.promptTokens * promptTokenRatio(request.kind));
   const input = request.cacheWrites ? paid.input * CACHE_WRITE_FACTOR : paid.input;
   const millionths = request.promptTokens * input + request.outputTokens * paid.output;
   return (millionths / 1_000_000) * rateAt(paid, at);
