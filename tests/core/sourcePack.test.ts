@@ -442,6 +442,37 @@ describe("the source pack: after the file is gone, and without the page", () => 
     ]);
   });
 
+  test("a quote a PDF's line end cut is words on a page that wasn't saved, and a quote with nothing to read it by is joined", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, mind, client, tides, moon } = await setUp({ printer });
+    writeMind(client, [
+      paragraph(
+        text("Spring tides"),
+        citation(tides, 2, {
+          quote: "Spring tides happen at new moon.\nThen, em-\nployment ends.",
+        }),
+        text("."),
+      ),
+      paragraph(
+        text("The Moon"),
+        citation(moon, 1, {
+          quote: "The Moon's pull raises the av-\nerage tide.",
+          check: "not-found",
+        }),
+      ),
+    ]);
+    await client.settled();
+    await core.deleteDocument(moon.id);
+
+    await core.exportMind(mind.id, { format: "source-pack" });
+
+    const { sheets } = pack(printed[0]?.body ?? "");
+    expect(sheets.map((sheet) => sheet.quotes)).toEqual([
+      ["“Spring tides happen at new moon. Then, employment ends.”"],
+      ["“The Moon&#39;s pull raises the average tide.”"],
+    ]);
+  });
+
   test("a Mind with no Citations has no pack: the preview counts none, and the export says so, in the interface language", async () => {
     const { printed, printer } = fakePrinter();
     const { core, mind, client } = await setUp({ printer });

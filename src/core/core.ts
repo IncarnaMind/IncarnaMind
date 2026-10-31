@@ -41,6 +41,7 @@ import {
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { readableQuoteText } from "../shared/readableQuote";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -97,6 +98,7 @@ import {
   type ChatProviderKind,
   type CheckRecordFailure,
   type CheckRecordFormat,
+  type CitationAttributes,
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
@@ -2695,21 +2697,31 @@ export function createCore(adapters: CoreAdapters): Core {
     const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
+  const quoteAsRead = ({
+    documentId,
+    contentHash,
+    pageFrom,
+    pageTo,
+    quote,
+  }: Partial<CitationAttributes>): string | null => {
+    if (!quote) return null;
+    const fromDocument = documentId
+      ? documents.readableQuote({
+          documentId,
+          contentHash: contentHash ?? null,
+          pageFrom: pageFrom ?? null,
+          pageTo: pageTo ?? null,
+          quote,
+        })
+      : null;
+    return fromDocument ?? readableQuoteText(quote);
+  };
   const exportDependencies: ExportsDependencies = {
     mind: (mindId) => minds.get(mindId),
     read: (mindId, look) => content.read(mindId, look),
     liveDocuments: () => documents.list(),
     keptCitationTexts: () => documents.keptCitationTexts(),
-    readableQuote: ({ documentId, contentHash, pageFrom, pageTo, quote }) =>
-      documentId && quote
-        ? documents.readableQuote({
-            documentId,
-            contentHash: contentHash ?? null,
-            pageFrom: pageFrom ?? null,
-            pageTo: pageTo ?? null,
-            quote,
-          })
-        : null,
+    readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
     citationStyle: (mindId) => {
@@ -2922,6 +2934,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
+    log: adapters.log ?? silentLogger,
   });
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
