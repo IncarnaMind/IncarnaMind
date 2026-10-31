@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateText, jsonSchema, streamText, tool } from "ai";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
@@ -907,6 +907,109 @@ describe("A ChatGPT test profile shared by several data folders", () => {
       `Bearer ${fake.issued[1]?.accessToken}`,
     ]);
     for (const { keychain } of [owner, agent]) expect(keychain.secrets.size).toBe(0);
+  });
+});
+
+describe("A ChatGPT profile whose sign-in can't be read", () => {
+  const ACCOUNT_SECRET = "chatgpt:account";
+
+  /** A core that keeps its ChatGPT sign-in in a profile holding `record`, if one is given. */
+  async function setUpProfile(record: string | null = null) {
+    const clock = manualClock();
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const browser = createFakeBrowser(fake);
+    const profile = await createTempDataFolder();
+    const file = join(profile, SECRETS_FILE);
+    if (record !== null) {
+      const encrypted = createFakeCipher().encrypt(record).toString("base64");
+      await writeFile(file, JSON.stringify({ [ACCOUNT_SECRET]: encrypted }), { mode: 0o600 });
+    }
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain(),
+      browser,
+      now: clock.now,
+      createChatModel: createAiSdkChatModel,
+      chatGptPlan: fake.endpoints,
+      chatGptStore: {
+        keychain: createFileKeychain(file, createFakeCipher()),
+        lockFile: join(profile, "refresh.lock"),
+      },
+    });
+    return { core, fake, browser, file };
+  }
+
+  /** What a profile's stored record says now, read the way the app reads it. */
+  async function readRecord(file: string) {
+    const entries = JSON.parse(await readFile(file, "utf8")) as Record<string, string>;
+    return JSON.parse(
+      createFakeCipher().decrypt(Buffer.from(entries[ACCOUNT_SECRET] ?? "", "base64")),
+    );
+  }
+
+  test("an abandoned sign-in leaves a signed-in profile byte-for-byte unchanged, and a completed one replaces it", async () => {
+    const { core, fake, browser, file } = await setUpProfile();
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: true, firstTime: true });
+    const before = await readFile(file);
+    browser.behaviour = "ignore";
+
+    const abandoned = core.signInToChatGpt();
+    await expect.poll(() => browser.opened).toHaveLength(2);
+    await core.cancelChatGptSignIn();
+
+    expect(await abandoned).toMatchObject({ ok: false, error: { kind: "cancelled" } });
+    expect((await readFile(file)).equals(before)).toBe(true);
+
+    browser.behaviour = "approve";
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: true, firstTime: false });
+
+    expect((await readFile(file)).equals(before)).toBe(false);
+    expect(await readRecord(file)).toMatchObject({
+      clientId: "oaiapp_test_1",
+      tokens: { accessToken: fake.issued[1]?.accessToken },
+    });
+    expect((await core.getChatGptPlan()).account).toEqual({
+      state: "signed-in",
+      email: EMAIL,
+    });
+  });
+
+  test("a profile that can't be read is reported and left as it is; only a completed sign-in replaces it", async () => {
+    const { core, fake, browser, file } = await setUpProfile("not a sign-in record");
+    const before = await readFile(file);
+
+    expect(await core.signInToChatGpt()).toMatchObject({
+      ok: false,
+      error: { kind: "record-unreadable" },
+    });
+    expect(browser.opened).toEqual([]);
+    expect((await readFile(file)).equals(before)).toBe(true);
+    expect((await core.getChatGptPlan()).account).toEqual({ state: "unreadable" });
+
+    // The User signs in again and the sign-in fails after OpenAI registered it: still nothing is written.
+    fake.tamperIdToken = (claims) => ({ ...claims, nonce: "other" });
+    expect(await core.signInToChatGpt({ replaceUnreadable: true })).toMatchObject({
+      ok: false,
+      error: { kind: "failed" },
+    });
+    expect((await readFile(file)).equals(before)).toBe(true);
+    fake.tamperIdToken = null;
+
+    // Abandoning the sign-in the User chose writes nothing either.
+    browser.behaviour = "ignore";
+    const abandoned = core.signInToChatGpt({ replaceUnreadable: true });
+    await expect.poll(() => browser.opened).toHaveLength(1);
+    await core.cancelChatGptSignIn();
+    expect(await abandoned).toMatchObject({ ok: false, error: { kind: "cancelled" } });
+    expect((await readFile(file)).equals(before)).toBe(true);
+
+    browser.behaviour = "approve";
+    expect(await core.signInToChatGpt({ replaceUnreadable: true })).toMatchObject({ ok: true });
+
+    expect((await readFile(file)).equals(before)).toBe(false);
+    expect((await core.getChatGptPlan()).account).toEqual({
+      state: "signed-in",
+      email: EMAIL,
+    });
   });
 });
 

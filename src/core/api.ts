@@ -7436,6 +7436,8 @@ export type ChatGptAccount =
   | { state: "signed-out" }
   /** Refreshing the sign-in failed (or the User disconnected IncarnaMind in ChatGPT): sign in again. */
   | { state: "expired" }
+  /** A sign-in is kept here, but it can't be read: signing in again replaces it once it completes. */
+  | { state: "unreadable" }
   | {
       state: "signed-in";
       /** From the sign-in's ID token, when it carries one. */
@@ -7494,6 +7496,8 @@ export type ChatGptSignInErrorKind =
   | "plan-not-allowed"
   /** The User signed in to another ChatGPT account than the one this device uses; `anotherAccount` switches. */
   | "other-account"
+  /** A sign-in is kept here but can't be read; signing in again replaces it once it completes. */
+  | "record-unreadable"
   | "failed";
 
 export type ChatGptSignInResult =
@@ -11346,9 +11350,14 @@ export interface CoreApi {
    * browser and waits, for a few minutes at most, until they finish.
    * Starting again cancels a sign-in still waiting. `anotherAccount` signs in
    * to a different ChatGPT account than the one this device used before.
-   * Signing in doesn't choose a model: `saveChatProvider` does.
+   * `replaceUnreadable` is the User's answer to a sign-in that can't be read:
+   * sign in again, and replace it only once that completes. Signing in doesn't
+   * choose a model: `saveChatProvider` does.
    */
-  signInToChatGpt(input?: { anotherAccount?: boolean }): Promise<ChatGptSignInResult>;
+  signInToChatGpt(input?: {
+    anotherAccount?: boolean;
+    replaceUnreadable?: boolean;
+  }): Promise<ChatGptSignInResult>;
   /** Stops waiting for a browser sign-in. */
   cancelChatGptSignIn(): Promise<void>;
   /** Opens the waiting sign-in's page in the browser again; false when none is waiting. */

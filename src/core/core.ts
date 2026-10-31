@@ -5120,7 +5120,10 @@ export function createCore(adapters: CoreAdapters): Core {
       return chatGpt.status();
     },
     signInToChatGpt: (input) =>
-      chatGpt.signIn({ anotherAccount: isRecord(input) && input.anotherAccount === true }),
+      chatGpt.signIn({
+        anotherAccount: isRecord(input) && input.anotherAccount === true,
+        replaceUnreadable: isRecord(input) && input.replaceUnreadable === true,
+      }),
     cancelChatGptSignIn: () => chatGpt.cancelSignIn(),
     reopenChatGptSignIn: () => chatGpt.reopenSignInPage(),
     signOutOfChatGpt: () => chatGpt.signOut(),

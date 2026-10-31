@@ -2615,6 +2615,7 @@ export const en = {
   "chatgpt.continue": "Continue with ChatGPT",
   "chatgpt.account.signedOut": "Not signed in.",
   "chatgpt.account.expired": "Your ChatGPT sign-in ended. Sign in again to use your plan.",
+  "chatgpt.account.unreadable": "This computer’s saved ChatGPT sign-in can’t be read.",
   "chatgpt.account.signedIn": "Signed in as {account}.",
   "chatgpt.account.unknown": "your ChatGPT account",
   "chatgpt.signingIn": "Finish signing in in your browser…",
@@ -2640,6 +2641,8 @@ export const en = {
     "Allow IncarnaMind to use your ChatGPT plan: sign in again.",
   "chatgpt.signIn.error.other-account":
     "That’s not the ChatGPT account used here before. Sign in with that one.",
+  "chatgpt.signIn.error.record-unreadable":
+    "This computer’s saved ChatGPT sign-in can’t be read. Sign in again to replace it.",
   "chatgpt.signIn.error.failed": "The sign-in didn’t work. Try again.",
   "chatgpt.test.not-signed-in":
     "You’re not signed in to ChatGPT. Continue with ChatGPT, then try again.",
@@ -4871,6 +4874,8 @@ export const en = {
   "error.secrets.plainText":
     "No keyring running, so keys would be unencrypted. Start GNOME Keyring or KWallet.",
   "error.secrets.unencrypted": "This system can’t encrypt API keys, so they can’t be saved.",
+  "error.signIn.unreadable":
+    "The {provider} sign-in saved on this computer can’t be read. Sign in again to replace it.",
   "error.consent.declined": "You declined sending data to {service}, so nothing was sent.",
   "error.consent.needed": "Waiting until you allow sending data to {service}. Nothing was sent.",
   "error.consent.revoked": "Stopped: you turned off sending to {service}",

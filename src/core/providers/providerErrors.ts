@@ -18,6 +18,7 @@ import {
   TranslatableError,
 } from "../errors";
 import { OAuthTokenError } from "../oauth";
+import { SignInRecordUnreadableError } from "../oauthAccount";
 import { KeyCharacterError } from "./apiKey";
 import { ChatGptPlanError, ChatGptSignInRequiredError } from "./chatgpt/errors";
 import { JevRequestError } from "./jev";
@@ -282,6 +283,13 @@ function sortedError(cause: unknown): ProviderError {
   }
   if (contextOverflow(cause)) return { kind: "too-long", message };
   if (cause instanceof JevRequestError) return { kind: cause.kind, message };
+  if (cause instanceof SignInRecordUnreadableError) {
+    return {
+      kind: "provider",
+      message,
+      ...(cause.wording && { wording: cause.wording }),
+    };
+  }
   if (cause instanceof ChatGptSignInRequiredError) return { kind: "not-signed-in", message };
   if (cause instanceof ChatGptPlanError) return { kind: cause.kind, message, ...resetsAtOf(cause) };
   if (cause instanceof PlanLimitError) return { kind: "plan-limit", message, ...resetsAtOf(cause) };
