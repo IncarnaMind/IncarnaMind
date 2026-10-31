@@ -274,16 +274,20 @@ async function askAssistant(core: Core, text: string, mindId: string): Promise<s
     scope: { folderIds: [], tagIds: [], documentIds: [] },
   });
   if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
-  await new Promise<void>((resolve) => {
+  const ended = await new Promise<boolean>((resolve) => {
+    // An Answer that never ends is a miss, so it doesn't hold up the other runs.
+    const timer = setTimeout(() => done(false), 480_000);
     const stops = [
-      core.on("answer.finished", ({ answerId }) => answerId === result.answerId && done()),
-      core.on("answer.failed", ({ answerId }) => answerId === result.answerId && done()),
+      core.on("answer.finished", ({ answerId }) => answerId === result.answerId && done(true)),
+      core.on("answer.failed", ({ answerId }) => answerId === result.answerId && done(true)),
     ];
-    function done() {
+    function done(finished: boolean) {
+      clearTimeout(timer);
       for (const stop of stops) stop();
-      resolve();
+      resolve(finished);
     }
   });
+  if (!ended) return "(no end to the Answer in 8 minutes)";
   const { messages } = await core.getConversation(result.conversation.id);
   const answer = messages.find((message) => message.id === result.answerId);
   return answer?.kind === "answer" ? answer.text : "";

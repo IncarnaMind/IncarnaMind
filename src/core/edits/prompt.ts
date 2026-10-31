@@ -164,8 +164,11 @@ export function readEditReply(reply: string, passage: string): string {
   return text;
 }
 
-/** An escape pair, or a <removed> tag in any shape a model writes it: <removed>, <removed/>, </removed>. */
-const ESCAPE_OR_TAG = /\\[\s\S]|<(\/?)removed\b[^<>]*?(\/?)>/gi;
+/**
+ * An escape pair, or a <removed> tag in any shape a model writes it: <removed>, <removed/>,
+ * </removed>. Ended as `escapeRemovedMark` ends it, so typed text such as <removed-items> stays text.
+ */
+const ESCAPE_OR_TAG = /\\[\s\S]|<(\/?)removed(?=[\s/>])[^<>]*?(\/?)>/gi;
 
 const withoutTags = (text: string) =>
   text.replace(ESCAPE_OR_TAG, (each) => (each.startsWith("\\") ? each : ""));
@@ -174,8 +177,9 @@ const withoutTags = (text: string) =>
  * The new text without what the reply says it takes out (#2180), and the words of the paragraphs
  * it says so of. A <removed>…</removed> that starts a line quotes paragraphs taken out, and the
  * text after it starts a paragraph; one among a paragraph's words takes those words out of it;
- * an empty one, or a tag alone, is no text. Until the reply is `done`, the text ends where a
- * mark not yet closed starts, so none of its words is read as text before the close comes.
+ * an empty one, or a tag alone, is no text; one never closed quotes only its own paragraph. Until
+ * the reply is `done`, the text ends where a mark not yet closed starts, so none of its words is
+ * read as text before the close comes.
  */
 export function readRemovals(text: string, done = true): { text: string; quoted: string[] } {
   const tags = [...text.matchAll(ESCAPE_OR_TAG)].filter((tag) => !tag[0].startsWith("\\"));
@@ -197,8 +201,10 @@ export function readRemovals(text: string, done = true): { text: string; quoted:
     const close = next && (!empty || lineEnd < 0 || next.index < lineEnd) ? next : undefined;
     if (!close && !done && (!empty || lineEnd < 0)) return { text: out + before, quoted };
     const line = `${out}${before}`.slice(`${out}${before}`.lastIndexOf("\n") + 1);
-    const words = close ? text.slice(at, close.index) : empty ? "" : text.slice(at);
-    at = close ? close.index + close[0].length : empty ? at : text.length;
+    const blank = /\n[ \t]*\n/.exec(text.slice(at));
+    const end = close ? close.index : empty ? at : blank ? at + blank.index : text.length;
+    const words = text.slice(at, end);
+    at = close ? close.index + close[0].length : end;
     if (close) index = tags.indexOf(close);
     if (line.trim() !== "") {
       out += before.replace(/[ \t]+$/, "");

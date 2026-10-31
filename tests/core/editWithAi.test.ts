@@ -2589,6 +2589,37 @@ describe("An edit the User asked for (#880)", () => {
     expect(shownWithChanges(client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
   });
 
+  // protects=a mark never closed quotes only its own paragraph, so the paragraphs written after it stay as text; fails_when=a paragraph after it is taken out or lost; no_claim=that a model leaves marks open.
+  test("an unclosed mark in the middle of a reply quotes only its own paragraph", async () => {
+    const { core, client, asked } = await threeParagraphs(
+      () => `${FIRST}\n\n<removed>${SECOND}\n\n${THIRD}\n<why>Removed.</why>`,
+    );
+
+    await core.editWithAi(asked("Drop the middle one"));
+
+    expect(shownWithChanges(client)).toEqual([FIRST, `- ${SECOND}`, THIRD]);
+  });
+
+  // protects=typed text that only starts like the mark, such as <removed-items>, is the User's and comes back as typed; fails_when=it is read as a mark and the words after it are lost; no_claim=how a model words the rest.
+  test("typed text like <removed-items> or <removed:x> is no mark", async () => {
+    const typed =
+      "Keep <removed-items> and <removed:x> in the list. The office posts the times each week.";
+    const { core, mind, client } = await setUp(
+      editingModel(({ passage }) => passage.replace("each week", "weekly")),
+    );
+    const note = paragraph(text(typed));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Say weekly"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([typed.replace("each week", "weekly")]);
+  });
+
   // protects=words quoted inside a paragraph are taken out of it, and the rest of the paragraph is kept as it was; in Chinese too; fails_when=the quoted words stay, or the paragraph goes whole; no_claim=that a real model quotes words this way.
   test.each([
     {
