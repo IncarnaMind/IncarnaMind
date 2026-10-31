@@ -9688,7 +9688,9 @@ export interface Meeting {
  * - "undone": taken back;
  * - "failed": nothing was written, and `problem` says why; Try again fills it in;
  * - "off": not run, and `problem` says why: "Keep everything on this computer" is on and the
- *   Mind's model isn't on this computer, or the model isn't ready or allowed yet.
+ *   Mind's model isn't on this computer, or the model isn't ready or allowed yet. With no
+ *   `problem`, nothing was asked of it: the User typed nothing to fill out, and "Fill sections my
+ *   notes don't cover" is off (#2306).
  *
  * A voice memo's note (#1568) is its speech tidied into paragraphs under a title line, each citing
  * its time ("memo"), at the start of a Mind with no text yet, so the title line names it. With no

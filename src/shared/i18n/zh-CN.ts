@@ -5417,7 +5417,7 @@ export const zhCN = {
   "meetings.settings.notes": "通话后的笔记",
   "meetings.settings.fillUncovered": "补全笔记没写到的部分",
   "meetings.settings.fillUncoveredBody":
-    "你没写到的部分（如待办事项）接在你写的内容之后，显示为 AI 文字。",
+    "你没写到的部分（如待办事项）接在你写的内容之后，显示为 AI 生成的文字。",
 
   "sources.title": "查找资料",
   "sources.intro": "在 OpenAlex、arXiv 和 PubMed 中搜索论文，开放获取的会添加为文档。",

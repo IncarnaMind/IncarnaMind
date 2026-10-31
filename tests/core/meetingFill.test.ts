@@ -469,6 +469,7 @@ const CALLS = [
     theirs: THEIR_LINES,
     typed: ["price", "contract"],
     actionsHeading: "Action items",
+    plainHeading: "Q3 review",
     titles: ["Summary", "Decisions", "Action items", "Open questions"],
     stop: ".",
     written: {
@@ -486,6 +487,7 @@ const CALLS = [
     theirs: ["今年的预算已经批了", "安全审查还没做"],
     typed: ["价格", "合同"],
     actionsHeading: "待办",
+    plainHeading: "第三季度回顾",
     titles: ["摘要", "决定", "待办事项", "待定问题"],
     stop: "。",
     written: {
@@ -613,6 +615,52 @@ for (const call of CALLS) {
       core.close();
     });
 
+    // protects=a line that is only a section's name, typed as a paragraph ("Action items", "待办"), stands for that section's heading: its items go right under it, it isn't filled out as a line, and the section isn't written again below; fails_when=the line is filled out as an ordinary line, its items go elsewhere, or a second Action items heading follows; no_claim=a heading's place, which the test above covers.
+    test(`a typed "${call.actionsHeading}" line, not a heading, is that section's place too`, async () => {
+      const { core, meeting, client } = await recordedWith([
+        note(call.typed[0]),
+        note(call.actionsHeading),
+        note(call.typed[1]),
+      ]);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(12));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.actionsHeading,
+        ai(written.ACTIONS),
+        call.typed[1],
+        ai(written.L2),
+        `«${titles[0]}»`,
+        ai(written.SUMMARY),
+        `«${titles[1]}»`,
+        ai(written.DECISIONS),
+        `«${titles[3]}»`,
+        ai(written.QUESTIONS),
+      ]);
+      expect(asked.at(-1)).toContain(`(heading: ### ACTIONS goes under it) ${call.actionsHeading}`);
+      core.close();
+    });
+
+    // protects=with the switch off, a Note with nothing typed to fill out, only a plain heading, gets nothing: no model is asked, nothing is written and no failure is shown; turned on, Fill in again writes the sections under it; fails_when=the sections are written with the switch off, the fill fails as finding nothing, or nothing is written once it is on; no_claim=a Note with typed lines, which the next test covers.
+    test("with the switch off, a Note with only a heading gets nothing below it", async () => {
+      const { core, meeting, client } = await recordedWith(
+        [heading(2, call.plainHeading)],
+        (core) => core.updateSettings({ user: { meetingFillUncovered: false } }).then(() => {}),
+      );
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "off", problem: null });
+      expect(shown(client)).toEqual([call.plainHeading]);
+      expect(asked).toEqual([]);
+
+      await core.updateSettings({ user: { meetingFillUncovered: true } });
+      await core.fillMeetingNotes(meeting.id);
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(1 + sectionsBelow.length));
+      // Written with no notes, a section's sentence may cite the Transcript more than once.
+      const once = shown(client).map((line) => line.replace(/\uFFFC+/g, "\uFFFC"));
+      expect(once).toEqual([call.plainHeading, ...sectionsBelow]);
+      core.close();
+    });
+
     // protects=with "Fill sections my notes don't cover" off, only the typed lines are filled out and nothing is written below them, even from a model that writes sections unasked; turned back on, Fill in again adds the sections; fails_when=a section is written with the switch off, or none with it on; no_claim=the switch's row in Settings, which the smoke test covers.
     test("with the switch off, nothing is written below the typed lines", async () => {
       const { core, meeting, client } = await recordedWith(typedLines(), (core) =>
@@ -651,6 +699,33 @@ for (const call of CALLS) {
     });
   });
 }
+
+describe("With the switch off and nothing typed (#2306)", { timeout: 60_000 }, () => {
+  // protects=with "Fill sections my notes don't cover" off, an empty Note stays empty after Stop: no model is asked and no failure is shown, where with it on the sections are written; fails_when=the sections are written with the switch off, or the fill says it failed; no_claim=a Note with a heading, which the tests above cover.
+  test("an empty Note stays empty, and no model is asked", async () => {
+    const fills: string[] = [];
+    const model = fillingModel(
+      "### SUMMARY\nThe enterprise price is 45 dollars a seat [^1].",
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (each) => isFill(each) && fills.push(each.prompt) },
+    );
+    const { core, meeting, client } = await recorded(model, null, (core) =>
+      core.updateSettings({ user: { meetingFillUncovered: false } }).then(() => {}),
+    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "off", problem: null });
+    expect(shown(client).some((line) => line.includes("«"))).toBe(false);
+    expect(fills).toEqual([]);
+
+    await core.updateSettings({ user: { meetingFillUncovered: true } });
+    await core.fillMeetingNotes(meeting.id);
+    await vi.waitFor(() =>
+      expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»"),
+    );
+    expect(fills.length).toBeGreaterThan(0);
+    core.close();
+  });
+});
 
 describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
   // protects=a Meeting's notes are asked thinking as an Answer does, and the Citations a reply left out are asked of the small calls' model, which doesn't think first, so neither reply's room goes to thinking and the addition keeps its Citation; fails_when=the notes are asked at a Task's thinking, the Citations of a thinking model, or the addition is dropped as uncited; no_claim=how long a real model thinks, which the real-model run measures.

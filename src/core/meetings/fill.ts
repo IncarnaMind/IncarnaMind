@@ -165,6 +165,12 @@ function linesIn(parent: Y.XmlFragment | Y.XmlElement, found: Y.XmlElement[] = [
   return found;
 }
 
+/** Whether the User wrote anything to fill out: a line, or a heading that names a section. */
+const fillable = (blocks: Y.XmlFragment) =>
+  linesIn(blocks).some(
+    (element) => element.nodeName !== "heading" || sectionNamed(readLine(element).text) !== null,
+  );
+
 // Each line gets an id if it had none, so it can be found once filled in.
 function userLines(blocks: Y.XmlFragment): UserLine[] {
   const lines: UserLine[] = [];
@@ -443,10 +449,9 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
     const mode = lines.some((line) => !line.heading || line.section) ? "notes" : "sections";
     const named = new Set(lines.flatMap((line) => (line.section ? [line.section] : [])));
-    const asked =
-      mode === "sections" || options.fillUncovered()
-        ? FILL_SECTIONS
-        : FILL_SECTIONS.filter((section) => named.has(section));
+    const asked = options.fillUncovered()
+      ? FILL_SECTIONS
+      : FILL_SECTIONS.filter((section) => named.has(section));
     set(meeting.id, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
@@ -556,6 +561,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
         state: "off",
         problem: { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
       });
+      return;
+    }
+    if (
+      meeting.kind === "meeting" &&
+      !options.fillUncovered() &&
+      !content.read(meeting.mindId, fillable)
+    ) {
+      set(meetingId, { state: "off", mode: null, problem: null, blocks: [] });
       return;
     }
     let route: FillRoute;
