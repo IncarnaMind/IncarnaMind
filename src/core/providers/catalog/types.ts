@@ -219,10 +219,24 @@ export interface Price {
   input: number;
   output: number;
   cacheRead?: number;
-  /** E.g. "Prompts over 100K tokens: $0.50 / $2.50". */
+  /** Higher prices for a request with a longer prompt (Claude Haiku 5.5's over 100K tokens). */
+  tiers?: readonly PriceTier[];
+  /** E.g. "From 2027-01-01: $1.50 / $7.50". */
   note?: Localized;
   /** Outside its peak hours the price is cut, by `factor`. */
   offPeak?: OffPeak;
+}
+
+/**
+ * What a request pays per million tokens when its prompt holds more than
+ * `above` tokens, its cache reads and writes counted. A cache write costs
+ * more than the input price as it does below the threshold.
+ */
+export interface PriceTier {
+  above: number;
+  input: number;
+  output: number;
+  cacheRead?: number;
 }
 
 /**

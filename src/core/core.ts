@@ -9,6 +9,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
+import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -27,6 +28,7 @@ import {
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
+import { fingerprintOfBlocks } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -38,7 +40,7 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
+import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -54,6 +56,7 @@ import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
+import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
@@ -109,6 +112,7 @@ import {
   type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
+  type FigureSchedule,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -1458,6 +1462,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
+  /**
+   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
+   * inside a wall only those behind it, from outside never one a wall keeps inside.
+   */
+  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
+    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
+    const picked = resolveSearchScope(scope, {
+      folderTree: (folderId) => folders.subtree(folderId),
+      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      documentIds: (filter) => documents.ids(filter),
+    });
+    return (picked ?? []).filter((id) => searched.has(id));
+  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
@@ -2438,6 +2455,29 @@ export function createCore(adapters: CoreAdapters): Core {
     return mind;
   };
 
+  /** The schedules last given as changes, by token, for the next to be given as what differs. */
+  const givenSchedules = new Map<string, { mindId: string; rows: FigureSchedule["rows"] }>();
+  let scheduleTokens = 0;
+  function figureScheduleChangeFor(mindId: string, since: unknown) {
+    const schedule = readFigureSchedule(mindId);
+    // A token this core didn't give, or no longer keeps, gets the whole schedule.
+    const given = typeof since === "string" ? givenSchedules.get(since) : undefined;
+    const token = String(++scheduleTokens);
+    givenSchedules.set(token, { mindId: schedule.mindId, rows: schedule.rows });
+    // A window keeps one schedule per Note it shows, so a few are enough.
+    for (const old of givenSchedules.keys()) {
+      if (givenSchedules.size <= 8) break;
+      givenSchedules.delete(old);
+    }
+    return figureScheduleChange(
+      schedule,
+      token,
+      given && typeof since === "string" && given.mindId === schedule.mindId
+        ? { token: since, rows: given.rows }
+        : null,
+    );
+  }
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2445,7 +2485,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return figureSchedule({
         mindId: mind.id,
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        basis: targetHash(blocks.toString()),
+        basis: fingerprintOfBlocks(blocks),
         blocks,
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
@@ -2533,6 +2573,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledDocument,
     walledFolderName,
     searchedScope,
+    pickedDocuments,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),
@@ -2551,6 +2592,8 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      live: (documentIds) => documents.getMany(documentIds),
+      passages: (documentId) => documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
       batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
@@ -2564,6 +2607,12 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    estimateRead(model, read) {
+      const metered = chat.metered(model ?? undefined);
+      return metered && meter.estimateRead(metered, read);
+    },
+    readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
@@ -4314,6 +4363,13 @@ export function createCore(adapters: CoreAdapters): Core {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
     },
+    wordFonts: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => {
+        const look = fragment.doc && wordLookOf(fragment.doc);
+        return look ? wordFontsOf(look) : [];
+      });
+    },
     listMinds: async () => minds.list(),
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
@@ -4926,6 +4982,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
+    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
     chooseRecordCiteSource: (input) =>
@@ -4942,6 +4999,7 @@ export function createCore(adapters: CoreAdapters): Core {
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
+    getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),

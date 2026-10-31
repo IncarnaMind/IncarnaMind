@@ -1,13 +1,11 @@
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { setClaimFocus, setOpenClaim } from "../checks";
 import { focusFigure, useFigureFocus } from "../figures";
-import { useT } from "../i18n";
 import { mindFolded } from "../mindColumn";
 import { motionMode, subscribeMotion } from "../motion";
-import { checkStateKey } from "../unsupportedFixes";
 import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
@@ -15,12 +13,18 @@ import { textBlockEdited } from "./citationNumbers";
 import { markOf, type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import type { ClaimMarkState } from "./icons";
+import {
+  EDGE_GAP,
+  MARK_HEIGHT,
+  type MarginRoom,
+  type MarkLine,
+  PLAIN_MARK_WIDTH,
+  placeMarginMarks,
+  revealOrder,
+} from "./marginMarks";
 import { OpinionCard } from "./OpinionCard";
 import { scrollMindTo } from "./reviewPick";
 
-const MARK_HEIGHT = 18;
-/** Between two marks stacked because their sentences start on the same line (or nearly). */
-const MARK_GAP = 4;
 /** When an Answer finishes, its checks appear one after another, this far apart. */
 const REVEAL_STEP_MS = 40;
 
@@ -30,7 +34,7 @@ const INLINE_GAP = 4;
 /** The first line's box at a position, from the editor's DOM. */
 function startOfSentence(editor: Editor, from: number) {
   const coords = editor.view.coordsAtPos(from, 1);
-  return { top: coords.top, bottom: coords.bottom, right: coords.left };
+  return { top: coords.top, bottom: coords.bottom, at: coords.left };
 }
 
 /** The last character's own box, after which a folded Mind's mark stands (its reserved room follows it). */
@@ -44,7 +48,7 @@ function endOfSentence(editor: Editor, to: number) {
       const style = getComputedStyle(dom);
       const rect = dom.getBoundingClientRect();
       const right = rect.right - (Number.parseFloat(style.paddingRight) || 0);
-      return { top: rect.top, bottom: rect.bottom, right };
+      return { top: rect.top, bottom: rect.bottom, at: right };
     }
   }
   const start = editor.view.domAtPos(to - 1);
@@ -55,23 +59,68 @@ function endOfSentence(editor: Editor, to: number) {
   const [rect] = [...range.getClientRects()].slice(-1);
   if (!rect) {
     const coords = editor.view.coordsAtPos(to, -1);
-    return { top: coords.top, bottom: coords.bottom, right: coords.left };
+    return { top: coords.top, bottom: coords.bottom, at: coords.left };
   }
-  return { top: rect.top, bottom: rect.bottom, right: rect.right };
+  return { top: rect.top, bottom: rect.bottom, at: rect.right };
 }
 
-interface Mark {
+/** A mark as measured, before its row places it. */
+interface Measured {
   /** "claim:" and the sentence check's id. */
   key: string;
   state: ClaimMarkState;
   claim: ShownClaim;
   /** The vertical middle of the sentence's first line, from the top of the column. */
   middle: number;
-  top: number;
+  /** The first line's box, from the top of the column. */
+  lineTop: number;
+  lineBottom: number;
+  /** Where the sentence starts on its line, from the left of the text. */
+  startLeft: number;
   /** The mark's left, from the column's text edge, when the Mind's margin has folded; null in the margin. */
-  left: number | null;
+  inlineLeft: number | null;
   /** How long its entrance waits, if it is appearing because its check just finished. */
   delay: number | null;
+}
+
+interface Mark extends Measured {
+  top: number;
+  left: number;
+  /** Whether the mark stands in the text, after its sentence, because the margin folded. */
+  inline: boolean;
+}
+
+/** A mark's sentence as the margin places it, with the width the mark last rendered at. */
+function lineOf(mark: Measured, widths: ReadonlyMap<string, number>): MarkLine {
+  return {
+    top: mark.lineTop,
+    bottom: mark.lineBottom,
+    middle: mark.middle,
+    left: mark.startLeft,
+    width: widths.get(mark.claim.check.id) ?? PLAIN_MARK_WIDTH,
+    silent: mark.state === "not-checked",
+  };
+}
+
+/** Each mark at its place in the margin, from its sentence's line and its rendered width. */
+function placeMargins(
+  measured: readonly Measured[],
+  room: MarginRoom,
+  widths: ReadonlyMap<string, number>,
+): Mark[] {
+  const spots = placeMarginMarks(
+    measured.map((mark) => lineOf(mark, widths)),
+    room,
+  );
+  return measured.map((mark, at) => {
+    const spot = spots[at];
+    return {
+      ...mark,
+      top: spot?.top ?? Math.round(mark.middle - MARK_HEIGHT / 2),
+      left: spot?.left ?? room.gap,
+      inline: false,
+    };
+  });
 }
 
 /**
@@ -99,6 +148,7 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.state === other.state &&
       mark.top === other.top &&
       mark.left === other.left &&
+      mark.inline === other.inline &&
       mark.delay === other.delay &&
       mark.claim.check === other.claim.check &&
       mark.claim.sentence.text === other.claim.sentence.text
@@ -109,8 +159,10 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
  * The column of sentence checks in the right margin, the Mind's signature:
  * one 18px mark for each sentence that has been checked, its verdict, level
  * with the sentence's first line, so the checks can be scanned down the page
- * (see `ClaimMark`). Marks whose sentences start on one line stack under each
- * other. A Citation's own check isn't here: it shows on its marker, in the text.
+ * (see `ClaimMark`). Sentences that start on one line put their marks side by
+ * side, and one that would pass the pane's edge goes under the line's first
+ * mark (`marginMarks.ts`). A Citation's own check isn't here: it shows on its
+ * marker, in the text.
  *
  * It is an overlay beside the editor that measures the sentences: again after
  * every change to the Mind, every change to the editor's DOM (Answers stream
@@ -118,8 +170,9 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
  * frame. Typing in a text block with no check in it, most of what happens,
  * is the exception: it moves no mark unless the block grows or shrinks, so
  * only the block is measured then. When a check finishes, its mark appears
- * after those above it, 40ms apart (not with reduced motion: see styles.css).
- * Under 760px the column keeps to the text's 40px gutter.
+ * after those above it, 40ms apart, and left to right within a line (not with
+ * reduced motion: see styles.css). Under 760px the column keeps to the text's
+ * 40px gutter.
  */
 export function MarginChecks({
   editor,
@@ -129,7 +182,6 @@ export function MarginChecks({
   /** The Mind and its document: a card checks again there. */
   mind: { id: string; doc: Y.Doc };
 }) {
-  const t = useT();
   const place = useCardPlace(mind.id);
   const layer = useRef<HTMLDivElement>(null);
   // The outline draws in the layer, which a figure shown before this note opened waits for.
@@ -168,6 +220,10 @@ export function MarginChecks({
   const seen = useRef(new Map<string, ClaimMarkState>());
   /** The entrance delays of the marks that appeared that way, by key and state. */
   const reveals = useRef(new Map<string, number>());
+  /** The sentences last measured in the margin, kept to place them again as their marks render wider. */
+  const margin = useRef<{ marks: readonly Measured[]; room: MarginRoom } | null>(null);
+  /** Each mark's own rendered width, by its check's id. */
+  const widths = useRef(new Map<string, number>());
 
   useEffect(() => {
     const column = editor.view.dom.closest(".mind-column");
@@ -185,21 +241,47 @@ export function MarginChecks({
     return () => observer.disconnect();
   }, [editor]);
 
-  // A folded Mind's mark takes its own width plus 4px after its sentence: the mark is drawn in the
-  // margin layer, so its width is known only once it has rendered.
+  /** Places the marks again once one has rendered at a width the last measure didn't know. */
+  const relayout = useCallback(() => {
+    const last = margin.current;
+    if (!last) return;
+    const next = placeMargins(last.marks, last.room, widths.current);
+    setMarks((drawn) => {
+      // An entrance's delay belongs to the render that played it, and to `onRevealed` when it ends.
+      const delays = new Map(drawn.map((mark) => [mark.key, mark.delay]));
+      const placed = next.map((mark) => ({ ...mark, delay: delays.get(mark.key) ?? null }));
+      return sameMarks(drawn, placed) ? drawn : placed;
+    });
+  }, []);
+
+  // Each mark's own rendered width: the room it keeps after its sentence when the margin folds, and
+  // where the next mark on the line stands when it doesn't. One walk of the layer for all of them,
+  // so a Note with many marks costs one query rather than one per mark.
   useEffect(() => {
-    if (!folded || !layer.current) return;
-    const widths = new Map<string, number>();
-    for (const mark of marks) {
-      if (mark.state === "not-checked") continue;
-      const element = layer.current.querySelector<HTMLElement>(
-        `[data-claim="${CSS.escape(mark.claim.check.id)}"]`,
-      );
-      const width = Math.ceil(element?.getBoundingClientRect().width ?? 0);
-      if (width > 0) widths.set(mark.claim.check.id, width);
+    const element = layer.current;
+    if (!element) return;
+    const shown = new Set(
+      marks.filter((mark) => mark.state !== "not-checked").map((mark) => mark.claim.check.id),
+    );
+    const drawn = new Map<string, number>();
+    for (const mark of element.querySelectorAll<HTMLElement>("[data-claim]")) {
+      const id = mark.dataset.claim;
+      if (!id || !shown.has(id)) continue;
+      const width = Math.ceil(mark.getBoundingClientRect().width);
+      if (width > 0) drawn.set(id, width);
     }
-    if (!editor.isDestroyed) setClaimRooms(editor.view, widths);
-  }, [folded, marks, editor]);
+    let changed = false;
+    for (const [id, width] of drawn) {
+      if (widths.current.get(id) === width) continue;
+      widths.current.set(id, width);
+      changed = true;
+    }
+    if (folded) {
+      if (!editor.isDestroyed) setClaimRooms(editor.view, drawn);
+      return;
+    }
+    if (changed) relayout();
+  }, [folded, marks, editor, relayout]);
 
   useEffect(() => {
     let frame = 0;
@@ -224,10 +306,11 @@ export function MarginChecks({
       typed = block ? { block, height } : null;
       const rect = column.getBoundingClientRect();
       const folded = foldedNow.current;
-      const next: Mark[] = [];
-      const revealed: Mark[] = [];
+      const measured: Measured[] = [];
+      const revealing = new Set<string>();
       for (const claim of shownClaims(editor.state)) {
-        let coords: { top: number; bottom: number; right: number };
+        const state = markOf(claim);
+        let coords: { top: number; bottom: number; at: number };
         try {
           coords = folded
             ? endOfSentence(editor, claim.sentence.to)
@@ -235,43 +318,50 @@ export function MarginChecks({
         } catch {
           continue;
         }
-        const state = markOf(claim);
-        const mark: Mark = {
+        const mark: Measured = {
           key: `claim:${claim.check.id}`,
           state,
           claim,
           middle: (coords.top + coords.bottom) / 2 - rect.top,
-          top: 0,
-          left: folded ? Math.round(coords.right - rect.left + INLINE_GAP) : null,
+          lineTop: coords.top - rect.top,
+          lineBottom: coords.bottom - rect.top,
+          startLeft: folded ? 0 : coords.at,
+          inlineLeft: folded ? Math.round(coords.at - rect.left + INLINE_GAP) : null,
           delay: null,
         };
-        if (seen.current.get(mark.key) === "checking" && state !== "checking") revealed.push(mark);
+        if (seen.current.get(mark.key) === "checking" && state !== "checking")
+          revealing.add(mark.key);
         seen.current.set(mark.key, state);
-        next.push(mark);
+        measured.push(mark);
       }
-      // In the margin, top to bottom; a mark that would overlap the one above goes under it. A
-      // sentence not checked yet has no mark on the page: its button is only its card's anchor, so
-      // it keeps its sentence's line and takes no room in the stack (#1941). In the text, each
-      // mark stands at its own sentence's end, so none can overlap another.
-      if (!folded) {
-        next.sort((a, b) => a.middle - b.middle);
-        let bottom = Number.NEGATIVE_INFINITY;
-        for (const mark of next) {
-          mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
-          if (mark.state === "not-checked") continue;
-          mark.top = Math.max(mark.top, bottom + MARK_GAP);
-          bottom = mark.top + MARK_HEIGHT;
-        }
+      // In the margin, marks keep the line their sentence starts on: side by side when it starts
+      // on one line, and under the line's first when one would pass the pane's edge. A sentence
+      // not checked yet keeps its line and takes no room (#1941). In the text, each mark stands at
+      // its own sentence's end, so none can overlap another.
+      let next: Mark[];
+      if (folded) {
+        next = measured.map((mark) => ({
+          ...mark,
+          top: Math.round(mark.middle - MARK_HEIGHT / 2),
+          left: mark.inlineLeft ?? 0,
+          inline: true,
+        }));
+        margin.current = null;
       } else {
-        for (const mark of next) mark.top = Math.round(mark.middle - MARK_HEIGHT / 2);
+        const pane = column.closest(".mind-column")?.getBoundingClientRect();
+        // The first mark's gap comes from the frame's `--check-gap`, so the CSS and the row agree.
+        const room: MarginRoom = {
+          gap: Number.parseFloat(getComputedStyle(column).getPropertyValue("--check-gap")) || 8,
+          edge: (pane?.right ?? rect.right) - rect.left - EDGE_GAP,
+        };
+        next = placeMargins(measured, room, widths.current);
+        margin.current = { marks: measured, room };
       }
       // Only with motion on: otherwise the marks are there at once, with no cascade to end.
       if (motionMode() === "on") {
-        revealed
-          .sort((a, b) => a.top - b.top)
-          .forEach((mark, index) => {
-            reveals.current.set(`${mark.key}:${mark.state}`, index * REVEAL_STEP_MS);
-          });
+        revealOrder(next.filter((mark) => revealing.has(mark.key))).forEach((mark, index) => {
+          reveals.current.set(`${mark.key}:${mark.state}`, index * REVEAL_STEP_MS);
+        });
       }
       for (const mark of next)
         mark.delay = reveals.current.get(`${mark.key}:${mark.state}`) ?? null;
@@ -299,6 +389,18 @@ export function MarginChecks({
     editor.on("transaction", onTransaction);
     const resizes = new ResizeObserver(request);
     resizes.observe(editor.view.dom);
+    // A Note's pane can change width with no edit at all: a group opens beside it, the assistant
+    // shows, the splitter moves. The measure stays 680px, so nothing above moves; the room the
+    // marks stand in does, and their places have to follow.
+    const pane = editor.view.dom.closest(".mind-column");
+    let paneWidth = pane?.getBoundingClientRect().width ?? 0;
+    const paneResizes = new ResizeObserver(() => {
+      const width = pane?.getBoundingClientRect().width ?? 0;
+      if (Math.abs(width - paneWidth) < 0.5) return;
+      paneWidth = width;
+      request();
+    });
+    if (pane) paneResizes.observe(pane);
     // React draws node views after the transaction; Answers stream in; KaTeX renders.
     const mutations = new MutationObserver((records) => {
       if (records.some((record) => mayMoveMarks(record, typedIn))) request();
@@ -317,6 +419,7 @@ export function MarginChecks({
       cancelAnimationFrame(frame);
       editor.off("transaction", onTransaction);
       resizes.disconnect();
+      paneResizes.disconnect();
       mutations.disconnect();
       document.fonts.removeEventListener("loadingdone", request);
     };
@@ -353,16 +456,15 @@ export function MarginChecks({
       editor={editor}
       mindId={mind.id}
       doc={mind.doc}
-      label={t("claim.mark.label", { state: t(checkStateKey(editor, mark.claim)) })}
       reveal={mark.delay !== null}
       style={
         {
           top: mark.top,
-          ...(mark.left !== null && { left: mark.left }),
+          left: mark.left,
           "--reveal-delay": `${mark.delay ?? 0}ms`,
         } as CSSProperties
       }
-      inline={mark.left !== null}
+      inline={mark.inline}
       onRevealed={() => {
         reveals.current.delete(`${mark.key}:${mark.state}`);
         setMarks((drawn) => drawn.map((each) => (each === mark ? { ...each, delay: null } : each)));

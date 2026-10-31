@@ -13,6 +13,7 @@
  * on a Passage that states one ("All figures in £m") quotes that line as its unit.
  */
 
+import { WHOLE_READ } from "../../core/answers/checks/absence";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
@@ -21,6 +22,7 @@ import {
   lastUserText,
   type Prompt,
   type Reply,
+  systemOf,
   toolResults,
   userText,
 } from "./prompt";
@@ -72,11 +74,11 @@ export const PARTLY_UNCITED = [
   },
 ];
 
-const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
+export const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
 
 export function fakeAbsence(options: GenerateOptions): string | null {
   const prompt = lastUserText(options.prompt);
-  if (!prompt.includes("<sentence>") || !ABSENCE_WORDS.test(prompt)) {
+  if (!systemOf(options.prompt).startsWith(WHOLE_READ) || !ABSENCE_WORDS.test(prompt)) {
     return null;
   }
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(prompt)?.[1] ?? "";

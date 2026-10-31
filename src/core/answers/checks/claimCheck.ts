@@ -34,6 +34,7 @@ import type {
   CheckFigure,
   Citation,
   CitationLocation,
+  CitationSupport,
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckPart,
@@ -53,11 +54,12 @@ import type {
 } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
+import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
+import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
@@ -82,9 +84,11 @@ import {
   type CitationRecordInput,
   type CiteOptions,
   type DocumentLanguage,
+  documentToolDefinitions,
+  type SearchResultForModel,
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
-import { checkAbsence, fitsWholeRead } from "./absence";
+import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
 import { agreesWith, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
@@ -109,14 +113,18 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  PRESENCE_INSTRUCTIONS,
   partInstructions,
+  presencePrompt,
   type ReadVerdict,
   readEvidence,
   readJudgement,
   readPart,
+  readPresence,
   readsAsRefusal,
   readVerdict,
   STRICT_INSTRUCTIONS,
+  STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from "./units";
@@ -176,10 +184,16 @@ export interface ClaimCheckRequest {
   recordClaim?: string;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
+  /** An explicit whole-read window (./wholeRead): every search in this Run stays within it. */
+  window?: readonly WindowedPassage[];
   signal: AbortSignal;
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
+  /** Parts already Supported or Contradicted keep their results: a whole read looks for the rest (#1554). */
+  undecidedOnly?: boolean;
+  /** A whole read goes on from one of the same pick stopped at its budget: only the parts it stopped before judging are read. */
+  resumesStopped?: boolean;
   /** The run's limit on model checks at once, which its claims' parts share. */
   slots?: Slots;
   /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
@@ -200,7 +214,10 @@ export function failureOf(error: ProviderError): {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
     case "cost-cap":
-      return { reason: "cost-cap", detail: null };
+      // The budget and the spend, as JSON, for the card to say in the User's currency format.
+      return error.budget
+        ? { reason: "read-budget", detail: JSON.stringify(error.budget) }
+        : { reason: "cost-cap", detail: null };
     case "plan-limit":
       return { reason: "plan-limit", detail: null };
     case "out-of-credit":
@@ -250,9 +267,19 @@ export function recordJudged(
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
 
+/** A whole read's window, searched again: every search of it finds the same Passages. */
+const WINDOW_SHOWN: SearchResultForModel = {
+  text: "Every search in this check finds the same Passages, and an earlier search returned them all: answer with them.",
+  passageCount: 0,
+};
+
 export type AtomicClaimCheckResult = ClaimCheckResult & {
   checkedEvidence?: readonly Citation[];
   coverage?: ClaimPartCoverage;
+  /** In a whole-read window: the Passages that reached the model in the request it answered. */
+  readPassages?: readonly string[];
+  /** In a whole-read window: the absence the sentence states holds in this window's text. */
+  absenceHeld?: true;
 };
 const FIGURES_LINE =
   "Your reply has no Figures line that can be read. Write your whole reply again, ending with the one Figures: line, its JSON object on that line.";
@@ -467,6 +494,77 @@ function withDollarClause(
   };
 }
 
+const asPassage = (source: CitationSource): WindowedPassage => ({
+  ...source,
+  seq: 0,
+  position: 0,
+  windowFrom: 0,
+  windowTo: 0,
+});
+
+const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
+  model.support === "tools" && calculates(model.capabilities);
+
+/** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
+export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
+  /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
+  findsParts?: boolean;
+};
+
+/** A check Run's instructions, for the way its model gives Citations, and its prompt. */
+function runStart(request: CheckStart, language: Language, calculating: boolean) {
+  return {
+    instructions: (mode: CitationSupport | "no-documents", passages?: string) =>
+      checkInstructions(
+        mode,
+        language,
+        passages,
+        calculating,
+        (request.figures?.length ?? 0) > 0,
+        request.findsParts === true,
+      ),
+    prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
+  };
+}
+
+/**
+ * What every request of a check Run sends before the Passages its search returns: its
+ * instructions, its prompt and its Tools' definitions, as the Run builds them. A model that can't
+ * call Tools is sent the Passages in its instructions, and no Tools.
+ */
+export function checkRunStart(
+  deps: Pick<ClaimCheckDependencies, "documents" | "language">,
+  request: CheckStart & { scope: EvidenceScope },
+  model: Pick<PreparedChatModel, "support" | "capabilities">,
+): { instructions: string; prompt: string; tools: string } {
+  const calculating = calculatesIn(model);
+  const start = runStart(request, deps.language(), calculating);
+  const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
+  const { documents } = deps;
+  const session = createCitationSession(
+    {
+      citationSource: (passageId) => documents.citationSource(passageId),
+      pageTexts: (documentId, contentHash, from, to) =>
+        documents.pageTexts(documentId, contentHash, from, to),
+      documentDate: (documentId) => documents.documentDate(documentId),
+    },
+    { onRecord: () => undefined },
+  );
+  const mode = model.support ?? "tools";
+  const tools: AnswerTools = {
+    documentCount: 1,
+    documentLanguages: deps.documents.searchableLanguages(request.scope.documentIds),
+    searchDocuments: async () => ({ text: "", passageCount: 0 }),
+    cite: () => "",
+    ...(calculating && { calculate: () => "" }),
+  };
+  return {
+    instructions: start.instructions(mode),
+    prompt: start.prompt(cited.length > 0 ? session.measure(cited.map(asPassage)) : null),
+    tools: mode === "tools" ? documentToolDefinitions(tools, "check") : "",
+  };
+}
+
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   const check = async function checkClaim(
     request: ClaimCheckRequest,
@@ -494,6 +592,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     }
     let searches = 0;
     const read = new Map<string, string>();
+    const readPassages = new Set<string>();
     const excluded = new Map<string, LeftOutDocument>();
     const decisions = caseCitations(request.originalClaim ?? request.claim);
     const workings = new Map<string, PassageSearchResult[]>();
@@ -508,18 +607,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           name,
         ),
       async search(query, searchSignal, within) {
-        const found = await deps.evidence.search(
-          query,
-          within ? { ...scope, documentIds: [...within] } : scope,
-          searchSignal,
-        );
+        const found = request.window
+          ? null
+          : await deps.evidence.search(
+              query,
+              within ? { ...scope, documentIds: [...within] } : scope,
+              searchSignal,
+            );
         // A web search's result never settles a citation of a court decision.
-        const passages =
-          decisions.length === 0
-            ? found.passages
-            : found.passages.filter((passage) => !deps.documents.savedBySearch(passage.documentId));
-        for (const passage of passages) read.set(passage.documentId, passage.contentHash);
-        for (const each of found.excluded) {
+        const passages = (request.window ?? found?.passages ?? []).filter(
+          (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
+        );
+        if (!request.window) {
+          for (const passage of passages) read.set(passage.documentId, passage.contentHash);
+        }
+        for (const each of found?.excluded ?? []) {
           if (each.reason === "own-workings") {
             workings.set(each.documentId, [
               ...(workings.get(each.documentId) ?? []),
@@ -547,22 +649,11 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
     for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
-    const citedShown =
-      citedPassages.length > 0
-        ? session.show(
-            citedPassages.map((source) => ({
-              ...source,
-              seq: 0,
-              position: 0,
-              windowFrom: 0,
-              windowTo: 0,
-            })),
-          )
-        : null;
+    const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
-    const calculating = model.support === "tools" && calculates(model.capabilities);
+    const calculating = calculatesIn(model);
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;
@@ -576,6 +667,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     });
     /** The sentence's number each figure is for, as the model named it, and how, by marker. */
     const stated = new Map<number, StatedNumber>();
+    /** In a whole read's window: whether a search has returned the window, the searches in turn. */
+    let windowShown: Promise<boolean> = Promise.resolve(false);
     const tools: AnswerTools = {
       get documentCount() {
         return session.tools.documentCount;
@@ -584,7 +677,18 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
-        return session.tools.searchDocuments(query, searchSignal, options);
+        if (!request.window) return session.tools.searchDocuments(query, searchSignal, options);
+        // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
+        // search returned the whole window again: its verdict request carried it two or three
+        // times (#1554).
+        const found = windowShown.then((shown) =>
+          shown ? WINDOW_SHOWN : session.tools.searchDocuments(query, searchSignal, options),
+        );
+        windowShown = found.then(
+          (result) => result === WINDOW_SHOWN || result.passageCount > 0,
+          () => false,
+        );
+        return found;
       },
       cite: (records, options) => session.tools.cite(records, options),
       hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
@@ -755,6 +859,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       excluded: [...excluded.values()].filter(
         (each) => each.reason === "own-file" || each.reason === "checked-document",
       ),
+      ...(request.window && { readPassages: [...readPassages] }),
     });
     const workingsSayingIt = (): LeftOutDocument[] =>
       [...workings].flatMap(([documentId, passages]) => {
@@ -806,7 +911,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const absenceFor = async (
       absence: AbsenceAnswer,
       searched: ClaimCheckResult["verdict"],
-    ): Promise<ClaimCheckResult | null> => {
+    ): Promise<AtomicClaimCheckResult | null> => {
       // A search that found and cited the thing contradicts its absence as any sentence is
       // contradicted: the whole read decides only whether search may say Supported.
       if (searched === "contradicted") return null;
@@ -827,6 +932,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         fits: readsWhole(),
         notChecked,
         failedCheck,
+        lookAt: (evidence, absent) => lookForPresence(request, evidence, absent, session, signal),
       });
     };
 
@@ -902,25 +1008,27 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
     let finished = false;
+    const start = runStart(
+      { ...request, findsParts: request.findParts !== undefined },
+      deps.language(),
+      calculating,
+    );
     for await (const event of deps.engine.generate({
-      instructions: (mode, options) =>
-        checkInstructions(
-          mode,
-          deps.language(),
-          options?.passages,
-          calculating,
-          (request.figures?.length ?? 0) > 0,
-          request.findParts !== undefined,
-        ),
-      messages: [
-        {
-          role: "user",
-          content: claimPrompt({ ...request, citedShown, language: deps.language() }),
-        },
-      ],
+      instructions: (mode, options) => start.instructions(mode, options?.passages),
+      messages: [{ role: "user", content: start.prompt(citedShown) }],
       question: request.claim,
       model: model.model,
       documents: tools,
+      ...(request.window && {
+        fitted: (passageIds: readonly string[]) => {
+          const fitted = new Set(passageIds);
+          for (const passage of request.window ?? []) {
+            if (!fitted.has(passage.passageId)) continue;
+            read.set(passage.documentId, passage.contentHash);
+            readPassages.add(passage.passageId);
+          }
+        },
+      }),
       tools: [],
       toolSet: "check",
       thirdParty: request.thirdParty ?? [],
@@ -946,7 +1054,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           check: (text) =>
             !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
         },
-        searchAgain(() => searches, readsWhole),
+        // In a window of a whole read every search returns that window: the read is the search.
+        ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...figuresReplied(
           request,
           figures,
@@ -1501,6 +1610,20 @@ function calculated(
 }
 
 /**
+ * The most requests a check sends once its Run has ended, beside a whole read's absence judgement
+ * and looks: its evidence asked for twice with every Passage it read, once for the records it
+ * named and once for the one it rests on (`evidence`, the most each may write); and its quotes
+ * compared with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the
+ * nearest line, and for a sentence with figures the rest's two looks and one for each figure.
+ */
+export function afterRun(figures: number): { evidence: number[]; comparisons: number } {
+  return {
+    evidence: [OUTPUT_LIMITS.evidence.most, outputTokens("evidence")],
+    comparisons: 4 + (figures > 0 ? 2 + figures : 0),
+  };
+}
+
+/**
  * A model that gave a verdict without a record of the Passage that decides
  * it, or with a quote the check doesn't find, is asked once more, in one
  * request, for that record from the Passages it read (Claude Haiku 5.5 left
@@ -1635,6 +1758,44 @@ async function confirmContradiction(
   if ("failed" in strict) return strict;
   const strictly = readJudgement(strict.reply);
   return { kind: strictly === null ? "malformed" : strictly === "neither" ? "doubt" : "confirmed" };
+}
+
+/**
+ * Whether the quote a window's judgement gives for what the sentence says is absent states it is
+ * there: two looks, each asked that and nothing else (#1554).
+ */
+async function lookForPresence(
+  request: ClaimCheckRequest,
+  quoted: Citation,
+  absent: string | null,
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+): Promise<Presence> {
+  const passage =
+    session.shownPassages().find((each) => each.passageId === quoted.passageId)?.text ??
+    quoted.quote;
+  const { model } = request;
+  for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
+    let reply: string;
+    try {
+      ({ text: reply } = await generateText({
+        model: model.model,
+        instructions,
+        prompt: presencePrompt({ claim: request.claim, absent, quote: quoted.quote, passage }),
+        temperature: answerTemperature(model.capabilities.facts.temperature),
+        maxOutputTokens: outputTokens("comparison"),
+        maxRetries: 1,
+        abortSignal: signal,
+      }));
+    } catch (error) {
+      if (signal.aborted) return { kind: "stopped" };
+      return { failed: classifyProviderError(error) };
+    }
+    if (signal.aborted) return { kind: "stopped" };
+    const word = readPresence(reply);
+    if (word !== "there") return { kind: word ?? "malformed" };
+  }
+  return { kind: "there" };
 }
 
 async function partOf(

@@ -293,6 +293,8 @@ export type ScriptedReply =
       pause?: { after: number; until: Promise<void> };
       /** The reply reached the request's output limit: it ends there, cut off. */
       cutOff?: boolean;
+      /** The tokens this reply reports instead of the model's. */
+      usage?: ReportedUsage;
     }
   /** The provider refuses the request with an HTTP error. */
   | { error: { status: number; message: string } };
@@ -460,7 +462,7 @@ export function scriptedModel(
           unified: reply.cutOff ? "length" : reply.calls?.length ? "tool-calls" : "stop",
           raw: undefined,
         },
-        usage,
+        usage: reply.usage ?? usage,
       });
       const { pause } = reply;
       let streamed = 0;

@@ -558,19 +558,30 @@ const EVIDENCE: readonly [RegExp, Separators][] = [
 /** Below this share of a Document's telling numbers, the other convention is taken for stray text. */
 const MAX_STRAY_SHARE = 0.1;
 
-/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
-function separatorsIn(s: string): Separators | null {
-  const counts = new Map<string, { separators: Separators; count: number }>();
+/** How often each convention's telling numbers appear in a text, by decimal and group. */
+type Evidence = Readonly<Record<string, number>>;
+
+const keyOf = (separators: Separators) => `${separators.decimal}${separators.group}`;
+
+/** Each convention once, by its key, in `EVIDENCE`'s order: a tie goes to the earlier. */
+const CONVENTIONS = new Map(EVIDENCE.map(([, separators]) => [keyOf(separators), separators]));
+
+function evidenceIn(s: string): Evidence {
+  const counts: Record<string, number> = {};
   for (const [pattern, separators] of EVIDENCE) {
     const found = s.match(pattern)?.length ?? 0;
-    if (found === 0) continue;
-    const key = `${separators.decimal}${separators.group}`;
-    const known = counts.get(key);
-    counts.set(key, { separators, count: (known?.count ?? 0) + found });
+    if (found > 0) counts[keyOf(separators)] = (counts[keyOf(separators)] ?? 0) + found;
   }
+  return counts;
+}
+
+/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
+function separatorsFrom(evidence: Evidence): Separators | null {
   const byDecimal = (decimal: string) =>
-    [...counts.values()]
-      .filter((entry) => entry.separators.decimal === decimal)
+    [...CONVENTIONS.values()]
+      .filter((separators) => separators.decimal === decimal)
+      .map((separators) => ({ separators, count: evidence[keyOf(separators)] ?? 0 }))
+      .filter((entry) => entry.count > 0)
       .sort((a, b) => b.count - a.count);
   const point = byDecimal(".");
   const comma = byDecimal(",");
@@ -612,15 +623,50 @@ export function figureLanguageTag(name: string | null): string | null {
  * a Passage alone may hold no number that tells.
  */
 export function figureContextOf(text: string, language?: string | null): FigureContext {
+  return figureContextOfFacts([figureFactsOf(text, language ?? null)], language ?? null);
+}
+
+/**
+ * What one part of a Document tells of how the whole writes its figures. The parts' facts add
+ * up to the whole's, as their lines do: a telling number, a currency's name or a statement
+ * never runs across a line break.
+ */
+export interface FigureFacts {
+  evidence: Evidence;
+  cny: boolean;
+  jpy: boolean;
+  accounts: boolean;
+}
+
+export function figureFactsOf(text: string, language: string | null): FigureFacts {
   const prepared = prepare(text);
   const { s } = prepared;
-  const cny = CNY_WORDS.test(s);
-  const jpy = JPY_WORDS.test(s);
   return {
-    language: language ?? null,
-    separators: separatorsIn(s),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    evidence: evidenceIn(s),
+    cny: CNY_WORDS.test(s),
+    jpy: JPY_WORDS.test(s),
     accounts: writesAccounts(s, statementsIn(prepared, text, settle({ language }))),
+  };
+}
+
+/** `figureContextOf` the text its parts make, one a line, from each part's facts. */
+export function figureContextOfFacts(
+  parts: readonly FigureFacts[],
+  language: string | null,
+): FigureContext {
+  const evidence: Record<string, number> = {};
+  for (const part of parts) {
+    for (const [key, count] of Object.entries(part.evidence)) {
+      evidence[key] = (evidence[key] ?? 0) + count;
+    }
+  }
+  const cny = parts.some((part) => part.cny);
+  const jpy = parts.some((part) => part.jpy);
+  return {
+    language,
+    separators: separatorsFrom(evidence),
+    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    accounts: parts.some((part) => part.accounts),
   };
 }
 

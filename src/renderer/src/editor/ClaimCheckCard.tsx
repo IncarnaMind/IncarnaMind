@@ -22,6 +22,7 @@ import {
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
+import { stoppedAtBudget } from "../../../shared/readBudget";
 import { comparableSentence } from "../../../shared/sentences";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
@@ -34,6 +35,7 @@ import {
   removeClaimMark,
   replaceCitation,
   setClaimFocus,
+  setDocumentAsk,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -45,6 +47,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { reasonText } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -80,6 +83,7 @@ import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
+import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
@@ -130,7 +134,6 @@ export function ClaimMark({
   editor,
   mindId,
   doc,
-  label,
   style,
   reveal,
   onRevealed,
@@ -140,7 +143,6 @@ export function ClaimMark({
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
-  label: string;
   style?: CSSProperties;
   reveal: boolean;
   onRevealed(): void;
@@ -149,10 +151,12 @@ export function ClaimMark({
 }) {
   const t = useT();
   const state = claim.shown.state;
-  const mark = markOf(claim);
   const running = useChecks((store) => store.running[mindId] !== undefined);
+  // Its old verdict stands until the read's comes, but the mark says what its card says.
+  const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
+  const mark = reading ? "checking" : markOf(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = state === "not-checked";
+  const silent = mark === "not-checked";
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -176,6 +180,9 @@ export function ClaimMark({
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
+  const label = t("claim.mark.label", {
+    state: reading ? t("claim.state.checking") : heading,
+  });
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -340,6 +347,7 @@ export function ClaimMark({
               rootRef={card}
               claim={claim}
               heading={heading}
+              doc={doc}
               onSourcePickerChange={sourcePickerChanged}
               checking={state === "checking" || running}
               verified={verificationOf(doc)?.documentId ?? null}
@@ -382,7 +390,8 @@ export function ClaimMark({
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
-                done();
+                // A whole read is asked again in this card, which stays open for it.
+                if (allDocuments || claim.check.action !== "check-against-document") done();
               }}
               onUseWording={(part) => {
                 applyDocumentWording(editor, claim, part);
@@ -435,7 +444,8 @@ export function ClaimMark({
               use={offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
-                done(true);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
             />
           </Popover>,
@@ -541,6 +551,7 @@ export function ClaimCard({
   rootRef,
   claim,
   heading,
+  doc,
   onSourcePickerChange,
   checking,
   verified,
@@ -573,6 +584,7 @@ export function ClaimCard({
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
+  doc: Y.Doc;
   onSourcePickerChange(open: boolean): void;
   checking: boolean;
   /** The Document a Verify Mind checks: left out of every check, as itself, never as a copy. */
@@ -683,20 +695,38 @@ export function ClaimCard({
       savedPage.fetchedAt,
   };
   const nothingFound = saysNotFound(shown, check, cited.length);
+  const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
+  // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
+  // on those it did: Continue sizes what is left and asks again.
+  const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
+  const stoppedPart = check.parts?.find(stoppedAtBudget);
+  const stopLine =
+    sentenceStopped || stoppedPart
+      ? reasonText(
+          t,
+          language,
+          "read-budget",
+          sentenceStopped ? check.detail : (stoppedPart?.detail ?? null),
+        )
+      : null;
   const reason =
     shown.state === "not-checked"
-      ? t(`claim.reason.${shown.reason}`, {
-          detail: check.detail ?? "",
-          cap: SENTENCES_CHECKED_AT_MOST,
-        })
+      ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;
+  const reading = useChecks((store) => {
+    const read = store.running[mindId ?? ""]?.read;
+    return read !== undefined && read.checkId === check.id;
+  });
+  const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // Closing the card drops its question: opened again, it sizes the read afresh.
+  useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
   const figureSources = mismatched.map((figure) => {
     const cited = figure.sourceInput?.citation;
@@ -717,6 +747,40 @@ export function ClaimCard({
       </p>
     );
   });
+
+  // While the sentence's own read runs, or the card asks about the next, the card is that read's:
+  // its question, or its progress and Stop, nothing it would replace, so no Continue or Check
+  // again starts a second read beside it.
+  if ((reading || asking) && mindId) {
+    const shownMark = reading ? "checking" : mark;
+    return (
+      <div
+        ref={rootRef}
+        className={`citation-card citation-card--${TONE[shownMark]}`}
+        contentEditable={false}
+        {...objectMenu.rowProps}
+      >
+        <div className="citation-card-head">
+          <p data-testid="claim-badge" data-check={shownMark} className="citation-badge">
+            <ClaimMarkIcon state={shownMark} className="citation-badge-icon" />
+            <span>{reading ? t("claim.state.checking") : heading}</span>
+          </p>
+          <p data-testid="claim-sentence" className="claim-card-sentence">
+            {t("claim.sentence", { sentence })}
+          </p>
+        </div>
+        <div className="citation-card-actions">
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={false}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -758,6 +822,7 @@ export function ClaimCard({
             onCheck={onCheckPart}
             onUseWording={onUseWording}
             scope={check.scope}
+            read={pickRead ?? undefined}
             citations={partCitations}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
@@ -887,13 +952,22 @@ export function ClaimCard({
               )}
               {nothingFound && (
                 <p data-testid="claim-nothing" className="citation-card-note">
-                  {looked && looked.more > 0
-                    ? t("claim.unsupported.notFound.more", {
-                        scope: lookedIn,
-                        count: looked.more,
-                        total: looked.more + 1,
-                      })
-                    : t("claim.unsupported.notFound", { scope: lookedIn })}
+                  {pickRead
+                    ? t(
+                        pickRead.pages === pickRead.of
+                          ? "claim.readAll.notFound"
+                          : pickRead.of === 1
+                            ? "claim.readSome.notFound.one"
+                            : "claim.readSome.notFound",
+                        { scope: lookedIn, pages: pickRead.pages, of: pickRead.of },
+                      )
+                    : looked && looked.more > 0
+                      ? t("claim.unsupported.notFound.more", {
+                          scope: lookedIn,
+                          count: looked.more,
+                          total: looked.more + 1,
+                        })
+                      : t("claim.unsupported.notFound", { scope: lookedIn })}
                 </p>
               )}
               {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
@@ -936,7 +1010,25 @@ export function ClaimCard({
           />
         </div>
       )}
-      {reason && !pastCap && (
+      {stopLine && (
+        <div className="citation-card-note">
+          <MetaLine
+            data-testid="claim-read-stopped"
+            parts={[
+              stopLine,
+              <LineAction
+                key="continue"
+                action={{
+                  label: t("claim.readBudget.continue"),
+                  testId: "claim-read-continue",
+                  onClick: () => onCheckAgain(),
+                }}
+              />,
+            ]}
+          />
+        </div>
+      )}
+      {reason && !pastCap && !sentenceStopped && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>
@@ -1094,6 +1186,15 @@ export function ClaimCard({
           >
             {t("claim.searchAll")}
           </button>
+        )}
+        {(notFound || check.action === "check-against-document") && verified === null && mindId && (
+          <DocumentCheckAction
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            claim={claim}
+            offer={notFound}
+          />
         )}
         {notFound && verified === null && (
           <button
