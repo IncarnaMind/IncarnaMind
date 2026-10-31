@@ -153,6 +153,7 @@ import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
+import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
@@ -1046,6 +1047,13 @@ export function createAnswers(options: AnswersOptions) {
     outside?: boolean;
     /** Which Tools its Run is offered (see `ToolSet`); absent: every Tool. */
     toolSet?: ToolSet;
+    /** The output limit of its replies, when it writes more than an Answer (see `AnswerRequest`). */
+    outputKind?: ModelCallKind;
+    /**
+     * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
+     * does: at a Task's effort the thinking alone filled their replies' limits (#2306).
+     */
+    thinking?: "answer";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -2072,7 +2080,9 @@ export function createAnswers(options: AnswersOptions) {
         prepared = await options.prepareModel(
           model,
           // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : input.task ? "summary" : careful ? "careful" : "answer",
+          help
+            ? "off"
+            : (input.thinking ?? (input.task ? "summary" : careful ? "careful" : "answer")),
         );
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
@@ -2938,6 +2948,7 @@ export function createAnswers(options: AnswersOptions) {
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
         }),
@@ -4079,6 +4090,8 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           toolSet: "check",
+          outputKind: "meeting-fill",
+          thinking: "answer",
           task: true,
           transcript: input.passages,
         });

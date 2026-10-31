@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
@@ -10,6 +12,15 @@ import {
   useLocalChatModel,
 } from "./app";
 
+/** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there. */
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+
+async function shot(window: Page, name: string): Promise<void> {
+  if (!SCREENSHOTS) return;
+  await mkdir(SCREENSHOTS, { recursive: true });
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -19,13 +30,25 @@ test.afterEach(async () => {
 });
 
 const LINES = {
-  en: { filled: "Note filled in", undo: "Undo", undone: "Fill-in undone", again: "Fill in again" },
-  "zh-CN": { filled: "已补全笔记", undo: "撤销", undone: "已撤销补全", again: "重新补全" },
+  en: {
+    filled: "Note filled in",
+    undo: "Undo",
+    undone: "Fill-in undone",
+    again: "Fill in again",
+    summary: "Summary",
+  },
+  "zh-CN": {
+    filled: "已补全笔记",
+    undo: "撤销",
+    undone: "已撤销补全",
+    again: "重新补全",
+    summary: "摘要",
+  },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, with no click, the line the User typed during the call gets what the call said under it, as AI text with a Citation, the line says so with Undo, and Undo takes it back, leaving the User's line, in English and Chinese (#142); fails_when=nothing is filled in, the User's line changes, the addition isn't AI text or uncited, or Undo leaves it; no_claim=a real model's wording, which the unit tests and a hand check cover.
-  test(`after Stop, the User's line is filled in under it, cited, and Undo takes it back (${language})`, async () => {
+  // protects=after Stop, with no click, the line the User typed during the call gets what the call said under it, as AI text with a Citation, the sections the notes don't cover follow (#2306), the line says so with Undo, and Undo takes all of it back, leaving the User's line, in English and Chinese (#142); fails_when=nothing is filled in, no section follows, the User's line changes, the addition isn't AI text or uncited, or Undo leaves any of it; no_claim=a real model's wording, which the unit tests and a hand check cover.
+  test(`after Stop, the User's line is filled in under it, cited, the sections follow, and Undo takes it back (${language})`, async () => {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -48,10 +71,12 @@ for (const language of ["en", "zh-CN"] as const) {
     const line = window.getByTestId("meeting-fill-line");
     await expect(line).toContainText(words.filled, { timeout: 30_000 });
     await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
-    // Right under the User's line: AI text, with its Citation.
-    const added = notes.locator("p:has(.generated-text)");
-    await expect(added).toHaveCount(1);
-    await expect(added.getByTestId("citation")).toHaveCount(1);
+    // Right under the User's line: AI text, with its Citation; then the sections follow.
+    const added = notes.locator(".generated-text");
+    const lineAdded = notes.locator("p:has(.generated-text)").first();
+    await expect(lineAdded.getByTestId("citation")).toHaveCount(1);
+    await expect(notes.locator("h2:has(.generated-text)").first()).toHaveText(words.summary);
+    await shot(window, `meeting-fill-sections-${language}`);
     const order = await notes
       .locator("p")
       .evaluateAll((all) => all.map((each) => each.querySelector(".generated-text") !== null));
