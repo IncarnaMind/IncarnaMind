@@ -60,6 +60,9 @@ export const safeLink: LinkTest = (href): href is string =>
 export const webLink: LinkTest = (href): href is string =>
   typeof href === "string" && /^https?:/i.test(href);
 
+/** Where a page break was: the print page starts a new page there, and so does a browser printing it. */
+const PAGE_BREAK = '<div class="page-break"></div>';
+
 export function renderPrintHtml(
   blocks: readonly Block[],
   labels: PrintLabels,
@@ -201,6 +204,20 @@ class PrintWriter {
     return blocks.map((block) => this.block(block)).join("");
   }
 
+  /**
+   * A paragraph's text, split where it has a page break (#746): the parts
+   * apart, each in `wrap`, with a break between them that starts a new page.
+   */
+  private pages(content: readonly Inline[], wrap: (html: string) => string): string {
+    if (!content.some((item) => item.kind === "pageBreak")) return wrap(this.inline(content));
+    const parts: Inline[][] = [[]];
+    for (const item of content) {
+      if (item.kind === "pageBreak") parts.push([]);
+      else parts.at(-1)?.push(item);
+    }
+    return parts.map((part) => (part.length > 0 ? wrap(this.inline(part)) : "")).join(PAGE_BREAK);
+  }
+
   private marker(note: string, adjacent = false): string {
     const number = this.number(note);
     const separator = adjacent ? "," : "";
@@ -213,10 +230,16 @@ class PrintWriter {
   private block(block: Block): string {
     switch (block.kind) {
       case "paragraph":
-        return `<p${formatStyle(block.format)}>${this.inline(changedContent(block))}</p>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<p${formatStyle(block.format)}>${html}</p>`,
+        );
       case "heading": {
         const level = Math.min(block.level + 1, 6);
-        return `<h${level}${formatStyle(block.format)}>${this.inline(changedContent(block))}</h${level}>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<h${level}${formatStyle(block.format)}>${html}</h${level}>`,
+        );
       }
       case "question":
         return `<p class="question"><span class="question-label">${escapeHtml(this.labels.question)}</span> ${this.inline(changedContent(block))}</p>`;
@@ -273,6 +296,7 @@ class PrintWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources);
     if (cited) sources.push(escapeHtml(labels.chartSources) + cited);
+    if (block.calculated > 0) sources.push(escapeHtml(labels.chartCalculated(block.calculated)));
     if (block.uncited > 0) sources.push(escapeHtml(labels.chartUncited(block.uncited)));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null) sources.push(escapeHtml(labels.chartCut(rows.length, cutFrom)));

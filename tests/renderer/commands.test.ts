@@ -459,6 +459,18 @@ describe("keys", () => {
     }
   });
 
+  test("Insert Page Break is in ⌘K, shown with ⌘↵, which the note binds itself after accepting a waiting change", async () => {
+    const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
+    const pageBreak = commands.get("pageBreak.insert");
+    expect(pageBreak?.palette).toBeUndefined();
+    // No window shortcut: in the note, ⌘↵ accepts the change the cursor is in first.
+    expect(pageBreak?.shortcut).toBeUndefined();
+    expect([keysLabel("CmdOrCtrl+Enter", true), keysLabel("CmdOrCtrl+Enter", false)]).toContain(
+      pageBreak && menuKeysLabel(pageBreak),
+    );
+    expect(commands.get("proposal.accept")?.shortcut?.keys).toBe("CmdOrCtrl+Enter");
+  });
+
   test("are written as each system writes them", () => {
     expect(keysLabel("CmdOrCtrl+J", true)).toBe("⌘J");
     expect(keysLabel("CmdOrCtrl+J", false)).toBe("Ctrl+J");

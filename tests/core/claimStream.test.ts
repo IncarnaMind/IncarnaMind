@@ -13,6 +13,10 @@ describe("A reply as it streams", () => {
     expect(shown("The tides are late. I've ad")).toBe("The tides are late. ");
     expect(shown("The tides are late. Short")).toBe("The tides are late. ");
     expect(shown("The summary is now twice")).toBe("");
+    expect(shown("The tides are late. The new note was created. More")).toBe(
+      "The tides are late. ",
+    );
+    expect(shown("The note says the tides are late. ")).toBe("The note says the tides are late. ");
     expect(shown("总结说潮汐很晚。总结已扩")).toBe("总结说潮汐很晚。");
     expect(shown("潮汐很晚")).toBe("潮汐很晚");
   });

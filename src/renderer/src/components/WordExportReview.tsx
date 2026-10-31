@@ -20,6 +20,8 @@ function lossText(loss: WordExportLoss, t: ReturnType<typeof useT>): string {
         : t("export.word.change.anonymous", { text });
     case "copy":
       return text ? t("export.word.copy", { text }) : t("export.word.copy.empty");
+    case "note":
+      return t("export.word.copy.note");
     case "edit":
       return t("export.word.edit", { text });
     case "signature":

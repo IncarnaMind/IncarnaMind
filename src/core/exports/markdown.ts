@@ -265,6 +265,8 @@ class MarkdownWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources, { table: false }).trim();
     if (cited) sources.push(`${escapeText(this.labels.chartSources, false)}${cited}`);
+    if (block.calculated > 0)
+      sources.push(escapeText(this.labels.chartCalculated(block.calculated), false));
     if (block.uncited > 0) sources.push(escapeText(this.labels.chartUncited(block.uncited), false));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null)
@@ -400,6 +402,9 @@ class MarkdownWriter {
         return `[^${this.number({ kind: "note", text: this.inline(item.content, { table: false, note: true }) })}]`;
       case "image":
         return this.image(item.image, context, false);
+      // Markdown has no pages.
+      case "pageBreak":
+        return "";
       case "cite": {
         // A style's note is a footnote of its own; in the text, or in a footnote's text, its words.
         if (item.note && !context.note) {

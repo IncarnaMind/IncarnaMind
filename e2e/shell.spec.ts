@@ -229,7 +229,7 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
     expect(text).toBeCloseTo(40, 0);
   }
 
-  // "Library", Settings and Not in a Folder's label share the columns.
+  // "Library", Settings and the Documents label share the columns (no Folder here).
   const sidebarLeft = (await boxOf(sidebar)).x;
   const allDocuments = window.getByTestId("open-library");
   expect((await boxOf(allDocuments.locator("svg"))).x - sidebarLeft).toBeCloseTo(16, 0);
@@ -405,7 +405,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   const status = window.getByTestId("sidebar-status");
   const watched = [
     window.getByTestId("open-library"),
-    window.getByTestId("not-in-a-folder-title"),
+    window.getByTestId("notes-title"),
     window.getByTestId("mind-list-item"),
   ];
   const layout = async () => ({

@@ -1,14 +1,13 @@
 import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tiptap/react";
-import { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { MIND_FIGURE_RUNS_FIELD } from "../../../core/api";
 import {
   readCalculatedFigureAttributes,
   readCalculatedFigureEvidence,
 } from "../../../shared/calculatedFigures";
 import { commonCitationStyle } from "../../../shared/citationStyles";
-import { calculatedCitations, calculatedSources } from "../../../shared/figureRuns";
+import { calculatedCitations } from "../../../shared/figureRuns";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
@@ -20,16 +19,16 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { CalculatedFigureCard } from "./CalculatedFigureCard";
 import { editCalculatedFigure } from "./calculatedFigureActions";
+import { useFigureEvidence, useFigureSignOff } from "./calculatedFigureState";
 import { citationWorkSignature } from "./citationClusters";
 import { figureNumberOf } from "./citationNumbers";
 import { figureShownIn } from "./claimChecks";
 import { type FigureHandle, figureHandle } from "./figureHandle";
-import { MindIdContext, SignOffsContext } from "./mindContext";
+import { MindIdContext } from "./mindContext";
 import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import { StyledRuns } from "./StyledRuns";
-import { calculatedFigureSignOff, currentSigner, setFigureSignOffs } from "./signOffActions";
 import "./calculatedFigure.css";
 
 registerMenu("check", [
@@ -57,26 +56,7 @@ export function CalculatedFigureView({
   const [pinned, setPinned] = useState(false);
   const { peeking, hold, clear } = useCitationPeek();
   const open = pinned || peeking;
-  const [revision, refresh] = useReducer((value: number) => value + 1, 0);
-  useEffect(() => {
-    if (!doc || !attributes?.figure.analysis) return;
-    const runs = doc.getMap(MIND_FIGURE_RUNS_FIELD);
-    runs.observe(refresh);
-    return () => runs.unobserve(refresh);
-  }, [doc, attributes]);
-  // Receipts can arrive through the Yjs map without changing this ProseMirror node.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision observes that map.
-  const evidence = useMemo(() => {
-    if (!attributes) return null;
-    try {
-      return { sources: calculatedSources(attributes, doc), error: null };
-    } catch (error) {
-      return { sources: null, error };
-    }
-  }, [attributes, doc, revision]);
-  useEffect(() => {
-    if (evidence?.error) console.error(evidence.error);
-  }, [evidence]);
+  const evidence = useFigureEvidence(attributes, doc);
   const shown = useEditorState({
     editor,
     selector: ({ editor: current }) => figureShownIn(current.state, attributes?.id ?? ""),
@@ -140,24 +120,11 @@ export function CalculatedFigureView({
       if (figureHandle.current === active) figureHandle.current = null;
     };
   }, [open, attributes]);
-  // The User's own "Checked by me" on the figure (#1933), in a Note they can change.
-  const { rows } = useContext(SignOffsContext);
-  const signOff = attributes ? calculatedFigureSignOff(rows, attributes.id) : null;
-  const canSignOff = mindId !== null && editor.isEditable && signOff !== null;
-  const toggleSignOff = () => {
-    const signer = currentSigner();
-    if (!signOff || !mindId || !signer) return;
-    try {
-      setFigureSignOffs(
-        { mindId, basis: null, copy: null },
-        [signOff],
-        checkedByMe(signOff.now),
-        signer,
-      );
-    } catch (error) {
-      useAppStore.getState().reportError(error);
-    }
-  };
+  const {
+    signOff,
+    canSignOff,
+    toggle: toggleSignOff,
+  } = useFigureSignOff(attributes, editor.isEditable);
   const target = { kind: "check" as const, id: attributes?.id ?? "" };
   const menu = useObjectMenu(target);
   const here = {

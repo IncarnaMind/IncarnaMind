@@ -35,7 +35,13 @@
 import * as Y from "yjs";
 import { originOf } from "../shared/blockOrigins";
 import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
-import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
+import {
+  type ChartAttributes,
+  chartSources,
+  chosenSeries,
+  everyPlace,
+  readChart,
+} from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
 import {
   cellProblemMessage,
@@ -82,6 +88,7 @@ import {
   DOCUMENT_CHIP_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
+  PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
   PICTURE_NODE,
@@ -216,6 +223,9 @@ export interface Pendings {
 export interface Image {
   src: string;
   alt: string;
+  /** The size the Note shows it at, in pixels: an imported Word picture's, as Word drew it. */
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -240,6 +250,8 @@ export type Inline = (
     }
   | { kind: "math"; latex: string }
   | { kind: "break" }
+  /** A page break (#746): where the text after it starts a new page, in a writer with pages. */
+  | { kind: "pageBreak" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
   /**
    * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
@@ -332,8 +344,9 @@ export type Block = (
   /**
    * A chart (#436): what it draws, for a picture of it; its values as a table,
    * the heading row first, without their Citations; and the places they were
-   * quoted from, one Citation each, side by side, numbered with the Mind's
-   * other footnotes. An export that draws its picture adds it as `picture`.
+   * quoted from, and its calculated values' Inputs were (#2307), one Citation
+   * each, side by side, numbered with the Mind's other footnotes. An export
+   * that draws its picture adds it as `picture`.
    */
   | {
       kind: "chart";
@@ -341,6 +354,7 @@ export type Block = (
       table: TableCell[][];
       sources: Inline[];
       uncited: number;
+      calculated: number;
       picture?: Image;
     }
   | { kind: "question"; content: Inline[] }
@@ -674,6 +688,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  PAGE_BREAK_NODE,
   WORD_ATOM_NODE,
   DOCUMENT_CHIP_NODE,
 ]);
@@ -1028,8 +1043,9 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
       ...drawn.map((series) => cell(row.values[series]?.shown ?? "", false, "right")),
     ]),
   ];
-  const { places, uncited } = chartSources(chart);
-  const sources: Inline[] = places.map(({ citation }) => {
+  const counted = chartSources(chart);
+  const { uncited, calculated } = counted;
+  const sources: Inline[] = everyPlace(counted).map(({ citation }) => {
     const attributes = citation as unknown as Record<string, unknown>;
     return {
       kind: "citation",
@@ -1037,11 +1053,22 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
       work: citedWork(attributes),
     };
   });
-  return { kind: "chart", chart, table, sources, uncited };
+  return { kind: "chart", chart, table, sources, uncited, calculated };
 }
 
 function readImage(element: Y.XmlElement): Image {
-  return { src: stringAttribute(element, "src"), alt: stringAttribute(element, "alt") };
+  const size = (name: string) => {
+    const value: unknown = element.getAttribute(name);
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+  };
+  const width = size("width");
+  const height = size("height");
+  return {
+    src: stringAttribute(element, "src"),
+    alt: stringAttribute(element, "alt"),
+    ...(width !== undefined && { width }),
+    ...(height !== undefined && { height }),
+  };
 }
 
 export const NO_MARKS: Marks = {
@@ -1152,6 +1179,9 @@ function readInlineElement(
       break;
     case "hardBreak":
       add({ kind: "break" });
+      break;
+    case PAGE_BREAK_NODE:
+      if (!inFootnote) add({ kind: "pageBreak" });
       break;
     case "image":
       add({ kind: "image", image: readImage(child) });
