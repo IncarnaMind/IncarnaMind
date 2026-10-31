@@ -58,6 +58,7 @@ function useCorner(editor: Editor) {
  */
 export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }) {
   const t = useT();
+  const bar = useRef<HTMLElement>(null);
   const field = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(() => selectedWords(editor));
   const [replacement, setReplacement] = useState("");
@@ -84,9 +85,10 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
   useEffect(() => {
     field.current?.focus();
     field.current?.select();
-    // The editor takes the focus back a frame after Esc closes the outline or a menu: not from the field.
+    // The editor takes the focus back a frame after Esc closes the outline or a menu. Take it back
+    // only when it has left the bar: by then the User may already be in the Replace field.
     const frame = requestAnimationFrame(() => {
-      if (document.activeElement !== field.current) field.current?.focus();
+      if (!bar.current?.contains(document.activeElement)) field.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
   }, [requests]);
@@ -214,6 +216,7 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
 
   return createPortal(
     <search
+      ref={bar}
       data-testid="find-bar"
       aria-label={t(withReplace ? "editor.replace.label" : "editor.find.label")}
       style={corner}
