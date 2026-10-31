@@ -13,8 +13,13 @@ import {
 } from "../../src/core";
 import { addCitedVersions, type CitedVersions } from "../../src/core/answers/citedVersions";
 import { tableGrid } from "../../src/renderer/src/editor/chartCommands";
-import { type ChartAttributes, chartFromTable, readChart } from "../../src/shared/charts";
-import { chartOf, Q2, TABLE } from "../helpers/calculatedCharts";
+import {
+  type ChartAttributes,
+  chartFromTable,
+  chartSources,
+  readChart,
+} from "../../src/shared/charts";
+import { chartOf, Q1, Q2, TABLE } from "../helpers/calculatedCharts";
 import {
   answerEnded,
   askAndFinish,
@@ -506,6 +511,24 @@ describe("a chart of calculated figures (#2307)", { timeout: 30_000 }, () => {
       (await core.exportMind(mind.id, { format: "markdown" })).data,
     );
     expect(chinese).toContain("2 个数值由计算得出。");
+    // An older editor would write its figures away: the Note records the version that keeps them.
+    expect(client.doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY)).toBe(43);
+  });
+
+  test("a chart stored before its values kept figures reads its values as quoted, as it did", () => {
+    // As the version before stored it: each calculated value with the first Citation in its cell.
+    const { data } = chartOf(TABLE);
+    const before = readChart({
+      data: JSON.parse(
+        JSON.stringify(data, (key, value) =>
+          key === "figure" ? undefined : key === "citation" && value === null ? Q1.citation : value,
+        ),
+      ),
+    });
+    const west = before.data.rows[0]?.values[0];
+    expect(west?.figure).toBeUndefined();
+    expect(west?.citation?.location).toEqual(Q1.citation.location);
+    expect(chartSources(before)).toMatchObject({ values: 3, calculated: 0, uncited: 0 });
   });
 
   test("Question context reads a calculated value as calculated, with no one cell as its source", async () => {
