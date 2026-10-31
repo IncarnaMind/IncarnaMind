@@ -105,6 +105,13 @@ import {
   sameText,
 } from "./prompt";
 
+/** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
+const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
+  "instruction",
+  "cut-unsupported",
+  "follow-citation",
+]);
+
 /** The new text a reply gives, without what it quotes as taken out. */
 const textOf = (reply: string) => readRemovals(reply).text.trim();
 
@@ -699,7 +706,9 @@ export function createEdits(options: EditsOptions) {
     }
     const reply = readEditReply(raw, selection.text);
     // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
-    if (reply === "" && !wrote && !refused) {
+    // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
+    const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply) === "");
+    if (empty && !wrote && !refused) {
       return ended({
         kind: "failed",
         error: {
@@ -733,6 +742,12 @@ export function createEdits(options: EditsOptions) {
     if (stream?.written().unmadeTable) {
       takeBackWritten();
       return ended({ kind: "no-table", text: textOf(reply) });
+    }
+    // Text marked to go that isn't there: what else it wrote may lean on that going, so none of it goes in.
+    const unplaced = stream?.written().unplaced;
+    if (unplaced) {
+      takeBackWritten();
+      return ended({ kind: "unplaced", quotes: unplaced });
     }
     if (!wrote) return ended({ kind: "unchanged" });
     return { result: arrived(), reply: textOf(reply), reason };
@@ -875,6 +890,7 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply) });
+      if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
       if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const top = topLevelBlocks(blocks);

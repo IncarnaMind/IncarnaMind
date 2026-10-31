@@ -14,6 +14,7 @@ export interface ExportLabels {
   /** With the space that follows it, if any: "Source: ", "数据来源：". */
   chartSources: string;
   chartUncited(count: number): string;
+  chartCalculated(count: number): string;
   chartCut(rows: number, total: number): string;
   /** A Word file's comment on AI text (#107). */
   aiText: string;
@@ -74,6 +75,10 @@ export function exportLabels(language: Language): ExportLabels {
     chartSources: t("export.chart.sources").replace(/[^\u3000-\u303f\uff00-\uffef]$/, "$& "),
     chartUncited: (count) =>
       count === 1 ? t("export.chart.uncited.one") : t("export.chart.uncited.other", { count }),
+    chartCalculated: (count) =>
+      count === 1
+        ? t("export.chart.calculated.one")
+        : t("export.chart.calculated.other", { count }),
     chartCut: (rows, total) => t("export.chart.cut", { rows, total }),
     aiText: t("export.comment.aiText"),
     failedCheck: ({ source, failed }) => {

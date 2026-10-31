@@ -693,6 +693,17 @@ const plainSentence = (sentence: string) =>
 const TAKEN_OUT_SENTENCES = 6;
 const TAKEN_OUT_CHARACTERS = 110;
 
+/** The text a rewrite marked to take out, as the model is told it: a few, each cut short. */
+const quotesSaid = (quotes: readonly string[]) =>
+  quotes
+    .slice(0, TAKEN_OUT_SENTENCES)
+    .map((quote) =>
+      quote.length > TAKEN_OUT_CHARACTERS
+        ? `“${quote.slice(0, TAKEN_OUT_CHARACTERS)}…”`
+        : `“${quote}”`,
+    )
+    .join(", ");
+
 /**
  * What a rewrite took out, as the model is told so it reports what happened and not what it
  * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
@@ -885,6 +896,11 @@ function notProposed(
       return new Refusal(
         { kind: "no-table", mindId },
         noTableMessage(name, noTableSaid, result.text),
+      );
+    case "unplaced":
+      return new Refusal(
+        { kind: "unplaced", mindId },
+        `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quotesSaid(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
       );
     case "proposed":
       return "";

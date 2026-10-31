@@ -24,7 +24,7 @@ import type { ChatProviderKind, ConversationAnswer, Core } from "../../src/core"
 import { GENERATED_MARK } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -193,7 +193,8 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 3);
       const report: string[] = [`## ${live.name} · ${live.model} (#2180, edit replies)`];
       const judged = new AsyncLocalStorage<{ record: string[] }>();
-      const core = startCore(await createTempDataFolder(), {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir, {
         createChatModel: (spec) =>
           wrapLanguageModel({
             model: createAiSdkChatModel(spec),
@@ -321,10 +322,9 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           );
         }
       }
-      const cost = await core.getCostSummary();
       report.push(
         `  all: made ${made}/${jobs.length}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
-        `  requests ${cost.providers.reduce((sum, each) => sum + each.requests, 0)}, spent ${cost.spent.map((money) => `${money.amount.toFixed(4)} ${money.currency}`).join(", ") || "0"}`,
+        ...spentBy(dataDir),
         ...kept,
       );
       core.close();

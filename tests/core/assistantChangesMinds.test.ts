@@ -752,6 +752,49 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     expect(shownWithChanges(client)).toEqual([kept, also]);
   });
 
+  // protects=a quote the Note doesn't have word for word refuses the change, and the model is told so, so the reply says nothing changed (#2180); in Chinese too; fails_when=the rest applies, the model isn't told, or is told it went; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Drop the bit about the boats",
+      lines: ["Pay is monthly.", "Boats leave at high water."],
+      quote: "Boats wait for the tide.",
+    },
+    {
+      asked: "删掉关于船的那句",
+      lines: ["薪酬按月发放。", "船只在涨潮时出港。"],
+      quote: "船只等待潮水。",
+    },
+  ])(
+    "a quote the Note doesn't have changes nothing, and is told: $asked",
+    async ({ asked, lines, quote }) => {
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          return { text: `${lines[0]} Noted.\n\n<removed>${quote}</removed>\n<why>Done.</why>` };
+        }
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      });
+      const { core, mind, client } = await setUp(model);
+      writeMind(
+        client,
+        lines.map((line) => note(line)),
+      );
+      await client.settled();
+
+      await ask(core, { text: asked, mindId: mind.id });
+
+      await client.settled();
+      const told = lastResult(model);
+      expect(told).toContain(
+        `the rewrite marked text to take out that isn't there word for word in one place: “${quote}”`,
+      );
+      expect(told).not.toContain("no longer in the text as they were");
+      expect(shownWithChanges(client)).toEqual(lines);
+    },
+  );
+
   // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
   test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {
