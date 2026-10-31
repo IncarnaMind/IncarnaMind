@@ -124,17 +124,36 @@ export function periodCounts(text: string, context: FigureContext): Figure[] {
   return counts;
 }
 
+const NUMBER_WORDS = new RegExp(
+  `\\b(?:${INTEGER_WORDS}|a (?:hundred|thousand|million|billion|trillion))\\b`,
+  "iu",
+);
+
+// No figure reader reads these, so a calculation the model tries for one can't be tied to the
+// sentence and the check ends Not checked. Without `calculate` the model would judge "doubled"
+// by its own sums.
+const MULTIPLES = new RegExp(
+  `\\b(?:(?:doubl|tripl|quadrupl|halv)(?:e|ed|es|ing)|twice|thrice|half|dozens?|(?:${INTEGER_WORDS}|\\d+)-?fold|an? (?:third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)s?)\\b|翻.{0,3}番|倍|减半|一半|半数|过半|[一两二三四五六七八九十几]打|[一二三四五六七八九]折`,
+  "iu",
+);
+
 /**
- * Whether `sentence` states a figure in its own way of writing numbers or in English or Chinese
- * ones: `calculate` settles only a figure the sentence states (`statedFigure`), so a check of a
- * sentence with none isn't offered it, nor its instructions (#1634).
+ * Whether `sentence` has a number a calculation could be tied to, read every way `statedFigure`
+ * reads one (figures and counts, English number words, dates and years), as the sentence writes
+ * numbers or as English or Chinese do, or a word for a multiple. Only then is the check offered
+ * `calculate` and its instructions (#1634); a doubt keeps them.
  */
 export function statesAFigure(sentence: string): boolean {
+  if (NUMBER_WORDS.test(sentence) || MULTIPLES.test(sentence)) return true;
   return [
     documentFigureContext([{ text: sentence }]),
     figureContextOf(sentence, "en"),
     figureContextOf(sentence, "zh-CN"),
-  ].some((context) => figuresInClaim(sentence, context).length > 0);
+  ].some(
+    (context) =>
+      figuresInClaim(sentence, context).length > 0 ||
+      printedFigures(sentence, { ...context, dates: true, midLine: true, header: null }).length > 0,
+  );
 }
 
 /**

@@ -1095,13 +1095,19 @@ function repeatedLines(before: string, text: string): number {
 /**
  * A Passage's shown text without its first `repeated` lines, which the Passage before it ends
  * with, starting with the mark of the Unit it now starts in: its own start no longer says.
+ * `firstMark` is the first Unit's, when the text was shown starting with it.
  */
-function withoutRepeatedStart(text: string, repeated: number, units: readonly PageText[]): string {
+function withoutRepeatedStart(
+  text: string,
+  repeated: number,
+  units: readonly PageText[],
+  firstMark: string | null,
+): string {
   const lines = text.split("\n");
   const rest = lines.slice(repeated).join("\n").replace(/^\n+/, "");
   const marks = units.map(unitMark);
   if (marks.some((mark) => mark && rest.startsWith(`${mark} `))) return rest;
-  let startsIn: string | null = null;
+  let startsIn = firstMark;
   for (const line of lines.slice(0, repeated)) {
     const mark = marks.find((each, index) => index > 0 && each && line.startsWith(`${each} `));
     if (mark) startsIn = mark;
@@ -1669,7 +1675,7 @@ export function createCitationSession(
         date: dateOf(passage.documentId),
         range,
         location: severalSections ? null : passageLocation(units),
-        text: repeated > 0 ? withoutRepeatedStart(text, repeated, units) : text,
+        text: repeated > 0 ? withoutRepeatedStart(text, repeated, units, firstMark) : text,
         notCited,
         continues: repeated > 0 ? (shownIds[index - 1] ?? null) : null,
       };

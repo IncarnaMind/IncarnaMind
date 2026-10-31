@@ -1049,29 +1049,96 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     expect(searched?.text).toContain('A Passage marked continues="P1" goes on where P1 ends');
   });
 
-  test.each([
-    ["Net debt fell sharply over the year.", "Net debt fell to 1.1x over the year."],
-    ["净负债在本年度大幅下降。", "净负债在本年度降至1.1倍。"],
-  ])(
-    "a sentence that states no figure isn't offered calculate, one that does is (#1634): %s",
-    async (none, one) => {
-      const calls: ModelCall[] = [];
-      const plans = {
-        [none]: { verdict: "unsupported" },
-        [one]: { verdict: "unsupported", calculation: { ...RATIO, stated: "1.1x" } },
-      } as const;
-      const { core } = await calculatingCheck(checkingModel(plans, calls));
-
-      await core.checkClaim({ claim: none });
-      expect(calls[0]?.tools.sort()).toEqual(["cite", "search_documents"]);
-      expect(calls[0]?.system).not.toContain("calculate");
-
+  // protects=a sentence with anything a calculation could be tied to or a word for a multiple keeps calculate and the rule against arithmetic in the head, in English and Chinese; fails_when=number words, dates, years, quarters or multiples lose calculate, or a sentence with no quantity keeps it; no_claim=how the model checks any of them.
+  test("a sentence with no quantity isn't offered calculate; one with a figure, a number word, a date or a multiple is (#1634)", async () => {
+    const quantities = [
+      "Net debt fell to 1.1x over the year.",
+      "Expenses were three-quarters of revenue.",
+      "The notice period is three months.",
+      "The term ends five years after signing.",
+      "Revenue grew by twelve per cent.",
+      "Revenue grew by twelve percent.",
+      "Revenue grew by twelve.",
+      "Revenue was one million pounds.",
+      "Revenue was a million pounds.",
+      "| Revenue | twelve million | ten million |",
+      "Revenue grew by a factor of three.",
+      "The fee is one and a half times the base rate.",
+      "The loan matures in 2029.",
+      "The board met in Q3 2024.",
+      "The lease ends on 31 March 2027.",
+      "Revenue in 2024 was higher than in 2023.",
+      "Revenue doubled year on year.",
+      "Net debt halved over the period.",
+      "Operating costs tripled after the acquisition.",
+      "The company sold twice as many units as the year before.",
+      "Headcount rose by a dozen.",
+      "Margins were cut in half.",
+      "Sales grew by a quarter.",
+      "Profit rose by a third.",
+      "Sales rose by half.",
+      "Revenue rose by half a million.",
+      "Net income was a third of revenue.",
+      "Revenue rose tenfold.",
+      "净负债在本年度降至1.1倍。",
+      "销量是去年的两倍。",
+      "营收为去年的一倍半。",
+      "利润增长了三成。",
+      "营收增长了一成。",
+      "营收增长了百分之十二。",
+      "营收增长了十二个百分点。",
+      "成本是收入的三分之一。",
+      "营收达十二亿元。",
+      "租期为三年。",
+      "合同于2027年3月到期。",
+      "合同于二〇二七年三月到期。",
+      "第三季度收入最高。",
+      "营收同比翻了一番。",
+      "净利润翻倍。",
+      "利润翻了两番。",
+      "净利润减半。",
+      "成本增加了一半。",
+      "员工人数增加了一打。",
+    ];
+    const none = [
+      "Net debt fell sharply over the year.",
+      "Revenue exceeded costs in both years.",
+      "Both subsidiaries reported a loss.",
+      "Gross margin improved.",
+      "Costs rose faster than revenue.",
+      "The majority of shares are held by the founder.",
+      "Hundreds of jobs were cut.",
+      "The leverage ratio stayed below the covenant.",
+      "The second quarter was the strongest.",
+      "Article IV applies to the lease.",
+      "COVID-19 reduced sales.",
+      "Someone was at the meeting.",
+      "净负债在本年度大幅下降。",
+      "收入超过了成本。",
+      "两家子公司都亏损。",
+      "毛利率有所提高。",
+      "收入增长快于成本。",
+      "大部分股份由创始人持有。",
+    ];
+    const calls: ModelCall[] = [];
+    const { core } = await calculatingCheck(checkingModel({}, calls));
+    const offered: [string, boolean, boolean][] = [];
+    for (const claim of [...quantities, ...none]) {
       const from = calls.length;
-      await core.checkClaim({ claim: one });
-      expect(calls[from]?.tools.sort()).toEqual(["calculate", "cite", "search_documents"]);
-      expect(calls[from]?.system).toContain("isn't judged in your head");
-    },
-  );
+      await core.checkClaim({ claim });
+      offered.push([
+        claim,
+        calls[from]?.tools.includes("calculate") ?? false,
+        calls[from]?.system.includes("isn't judged in your head") ?? false,
+      ]);
+    }
+
+    expect(offered).toEqual([
+      ...quantities.map((claim) => [claim, true, true]),
+      ...none.map((claim) => [claim, false, false]),
+    ]);
+    expect(calls.at(-1)?.system).not.toContain("calculate");
+  });
 
   test("the sentence's mark keeps the working: the figure, its inputs' Citations and the sentence's number, and their Documents' versions are kept", async () => {
     const claim = "Net debt to EBITDA fell to 1.1x.";

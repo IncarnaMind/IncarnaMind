@@ -502,7 +502,6 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
   windowTo: 0,
 });
 
-// A calculation only judges a figure the sentence states, so a sentence with none isn't offered it (#1634).
 const calculatesIn = (
   model: Pick<PreparedChatModel, "support" | "capabilities">,
   claim: string,

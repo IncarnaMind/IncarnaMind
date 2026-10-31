@@ -1245,7 +1245,7 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
         windowTo: built.windowTo,
       }));
 
-  function searching(found: readonly WindowedPassage[], once = true) {
+  function searching(found: readonly WindowedPassage[], once = true, pages = PAGES) {
     const cited: Citation[] = [];
     const session = createCitationSession(
       {
@@ -1258,7 +1258,7 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
             : null;
         },
         pageTexts: (_id, _hash, from, to) =>
-          PAGES.filter((unit) => (unit.page ?? 0) >= (from ?? 0) && (unit.page ?? 0) <= (to ?? 0)),
+          pages.filter((unit) => (unit.page ?? 0) >= (from ?? 0) && (unit.page ?? 0) <= (to ?? 0)),
         documentDate: () => null,
       },
       { onRecord: (_marker, citation) => cited.push(citation), showsSharedLinesOnce: once },
@@ -1340,7 +1340,7 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
     ]);
   });
 
-  // protects=only whole lines count as shared, so a Passage whose first line merely ends the one before it is shown whole, in English and Chinese; fails_when=that line is left out and the Passage marked as going on from the one before; no_claim=Passages of different Documents, which never share lines.
+  // protects=only whole lines count as shared, so a Passage whose first line merely ends the one before it is shown whole, in English and Chinese; fails_when=that line is left out and the Passage marked as going on from the one before; no_claim=Passages of different Documents or versions, which have their own test.
   test.each([
     [
       "The harbour logged 412 calls in 2025, up from 398.",
@@ -1373,6 +1373,76 @@ describe("Consecutive Passages in a check Run (#1634)", () => {
       expect(shown.map((passage) => passage.text)).toEqual(texts);
     },
   );
+
+  // Two versions of a contract, restated accounts and reports from one template share lines too.
+  test.each([
+    ["another Document", { documentId: "harbour", documentName: "Harbour report" }],
+    ["another version of the Document", { contentHash: "v2" }],
+  ])("a Passage of %s is shown whole, though it follows with a shared line", async (_, other) => {
+    const texts = [
+      "Revenue was 10 in 2024.\nCosts were 8 in 2024.",
+      "Costs were 8 in 2024.\nRevenue was 12 in 2025.",
+    ];
+    const found = texts.map(
+      (text, position): WindowedPassage => ({
+        passageId: `s${position}`,
+        documentId: "port",
+        documentName: "Port report",
+        contentHash: "v1",
+        pageFrom: 1,
+        pageTo: 1,
+        position,
+        text,
+        seq: position,
+        documentKind: "pdf",
+        windowFrom: 0,
+        windowTo: position,
+        ...(position === 1 && other),
+      }),
+    );
+    const { session } = searching(found);
+    const shown = shownPassages((await session.tools.searchDocuments("revenue")).text);
+
+    expect(shown.map((passage) => passage.continues)).toEqual([null, null]);
+    expect(shown.map((passage) => passage.text)).toEqual(texts);
+  });
+
+  test("a Passage over several sections whose shared lines held its first section's mark starts with that mark", async () => {
+    const sections: PageText[] = [
+      {
+        page: 1,
+        kind: "section",
+        label: { path: ["Revenue"] },
+        text: "Revenue was 10 in 2024.\nRevenue was 12 in 2025.\nRevenue was 13 in 2026.",
+      },
+      { page: 2, kind: "section", label: { path: ["Costs"] }, text: "Costs were 8 in 2026." },
+    ];
+    const passage = (position: number, pageTo: number, text: string): WindowedPassage => ({
+      passageId: `t${position}`,
+      documentId: "port",
+      documentName: "Port report",
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo,
+      position,
+      text,
+      seq: position,
+      documentKind: "docx",
+      windowFrom: 0,
+      windowTo: position,
+    });
+    const found = [
+      passage(0, 1, "Revenue was 10 in 2024.\nRevenue was 12 in 2025."),
+      passage(1, 2, "Revenue was 12 in 2025.\nRevenue was 13 in 2026.\n\nCosts were 8 in 2026."),
+    ];
+    const { session } = searching(found, true, sections);
+    const shown = shownPassages((await session.tools.searchDocuments("revenue")).text);
+
+    expect(shown[1]).toMatchObject({ continues: "P1", location: null });
+    expect(shown[1]?.text).toBe(
+      "[§ Revenue] Revenue was 13 in 2026.\n\n[§ Costs] Costs were 8 in 2026.",
+    );
+  });
 
   test("an Answer's Passages are shown whole", async () => {
     const found = windowed([0, 1, 2]);
