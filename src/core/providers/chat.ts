@@ -82,6 +82,7 @@ import {
   type OllamaModelProfile,
   type OllamaModels,
 } from "./ollamaModels";
+import { CutShortError, endsAtLimit, outputTokens } from "./outputLimits";
 import { classifyProviderError, LocalModelError, OllamaNotRunningError } from "./providerErrors";
 
 /** How long a provider's model list is kept before it is asked again. */
@@ -103,9 +104,6 @@ export const CHAT_FLOW_SENDS = [
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
-
-/** Room for a test's one word, and for a model that thinks a little first. */
-const TEST_OUTPUT_TOKENS = 64;
 
 function notReadyError(error: ChatNotReadyError): ProviderError {
   const { reason } = error.readiness;
@@ -1229,7 +1227,7 @@ export function createChat(options: {
         await generateText({
           model,
           prompt: "Reply with the word OK.",
-          maxOutputTokens: TEST_OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("connection-test"),
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
         });
@@ -1289,18 +1287,21 @@ export function createChat(options: {
       if (!modelId) {
         return failed("answer", null, new LocalModelError("model", "It lists no models to try."));
       }
+      let started = Date.now();
       try {
         const prepared = await chat.prepareModel({ providerId: row.id, modelId }, "chat", "off");
-        const started = Date.now();
+        started = Date.now();
         await generateText({
           model: prepared.model,
           prompt: "Reply with the word OK.",
-          maxOutputTokens: TEST_OUTPUT_TOKENS,
+          maxOutputTokens: outputTokens("connection-test"),
           maxRetries: 0,
           abortSignal: AbortSignal.timeout(TEST_TIMEOUT_MS),
         });
         return { ok: true, modelId, ms: Date.now() - started };
       } catch (error) {
+        // A reply cut at the test's few tokens still shows the model answers.
+        if (error instanceof CutShortError) return { ok: true, modelId, ms: Date.now() - started };
         return failed("answer", modelId, error);
       }
     },
@@ -1394,10 +1395,12 @@ export function createChat(options: {
       );
       // The gate goes outside the meter, so a request it stops reserves nothing.
       const gated = gate.model(
-        meter.wrap(model, {
-          ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
-          reasoning,
-        }),
+        endsAtLimit(
+          meter.wrap(model, {
+            ...meteredModel(provider, provider.id, modelId, flow, capabilities, profile),
+            reasoning,
+          }),
+        ),
         flow,
         provider.service,
       );

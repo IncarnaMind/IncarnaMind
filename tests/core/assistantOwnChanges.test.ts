@@ -1086,7 +1086,7 @@ describe("A turn that ends after a refused Tool with no reply", { timeout: 30_00
       if (call.results.length === 0) {
         return { calls: [{ tool: "read_mind", input: { mind: name } }] };
       }
-      if (call.prompt.includes("Your reply is empty")) nudge = asked(call);
+      if (call.prompt.includes("Your reply is empty")) nudge = call.prompt;
       return { text: "" };
     });
     const { core, mind, client } = await setUp(model);

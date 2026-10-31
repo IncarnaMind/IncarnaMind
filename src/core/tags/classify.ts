@@ -9,6 +9,7 @@ import { generateText, jsonSchema, Output } from "ai";
 import type { DocumentKind } from "../api";
 import { approximateTokens } from "../documents/passages";
 import type { ChatLanguageModel } from "../providers/models";
+import { outputTokens } from "../providers/outputLimits";
 import { sameName } from "./index";
 
 /** About how much of a Document's text the excerpt holds: enough for its title, abstract or first pages. */
@@ -204,6 +205,7 @@ async function chooseTags(input: {
       name: "document_tags",
       description: "The Tags that apply to the Document.",
     }),
+    maxOutputTokens: outputTokens("tags"),
     // A rate limit pauses all Tagging (see ./rateLimit); a retry here would only meet it again.
     maxRetries: 0,
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(CLASSIFY_TIMEOUT_MS)]),

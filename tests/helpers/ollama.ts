@@ -115,6 +115,8 @@ export interface OllamaChatReply {
   toolCalls?: { name: string; arguments: Record<string, unknown> }[];
   /** Lines streamed before the content that the provider can't read as a chunk. */
   unreadable?: string[];
+  /** The reply reached `num_predict`: it ends there, cut off (`done_reason: "length"`). */
+  cutOff?: boolean;
 }
 
 /** One chat request the stub got, and what became of it. */
@@ -251,7 +253,7 @@ export async function startOllamaServer(options: {
       };
       const done = {
         done: true,
-        done_reason: "stop",
+        done_reason: reply.cutOff ? "length" : "stop",
         prompt_eval_count: Math.min(tokens, window),
         eval_count: Math.ceil(message.content.length / 4) + 1,
       };

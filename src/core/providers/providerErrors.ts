@@ -21,6 +21,7 @@ import { OAuthTokenError } from "../oauth";
 import { KeyCharacterError } from "./apiKey";
 import { ChatGptPlanError, ChatGptSignInRequiredError } from "./chatgpt/errors";
 import { JevRequestError } from "./jev";
+import { CutShortError } from "./outputLimits";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -246,6 +247,7 @@ function sortedError(cause: unknown): ProviderError {
       ...(badKey.wording && { wording: badKey.wording }),
     };
   }
+  if (cause instanceof CutShortError) return { kind: "cut-short", message };
   if (cause instanceof ConsentDeclinedError) return { kind: "consent-declined", message };
   if (cause instanceof ConsentRevokedError || cause instanceof LocalModeError) {
     return {

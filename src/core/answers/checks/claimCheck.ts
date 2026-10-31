@@ -57,6 +57,7 @@ import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
+import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
@@ -210,6 +211,8 @@ export function failureOf(error: ProviderError): {
       return { reason: "local-mode", detail: null };
     case "no-answer":
       return { reason: "empty", detail: null };
+    case "cut-short":
+      return { reason: "cut-short", detail: null };
     default:
       return { reason: "failed", detail: error.message };
   }
@@ -928,6 +931,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         forcedToolChoice: model.capabilities.facts.forcedToolChoice,
       }),
       window: model.window,
+      ...(model.capabilities.facts.maxOutput !== undefined && {
+        maxOutput: model.capabilities.facts.maxOutput,
+      }),
       retryQuotes: model.retryQuotes,
       cacheKey: request.cacheKey,
       isReply: (text) => readVerdict(text) !== null,
@@ -1520,7 +1526,7 @@ async function askForEvidence(
       instructions: covered === null ? EVIDENCE_INSTRUCTIONS : COVERED_EVIDENCE_INSTRUCTIONS,
       prompt: evidencePrompt({ claim: request.claim, ...verdict, covered, passages, markers }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: Math.min(4000, 600 * Math.max(1, markers.length)),
+      maxOutputTokens: outputTokens("evidence", markers.length),
       maxRetries: 1,
       abortSignal: signal,
     }));
@@ -1590,7 +1596,7 @@ async function compare(
         quantity,
       }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 300,
+      maxOutputTokens: outputTokens("comparison"),
       maxRetries: 1,
       abortSignal: signal,
     });
