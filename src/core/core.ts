@@ -5428,6 +5428,7 @@ export function createCore(adapters: CoreAdapters): Core {
           theirChanges: _waiting,
           data,
           word,
+          files,
           ...counts
         } = await mindExports.export(known.mindId, options, checkComments);
         const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
@@ -5457,6 +5458,7 @@ export function createCore(adapters: CoreAdapters): Core {
           }
           step = keepStep(file.path, null, choiceBefore);
         }
+        await saveExportFiles(files, file.folder, known.mindId);
         exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
         // Only once the file holds them, so the choice never says what the file doesn't.
         if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);

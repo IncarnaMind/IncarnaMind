@@ -5,7 +5,7 @@
  * about and that model reads images.
  */
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core, CoreAdapters, MindFocus } from "../../src/core";
@@ -21,9 +21,12 @@ import { fakePrinter } from "../helpers/printer";
 const PIXEL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const PIXEL_BYTES = Buffer.from(PIXEL.split(",")[1] as string, "base64");
+/** A second picture of its own: a 2 × 1 PNG, so its file is a file of its own. */
+const OTHER_PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DA8J8BAAf/Af8Bf4mnAAAAAElFTkSuQmCC";
 
-function picture(alt = "A chart"): { type: string; attrs: Record<string, unknown> } {
-  return { type: "picture", attrs: { id: randomUUID(), src: PIXEL, alt, width: 1, height: 1 } };
+function picture(alt = "A chart", src = PIXEL): { type: string; attrs: Record<string, unknown> } {
+  return { type: "picture", attrs: { id: randomUUID(), src, alt, width: 1, height: 1 } };
 }
 
 async function setUp(adapters: Partial<CoreAdapters> = {}) {
@@ -119,15 +122,26 @@ describe("A picture's exports", () => {
     expect(markdown).not.toContain("data:image");
   });
 
-  test("saving the Markdown writes the picture in the same folder", async () => {
+  test("saving the Markdown writes the picture in the same folder, and writing it again the new one", async () => {
     const { core, mind, client } = await setUp();
     writeMind(client, [note("Spring tides."), picture()]);
     await client.settled();
 
     const saved = await core.saveMindExport(mind.id, { format: "markdown" });
     if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(
+      (await readdir(saved.file.folder)).filter((name) => /^picture-[0-9a-f]{12}\.png$/.test(name)),
+    ).toHaveLength(1);
+
+    // A second picture, and the export written again into the same file: both files are beside it.
+    const other = picture("A second chart", OTHER_PIXEL);
+    writeMind(client, [note("Spring tides."), picture(), other]);
+    await client.settled();
+    await core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path);
+    const markdown = await readFile(saved.file.path, "utf8");
+    const linked = [...markdown.matchAll(/picture-[0-9a-f]{12}\.png/g)].map((match) => match[0]);
     const names = await readdir(saved.file.folder);
-    expect(names.filter((name) => /^picture-[0-9a-f]{12}\.png$/.test(name))).toHaveLength(1);
+    for (const name of new Set(linked)) expect(names).toContain(name);
   });
 });
 
