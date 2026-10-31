@@ -157,7 +157,7 @@ async function exampleOverFakes() {
     setLanguage: (next: Language) => {
       language = next;
     },
-    /** Holds the next folder link (the copy's last step) until `release`; `reached` once it starts. */
+    /** Holds the next folder link until `release`; `reached` once it has started. */
     holdLink: () => {
       const reached = Promise.withResolvers<void>();
       const until = Promise.withResolvers<void>();

@@ -30,7 +30,7 @@ export function useOllamaStatus() {
     } catch {
       found = { running: false, baseUrl: "", installed: false, recommendedModel: "" };
     }
-    // A look started since answers for now: an earlier one that ran out of time says nothing (#2302).
+    // A look started since says how it is now; an earlier one that ran out of time doesn't (#2302).
     if (mine === looks.current) setStatus(found);
   }, []);
 
