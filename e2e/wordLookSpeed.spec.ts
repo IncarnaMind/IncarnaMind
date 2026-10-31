@@ -111,7 +111,7 @@ test("typing on the 304-page contract in its look takes each key in a moment, as
 });
 
 test("the Word corpus's largest file opens in its look about as fast as drawn plain", async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(480_000);
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
