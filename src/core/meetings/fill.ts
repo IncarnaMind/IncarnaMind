@@ -287,9 +287,7 @@ function placeSections(
       ...nodes,
     );
   }
-  const withId = withIds(atEnd);
-  blocks.insert(blocks.length, withId.map(createElement));
-  return [...added, ...withId.map(idOf)];
+  return [...added, ...placeAtEnd(blocks, atEnd)];
 }
 
 const blank = (child: unknown) =>
@@ -299,10 +297,10 @@ const blank = (child: unknown) =>
   readLine(child).text === "";
 
 /**
- * A voice memo's note: in place of a Mind with nothing written in it yet, so its title line
- * names the Mind; after what the User wrote, otherwise.
+ * After what the User wrote; in place of a Mind with nothing written in it yet, so it doesn't
+ * open on blank lines (#2305) and a voice memo's title line names the Mind.
  */
-function placeMemo(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
+function placeAtEnd(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
   const placed = withIds(nodes);
   if (blocks.toArray().every(blank)) blocks.delete(0, blocks.length);
   blocks.insert(blocks.length, placed.map(createElement));
@@ -506,7 +504,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
         });
       }
       const nodes = asItIs(title, cues, options.citeUnit);
-      return { mode: "transcript", problem, parts: 0, place: (blocks) => placeMemo(blocks, nodes) };
+      return {
+        mode: "transcript",
+        problem,
+        parts: 0,
+        place: (blocks) => placeAtEnd(blocks, nodes),
+      };
     };
     if ("problem" in route) return asIs(route.problem);
     set(meeting.id, {
@@ -539,7 +542,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       mode: "memo",
       problem: null,
       parts: parts.length,
-      place: (blocks) => placeMemo(blocks, nodes),
+      place: (blocks) => placeAtEnd(blocks, nodes),
     };
   }
 

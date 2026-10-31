@@ -5,10 +5,17 @@
  * headings ("### L3", "### DECISIONS") that the notes never show.
  */
 import type { NodeJSON } from "../../shared/blockJson";
-import { type MessageKey, translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import {
+  numberedVoice,
+  SPEAKER_ME,
+  SPEAKER_THEM,
+  SPEAKER_UNKNOWN,
+  speakerName,
+} from "../../shared/speakers";
 import type { QuestionContext } from "../answers/context";
 import { CITATION_NODE } from "../api";
-import { LANGUAGES } from "../language";
+import { LANGUAGE_NAMES, LANGUAGES } from "../language";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -117,12 +124,23 @@ const WRITTEN_ORDER: readonly FillSection[] = [
 ];
 
 const callIntro =
-  "The transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]).";
+  "The transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]). Me is the User, Them the other side of the call.";
+
+/**
+ * The transcript's marks are its English words: in Chinese notes the model wrote "— Them" and
+ * "Me（用户）" (#2305). The Transcript's own words for them, in each other interface language.
+ */
+const speakerWords = LANGUAGES.filter((language) => language !== "en").map((language) => {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  const marks = [SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN, numberedVoice(2)];
+  return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
+});
 
 const rules = [
   "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
   "- Write only what the transcript says. Leave out what it doesn't.",
   "- Write in the language of the call.",
+  `- Name who spoke with the transcript's words for them in the language you write in: in English as marked; ${speakerWords.join("; ")}. Never call the User "the User" or 用户.`,
 ];
 
 /** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
