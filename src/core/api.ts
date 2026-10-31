@@ -279,8 +279,15 @@ export interface CreateMindInput {
  *   read-only notes and breaks until it is opened, when they are converted
  *   from its kept package (`convertWordParts`). What the import keeps as is
  *   gains `hash`, of the file's XML at its place.
+ * - 43: a chart's value drawn from a calculated figure keeps the figure, its
+ *   formula and every Input with its Citation (`figure` on the value in the
+ *   chart's `data`, #2307). An older version's editor reads chart data without
+ *   it and writes it back so when it changes the chart, leaving bare numbers,
+ *   so it opens these Notes read-only. Older content is version 43 content as
+ *   it is: a chart drawn before holds no figure, and its values read as
+ *   quoted until Update draws it again from its table.
  */
-export const CONTENT_SCHEMA_VERSION = 42;
+export const CONTENT_SCHEMA_VERSION = 43;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -7489,6 +7496,8 @@ export type ChatGptAccount =
   | { state: "signed-out" }
   /** Refreshing the sign-in failed (or the User disconnected IncarnaMind in ChatGPT): sign in again. */
   | { state: "expired" }
+  /** A sign-in is kept here, but it can't be read: signing in again replaces it once it completes. */
+  | { state: "unreadable" }
   | {
       state: "signed-in";
       /** From the sign-in's ID token, when it carries one. */
@@ -7547,6 +7556,10 @@ export type ChatGptSignInErrorKind =
   | "plan-not-allowed"
   /** The User signed in to another ChatGPT account than the one this device uses; `anotherAccount` switches. */
   | "other-account"
+  /** A sign-in is kept here but can't be read; signing in again replaces it once it completes. */
+  | "record-unreadable"
+  /** The file that keeps sign-ins can't be read at all; signing in again can't fix it. */
+  | "store-unreadable"
   | "failed";
 
 export type ChatGptSignInResult =
@@ -11414,9 +11427,14 @@ export interface CoreApi {
    * browser and waits, for a few minutes at most, until they finish.
    * Starting again cancels a sign-in still waiting. `anotherAccount` signs in
    * to a different ChatGPT account than the one this device used before.
-   * Signing in doesn't choose a model: `saveChatProvider` does.
+   * `replaceUnreadable` is the User's answer to a sign-in that can't be read:
+   * sign in again, and replace it only once that completes. Signing in doesn't
+   * choose a model: `saveChatProvider` does.
    */
-  signInToChatGpt(input?: { anotherAccount?: boolean }): Promise<ChatGptSignInResult>;
+  signInToChatGpt(input?: {
+    anotherAccount?: boolean;
+    replaceUnreadable?: boolean;
+  }): Promise<ChatGptSignInResult>;
   /** Stops waiting for a browser sign-in. */
   cancelChatGptSignIn(): Promise<void>;
   /** Opens the waiting sign-in's page in the browser again; false when none is waiting. */

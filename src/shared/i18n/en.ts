@@ -704,12 +704,27 @@ export const en = {
   "chart.point.position": "{index} of {count}",
   "chart.point.notDrawn": "Not a number, so not drawn",
   "chart.point.noUnit": "No unit, so not drawn",
+  "chart.point.calculated": "Calculated from {inputs} in {document}",
+  "chart.point.calculatedDocuments": "Calculated from {inputs} in {documents} Documents",
+  "chart.point.analysis": "From an Analysis",
   "chart.value.noUnit": "no unit",
   "chart.source.place.one": "1 value, quoted from {document}, {location}",
   "chart.source.place.other": "{count} values, each quoted from {document}, {location}",
   "chart.source.document.one": "1 value, quoted from {document}",
   "chart.source.document.other": "{count} values, each quoted from {document}",
   "chart.source.documents": "{count} values, quoted from {documents} Documents",
+  "chart.source.calculated.one": "1 value, calculated from {inputs} in {document}",
+  "chart.source.calculated.other": "{count} values, calculated from {inputs} in {document}",
+  "chart.source.calculatedDocuments.one":
+    "1 value, calculated from {inputs} in {documents} Documents",
+  "chart.source.calculatedDocuments.other":
+    "{count} values, calculated from {inputs} in {documents} Documents",
+  "chart.source.analysis.one": "1 value, from an Analysis",
+  "chart.source.analysis.other": "{count} values, from an Analysis",
+  "chart.inputs.cells.one": "1 cell",
+  "chart.inputs.cells.other": "{count} cells",
+  "chart.inputs.numbers.one": "1 cited number",
+  "chart.inputs.numbers.other": "{count} cited numbers",
   "chart.source.none.one": "1 value, with no Citation",
   "chart.source.none.other": "{count} values, none with a Citation",
   "chart.source.uncited": "{count} with no Citation",
@@ -2627,6 +2642,7 @@ export const en = {
   "chatgpt.continue": "Continue with ChatGPT",
   "chatgpt.account.signedOut": "Not signed in.",
   "chatgpt.account.expired": "Your ChatGPT sign-in ended. Sign in again to use your plan.",
+  "chatgpt.account.unreadable": "This computer’s saved ChatGPT sign-in can’t be read.",
   "chatgpt.account.signedIn": "Signed in as {account}.",
   "chatgpt.account.unknown": "your ChatGPT account",
   "chatgpt.signingIn": "Finish signing in in your browser…",
@@ -2652,6 +2668,10 @@ export const en = {
     "Allow IncarnaMind to use your ChatGPT plan: sign in again.",
   "chatgpt.signIn.error.other-account":
     "That’s not the ChatGPT account used here before. Sign in with that one.",
+  "chatgpt.signIn.error.record-unreadable":
+    "This computer’s saved ChatGPT sign-in can’t be read. Sign in again to replace it.",
+  "chatgpt.signIn.error.store-unreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the ChatGPT sign-in can’t be read. Signing in again won’t fix it.",
   "chatgpt.signIn.error.failed": "The sign-in didn’t work. Try again.",
   "chatgpt.test.not-signed-in":
     "You’re not signed in to ChatGPT. Continue with ChatGPT, then try again.",
@@ -4392,6 +4412,8 @@ export const en = {
   "export.chart.sources": "Source:",
   "export.chart.uncited.one": "1 value has no Citation.",
   "export.chart.uncited.other": "{count} values have no Citation.",
+  "export.chart.calculated.one": "1 value is calculated.",
+  "export.chart.calculated.other": "{count} values are calculated.",
   "export.chart.picture": "{kind}: {title}",
   "export.chart.cut": "Only the first {rows} of {total} rows are charted.",
   "export.change.inserted": "Inserted by {author}, {date}",
@@ -4887,6 +4909,10 @@ export const en = {
   "error.secrets.plainText":
     "No keyring running, so keys would be unencrypted. Start GNOME Keyring or KWallet.",
   "error.secrets.unencrypted": "This system can’t encrypt API keys, so they can’t be saved.",
+  "error.signIn.unreadable":
+    "The {provider} sign-in saved on this computer can’t be read. Sign in again to replace it.",
+  "error.signIn.storeUnreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the {provider} sign-in can’t be read. Signing in again won’t fix it.",
   "error.consent.declined": "You declined sending data to {service}, so nothing was sent.",
   "error.consent.needed": "Waiting until you allow sending data to {service}. Nothing was sent.",
   "error.consent.revoked": "Stopped: you turned off sending to {service}",

@@ -57,6 +57,21 @@ export class DataFromNewerVersionError extends Error {
   }
 }
 
+/**
+ * The file that keeps secrets exists but can't be read as a whole: it is empty,
+ * its JSON is truncated, it is a directory, or the system refused to read it.
+ * A single unreadable value in a sound file is not this.
+ */
+export class SecretsFileDamagedError extends Error {
+  override name = "SecretsFileDamagedError";
+  constructor(
+    readonly file: string,
+    options?: ErrorOptions,
+  ) {
+    super(`The file that keeps secrets (${file}) is damaged.`, options);
+  }
+}
+
 /** Thrown when a secret can't be stored safely on this device (see `getSecretStorage`). */
 export class SecretStorageError extends TranslatableError {
   override name = "SecretStorageError";

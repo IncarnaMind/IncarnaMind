@@ -7,7 +7,7 @@
  */
 import type { Browser } from "./adapters";
 import type { PastedAddressProblem, PastedAddressResult } from "./api";
-import { isRecord, SecretStorageError } from "./errors";
+import { isRecord, SecretStorageError, SecretsFileDamagedError, TranslatableError } from "./errors";
 import {
   authorizeInBrowser,
   authorizeWithDevice,
@@ -43,6 +43,43 @@ const UNUSABLE_REFRESH = new Set([
   "refresh_token_invalidated",
   "refresh_token_reused",
 ]);
+
+/**
+ * A sign-in record is there but can't be read: its key is gone (a reset keychain,
+ * a Mac restored without one), or what it holds isn't a record. It is never
+ * replaced by reading it or by starting a sign-in; only a completed sign-in
+ * writes over it.
+ */
+export class SignInRecordUnreadableError extends TranslatableError {
+  override name = "SignInRecordUnreadableError";
+  constructor(
+    readonly provider: string,
+    options?: ErrorOptions,
+  ) {
+    super({ key: "error.signIn.unreadable", values: { provider } }, options);
+  }
+}
+
+/**
+ * The file that keeps sign-ins exists but can't be read at all, so no record can
+ * be found in it and a new sign-in could not be saved either. Signing in again
+ * cannot fix this, so it is not offered as the way out.
+ */
+export class SignInStoreUnreadableError extends TranslatableError {
+  override name = "SignInStoreUnreadableError";
+  constructor(
+    readonly provider: string,
+    options?: ErrorOptions,
+  ) {
+    super({ key: "error.signIn.storeUnreadable", values: { provider } }, options);
+  }
+}
+
+/** A record, or the whole store, that can't be read: no sign-in can be used from it. */
+export const isSignInUnreadable = (
+  error: unknown,
+): error is SignInRecordUnreadableError | SignInStoreUnreadableError =>
+  error instanceof SignInRecordUnreadableError || error instanceof SignInStoreUnreadableError;
 
 export interface StoredTokens {
   accessToken: string;
@@ -163,6 +200,8 @@ export interface SignInFlows {
 
 export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
   secretName: string;
+  /** What the sign-in is called in the error that says its record can't be read, e.g. "ChatGPT". */
+  provider: string;
   /** Where the sign-in is kept: the device's secret store, or a shared one (see `RefreshLock`). */
   secrets: Secrets;
   /** The provider's record from what is stored; null when it can't be used. */
@@ -198,18 +237,54 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
   } | null = null;
   let pasteRedirect: SignInRedirect["paste"] | null = null;
   let signingOut = false;
+  let toldUnreadable = false;
 
+  /** Null only when no record is stored; a record that can't be read is its own error, never "absent". */
   const load = async (): Promise<A | null> => {
-    const json = await secrets.tryGet(options.secretName);
-    if (!json) return null;
+    let json: string | null;
     try {
-      const value: unknown = JSON.parse(json);
-      return isRecord(value) ? options.parse(value) : null;
-    } catch {
-      return null;
+      json = await secrets.get(options.secretName);
+    } catch (error) {
+      if (error instanceof SecretsFileDamagedError) {
+        throw new SignInStoreUnreadableError(options.provider, { cause: error });
+      }
+      throw new SignInRecordUnreadableError(options.provider, { cause: error });
     }
+    if (json === null) return null;
+    let value: unknown;
+    try {
+      value = JSON.parse(json);
+    } catch (error) {
+      throw new SignInRecordUnreadableError(options.provider, { cause: error });
+    }
+    const parsed = isRecord(value) ? options.parse(value) : null;
+    if (parsed === null) throw new SignInRecordUnreadableError(options.provider);
+    return parsed;
   };
   const save = (account: A) => secrets.set(options.secretName, JSON.stringify(account));
+
+  /**
+   * The record, or null when it is absent or can't be read: for a status line,
+   * which says the sign-in is unusable rather than failing over it. Nothing is
+   * written; only a completed sign-in may replace it.
+   */
+  const loadOrNull = async (): Promise<A | null> => {
+    try {
+      return await load();
+    } catch (error) {
+      if (isSignInUnreadable(error)) {
+        if (!toldUnreadable) {
+          toldUnreadable = true;
+          console.error(
+            `The ${options.provider} sign-in couldn't be read, so it isn't used.`,
+            error,
+          );
+        }
+        return null;
+      }
+      throw error;
+    }
+  };
 
   const required = (account: A | null) =>
     options.signInRequired(account?.ended === "expired" ? "expired" : "signed-out");
@@ -300,11 +375,46 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
   return {
     credentials,
     load,
-    save,
-    /** Saves what a sign-in ended with: a refresh that finishes afterwards changes nothing. */
+    loadOrNull,
+    /**
+     * Saves what a sign-in ended with, under the shared lock so a write from
+     * another process can't interleave; a refresh that finishes afterwards
+     * changes nothing.
+     */
     async commit(account: A): Promise<void> {
-      generation += 1;
-      await save(account);
+      try {
+        await lock.run(async () => {
+          generation += 1;
+          await save(account);
+        });
+      } catch (error) {
+        // The sign-in finished but can't be kept (the save or the lock failed):
+        // end the session it opened rather than leave it loose. The revoke is
+        // outside the lock, so no network call holds it.
+        const refreshToken = account.tokens?.refreshToken;
+        if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
+        throw error;
+      }
+    },
+
+    /**
+     * Under the shared lock, writes `next` from the record as it is now, unless
+     * a sign-in is there now or the record can't be read: another process
+     * sharing the store may have completed one while this sign-in waited.
+     */
+    async commitUnlessSignedIn(next: (current: A | null) => A): Promise<void> {
+      await lock.run(async () => {
+        let current: A | null;
+        try {
+          current = await load();
+        } catch (error) {
+          if (isSignInUnreadable(error)) return;
+          throw error;
+        }
+        if (current?.tokens) return;
+        generation += 1;
+        await save(next(current));
+      });
     },
     /** Tokens to keep from a token endpoint's answer, keeping the refresh token it didn't rotate. */
     storedTokens,
@@ -386,7 +496,7 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
       try {
         // A refresh already under way would otherwise save its tokens after these are forgotten.
         await refreshing?.catch(() => undefined);
-        const stored = await load();
+        const stored = await loadOrNull();
         if (!stored?.tokens) return { revoked: true };
         const { refreshToken } = stored.tokens;
         const revoked =
