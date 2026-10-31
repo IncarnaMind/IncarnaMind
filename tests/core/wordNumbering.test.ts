@@ -659,6 +659,154 @@ describe("A Word file's numbered lists, back into it", () => {
     },
   );
 
+  // protects=Shift-Tab of an imported list that starts at （一） back to the first level reaches the file: the whole list, or its first item with the rest nested under it, each item at the Word level the screen draws, tracked when changes are; fails_when=the file keeps level 1, so Word shows （一）（二）（三） or （一） 1. 2. where the screen shows 一、二、三、 or 一、（一）（二）; no_claim=a Note imported before lists kept their level, which states no level.
+  test.each([
+    ["the whole list", false],
+    ["the whole list", true],
+    ["its first item", false],
+    ["its first item", true],
+  ] as const)(
+    "Shift-Tab of %s from （一） goes up a Word level (tracked: %s)",
+    async (which, trackChanges) => {
+      const { core, dataDir } = await newMind();
+      const { mindId, client } = await importWordBytes(
+        core,
+        dataDir,
+        wordFile({
+          numbering: numberingOf(CHINESE_FILE),
+          body: ["第一项", "第二项", "第三项"]
+            .map((text) => wordParagraph(run(text), { numId: 1, ilvl: 1 }))
+            .join(""),
+        }),
+        { origin: "own" },
+      );
+      editMind(client, (blocks) =>
+        withLists(blocks, (list) => {
+          const raised = { ...list, attrs: { ...list.attrs, startLevel: 0 } };
+          if (which === "the whole list") return raised;
+          const [first, ...after] = list.content ?? [];
+          return {
+            ...raised,
+            content: [
+              {
+                ...first,
+                content: [
+                  ...(first?.content ?? []),
+                  ordered({ numbering: "chinese", start: 1 }, ...after),
+                ],
+              },
+            ],
+          };
+        }),
+      );
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx", trackChanges })).data);
+      const document = part(files, "word/document.xml");
+      expect(numberedParagraphs(document)).toEqual([
+        { level: 0, numId: "1", text: "第一项" },
+        { level: which === "the whole list" ? 0 : 1, numId: "1", text: "第二项" },
+        { level: which === "the whole list" ? 0 : 1, numId: "1", text: "第三项" },
+      ]);
+      // Only the items whose level changed are tracked; the first item alone, when the rest nest under it.
+      expect((document.match(/<w:pPrChange/g) ?? []).length).toBe(
+        trackChanges ? (which === "the whole list" ? 3 : 1) : 0,
+      );
+    },
+  );
+
+  // protects=an item Tabbed in a list whose file level differs from its depth in the Note goes one Word level deeper than it was in the file: a Note imported before lists kept their level whose list is at level 1, and a list whose items skip from level 0 to 2; fails_when=it is written at its depth in the Note, which is where it already was, so the Tab is lost; no_claim=an item dragged into another list.
+  test.each(["a Note imported before lists kept their level", "items that skip a level"] as const)(
+    "Tab in %s goes a Word level deeper than the file had it",
+    async (which) => {
+      const { core, dataDir } = await newMind();
+      const older = which === "a Note imported before lists kept their level";
+      const { mindId, client } = await importWordBytes(
+        core,
+        dataDir,
+        wordFile({
+          numbering: numberingOf(older ? CHINESE_FILE : CLAUSES_FILE),
+          body: older
+            ? ["第一项", "第二项"]
+                .map((text) => wordParagraph(run(text), { numId: 1, ilvl: 1 }))
+                .join("")
+            : wordParagraph(run("Rent"), { numId: 1, ilvl: 0 }) +
+              ["Deep", "Deeper"]
+                .map((text) => wordParagraph(run(text), { numId: 1, ilvl: 2 }))
+                .join(""),
+        }),
+        { origin: "own" },
+      );
+      const tab = (list: JSONContent): JSONContent => {
+        const [first, second] = list.content ?? [];
+        return {
+          ...list,
+          content: [{ ...first, content: [...(first?.content ?? []), ordered({}, second ?? {})] }],
+        };
+      };
+      editMind(client, (blocks) =>
+        withLists(blocks, (list) => {
+          if (older) {
+            const { numbering: _scheme, startLevel: _level, ...attrs } = list.attrs ?? {};
+            return tab({ ...list, attrs });
+          }
+          const [rent] = list.content ?? [];
+          const nested = rent?.content?.find((each) => each.type === "orderedList");
+          return {
+            ...list,
+            content: [
+              {
+                ...rent,
+                content: (rent?.content ?? []).map((each) => (each === nested ? tab(each) : each)),
+              },
+            ],
+          };
+        }),
+      );
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+      expect(
+        numberedParagraphs(part(files, "word/document.xml")).map(({ level, text }) => [
+          level,
+          text,
+        ]),
+      ).toEqual(
+        older
+          ? [
+              [1, "第一项"],
+              [2, "第二项"],
+            ]
+          : [
+              [0, "Rent"],
+              [2, "Deep"],
+              [3, "Deeper"],
+            ],
+      );
+    },
+  );
+
+  // protects=an item shallower than the nested list before it, in a list in no scheme, joins that nested list, as main read it; fails_when=it starts a second nested list in the same item; no_claim=a list in a scheme that starts deeper, which closes for it.
+  test("a bullet at a level between two others joins the nested list before it", async () => {
+    const { core, dataDir } = await newMind();
+    const { client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        numbering: numberingOf(CLAUSES_FILE),
+        body:
+          wordParagraph(run("Top"), { numId: 2, ilvl: 0 }) +
+          wordParagraph(run("Deep"), { numId: 2, ilvl: 2 }) +
+          wordParagraph(run("Between"), { numId: 2, ilvl: 1 }),
+      }),
+      { origin: "own" },
+    );
+    expect(nestedListsIn(readMind(client))).toEqual([
+      { type: "bulletList", numbering: null, items: ["Top"], inside: ["bulletList"] },
+      { type: "bulletList", numbering: null, items: ["Deep", "Between"], inside: [] },
+    ]);
+  });
+
   // protects=a bullet under an item of a scheme list that starts a level in, or nested two levels in, imports inside that item; fails_when=the bullet becomes a list beside the numbered list, which splits it in two; no_claim=a bullet shallower than the list it follows.
   test("a bullet under an item of a list that starts a level in imports inside that item", async () => {
     const { core, dataDir } = await newMind();

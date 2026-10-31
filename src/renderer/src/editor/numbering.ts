@@ -240,16 +240,21 @@ export const Numbering = Extension.create<object, NumberingStorage>({
                 : {},
           },
           // Absent (null), not 0 or false, when unset: the editor's Yjs binding writes any value
-          // it holds, so a default would rewrite every list the core wrote.
+          // it holds, so a default would rewrite every list the core wrote. A list the User
+          // brought back to the first level keeps 0, which a Word file's export tells apart from
+          // a list imported before lists kept their level (#1419).
           [START_LEVEL_ATTRIBUTE]: {
             default: null,
-            parseHTML: (element: HTMLElement) =>
-              Number(element.getAttribute("data-start-level")) || null,
+            parseHTML: (element: HTMLElement) => {
+              const level = Number(element.getAttribute("data-start-level") ?? Number.NaN);
+              return Number.isInteger(level) && level >= 0 ? level : null;
+            },
             renderHTML: (attributes: Record<string, unknown>) => {
-              const level = Number(attributes[START_LEVEL_ATTRIBUTE]) || 0;
+              const level = Number(attributes[START_LEVEL_ATTRIBUTE] ?? Number.NaN);
+              if (!Number.isInteger(level) || level < 0) return {};
               return level > 0
                 ? { "data-start-level": String(level), style: `--start-level: ${level}` }
-                : {};
+                : { "data-start-level": "0" };
             },
           },
           [CONTINUES_ATTRIBUTE]: {
@@ -602,7 +607,7 @@ export function raiseFromStartLevel(editor: Editor): boolean {
       {
         ...list.attrs,
         start: 1,
-        [START_LEVEL_ATTRIBUTE]: level - 1 || null,
+        [START_LEVEL_ATTRIBUTE]: level - 1,
         [CONTINUES_ATTRIBUTE]: keepsContinuation ? true : null,
       },
       Fragment.fromArray(raisedItems),

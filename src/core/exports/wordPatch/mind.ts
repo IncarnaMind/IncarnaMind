@@ -228,8 +228,9 @@ export interface ListPlace {
   /** How many lists it is in, 0 for an outermost one. */
   nesting: number;
   /**
-   * The level its outermost list says it starts at, or null when it says none: a Note imported
-   * before lists kept their level (#1419) has none, though its file's list may start deeper.
+   * The level its outermost list says it starts at, 0 included, or null when it says none: a
+   * Note imported before lists kept their level (#1419) has none, though its file's list may
+   * start deeper.
    */
   startLevel: number | null;
 }
@@ -295,7 +296,8 @@ function collect(
     };
     if (LISTS.has(node.type)) {
       const ordered = node.type === "orderedList";
-      const named = Number(node.attrs?.startLevel);
+      const raw = node.attrs?.startLevel;
+      const named = raw === null || raw === undefined || raw === "" ? Number.NaN : Number(raw);
       const startLevel = itemLevel(0, named || 0);
       // Where its items sit in the file, which an outermost list that starts deeper does at its level.
       const depth = list ? Math.min(list.depth + 1, 8) : startLevel;
@@ -313,7 +315,7 @@ function collect(
             ? { scheme: isNumberingScheme(scheme) ? scheme : "default", outer: node }
             : null),
         nesting: list ? list.nesting + 1 : 0,
-        startLevel: list ? list.startLevel : named > 0 ? startLevel : null,
+        startLevel: list ? list.startLevel : Number.isInteger(named) ? startLevel : null,
       };
       for (const item of node.content ?? []) {
         collect(item.content ?? [], keyOf, place, into, {

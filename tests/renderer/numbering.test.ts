@@ -1,5 +1,5 @@
 import type { Editor, JSONContent } from "@tiptap/core";
-import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
+import { DOMSerializer, DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import { parseHTML } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
@@ -308,6 +308,24 @@ describe("Typing a marker", () => {
 });
 
 describe("A list that starts deeper", () => {
+  // protects=Shift-Tab of a whole list back to the first level stores 0, a level the User chose, and the editor's HTML keeps it; fails_when=it stores nothing, which reads the same as a list imported from Word before lists kept their level, so the Word file keeps the deeper level; no_claim=a list that never started deeper, which stores nothing.
+  test("Shift-Tab back to the first level keeps 0 as the list's start level", () => {
+    const editor = editorWith([ordered({ numbering: "chinese", startLevel: 1 }, item("A"))]);
+    caretIn(editor, "A");
+    changeIndent(editor, -1);
+    expect(editor.state.doc.firstChild?.attrs.startLevel).toBe(0);
+    expect(markers(editor)).toEqual(["一、"]);
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const schema = editor.schema;
+    const html = document.createElement("div");
+    html.appendChild(
+      DOMSerializer.fromSchema(schema).serializeFragment(editor.state.doc.content, { document }),
+    );
+    expect(html.innerHTML).toContain('data-start-level="0"');
+    const copied = ProseMirrorDOMParser.fromSchema(schema).parse(html);
+    expect(copied.firstChild?.attrs.startLevel).toBe(0);
+  });
+
   // protects=a list that starts at a deeper level draws that level's markers; fails_when=it draws the first level's; no_claim=its indent, which the e2e covers.
   test("a list begun with “(i)” draws the second level's markers", () => {
     const editor = editorWith([
