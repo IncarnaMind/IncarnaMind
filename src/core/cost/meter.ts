@@ -176,19 +176,19 @@ const writesCache = (model: MeteredModel) => model.kind === "anthropic";
  */
 const SEARCH_INPUT_TOKENS = 30_000;
 
-/** One request an estimate counts: what it sends, and what it writes. */
+/**
+ * One request an estimate counts: what it sends, and what it writes. `cached`: all it sends is
+ * read from the prompt cache, sent again after the call before it.
+ */
 export interface EstimatedRequest {
   inputTokens: number;
   outputTokens: number;
+  cached?: boolean;
 }
 
-/**
- * A whole read's requests: those it likely sends, as many in all as `calls` says reads were
- * measured to send, and every request it may send, each writing all it may.
- */
+/** A whole read's requests: those it likely sends, and every request it may send, each writing all it may. */
 export interface EstimatedRead {
   likely: readonly EstimatedRequest[];
-  calls: number;
   most: readonly EstimatedRequest[];
 }
 
@@ -828,10 +828,11 @@ export function createMeter(options: {
     },
 
     /**
-     * A whole read's cost (../answers/checks/wholeRead): about what it likely sends, and the most
-     * every request it may send costs, all of their input written to the prompt cache where the
-     * provider bills that higher. Input comes as `estimateTokens` counts it, and is priced as the
-     * provider counts it.
+     * A whole read's cost (../answers/checks/wholeRead): about what it likely sends, its tokens
+     * all it sends, what the prompt cache gives again among them priced as the cache's, and the
+     * most every request it may send costs, all of their input written to the prompt cache where
+     * the provider bills that higher. Input comes as `estimateTokens` counts it, and is priced as
+     * the provider counts it.
      */
     estimateRead(model: MeteredModel, read: EstimatedRead): RunEstimate {
       if (model.billing !== "per-token") return { billing: model.billing };
@@ -859,8 +860,11 @@ export function createMeter(options: {
       });
       return {
         billing: "per-token",
-        ...priced(counted(read.likely), (each, known) => costOf(each, known, at, { cacheWrites })),
-        calls: read.calls,
+        ...priced(counted(read.likely), (each, known) =>
+          costOf({ ...each, cachedInputTokens: each.cached ? each.inputTokens : 0 }, known, at, {
+            cacheWrites,
+          }),
+        ),
         upTo: priced(counted(read.most), (each, known) =>
           reservationOf(
             { promptTokens: each.inputTokens, outputTokens: each.outputTokens, cacheWrites },

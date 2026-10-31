@@ -53,8 +53,9 @@ export const SEARCH_OUTPUT_TOKENS = 100;
 export const VERDICT_OUTPUT_TOKENS = 500;
 /**
  * The requests a read sends for each it is planned to, on average: Claude Haiku 5.5 sent 7 and 8
- * where a two-window read planned 6, a turn more to cite or a look at a quote
- * (tests/fixtures/cost/recorded-whole-read.json).
+ * where a two-window read planned 6 (tests/fixtures/cost/recorded-whole-read.json), a turn more
+ * to cite or a look at a quote. A turn more sends again what its Run's call before it sent, which
+ * the prompt cache gives back.
  */
 const REQUESTS_PER_PLANNED = 1.25;
 export const MOST_READ_TOKENS = 500_000;
@@ -242,6 +243,7 @@ export function createWholeRead(options: WholeReadOptions) {
     const comparing = outputTokens("comparison");
     const likely: EstimatedRequest[] = [];
     const most: EstimatedRequest[] = [];
+    const verdicts: number[] = [];
     for (const check of checks) {
       const start = options.runStart({ ...check, scope }, model);
       const fixed =
@@ -256,6 +258,7 @@ export function createWholeRead(options: WholeReadOptions) {
         const judgement = judged + window.tokens;
         if (searches) likely.push({ inputTokens: fixed, outputTokens: SEARCH_OUTPUT_TOKENS });
         likely.push({ inputTokens: verdict, outputTokens: VERDICT_OUTPUT_TOKENS });
+        verdicts.push(verdict);
         if (check.judgesAbsence) likely.push({ inputTokens: judgement, outputTokens: judging });
 
         if (searches) most.push({ inputTokens: fixed, outputTokens: step });
@@ -282,7 +285,12 @@ export function createWholeRead(options: WholeReadOptions) {
         }
       }
     }
-    return { likely, calls: Math.round(likely.length * REQUESTS_PER_PLANNED), most };
+    const turns = Math.round(likely.length * REQUESTS_PER_PLANNED) - likely.length;
+    const again = Math.round(verdicts.reduce((sum, each) => sum + each, 0) / verdicts.length);
+    for (let turn = 0; turn < turns; turn++) {
+      likely.push({ inputTokens: again, outputTokens: VERDICT_OUTPUT_TOKENS, cached: true });
+    }
+    return { likely, most };
   }
 
   /**
