@@ -446,18 +446,21 @@ type Token =
 
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 const isWhitespace = (char: string | undefined) => char === undefined || /\s/.test(char);
+const isUnicodePunctuation = (char: string | undefined) =>
+  char !== undefined && /[\p{P}\p{S}]/u.test(char);
 /**
- * Chinese writes its punctuation with no spaces around it, so a full-width or CJK punctuation mark
- * beside a delimiter counts like a letter, never like the ASCII punctuation CommonMark would hold
- * the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold (#1774), as
- * markdown-cjk-friendly reads them.
+ * Chinese writes its punctuation with no spaces around it. For `*`, a full-width or CJK punctuation
+ * mark beside a delimiter counts like a letter, never like the ASCII punctuation CommonMark would
+ * hold the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold (#1774), as
+ * markdown-cjk-friendly reads them. For `_`, CommonMark's intraword rule keeps it punctuation, so
+ * `（_强调_）` is italic and `snake_case` stays as written.
  */
 const isCjkPunctuation = (char: string | undefined) =>
   char !== undefined &&
   /[\u3000-\u303f\ufe10-\ufe19\ufe30-\ufe4f\uff00-\uffef]/u.test(char) &&
   /[\p{P}\p{S}]/u.test(char);
 const isPunctuation = (char: string | undefined) =>
-  char !== undefined && /[\p{P}\p{S}]/u.test(char) && !isCjkPunctuation(char);
+  isUnicodePunctuation(char) && !isCjkPunctuation(char);
 /**
  * Chinese has no spaces, so CommonMark's flanking rule leaves `**仍未确定：**下一步` unclosed
  * (#790). Beside punctuation, a CJK letter counts like a space, as in markdown-cjk-friendly.
@@ -715,11 +718,15 @@ function tokenize(source: string, open: boolean): Token[] {
         kind: "delimiter",
         char,
         count: run,
-        // "_" doesn't emphasise inside words (snake_case).
+        // "_" doesn't emphasise inside words (snake_case), but may open or close beside punctuation.
         canOpen:
-          char === "_" ? leftFlanking && (!rightFlanking || isPunctuation(before)) : leftFlanking,
+          char === "_"
+            ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before))
+            : leftFlanking,
         canClose:
-          char === "_" ? rightFlanking && (!leftFlanking || isPunctuation(after)) : rightFlanking,
+          char === "_"
+            ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after))
+            : rightFlanking,
         marks: [],
       });
       i += run;

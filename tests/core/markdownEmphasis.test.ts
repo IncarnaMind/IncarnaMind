@@ -176,6 +176,22 @@ describe("emphasis beside full-width punctuation with a number or a Latin word b
   });
 });
 
+describe("underscore emphasis beside full-width punctuation", () => {
+  test.each([
+    ["（_强调_）", [plain("（"), italic("强调"), plain("）")]],
+    ["「_x_」", [plain("「"), italic("x"), plain("」")]],
+    ["注意：__重要__。", [plain("注意："), bold("重要"), plain("。")]],
+    ["（__重要__）", [plain("（"), bold("重要"), plain("）")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+
+  test("underscores inside words stay as written", () => {
+    expect(runs("snake_case_name")).toEqual([plain("snake_case_name")]);
+    expect(runs("a_b_c")).toEqual([plain("a_b_c")]);
+  });
+});
+
 describe("emphasisOf", () => {
   test("gives the plain words and the look of each character", () => {
     const read = emphasisOf("**Role.** The *post* is senior");
