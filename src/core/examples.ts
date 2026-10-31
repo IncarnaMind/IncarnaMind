@@ -706,6 +706,14 @@ export function createExamples(options: ExamplesOptions) {
     // A folder of the same name would mix the two languages' files: the old ones go first.
     if (sameFolder) await discardFiles(examples);
     const { folder, linked } = await copyAndLink(source, set);
+    // Written in or deleted while the files were copied: it stays as the User left it (#2302).
+    if (
+      !options.mindExists(examples.mindId) ||
+      !untouched(examples, EXAMPLE_SETS[group][examples.language])
+    ) {
+      await discardFiles({ ...examples, folder, linkedFolderId: linked.id });
+      return;
+    }
     const questionId = randomUUID();
     const answerId = randomUUID();
     // The old Documents go before the example names the new folder, so nothing reads them as the
@@ -726,6 +734,20 @@ export function createExamples(options: ExamplesOptions) {
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };
+
+  // Made, removed, brought back and switched to another language one at a time: each copies
+  // files, and one run in that wait would act on an example the other is halfway through (#2302).
+  let queue: Promise<unknown> = Promise.resolve();
+  const inTurn =
+    <A extends unknown[], T>(work: (...args: A) => Promise<T>) =>
+    (...args: A): Promise<T> => {
+      const run = queue.then(
+        () => work(...args),
+        () => work(...args),
+      );
+      queue = run.catch(() => undefined);
+      return run;
+    };
 
   return {
     status,
@@ -748,7 +770,7 @@ export function createExamples(options: ExamplesOptions) {
       return example ? documentIdsOf(example) : null;
     },
 
-    create,
+    create: inTurn(create),
 
     readyQuestion,
 
@@ -760,7 +782,7 @@ export function createExamples(options: ExamplesOptions) {
      * its Documents swapped. One they changed stays as it is, and so does one
      * whose Documents a check result (#819) or a Citation elsewhere relies on.
      */
-    async followLanguage(): Promise<void> {
+    followLanguage: inTurn(async (): Promise<void> => {
       const source = options.source;
       if (source === undefined) return;
       const language = options.language();
@@ -782,22 +804,22 @@ export function createExamples(options: ExamplesOptions) {
         }
         await switchLanguage(group, examples, source, language);
       }
-    },
+    }),
 
     /**
      * On a first run (no Mind yet, examples never offered): makes the credit
      * paper, once. Returns it, or null when nothing was made.
      */
-    async offer(hasMinds: boolean): Promise<Examples | null> {
+    offer: inTurn(async (hasMinds: boolean): Promise<Examples | null> => {
       if (options.source === undefined || options.readValue(OFFERED_VALUE) === true) return null;
       options.writeValue(OFFERED_VALUE, true);
       if (hasMinds) return null;
       return create(DEFAULT_GROUP);
-    },
+    }),
 
-    remove,
+    remove: inTurn(remove),
 
-    restore,
+    restore: inTurn(restore),
 
     /** A Document's status changed: the examples' Citations may now be checkable. */
     documentChanged() {

@@ -20,6 +20,7 @@
  */
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
 import { priceFor } from "../cost/price";
+import { newestReads } from "../newest";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
@@ -161,9 +162,12 @@ export type Tagging = ReturnType<typeof createTagging>;
 
 export function createTagging(options: TaggingOptions) {
   const { chat, jev } = options;
-  const lists = new Map<string, { at: number; models: readonly string[] }>();
+  /** What Ollama said it has installed, by address: when it was asked, in order and in time. */
+  const lists = new Map<string, { order: number; at: number; models: readonly string[] }>();
+  let listsAsked = 0;
   /** What the last resolution gave, for the checks that can't wait (see `lastResolved`). */
   let last: TaggingClassifier | null = null;
+  const resolution = newestReads();
 
   /**
    * Ollama on this computer: a saved Ollama provider's address there, else the
@@ -176,9 +180,12 @@ export function createTagging(options: TaggingOptions) {
 
   async function installedModels(baseUrl: string, fresh = false): Promise<readonly string[]> {
     const cached = lists.get(baseUrl);
-    if (!fresh && cached && options.now() - cached.at < INSTALLED_TTL_MS) return cached.models;
+    const asked = { order: ++listsAsked, at: options.now() };
+    if (!fresh && cached && asked.at - cached.at < INSTALLED_TTL_MS) return cached.models;
     const models = await options.localModels(baseUrl);
-    lists.set(baseUrl, { at: options.now(), models });
+    // A list asked for after this one and answered first is newer (#2302).
+    const kept = lists.get(baseUrl);
+    if (!kept || kept.order < asked.order) lists.set(baseUrl, { ...asked, models });
     return models;
   }
 
@@ -237,9 +244,10 @@ export function createTagging(options: TaggingOptions) {
     setting: LibraryClassifier = options.setting(),
     fresh = false,
   ): Promise<TaggingClassifier | null> {
+    const newest = resolution();
     const resolved =
       setting.kind === "automatic" ? ((await automatic(fresh))?.classifier ?? null) : setting;
-    last = resolved;
+    if (newest()) last = resolved;
     return resolved;
   }
 
@@ -356,6 +364,7 @@ export function createTagging(options: TaggingOptions) {
 
     /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
     async models(): Promise<TaggingModels> {
+      const newest = resolution();
       const picked = await automatic(true);
       const providers = await chat.list();
       const baseUrl = ollamaUrl(providers);
@@ -414,7 +423,7 @@ export function createTagging(options: TaggingOptions) {
           order[a.group] - order[b.group] || Number(b.goodForTagging) - Number(a.goodForTagging),
       );
       const saved = options.setting();
-      if (saved.kind === "automatic") last = picked?.classifier ?? null;
+      if (saved.kind === "automatic" && newest()) last = picked?.classifier ?? null;
       const option = picked && optionOf(picked.classifier, PICKED_FOR_TAGGING.has(picked.reason));
       return {
         automatic: option && picked ? { ...option, reason: picked.reason } : null,
