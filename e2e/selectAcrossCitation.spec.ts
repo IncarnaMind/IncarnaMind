@@ -215,6 +215,10 @@ for (const language of ["en", "zh-CN"] as const) {
           // Dragging past the character after the Citation does the same, to where the pointer ends.
           await window.keyboard.press("Escape");
           await window.waitForTimeout(520);
+          // From a caret: pressing inside the still-selected word drags the text, so the selection
+          // wouldn't move (Linux does; macOS starts a new selection).
+          await window.mouse.click(word.x, word.y);
+          await window.waitForTimeout(520);
           await window.mouse.move(word.x, word.y, { steps: 3 });
           await window.mouse.down();
           // Well past the character, as a browser can round a drag's end back to the boundary
