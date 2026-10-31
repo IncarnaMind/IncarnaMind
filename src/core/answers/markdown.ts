@@ -449,11 +449,11 @@ const isWhitespace = (char: string | undefined) => char === undefined || /\s/.te
 const isUnicodePunctuation = (char: string | undefined) =>
   char !== undefined && /[\p{P}\p{S}]/u.test(char);
 /**
- * Chinese writes its punctuation with no spaces around it. For `*`, a full-width or CJK punctuation
- * mark beside a delimiter counts like a letter, never like the ASCII punctuation CommonMark would
- * hold the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold (#1774), as
- * markdown-cjk-friendly reads them. For `_`, CommonMark's intraword rule keeps it punctuation, so
- * `（_强调_）` is italic and `snake_case` stays as written.
+ * Chinese writes its punctuation with no spaces around it. Beside a `**` or `~~` delimiter, a
+ * full-width or CJK punctuation mark counts like a letter, never like the ASCII punctuation
+ * CommonMark would hold the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold
+ * (#1774), as markdown-cjk-friendly reads them. A lone `*` and `_`'s intraword rule keep it
+ * punctuation, so `3*（2+1）*4` stays as written and `（_强调_）` is italic.
  */
 const isCjkPunctuation = (char: string | undefined) =>
   char !== undefined &&
@@ -699,18 +699,21 @@ function tokenize(source: string, open: boolean): Token[] {
       }
       const before = i > 0 ? source[i - 1] : undefined;
       const after = source[i + run];
+      // A lone `*` beside CJK punctuation follows CommonMark and counts it as punctuation, so
+      // `3*（2+1）*4` stays as written; `**` and `~~` let it stand like a letter (#1774).
+      const punctuation = char === "*" && run === 1 ? isUnicodePunctuation : isPunctuation;
       const leftFlanking =
         !isWhitespace(after) &&
-        (!isPunctuation(after) ||
+        (!punctuation(after) ||
           isWhitespace(before) ||
-          isPunctuation(before) ||
+          punctuation(before) ||
           isCjk(before) ||
           isCjkPunctuation(before));
       const rightFlanking =
         !isWhitespace(before) &&
-        (!isPunctuation(before) ||
+        (!punctuation(before) ||
           isWhitespace(after) ||
-          isPunctuation(after) ||
+          punctuation(after) ||
           isCjk(after) ||
           isCjkPunctuation(after));
       flush();

@@ -13,7 +13,7 @@ const TIDES = {
   contents: "# Tides\n\nSpring tides happen at new moon and at full moon.",
 };
 
-/** The #1774 strings and the shapes a number or a Latin word makes, each paragraph one sentence. */
+/** The #1774 strings, the shapes a number or a Latin word makes, and underscore emphasis, each paragraph one sentence. */
 const PARAGRAPHS = [
   "**上限：**每月五千元。",
   "**上限**：每月五千元。",
@@ -26,6 +26,10 @@ const PARAGRAPHS = [
   "**期限：**2026 年 3 月。",
   "见**《合同法》**5条。",
   "**Total：**5,000 元。",
+  "（_强调_）",
+  "「_x_」",
+  "注意：__重要__。",
+  "（__重要__）",
 ];
 const PAGE = `## 费用\n\n${PARAGRAPHS.join("\n\n")}`;
 const BOLD = [
@@ -40,8 +44,10 @@ const BOLD = [
   "期限：",
   "《合同法》",
   "Total：",
+  "重要",
+  "重要",
 ];
-const PHRASES = PARAGRAPHS.map((each) => each.replace(/\*\*/g, ""));
+const PHRASES = PARAGRAPHS.map((each) => each.replace(/\*\*|__|_/g, ""));
 /** What a check reads as sentences: one per 。, which a bold label can end. */
 const SENTENCES = PHRASES.flatMap((phrase) => phrase.match(/[^。]*。|[^。]+$/g) ?? []);
 
@@ -50,8 +56,8 @@ interface Run {
   bold: boolean;
 }
 
-describe("bold beside Chinese punctuation in a Note's page and a check card", () => {
-  test("a Note the assistant writes holds the words bold, with no asterisks, and its check's card reads every sentence as words", async () => {
+describe("emphasis beside Chinese punctuation in a Note's page and a check card", () => {
+  test("a Note the assistant writes holds the words with their marks, with no delimiters, and its check's card reads every sentence as words", async () => {
     const model = scriptedModel((call): ScriptedReply => {
       if (isCheckRun(call)) return checkReply(call, {});
       if (call.results.some((result) => result.tool === "create_mind")) {
@@ -80,6 +86,7 @@ describe("bold beside Chinese punctuation in a Note's page and a check card", ()
       return true;
     });
     expect(runs.map((run) => run.text).join("")).not.toContain("*");
+    expect(runs.map((run) => run.text).join("")).not.toContain("_");
     expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual(BOLD);
     expect(runs.map((run) => run.text).join("")).toBe(["费用", ...PHRASES].join(""));
 
@@ -107,5 +114,6 @@ describe("bold beside Chinese punctuation in a Note's page and a check card", ()
     const sentences = claimSpans(readMind(client)).map((span) => span.sentence.text);
     for (const sentence of SENTENCES) expect(sentences).toContain(sentence);
     expect(sentences.join("")).not.toContain("*");
+    expect(sentences.join("")).not.toContain("_");
   });
 });

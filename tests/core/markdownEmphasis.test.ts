@@ -172,6 +172,9 @@ describe("emphasis beside full-width punctuation with a number or a Latin word b
     expect(runs("5 * 3 * 2")).toEqual([plain("5 * 3 * 2")]);
     expect(runs("*.txt")).toEqual([plain("*.txt")]);
     expect(runs("* item")).toEqual([plain("item")]);
+    expect(runs("3*（2+1）*4")).toEqual([plain("3*（2+1）*4")]);
+    expect(runs("a*（b）*c")).toEqual([plain("a*（b）*c")]);
+    expect(runs("x*「y」*z")).toEqual([plain("x*「y」*z")]);
     expect(runs("`**上限：**5000 元`")).toEqual([code("**上限：**5000 元")]);
   });
 });
