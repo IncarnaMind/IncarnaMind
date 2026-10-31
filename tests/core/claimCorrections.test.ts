@@ -960,6 +960,51 @@ describe("A To line that goes on with a second Document's words", () => {
   });
 });
 
+describe("A wording that goes on past its quote", () => {
+  test.each([
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: "within 30 days after the Lease ends, less any amounts properly deducted",
+      quote: "The Landlord shall return it within 30 days after the Lease ends",
+      wording: "30 days after the Lease ends",
+    },
+    {
+      claim: "押金应在租期届满后60日内退还。",
+      from: "60日内",
+      to: "30日内无息退还，扣除应付款项",
+      quote: "租期届满后30日内无息退还",
+      wording: "30日内无息",
+    },
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: "within 45 days, as agreed",
+      quote: "The Landlord shall return it within 30 days after the Lease ends",
+      wording: undefined,
+    },
+  ])("gives $wording, as far as its quote holds it (#1481)", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The lease gives another period.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      files: [{ name: "Lease.md", contents: `${each.quote}, less any amounts properly deducted.` }],
+      dates: ["2025-01-14T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
 const evidence = (documentId: string): CitationAttributes => ({
   passageId: `passage-${documentId}`,
   documentId,

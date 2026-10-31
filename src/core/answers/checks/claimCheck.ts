@@ -2103,6 +2103,20 @@ function checkedNumber(figure: FigureCheckResult): FigureInput | null {
 
 const HAN = /\p{Script=Han}/u;
 
+/**
+ * The Document's words as far as `quote` holds them, to the end of a clause: Claude Haiku 5.5 went
+ * on past its quote with ", less any amounts properly deducted" (#1481). Null when it holds none.
+ */
+function heldBy(quote: string, wording: string): string | null {
+  if (quote.includes(wording)) return wording;
+  const ends = [...wording.matchAll(/\s*[,，;；]/gu)].map((match) => match.index).reverse();
+  for (const end of ends) {
+    const clause = wording.slice(0, end);
+    if (clause !== "" && quote.includes(clause)) return clause;
+  }
+  return null;
+}
+
 /** The one figure `words` are, or null when they are more or less than a figure. */
 function figureOnly(words: string, context: FigureContext): Figure | null {
   const read = readFigures(words, context);
@@ -2170,11 +2184,14 @@ function correctionFor(
   // Chinese lease's 30日内 for an English sentence's "60 days" (#1481).
   const readable = (wording: string) => !HAN.test(wording) || HAN.test(sentence);
   for (const stated of read.choices.filter((choice) => readable(choice.wording))) {
-    const fitted = inPlace(
-      claim.slice(0, first),
-      claim.slice(first + read.from.length),
-      stated.wording,
-    );
+    const inPlaceOf = (words: string) =>
+      inPlace(claim.slice(0, first), claim.slice(first + read.from.length), words);
+    const citation = finalCitation(stated.marker);
+    const placed = inPlaceOf(stated.wording);
+    const held = citation?.check === "found" ? heldBy(citation.quote, placed) : null;
+    if (!citation || held === null) return null;
+    // Cut to a clause, the words may end with what follows the old ones: 30日内无息退还.
+    const fitted = held === placed ? placed : inPlaceOf(held);
     // A figure takes the Document's figure of its own kind, not the words around it.
     const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
     const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
@@ -2188,12 +2205,7 @@ function correctionFor(
         claim,
         claim.slice(0, first) + choice.wording + claim.slice(first + read.from.length),
       ) ||
-      wordings.has(choice.wording)
-    )
-      return null;
-    const citation = finalCitation(choice.marker);
-    if (
-      citation?.check !== "found" ||
+      wordings.has(choice.wording) ||
       !citation.quote.includes(choice.wording) ||
       !namesPeriodsOf(claim, citation.quote)
     )
