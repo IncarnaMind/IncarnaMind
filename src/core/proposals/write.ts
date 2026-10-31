@@ -1906,10 +1906,10 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * added where it now goes. When two are like none of the selection's before
  * any is much like one (a translation), each pairs in order as it comes.
  * With `leftOut: "keep"` the text may leave paragraphs out: a paragraph pairs
- * by its place only while the text has left none out, else only with one it
- * reads as (`readsAs`, #2333), and a text written anew pairs in order once it
- * ends at least as long as the selection. `finish` takes out the selection's paragraphs the text never reached, or with
- * `leftOut: "keep"` keeps them unless the text quotes them between <removed>
+ * by its place only in a text written anew, or while the text has left none
+ * out; else only with one it reads as (`readsAs`, #2333). `finish` takes out
+ * the selection's paragraphs the text never reached, or with `leftOut: "keep"`
+ * keeps them unless the text quotes them between <removed>
  * and </removed> (#2180); a request stopped before leaves them. Call each in a
  * Yjs transaction on the document `selection` was read from.
  */
@@ -2081,14 +2081,10 @@ export function createRewriteStream(
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
-    // A paragraph's place says which it is only while the text has left none out: as many new
-    // paragraphs as old ones here, or more when it has kept none of the selection's (written anew,
-    // it waits for the User if it takes most of the text out). Otherwise a new line in the place
-    // of the next one is new text, not that one (#2333).
-    const placed =
-      !keeps ||
-      (kept.length === 0 &&
-        (held.length === between.length || (!anchored && held.length > between.length)));
+    // A paragraph's place says which it is in a text written anew, or while the text has left
+    // none out (as many new paragraphs as old ones here): otherwise a new line in the place of the
+    // next one is new text, not that one (#2333).
+    const placed = !keeps || anew || (kept.length === 0 && held.length === between.length);
     // As many new paragraphs as old ones between two that held their place: each rewrites its own.
     const inPlace =
       placed &&
@@ -2130,18 +2126,18 @@ export function createRewriteStream(
         most = alike;
       }
     }
-    if (
-      best !== null &&
-      keeps &&
-      !readsAs(segments[best] as Segment, paragraph, { least: MOVED_LIKENESS })
-    ) {
-      return null;
-    }
     return best;
   };
 
   const take = (paragraph: NewParagraph) => {
-    const like = muchLike(paragraph);
+    const near = muchLike(paragraph);
+    // Much like several on their pattern, it reads as none of them in particular (#2333).
+    const like =
+      near !== null &&
+      keeps &&
+      !readsAs(segments[near] as Segment, paragraph, { least: MOVED_LIKENESS })
+        ? null
+        : near;
     if (like !== null && like - at <= LOOKAHEAD + held.length) {
       writeHeld(like);
       pairWith(paragraph, like);
@@ -2149,9 +2145,8 @@ export function createRewriteStream(
       return;
     }
     held.push(paragraph);
-    if (like === null && !anchored) unlike++;
-    // A text that may leave paragraphs out is written anew only if it turns out as long as the selection.
-    if (unlike >= 2 && !keeps) anew = true;
+    if (near === null && !anchored) unlike++;
+    if (unlike >= 2) anew = true;
     if (at >= segments.length) writeHeld(at);
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };

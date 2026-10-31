@@ -3973,18 +3973,20 @@ describe("An edit never loses the User's words (#2333)", () => {
     expect(accepted).toEqual(expect.arrayContaining([...items, summary]));
   });
 
-  // protects=a reply that keeps none of the passage's paragraphs and is longer than it is written anew in its place (through the assistant, its guard then holds it for the User), while one that repeats a paragraph and then writes more lines than follow it adds them and keeps the paragraph after; English and Chinese; fails_when=the rewrite is added beside the text it rewrites, or the stray line takes the following paragraph's place; no_claim=what a real model writes.
+  // protects=a reply whose paragraphs are like none of the passage's at all is written anew in their places, longer or shorter than the passage (through the assistant, its guard then holds it for the User), while one that repeats a paragraph and then writes more lines than follow it adds them and keeps the paragraph after; English and Chinese; fails_when=the rewrite is added beside the text it rewrites, or the stray line takes the following paragraph's place; no_claim=what a real model writes.
   test.each([
     {
       lines: ["Parking is free at the north site.", "Hiring stays frozen."],
       anew: ["Gulls wheel over the quay at dawn.", "Boats rest on the mud at low water."],
       stray: "Changed to:",
+      third: "Fees are paid by bank transfer.",
       fresh: "Parking at the north site is no longer free.",
     },
     {
       lines: ["北区停车免费。", "招聘继续冻结。"],
       anew: ["清晨海鸥在码头上空盘旋。", "退潮时船只停在泥滩上。"],
       stray: "改为：",
+      third: "水费每季度收一次。",
       fresh: "北区停车不再免费。",
     },
   ])(
@@ -3998,6 +4000,15 @@ describe("An edit never loses the User's words (#2333)", () => {
         ),
       ).toMatchObject({ kind: "proposed" });
       expect(await acceptThenUndo(anew.client, anew.before)).toEqual(each.anew);
+
+      const longer = await noteOf(plain([...each.lines, each.third]), () => each.anew.join("\n\n"));
+      await longer.core.editWithAi(
+        wholeMind(longer.client, longer.mind.id, "Rewrite the intro to be clearer"),
+      );
+      expect(await acceptThenUndo(longer.client, longer.before)).toEqual([
+        ...each.anew,
+        each.third,
+      ]);
 
       const kept = await noteOf(plain(each.lines), () =>
         [first, each.stray, each.fresh].join("\n\n"),
