@@ -28,6 +28,24 @@ const CASES = [
   ["公告没有具体说明经营利润率。", "经营利润率", "公告中的经营利润率是多少？", true],
   ["季报中的现金转换周期是缺失的。", "现金转换周期", "季报中的现金转换周期是多少？", true],
   [
+    "I didn't find a cash conversion cycle figure for Q2 2026 in the Northmart Q2 2026 10-Q.",
+    "cash conversion cycle",
+    "What was the cash conversion cycle?",
+    false,
+  ],
+  [
+    "未在“北域零售 2026年第二季度季报”中找到现金转换周期。",
+    "现金转换周期",
+    "季报中的现金转换周期是多少？",
+    false,
+  ],
+  [
+    "I didn't find a cash conversion cycle in the 10-Q. The filing doesn't state one.",
+    "cash conversion cycle",
+    "What was the cash conversion cycle?",
+    true,
+  ],
+  [
     "Operating margin was 38.2% without other income [^1].",
     "operating margin",
     "What operating margin did the release report?",
