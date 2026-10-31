@@ -306,6 +306,40 @@ describe("The everyday request guards", () => {
     expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
   });
 
+  // protects=a standalone “Yet” in ordinary prose does not count as saying an uncited Document was left out; fails_when=it does (#894); no_claim=none beyond protects.
+  test("a discourse “Yet” does not make a Document said", () => {
+    const answer = outcome({
+      answer: {
+        text: "Made “Summary” of the tutorial. Yet 2306.10683v1 models urban regions.",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: ["tutorial"],
+    });
+    expect(documentsCovered(answer)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+    expect(requestFailures(answer)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
+  });
+
+  // protects=a list of what is left reads with its leading sentence, “1、” number or heading, in English and Chinese; fails_when=the item reads as a name alone (#894); no_claim=none beyond protects.
+  test("a list of what is left reads with its leading sentence, number or heading", () => {
+    const one = (text: string) =>
+      outcome({
+        answer: { text, citations: [], toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial"],
+      });
+    for (const text of [
+      "Made “Summary” of the tutorial. These are left for the next summary.\n\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结。\n1、2306.10683v1",
+      "已写好教程的“总结”。以下文档留待下次总结：\n① 2306.10683v1",
+      "## Left for the next summary\n- “2306.10683v1”",
+      "## 留待下次总结\n- 2306.10683v1",
+    ]) {
+      expect(documentsCovered(one(text))).toMatchObject({ named: ["2306.10683v1"], unsaid: [] });
+      expect(requestFailures(one(text))).toEqual([]);
+    }
+  });
+
   // protects=a summary of each Document that cites one outside its scope, the example's, fails and counts it; fails_when=it passes, or the count is lost among the scope's; no_claim=none beyond protects.
   test("a Citation outside the scope fails a summary of each", () => {
     const answered = (citations: { documentId: string; marker: number }[]) =>
