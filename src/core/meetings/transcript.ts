@@ -210,8 +210,6 @@ interface State extends Saved {
   restarts: number[];
   /** The other side's lines from the one voice a cloud service heard so far, while it is "Them". */
   firstVoice: Set<Cue>;
-  /** The microphone's lines from before the computer's sound was heard: the User's once it is. */
-  beforeCall: Set<Cue>;
   lastSwitch: (Pick<EngineSwitch, "from" | "to" | "reason"> & { atMs: number }) | null;
   fellBack: MeetingTranscript["fellBack"];
   probe: { audioMs: number; decodeMs: number; recorded: boolean };
@@ -342,6 +340,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     const state: State = {
       ...saved,
+      // A Transcript begun before #2305 has no mark: its Me and Them lines say the call was heard.
+      callHeard: saved.callHeard ?? isCall(cues),
       meetingId,
       cues,
       gaps,
@@ -359,7 +359,6 @@ export function createTranscripts(options: TranscriptsOptions) {
       catchUps: new Map(),
       restarts: [],
       firstVoice: new Set(),
-      beforeCall: new Set(),
       lastSwitch: null,
       fellBack: null,
       probe: { audioMs: 0, decodeMs: 0, recorded: false },
@@ -506,21 +505,15 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   /**
-   * The computer's sound has had sound in it: the microphone's lines are the User's, those said
-   * before the others first made a sound too (#2305).
+   * The computer's sound has had sound in it: the microphone is the User's. Until now it gave no
+   * line, so every line so far is the microphone's, whatever the engine or a cloud service called
+   * it, those read back from the file after a restart too (#2305).
    */
   function heardCall(state: State): void {
     if (state.callHeard || state.memo) return;
     state.callHeard = true;
-    // A cloud service may have numbered them as a room's voices; one read back from the file
-    // after a restart is "Speaker ?".
-    for (const cue of state.cues) {
-      if (state.beforeCall.has(cue) || cue.speaker === SPEAKER_UNKNOWN) cue.speaker = SPEAKER_ME;
-    }
-    state.beforeCall.clear();
-    for (const [stream, heard] of state.partials) {
-      if (owner(stream)?.source === "microphone") heard.speaker = SPEAKER_ME;
-    }
+    for (const cue of state.cues) cue.speaker = SPEAKER_ME;
+    for (const heard of state.partials.values()) heard.speaker = SPEAKER_ME;
     persist(state);
     writeLines(state);
     options.changed();
@@ -613,9 +606,6 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (segment.text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
       if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
-      if (found.source === "microphone" && speaker !== null && !state.callHeard) {
-        state.beforeCall.add(cue);
-      }
     }
     if (segment.failed) {
       health.add(state.meetingId, {
