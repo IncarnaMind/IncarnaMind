@@ -1272,17 +1272,23 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         // The sentence's figures as its check read them.
         const language = documentFigureContext([{ text: sentence }]);
         let found = stated;
+        // Figures the old words write over, all or some of their words ("1,500" of "1,500 units").
+        const writesOver = (from: string, chars: string) =>
+          readFigures(from, language).some((old) => chars.includes(old.chars));
         if (owner) {
           const deciding = owner.sourceInput;
-          if (!deciding) return checked;
           const changes = (from: string, to: string) => {
             const old = readFigures(from, language);
             const replacement = readFigures(to, language);
+            const [written] = replacement;
             return (
               old.length === 1 &&
-              old[0]?.chars === owner.reading.chars &&
+              writesOver(from, owner.reading.chars) &&
               replacement.length === 1 &&
-              Math.abs(replacement[0]?.value ?? Number.NaN) === Math.abs(deciding.number.value)
+              written !== undefined &&
+              (deciding
+                ? Math.abs(written.value) === Math.abs(deciding.number.value)
+                : written.unit.kind === owner.reading.unit.kind)
             );
           };
           // The figure's own check already found the Document's number and its quote, so the
@@ -1294,35 +1300,42 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             changes(stated.correction.from, choice.wording),
           )
             ? stated
-            : corrected(
-                {
-                  from: owner.reading.chars,
-                  choices: [{ wording: deciding.number.chars, marker: 1 }],
-                },
-                () => deciding.citation,
-              );
+            : deciding
+              ? corrected(
+                  {
+                    from: owner.reading.chars,
+                    choices: [{ wording: deciding.number.chars, marker: 1 }],
+                  },
+                  () => deciding.citation,
+                )
+              : null;
         } else {
           // Old words of the rest of the sentence lie outside its figures, where the reply names
-          // that rest; a sentence judged whole may be corrected anywhere.
+          // that rest, unless they write over a figure; a sentence judged whole may be corrected
+          // anywhere.
           const rest = readFigureReply(
             figuresText,
             request.figures ?? [],
             request.claim,
           )?.remainder;
-          if (!stated || (rest && !rest.text.includes(stated.correction.from))) return checked;
+          if (
+            !stated ||
+            (rest &&
+              !rest.text.includes(stated.correction.from) &&
+              !figures.some((figure) => writesOver(stated.correction.from, figure.reading.chars)))
+          )
+            return checked;
         }
         if (!found) return checked;
         // Every other result stands, or is a figure whose words the correction writes over: its
         // number couldn't be compared, and the Document's takes its place.
-        const replaced = readFigures(found.correction.from, language).map((figure) => figure.chars);
-        const writesOver = (chars: string) =>
-          replaced.some((old) => chars.includes(old) || old.includes(chars));
+        const { from } = found.correction;
         if (
           figures.some(
             (figure) =>
               figure !== owner &&
               figure.result.verdict !== "supported" &&
-              !(figure.result.verdict === "unsupported" && writesOver(figure.reading.chars)),
+              !(figure.result.verdict === "unsupported" && writesOver(from, figure.reading.chars)),
           ) ||
           (owner && remainder && remainder.verdict !== "supported")
         )
