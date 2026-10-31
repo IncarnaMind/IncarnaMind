@@ -6,7 +6,7 @@ import { type MessageKey, type MessageParams, translate } from "../../src/shared
 
 /*
  * A name inside a line is cut in the middle past the limit, and the line's own words are never
- * cut (DESIGN.md, Words on screen; D304): the undo line, problems and replies say it through
+ * cut (DESIGN.md, Words on screen; #400): the undo line, problems and replies say it through
  * `saidInLine`. A name within the limit is whole; the line wraps instead.
  */
 

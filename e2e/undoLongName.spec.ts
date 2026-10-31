@@ -18,7 +18,7 @@ import {
 
 /*
  * The undo line after Move (into a Folder with a 70-character name too), Rename and Delete of a
- * Document with a 70-character name (#1122, #1154, D304): a name past about 40 columns is cut in
+ * Document with a 70-character name (#1122, #1154, #400): a name past about 40 columns is cut in
  * the middle, its start and end kept; a shorter one shows whole and the line wraps, a third line
  * allowed for a narrow pane or a wide system font. The line's own words and Undo stay whole, with
  * the full names in the tooltip and in Undo's accessible name. A language switch rewrites the
@@ -142,7 +142,7 @@ async function expectWholeLine(
     expect(accessible).toContain(name);
   }
 
-  // The line wraps as a narrow pane or a wide system font needs (a third line is allowed, D304);
+  // The line wraps as a narrow pane or a wide system font needs (a third line is allowed, #400);
   // every word of it stays inside the sidebar and the line.
   const [lineBox, messageBox, undoBox, sidebarBox] = await Promise.all([
     boxOf(line),

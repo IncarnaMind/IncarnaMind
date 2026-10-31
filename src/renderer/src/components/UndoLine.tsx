@@ -189,7 +189,7 @@ export function UndoLineBody({
 
 /**
  * The message wraps rather than cutting a name within the line's limit, so a narrow pane or a
- * wide system font may take it to a third line (DESIGN.md, Sidebar; D304). Only a name past the
+ * wide system font may take it to a third line (DESIGN.md, Sidebar; #400). Only a name past the
  * limit is cut, in the middle, and the whole message is its tooltip.
  */
 function ChangeLine({

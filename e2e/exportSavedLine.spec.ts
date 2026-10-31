@@ -162,7 +162,7 @@ for (const beside of [false, true]) {
           expect(shown).toMatch(/…[^…]*\.docx”/);
           expect(shown).not.toContain(name);
 
-          // D304: a third line is allowed; every word of the line and its parts stays inside the window.
+          // #400: a third line is allowed; every word of the line and its parts stays inside the window.
           expect(await cutOff(done)).toEqual([]);
 
           await motionSettled(window);

@@ -465,7 +465,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await a.window.getByTestId("add-documents-input").setInputFiles([long]);
         await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
         const cut = await height();
-        // D304: past the limit the Question is cut in the middle, and the line may wrap: the
+        // #400: past the limit the Question is cut in the middle, and the line may wrap: the
         // card grows with it, and the whole Question stays its name and its tooltip.
         expect(cut).toBeGreaterThanOrEqual(reading);
         expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
@@ -519,7 +519,7 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-test("a Chinese Question longer than the limit cuts in the middle, its start and end kept, with the whole in its tooltip (#2084, D304)", async () => {
+test("a Chinese Question longer than the limit cuts in the middle, its start and end kept, with the whole in its tooltip (#2084, #400)", async () => {
   const sources = await createDataFolder();
   const name = "港口简报与冬季疏浚计划联合评审会议纪要（第二季度）";
   const file = join(sources, `${name}.md`);
@@ -552,7 +552,7 @@ test("a Chinese Question longer than the limit cuts in the middle, its start and
   }
 });
 
-test("the English example's Question shows whole at 900 px, wrapping as the system font needs (#2084, D304)", async () => {
+test("the English example's Question shows whole at 900 px, wrapping as the system font needs (#2084, #400)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
     await setWindowSize(app, window, 900, 900);

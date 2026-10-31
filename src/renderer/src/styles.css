@@ -4030,7 +4030,7 @@
       color: var(--color-ink);
     }
   }
-  /* In the assistant's narrower column the choices take less room; when they don't fit beside the text, a narrow tray or a wide system font wraps them under it, Deny last (D304). */
+  /* In the assistant's narrower column the choices take less room; when they don't fit beside the text, a narrow tray or a wide system font wraps them under it, Deny last (#400). */
   .assistant-answer .approval-actions {
     gap: 4px;
     padding-right: 8px;

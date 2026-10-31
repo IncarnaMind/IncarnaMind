@@ -243,7 +243,7 @@ for (const language of ["en", "zh-CN"] as const) {
       for (const name of ["Boardpack", thirty]) {
         await renameInTab(window, name);
         await expect(undo).toBeVisible();
-        // D304: a name within the limit is never cut for a narrow pane or a wide system font;
+        // #400: a name within the limit is never cut for a narrow pane or a wide system font;
         // the line wraps instead, so the whole message is its text and it needs no tooltip.
         await expect(message).toContainText(name);
         expect((await message.textContent()) ?? "").not.toContain("…");

@@ -51,7 +51,7 @@ const leftOf = async (target: Locator) =>
 
 /**
  * The tray's approval buttons are in the card's order, Deny last, every one inside the tray;
- * a narrow tray or a wide system font may wrap them under the text (D304), and the shortcut
+ * a narrow tray or a wide system font may wrap them under the text (#400), and the shortcut
  * stays in the main button's name.
  */
 async function expectApprovalButtons(window: Page, name: string) {

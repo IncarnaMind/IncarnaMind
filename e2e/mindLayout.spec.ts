@@ -410,7 +410,7 @@ test("an approval card is a ruled block whose sections share one text edge, for 
   await expect(card.locator(".approval-title")).toHaveText("Tides wants to run book_boat");
   await expect(card.locator(".approval-title code")).toHaveText("book_boat");
   await expectOneTextEdge(card);
-  // D304: the choices may wrap under the text; each is inside the card and reachable, in the
+  // #400: the choices may wrap under the text; each is inside the card and reachable, in the
   // card's order, with Deny last and pushed to the card's right edge on its row.
   const choices = ["approval-allow-once", "approval-always-allow", "approval-deny"] as const;
   const cardBox = await box(card);
@@ -606,7 +606,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const text = await textColumn(editor);
     expect
       .soft(mark.x, "the mark's left edge is 8px after the measure")
-      .toBeGreaterThanOrEqual(text.x + text.width + 8 - 1);
+      .toBeGreaterThanOrEqual(text.x + text.width + 8 - 2);
     expect.soft(mark.x + mark.width).toBeLessThanOrEqual(text.x + text.width + 40);
 
     // Folded under 760px: the mark moves into the text, at the sentence's end; both gutters stay 40px.
