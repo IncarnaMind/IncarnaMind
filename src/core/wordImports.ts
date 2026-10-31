@@ -33,10 +33,13 @@ import { setTextOrigin } from "../shared/textOrigins";
 import {
   linkWordFileDocument,
   recordWordImportProgress,
+  setWordNoteNumbering,
   setWordSource,
   startWordImport,
+  wordFileOf,
   wordFingerprint,
   wordImportDone,
+  wordImportProgressOf,
   wordOriginOf,
 } from "../shared/wordFiles";
 import { setWordLook, wordLookOf } from "../shared/wordLook";
@@ -52,7 +55,11 @@ import {
   type WordOrigin,
   type WordRefusalReason,
 } from "./api";
-import { readWordStructure, type WordStructure } from "./documents/formats/docxImport";
+import {
+  readWordDocument,
+  readWordStructure,
+  type WordStructure,
+} from "./documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "./documents/formats/docxLook";
 import {
   openWordPackage,
@@ -66,6 +73,7 @@ import type { MindContent } from "./mindContent";
 import { type createMinds, parseFolderChoice } from "./minds";
 import type { Database } from "./storage";
 import { applyLook, clearLook, type LookPlan, planLook } from "./wordLookBackfill";
+import { convertWordParts, needsPartsConverted } from "./wordParts";
 
 /** The folder in the data folder that keeps imported Word packages. */
 export const WORD_PACKAGES_FOLDER = "Word imports";
@@ -453,6 +461,7 @@ export function createWordImports(options: WordImportsOptions) {
             structure.blocks.length,
           );
           setWordLook(blocks.doc, structure.look);
+          setWordNoteNumbering(blocks.doc, structure.noteNumbering);
         }
       });
       if (structure.lookUnreadable.length > 0) {
@@ -676,7 +685,7 @@ export function createWordImports(options: WordImportsOptions) {
             continue;
           }
           const pkg = await openWordPackage(bytes);
-          const structure = await readWordStructure(pkg, await reviewOf(pkg));
+          const { structure } = await readWordDocument(pkg, await reviewOf(pkg));
           if (closed) return;
           const wasLoaded = content.isLoaded(mindId);
           let plan: LookPlan | null;
@@ -687,6 +696,8 @@ export function createWordImports(options: WordImportsOptions) {
               if (!doc) return null;
               const look = wordLookOf(doc);
               if (look && look.version >= WORD_LOOK_VERSION) return null;
+              // The look is planned on what an import reads now, its notes and breaks the Note's own.
+              convertWordParts(doc, blocks, structure);
               if (look) clearLook(doc, blocks, structure.look);
               const planned = planLook(doc, blocks, structure, look?.version ?? null);
               applyLook(doc, planned);
@@ -714,6 +725,53 @@ export function createWordImports(options: WordImportsOptions) {
         }
       }
       log.info("word.look.done", { minds: imported.length });
+    },
+
+    /**
+     * Converts a Note imported before its footnotes, endnotes and page breaks
+     * were its own (#746), as it is opened: not an Undo step, as for the look.
+     * Nothing for one imported since, one still importing, or one whose
+     * package is missing, which keeps them read-only.
+     */
+    async convertParts(mindId: string): Promise<void> {
+      const pending = content.read(mindId, (blocks) => {
+        const doc = blocks.doc;
+        return (
+          doc !== null &&
+          wordFileOf(doc) !== null &&
+          wordImportProgressOf(doc) === null &&
+          needsPartsConverted(doc)
+        );
+      });
+      if (!pending) return;
+      const row = db.get<{ sha256: string }>(
+        "SELECT sha256 FROM word_packages WHERE mind_id = ? AND completed_at IS NOT NULL AND deleted_at IS NULL",
+        [mindId],
+      );
+      if (!row || !/^[0-9a-f]{64}$/.test(row.sha256)) return;
+      try {
+        let bytes: Uint8Array;
+        try {
+          bytes = await readFile(packagePath(row.sha256));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          log.info("word.parts.packageMissing", { mindId });
+          return;
+        }
+        const pkg = await openWordPackage(bytes);
+        const { structure } = await readWordDocument(pkg, await reviewOf(pkg));
+        const converted = content.edit(mindId, (blocks) =>
+          blocks.doc ? convertWordParts(blocks.doc, blocks, structure) : null,
+        );
+        if (converted) log.info("word.parts.converted", { mindId, ...converted });
+      } catch (error) {
+        if (error instanceof MindReadOnlyError) return;
+        log.error("word.parts.failed", {
+          mindId,
+          error: error instanceof Error ? error.name : "unknown",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
 
     /** Stops writing Blocks: each import goes on from where it got to at the next start. */

@@ -2,6 +2,7 @@ import { type Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { focusNow } from "./footnoteSchema";
 import { keepMenuClosed } from "./selectionDismissal";
 
 /** How find matches, as the bar offers it (⌘F, ⌥⌘F): Word's Match case and Whole word. */
@@ -382,8 +383,9 @@ export function clearFind(editor: Editor, select = false): void {
   const match = state.matches[state.current];
   const tr = editor.state.tr.setMeta(KEY, { clear: true });
   if (select && match) tr.setSelection(TextSelection.create(tr.doc, match.from, match.to));
+  if (select) tr.scrollIntoView();
   editor.view.dispatch(tr);
-  if (select) editor.commands.focus();
+  if (select) focusNow(editor);
 }
 
 /**
