@@ -4,6 +4,8 @@
  * its own copy and paste, a copy pasted while the note is there, into the
  * Note of another file or into a Note not imported from Word is numbered with
  * the footnotes, and a note moved within its file stays the file's endnote.
+ * What the import kept as is (a field, a note, a picture) pasted into another
+ * file's Note has no place in it either.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -16,6 +18,8 @@ import {
   MIND_CONTENT_FIELD,
   MIND_WORD_FIELD,
   PAGE_BREAK_NODE,
+  WORD_ATOM_NODE,
+  WORD_BLOCK_NODE,
 } from "../../src/core/api";
 import { numberFootnotes } from "../../src/renderer/src/editor/citationNumbers";
 import { findFootnote, footnoteText } from "../../src/renderer/src/editor/footnoteSchema";
@@ -133,6 +137,31 @@ const placesOf = (editor: Editor) => {
   return found;
 };
 
+const kept = (kind: string, source: string, attrs: Record<string, unknown> = {}): JSONContent => ({
+  type: WORD_ATOM_NODE,
+  attrs: { kind, label: "", text: "", source, ...attrs },
+});
+
+/** What the import kept as is, in the Note: each atom's kind and place. */
+const keptIn = (editor: Editor) => {
+  const found: [unknown, unknown][] = [];
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === WORD_ATOM_NODE || node.type.name === WORD_BLOCK_NODE)
+      found.push([node.attrs.kind, node.attrs.source]);
+  });
+  return found;
+};
+
+/** The position of the first node of this type whose attribute `kind` is `kind`. */
+const keptAt = (editor: Editor, kind: string) => {
+  let at = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (at < 0 && node.attrs.kind === kind) at = pos;
+  });
+  if (at < 0) throw new Error(`No ${kind}.`);
+  return at;
+};
+
 describe("a copy of a Word file's note", () => {
   test("pasted while the note is there is a footnote of the User's own, numbered with the footnotes; the note is still the file's", () => {
     const editor = noteWith(
@@ -218,5 +247,79 @@ describe("a copy of a Word file's note", () => {
     paste(mine, copied(a, endnoteAt(a, "e1").pos));
     expect(shown(mine)).toEqual(["f1 A", "f2 B"]);
     expect(placesOf(mine)).toEqual([null, null]);
+  });
+});
+
+describe("a copy of what a Word file's import kept as is", () => {
+  test.each([
+    ["English", "Mine", "2026-01-01", "A note with a picture.", "A's chart"],
+    ["Chinese", "我的", "2026年1月1日", "甲文件带图片的脚注。", "甲文件的图表"],
+  ])(
+    "pasted into the Note of another Word file has no place there, a note kept as is numbered with its footnotes (%s)",
+    (_, mine, date, noteText, chart) => {
+      const a = noteWith(
+        [
+          paragraph(
+            "a",
+            text("One"),
+            kept("field", "w:r#5..w:r#7", { label: date, info: { field: "DATE" } }),
+            kept("endnote", "w:endnoteReference#0", { label: "1", text: noteText }),
+            kept("picture", "w:drawing#0", { label: chart }),
+          ),
+          {
+            type: WORD_BLOCK_NODE,
+            attrs: { id: "k", kind: "control", label: "", text: "Contents", source: "w:sdt#0" },
+          },
+          paragraph("c", text("Noted"), {
+            type: FOOTNOTE_NODE,
+            attrs: { id: "f1", source: "w:footnoteReference#0" },
+            content: [
+              text("See "),
+              kept("field", "word/footnotes.xml!w:r#3..w:r#5", { label: "7" }),
+            ],
+          }),
+        ],
+        FILE_A,
+      );
+      const b = noteWith([paragraph("b", text(mine))], FILE_B);
+      for (const kind of ["field", "endnote", "picture", "control"])
+        paste(b, copied(a, keptAt(a, kind)));
+      paste(b, copied(a, endnoteAt(a, "f1").pos));
+      expect(keptIn(b)).toEqual([
+        ["field", null],
+        ["footnote", null],
+        ["picture", null],
+        ["field", null],
+        ["control", null],
+      ]);
+      expect(
+        numberFootnotes(b.state.doc).footnotes.map(
+          (each) => `${each.endnote ? "e" : "f"}${each.number}${each.kept ? " kept" : ""}`,
+        ),
+      ).toEqual(["f1 kept", "f2"]);
+      expect(placesOf(b)).toEqual([null]);
+    },
+  );
+
+  test("copied within its file's Note, a field keeps its place, and a note kept as is, while the note is there, is the User's footnote", () => {
+    const a = noteWith(
+      [
+        paragraph(
+          "a",
+          text("One"),
+          kept("field", "w:r#5..w:r#7", { label: "2026-01-01" }),
+          kept("footnote", "w:footnoteReference#1", { label: "1", text: "Kept." }),
+        ),
+      ],
+      FILE_A,
+    );
+    paste(a, copied(a, keptAt(a, "field")));
+    paste(a, copied(a, keptAt(a, "footnote")));
+    expect(keptIn(a)).toEqual([
+      ["field", "w:r#5..w:r#7"],
+      ["footnote", "w:footnoteReference#1"],
+      ["field", "w:r#5..w:r#7"],
+      ["footnote", null],
+    ]);
   });
 });

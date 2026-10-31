@@ -36,6 +36,14 @@ export const INVISIBLE_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set([
 /** Atoms drawn as a line across the text, as Word draws them with its marks shown (#746). */
 export const BREAK_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set(["sectionBreak", "pageBreak"]);
 
+/** Atoms a file can hold twice, having no id that would clash: a copy is written from the XML again. */
+export const COPYABLE_WORD_ATOMS: ReadonlySet<WordAtomKind> = new Set([
+  "field",
+  "equation",
+  "symbol",
+  "pageBreak",
+]);
+
 const KINDS: ReadonlySet<string> = new Set<WordAtomKind>([
   "field",
   "control",

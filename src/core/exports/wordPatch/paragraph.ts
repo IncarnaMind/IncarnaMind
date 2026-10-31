@@ -133,6 +133,17 @@ export const special = (inline: Inline): Token => ({
 const textTokens = (text: string, marks: TextMarks, run: XmlElement | null) =>
   Array.from(text, (each) => char(each, marks, run));
 
+/** An atom's token written as `text` instead, with what is waiting on it. */
+export const asCharacters = (token: Token, text: string): Token[] =>
+  Array.from(text, (each) => ({
+    ...token,
+    kind: "char" as const,
+    key: each,
+    char: each,
+    marks: NO_MARKS,
+    source: null,
+  }));
+
 /** A line break, as one in the text or where a note's paragraph ends (#746). */
 export const lineBreak = (run: XmlElement | null = null): Token => ({
   ...char("\n", NO_MARKS, run),

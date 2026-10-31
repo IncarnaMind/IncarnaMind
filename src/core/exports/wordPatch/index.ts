@@ -28,6 +28,7 @@ import {
   type FormattedCitations,
   IMAGE_NODE,
   PAGE_BREAK_NODE,
+  WORD_ATOM_NODE,
   type WordExportLoss,
   type WordExportReport,
 } from "../../api";
@@ -216,12 +217,15 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const options = input.readOptions;
   const specialOf = (node: NodeJSON) => {
     const element = yOf.get(node);
+    const kind = node.type === WORD_ATOM_NODE ? node.attrs?.kind : null;
     const special =
       node.type === CITATION_NODE ||
       node.type === FOOTNOTE_NODE ||
       node.type === PAGE_BREAK_NODE ||
       node.type === "inlineMath" ||
-      node.type === IMAGE_NODE;
+      node.type === IMAGE_NODE ||
+      kind === "footnote" ||
+      kind === "endnote";
     return element && special ? readInlineNodes([element], options) : [];
   };
   const textOf = (node: NodeJSON) => {

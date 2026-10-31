@@ -18,7 +18,12 @@
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readParagraphFormat } from "../../../shared/paragraphFormat";
 import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import { PARAGRAPH_FORMAT_ATTRIBUTE, type ParagraphFormat, type WordExportLoss } from "../../api";
+import {
+  PARAGRAPH_FORMAT_ATTRIBUTE,
+  type ParagraphFormat,
+  WORD_ATOM_NODE,
+  type WordExportLoss,
+} from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
 import type { Relationship } from "../../documents/formats/docxPackage";
 import { child, elements, walk, type XmlElement } from "../../documents/formats/xml";
@@ -43,10 +48,11 @@ import {
   type Tracking,
   trackBlocks,
 } from "../wordReview";
-import type { AtomPlan } from "./atoms";
-import { type Counterpart, counterpartsOf, type ListPlace, NO_MARKS } from "./mind";
+import { type AtomPlan, copiedText } from "./atoms";
+import { type Counterpart, counterpartsOf, type ListPlace } from "./mind";
 import {
   alignTokens,
+  asCharacters,
   baseTokens,
   keptKindOf,
   type ParagraphContext,
@@ -659,16 +665,13 @@ export class DocumentPatch {
       const from = scopeOf(this.parents.get(based.element) ?? based.element, this.parents);
       return rescoped(splice?.text ?? "", from, scope);
     }
-    if (counterpart.kind === "kept" && based) {
+    if (counterpart.kind === "kept") {
       const atom = readWordAtom(counterpart.node.attrs ?? {});
-      if (atom.source && this.input.plan.writes(atom.source, counterpart.node, atom.kind)) {
+      if (based && atom.source && this.input.plan.writes(atom.source, counterpart.node, atom.kind))
         return moved(based.element);
-      }
-      this.input.plan.copied(counterpart.node);
+      if (atom.source) this.input.plan.copied(counterpart.node);
       return this.newXml(this.input.writer.render(textBlocks(counterpart.node)), scope);
     }
-    if (counterpart.kind === "kept")
-      return this.newXml(this.input.writer.render(textBlocks(counterpart.node)), scope);
     // What changes still waiting do to it as a whole is the counterpart's, tracked once.
     const blocks = this.input
       .blocksOf(counterpart.node)
@@ -737,18 +740,14 @@ export class DocumentPatch {
       const { node } = token;
       if (token.kind !== "atom" || !token.source || !node) return [token];
       if (plan.writes(token.source, node, keptKindOf(node))) return [token];
-      if (token.inline) return [special(token.inline)];
+      if (token.inline) {
+        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
+        if (node.type === WORD_ATOM_NODE) plan.copied(node);
+        return [special(token.inline)];
+      }
       if (!plan.isForeign(node) && !plan.written(token.source)) return [];
       plan.copied(node);
-      const text = node.type === "image" ? "" : wordAtomText(readWordAtom(node.attrs ?? {}));
-      return Array.from(text, (each) => ({
-        ...token,
-        kind: "char" as const,
-        key: each,
-        char: each,
-        marks: NO_MARKS,
-        source: null,
-      }));
+      return asCharacters(token, copiedText(node));
     });
     const filePPr = based ? this.pPrOf(based.element) : "";
     const basePPr = based

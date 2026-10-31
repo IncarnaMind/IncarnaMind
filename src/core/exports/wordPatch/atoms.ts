@@ -6,8 +6,8 @@
  * is written as its text, or a note's mark, a page break or a picture as a
  * new one (#746), except what has no id to clash (a field, an equation, a
  * symbol, a page break). So is a node whose place this file doesn't have, or
- * has as something else (another picture), which was pasted from another
- * file's Note.
+ * has as something else (another picture, another field or note), which was
+ * pasted from another file's Note, and one with no place at all.
  * Marks that come in pairs (a bookmark's start and end, a comment's range
  * and its mark) are left out when their other half is gone, as Word would
  * repair the file. What can't be kept, someone's comment or tracked change
@@ -18,11 +18,13 @@
  * out, and every pair stays whole.
  */
 import type { NodeJSON } from "../../../shared/blockJson";
-import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
+import { COPYABLE_WORD_ATOMS, readWordAtom, wordAtomText } from "../../../shared/wordFiles";
 import {
   FOOTNOTE_NODE,
   IMAGE_NODE,
   PAGE_BREAK_NODE,
+  WORD_ATOM_NODE,
+  WORD_BLOCK_NODE,
   type WordAtomKind,
   type WordExportLoss,
 } from "../../api";
@@ -30,9 +32,6 @@ import type { Places } from "../../documents/formats/docxImport";
 import type { XmlElement } from "../../documents/formats/xml";
 import { type Counterpart, counterpartsOf } from "./mind";
 import { sourceOf } from "./paragraph";
-
-/** What an atom's copy can be written as again, having no id that would clash. */
-const COPYABLE: ReadonlySet<WordAtomKind> = new Set(["field", "equation", "symbol", "pageBreak"]);
 
 /** Marks that come in pairs, by element: which pair, and which half. */
 const PAIRED: Readonly<Record<string, { family: string; half: "start" | "end" | "mark" }>> = {
@@ -89,7 +88,9 @@ export class AtomPlan {
     imported: (node: NodeJSON) => boolean = () => false,
   ) {
     const baseAtoms = occurrences(base, baseKey);
-    const now = occurrences(current, currentKey);
+    const placeless: NodeJSON[] = [];
+    const now = occurrences(current, currentKey, placeless);
+    for (const node of placeless) this.copied(node);
     const presentKeys = new Set(
       [...now.values()].flat().flatMap((each) => (each.ownerKey ? [each.ownerKey] : [])),
     );
@@ -168,7 +169,7 @@ export class AtomPlan {
    */
   writes(source: string, node: NodeJSON, kind: WordAtomKind): boolean {
     if (this.unwritten.has(source) || this.foreign.has(node)) return false;
-    return this.writer.get(source) === node || COPYABLE.has(kind);
+    return this.writer.get(source) === node || COPYABLE_WORD_ATOMS.has(kind);
   }
 
   /** Whether the node names a place this file doesn't have as what it is: it is written new. */
@@ -189,19 +190,20 @@ export class AtomPlan {
   /** A copy written as its text: said, unless it shows nothing. */
   copied(node: NodeJSON): void {
     const atom = readWordAtom(node.attrs ?? {});
-    const text = (atom.label || atom.text || wordAtomText(atom)).trim();
+    const note = atom.kind === "footnote" || atom.kind === "endnote";
+    const text = (note ? atom.text : atom.label || atom.text || wordAtomText(atom)).trim();
     if (!text && atom.kind !== "picture" && atom.kind !== "textBox" && atom.kind !== "shape")
       return;
-    const key = `copy:${atom.source ?? ""}`;
+    const key = `copy:${atom.source ?? `${atom.kind}:${text}`}`;
     if (this.losses.some((each) => each.key === key)) return;
     this.losses.push({ key, kind: "copy", author: null, text: text.slice(0, QUOTED) });
   }
 }
 
 /**
- * Whether a note's mark, a page break or a picture is at the place it names:
- * the file has a mark of its kind or a page break there (`element`), or the
- * same picture (`imported`, what the import read there).
+ * Whether a node is at the place it names: the file has a note's mark of its
+ * kind or a page break there (`element`), or the same picture or the same
+ * atom (`imported`, what the import read there: its kind and what it shows).
  */
 function isAt(
   node: NodeJSON,
@@ -218,14 +220,35 @@ function isAt(
   if (node.type === PAGE_BREAK_NODE) {
     return element?.name === "w:br" && element.attrs["w:type"] === "page";
   }
-  // What the import keeps as is can span runs ("w:r#40..w:r#44"), a place no one element is at.
-  return true;
+  return sameAtom(node, imported);
 }
 
-/** Every atom in some Blocks, by source, with the paragraph or Block it is in. */
+/** What an atom is, as the import read it, wherever it is: its kind, what it shows and says. */
+function keptAs(node: NodeJSON): string {
+  const { kind, label, text, info } = readWordAtom(node.attrs ?? {});
+  return JSON.stringify([kind, label, text, info]);
+}
+
+/** Whether an atom is the one the import read at its place (`imported`), not another file's. */
+export function sameAtom(node: NodeJSON, imported: NodeJSON | undefined): boolean {
+  return imported?.type === node.type && keptAs(imported) === keptAs(node);
+}
+
+/** What a copy of an atom written as its text reads: a note's text for a note kept as is. */
+export function copiedText(node: NodeJSON): string {
+  if (node.type !== WORD_ATOM_NODE && node.type !== WORD_BLOCK_NODE) return "";
+  const atom = readWordAtom(node.attrs ?? {});
+  return atom.kind === "footnote" || atom.kind === "endnote" ? atom.text : wordAtomText(atom);
+}
+
+/**
+ * Every atom in some Blocks, by source, with the paragraph or Block it is in;
+ * those with no source, a copy from another file's Note, into `placeless`.
+ */
 function occurrences(
   blocks: readonly NodeJSON[],
   keyOf: (node: NodeJSON) => string | null,
+  placeless: NodeJSON[] = [],
 ): Map<string, Occurrence[]> {
   const found = new Map<string, Occurrence[]>();
   const add = (source: string, occurrence: Occurrence) =>
@@ -235,6 +258,7 @@ function occurrences(
       if (counterpart.kind === "kept") {
         const source = readWordAtom(counterpart.node.attrs ?? {}).source;
         if (source) add(source, { node: counterpart.node, ownerKey: counterpart.key });
+        else placeless.push(counterpart.node);
       } else if (counterpart.kind === "table") {
         for (const row of counterpart.node.content ?? []) {
           for (const cell of row.content ?? []) visit(counterpartsOf(cell.content ?? [], keyOf));
@@ -243,6 +267,7 @@ function occurrences(
         for (const node of counterpart.node.content ?? []) {
           const source = sourceOf(node);
           if (source) add(source, { node, ownerKey: counterpart.key });
+          else if (node.type === WORD_ATOM_NODE) placeless.push(node);
         }
       }
     }

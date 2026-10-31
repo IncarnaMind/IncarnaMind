@@ -23,9 +23,10 @@ import type { Inline, ReviewReading } from "../../mindText";
 import { WRITER_NAMESPACES } from "../docx";
 import { escapeXml, type WordIds } from "../wordml";
 import type { Review } from "../wordReview";
-import type { AtomPlan } from "./atoms";
+import { type AtomPlan, copiedText, sameAtom } from "./atoms";
 import {
   alignTokens,
+  asCharacters,
   baseTokens,
   keptKindOf,
   lineBreak,
@@ -178,8 +179,22 @@ function noteXml(
     }
     whole.push(...tokens);
   });
+  const own = new Map<string, NodeJSON>();
+  for (const paragraph of paragraphs) {
+    for (const node of paragraph.content) {
+      const source = sourceOf(node);
+      if (source) own.set(source, node);
+    }
+  }
+  // What is kept as is that the note didn't hold, from the text or another file's Note, is its text.
   const current = withLead(
-    input.tokensOf(content),
+    input.tokensOf(content).flatMap((token) => {
+      const { node, source } = token;
+      if (token.kind !== "atom" || !source || !node || sameAtom(node, own.get(source)))
+        return [token];
+      input.plan.copied(node);
+      return asCharacters(token, copiedText(node));
+    }),
     bases[0] ?? [],
     noteLead(paragraphs[0]?.content ?? []).length,
   );

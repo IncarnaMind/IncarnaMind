@@ -490,6 +490,253 @@ describe("a note or page break from another file's Note", () => {
       }
     },
   );
+
+  test.each([
+    ["English", "A's photo"],
+    ["Chinese", "甲文件的照片"],
+  ])(
+    "a picture is written at the size the Note shows it at, and a WebP or a BMP as an image part of its kind (%s)",
+    async (_, alt) => {
+      const { core, mindId, client } = await setUp({ body: paragraph("Target here.") });
+      const webp = Buffer.from("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==", "base64");
+      // One pixel, 24 bits, in a header of 40 bytes, as Word's own BMPs are.
+      const bmp = Buffer.alloc(58);
+      bmp.write("BM", 0, "latin1");
+      bmp.writeUInt32LE(58, 2);
+      bmp.writeUInt32LE(54, 10);
+      bmp.writeUInt32LE(40, 14);
+      bmp.writeInt32LE(1, 18);
+      bmp.writeInt32LE(-1, 22);
+      bmp.writeUInt16LE(1, 26);
+      bmp.writeUInt16LE(24, 28);
+      const pasted = (type: string, data: Buffer): JSONContent => ({
+        type: "image",
+        attrs: {
+          src: `data:image/${type};base64,${data.toString("base64")}`,
+          alt,
+          width: 100,
+          height: 50,
+          source: "w:drawing#3",
+        },
+      });
+      editMind(client, (blocks) => [
+        {
+          ...(blocks[0] as JSONContent),
+          content: [
+            ...(blocks[0]?.content ?? []),
+            pasted("png", PNG),
+            pasted("webp", webp),
+            pasted("bmp", bmp),
+          ],
+        },
+      ]);
+      await client.settled();
+
+      const { files, part } = await exported(core, mindId);
+      const document = part("word/document.xml");
+      // 100 by 50 pixels, at 9,525 EMU a pixel, though each image is 1 by 1.
+      expect(document.match(/<wp:extent cx="952500" cy="476250"\/>/g)).toHaveLength(3);
+      expect(document.match(/<w:drawing>/g)).toHaveLength(3);
+      expect(document.split(alt)).toHaveLength(7);
+      expect([...files].find(([name]) => name.endsWith(".webp"))?.[1].equals(webp)).toBe(true);
+      expect([...files].find(([name]) => name.endsWith(".bmp"))?.[1].equals(bmp)).toBe(true);
+      const types = part("[Content_Types].xml");
+      expect(types).toContain('<Default Extension="webp" ContentType="image/webp"/>');
+      expect(types).toContain('<Default Extension="bmp" ContentType="image/bmp"/>');
+    },
+  );
+});
+
+describe("what another file's import kept as is: a field, a note and a picture (an SVG)", () => {
+  interface FromA {
+    field: string;
+    note: string;
+    chart: string;
+  }
+  const LANGUAGES: [string, FromA][] = [
+    ["English", { field: "2026-01-01", note: "A note with a picture.", chart: "A's chart" }],
+    ["Chinese", { field: "2026年1月1日", note: "甲文件带图片的脚注。", chart: "甲文件的图表" }],
+  ];
+  const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+
+  /** As A's import kept them, with A's places, or with none, as this device's editor leaves a paste. */
+  const keptFromA = (a: FromA, placed: boolean): JSONContent[] => {
+    const atom = (source: string, attrs: Record<string, unknown>): JSONContent => ({
+      type: WORD_ATOM_NODE,
+      attrs: { label: "", text: "", ...attrs, source: placed ? source : null },
+    });
+    return [
+      atom("w:r#5..w:r#7", { kind: "field", label: a.field, info: { field: "DATE" } }),
+      atom("w:footnoteReference#1", { kind: "footnote", label: "1", text: a.note }),
+      atom("w:drawing#0", { kind: "picture", label: a.chart }),
+    ];
+  };
+
+  /** Puts A's atoms at the end of B's first paragraph, which reads "Target here.". */
+  const pasteInto = (client: MindClient, atoms: JSONContent[]) =>
+    editMind(client, (blocks) => [
+      { ...(blocks[0] as JSONContent), content: [...(blocks[0]?.content ?? []), ...atoms] },
+      ...blocks.slice(1),
+    ]);
+
+  const paragraphWith = (document: string, text: string) =>
+    [...document.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)]
+      .map((match) => match[0])
+      .find((each) => each.includes(text)) ?? "";
+
+  /** What the export wrote for A's atoms: A's text where they were put, A's note a new footnote. */
+  async function expectWrittenAsA(core: Core, mindId: string, a: FromA) {
+    const result = await core.exportMind(mindId, { format: "docx" });
+    const files = unzip(result.data);
+    const part = (name: string) => files.get(name)?.toString("utf8") ?? "";
+    const target = paragraphWith(part("word/document.xml"), "Target here.");
+    expect(target).toContain(a.field);
+    expect(target).toContain(a.chart);
+    expect(target).not.toContain("<w:drawing");
+    expect(target).not.toContain("fldChar");
+    const ids = [...target.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g)].map((match) =>
+      Number(match[1]),
+    );
+    expect(ids).toHaveLength(1);
+    expect(noteXml(part("word/footnotes.xml"), "footnote", ids[0] ?? 0)).toContain(a.note);
+    expect(result.word?.notKept).toEqual([
+      expect.objectContaining({ kind: "copy", text: a.field }),
+      expect.objectContaining({ kind: "copy", text: a.note }),
+      expect.objectContaining({ kind: "copy", text: a.chart }),
+    ]);
+    return { files, part };
+  }
+
+  test.each(LANGUAGES)(
+    "pasted into B, where B has a deleted note, its own runs and its own SVG at their places, is A's, and B's stay as they were (%s)",
+    async (_, a) => {
+      const diagram = paragraph(`${run("Diagram: ")}${picture("rIdSvg", "B's diagram")}`);
+      const dated = paragraph(
+        `${run("Dated ")}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> DATE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${run("2025-12-31")}<w:r><w:fldChar w:fldCharType="end"/></w:r>`,
+      );
+      const secret = paragraph(["B5", "B6", "B7", "B8"].map((each) => run(each)).join(""));
+      const { core, bytes, mindId, client } = await setUp({
+        body: [
+          paragraph("Target here."),
+          paragraph(`${run("Kept.")}${noteMark("footnote", 1)}`),
+          paragraph(`${run("Gone.")}${noteMark("footnote", 2)}`),
+          secret,
+          dated,
+          diagram,
+        ].join(""),
+        footnotes: [
+          note("footnote", 1, ["B's first note."]),
+          `<w:footnote w:id="2"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr><w:r><w:footnoteRef/></w:r>${run(" B's deleted note.")}</w:p>${table([["In a table"]])}</w:footnote>`,
+        ].join(""),
+        media: { rIdSvg: { name: "media/image1.svg", data: SVG } },
+      });
+      const keptKinds: unknown[] = [];
+      readMind(client).descendants((node) => {
+        if (node.type.name === WORD_ATOM_NODE) keptKinds.push(node.attrs.kind);
+      });
+      expect(keptKinds).toEqual(["footnote", "field", "picture"]);
+      // The User deletes B's second note, kept as is.
+      editMind(client, (blocks) =>
+        blocks.map((block) => ({
+          ...block,
+          content: block.content?.filter(
+            (each) => !(each.type === WORD_ATOM_NODE && each.attrs?.kind === "footnote"),
+          ),
+        })),
+      );
+      pasteInto(client, keptFromA(a, true));
+      await client.settled();
+
+      const before = unzip(bytes);
+      const { files, part } = await expectWrittenAsA(core, mindId, a);
+      const document = part("word/document.xml");
+      const footnotes = part("word/footnotes.xml");
+      expect(document).not.toContain('<w:footnoteReference w:id="2"/>');
+      expect(noteXml(footnotes, "footnote", 2)).toBeNull();
+      expect(footnotes).not.toContain("B's deleted note.");
+      expect(noteXml(footnotes, "footnote", 1)).toBe(
+        noteXml(before.get("word/footnotes.xml")?.toString("utf8") ?? "", "footnote", 1),
+      );
+      for (const own of ["B5", "B6", "B7"]) expect(document.split(own)).toHaveLength(2);
+      expect(document).toContain(secret);
+      expect(document).toContain(dated);
+      expect(document).toContain(diagram);
+      expect(files.get("word/media/image1.svg")?.equals(SVG)).toBe(true);
+    },
+  );
+
+  test.each(LANGUAGES)(
+    "pasted into a file with none of their places is A's, never left out (%s)",
+    async (_, a) => {
+      const { core, mindId, client } = await setUp({ body: paragraph("Target here.") });
+      pasteInto(client, keptFromA(a, true));
+      await client.settled();
+      const { part } = await expectWrittenAsA(core, mindId, a);
+      expect(part("word/document.xml").match(/<w:footnoteReference /g)).toHaveLength(1);
+    },
+  );
+
+  test.each(LANGUAGES)(
+    "pasted with no place, as this device's editor leaves a paste from another file, is A's (%s)",
+    async (_, a) => {
+      const { core, mindId, client } = await setUp({
+        body: [
+          paragraph("Target here."),
+          paragraph(`${run("Kept.")}${noteMark("footnote", 1)}`),
+        ].join(""),
+        footnotes: note("footnote", 1, ["B's first note."]),
+      });
+      pasteInto(client, keptFromA(a, false));
+      await client.settled();
+      await expectWrittenAsA(core, mindId, a);
+    },
+  );
+
+  test.each(LANGUAGES)(
+    "a field pasted into one of B's notes, naming the place of that note's own runs, is A's text there (%s)",
+    async (_, a) => {
+      const { core, bytes, mindId, client } = await setUp({
+        body: paragraph(`${run("Kept.")}${noteMark("footnote", 1)}`),
+        footnotes: note("footnote", 1, ["B's first note."]),
+      });
+      // The note's mark, its space and its text are the footnotes part's third to fifth runs.
+      const field: JSONContent = {
+        type: WORD_ATOM_NODE,
+        attrs: {
+          kind: "field",
+          label: a.field,
+          text: "",
+          source: "word/footnotes.xml!w:r#2..w:r#4",
+          info: { field: "DATE" },
+        },
+      };
+      const withField = (node: JSONContent): JSONContent =>
+        node.type === FOOTNOTE_NODE
+          ? { ...node, content: [...(node.content ?? []), field] }
+          : { ...node, ...(node.content && { content: node.content.map(withField) }) };
+      editMind(client, (blocks) => blocks.map(withField));
+      await client.settled();
+
+      const result = await core.exportMind(mindId, { format: "docx" });
+      const files = unzip(result.data);
+      const written = noteXml(
+        files.get("word/footnotes.xml")?.toString("utf8") ?? "",
+        "footnote",
+        1,
+      );
+      expect(written).toContain(a.field);
+      expect(written?.split("B's first note.")).toHaveLength(2);
+      expect(written?.match(/<w:footnoteRef\/>/g)).toHaveLength(1);
+      expect(
+        files
+          .get("word/document.xml")
+          ?.equals(unzip(bytes).get("word/document.xml") ?? Buffer.alloc(0)),
+      ).toBe(true);
+      expect(result.word?.notKept).toEqual([
+        expect.objectContaining({ kind: "copy", text: a.field }),
+      ]);
+    },
+  );
 });
 
 describe("page breaks", () => {

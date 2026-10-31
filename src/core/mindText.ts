@@ -215,6 +215,9 @@ export interface Pendings {
 export interface Image {
   src: string;
   alt: string;
+  /** The size the Note shows it at, in pixels: an imported Word picture's, as Word drew it. */
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -1000,7 +1003,18 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
 }
 
 function readImage(element: Y.XmlElement): Image {
-  return { src: stringAttribute(element, "src"), alt: stringAttribute(element, "alt") };
+  const size = (name: string) => {
+    const value: unknown = element.getAttribute(name);
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+  };
+  const width = size("width");
+  const height = size("height");
+  return {
+    src: stringAttribute(element, "src"),
+    alt: stringAttribute(element, "alt"),
+    ...(width !== undefined && { width }),
+    ...(height !== undefined && { height }),
+  };
 }
 
 export const NO_MARKS: Marks = {

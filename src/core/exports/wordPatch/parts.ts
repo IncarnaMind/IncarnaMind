@@ -13,6 +13,7 @@ import {
   listInstance,
   NEW_DOCUMENT_STYLE_IDS,
   type NewPicture,
+  PICTURE_TYPES,
   STYLE_DEFINITIONS,
   type StyleBases,
   type StyleRole,
@@ -432,12 +433,6 @@ export async function reserveIds(
 
 // ---------------------------------------------------------------------------
 // The target
-
-const PICTURE_TYPES: Readonly<Record<NewPicture["extension"], string>> = {
-  png: "image/png",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-};
 
 /** An imported document as the native writer's target: new Blocks go into its own parts. */
 export class PatchTarget implements DocxTarget {
