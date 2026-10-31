@@ -179,3 +179,8 @@ An absence sentence can be Supported only after the check reads every scoped Doc
 
 - **Content schema version 37** adds `readDocuments` to a `claimCheck` mark: each Document read, its content version and the Locations shown. An older version's editor would strip the field, losing the card's Locations and the dependency that requires a re-check, so it opens these Notes read-only. Older content is version 37 content as it is.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a table of contents Block (2026-10-30, #1935)
+
+- **Content schema version 38** adds the `tableOfContents` Block to a Note: an atom that draws the Note's headings and jumps to each, in the editor, the exports and Word's own table of contents field. It stores no copy of the headings, so a heading edited above it keeps the list true without rewriting the Block. An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 38 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

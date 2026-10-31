@@ -317,6 +317,11 @@ export interface AppState extends LayoutSlice {
   showTabNotice(notice: TabNotice): void;
   /** Renames a Mind, with Undo. */
   renameMind(id: string, title: string): Promise<void>;
+  /**
+   * Copies a Mind, with its Citations and their checks, names the copy "{name} (copy)" and opens
+   * it. Undo sends the copy to Recently deleted; the Mind it came from is untouched.
+   */
+  duplicateMind(id: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
   /** Shows a failure that happened outside a store action, e.g. while saving an edit. */
   reportError(error: unknown): void;
@@ -1430,6 +1435,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         const mind = await core.renameMind(id, title);
         if (before !== undefined) offerRename(mind, before);
       }),
+
+    duplicateMind: async (id) => {
+      const source = get().minds.find((mind) => mind.id === id);
+      await attempt(async () => {
+        const copy = await core.duplicateMind(id);
+        if (!(await get().showNewMind(copy))) return;
+        push({
+          said: (t) =>
+            t("mind.duplicated", { name: (source && mindName(source)) || t("mind.untitled") }),
+          name: (t) => t("undo.name.duplicate"),
+          undo: () => core.deleteMind(copy.id),
+        });
+      });
+    },
 
     deleteMind: (id) =>
       attempt(async () => {

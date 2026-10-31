@@ -179,7 +179,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const cited = await chips.count();
 
       // Deleted as a person does: the word before it double-clicked, a Shift-click just after it,
-      // and Backspace. The counts cover the text as it is.
+      // and Backspace. The Shift-click sometimes doesn't extend the selection across the Citation
+      // (#2279, a known flake under #1741); the counts cover the text.
       await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
       const box = await chip.boundingBox();
       if (!box) throw new Error("The Citation isn't on screen.");
