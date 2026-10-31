@@ -183,7 +183,6 @@ An absence sentence can be Supported only after the check reads every scoped Doc
 ## Amendment: a table of contents Block (2026-10-30, #1935)
 
 - **Content schema version 38** adds the `tableOfContents` Block to a Note: an atom that draws the Note's headings and jumps to each, in the editor, the exports and Word's own table of contents field. It stores no copy of the headings, so a heading edited above it keeps the list true without rewriting the Block. An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 38 content as it is.
-- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
 
 ## Amendment: a check reads a chosen Document or Folder whole (2026-10-30, #1554)
 
@@ -198,10 +197,17 @@ A not-found sentence can be checked against the whole text of one Document or Fo
 - **Every read has its plan.** `planDocumentCheck` sizes the read for its sentences, or its one part, and its pick, counting each window once for every part it will check, and the read names that plan. A newer plan in the Note stops a read already running, and a read whose plan is no longer the Note's latest sends nothing, checked again after consent and before each window. Check again and Accept all and check ask through the sentence's card as the first read did.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
 
+## Amendment: the card names the clause that says which dollar (2026-10-31, #2226)
+
+A Supported sentence whose Document states which dollar a bare "$" is shows that line on its card, with the Document and where it stands.
+
+- **Content schema version 40** adds `currencyClause` to a `claimCheck` mark's `parts`: the card's one line, naming the Document, its Location and the clause's own words. An older version's editor would strip the field, losing the line the card shows, so it opens these Notes read-only. Older content is version 40 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
 ## Amendment: pictures in a Note (2026-10-31, #1937)
 
 A picture pasted, dropped or chosen into a Note is kept in the Note itself, as the rest of its content is, so it survives a reload, goes with the Note when it is copied, and is exported with it.
 
-- **Content schema version 40** adds the `picture` Block: a picture the User pasted or dropped, kept in the Note's data as a `data:` URL (the app's Content-Security-Policy allows no other kind), with the size it is drawn at and the alt text the User writes for it. It is a Block of its own, unlike `image`, which is a Word file's picture inside a paragraph's text (#104). An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 40 content as it is.
+- **Content schema version 41** adds the `picture` Block: a picture the User pasted or dropped, kept in the Note's data as a `data:` URL (the app's Content-Security-Policy allows no other kind), with the size it is drawn at and the alt text the User writes for it. It is a Block of its own, unlike `image`, which is a Word file's picture inside a paragraph's text (#104). An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 41 content as it is.
 - **A picture is read by nothing that wasn't asked to read it.** A Question's context, a check, a suggestion and an edit read the Note's words and never the picture, so no picture goes to a model with them. A Question the User selected the picture for sends it, and only to a model that reads images; that is a kind of data the chat flow now names (`pictures`), so a User who allowed Questions before is asked once more (ADR-0022). Local mode sends nothing, as for any other flow.
 - **No SQL table, no migration.** The picture lives in the Mind's Yjs document; the pictures a Question asked about are Block ids in its `focus`, a JSON value conversations already keep.

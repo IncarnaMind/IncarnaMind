@@ -27,11 +27,13 @@ import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/c
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
+import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
   CheckFigure,
   Citation,
+  CitationLocation,
   CitationSupport,
   ClaimCalculation,
   ClaimCheckFailure,
@@ -69,7 +71,12 @@ import {
   givenList,
   whole,
 } from "../calculations";
-import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
+import {
+  type AnswerDocuments,
+  createCitationSession,
+  documentNamedAmong,
+  matchingOf,
+} from "../citations";
 import {
   type AnswerEngine,
   type AnswerTools,
@@ -120,7 +127,7 @@ import {
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
-import { type BoundNumber, unitNotStated } from "./units";
+import { type BoundNumber, type CheckedText, dollarClause, unitNotStated } from "./units";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -409,6 +416,84 @@ function citedSources(
   return [...found.values()];
 }
 
+function checkedTextOf(
+  citation: Citation,
+  pageTexts: ClaimCheckDependencies["documents"]["pageTexts"],
+): CheckedText {
+  const text = (from: number | null, to: number | null) =>
+    pageTexts(citation.documentId, citation.contentHash, from, to)
+      .map((unit) => unit.text)
+      .join("\n");
+  return {
+    cited: () =>
+      citation.pageFrom === null ? citation.quote : text(citation.pageFrom, citation.pageTo),
+    document: () => text(null, null),
+  };
+}
+
+/**
+ * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
+ * Document (#2226).
+ */
+function lineLocation(
+  units: ReturnType<ClaimCheckDependencies["documents"]["pageTexts"]>,
+  line: string,
+  matching: ReturnType<typeof matchingOf>,
+): CitationLocation | null {
+  const ranges = quoteInUnits(units, line, matching);
+  if (!ranges) return null;
+  const { starts } = joinUnits(units);
+  const covered = units.map((unit, index) => {
+    const start = starts[index] as number;
+    return ranges.some((range) => range.start < start + unit.text.length && range.end > start);
+  });
+  const first = covered.indexOf(true);
+  const last = covered.lastIndexOf(true);
+  if (first < 0 || last < 0) return null;
+  const offset = starts[first] as number;
+  return locationOf(
+    units.slice(first, last + 1),
+    ranges.map((range) => ({ start: range.start - offset, end: range.end - offset })),
+  );
+}
+
+function withDollarClause(
+  deps: ClaimCheckDependencies,
+  claim: string,
+  result: AtomicClaimCheckResult,
+): AtomicClaimCheckResult {
+  if (result.verdict !== "supported") return result;
+  const citations = uniqueCitations([
+    ...(result.evidence ? [result.evidence] : []),
+    ...(result.checkedEvidence ?? []),
+  ]).filter((citation) => citation.check === "found");
+  if (citations.length === 0) return result;
+  const checked = citations.map((citation) => ({
+    citation,
+    text: checkedTextOf(citation, deps.documents.pageTexts),
+  }));
+  const found = dollarClause(
+    claim,
+    checked.map((each) => ({ text: each.text, quote: each.citation.quote })),
+  );
+  const source = found ? checked.find((each) => each.text === found.text)?.citation : undefined;
+  if (!found || !source) return result;
+  const units = deps.documents.pageTexts(source.documentId, source.contentHash, null, null);
+  const location = lineLocation(units, found.line, matchingOf(units));
+  const where = location
+    ? formatLocation(location, (key, params) => translate(deps.language(), key, params))
+    : null;
+  const place = [source.documentName, where].filter(Boolean).join(" · ");
+  return {
+    ...result,
+    currencyClause: translate(
+      deps.language(),
+      place === "" ? "claim.currencyClause.noSource" : "claim.currencyClause",
+      place === "" ? { quote: found.line } : { quote: found.line, source: place },
+    ),
+  };
+}
+
 const asPassage = (source: CitationSource): WindowedPassage => ({
   ...source,
   seq: 0,
@@ -481,7 +566,9 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
+  const check = async function checkClaim(
+    request: ClaimCheckRequest,
+  ): Promise<AtomicClaimCheckResult> {
     const { scope, signal } = request;
     const outsideCited = (request.cited ?? []).flatMap((citation) => {
       const source = citation.passageId ? deps.documents.citationSource(citation.passageId) : null;
@@ -691,19 +778,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       bound?: readonly BoundNumber[],
       worked?: readonly Figure[],
     ): { why: UnsupportedReason; quote: Citation | null; decides: boolean } | null => {
-      const checked = citations.map((citation) => {
-        const text = (from: number | null, to: number | null) =>
-          scoped
-            .pageTexts(citation.documentId, citation.contentHash, from, to)
-            .map((unit) => unit.text)
-            .join("\n");
-        return {
-          citation,
-          cited: () =>
-            citation.pageFrom === null ? citation.quote : text(citation.pageFrom, citation.pageTo),
-          document: () => text(null, null),
-        };
-      });
+      const checked = citations.map((citation) => ({
+        citation,
+        ...checkedTextOf(citation, scoped.pageTexts),
+      }));
       const found = unitNotStated(claim, checked, bound, worked);
       if (!found) return null;
       const t = (key: MessageKey, params?: MessageParams) =>
@@ -1475,6 +1553,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       ...citedCase(evidence),
       ...facts(),
     };
+  };
+  return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
+    const result = await check(request);
+    return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
   };
 }
 
