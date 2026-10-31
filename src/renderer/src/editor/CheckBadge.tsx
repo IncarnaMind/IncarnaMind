@@ -10,7 +10,7 @@ import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
-import { correctableClaims, correctContradictions } from "../correctionFixes";
+import { correctableCount, correctContradictions } from "../correctionFixes";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
@@ -176,7 +176,7 @@ function CheckActions({
   const language = useLanguage();
   const correctable = useEditorState({
     editor,
-    selector: ({ editor: current }) => correctableClaims(current).length,
+    selector: ({ editor: current }) => correctableCount(current),
   });
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;

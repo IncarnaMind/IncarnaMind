@@ -77,6 +77,18 @@ async function built(language: "en" | "zh-CN", width: number) {
   };
   await newMind(window);
   const text = "Gross margin fell to 36.8% in Q3, mostly in online.";
+  const result = {
+    reason: null,
+    detail: null,
+    evidence,
+    says: "The results say gross margin was 38.6% in Q3, not 36.8%.",
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    versions: [],
+    excluded: [],
+  };
   const mark = {
     type: "claimCheck",
     attrs: {
@@ -84,22 +96,23 @@ async function built(language: "en" | "zh-CN", width: number) {
       request: "correction-demo-request",
       action: "check-against-documents",
       state: "contradicted",
-      reason: null,
-      detail: null,
       providerId: "anthropic",
       modelId: "claude-haiku-5-5",
       text,
-      evidence,
-      correction: { from: "36.8%", choices: [{ wording: "38.6%", evidence }] },
-      says: "The results say gross margin was 38.6% in Q3, not 36.8%.",
-      unsupported: null,
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
+      ...result,
       scope: { folderId: null, widened: false },
-      versions: [],
-      excluded: [],
       checkedAt: new Date(Date.now() + 60_000).toISOString(),
+      parts: [
+        {
+          ...result,
+          span: { start: 0, end: text.length },
+          kind: "fact",
+          verdict: "contradicted",
+          evidence: [evidence],
+          decidingEvidence: 0,
+          correction: { from: "36.8%", choices: [{ wording: "38.6%", evidence }] },
+        },
+      ],
     },
   };
   await window.getByTestId("mind-editor").evaluate(

@@ -936,7 +936,7 @@ export const en = {
     "Nothing was changed: the sentence isn’t where its check marked it. Check it again.",
   "claim.correction": "Change to {wording}",
   "claim.correction.command": "Change to the Document’s wording",
-  "claim.correction.doneMany": "Corrected {count} sentences from the Documents",
+  "claim.correction.doneMany": "Corrected {count} from the Documents",
   "claim.correction.badge": "Correct {count} from the Documents",
   "claim.correction.conflict":
     "The newer {newerDocument} says {newerWording}; the {olderDocument} says {olderWording}.",

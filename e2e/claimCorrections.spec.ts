@@ -83,13 +83,27 @@ async function launched(language: "en" | "zh-CN", width: number) {
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
   const checkedAt = new Date(Date.now() + 60_000).toISOString();
-  const check = (
+  type Correction = {
+    from: string;
+    choices: { wording: string; evidence: CitationAttributes }[];
+  } | null;
+  const result = (found: CitationAttributes[]) => ({
+    reason: null,
+    detail: null,
+    evidence: found[0] ?? null,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    versions: [],
+    excluded: [],
+  });
+  // A sentence of contradicted parts, as a check of the Note writes it; each correction is its part's.
+  const partsCheck = (
     id: string,
     text: string,
-    correction: {
-      from: string;
-      choices: { wording: string; evidence: CitationAttributes }[];
-    } | null,
+    parts: { start: number; end: number; correction: Correction }[],
   ) => ({
     type: "claimCheck",
     attrs: {
@@ -97,25 +111,31 @@ async function launched(language: "en" | "zh-CN", width: number) {
       request: `request-${id}`,
       action: "check-against-documents",
       state: "contradicted",
-      reason: null,
-      detail: null,
       providerId: "anthropic",
       modelId: "claude-haiku-5-5",
       text,
-      evidence: correction?.choices[0]?.evidence ?? null,
-      correction,
-      says: null,
-      unsupported: null,
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
+      ...result([]),
       scope: { folderId: null, widened: false },
-      versions: [],
-      excluded: [],
       checkedAt,
+      parts: parts.map(({ start, end, correction }) => {
+        const found = correction?.choices.map((choice) => choice.evidence) ?? [
+          evidence("Acceptance scan", "王芳"),
+        ];
+        return {
+          ...result(found),
+          span: { start, end },
+          kind: "fact",
+          verdict: "contradicted",
+          evidence: found,
+          decidingEvidence: 0,
+          ...(correction && { correction }),
+        };
+      }),
     },
   });
-  return { app, window, editor, check, evidence };
+  const check = (id: string, text: string, correction: Correction) =>
+    partsCheck(id, text, [{ start: 0, end: text.length, correction }]);
+  return { app, window, editor, check, partsCheck, evidence };
 }
 
 async function insert(window: Page, blocks: object[]) {
@@ -223,7 +243,8 @@ for (const [language, width] of [
     await expect(card.getByTestId("claim-correction-conflict")).toContainText("王芳");
     await expect(card.getByTestId("claim-correction-conflict")).toContainText("Annual report");
     await expect(card.getByTestId("claim-correction-conflict")).toContainText("王强");
-    await pointAndClick(window, card.getByTestId("claim-correct"));
+    // Its two Documents' quotes are listed, so the change is on the part's row.
+    await pointAndClick(window, card.getByTestId("claim-part-correct"));
     await expect(editor.locator(":scope > p").nth(2)).toContainText("王芳");
     await expect(editor.locator(":scope > p").nth(2)).not.toContainText("李明");
     await pointAndClick(window, window.getByTestId("undo-action"));
@@ -279,6 +300,78 @@ for (const [language, width] of [
     await expect(editor.locator(":scope > p").nth(0)).toContainText("36.8%");
     await expect(editor.locator(":scope > p").nth(1)).toContainText("36.8%");
     await expect(editor.getByTestId("citation")).toHaveCount(0);
+    await app.close();
+  });
+
+  test(`each contradicted part of a two-part sentence is corrected from its row (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor, partsCheck, evidence } = await launched(language, width);
+    const fee = language === "en" ? "The break fee is $75,000" : "解约费为 75,000 美元";
+    const days =
+      language === "en" ? "the deposit is returned within 60 days" : "押金在 60 天内退还";
+    const text = language === "en" ? `${fee}, and ${days}.` : `${fee}，${days}。`;
+    const daysAt = text.indexOf(days);
+    const sentence = partsCheck("two", text, [
+      {
+        start: 0,
+        end: fee.length,
+        correction: {
+          from: language === "en" ? "$75,000" : "75,000",
+          choices: [
+            {
+              wording: language === "en" ? "$57,000" : "57,000",
+              evidence: evidence("Acceptance scan", "王芳"),
+            },
+          ],
+        },
+      },
+      {
+        start: daysAt,
+        end: daysAt + days.length,
+        correction: {
+          from: language === "en" ? "60 days" : "60 天",
+          choices: [
+            {
+              wording: language === "en" ? "30 days" : "30 天",
+              evidence: evidence("Annual report", "王强"),
+            },
+          ],
+        },
+      },
+    ]);
+    await insert(window, [paragraph(marked(text, sentence))]);
+    const mark = window.getByTestId("claim-mark");
+    const card = window.getByTestId("claim-card");
+    const line = editor.locator(":scope > p").nth(0);
+
+    await pointAndClick(window, mark);
+    const rows = card.getByTestId("claim-part");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).getByTestId("claim-part-correct")).toHaveText(
+      translate(language, "claim.correction", {
+        wording: language === "en" ? "$57,000" : "57,000",
+      }),
+    );
+    await expect(rows.nth(1).getByTestId("claim-part-correct")).toHaveText(
+      translate(language, "claim.correction", { wording: language === "en" ? "30 days" : "30 天" }),
+    );
+    await withinCard(window);
+    await screenshot(window, `correction-parts-${language}`);
+    await pointAndClick(window, rows.nth(1).getByTestId("claim-part-correct"));
+    await expect(line).toContainText(language === "en" ? "30 days" : "30 天");
+    await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
+    await expect(mark).toHaveAttribute("data-check", "contradicted");
+
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-part-correct")).toHaveCount(1);
+    await pointAndClick(window, card.getByTestId("claim-part-correct"));
+    await expect(line).toContainText(language === "en" ? "$57,000" : "57,000");
+    await expect(mark).toHaveAttribute("data-check", "supported");
+    await expect(line.getByTestId("citation")).toHaveCount(2);
+
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
+    await expect(mark).toHaveAttribute("data-check", "contradicted");
     await app.close();
   });
 }

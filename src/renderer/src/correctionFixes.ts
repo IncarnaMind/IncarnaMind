@@ -42,8 +42,10 @@ import { figurePlace, writeSentenceCheck } from "./editor/figurePlaces";
 import { languageNow, translateNow } from "./i18n";
 import { useNotices } from "./notices";
 
-interface CorrectionPlan {
-  claim: ShownClaim;
+/** One part's old words and the Document's wording for them. */
+interface Edit {
+  correction: ClaimCorrection;
+  /** Its first choice: the newest Document's. */
   choice: ClaimCorrectionChoice;
   evidence: Citation;
   /** The part the old words are in; null for a check made of the whole sentence. */
@@ -54,62 +56,95 @@ interface CorrectionPlan {
   /** Where they are in the document. */
   from: number;
   to: number;
-  /** False when the sentence already cites the choice's Passage. */
-  cite: boolean;
 }
 
-/** The sentence's correction and the part it changes: the one contradicted part, when it has parts. */
-function ownedCorrection(
+/** A sentence's corrections, applied together: one edit per contradicted part. */
+interface CorrectionPlan {
+  claim: ShownClaim;
+  edits: Edit[];
+  /** The Passages to cite at the sentence's end: those it doesn't already cite. */
+  cites: ClaimCorrectionChoice["evidence"][];
+}
+
+const sameSpan = (a: ClaimPartSpan | null, b: ClaimPartSpan | null) =>
+  a === b || (a !== null && b !== null && a.start === b.start && a.end === b.end);
+
+/** The corrections a check holds and the part each changes: every contradicted part's, or its own. */
+function correctionsOf(
   check: ClaimCheckAttributes,
-): { correction: ClaimCorrection; span: ClaimPartSpan | null } | null {
-  if (!check.correction) return null;
-  if (!check.parts) return { correction: check.correction, span: null };
-  const owners = check.parts.filter((part) => part.verdict === "contradicted");
-  const owner = owners.length === 1 ? owners[0] : undefined;
-  return owner?.correction ? { correction: owner.correction, span: owner.span } : null;
+): { correction: ClaimCorrection; span: ClaimPartSpan | null }[] {
+  if (!check.parts) return check.correction ? [{ correction: check.correction, span: null }] : [];
+  return check.parts.flatMap((part) =>
+    part.kind === "fact" && part.verdict === "contradicted" && !part.kept && part.correction
+      ? [{ correction: part.correction, span: part.span }]
+      : [],
+  );
 }
 
-function planCorrection(state: EditorState, claim: ShownClaim): CorrectionPlan | null {
-  if (
-    claim.kind === "chart" ||
-    claim.shown.state !== "contradicted" ||
-    claim.check.text !== claim.sentence.text
-  )
-    return null;
-  const owned = ownedCorrection(claim.check);
-  const choice = owned?.correction.choices[0];
+function editOf(
+  state: EditorState,
+  claim: ShownClaim,
+  correction: ClaimCorrection,
+  span: ClaimPartSpan | null,
+): Edit | null {
+  const choice = correction.choices[0];
   const evidence = checkedCitation(choice?.evidence);
-  if (!owned || !choice || !evidence) return null;
-  const old = owned.correction.from;
-  const start = owned.span?.start ?? 0;
-  const words = claim.sentence.text.slice(start, owned.span?.end ?? claim.sentence.text.length);
+  if (!choice || !evidence) return null;
+  const old = correction.from;
+  const start = span?.start ?? 0;
+  const words = claim.sentence.text.slice(start, span?.end ?? claim.sentence.text.length);
   const index = words.indexOf(old);
   if (index < 0 || index !== words.lastIndexOf(old)) return null;
   const at = start + index;
   const place = placeInSentence(state, claim, { from: at, to: at + old.length });
   // The old words alone, with no Citation or worked-out figure inside them that the edit would take.
   if (!place || state.doc.textBetween(place.from, place.to, "\n", INLINE_NODE) !== old) return null;
-  return {
-    claim,
-    choice,
-    evidence,
-    span: owned.span,
-    at,
-    old,
-    from: place.from,
-    to: place.to,
-    cite: !citationsOf(state, claim).some((each) =>
-      overlapsCitation(each.attributes, choice.evidence),
-    ),
-  };
+  return { correction, choice, evidence, span, at, old, from: place.from, to: place.to };
 }
 
-/** The newest Document's correction, when its exact old words are still in place. */
-export function correctionFor(editor: Editor, claim: ShownClaim): ClaimCorrectionChoice | null {
-  return editor.isEditable ? (planCorrection(editor.state, claim)?.choice ?? null) : null;
+/** What can be corrected in a sentence now: of one part, or of every part when `span` is absent. */
+function planCorrection(
+  state: EditorState,
+  claim: ShownClaim,
+  span?: ClaimPartSpan | null,
+): CorrectionPlan | null {
+  if (
+    claim.kind === "chart" ||
+    claim.shown.state !== "contradicted" ||
+    claim.check.text !== claim.sentence.text
+  )
+    return null;
+  const edits = correctionsOf(claim.check).flatMap((each) => {
+    if (span !== undefined && !sameSpan(each.span, span)) return [];
+    const edit = editOf(state, claim, each.correction, each.span);
+    return edit ? [edit] : [];
+  });
+  if (edits.length === 0) return null;
+  const cited = citationsOf(state, claim).map((each) => each.attributes);
+  const cites: CorrectionPlan["cites"] = [];
+  for (const { choice } of edits) {
+    if (![...cited, ...cites].some((each) => overlapsCitation(each, choice.evidence)))
+      cites.push(choice.evidence);
+  }
+  return { claim, edits, cites };
 }
 
-/** The contradicted sentence at the selection whose correction can be applied, for ⌘K. */
+/** A part's correction the card offers: its first choice is the newest Document's wording. */
+export interface PartCorrection {
+  span: ClaimPartSpan | null;
+  correction: ClaimCorrection;
+}
+
+/** The correction of each contradicted part whose exact old words are still in place. */
+export function correctionsFor(editor: Editor, claim: ShownClaim): PartCorrection[] {
+  if (!editor.isEditable) return [];
+  return (planCorrection(editor.state, claim)?.edits ?? []).map(({ span, correction }) => ({
+    span,
+    correction,
+  }));
+}
+
+/** The contradicted sentence at the selection with a correction that can be applied, for ⌘K. */
 export function correctionAt(editor: Editor): ShownClaim | null {
   const { from, to } = editor.state.selection;
   return (
@@ -117,19 +152,22 @@ export function correctionAt(editor: Editor): ShownClaim | null {
       (claim) =>
         claim.sentence.from <= from &&
         to <= claim.sentence.to &&
-        correctionFor(editor, claim) !== null,
+        correctionsFor(editor, claim).length > 0,
     ) ?? null
   );
 }
 
-/** Every contradiction the badge can correct now. */
-export function correctableClaims(editor: Editor): ShownClaim[] {
+/** How many contradicted parts the badge can correct now. */
+export function correctableCount(editor: Editor): number {
   return editor.isEditable
-    ? shownClaims(editor.state).filter((claim) => planCorrection(editor.state, claim) !== null)
-    : [];
+    ? shownClaims(editor.state).reduce(
+        (count, claim) => count + (planCorrection(editor.state, claim)?.edits.length ?? 0),
+        0,
+      )
+    : 0;
 }
 
-/** A text figure of the sentence where the edit left it: its place, reading, id and context. */
+/** A text figure of the sentence where the edits left it: its place, reading, id and context. */
 function movedFigure<Figure extends FigureFinding>(
   before: ProseMirrorNode,
   tr: Transaction,
@@ -140,11 +178,11 @@ function movedFigure<Figure extends FigureFinding>(
   const place = after.place;
   const old = figurePlace(before, figure);
   if (!place || !old || old.node || figure.locator.kind !== "text") return null;
-  const owns = plan.from <= old.from && old.to <= plan.to;
-  const replacements = owns ? readFigures(plan.choice.wording, { language: languageNow() }) : [];
+  const owner = plan.edits.find((edit) => edit.from <= old.from && old.to <= edit.to);
+  const replacements = owner ? readFigures(owner.choice.wording, { language: languageNow() }) : [];
   const replacement = replacements.length === 1 ? replacements[0] : undefined;
-  if (owns && !replacement) return null;
-  const start = tr.mapping.map(plan.from, -1);
+  if (owner && !replacement) return null;
+  const start = owner ? tr.mapping.map(owner.from, -1) : 0;
   const from = replacement ? start + replacement.start : tr.mapping.map(old.from, -1);
   const to = replacement ? start + replacement.end : tr.mapping.map(old.to);
   const $from = tr.doc.resolve(from);
@@ -170,7 +208,7 @@ function movedFigure<Figure extends FigureFinding>(
     },
     reading,
     ...(figure.context === plan.claim.sentence.text && { context: after.sentence.text }),
-    ...(owns && { difference: 0, roundedFrom: null }),
+    ...(owner && { difference: 0, roundedFrom: null }),
   };
 }
 
@@ -184,36 +222,36 @@ function withoutCorrection<Result extends { correction?: ClaimCorrection }>({
 const corrects = (result: { verdict?: string; state?: string; correction?: ClaimCorrection }) =>
   (result.verdict ?? result.state) === "contradicted" && result.correction !== undefined;
 
-/** What a mark holds once the correction settles it: Supported on the choice's Citation. */
-const supportedBy = (plan: CorrectionPlan) => ({
+/** What a mark holds once a correction settles it: Supported on the choice's Citation. */
+const supportedBy = (edit: Edit) => ({
   state: "supported" as const,
   reason: null,
   detail: null,
-  evidence: plan.evidence,
+  evidence: edit.evidence,
   says: null,
   unsupported: null,
   calculation: null,
 });
 
-/** A part's figure or remainder result after the correction, written for the corrected words. */
+/** A part's figure or remainder result after its correction, written for the corrected words. */
 function judgedAfter(
   result: ClaimPartJudgment,
-  plan: CorrectionPlan,
+  edit: Edit | undefined,
   text: string,
 ): ClaimPartJudgment {
   const words = result.text === undefined ? {} : { text };
-  return result.verdict === "contradicted" && corrects(result)
+  return edit && result.verdict === "contradicted" && corrects(result)
     ? {
         ...withoutCorrection(result),
         verdict: "supported" as const,
-        evidence: plan.evidence,
+        evidence: edit.evidence,
         says: null,
         ...words,
       }
     : { ...result, ...words };
 }
 
-/** The part where the edit left it, and the one it corrects Supported on the choice's Citation. */
+/** The part where the edits left it, Supported on its choice's Citation when one corrects it. */
 function correctedPart(
   part: ClaimCheckPart,
   before: ProseMirrorNode,
@@ -221,15 +259,22 @@ function correctedPart(
   plan: CorrectionPlan,
   after: ClaimSpan,
 ): ClaimCheckPart | null {
-  const end = plan.at + plan.old.length;
-  const delta = plan.choice.wording.length - plan.old.length;
-  const shift = (at: number) => (at >= end ? at + delta : at);
+  const shift = (at: number) =>
+    plan.edits.reduce(
+      (moved, edit) =>
+        at >= edit.at + edit.old.length
+          ? moved + edit.choice.wording.length - edit.old.length
+          : moved,
+      at,
+    );
   const text = after.sentence.text;
+  const edit =
+    part.kind === "fact" ? plan.edits.find((each) => sameSpan(each.span, part.span)) : undefined;
   const figures = part.figures?.map((figure) => {
     const moved = movedFigure(before, tr, plan, after, figure);
     if (!moved) return null;
     // A figure's result is named by its figure, so it follows the figure's new id.
-    const result = judgedAfter(moved.result, plan, text);
+    const result = judgedAfter(moved.result, edit, text);
     return { ...moved, result: result.id === undefined ? result : { ...result, id: moved.id } };
   });
   if (figures && !figures.every((figure) => figure !== null)) return null;
@@ -237,13 +282,13 @@ function correctedPart(
     ...part,
     span: { start: shift(part.span.start), end: shift(part.span.end) },
     ...(figures && { figures }),
-    ...(part.remainder && { remainder: judgedAfter(part.remainder, plan, text) }),
+    ...(part.remainder && { remainder: judgedAfter(part.remainder, edit, text) }),
   };
-  return plan.span !== null && part.kind === "fact" && part.span.start === plan.span.start
+  return edit
     ? {
         ...withoutCorrection(moved),
         verdict: "supported",
-        evidence: [plan.evidence],
+        evidence: [edit.evidence],
         decidingEvidence: 0,
         says: null,
         unsupported: null,
@@ -252,7 +297,7 @@ function correctedPart(
     : moved;
 }
 
-/** The sentence's check after its correction, or null when a figure can't be followed. */
+/** The sentence's check after its corrections, or null when a figure can't be followed. */
 function checkedAfter(
   before: ProseMirrorNode,
   tr: Transaction,
@@ -265,29 +310,41 @@ function checkedAfter(
     const parts = check.parts.map((part) => correctedPart(part, before, tr, plan, after));
     return parts.every((part) => part !== null) ? checkWithParts({ ...check, text }, parts) : null;
   }
+  const [edit] = plan.edits;
+  if (!edit) return null;
   const figures = check.figures?.map((figure) => {
     const moved = movedFigure(before, tr, plan, after, figure);
     if (!moved) return null;
     return corrects(moved)
-      ? { ...withoutCorrection(moved), ...supportedBy(plan), text }
+      ? { ...withoutCorrection(moved), ...supportedBy(edit), text }
       : { ...moved, text };
   });
   if (figures && !figures.every((figure) => figure !== null)) return null;
   const remainder = check.remainder;
   return {
     ...withoutCorrection(check),
-    ...supportedBy(plan),
+    ...supportedBy(edit),
     text,
     ...(figures && { figures }),
     ...(remainder !== undefined && {
       remainder:
         remainder &&
         (corrects(remainder)
-          ? { ...withoutCorrection(remainder), ...supportedBy(plan), text }
+          ? { ...withoutCorrection(remainder), ...supportedBy(edit), text }
           : { ...remainder, text }),
     }),
   };
 }
+
+/** The sentence's words once its edits are made, as its check reads them. */
+const correctedText = ({ claim, edits }: CorrectionPlan) =>
+  [...edits]
+    .sort((a, b) => b.at - a.at)
+    .reduce(
+      (text, edit) =>
+        text.slice(0, edit.at) + edit.choice.wording + text.slice(edit.at + edit.old.length),
+      claim.sentence.text,
+    );
 
 function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
   const $from = doc.resolve(from);
@@ -300,66 +357,78 @@ function apply(editor: Editor, mindId: string, plans: CorrectionPlan[]): number 
   const { state } = editor;
   const citationType = state.schema.nodes[CITATION_NODE];
   const generated = state.schema.marks[GENERATED_MARK];
-  if (plans.length === 0 || !citationType || !generated) return 0;
+  const edits = plans.flatMap((plan) => plan.edits);
+  if (edits.length === 0 || !citationType || !generated) return 0;
   const tr = state.tr;
-  // Last first, so each plan's places still hold when it is applied.
-  for (const plan of [...plans].sort((a, b) => b.from - a.from)) {
-    tr.insertText(plan.choice.wording, plan.from, plan.to);
-    const end = plan.from + plan.choice.wording.length;
-    tr.addMark(plan.from, end, generated.create());
-    if (!plan.cite) continue;
+  // Last first, so each sentence's places still hold when it is changed.
+  for (const plan of [...plans].sort((a, b) => b.claim.sentence.from - a.claim.sentence.from)) {
+    for (const edit of [...plan.edits].sort((a, b) => b.from - a.from)) {
+      tr.insertText(edit.choice.wording, edit.from, edit.to);
+      tr.addMark(edit.from, edit.from + edit.choice.wording.length, generated.create());
+    }
+    if (plan.cites.length === 0) continue;
     // Where Add as Citation puts it: at the sentence's end, before its closing punctuation.
     const sentenceFrom = tr.mapping.map(plan.claim.sentence.from, -1);
     const sentenceTo = tr.mapping.map(plan.claim.sentence.to);
+    const lastWord = Math.max(...plan.edits.map((edit) => tr.mapping.map(edit.to)));
     const words = tr.doc.textBetween(sentenceFrom, sentenceTo, "\n", INLINE_NODE);
-    const at = Math.max(end, sentenceTo - citationClosingLength(words));
+    const at = Math.max(lastWord, sentenceTo - citationClosingLength(words));
     tr.insert(
       at,
-      citationType.create({ ...plan.choice.evidence, check: "found", checkReason: null }),
+      plan.cites.map((evidence) =>
+        citationType.create({ ...evidence, check: "found", checkReason: null }),
+      ),
     );
   }
   const spans = claimSpans(tr.doc);
   for (const plan of plans) {
     const after = spans.find((span) => span.check.id === plan.claim.check.id);
-    const corrected =
-      plan.claim.sentence.text.slice(0, plan.at) +
-      plan.choice.wording +
-      plan.claim.sentence.text.slice(plan.at + plan.old.length);
     const check =
-      after && after.sentence.text === corrected ? checkedAfter(state.doc, tr, plan, after) : null;
+      after && after.sentence.text === correctedText(plan)
+        ? checkedAfter(state.doc, tr, plan, after)
+        : null;
     if (!after || !check) return 0;
     writeSentenceCheck(tr, after, check);
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
   offerEditorUndo(editor, (t) =>
-    plans.length === 1
+    edits.length === 1
       ? t("claim.usedDocumentWording")
-      : t("claim.correction.doneMany", { count: plans.length }),
+      : t("claim.correction.doneMany", { count: edits.length }),
   );
   const entries: RecordAiUseInput[] = plans.map((plan) => {
-    const blockId = blockIdAt(editor.state.doc, tr.mapping.map(plan.from, -1));
+    const first = plan.edits[0];
+    const blockId = first ? blockIdAt(editor.state.doc, tr.mapping.map(first.from, -1)) : null;
     return {
       mindId,
       kind: "edit-with-ai-accepted",
       providerId: plan.claim.check.providerId,
       modelId: plan.claim.check.modelId,
-      characters: plan.choice.wording.length,
+      characters: plan.edits.reduce((count, edit) => count + edit.choice.wording.length, 0),
       ...(blockId && { blockIds: [blockId] }),
     };
   });
   core.recordAiUse(entries).catch((error: unknown) => useNotices.getState().showError(error));
-  return plans.length;
+  return edits.length;
 }
 
-/** Changes one confirmed contradiction to the newest Document's wording, with one Undo. */
-export function applyCorrection(editor: Editor, mindId: string, claim: ShownClaim): boolean {
-  const plan = planCorrection(editor.state, claim);
-  if (plan && apply(editor, mindId, [plan]) === 1) return true;
+/**
+ * Changes a confirmed contradiction to the newest Document's wording, with one Undo: the part at
+ * `span`, or every contradicted part of the sentence when it is absent.
+ */
+export function applyCorrection(
+  editor: Editor,
+  mindId: string,
+  claim: ShownClaim,
+  span?: ClaimPartSpan | null,
+): boolean {
+  const plan = editor.isEditable ? planCorrection(editor.state, claim, span) : null;
+  if (plan && apply(editor, mindId, [plan]) > 0) return true;
   useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
   return false;
 }
 
-/** Changes every correctable contradiction in one transaction and one Undo. */
+/** Changes every contradicted part the Documents correct, in one transaction and one Undo. */
 export function correctContradictions(editor: Editor, mindId: string): number {
   const plans = shownClaims(editor.state).flatMap((claim) => {
     const plan = editor.isEditable ? planCorrection(editor.state, claim) : null;

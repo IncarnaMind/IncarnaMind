@@ -16,13 +16,15 @@ const MODEL =
   (catalogProvider("anthropic")?.roles.answers as string);
 
 const SHORT = "Gross margin fell to 36.8% in Q3, mostly in online.";
-const LONG = "The committee adopted the old strategy.";
+// The results never say whether the strategy is old: a detail they don't state is Unsupported.
+const UNSTATED = "The committee adopted the old strategy.";
+const LONG = "The lease was signed by Northgate Holdings.";
 const CONFLICT = "The accepted reviewer is 陈晨.";
 const NEAR_MISS = "Gross margin fell to 36.8% in Q2, mostly in online.";
 
 describe("corrections from the Documents, live", () => {
   test.skipIf(KEY === undefined)(
-    "short, long, conflicting and near-miss checks keep their actual choices",
+    "short, unstated, long, conflicting and near-miss checks keep their actual choices",
     { timeout: 600_000 },
     async () => {
       const core = startCore(await createTempDataFolder(), {
@@ -40,6 +42,11 @@ describe("corrections from the Documents, live", () => {
           "The committee adopted the 2026 liquidity and capital preservation strategy after a full risk review.",
         ].join("\n"),
       );
+      const lease = await writeSourceFile(
+        sources,
+        "Lease.md",
+        "# Lease\nThe lease was signed by Westmarch Commercial Property Investments Limited on 4 March.",
+      );
       const newer = await writeSourceFile(
         sources,
         "Acceptance scan.md",
@@ -52,14 +59,15 @@ describe("corrections from the Documents, live", () => {
       );
       await utimes(newer, new Date("2026-02-03T00:00:00Z"), new Date("2026-02-03T00:00:00Z"));
       await utimes(older, new Date("2025-02-03T00:00:00Z"), new Date("2025-02-03T00:00:00Z"));
-      await addAndProcess(core, [results, newer, older]);
+      await addAndProcess(core, [results, lease, newer, older]);
 
       const short = await core.checkClaim({ claim: SHORT });
+      const unstated = await core.checkClaim({ claim: UNSTATED });
       const long = await core.checkClaim({ claim: LONG });
       const conflict = await core.checkClaim({ claim: CONFLICT });
       const nearMiss = await core.checkClaim({ claim: NEAR_MISS });
       const { spent } = await core.getCostSummary();
-      const report = { model: MODEL, cases: { short, long, conflict, nearMiss }, spent };
+      const report = { model: MODEL, cases: { short, unstated, long, conflict, nearMiss }, spent };
       if (process.env.INCARNAMIND_LIVE_REPORT) {
         await appendFile(
           process.env.INCARNAMIND_LIVE_REPORT,
@@ -74,12 +82,13 @@ describe("corrections from the Documents, live", () => {
           choices: [{ wording: "38.6%", evidence: { check: "found" } }],
         },
       });
+      expect(unstated.verdict).toBe("unsupported");
       expect(long.verdict).toBe("contradicted");
       expect(
         long.verdict !== "not-checked" && long.correction?.choices[0]?.wording.length,
       ).toBeGreaterThan(40);
       expect(long.verdict !== "not-checked" && long.correction?.choices[0]?.wording).toContain(
-        "liquidity",
+        "Westmarch",
       );
       expect(conflict).toMatchObject({
         verdict: "contradicted",
@@ -89,7 +98,7 @@ describe("corrections from the Documents, live", () => {
         },
       });
       expect(nearMiss.verdict).not.toBe("contradicted");
-      expect(nearMiss.verdict === "not-checked" ? null : nearMiss.correction).toBeNull();
+      expect(nearMiss.verdict === "not-checked" ? undefined : nearMiss.correction).toBeUndefined();
     },
   );
 });

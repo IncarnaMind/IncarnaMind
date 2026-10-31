@@ -11,12 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import type {
-  ClaimCalculation,
-  ClaimCheckPart,
-  ClaimCorrectionChoice,
-  ClaimPartSpan,
-} from "../../../core/api";
+import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
@@ -52,7 +47,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
-import { applyCorrection, correctionFor } from "../correctionFixes";
+import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -83,6 +78,7 @@ import { type CitationDecision, citationDecision, citationsOf } from "./alreadyC
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
+import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
 import { focusFirstAction, keepFocusInside } from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
@@ -186,7 +182,7 @@ export function ClaimMark({
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
-  const correction = correctionFor(editor, claim);
+  const corrections = correctionsFor(editor, claim);
   const label = t("claim.mark.label", {
     state: reading ? t("claim.state.checking") : heading,
   });
@@ -362,7 +358,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
-              correction={correction}
+              corrections={corrections}
               editor={editor}
               decision={decision}
               added={added}
@@ -449,8 +445,8 @@ export function ClaimMark({
                 keepAsView(editor, claim);
                 done();
               }}
-              onCorrect={() => {
-                applyCorrection(editor, mindId, claim);
+              onCorrect={(span) => {
+                applyCorrection(editor, mindId, claim, span);
                 done(true);
               }}
               use={offersUseFigure(editor, claim)}
@@ -571,7 +567,7 @@ export function ClaimCard({
   fixes,
   notFound,
   keep,
-  correction,
+  corrections,
   editor,
   decision,
   added,
@@ -607,7 +603,8 @@ export function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
-  correction: ClaimCorrectionChoice | null;
+  /** Each contradicted part's correction from the Documents, as `correctionsFor` finds them. */
+  corrections: readonly PartCorrection[];
   editor: Editor;
   decision: CitationDecision;
   added: number;
@@ -627,7 +624,7 @@ export function ClaimCard({
   onCut(): void;
   onCutSentence(): void;
   onKeep(): void;
-  onCorrect(): void;
+  onCorrect(span: ClaimPartSpan | null): void;
   use: boolean;
   onUse(): void;
 }) {
@@ -649,6 +646,8 @@ export function ClaimCard({
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
   const partRows = claimPartRows(check);
+  // A sentence whose parts are listed offers each part's correction on its own row.
+  const sole = partRows ? undefined : corrections[0];
   // A one-part sentence takes this card, not the parts rows, and its clause is on its one part.
   const currencyClause =
     !partRows && state === "supported" ? (check.parts?.[0]?.currencyClause ?? null) : null;
@@ -764,18 +763,6 @@ export function ClaimCard({
     );
   });
 
-  const [newer, older] = correction ? (check.correction?.choices ?? []) : [];
-  const correctionConflict = newer && older && (
-    <p data-testid="claim-correction-conflict" className="claim-card-says">
-      {t("claim.correction.conflict", {
-        newerDocument: shownDocumentName(newer.evidence, documents) ?? "",
-        newerWording: newer.wording,
-        olderDocument: shownDocumentName(older.evidence, documents) ?? "",
-        olderWording: older.wording,
-      })}
-    </p>
-  );
-
   // While the sentence's own read runs, or the card asks about the next, the card is that read's:
   // its question, or its progress and Stop, nothing it would replace, so no Continue or Check
   // again starts a second read beside it.
@@ -839,7 +826,6 @@ export function ClaimCard({
             )}
           </div>
           {figureSources}
-          {correctionConflict}
           <ChangedCitations cited={cited} />
           <ClaimPartRows
             editor={editor}
@@ -850,6 +836,8 @@ export function ClaimCard({
             checking={checking}
             onCheck={onCheckPart}
             onUseWording={onUseWording}
+            corrections={corrections}
+            onCorrect={onCorrect}
             scope={check.scope}
             read={pickRead ?? undefined}
             citations={partCitations}
@@ -880,7 +868,7 @@ export function ClaimCard({
               </p>
             )}
             {figureSources}
-            {correctionConflict}
+            {sole && <CorrectionConflict correction={sole.correction} />}
             {differs && (
               <p data-testid="claim-differs" className="claim-card-says">
                 {t("claim.unsupported.differs")}
@@ -1126,17 +1114,12 @@ export function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
-        {correction && (
-          <button
-            type="button"
-            data-testid="claim-correct"
-            className="citation-card-action citation-card-action--primary"
-            onClick={onCorrect}
-          >
-            {t(correction.wording.length > 40 ? "claim.useDocumentWording" : "claim.correction", {
-              wording: correction.wording,
-            })}
-          </button>
+        {sole && (
+          <CorrectButton
+            correction={sole.correction}
+            onCorrect={() => onCorrect(sole.span)}
+            testId="claim-correct"
+          />
         )}
         {!partRows && decision.kind === "add" && (
           <button
@@ -1183,7 +1166,7 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !correction && !use && (decision.kind === "none" || decision.kind === "already")
+              !sole && !use && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}

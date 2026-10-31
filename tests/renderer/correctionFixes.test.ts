@@ -19,9 +19,9 @@ import {
 } from "../../src/core/api";
 import {
   applyCorrection,
-  correctableClaims,
+  correctableCount,
   correctContradictions,
-  correctionFor,
+  correctionsFor,
 } from "../../src/renderer/src/correctionFixes";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
@@ -513,7 +513,7 @@ describe("Correct a contradiction from the Documents", () => {
     ]);
     const current = claim(editor, "one");
     expect(current.shown.state).toBe("needs-recheck");
-    expect(correctionFor(editor, current)).toBeNull();
+    expect(correctionsFor(editor, current)).toEqual([]);
 
     expect(applyCorrection(editor, "mind", current)).toBe(false);
 
@@ -530,8 +530,9 @@ describe("Correct a contradiction from the Documents", () => {
       { type: "paragraph", content: [marked("The rate is 36.8%.", valid)] },
     ]);
 
-    expect(correctionFor(editor, claim(editor, "one"))).toBeNull();
-    expect(correctableClaims(editor).map((each) => each.check.id)).toEqual(["valid"]);
+    expect(correctionsFor(editor, claim(editor, "one"))).toEqual([]);
+    expect(correctionsFor(editor, claim(editor, "valid"))).toHaveLength(1);
+    expect(correctableCount(editor)).toBe(1);
   });
 
   test("bulk correction changes two sentences in one Undo and restores both checks", () => {
@@ -569,7 +570,99 @@ describe("Correct a contradiction from the Documents", () => {
     expect(citationsOf(editor)).toEqual([]);
   });
 
-  test("the badge counts only sentences a correction makes Supported", () => {
+  test("corrects each contradicted part of a two-part sentence on its own, then the other", () => {
+    const text = "The break fee is $75,000, and the deposit is returned within 60 days.";
+    const fee = {
+      wording: "$57,000",
+      evidence: evidence("lease", "paying a break fee of $57,000"),
+    };
+    const days = {
+      wording: "30 days",
+      evidence: evidence("lease", "The Landlord shall return it within 30 days."),
+    };
+    const attrs = checkWithParts(basis("two", text), [
+      contradictedPart(0, 24, "$75,000", [fee]),
+      contradictedPart(30, 68, "60 days", [days]),
+    ]);
+    const { editor } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+    expect(
+      correctionsFor(editor, claim(editor, "two")).map(({ span, correction }) => [
+        span,
+        correction.choices[0]?.wording,
+      ]),
+    ).toEqual([
+      [{ start: 0, end: 24 }, "$57,000"],
+      [{ start: 30, end: 68 }, "30 days"],
+    ]);
+
+    expect(applyCorrection(editor, "mind", claim(editor, "two"), { start: 30, end: 68 })).toBe(
+      true,
+    );
+
+    expect(textOf(editor)).toBe(
+      `The break fee is $75,000, and the deposit is returned within 30 days${INLINE_NODE}.`,
+    );
+    expect(claim(editor, "two").shown.state).toBe("contradicted");
+    expect(claim(editor, "two").check.parts?.map((each) => each.verdict)).toEqual([
+      "contradicted",
+      "supported",
+    ]);
+    expect(correctionsFor(editor, claim(editor, "two"))).toHaveLength(1);
+
+    expect(applyCorrection(editor, "mind", claim(editor, "two"), { start: 0, end: 24 })).toBe(true);
+
+    expect(textOf(editor)).toBe(
+      `The break fee is $57,000, and the deposit is returned within 30 days${INLINE_NODE}${INLINE_NODE}.`,
+    );
+    expect(citationsOf(editor).map((each) => each.quote)).toEqual([
+      "The Landlord shall return it within 30 days.",
+      "paying a break fee of $57,000",
+    ]);
+    expect(claim(editor, "two").shown.state).toBe("supported");
+  });
+
+  test("the badge corrects every part of every sentence, citing each Passage once, in one Undo", () => {
+    const text = "The break fee is $75,000, and the deposit is returned within 60 days.";
+    const fee = {
+      wording: "$57,000",
+      evidence: evidence("lease", "paying a break fee of $57,000"),
+    };
+    const days = {
+      wording: "30 days",
+      evidence: evidence("schedule", "The Landlord shall return it within 30 days."),
+    };
+    const two = checkWithParts(basis("two", text), [
+      contradictedPart(0, 24, "$75,000", [fee]),
+      contradictedPart(30, 68, "60 days", [days]),
+    ]);
+    const one = check("one", "The rate is 36.8%.");
+    const { editor } = editorWith([
+      { type: "paragraph", content: [marked(text, two)] },
+      { type: "paragraph", content: [marked("The rate is 36.8%.", one)] },
+    ]);
+    const before = textOf(editor);
+    expect(correctableCount(editor)).toBe(3);
+
+    expect(correctContradictions(editor, "mind")).toBe(3);
+
+    expect(textOf(editor)).toBe(
+      `The break fee is $57,000, and the deposit is returned within 30 days${INLINE_NODE}${INLINE_NODE}.\nThe rate is 38.6%${INLINE_NODE}.`,
+    );
+    expect(claim(editor, "two").shown.state).toBe("supported");
+    expect(claim(editor, "one").shown.state).toBe("supported");
+    expect(generatedText(editor)).toEqual(["$57,000", "30 days", "38.6%"]);
+
+    expect(undoManager(editor)?.undoStack).toHaveLength(1);
+    undoManager(editor)?.undo();
+
+    expect(textOf(editor)).toBe(before);
+    expect(claim(editor, "two").check.parts?.map((each) => each.verdict)).toEqual([
+      "contradicted",
+      "contradicted",
+    ]);
+  });
+
+  test("the badge counts contradicted parts with a correction, beside an unsupported part too", () => {
     const valid = check("valid", "The rate is 36.8%.");
     const legacy = checkWithParts(basis("legacy", "The old rate is 36.8%."), [
       part(0, 22, "contradicted"),
@@ -590,11 +683,15 @@ describe("Correct a contradiction from the Documents", () => {
     ]);
     expect(claim(editor, "halfway").shown.state).toBe("contradicted");
 
-    expect(correctableClaims(editor).map((each) => each.check.id)).toEqual(["valid"]);
-    expect(correctContradictions(editor, "mind")).toBe(1);
+    expect(correctableCount(editor)).toBe(2);
+    expect(correctContradictions(editor, "mind")).toBe(2);
     expect(claim(editor, "valid").shown.state).toBe("supported");
     expect(claim(editor, "legacy").shown.state).toBe("contradicted");
     expect(claim(editor, "unsupported").shown.state).toBe("unsupported");
-    expect(claim(editor, "halfway").shown.state).toBe("contradicted");
+    expect(claim(editor, "halfway").shown.state).toBe("unsupported");
+    expect(claim(editor, "halfway").check.parts?.map((each) => each.verdict)).toEqual([
+      "supported",
+      "unsupported",
+    ]);
   });
 });

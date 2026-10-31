@@ -114,6 +114,42 @@ describe("A correction in a check reply", () => {
   });
 
   test.each([
+    {
+      language: "English",
+      says: "The minutes say the committee rejected the growth strategy.",
+      fields: 'Change 1: "adopted the growth strategy" To 1: "rejected the growth strategy" [^2]',
+      from: "adopted the growth strategy",
+      wording: "rejected the growth strategy",
+    },
+    {
+      language: "Chinese",
+      says: "纪要说委员会否决了增长战略。",
+      fields: "Change 1: 「采纳了增长战略」 To 1: 「否决了增长战略」 [^2]",
+      from: "采纳了增长战略",
+      wording: "否决了增长战略",
+    },
+  ])("reads $language fields written after the sentence, in quotation marks", (each) => {
+    const read = readVerdict(`Verdict: contradicted\nTopic: found\n${each.says} ${each.fields}`);
+
+    expect(read?.says).toBe(each.says);
+    expect(read?.correction).toEqual({
+      from: each.from,
+      choices: [{ wording: each.wording, marker: 2 }],
+    });
+  });
+
+  test("reads old words that hold “to 1:” as words, not a field", () => {
+    const read = readVerdict(
+      "Verdict: contradicted\nThe report gives 3 to 1.\nChange 1: rose to 1: 2\nTo 1: rose to 3: 1",
+    );
+
+    expect(read?.correction).toEqual({
+      from: "rose to 1: 2",
+      choices: [{ wording: "rose to 3: 1", marker: 1 }],
+    });
+  });
+
+  test.each([
     ["a To line is missing", "Change 1: 36.8%"],
     [
       "the second old substring differs",
@@ -383,6 +419,46 @@ describe("A correction from the public core", () => {
     });
   });
 
+  test.each([
+    {
+      language: "English",
+      claim: "The committee adopted the growth strategy.",
+      quote: "The committee rejected the growth strategy.",
+      part: "adopted the growth strategy",
+      wording: "rejected the growth strategy",
+    },
+    {
+      language: "Chinese",
+      claim: "委员会采纳了增长战略。",
+      quote: "委员会否决了增长战略。",
+      part: "采纳了增长战略",
+      wording: "否决了增长战略",
+    },
+  ])(
+    "changes only the contradicted part of a $language sentence, never all of it",
+    async (each) => {
+      const check = (from: string, to: string) =>
+        checkWith(
+          {
+            ...contradicted(`The minutes differ.\nChange 1: ${from}\nTo 1: ${to}`),
+            quote: each.quote,
+          },
+          each.claim,
+          [{ name: "Minutes.md", contents: each.quote }],
+        );
+
+      const part = await check(each.part, each.wording);
+      const whole = await check(each.claim, each.quote);
+
+      expect(part).toMatchObject({
+        verdict: "contradicted",
+        correction: { from: each.part, choices: [{ wording: each.wording }] },
+      });
+      expect(whole.verdict).toBe("contradicted");
+      expect(correctionIn(whole)).toBeUndefined();
+    },
+  );
+
   test("keeps a replacement in the same named period", async () => {
     const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
     const quote = "Gross margin fell to 38.6% in Q2, mostly in online.";
@@ -487,32 +563,49 @@ describe("A correction in a sentence of several parts", () => {
   async function checkParts(board: Plan): Promise<ClaimCheckResult> {
     const { core } = await setUpWithDocuments(
       partsModel({ [RATE]: contradicted(), [BOARD]: board }, [RATE, BOARD]),
-      [REPORT, { name: "Minutes.md", contents: MINUTES }],
+      [
+        REPORT,
+        { name: "Minutes.md", contents: MINUTES },
+        { name: "Vote.md", contents: "The board rejected the plan." },
+      ],
     );
     return core.checkClaim({ claim: SENTENCE });
   }
 
-  test("is the sentence's when its one other part is supported", async () => {
-    const result = await checkParts({ verdict: "supported", quote: MINUTES });
+  test("is each contradicted part's own, the first the sentence's", async () => {
+    const result = await checkParts({
+      ...contradicted("The minutes say the board rejected it.\nChange 1: approved\nTo 1: rejected"),
+      quote: "The board rejected the plan.",
+    });
 
     expect(result).toMatchObject({
       verdict: "contradicted",
       correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
-      parts: [{ verdict: "contradicted", correction: { from: "36.8%" } }, { verdict: "supported" }],
+      parts: [
+        { verdict: "contradicted", correction: { from: "36.8%" } },
+        {
+          verdict: "contradicted",
+          correction: { from: "approved", choices: [{ wording: "rejected" }] },
+        },
+      ],
     });
   });
 
-  test("stays on its part when another part is unsupported", async () => {
-    const result = await checkParts({ verdict: "unsupported" });
+  test("stays on its part beside a supported or unsupported one", async () => {
+    const supported = await checkParts({ verdict: "supported", quote: MINUTES });
+    const unsupported = await checkParts({ verdict: "unsupported" });
 
-    expect(result).toMatchObject({
-      verdict: "contradicted",
-      parts: [
-        { verdict: "contradicted", correction: { from: "36.8%" } },
-        { verdict: "unsupported" },
-      ],
-    });
-    expect(correctionIn(result)).toBeUndefined();
+    for (const [result, other] of [
+      [supported, "supported"],
+      [unsupported, "unsupported"],
+    ] as const) {
+      expect(result).toMatchObject({
+        verdict: "contradicted",
+        correction: { from: "36.8%" },
+        parts: [{ verdict: "contradicted", correction: { from: "36.8%" } }, { verdict: other }],
+      });
+      expect(result.parts?.[1]?.correction).toBeUndefined();
+    }
   });
 });
 

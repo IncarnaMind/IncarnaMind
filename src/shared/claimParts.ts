@@ -1133,12 +1133,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
           found: true as const,
         }
       : outcome.part.unsupported;
-  // A correction makes the sentence Supported only when it changes the one part that isn't.
-  const correction =
-    outcome.part.verdict === "contradicted" &&
-    checked.every(({ part }) => part === outcome.part || part.verdict === "supported")
-      ? outcome.part.correction
-      : undefined;
+  const correction = outcome.part.verdict === "contradicted" ? outcome.part.correction : undefined;
   return {
     ...common,
     verdict: outcome.part.verdict,
