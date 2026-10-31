@@ -5,8 +5,11 @@
  * deletes a list item. Counts the runs where the Note changed but the Answer is marked as not
  * having made every change it describes (its status line), and keeps each such reply, and each
  * reply that says the change waits or wasn't made, with what the check of its claims was told.
+ * A question the assistant asks the User (`ask_user`, such as which sentence to delete) is answered
+ * as a User would, with the option it recommends (#2322).
  *
  * INCARNAMIND_LIVE_RUNS sets how many times each follow-up runs (3 by default),
+ * INCARNAMIND_LIVE_ASK keeps only the follow-ups that contain one of these words (split by |),
  * INCARNAMIND_LIVE_CONCURRENCY how many run at once (3); set INCARNAMIND_LIVE_REPORT to a file
  * to keep the numbers, each run's as it ends. With INCARNAMIND_LIVE_WRITTEN=1 the memo is put in
  * the Note as AI text, as an applied memo leaves it, and the follow-up starts a conversation.
@@ -75,6 +78,11 @@ const LANGUAGES: { language: string; memo: string; followUps: FollowUp[] }[] = [
         ask: "Delete the deposit item, leave the rest.",
         made: (_before, after) => !after.some((text) => text.includes("Deposit")),
       },
+      {
+        ask: "Take one sentence out of the parking paragraph.",
+        made: (before, after) =>
+          sentences(including(after, "Parking")) === sentences(including(before, "Parking")) - 1,
+      },
     ],
   },
   {
@@ -102,6 +110,11 @@ const LANGUAGES: { language: string; memo: string; followUps: FollowUp[] }[] = [
       {
         ask: "把押金那一条删掉，其他不变。",
         made: (_before, after) => !after.some((text) => text.includes("押金")),
+      },
+      {
+        ask: "停车位那段去掉一句。",
+        made: (before, after) =>
+          sentences(including(after, "停车")) === sentences(including(before, "停车")) - 1,
       },
     ],
   },
@@ -204,15 +217,27 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
         approvals++;
         void core.respondToApproval(request.requestId, "deny");
       });
+      // Unanswered, a question waits for the User as it should, and the run would never end (#2322).
+      let questions = 0;
+      core.on("question.asked", (asked) => {
+        questions++;
+        const [recommended] = asked.question.options;
+        void core.answerUserQuestion(asked.requestId, {
+          skipped: false,
+          chosen: recommended ? [recommended.label] : [],
+          wrote: null,
+        });
+      });
       await core.saveChatProvider({
         kind: live.kind,
         ...(live.apiKey && { apiKey: live.apiKey }),
         modelId: live.model,
       });
+      const only = process.env.INCARNAMIND_LIVE_ASK?.split("|") ?? null;
       const jobs = LANGUAGES.flatMap((each) =>
-        each.followUps.flatMap((followUp) =>
-          Array.from({ length: runs }, () => ({ each, followUp })),
-        ),
+        each.followUps
+          .filter((followUp) => !only || only.some((words) => followUp.ask.includes(words)))
+          .flatMap((followUp) => Array.from({ length: runs }, () => ({ each, followUp }))),
       );
       const tally = new Map<FollowUp, { made: number; flagged: number; denied: number }>();
       const kept: string[] = [];
@@ -286,6 +311,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       let denied = 0;
       for (const each of LANGUAGES) {
         for (const followUp of each.followUps) {
+          if (!jobs.some((job) => job.followUp === followUp)) continue;
           const counts = tally.get(followUp) ?? { made: 0, flagged: 0, denied: 0 };
           made += counts.made;
           flagged += counts.flagged;
@@ -297,7 +323,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       }
       const cost = await core.getCostSummary();
       report.push(
-        `  all: made ${made}/${jobs.length}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; Answers that never ended ${unended}`,
+        `  all: made ${made}/${jobs.length}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
         `  requests ${cost.providers.reduce((sum, each) => sum + each.requests, 0)}, spent ${cost.spent.map((money) => `${money.amount.toFixed(4)} ${money.currency}`).join(", ") || "0"}`,
         ...kept,
       );
