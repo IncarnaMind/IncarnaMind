@@ -281,6 +281,8 @@ class MarkdownWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources, { table: false }).trim();
     if (cited) sources.push(`${escapeText(this.labels.chartSources, false)}${cited}`);
+    if (block.calculated > 0)
+      sources.push(escapeText(this.labels.chartCalculated(block.calculated), false));
     if (block.uncited > 0) sources.push(escapeText(this.labels.chartUncited(block.uncited), false));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null)
