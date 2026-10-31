@@ -423,6 +423,8 @@ export function removeClaimMark(editor: Editor, claim: ShownClaim): void {
 
 /** Closing punctuation a Citation goes before: "…in the quarter[1]." */
 const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
+export const citationClosingLength = (words: string): number =>
+  CLOSING.exec(words)?.[0].length ?? 0;
 
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
@@ -437,7 +439,7 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   const mark = state.schema.marks[CLAIM_CHECK_MARK];
   if (!evidence || !type || !mark || citationDecision(state, claim).kind !== "add") return false;
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
-  const closing = CLOSING.exec(words)?.[0].length ?? 0;
+  const closing = citationClosingLength(words);
   const at = claim.sentence.to - closing;
   const citation = type.create({ ...evidence, check: "found", checkReason: null });
   const tr = state.tr.removeMark(claim.from, claim.to, mark);

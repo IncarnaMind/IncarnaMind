@@ -4,7 +4,7 @@ import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
-import type { ChatProviderKind, CheckFigure } from "../../src/core/api";
+import type { ChatProviderKind, CheckFigure, ClaimCheckResult } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
@@ -1502,4 +1502,65 @@ test("a quoted heading states the scale and currency the bare digits lack", asyn
   });
   expect(result.figures?.[0]?.sourceInput?.unitStatement).not.toBeNull();
   expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+const correctionOf = (result: ClaimCheckResult) =>
+  result.verdict === "not-checked" ? undefined : result.correction;
+
+test.each([
+  { name: "alone", calculated: false, offered: true },
+  { name: "beside a supported calculated figure", calculated: true, offered: false },
+])("a figure's correction is offered $name", async ({ calculated, offered }) => {
+  const sentence = calculated ? "Revenue was £20 and growth was £10." : "Revenue was £20.";
+  const revenue = {
+    ...item("revenue"),
+    verdict: "contradicted",
+    source: { citation: 1, number: "£21" },
+  };
+  const items = calculated
+    ? [revenue, { ...item("growth"), source: null, calculation: 1 }]
+    : [revenue];
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [
+      target("revenue", "£20", sentence),
+      ...(calculated ? [target("growth", "£10", sentence)] : []),
+    ],
+    body: "Revenue was £21. Growth was £10.",
+    ...(calculated && {
+      calculations: [
+        {
+          marker: 1,
+          label: "Growth",
+          formula: "source",
+          stated: "£10",
+          relation: "equals",
+          inputs: [{ name: "source", label: "Growth", citation: 1, position: 2 }],
+        },
+      ],
+    }),
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
+});
+
+test.each([
+  { name: "its own sentence", table: false, offered: true },
+  { name: "table headings", table: true, offered: false },
+])("a figure's correction is offered with $name as its context", async ({ table, offered }) => {
+  const sentence = "Revenue was £20.";
+  const { result } = await checkWith({
+    claim: sentence,
+    figures: [target("f1", "£20", table ? `Revenue | 2025\n${sentence}` : sentence)],
+    body: "Revenue was £21.",
+    text: `Verdict: contradicted\nChange 1: £20\nTo 1: £21 [^1]\nFigures: ${JSON.stringify({
+      items: [{ ...item(), verdict: "contradicted", source: { citation: 1, number: "£21" } }],
+      remainder: null,
+    })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
 });

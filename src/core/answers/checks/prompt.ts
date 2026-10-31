@@ -73,6 +73,9 @@ const reply = (language: Language, calculate: boolean) =>
     'Roles: who does it, for or to whom, and its own obligation or permission word copied as written (such as 须, 可, must, may; none when it has none), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Roles: the Tenant must repaint / the Tenant may repaint, differs"; "Roles: the deposit must be returned / the deposit may be returned, differs"; "Roles: the Landlord insures for the Tenant / the Tenant insures for the Landlord, differs"). "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may. Anything else is "same": another word for a party (Scope weighs that), a side with no such word, a condition one of them adds, or no party and no such word ("Roles: none, same").',
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
+    // Asked for "the old words", Claude Haiku 5.5 named the whole sentence for a lease's base rent
+    // and a parking fee (#1481): a correction rewrites only the words that differ.
+    'For contradicted only, add on lines of their own "Change 1: " and only the words of the sentence that the Document gives another value for, copied exactly (the figure, date, name or the few words that differ, never the whole sentence), then "To 1: " and the Document\'s exact words for that same thing, as they would read in their place, with the marker of the checked quote that holds them at its end. When two Documents conflict, add "Change 2: " with the same old words and "To 2: " with the second Document\'s words and its own quote\'s marker. Never add Change or To lines for supported or unsupported.',
     "Add Evidence: [1, 2] naming exactly the cite markers used for this factual part, or Evidence: [] when none was used. Every named marker must have a checked quote. Record all complementary quotes; never invent a combined quote.",
     'For a sentence that quantifies over a domain (all/every/always/most or a comparison across a stated set), always add Coverage: followed by one JSON object, whatever the verdict: {"unit":"stores","quantifier":"all","complete":true,"members":[{"label":"North","verdict":"supported","evidence":[1]},{"label":"South","verdict":"unsupported","evidence":[]}],"domainEvidence":[2]}. Use quantifier all or most. List every domain member, including missing outcomes. complete means the Documents establish the full membership, not that every outcome is supported: a known member with no outcome still keeps complete:true and its unsupported row. Use complete:false only when membership itself is not established; never invent members. Domain evidence establishes membership only, never an outcome. Record its quote and each supported/contradicted member\'s own outcome quote, including when the whole sentence is unsupported. Counts come from these members, not a supplied total. Ordinary independent clauses and summaries have no Coverage line.',
     "For a forecast asserted as certain, add Reason kind: forecast-certainty. For two established events without the asserted causal link, add Reason kind: unbacked-cause. Otherwise omit Reason kind. These fields are your semantic judgment, not words to match in the sentence.",
@@ -518,6 +521,12 @@ export function readEvidence(
   }
 }
 
+/** A contradicted reply's old words, and each Document's words for them with its quote's marker. */
+export interface ReadCorrection {
+  from: string;
+  choices: { wording: string; marker: number }[];
+}
+
 /**
  * What a reply says: its verdict, what the Document says (or, for unsupported,
  * what no Passage states), and, for unsupported, short phrases for what the
@@ -526,6 +535,7 @@ export function readEvidence(
  */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
+  correction?: ReadCorrection;
   /** Whether the sentence asserts an absence; left off when the reply gives no one plain answer. */
   absence?: Exclude<AbsenceAnswer, null>;
   says: string | null;
@@ -566,6 +576,8 @@ const NOT_COVERED = /^[\s>*_#`"'“”-]*(?:not covered|uncovered|未涵盖)[\s*
 const SCOPE = /^[\s>*_#`"'“”-]*(?:scope|范围)[\s*_]*[:：](.*)$/i;
 const TOPIC = /^[\s>*_#`"'“”-]*(?:topic|主题)[\s*_]*[:：][\s*_"'“”`]*(found|not found)\b/i;
 const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
+const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
+const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
 const CALCULATION = /^[\s>*_#`'"“”-]*(?:calculation|计算)[\s*_]*[:：][\s*_]*(.*)$/i;
 export const FIGURES = /^\s*Figures:\s*(.*)$/i;
@@ -580,6 +592,8 @@ const FIELDS = [
   SCOPE,
   TOPIC,
   ROLES,
+  CHANGE,
+  TO,
   ABSENCE,
   CALCULATION,
   EVIDENCE,
@@ -742,6 +756,90 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
+/**
+ * A line with Change and To fields after its words, each field on a line of its own: Claude Haiku
+ * 5.5 wrote them at the end of its plain sentence, in quotation marks (#1481).
+ */
+function fieldLines(line: string): string[] {
+  // Capitalized as the reply form writes them, so "rose to 1: 2" in the old words is no field.
+  const field = (label: string) =>
+    new RegExp(`(\\s*)(?<![\\p{L}\\p{N}])(?=${label}[\\s*_]*(\\d+)[\\s*_]*[:：])`, "u");
+  const change = field("Change").exec(line);
+  if (!change) return [line];
+  const start = change.index + (change[1]?.length ?? 0);
+  const fields = line.slice(start);
+  const to = field("To").exec(fields.slice(1));
+  if (!to || to[2] !== change[2]) return [line];
+  const end = 1 + to.index + (to[1]?.length ?? 0);
+  return [line.slice(0, start), fields.slice(0, end), ...fieldLines(fields.slice(end))];
+}
+
+const PAIRED_QUOTES = /^(?:"(.+)"|“(.+)”|'(.+)'|‘(.+)’|「(.+)」|『(.+)』)$/su;
+
+/**
+ * A value without the note a model wrote after it: "为期三年 (the grant letter, …)", "$14,250
+ * [P1, p. 1]" from Claude Haiku 5.5 (#1481).
+ */
+const withoutNote = (value: string): string => value.replace(/\s+(?:\([^()]*\)|\[[^[\]]*\])$/u, "");
+
+/** Words a model put in quotation marks, without them. */
+const unquoted = (words: string): string => {
+  const match = PAIRED_QUOTES.exec(words);
+  return match?.slice(1).find((each) => each !== undefined) ?? words;
+};
+
+/** Each To line's marker by its number: the quote it ends with, read before markers are shown. */
+function toMarkers(reply: string): Map<number, number> {
+  const markers = new Map<number, number>();
+  for (const line of reply.replace(THINKING, "").split("\n").flatMap(fieldLines)) {
+    const match = TO.exec(line.trim());
+    const marker = match && /\[[\^=]?(\d{1,4})\]\s*$/.exec(match[2] ?? "")?.[1];
+    if (match && marker) markers.set(Number(match[1]), Number(marker));
+  }
+  return markers;
+}
+
+function readCorrection(
+  verdict: ClaimVerdict,
+  lines: readonly string[],
+  reply: string,
+): ReadCorrection | null | undefined {
+  if (verdict !== "contradicted") return undefined;
+  const changes = new Map<number, string>();
+  const destinations = new Map<number, string>();
+  let seen = false;
+  for (const line of lines) {
+    for (const [label, fields] of [
+      [CHANGE, changes],
+      [TO, destinations],
+    ] as const) {
+      const match = label.exec(line);
+      const index = Number(match?.[1]);
+      if (!match) continue;
+      seen = true;
+      if ((index !== 1 && index !== 2) || fields.has(index)) return null;
+      fields.set(index, unquoted(withoutNote((match[2] ?? "").replace(MARKERS, "").trim())));
+    }
+  }
+  if (!seen) return undefined;
+  if (
+    changes.size !== destinations.size ||
+    changes.size < 1 ||
+    !changes.has(1) ||
+    !destinations.has(1)
+  )
+    return null;
+  const from = changes.get(1) ?? "";
+  if (from === "" || (changes.has(2) && changes.get(2) !== from)) return null;
+  // A To line ends with the marker of the quote holding its wording; one without uses its number.
+  const markers = toMarkers(reply);
+  const choices = [...destinations].map(([index, text]) => ({
+    marker: markers.get(index) ?? index,
+    wording: text,
+  }));
+  return choices.some((choice) => choice.wording === "") ? null : { from, choices };
+}
+
 /** null: the reply gives no one plain answer, so whether the sentence asserts an absence is unknown. */
 export type AbsenceAnswer = "yes" | "no" | null;
 
@@ -791,6 +889,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   const text = reply.replace(THINKING, "").replace(DISPLAY_MARKERS, "").trim();
   const lines = text
     .split("\n")
+    .flatMap(fieldLines)
     .map((line) => line.trim())
     .filter((line) => line !== "");
   // A model that thinks aloud corrects itself with a second verdict: its last word counts.
@@ -809,8 +908,10 @@ export function readVerdict(reply: string): ReadVerdict | null {
     const phrase = (label: RegExp) =>
       phraseOf(label.exec(fields.findLast((each) => label.test(each)) ?? "")?.[1]);
     const next = after.find((each) => !FIELDS.some((field) => field.test(each)));
+    const correction = readCorrection(verdict, fields, reply);
     return withShortReason({
       verdict,
+      ...(correction && { correction }),
       ...answered(absenceOf(fields.flatMap((each) => ABSENCE.exec(each)?.[1] ?? []))),
       says: cleanSays(rest || (next ?? "")),
       ...(() => {

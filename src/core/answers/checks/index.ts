@@ -70,6 +70,7 @@ import {
   type ClaimCheckPart,
   type ClaimCheckResult,
   type ClaimCheckScope,
+  type ClaimCorrection,
   type ClaimJudgment,
   type ClaimPartSpan,
   type ContradictionCheckPlan,
@@ -365,20 +366,30 @@ function parseClaim(input: unknown) {
 }
 
 /** A Citation as a mark stores it: the Passage that decides a claim, or that covers part of it. */
+const citationAttributes = (citation: CitationAttributes): CitationAttributes => ({
+  passageId: citation.passageId,
+  documentId: citation.documentId,
+  documentName: citation.documentName,
+  contentHash: citation.contentHash,
+  pageFrom: citation.pageFrom,
+  pageTo: citation.pageTo,
+  location: citation.location,
+  quote: citation.quote,
+  check: citation.check,
+  checkReason: citation.checkReason,
+  ...(citation.id && { id: citation.id }),
+});
+
 const evidenceOf = (citation: CitationAttributes | null): CitationAttributes | null =>
-  citation && {
-    passageId: citation.passageId,
-    documentId: citation.documentId,
-    documentName: citation.documentName,
-    contentHash: citation.contentHash,
-    pageFrom: citation.pageFrom,
-    pageTo: citation.pageTo,
-    location: citation.location,
-    quote: citation.quote,
-    check: citation.check,
-    checkReason: citation.checkReason,
-    ...(citation.id && { id: citation.id }),
-  };
+  citation && citationAttributes(citation);
+
+const correctionOf = (correction: ClaimCorrection): ClaimCorrection => ({
+  from: correction.from,
+  choices: correction.choices.map((choice) => ({
+    wording: choice.wording,
+    evidence: citationAttributes(choice.evidence),
+  })),
+});
 
 const withQuoted = ({ quoted, ...why }: UnsupportedReason): UnsupportedReason => {
   const kept = quoted ? evidenceOf(quoted) : null;
@@ -420,6 +431,7 @@ function withJudgment(check: ClaimCheckBasis, result: ClaimJudgment, at: string)
           reason: null,
           detail: null,
           evidence: evidenceOf(result.evidence),
+          ...(result.correction && { correction: correctionOf(result.correction) }),
           says: result.says,
           unsupported: result.unsupported && withQuoted(result.unsupported),
           calculation: result.calculation,
@@ -440,12 +452,18 @@ function withResult(
   // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
   if (result.parts && sourceText !== check.text) {
     const evidence = result.parts.flatMap((part) => part.evidence);
+    // A row's correction names words of its contextual claim, not of the cell it is anchored to.
+    let anchored = result;
+    if (anchored.verdict !== "not-checked") {
+      const { correction: _row, ...judged } = anchored;
+      anchored = judged;
+    }
     result = {
-      ...result,
+      ...anchored,
       ...resultFromParts([
         partWithResult(
           { span: { start: 0, end: check.text.length }, kind: "fact" },
-          result,
+          anchored,
           evidence,
         ),
       ]),

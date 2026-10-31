@@ -28,6 +28,7 @@ import { type Figure, type FigureContext, readFigures } from "../../../shared/fi
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
+import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
@@ -39,6 +40,7 @@ import type {
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimCorrection,
   ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartPlan,
@@ -116,6 +118,7 @@ import {
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presencePrompt,
+  type ReadCorrection,
   type ReadVerdict,
   readEvidence,
   readJudgement,
@@ -1228,8 +1231,125 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           result.verdict === "supported"
           ? await withSentenceVerdict(result, async () => unchecked("malformed"))
           : result;
+      // A correction is kept only on the one result it changes, the contradicted figure or else the
+      // rest of the words, and only when every other result stands or is a figure it writes over.
+      const withCorrection = (checked: ClaimCheckResult): ClaimCheckResult => {
+        if (checked.verdict !== "contradicted" || checked.remainder === undefined) return checked;
+        const figures = checked.figures ?? [];
+        const { remainder } = checked;
+        const results = [
+          ...figures.map((figure) => figure.result),
+          ...(remainder ? [remainder] : []),
+        ];
+        if (results.filter((each) => each.verdict === "contradicted").length !== 1) return checked;
+        const sentence = request.originalClaim ?? request.claim;
+        if (
+          figures.some(
+            (figure) =>
+              figure.calculated ||
+              ("calculation" in figure.result && figure.result.calculation) ||
+              figure.locator.kind !== "text" ||
+              figure.context !== sentence ||
+              figure.footing.length > 0 ||
+              (figure.sourceFooting?.length ?? 0) > 0,
+          )
+        )
+          return checked;
+        const context = documentFigureContext([{ text: sentence }]);
+        const corrected = (
+          read: ReadCorrection | undefined,
+          citation: (marker: number) => Citation | null,
+        ) => correctionFor(sentence, request.claim, read, citation, scoped.documentDate, context);
+        const stated = corrected(said?.correction, session.finalCitation);
+        const owner = figures.find((figure) => figure.result.verdict === "contradicted");
+        let found = stated;
+        // Figures the old words write over, all or some of their words ("1,500" of "1,500 units").
+        const writesOver = (from: string, chars: string) =>
+          readFigures(from, context).some((old) => chars.includes(old.chars));
+        if (owner) {
+          const deciding = owner.sourceInput;
+          const changes = (from: string, to: string) => {
+            const old = readFigures(from, context);
+            const replacement = readFigures(to, context);
+            const [written] = replacement;
+            return (
+              old.length === 1 &&
+              writesOver(from, owner.reading.chars) &&
+              replacement.length === 1 &&
+              written !== undefined &&
+              (deciding
+                ? Math.abs(written.value) === Math.abs(deciding.number.value)
+                : written.unit.kind === owner.reading.unit.kind)
+            );
+          };
+          // The figure's own check already found the Document's number and its quote, so the
+          // correction is that number in place of the sentence's: Claude Haiku 5.5 named the whole
+          // sentence as its old words (#1481). Its Change and To lines stand when they change this
+          // figure to the same number, in the Document's words, as they can give a second
+          // Document's.
+          found = stated?.correction.choices.every((choice) =>
+            changes(stated.correction.from, choice.wording),
+          )
+            ? stated
+            : deciding
+              ? corrected(
+                  {
+                    from: owner.reading.chars,
+                    choices: [{ wording: deciding.number.chars, marker: 1 }],
+                  },
+                  () => deciding.citation,
+                )
+              : null;
+        } else {
+          // Old words of the rest of the sentence lie outside its figures, where the reply names
+          // that rest, unless they write over a figure; a sentence judged whole may be corrected
+          // anywhere.
+          const rest = readFigureReply(
+            figuresText,
+            request.figures ?? [],
+            request.claim,
+          )?.remainder;
+          if (
+            !stated ||
+            (rest &&
+              !rest.text.includes(stated.correction.from) &&
+              !figures.some((figure) => writesOver(stated.correction.from, figure.reading.chars)))
+          )
+            return checked;
+        }
+        if (!found) return checked;
+        // Every other result stands, or is a figure whose words the correction writes over: its
+        // number couldn't be compared, and the Document's takes its place.
+        const { from } = found.correction;
+        if (
+          figures.some(
+            (figure) =>
+              figure !== owner &&
+              figure.result.verdict !== "supported" &&
+              !(figure.result.verdict === "unsupported" && writesOver(from, figure.reading.chars)),
+          ) ||
+          (owner && remainder && remainder.verdict !== "supported")
+        )
+          return checked;
+        const decision = {
+          evidence: found.evidence,
+          correction: found.correction,
+          ...citedCase(found.evidence),
+        };
+        return {
+          ...checked,
+          ...decision,
+          figures: figures.map((figure) =>
+            figure === owner ? { ...figure, result: { ...figure.result, ...decision } } : figure,
+          ),
+          remainder:
+            !owner && remainder?.verdict === "contradicted"
+              ? { ...remainder, ...decision }
+              : remainder,
+        };
+      };
       const absence = await absenceFor(said?.absence ?? null, figureResult.verdict);
-      return absence ?? figureResult;
+      return absence ?? withCorrection(figureResult);
     }
     if (confirmationFailure) return failedCheck(confirmationFailure);
     if (invalidInput || pending.size > 0) return notChecked("no-evidence");
@@ -1544,13 +1664,26 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       if (confirmation.kind === "malformed") return notChecked("malformed");
     }
     if (byCalculation && verdict.verdict !== "contradicted") return byCalculation;
+    const corrected =
+      verdict.verdict === "contradicted"
+        ? correctionFor(
+            request.originalClaim ?? request.claim,
+            request.claim,
+            verdict.correction,
+            session.finalCitation,
+            scoped.documentDate,
+            documentFigureContext([{ text: request.originalClaim ?? request.claim }]),
+          )
+        : null;
+    const decided = corrected?.evidence ?? evidence;
     return {
       verdict: verdict.verdict,
-      evidence,
+      evidence: decided,
+      ...(corrected && { correction: corrected.correction }),
       says: verdict.says,
       unsupported: null,
       calculation: worked?.calculation ?? null,
-      ...citedCase(evidence),
+      ...citedCase(decided),
       ...facts(),
     };
   };
@@ -1903,6 +2036,150 @@ const NEAREST_MARKER = 98;
 
 /** The marker the record asked for once more is given: apart from any the model gave. */
 const EVIDENCE_MARKER = 99;
+
+function namedPeriods(text: string): string[] {
+  const words: { from: number; to: number }[] = [];
+  for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
+    if (match.index === undefined) continue;
+    words.push({ from: match.index, to: match.index + match[0].length });
+  }
+  const candidates: string[] = [];
+  for (const [index, word] of words.entries()) {
+    for (const end of words.slice(index, index + 4)) {
+      candidates.push(text.slice(word.from, end.to));
+    }
+  }
+  for (let end = 0; end < text.length; end++) {
+    if (!/[年季度月]/u.test(text[end] ?? "")) continue;
+    for (let start = Math.max(0, end - 24); start < end; start++) {
+      candidates.push(text.slice(start, end + 1));
+    }
+  }
+  return candidates
+    .filter(isPeriod)
+    .map((period) => period.normalize("NFKC").toLocaleLowerCase())
+    .sort();
+}
+
+function keepsNamedPeriods(from: string, replacement: string): boolean {
+  const before = namedPeriods(from);
+  if (before.length === 0) return true;
+  const after = namedPeriods(replacement);
+  return before.length === after.length && before.every((period, index) => period === after[index]);
+}
+
+/** The one figure `words` are, or null when they are more or less than a figure. */
+function figureOnly(words: string, context: FigureContext): Figure | null {
+  const read = readFigures(words, context);
+  return read.length === 1 && read[0]?.chars === words.trim() ? read[0] : null;
+}
+
+/** Whether `quote` names every period `sentence` does: a Document's value for another is no correction. */
+function namesPeriodsOf(sentence: string, quote: string): boolean {
+  const named = new Set(namedPeriods(quote));
+  return namedPeriods(sentence).every((period) => named.has(period));
+}
+
+/** An overlap at least this long, or one character that isn't a letter or digit ("$", " "). */
+const overlaps = (words: string) => words.length >= 2 || /^[^\p{L}\p{N}]$/u.test(words);
+
+/**
+ * The Document's words as they fit between `before` and `after`: without the words either side
+ * already has. Asked for 60日内, Claude Haiku 5.5 gave 货款应在开票后45日内支付 (#1481).
+ */
+function inPlace(before: string, after: string, wording: string): string {
+  let start = 0;
+  for (let length = Math.min(before.length, wording.length); length > 0; length--) {
+    const words = wording.slice(0, length);
+    if (before.endsWith(words) && overlaps(words)) {
+      start = length;
+      break;
+    }
+  }
+  let end = wording.length;
+  for (let length = Math.min(after.length, wording.length - start); length > 0; length--) {
+    const words = wording.slice(wording.length - length);
+    if (after.startsWith(words) && overlaps(words)) {
+      end = wording.length - length;
+      break;
+    }
+  }
+  return wording.slice(start, end);
+}
+
+/**
+ * A confirmed contradiction's correction of `claim`, a part of `sentence` or all of it: old words
+ * that occur once in it, never all the sentence's words, each choice's wording in its own found
+ * quote, keeping the sentence's named periods.
+ */
+function correctionFor(
+  sentence: string,
+  claim: string,
+  read: ReadCorrection | undefined,
+  finalCitation: (marker: number) => Citation | null,
+  documentDate: AnswerDocuments["documentDate"],
+  context: FigureContext,
+): { correction: ClaimCorrection; evidence: Citation } | null {
+  if (!read || read.from === "" || read.choices.length < 1 || read.choices.length > 2) return null;
+  const first = claim.indexOf(read.from);
+  if (first < 0 || first !== claim.lastIndexOf(read.from)) return null;
+  // Old words that are all of the sentence would rewrite it, not correct its contradicted part:
+  // Claude Haiku 5.5 named a whole Chinese sentence so (#1481).
+  const kept = claim.slice(0, first) + claim.slice(first + read.from.length);
+  if (sentence === claim && !/[\p{L}\p{N}]/u.test(kept)) return null;
+  const markers = new Set<number>();
+  const wordings = new Set<string>();
+  const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
+  const figure = figureOnly(read.from, context);
+  for (const stated of read.choices) {
+    const fitted = inPlace(
+      claim.slice(0, first),
+      claim.slice(first + read.from.length),
+      stated.wording,
+    );
+    // A figure takes the Document's figure of its own kind, not the words around it.
+    const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
+    const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
+    const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
+    if (
+      markers.has(choice.marker) ||
+      choice.wording === "" ||
+      choice.wording === read.from ||
+      !keepsNamedPeriods(read.from, choice.wording) ||
+      !keepsNamedPeriods(
+        claim,
+        claim.slice(0, first) + choice.wording + claim.slice(first + read.from.length),
+      ) ||
+      wordings.has(choice.wording)
+    )
+      return null;
+    const citation = finalCitation(choice.marker);
+    if (
+      citation?.check !== "found" ||
+      !citation.quote.includes(choice.wording) ||
+      !namesPeriodsOf(claim, citation.quote)
+    )
+      return null;
+    markers.add(choice.marker);
+    wordings.add(choice.wording);
+    choices.push({ ...choice, evidence: citation });
+  }
+  const sorted = choices.sort(
+    (a, b) =>
+      (documentDate(b.evidence.documentId)?.date ?? "").localeCompare(
+        documentDate(a.evidence.documentId)?.date ?? "",
+      ) || a.marker - b.marker,
+  );
+  const [newest] = sorted;
+  if (!newest) return null;
+  return {
+    correction: {
+      from: read.from,
+      choices: sorted.map(({ wording, evidence }) => ({ wording, evidence })),
+    },
+    evidence: newest.evidence,
+  };
+}
 
 function foundCitations(
   finalCitation: (marker: number) => Citation | null,
