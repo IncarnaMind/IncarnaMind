@@ -942,7 +942,10 @@ function FailedSearch({
   );
 }
 
-/** The Citations checked against their sources: all found, or how many weren't, with the margin's mark. */
+/**
+ * The Citations checked against their sources: all found, or how many weren't and how many
+ * sentences their quotes don't support (#2311), with the mark of the worst.
+ */
 function CheckStep({
   count,
   notFound,
@@ -963,6 +966,7 @@ function CheckStep({
     );
   }
   const allFound = notFound === 0 && needALook === 0;
+  const mark = notFound > 0 ? "not-found" : needALook > 0 ? "unsupported" : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
     : [
@@ -973,13 +977,7 @@ function CheckStep({
   return (
     <Step
       kind="check"
-      icon={
-        <CheckMarkIcon
-          check={allFound ? "found" : "not-found"}
-          data-check={allFound ? "found" : "not-found"}
-          className="answer-step-check"
-        />
-      }
+      icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
     >
       <p className="answer-step-title">
         {checkedWords(t, count)}

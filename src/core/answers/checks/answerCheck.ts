@@ -24,6 +24,7 @@ import type {
 import type { EvidenceScope } from "../../documents/evidence";
 import type { PreparedChatModel } from "../../providers/chat";
 import { runItems, slots } from "../../runs/stop";
+import { inStep } from "../../timing/flows";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
 
@@ -173,9 +174,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
    * Each checked marker's result, its sentences' worst; null when nothing could be checked here.
    * A marker missing from it keeps the Citation check's result.
    */
-  return async function checkAnswer(
-    input: AnswerCheckInput,
-  ): Promise<Map<number, SupportResult> | null> {
+  async function checkAnswer(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null> {
     const sentences = sentencesToCheck(input);
     if (sentences.length === 0) return null;
     const prepared = await options.prepare(input.model);
@@ -209,5 +208,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
     });
     return results;
-  };
+  }
+
+  return (input: AnswerCheckInput) => inStep("answer-check", () => checkAnswer(input));
 }

@@ -521,7 +521,7 @@ test("a sentence its quote doesn't support loses its green check, and the check 
   await screenshot(window, "beyond-its-quote-en");
 
   await core(window).language("zh-CN");
-  const chinese = await ask(window, "大潮什么时候出现？超出引文");
+  const chinese = await ask(window, "spring tides 什么时候出现？超出引文");
   await expect(chinese.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
   await pointAndClick(window, chinese.getByTestId("answer-steps"));
   await expect(chinese.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(

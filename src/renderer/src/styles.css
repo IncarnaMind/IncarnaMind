@@ -8428,7 +8428,8 @@
   .answer-step-check[data-check="found"] {
     color: var(--color-success);
   }
-  .answer-step-check[data-check="not-found"] {
+  .answer-step-check[data-check="not-found"],
+  .answer-step-check[data-check="unsupported"] {
     color: var(--color-warning);
   }
   .assistant-answer .answer-step-problem {
