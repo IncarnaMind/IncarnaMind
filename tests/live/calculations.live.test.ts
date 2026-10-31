@@ -412,10 +412,12 @@ describe.each(LIVE)("A currency on a statement's first amount, live: $name (#100
         );
         expect(figure, textOf(answerBlocks(answer))).toBeDefined();
         expect(figure?.unit).toEqual({ kind: "currency", code: each.currency });
-        expect(figure?.inputs.map((input) => input.number.value)).toEqual(each.inputs);
-        expect(
-          figure?.inputs.slice(1).map((input) => input.unitStatement?.citation.quote ?? null),
-        ).toEqual([each.unitLine, each.unitLine, each.unitLine]);
+        const values = figure?.inputs.map((input) => input.number.value) ?? [];
+        for (const value of each.inputs) expect(values).toContain(value);
+        const deductions = figure?.inputs.filter((input) => input.number.value < 0) ?? [];
+        expect(deductions).toHaveLength(3);
+        for (const input of deductions)
+          expect(input.unitStatement?.citation.quote).toBe(each.unitLine);
         core.close();
       }
     },

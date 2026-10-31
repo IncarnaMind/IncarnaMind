@@ -662,10 +662,14 @@ export function figureContextOfFacts(
   }
   const cny = parts.some((part) => part.cny);
   const jpy = parts.some((part) => part.jpy);
+  // In simplified Chinese text "¥" is the yuan, whatever else the text names (#2226).
+  const byLanguage = settle({ language }).yen;
+  const [only] = byLanguage;
+  const settled = byLanguage.length === 1 && (only === "CNY" || only === "JPY") ? only : null;
   return {
     language,
     separators: separatorsFrom(evidence),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    yen: settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null),
     accounts: parts.some((part) => part.accounts),
   };
 }
@@ -1215,6 +1219,14 @@ export function readStatedUnits(
   });
 }
 
+/** A currency a line states on its own first figure, as written, as a code, and where that figure is. */
+export interface StatedCurrency {
+  chars: string;
+  code: string;
+  /** Where the figure starts in the line. */
+  at: number;
+}
+
 /**
  * The currency a line writes on its own first figure ("Sale price £385,000.00"), as written and
  * as a code, when no other figure on the line writes another; null when none does, when the
@@ -1224,14 +1236,15 @@ export function readStatedUnits(
 export function currencyOnItsFigure(
   text: string,
   context: FigureContext = {},
-): { chars: string; code: string } | null {
+): StatedCurrency | null {
   const figures = readFigures(text, { ...context, header: null });
   const [first] = figures;
-  if (!first || first.unit.kind !== "currency" || first.currency === null) return null;
+  if (first?.unit.kind !== "currency" || first.currency === null) return null;
   if (first.value === 0) return null;
-  if (first.ambiguous.some((each) => each.kind === "currency")) return null;
   const codes = new Set(figures.flatMap(currenciesOf));
-  return codes.size === 1 ? { chars: first.currency, code: first.unit.code } : null;
+  return codes.size === 1
+    ? { chars: first.currency, code: first.unit.code, at: first.start }
+    : null;
 }
 
 // Numerals -------------------------------------------------------------------

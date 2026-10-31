@@ -15,9 +15,11 @@
  *   range, points), until the model picks one of the readings it is offered;
  *   a "¥" that could be yuan or yen, until a `unitQuote` names the currency;
  * - a number with no currency or scale of its own where another line states one
- *   (a heading, "单位：万元", or an amount, "Sale price £385,000.00"), when the
- *   result depends on it, until the model gives that line as `unitQuote`: a
- *   unit is never guessed, and a Passage that names two currencies gives neither;
+ *   (a heading, "单位：万元", or an amount above it, "Sale price £385,000.00"),
+ *   when the result depends on it, until the model gives that line as
+ *   `unitQuote`: a unit is never guessed, a line states only the numbers below
+ *   it in its own table column, a Passage that names two currencies gives
+ *   neither, and a scale the line doesn't apply is refused;
  * - what the evaluator refuses: a syntax error, units that don't combine,
  *   division by zero;
  * - a formula that changes an amount's scale itself ("rev / 10000" for 万 to
@@ -42,6 +44,7 @@ import {
   type Reading,
   readFigures,
   readStatedUnits,
+  type StatedCurrency,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -416,6 +419,14 @@ const plainNumber = (value: number) => String(Number(value.toPrecision(12)));
 const DEDUCTION_LINE =
   /(?:^|[\s|:：(（])(?:less|deduct(?:ion|ions|ed)?|minus|减|扣除|减去)(?![A-Za-z])/i;
 
+/**
+ * A scale a Document writes in a form the figure reader doesn't apply ("£000", "€000", "TEUR",
+ * "(000's omitted)"): an amount under it is worth that scale, so a currency read from another
+ * line must not apply without it.
+ */
+const SCALE_IN_UNKNOWN_FORM =
+  /(?<![\d.,])(?:[$€£¥]\s?0{3}(?:['’]?s)?|TEUR|T€|0{3}['’]s)(?![A-Za-z\d])/i;
+
 function signNote(negatives: readonly { name: string; chars: string; value: number }[]): string {
   const them = negatives.length > 1 ? "them" : "it";
   const read = negatives
@@ -667,6 +678,45 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return beforeOnLine(text, at + figure.start);
   }
 
+  /** A scale a Passage states in a line, in words the reader applies or a form it doesn't ("£000"); null when none. */
+  function statedScale(text: string, context: FigureContext): string | null {
+    const known = readStatedUnits(text, context).find((each) => each.scale !== 1);
+    return known?.chars ?? SCALE_IN_UNKNOWN_FORM.exec(text)?.[0] ?? null;
+  }
+
+  /**
+   * Why the line a model gave as `unitQuote` can't state the currency of `figure`: a statement
+   * states the currency of the bare numbers below it in its Passage, in its own table column
+   * only, and not one it writes at a scale it doesn't apply (#1001).
+   */
+  function statementProblem(
+    quoted: Quoted,
+    unit: Quoted,
+    line: StatedCurrency,
+    figure: Figure,
+    context: FigureContext,
+  ): string | null {
+    const passage = quoted.passageText;
+    const statement = findQuote(passage, unit.citation.quote, unit.matching)?.[0];
+    const place = findQuote(passage, quoted.citation.quote, quoted.matching)?.[0];
+    if (!statement || !place)
+      return `the unitQuote "${unit.citation.quote}" isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+    if (place.start + figure.start <= statement.start + line.at)
+      return `the unitQuote "${unit.citation.quote}" is not above ${figure.chars} in ${quoted.passage}; a statement states the currency of the bare numbers below it only.`;
+    const columnOf = (at: number) => passage.slice(passage.lastIndexOf("\n", at - 1) + 1, at);
+    const tabs = (text: string) => text.split("\t").length - 1;
+    const mine = columnOf(place.start + figure.start);
+    const theirs = columnOf(statement.start + line.at);
+    if ((theirs.includes("\t") || mine.includes("\t")) && tabs(theirs) !== tabs(mine))
+      return `the unitQuote "${unit.citation.quote}" is not in the table column of ${figure.chars} in ${quoted.passage}; a table row's currency states only its own column.`;
+    const first = readFigures(unit.citation.quote, { ...context, header: null })[0];
+    const ownScale = first && (first.scale !== 1 || first.scaleWord !== null) ? first.chars : null;
+    const scale = ownScale ?? statedScale(passage, context);
+    if (scale)
+      return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but a scale is stated ("${scale}") that this line doesn't apply; quote the line that states both as unitQuote.`;
+    return null;
+  }
+
   /** Reads one input; or says why it can't be read. */
   function readInput(
     given: GivenInput,
@@ -803,6 +853,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       if (!row && statedLine.length === 0 && !onFigure)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
       if (onFigure) {
+        const problem = statementProblem(quoted, unit, onFigure, figure, context);
+        if (problem) return problem;
         const named = namedCurrencies(
           quoted.passageText,
           context,

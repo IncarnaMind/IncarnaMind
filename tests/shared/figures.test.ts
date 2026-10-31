@@ -1204,8 +1204,13 @@ describe("a currency a line writes on its own figure", () => {
     expect(currencyOnItsFigure("Sale price £385,000.00", EN)).toEqual({
       chars: "£",
       code: "GBP",
+      at: 11,
     });
-    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({ chars: "¥", code: "CNY" });
+    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({
+      chars: "¥",
+      code: "CNY",
+      at: 4,
+    });
     expect(currencyOnItsFigure("Sale price 385,000.00", EN)).toBeNull();
     expect(currencyOnItsFigure("Less: agent's fee (4,620.00)", EN)).toBeNull();
     expect(currencyOnItsFigure("Sale price £385,000.00 deposit $12,000.00", EN)).toBeNull();
@@ -1216,6 +1221,7 @@ describe("a currency a line writes on its own figure", () => {
     expect(currencyOnItsFigure("Sale price ¥385,000.00", { language: "ja" })).toEqual({
       chars: "¥",
       code: "JPY",
+      at: 11,
     });
   });
 });
@@ -1247,6 +1253,13 @@ describe("how a Document writes its numbers", () => {
     expect(figureContextOf("营业收入人民币1.2亿元").yen).toBe("CNY");
     expect(figureContextOf("売上高は1,200億円").yen).toBe("JPY");
     expect(figureContextOf("RMB 1.2bn and JPY 3bn").yen).toBeNull();
+  });
+
+  // protects=#2226; fails_when=a Chinese Document's ¥ is read as the yen because a line names 日元, or a Japanese one's isn't the yen.
+  test("reads a simplified Chinese Document's ¥ as the yuan even when a line names 日元", () => {
+    expect(figureContextOf("费用为54,000日元。成交价 ¥3,850,000", "zh-CN").yen).toBe("CNY");
+    expect(figureContextOf("料金は54,000円。売上高 ¥3,850,000", "ja").yen).toBe("JPY");
+    expect(figureContextOf("Fee is 54,000 yen. Sale price ¥3,850,000", "en").yen).toBe("JPY");
   });
 });
 

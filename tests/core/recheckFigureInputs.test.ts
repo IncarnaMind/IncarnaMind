@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { createCalculationSession } from "../../src/core/answers/calculations";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import type { FigureInput } from "../../src/core/api";
@@ -226,6 +226,17 @@ test("a currency written on another line's amount states a bare number's unit, a
   expect(session.recheck(input)).toEqual({ input });
 });
 
+test("a stored currency the Document writes otherwise isn't its unit statement any more", () => {
+  const text = "Sale price £385,000.00\nLess: agent's fee (4,620.00)";
+  const session = source(page(text));
+  const input = session.read("(4,620.00)", { unitQuote: "Sale price £385,000.00" });
+  const unit = input.unitStatement;
+  if (!unit) throw new Error("Missing unit statement.");
+  expect(
+    session.recheck({ ...input, unitStatement: { ...unit, currencyChars: "$" } }),
+  ).toHaveProperty("problem");
+});
+
 test("a Passage that names two currencies gives a bare number neither", () => {
   const text = "Sale price £385,000.00\nDeposit $12,000.00\nLess: agent's fee (4,620.00)";
   const session = source(page(text));
@@ -243,4 +254,127 @@ test("a unitQuote that isn't in the Passage, or writes no currency, is refused",
   expect(() => session.read("(4,620.00)", { unitQuote: "Less: agent's fee (4,620.00)" })).toThrow(
     /states no unit or scale/,
   );
+});
+
+describe("a currency a statement writes on its first amount", () => {
+  test.each([
+    {
+      name: "a scale line above (English)",
+      text: "Completion statement: 14 Mill Lane\nAll figures in thousands\nSale price £380.4\nLess: agent's fee (4.0)",
+      quote: "(4.0)",
+      unitQuote: "Sale price £380.4",
+    },
+    {
+      name: "a scale the reader doesn't apply (English)",
+      text: "Completion statement: 14 Mill Lane\n£000\nSale price £380.4\nLess: agent's fee (4.0)",
+      quote: "(4.0)",
+      unitQuote: "Sale price £380.4",
+    },
+    {
+      name: "a scale line between the lines (English)",
+      text: "Sale price £380.4\nAll figures in thousands\nLess: agent's fee (4.0)",
+      quote: "(4.0)",
+      unitQuote: "Sale price £380.4",
+    },
+    {
+      name: "单位：万元 above (Chinese)",
+      text: "房产交易结算表\n单位：万元\n成交价 ¥380.38\n减：中介费 （4.00）",
+      quote: "（4.00）",
+      unitQuote: "成交价 ¥380.38",
+    },
+    {
+      name: "金额单位：千元 above (Chinese)",
+      text: "房产交易结算表\n金额单位：千元\n成交价 ¥380.38\n减：中介费 （4.00）",
+      quote: "（4.00）",
+      unitQuote: "成交价 ¥380.38",
+    },
+    {
+      name: "a scale line between the lines (Chinese)",
+      text: "成交价 ¥380.38\n单位：万元\n减：中介费 （4.00）",
+      quote: "（4.00）",
+      unitQuote: "成交价 ¥380.38",
+    },
+  ])("refuses $name, which it doesn't apply", ({ text, quote, unitQuote }) => {
+    const session = source(page(text));
+    expect(() => session.read(quote, { unitQuote })).toThrow(/scale is stated/);
+  });
+
+  test.each([
+    {
+      name: "above the line (English)",
+      text: "Shares 1,000,000\nSale price £385,000.00\nLess: agent's fee (4,620.00)",
+      quote: "1,000,000",
+      unitQuote: "Sale price £385,000.00",
+    },
+    {
+      name: "above the line (Chinese)",
+      text: "股数 1,000,000\n成交价 ¥3,850,000.00\n减：中介费 （46,200.00）",
+      quote: "1,000,000",
+      unitQuote: "成交价 ¥3,850,000.00",
+    },
+  ])("refuses a number $name", ({ text, quote, unitQuote }) => {
+    const session = source(page(text));
+    expect(() => session.read(quote, { unitQuote })).toThrow(/not above/);
+  });
+
+  test.each([
+    {
+      name: "another column (English)",
+      text: "Item\tPrice\tQty\nWidget\t£380.40\t1\nGadget\t£380.40\t12",
+      quote: "12",
+      unitQuote: "Widget\t£380.40\t1",
+    },
+    {
+      name: "another column (Chinese)",
+      text: "项目\t价格\t数量\n甲\t¥380.40\t1\n乙\t¥380.40\t12",
+      quote: "12",
+      unitQuote: "甲\t¥380.40\t1",
+    },
+  ])("refuses a table's statement from $name", ({ text, quote, unitQuote }) => {
+    const session = source(page(text));
+    expect(() => session.read(quote, { unitQuote })).toThrow(/column/);
+  });
+
+  test.each([
+    {
+      name: "English",
+      text: "Item\tAmount\nWidget\t£385,000.00\nFee\t(4,620.00)",
+      quote: "(4,620.00)",
+      unitQuote: "Widget\t£385,000.00",
+      value: -4620,
+      code: "GBP",
+    },
+    {
+      name: "Chinese",
+      text: "项目\t金额\n甲\t¥385,000.00\n乙\t（4,620.00）",
+      quote: "（4,620.00）",
+      unitQuote: "甲\t¥385,000.00",
+      value: -4620,
+      code: "CNY",
+    },
+  ])(
+    "reads a bare row of the statement's own column: $name",
+    ({ text, quote, unitQuote, value, code }) => {
+      const session = source(page(text));
+      expect(session.read(quote, { unitQuote })).toMatchObject({
+        number: { value, unit: { kind: "currency", code } },
+      });
+    },
+  );
+
+  test("a scale the statement line doesn't apply is refused too", () => {
+    const text = "Sale price £380.4 thousand\nLess: agent's fee (4.0)";
+    const session = source(page(text));
+    expect(() => session.read("(4.0)", { unitQuote: "Sale price £380.4 thousand" })).toThrow(
+      /scale is stated/,
+    );
+  });
+
+  test("a Chinese statement naming its scale's own line still applies that scale", () => {
+    const text = "房产交易结算表\n单位：万元\n成交价 ¥380.38\n减：中介费 （4.00）";
+    const session = source(page(text));
+    expect(session.read("（4.00）", { unitQuote: "单位：万元" })).toMatchObject({
+      number: { value: -40_000, scale: 10_000, unit: { kind: "currency", code: "CNY" } },
+    });
+  });
 });

@@ -1430,6 +1430,57 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     ]);
   });
 
+  // protects=#1001; fails_when=a statement in 万元 over a ¥ amount and bare fees reads the ¥ lines' currency without the scale, so the User sees 380.38元 instead of the amount in 万元.
+  test("in Chinese, the scale's own line still applies it: the net income is in 万元", async () => {
+    const lines = [
+      "单位：万元",
+      "成交价 ¥380.38",
+      "减：中介费 （4.00）",
+      "减：律师费 （1.50）",
+      "减：其他费用 （0.80）",
+    ];
+    const statement = {
+      name: "房产交易结算表.pdf",
+      contents: buildPdf([{ chineseLines: ["房产交易结算表", ...lines] }]),
+    };
+    const numbers = ["¥380.38", "（4.00）", "（1.50）", "（0.80）"];
+    const model = calculatingModel({
+      queries: ["成交价 中介费"],
+      steps: [
+        citeStatement("房产交易结算表", lines.slice(1), (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "净收入",
+                  formula: "price + agent + legal + other",
+                  inputs: labels.map((label, index) => ({
+                    name: ["price", "agent", "legal", "other"][index],
+                    label,
+                    citation: cited[index],
+                    number: numbers[index],
+                    unitQuote: "单位：万元",
+                  })),
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "出售房产的净收入为[=1][^1]。",
+    });
+    const { core } = await setUpCalculating(model, [statement]);
+
+    const { answer } = await askAndRead(core, "出售房产的净收入是多少？");
+
+    expect(shown(answerBlocks(answer))).toBe("出售房产的净收入为374.08万元。");
+    expect(answer.figures[0]?.inputs.map((input) => input.number.value)).toEqual([
+      3_803_800, -40_000, -15_000, -8_000,
+    ]);
+  });
+
   test("a Passage that names two currencies gives the bare fees neither, and the model is told why", async () => {
     const document = {
       name: "Completion statement 14 Mill Lane.pdf",
@@ -1473,6 +1524,63 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
       "1 figure couldn’t be calculated",
     );
     expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
+  });
+
+  // protects=#1001; fails_when=a line that writes a currency for a number under a scale the line doesn't apply is recorded, so a User sees £380.4 for an amount in thousands.
+  test("a scale the line doesn't apply is refused, and the Answer reports the figure couldn't be calculated", async () => {
+    const lines = ["All figures in thousands", "Sale price £380.4", "Less: agent's fee (4.0)"];
+    const statement = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([{ lines: ["Completion statement: 14 Mill Lane", ...lines] }]),
+    };
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", lines, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Net sale proceeds",
+                  formula: "price + agent",
+                  inputs: [
+                    {
+                      name: "price",
+                      label: "Sale price",
+                      citation: cited[1],
+                      number: "£380.4",
+                      unitQuote: "All figures in thousands",
+                    },
+                    {
+                      name: "agent",
+                      label: "Agent's fee",
+                      citation: cited[2],
+                      number: "(4.0)",
+                      unitQuote: "Sale price £380.4",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [statement]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain(
+      'gives GBP, but a scale is stated ("in thousands") that this line doesn\'t apply',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
   });
 
   test("a unitQuote that isn't in the Passage, or writes no currency, is refused as today", async () => {
