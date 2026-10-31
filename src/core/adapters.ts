@@ -316,8 +316,28 @@ export interface ExecRequest {
   timeoutMs: number;
   /** How much of each output is kept: the start of its standard output, the end of its error output. */
   maxOutputBytes: number;
+  /** Bounds beyond its time and output, for code a model wrote (`ExecLimits`). */
+  limits?: ExecLimits;
   /** Stops it at once, with every process it started (e.g. the User stops the Answer). */
   signal: AbortSignal;
+}
+
+/**
+ * What a program may use besides time and output. Files and processes are
+ * the kernel's limits, set where the program starts (`ulimit`, macOS and
+ * Linux); memory and the working folder are watched while it runs, since
+ * macOS refuses a memory limit, and it is stopped with every process it
+ * started when it goes over (`ExecResult.limit`).
+ */
+export interface ExecLimits {
+  /** The largest file it may write, in bytes. */
+  fileBytes?: number;
+  /** How many more processes it may run at once than the User's account already runs. */
+  processes?: number;
+  /** Its processes' resident memory together, in bytes. */
+  memoryBytes?: number;
+  /** What its working folder may hold, in bytes. */
+  folderBytes?: number;
 }
 
 /** How a program an `Executor` ran ended, and what it wrote (see `SkillScriptRun`, which adds `error`). */
@@ -334,6 +354,8 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
+  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
+  limit?: "memory" | "folder";
 }
 
 /**

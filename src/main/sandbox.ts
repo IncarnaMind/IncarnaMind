@@ -148,6 +148,36 @@ async function installFolders(command: string, denied: readonly string[]): Promi
   return [...folders];
 }
 
+const execFileAsync = promisify(execFile);
+
+/** How many processes the User's account runs now, as `ps` counts them. */
+async function accountProcesses(): Promise<number> {
+  const { stdout } = await execFileAsync("ps", [
+    "-U",
+    String(process.getuid?.() ?? 0),
+    "-o",
+    "pid=",
+  ]);
+  return stdout.split("\n").filter((line) => line.trim() !== "").length;
+}
+
+/**
+ * The shell lines that set a request's file and process limits before its
+ * program starts; a limit the shell can't set stops the run there. bash
+ * counts `ulimit -f` in KiB. The process limit is per account on macOS and
+ * Linux, so it is the account's processes now plus the request's.
+ */
+async function limitLines(limits: ExecRequest["limits"]): Promise<string[]> {
+  const lines: string[] = [];
+  if (limits?.fileBytes !== undefined) {
+    lines.push(`ulimit -f ${Math.max(1, Math.floor(limits.fileBytes / 1024))} || exit 125`);
+  }
+  if (limits?.processes !== undefined) {
+    lines.push(`ulimit -u ${(await accountProcesses()) + limits.processes} || exit 125`);
+  }
+  return lines;
+}
+
 /** The program and arguments that run `script` in the sandbox `config` describes. */
 async function wrap(
   sandbox: SandboxManager,
@@ -186,7 +216,11 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
           denyWrite: SANDBOX_RUNTIME_TEMP,
         },
       };
-      const script = `export TMPDIR=${quote(workingFolder)}; exec ${[command, ...request.args].map(quote).join(" ")}`;
+      const script = [
+        `export TMPDIR=${quote(workingFolder)}`,
+        ...(await limitLines(request.limits)),
+        `exec ${[command, ...request.args].map(quote).join(" ")}`,
+      ].join("; ");
       try {
         return { ...(await wrap(sandbox, script, config)), env: request.env };
       } catch (error) {
@@ -201,8 +235,6 @@ function osConfinement(sandbox: SandboxManager, options: OsExecutorOptions): Con
     release: () => sandbox.cleanupAfterCommand(),
   };
 }
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Why a program can't run in the sandbox here, or undefined if it can: it
