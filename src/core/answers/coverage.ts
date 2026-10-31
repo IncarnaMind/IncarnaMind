@@ -53,7 +53,7 @@ const BEFORE_TIME =
  * only the old recap context (#1319).
  */
 const REFERS_TO_AN_EARLIER_REPLY =
-  /\b(?:you|your|yours)\b|\b(?:from before|earlier|above|previous|assistant|before)\b|\b(?:those|these)\b|\b(?:that|this)\s+(?:list|message|answer|reply|response)\b|\blast\s+(?:message|answer|reply|response)\b|\bcall[ -]help\b|[你您]|前面|上面|之前|(?:刚才|刚刚)的?(?:回答|回复|答复|消息|清单|建议|提示|问题)|那几|那条|这几|助手|给的(?:建议|问题|提示|清单)/iu;
+  /\b(?:you|your|yours)\b|\b(?:from before|before|earlier|above|previous(?:ly)?|assistant|those|these)\b|\b(?:that|this)\s+(?:list|message|answer|reply|response)\b|\blast\s+(?:message|answer|reply|response)\b|\bcall[ -]help\b|\b(?:suggest(?:ions?|ed)?|tips?|recommend(?:ed|ations?)?|advice|help|answers?|repl(?:y|ies)|responses?|checklist|told me|ai|bot|it gave|previously)\b|[你您]|前面|上面|之前|那几|那条|这几|助手|建议|提示|推荐|回答|回复|答复|清单|它|先前|上一条/iu;
 
 const refersToTheAssistant = (question: string): boolean =>
   REFERS_TO_AN_EARLIER_REPLY.test(
