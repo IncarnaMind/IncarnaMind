@@ -924,6 +924,36 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
   });
 
+  test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {
+    const { core, mind, client } = await setUp("");
+    const webp = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: `data:image/webp;base64,${webp}`,
+              alt: "A tide chart",
+              width: 40,
+              height: 20,
+            },
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    expect(files.get("word/media/image1.webp")).toEqual(Buffer.from(webp, "base64"));
+    expect(part(files, "[Content_Types].xml")).toContain(
+      '<Default Extension="webp" ContentType="image/webp"/>',
+    );
+    expect(document).toContain('<wp:extent cx="381000" cy="190500"/>');
+    expect(textOf(document)).not.toContain("A tide chart");
+  });
+
   test("a table made in the editor, Citations in its cells: a GitHub table with footnotes, and a Word table with its alignment, merged cells and real footnotes", async () => {
     const { core, mind, client, tides } = await setUp();
     const cell = (

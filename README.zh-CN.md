@@ -13,7 +13,9 @@
 
 <p align="center"><b>从一堆乱文件，到一份核对过的报告。</b></p>
 
-<p align="center">基于你自己的文件写作、提问、分析表格、做会议笔记，<br>再把每一句话、每一个数字对照它出自的那一页核对。</p>
+<p align="center">免费开源的桌面应用，支持 macOS、Windows 和 Linux。<br>基于你自己的文件写作、提问、分析表格、做会议笔记，<br>再把每一句话、每一个数字对照它出自的那一页核对。</p>
+
+<p align="center">不用注册 IncarnaMind 账号。可用 ChatGPT、Claude、Gemini，或通过 Ollama 用本地模型。</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-zh.svg" width="131" height="40" alt="下载测试版"></a>&nbsp;&nbsp;<a href="https://tally.so/r/LZA5aG?ref=readme-zh"><img src="docs/images/notify-zh.svg" width="187" height="40" alt="alpha 上线时通知我"></a></p>
 
@@ -29,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub 星标" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-zh-CN.gif" width="880" alt="信贷分析师草稿里的一个错数在页边被标出。点一下，打开与它矛盾的那一页；再核对一遍，标记变成绿色。在应用里录制，模型为 Claude Sonnet 5.5。"></p>
+<p align="center"><img src="docs/images/demo-check-zh-CN.gif" width="880" alt="授信委员会报告里的一个数字被标为与文档矛盾：报告写 36.8%，第三季度业绩写 38.6%，卡片引出原页的那句话。改正之后重新核对，这句话通过。在应用里录制，模型为 Claude Sonnet 5.5。"></p>
 
-<p align="center"><sub>片中展示的功能现在都能用。<a href="docs/images/demo-tour-2026-10-25-zh-CN.mp4">观看高清完整版</a>。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
+<p align="center"><sub>片中展示的功能现在都能用。<a href="#一分钟看完">观看一分钟完整影片</a>。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
 
 ## 下载
 
@@ -41,7 +43,7 @@
 | Windows | `.exe` |
 | Linux | Ubuntu 和 Debian 用 `.deb`，或 `.AppImage` |
 
-不支持 Intel 处理器的 Mac。测试版更新频繁，暂未签名，第一次打开时系统会提示风险。0.1.0-alpha.4 及更早的测试版里，笔记还用旧名字。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
+不支持 Intel 处理器的 Mac。测试版更新频繁，暂未签名，第一次打开时系统会提示风险。Windows 版将通过 SignPath Foundation 签名（[代码签名政策](docs/code-signing-policy.md)）。
 
 <details>
 <summary>系统不让打开时</summary>
@@ -74,7 +76,7 @@ npm install && npm run dev
 | **分析** | 用表格计算、画图，每个输入都有引用。 |
 | **核对** | 把笔记或任何 PDF 对照你的文件逐句核对。 |
 | **对比** | 向多份文档问同样的问题，得到一张带引用的表。 |
-| **导出** | 编辑 Word 文件后存回原文件：没改动的部分原样保留，你的修改可以作为修订写入。也能把笔记导出为带脚注的 Word，支持八种引用格式。 |
+| **导出** | 编辑 Word 文件后再导出为 Word：没改动的部分原样保留，你的修改可以作为修订写入。也能把笔记导出为带脚注的 Word，支持八种引用格式。 |
 | **会议** | 实时转写、通话中帮助，会后笔记引用原话。 |
 
 配合 [Ollama](https://ollama.com) 可完全离线使用，内容不离开你的电脑。
@@ -88,6 +90,12 @@ npm install && npm run dev
 - 整个应用都有中文和英文。
 
 </details>
+
+## 一分钟看完
+
+**一份授信报告从头到尾：整理文件、点开引文、对比三家银行、做图表、开会记笔记、整份核对、导出 Word。** 在应用里录制，模型为 Claude Sonnet 5.5。
+
+[观看影片（MP4，8 MB）](docs/images/demo-tour-2026-10-25-zh-CN.mp4)
 
 ## 核对是怎么做的
 
@@ -107,7 +115,7 @@ npm install && npm run dev
 | 用 ChatGPT、Claude 订阅或你的密钥 | ✓ | ✗ | ◐ | ◐ |
 | 点开引用到原文那一页，引文高亮 | ✓ | ◐ | ✗ | ✗ |
 | 核对你自己写的草稿 | ✓ | ✗ | ✗ | ✗ |
-| 编辑你的 Word 文件并存回原文件 | ✓ | ✗ | ✗ | ✗ |
+| 编辑 Word 文件，没改的部分原样保留 | ✓ | ✗ | ✗ | ✗ |
 | 表格数据分析 | ✓ | ✓ | ✗ | ◐ |
 | 会议 | ✓ | ✗ | ✗ | ✓ |
 

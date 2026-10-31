@@ -52,6 +52,11 @@ function reportLines(
     report.tables > 0 && t("wordImport.count.tables", { count: report.tables }),
     report.images > 0 && t("wordImport.count.images", { count: report.images }),
     report.links > 0 && t("wordImport.count.links", { count: report.links }),
+    (report.footnotes ?? 0) > 0 &&
+      t("wordImport.count.footnotes", { count: report.footnotes ?? 0 }),
+    (report.endnotes ?? 0) > 0 && t("wordImport.count.endnotes", { count: report.endnotes ?? 0 }),
+    (report.pageBreaks ?? 0) > 0 &&
+      t("wordImport.count.pageBreaks", { count: report.pageBreaks ?? 0 }),
   ].filter((item): item is string => typeof item === "string");
   const kept = Object.entries(report.kept)
     .filter((entry): entry is [WordAtomKind, number] => (entry[1] ?? 0) > 0)

@@ -54,6 +54,13 @@ export const homeNextHandle: Handle<{ label: string; busy: boolean; run(): Promi
 
 export const sidebarHandle: Handle<{ hidden: boolean; toggle(): void }> = { current: null };
 
+/** From ⌘K, the Mind last written in; from the keys, only while its text has the focus. */
+export function noteToWrite(ctx: CommandContext): Editor | null {
+  const editor = noteHandle.current?.editor;
+  if (!editor || editor.isDestroyed || !editor.isEditable) return null;
+  return ctx.surface === "palette" || editor.view.hasFocus() ? editor : null;
+}
+
 /** The Mind the User last wrote in: its editor and its document, for the commands on its text. */
 export const noteHandle: Handle<{
   editor: Editor;

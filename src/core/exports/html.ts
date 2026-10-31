@@ -53,6 +53,7 @@ th>:last-child,td>:last-child{margin-bottom:0}
 img{max-width:100%;height:auto}
 .image-missing{color:var(--ink-meta)}
 .small-caps{font-variant:small-caps}
+.page-break{break-after:page}
 .entry{margin-bottom:.5rem}
 .notes{border-top:1px solid var(--rule-strong);margin-top:2.5rem;padding-top:.5rem;font-size:.9rem;line-height:1.5;color:var(--ink-answer)}
 .notes h2{margin-top:1rem;font-family:var(--sans);font-size:1rem}
