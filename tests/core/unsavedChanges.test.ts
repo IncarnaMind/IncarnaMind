@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type Core, MIND_CONTENT_FIELD, type UnsavedChanges } from "../../src/core";
+import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { unsavedReason } from "../../src/core/unsavedChanges";
-import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { failMindDeleteCommits, refuseWrites } from "../helpers/failingStorage";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { note } from "../helpers/minds";
@@ -324,6 +325,36 @@ describe("Changes storage refuses (#1119)", () => {
     expect(await afterRestart(dataDir, copy.mindId)).toBe("<paragraph>BASE ONE TWO</paragraph>");
   });
 
+  // protects=a Meeting's save that storage refuses at the session's end doesn't stop the Notes being stored or the end being recorded (#2309); fails_when=the refusal escapes, so nothing after it runs and the host records no end; no_claim=the Meeting's own recovery at the next start.
+  test("the session's end stores the Notes and answers though a Meeting's save is refused, and logs that", async () => {
+    const dataDir = await createTempDataFolder();
+    const clock = manualClock();
+    const capture = createFakeCapture({ now: () => clock.now().getTime() });
+    const errors: string[] = [];
+    const core = startCore(dataDir, {
+      audioCapture: capture,
+      now: clock.now,
+      log: {
+        info: () => undefined,
+        warn: () => undefined,
+        error: (event, fields) => errors.push(`${event} ${JSON.stringify(fields)}`),
+      },
+    });
+    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id, systemAudio: false });
+    const copy = await typingIn(core);
+    const restoreNotes = failWrites(dataDir);
+    await copy.type(" WAITS");
+    restoreNotes();
+    const restoreMeetings = refuseWrites(dataDir, { tables: ["meetings"], updates: true });
+
+    expect(core.sessionEnding()).toEqual({ count: 0, minds: [] });
+    restoreMeetings();
+    expect(errors).toContain('meeting.sessionEndSaveFailed {"error":"Error","reason":"full"}');
+    expect(await afterRestart(dataDir, copy.mindId)).toBe("<paragraph>BASE WAITS</paragraph>");
+  });
+
   // protects=quitting while storage still fails quits cleanly, keeps what was stored before, and says in the log which Mind lost how many changes; fails_when=quitting throws, the stored text is damaged, or the loss goes unlogged; no_claim=that the refused change survives, which nothing can store.
   test("quitting while storage still fails keeps what was stored, and logs what was lost", async () => {
     const dataDir = await createTempDataFolder();
@@ -399,6 +430,7 @@ describe("Changes waiting when their Mind is deleted (#1202)", () => {
     await core.deleteMind(copy.mindId);
 
     expect(await core.unsavedChanges()).toMatchObject({ count: 2, mindIds: [] });
+    expect(core.sessionEnding()).toEqual({ count: 2, minds: [] });
     restore();
   });
 

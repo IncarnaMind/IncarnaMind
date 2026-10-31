@@ -332,7 +332,7 @@ import {
   TRANSCRIPTION_SPEED,
 } from "./transcription/model";
 import { createSpeakerModel } from "./transcription/speakerModel";
-import { createUnsavedChanges } from "./unsavedChanges";
+import { createUnsavedChanges, unsavedReason } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
@@ -409,9 +409,9 @@ export interface Core extends CoreApi, CoreEventSource {
   /** The computer is about to sleep: a Meeting recording saves what it has and stops capturing. */
   systemSleeping(): void;
   /**
-   * The system ends the session and the process with it, with no quit (Windows): a Meeting
-   * recording saves what it has, as before a sleep, the changes that wait are stored at once, and
-   * it says how many still wait and where, for the host to record.
+   * The system ends the session and the process with it, with no quit (Windows): the changes that
+   * wait are stored at once, a Meeting recording saves what it has, as before a sleep, and it says
+   * how many changes still wait and where, for the host to record. Never throws.
    */
   sessionEnding(): UnsavedAtEnd;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
@@ -6034,8 +6034,16 @@ export function createCore(adapters: CoreAdapters): Core {
     reconcileDocuments: () => documents.linkedFolders.sync(),
     systemSleeping: () => meetings.sleeping(),
     sessionEnding: () => {
-      meetings.sleeping();
       content.storeWaiting();
+      // A disk that refuses the Meeting's save mustn't keep the host from recording the end.
+      try {
+        meetings.sleeping();
+      } catch (error) {
+        (adapters.log ?? silentLogger).error("meeting.sessionEndSaveFailed", {
+          error: error instanceof Error ? error.name : "unknown",
+          reason: unsavedReason(error),
+        });
+      }
       return unsaved.atEnd();
     },
     systemAwake: () => meetings.awake(),
