@@ -4,8 +4,16 @@
  * are none, every addition AI text citing the Transcript, one Undo, and nothing written when the
  * model fails, a quit cuts it short, or Local mode keeps it off the cloud.
  */
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
-import type { Core, Meeting, MeetingFill, SpeakerSeparator } from "../../src/core";
+import type {
+  ChatModelFactory,
+  Core,
+  Meeting,
+  MeetingFill,
+  SpeakerSeparator,
+} from "../../src/core";
+import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -72,9 +80,12 @@ async function recorded(
   {
     speakerSeparator,
     lines = { mine: MY_LINES, theirs: THEIR_LINES },
+    createChatModel,
   }: {
     speakerSeparator?: SpeakerSeparator;
     lines?: { mine: readonly string[]; theirs: readonly string[] };
+    /** Models made from each spec, around `model`. */
+    createChatModel?: ChatModelFactory;
   } = {},
 ) {
   const dataDir = await createTempDataFolder();
@@ -82,6 +93,7 @@ async function recorded(
     model,
     engine: { lines: lines.mine, theirLines: lines.theirs },
     ...(speakerSeparator && { speakerSeparator }),
+    ...(createChatModel && { createChatModel }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -639,6 +651,67 @@ for (const call of CALLS) {
     });
   });
 }
+
+describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
+  // protects=a Meeting's notes are asked thinking as an Answer does, and the Citations a reply left out are asked of the small calls' model, which doesn't think first, so neither reply's room goes to thinking and the addition keeps its Citation; fails_when=the notes are asked at a Task's thinking, the Citations of a thinking model, or the addition is dropped as uncited; no_claim=how long a real model thinks, which the real-model run measures.
+  test("the notes think as an Answer does, and the Citations they left out are asked without thinking", async () => {
+    const asked: { fill: boolean; cites: boolean; thinking: string | undefined }[] = [];
+    const sentence = "The enterprise price is 45 dollars a seat";
+    const scripted = scriptedModel((call) => {
+      if (call.json && call.system === CITE_RETRY_INSTRUCTIONS) {
+        const passage = [
+          ...call.prompt.matchAll(/<passage id="(P\d+)">\n([\s\S]*?)\n<\/passage>/g),
+        ].find((each) => each[2]?.includes(MY_LINES[0] as string));
+        // The fake engine says its lines again: only the whole Passage is one place.
+        const quote = passage?.[2]?.replace(/\[\d{1,2}:\d{2}(?: [^\]\n]+)?\]\s*/g, "");
+        const citations = passage ? [{ sentence, passage: passage[1], quote }] : [];
+        return { text: JSON.stringify({ citations }) };
+      }
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      // Writes its markers, but never calls cite.
+      return { text: `### L1\n${sentence} [^1].` };
+    });
+    const createChatModel: ChatModelFactory = (spec) =>
+      wrapLanguageModel({
+        model: scripted,
+        middleware: {
+          specificationVersion: "v4",
+          transformParams: async ({ params }) => {
+            const said = JSON.stringify(params.prompt);
+            asked.push({
+              fill: said.includes("Fill them in from the transcript"),
+              cites: said.includes(CITE_RETRY_INSTRUCTIONS.slice(0, 40)),
+              thinking: spec.thinking,
+            });
+            return params;
+          },
+        },
+      });
+    const { core, meeting, client } = await recorded(
+      scripted,
+      [note("price")],
+      // A model that thinks, as Claude does: one that can't is never asked to.
+      async (core) => {
+        const claude = await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+        await core.updateSettings({
+          user: { chatModel: { providerId: claude.id, modelId: "claude-haiku-5-5" } },
+        });
+      },
+      undefined,
+      { createChatModel },
+    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    await vi.waitFor(() => expect(shown(client)).toEqual(["price", `«${sentence} »\uFFFC«.»`]));
+    expect(asked.filter((each) => each.fill).map((each) => each.thinking)).toEqual(["answer"]);
+    expect(asked.filter((each) => each.cites).map((each) => each.thinking)).toEqual(["off"]);
+    core.close();
+  });
+});
 
 describe("A long Transcript is read in parts", () => {
   const passage = (index: number, words: number): WindowedPassage =>

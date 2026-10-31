@@ -51,6 +51,7 @@ import {
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
 import { replyJson } from "./quoteRetry";
+import { smallCallModel } from "./smallCalls";
 import type { WindowBudget } from "./window";
 
 /** Engine events that change the Answer's text from `from` to `to`: what follows their common start is replaced. */
@@ -449,9 +450,13 @@ function passagesToAsk(
   return asked;
 }
 
-/** The one request for an Answer's Citations; what it gives, or nothing if it fails. */
+/**
+ * The one request for an Answer's Citations; what it gives, or nothing if it fails. It goes to the
+ * small calls' model, which doesn't think first: the Answer's thinking could fill its whole limit
+ * before a Citation was written (#2306).
+ */
 async function askForCitations(
-  request: Pick<AnswerRequest, "model" | "signal">,
+  request: Pick<AnswerRequest, "model" | "quickModel" | "signal">,
   answer: string,
   passages: readonly ShownPassage[],
   temperature: number | undefined,
@@ -459,11 +464,12 @@ async function askForCitations(
   const { signal } = request;
   let raw = "";
   try {
+    const small = await smallCallModel(request, temperature);
     const result = streamText({
-      model: request.model,
+      model: small.model,
       instructions: CITE_RETRY_INSTRUCTIONS,
       prompt: citeRetryPrompt(answer, passages),
-      temperature,
+      temperature: small.temperature,
       maxOutputTokens: outputTokens("unmarked-quotes"),
       output: Output.object({ schema: askedSchema, name: "citations" }),
       // One request, never more.
@@ -494,7 +500,7 @@ async function askForCitations(
  * nothing for an Answer that read no Passages. Returns the text.
  */
 export async function* citeUnmarked(
-  request: Pick<AnswerRequest, "model" | "documents" | "signal">,
+  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal">,
   answer: string,
   temperature: number | undefined,
   budget?: WindowBudget | null,
