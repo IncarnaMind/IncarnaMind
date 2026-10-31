@@ -123,12 +123,12 @@ export const useFolds = create<Folds>()((set, get) => {
  * The sidebar's Folders and Not in a Folder (DESIGN.md, "One tree"): each
  * Folder lists its Minds, then its Documents (the first few, then "Show N
  * more Documents"), and opens and closes in place: the main area stays as it
- * is. After the Folders, the Minds in none are listed under Notes, apart from
- * the Documents under Not in a Folder, so that heading holds the same
- * Documents as the Library page and each count is its own rows (#2290); a
- * Mind there searches every Document, which its heading says on hover. Each
- * section shows only with something in it, but Not in a Folder also shows
- * while something is dragged out of a Folder, to take the drop.
+ * is. Until the User has a Folder, their loose Notes and Documents are two
+ * lists, Notes and Documents, each counting its rows, as on day one (#2290).
+ * Once one exists, Not in a Folder holds them together, Notes first, and says
+ * on hover what a Mind there searches. Each section shows only with something
+ * in it, but Not in a Folder also shows while something is dragged out of a
+ * Folder, to take the drop.
  * Minds and Documents drag onto a Folder, or onto Not in a Folder's heading
  * to leave theirs (see `folderTarget`); a Folder renames in place
  * (double-click or F2, as in Finder) and has its menu (⋯ or a right-click).
@@ -139,7 +139,6 @@ export function LibraryFolders({
   renderDocument,
   quiet = false,
   hideExamples = false,
-  dayOne = false,
 }: {
   /** The Documents to show, already filtered by Tag. */
   documents: readonly Document[];
@@ -147,8 +146,6 @@ export function LibraryFolders({
   quiet?: boolean;
   /** Leaves the example Minds out, once the examples are folded to one row (#1944). */
   hideExamples?: boolean;
-  /** The sidebar's one flat list of the User's own Documents, before any Folder (#1942). */
-  dayOne?: boolean;
 }) {
   const t = useT();
   const openMindFolder = useAppStore(
@@ -225,7 +222,6 @@ export function LibraryFolders({
           documents={looseDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
-          dayOne={dayOne}
           draggingOut={draggingOut}
           hasFolders={orderedGroups.length > 0}
         />
@@ -474,7 +470,6 @@ function NotInAFolder({
   documents,
   renderDocument,
   quiet,
-  dayOne,
   draggingOut,
   hasFolders,
 }: {
@@ -482,7 +477,6 @@ function NotInAFolder({
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet: boolean;
-  dayOne: boolean;
   draggingOut: boolean;
   hasFolders: boolean;
 }) {
@@ -499,40 +493,43 @@ function NotInAFolder({
   const ownCount = useAppStore(
     (state) => documents.filter((each) => isOwnDocument(each, allExamples(state))).length,
   );
-  const title = examplesOnly
-    ? t("sidebar.examples")
-    : dayOne
-      ? t("sidebar.documents")
-      : t("library.unsorted");
   // In the tree's keys, as the rows are: one Tab stop, and ↑ ↓ reach it (#1942).
   const offerItem = useTreeItem({ depth: 0 });
   /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
   const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
-  // The User's Notes are listed apart from the Documents, under their own heading, so "Not in a
-  // Folder" holds the same Documents here and in the Library page, and every heading's count is
-  // the rows under it (#1942, #2290). An example Mind not folded to its one row keeps its own
-  // Examples heading, never a Note of the User's.
-  const notesApart = !examplesOnly;
+  // Until the User has a Folder, their loose Notes and Documents are two lists, Notes and
+  // Documents, each counting its rows, whether or not the first open's card is dismissed; once
+  // one exists, Not in a Folder holds them together, Notes first (#2290). An example Mind not
+  // folded to its one row keeps its own Examples heading, never a Note of the User's.
+  const apart = !examplesOnly && !hasFolders;
   const exampleIds = useAppStore((state) => exampleMindIds(state).join(" "));
   const ownMinds = useMemo(() => {
-    if (!notesApart) return minds;
+    if (!apart) return minds;
     const examples = new Set(exampleIds.split(" ").filter(Boolean));
     return minds.filter((mind) => !examples.has(mind.id));
-  }, [notesApart, minds, exampleIds]);
+  }, [apart, minds, exampleIds]);
   const exampleMinds = useMemo(() => {
-    if (!notesApart) return NO_MINDS;
+    if (!apart) return NO_MINDS;
     const examples = new Set(exampleIds.split(" ").filter(Boolean));
     return minds.filter((mind) => examples.has(mind.id));
-  }, [notesApart, minds, exampleIds]);
+  }, [apart, minds, exampleIds]);
+  const title = examplesOnly
+    ? t("sidebar.examples")
+    : hasFolders
+      ? t("library.unsorted")
+      : t("sidebar.documents");
+  const showSection =
+    examplesOnly ||
+    (hasFolders ? minds.length + documents.length > 0 : documents.length > 0 || offerFolder) ||
+    draggingOut;
   return (
     <div data-testid="not-in-a-folder" data-count={documents.length} data-minds={minds.length}>
-      {notesApart && ownMinds.length > 0 && (
+      {apart && ownMinds.length > 0 && (
         <SidebarSection
           testId="notes-section"
           title={t("sidebar.notes")}
           headingTestId="notes-title"
           count={ownMinds.length}
-          tooltip={dayOne ? undefined : t("sidebar.notInFolder.hint")}
         >
           <Contents
             listKey="notes"
@@ -544,12 +541,13 @@ function NotInAFolder({
           />
         </SidebarSection>
       )}
-      {(!notesApart || documents.length > 0 || offerFolder || draggingOut) && (
+      {showSection && (
         <SidebarSection
           testId="not-in-a-folder-section"
           title={title}
           headingTestId="not-in-a-folder-title"
-          count={notesApart && documents.length > 0 ? documents.length : undefined}
+          count={apart && documents.length > 0 ? documents.length : undefined}
+          tooltip={!examplesOnly && hasFolders ? t("sidebar.notInFolder.hint") : undefined}
           actions={examplesOnly ? <ExamplesMenu /> : undefined}
           drop={drop}
         >
@@ -557,7 +555,7 @@ function NotInAFolder({
             listKey={NOT_IN_A_FOLDER}
             scope="sidebar"
             depth={0}
-            minds={notesApart ? NO_MINDS : minds}
+            minds={apart ? NO_MINDS : minds}
             documents={documents}
             renderDocument={renderDocument}
           />
@@ -583,7 +581,7 @@ function NotInAFolder({
           )}
         </SidebarSection>
       )}
-      {notesApart && exampleMinds.length > 0 && (
+      {apart && exampleMinds.length > 0 && (
         <SidebarSection
           testId="examples-section"
           title={t("sidebar.examples")}

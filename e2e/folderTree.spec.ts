@@ -95,14 +95,15 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     ).toHaveCount(2);
     await bridge(window).file("Tide tables", ocean);
 
-    // One tree: the Folder, closed, with its count; Not in a Folder holds the loose Document.
+    // One tree: the Folder, closed, with its count; Not in a Folder, which searches everything.
     const folder = sidebarFolder(window, "Ocean research");
     await expect(folder).toHaveAttribute("data-expanded", "false");
     await expect(folder.getByTestId("browse-count")).toHaveText("1");
     await expect(notInAFolder(window)).toContainText("Not in a Folder");
-    await expect(
-      window.getByTestId("not-in-a-folder-section").getByTestId("sidebar-section-count"),
-    ).toHaveText("1");
+    await expect(window.getByTestId("not-in-a-folder-section-heading")).toHaveAttribute(
+      "title",
+      "Searches everything",
+    );
     await expect(
       notInAFolder(window).getByTestId("document-list-item").getByTestId("row-text"),
     ).toHaveText("Spring menu");
@@ -379,14 +380,17 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
     await expect(answer.getByTestId("answer-steps-line")).toHaveText("Read “Shortlist”");
 
-    // In Chinese, the same tree: the Mind is listed under Notes, with no Document loose.
+    // In Chinese, the same tree.
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "zh-CN" },
       }),
     );
-    await expect(notInAFolder(window).getByTestId("notes-title")).toContainText("笔记");
-    await expect(notInAFolder(window).getByTestId("mind-list-item")).toHaveText("Shortlist");
+    await expect(notInAFolder(window)).toContainText("不在文件夹中");
+    await expect(window.getByTestId("not-in-a-folder-section-heading")).toHaveAttribute(
+      "title",
+      "搜索全部文档",
+    );
     await screenshot(window, "folder-tree-zh");
   } finally {
     await app.close();

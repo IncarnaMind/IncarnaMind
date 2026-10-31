@@ -117,14 +117,6 @@ export function DocumentsSection() {
     [foldExamples, exampleFolders],
   );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
-  const documents = useAppStore((state) => state.documents);
-  const shownDocuments = useMemo(
-    () =>
-      folded.size === 0
-        ? documents
-        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
-    [documents, folded],
-  );
   // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
   // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
   const hasLinkedFolders = useAppStore((state) => {
@@ -246,11 +238,10 @@ export function DocumentsSection() {
           while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : shownDocuments}
+          documents={quiet ? NO_DOCUMENTS : libraryDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
-          dayOne={dayOne}
         />
         {!quiet && treeIsEmpty && (
           <ProblemLine

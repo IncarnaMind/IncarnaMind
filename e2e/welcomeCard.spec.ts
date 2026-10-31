@@ -268,9 +268,9 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
       const { mindId } = await bridge.getExamples();
       if (mindId) await bridge.deleteMind(mindId);
     });
-    // The one row goes with its Mind: its Documents and its Linked folder row stay reachable.
+    // The one row goes with its Mind; its Linked folder row keeps its Documents reachable.
     await expect(window.getByTestId("example-section")).toHaveCount(0);
-    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(3);
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
   } finally {
     await app.close();
