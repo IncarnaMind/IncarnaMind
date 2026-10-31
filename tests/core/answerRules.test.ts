@@ -259,11 +259,9 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
 
       expect(text).toContain("I didn't find");
       if (mode === "tools") {
-        expect(text).toContain(
-          "Say “Doc” doesn't state X only after read_document showed where X would be.",
-        );
+        expect(text).toContain("Absence needs read_document where X would be.");
       } else {
-        expect(text).toContain("Never say “Doc” doesn't state X.");
+        expect(text).toContain("Never claim Document absence.");
       }
     },
   );
@@ -273,7 +271,7 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     (mode) => {
       const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
 
-      expect(text).toContain("If what you found doesn't answer the Question, say \"I didn't find");
+      expect(text).toContain("If the Documents don't cover the Question, say \"I didn't find");
       expect(text).toContain("never fill the gap from your own knowledge");
       expect(text).toContain('starts "Not from your Documents:" ("以下内容不是来自你的文档：")');
       expect(text).not.toContain("answer from your own knowledge if you can");
