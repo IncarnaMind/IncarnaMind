@@ -532,6 +532,7 @@ export const zhCN = {
   "tabs.writing": "正在生成回答",
   "tabs.preview": "{title} · 预览：打开下一个时会替换它。双击即可保留",
   "tabs.pinned": "{title} · 已置顶在这一栏最左侧",
+  "tabs.all": "显示所有标签页（已隐藏 {n} 个）",
   "tabs.split": "向右拆分（{shortcut}）",
   "tabs.groupMenu": "这一栏的更多操作",
   "tabs.tabMenu": "“{title}”的更多操作",

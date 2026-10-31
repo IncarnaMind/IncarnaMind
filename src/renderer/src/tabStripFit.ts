@@ -39,7 +39,8 @@ const EPSILON = 0.5;
  * sign that there are more (#2244). A cut on a tab's edge would fade only the blank at its ends.
  * Where a tab in view and those names don't fit together, the tab is hidden too. With one tab in
  * view the names may shrink to half the fade, which still reads and keeps the fade off that tab;
- * below that the strip is `squeezed`.
+ * below that, or with a tab wider than the strip itself, the strip is `squeezed` and the tab
+ * narrows to the room it has.
  */
 export function fitStrip({
   tabs,
@@ -99,13 +100,14 @@ export function fitStrip({
     let after = reachesEnd ? 0 : into(tabs[last + 1], "after");
     const whole = (tabs[last]?.right ?? 0) + (reachesEnd ? endGap : 0) - leftOf(first);
     const spare = Math.max(0, room - gap - whole);
-    let squeezed = false;
+    // The tabs in view don't fit the room even alone: the shown one narrows to it.
+    let squeezed = whole > room - gap + EPSILON;
     if (before + after > spare + EPSILON) {
       const least = (full: number, side: "before" | "after", beyond: TabSpan | undefined) =>
         full > 0 ? into(beyond, side, fade / 2) : 0;
       const leastBefore = least(before, "before", tabs[first - 1]);
       const leastAfter = least(after, "after", tabs[last + 1]);
-      squeezed = leastBefore + leastAfter > spare + EPSILON;
+      squeezed = squeezed || leastBefore + leastAfter > spare + EPSILON;
       const share = squeezed
         ? spare / (leastBefore + leastAfter)
         : (spare - leastBefore - leastAfter) / (before - leastBefore + after - leastAfter);
