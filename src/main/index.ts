@@ -494,6 +494,10 @@ app.whenReady().then(async () => {
   const taskKinds = await testTaskKinds();
   const executor = await scriptExecutor;
   if (instance.kind === "owner") instance.owner.starting();
+  // A page's frame takes the scheme handlers there are when it loads, so this one is in place
+  // before the window, and answers once the core has started.
+  const started = Promise.withResolvers<Core>();
+  serveDocumentFiles(started.promise, rendererUrl ? new URL(rendererUrl).origin : null);
   const first = createWindow();
   logger.info("app.startup.windowReturned");
   // The core's start holds this thread, for seconds on a slow disk, and the page can neither load
@@ -524,6 +528,7 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  started.resolve(core);
   exposeCore(core);
   const settleQuit = guardQuit(
     core,
@@ -544,7 +549,6 @@ app.whenReady().then(async () => {
     trusted: isFromOurRenderer,
     logger,
   });
-  serveDocumentFiles(core, rendererUrl ? new URL(rendererUrl).origin : null);
   serveMeetingPanel(core, {
     rendererUrl,
     appWindows,
