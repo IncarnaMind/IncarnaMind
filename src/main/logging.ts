@@ -62,13 +62,13 @@ export function startLogging(dataDir: string): FileLogger {
   });
 
   logger.info("app.start", {
-    pid: process.pid,
     version: app.getVersion(),
     electron: process.versions.electron,
     os: process.platform,
     osVersion: release(),
     arch: arch(),
     packaged: app.isPackaged,
+    pid: process.pid,
   });
   return logger;
 }

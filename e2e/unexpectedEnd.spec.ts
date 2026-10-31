@@ -49,14 +49,30 @@ const takenAgain = (window: Page) =>
     return ended;
   });
 
-const appWindowProcess = (app: ElectronApplication) =>
-  app.evaluate(({ BrowserWindow }) => {
+/**
+ * Kills the app's window's page, as the system would, and waits until the window has loaded it
+ * again: until then a script sent to the page is never answered.
+ */
+async function killPage(app: ElectronApplication): Promise<void> {
+  const pid = await app.evaluate(({ BrowserWindow }) => {
     const main = BrowserWindow.getAllWindows().find((each) =>
       each.webContents.getURL().includes("window=main"),
     );
     if (!main) throw new Error("The app's window isn't there.");
+    const seen = globalThis as { pageLoadedAgain?: boolean };
+    seen.pageLoadedAgain = false;
+    main.webContents.once("render-process-gone", () =>
+      main.webContents.once("did-finish-load", () => {
+        seen.pageLoadedAgain = true;
+      }),
+    );
     return main.webContents.getOSProcessId();
   });
+  process.kill(pid, "SIGKILL");
+  await expect
+    .poll(() => app.evaluate(() => (globalThis as { pageLoadedAgain?: boolean }).pageLoadedAgain))
+    .toBe(true);
+}
 
 /**
  * Runs `script` in the app's window. Playwright keeps a page that crashed as crashed, though the
@@ -68,8 +84,6 @@ const inWindow = (app: ElectronApplication, script: string) =>
       each.webContents.getURL().includes("window=main"),
     );
     if (!main) throw new Error("The app's window isn't there.");
-    // A script sent to a page that is gone, or still loading, waits for a page that never runs it.
-    if (main.webContents.isCrashed() || main.webContents.isLoading()) return undefined;
     return main.webContents.executeJavaScript(code) as Promise<unknown>;
   }, script);
 
@@ -95,7 +109,7 @@ test("a window whose page crashes loads it again, says so once, and the log name
   await expect(window.getByTestId("plus-menu")).toBeVisible();
   await expect(window.getByTestId("unexpected-end")).toHaveCount(0);
 
-  process.kill(await appWindowProcess(app), "SIGKILL");
+  await killPage(app);
 
   await expect
     .poll(() => textOf(app, '[data-testid="unexpected-end"] p'))
