@@ -25,22 +25,45 @@ import {
   same,
 } from "./run";
 
-/** A style by its id, its name in either language, another of its names, or its title in the pack. */
-async function styleNamed(
-  core: CommandsCore,
-  given: string,
-): Promise<{ id: CitationStyleId; name: string }> {
-  for (const style of CITATION_STYLES) {
-    const names = [
+/** The names the command's description gives as examples: each is one the app knows (#2252). */
+export const STYLE_EXAMPLES = ["APA 7", "Chicago", "MLA", "GB/T 7714"] as const;
+
+/** "Chicago 17", "APA 6th edition": a style's name, then the edition the request names. */
+const EDITION = /^(.+?)\s*(\d{1,2})(?:st|nd|rd|th)?(?:\s+(?:edition|ed\.?))?$/i;
+
+const ordinal = (n: number) =>
+  `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
+
+/** A name as the User may write it: the label's brackets and spaces don't count ("Chicago author-date"). */
+const loose = (name: string) =>
+  name
+    .normalize("NFKC")
+    .replace(/[()\s]/g, "")
+    .toLowerCase();
+
+const commonNamed = (given: string) => {
+  const wanted = loose(given);
+  return CITATION_STYLES.find((style) =>
+    [
       style.id,
       translate("en", style.label),
       translate("zh-CN", style.label),
       ...style.aliases,
-    ];
-    if (names.some((name) => same(name, given))) {
-      return { id: style.id, name: translate("en", style.label) };
-    }
-  }
+    ].some((name) => loose(name) === wanted),
+  );
+};
+
+/**
+ * A style by its id, its name in either language, another of its names, or its title in the pack;
+ * or a common style's name with an edition: itself when that is its own ("Chicago 18"), else the
+ * earlier edition the pack keeps beside it ("Chicago 17"), never another edition in its place.
+ */
+async function styleNamed(
+  core: CommandsCore,
+  given: string,
+): Promise<{ id: CitationStyleId; name: string }> {
+  const common = commonNamed(given);
+  if (common) return { id: common.id, name: translate("en", common.label) };
   const { styles } = await core.listCitationStyles();
   const found = styles.find(
     (style) =>
@@ -48,9 +71,19 @@ async function styleNamed(
       same(style.title, given) ||
       (style.short !== undefined && same(style.short, given)),
   );
-  if (!found)
-    throw new InvalidInputError({ key: "error.commands.noStyleNamed", values: { style: given } });
-  return { id: found.id, name: found.title };
+  if (found) return { id: found.id, name: found.title };
+  const [, base = "", number = ""] = EDITION.exec(given.trim()) ?? [];
+  const named = base ? commonNamed(base) : undefined;
+  if (named) {
+    if (named.edition === Number(number)) {
+      return { id: named.id, name: translate("en", named.label) };
+    }
+    const earlier = styles.find(
+      (style) => style.id === `${named.packId}-${ordinal(Number(number))}-edition`,
+    );
+    if (earlier) return { id: earlier.id, name: earlier.title };
+  }
+  throw new InvalidInputError({ key: "error.commands.noStyleNamed", values: { style: given } });
 }
 
 const fontOf = (given: string): MindFont => {

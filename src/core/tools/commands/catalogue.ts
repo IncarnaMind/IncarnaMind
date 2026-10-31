@@ -32,7 +32,7 @@ import {
   text,
 } from "./run";
 import { SETTINGS_TAKEN, settingsChecker } from "./settings";
-import { STYLE_CHECKERS } from "./styles";
+import { STYLE_CHECKERS, STYLE_EXAMPLES } from "./styles";
 import { type WindowRun, windowChecked, yoursChecked } from "./window";
 
 /** What a command the core runs acts on and does, its arguments as the model reads them, and its check. */
@@ -110,8 +110,7 @@ export const CORE_COMMANDS = {
   "mind.citationStyle": {
     on: "mind",
     does: "app",
-    takes:
-      "ids: one Note; style: a citation style's name, such as APA 7, Chicago, MLA or GB/T 7714",
+    takes: `ids: one Note; style: a citation style's name, such as ${STYLE_EXAMPLES.join(", ")}`,
     check: STYLE_CHECKERS["mind.citationStyle"],
   },
   "mind.style": {
@@ -252,9 +251,6 @@ async function wallAskedAbout(
 export interface CheckContext extends WindowRun, CommandPlace {
   /** The window's commands, as it offered them for this Answer. */
   offered: readonly OfferedCommand[];
-  findable(): Promise<Findable>;
-  /** The Folder wall the Answer was asked behind; left out: the Note's own (#1934). */
-  wallId?: string | null;
 }
 
 /**
@@ -275,8 +271,11 @@ export async function checkCommand(
   // Accept all names no ids: it acts on the suggestions waiting now, which the wall gate checks
   // and the window then accepts alone, so one that lands meanwhile isn't filed unchecked (#2243).
   const acceptAll = offered?.id === ACCEPT_SUGGESTIONS && offered.yours === null;
-  const waiting = acceptAll ? await waitingSuggestions(host) : null;
-  const call = waiting ? { ...input, ids: waiting.ids } : input;
+  // Both accepts file each suggestion in its Folder: the Folders they wait for go with the check,
+  // so the window accepts them for those alone, the walls judged again at the filing (#2250).
+  const accepting = offered !== undefined && (acceptAll || input.command === "document.accept");
+  const waiting = accepting ? await waitingSuggestions(host) : null;
+  const call = waiting && acceptAll ? { ...input, ids: waiting.ids } : input;
   const entry: OfferedCommand | undefined =
     acceptAll && offered ? { ...offered, on: ["document"] } : offered;
   // Every command, the core's and the window's, is held to the Folder wall first, by what it
@@ -288,8 +287,19 @@ export async function checkCommand(
       : [];
   await host.allows?.(call, touches, context.mindId, context.wallId);
   if (entry && (entry.yours !== null || !isCoreCommand(entry.id))) {
-    const findable = waiting?.named ?? (await context.findable());
-    return windowChecked(entry, call.ids, findable, context, host.window, waiting?.into);
+    const findable = acceptAll && waiting ? waiting.named : await context.findable();
+    const into = waiting
+      ? new Map([...waiting.into].filter(([id]) => call.ids.includes(id)))
+      : undefined;
+    return windowChecked(
+      entry,
+      call.ids,
+      findable,
+      context,
+      host.window,
+      into,
+      context.wallId ?? null,
+    );
   }
   if (isCoreCommand(input.command)) {
     const command: CoreCommand = CORE_COMMANDS[input.command];

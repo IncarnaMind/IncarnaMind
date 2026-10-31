@@ -89,6 +89,8 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
+  bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
   target: PatchTarget;
   styles: DocumentStyles;
@@ -163,6 +165,75 @@ const CELL_ORDER = [
 ];
 
 const isTable = (element: XmlElement | null | undefined) => element?.name === "w:tbl";
+
+/** The next `<w:pPr>` opening tag, not a `<w:pPrChange>` inside one. */
+function nextParagraphProperties(xml: string, from: number): number {
+  let at = from;
+  while (at < xml.length) {
+    const found = xml.indexOf("<w:pPr", at);
+    if (found === -1) return -1;
+    const next = xml[found + 6];
+    if (
+      next === ">" ||
+      next === "/" ||
+      next === " " ||
+      next === "\n" ||
+      next === "\t" ||
+      next === "\r"
+    )
+      return found;
+    at = found + 6;
+  }
+  return -1;
+}
+
+/** Whether the tag starting at `at` closes itself, as an empty element can. */
+function closesItself(xml: string, at: number): boolean {
+  const end = xml.indexOf(">", at);
+  return end !== -1 && xml[end - 1] === "/";
+}
+
+/**
+ * Writes a bookmark into a paragraph after its properties, so Word's schema
+ * order holds even when a tracked formatting change nests another `pPr`
+ * inside them. A bookmark taken for the paragraph's only content, before
+ * its properties, is invalid and breaks the file.
+ */
+export function bookmarkParagraph(xml: string, bookmark: { id: number; name: string }): string {
+  const open = xml.indexOf(">") + 1;
+  const close = xml.lastIndexOf("</w:p>");
+  if (open <= 0 || close === -1) return xml;
+  let insertAt = open;
+  const exact = xml.startsWith("<w:pPr", open) && /[\s>/]/.test(xml[open + 6] ?? "");
+  if (exact && closesItself(xml, open)) {
+    insertAt = xml.indexOf(">", open) + 1;
+  } else if (exact) {
+    const tagEnd = xml.indexOf(">", open) + 1;
+    let depth = 1;
+    let at = tagEnd;
+    while (at < xml.length) {
+      const nextOpen = nextParagraphProperties(xml, at);
+      const nextClose = xml.indexOf("</w:pPr>", at);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        if (closesItself(xml, nextOpen)) {
+          at = xml.indexOf(">", nextOpen) + 1;
+          continue;
+        }
+        depth++;
+        at = nextOpen + 6;
+      } else {
+        at = nextClose + 8;
+        depth--;
+        if (depth === 0) {
+          insertAt = at;
+          break;
+        }
+      }
+    }
+  }
+  return `${xml.slice(0, insertAt)}<w:bookmarkStart w:id="${bookmark.id}" w:name="${bookmark.name}"/>${xml.slice(insertAt, close)}<w:bookmarkEnd w:id="${bookmark.id}"/>${xml.slice(close)}`;
+}
 
 export class DocumentPatch {
   private readonly text: string;
@@ -685,6 +756,7 @@ export class DocumentPatch {
    * or out of a list, or holding what goes.
    */
   private needsWriting(counterpart: Counterpart, based: Based): boolean {
+    if (this.input.bookmarkOf(counterpart.node)) return true;
     return (
       !samePendings(counterpart.pending, based.counterpart.pending) ||
       this.input.edited(counterpart.node) ||
@@ -790,7 +862,8 @@ export class DocumentPatch {
         text: text.slice(0, 120),
       });
     }
-    return xml;
+    const bookmark = this.input.bookmarkOf(counterpart.node);
+    return bookmark ? bookmarkParagraph(xml, bookmark) : xml;
   }
 
   /** A paragraph's text as imported, with someone's changes to it in the file. */

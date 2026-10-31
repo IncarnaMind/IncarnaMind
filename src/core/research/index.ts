@@ -53,6 +53,7 @@ import {
   NotFoundError,
 } from "../errors";
 import type { PreparedChatModel } from "../providers/chat";
+import { CutShortError, outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { StepRecord } from "../runs/journal";
 import { RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
@@ -647,20 +648,28 @@ export function createResearch(options: ResearchOptions) {
           : { planned: false, reason: "consent-declined" };
       }
       let reply: string;
-      let thoughtOnly = false;
       try {
         const result = await generateText({
           model: ready.prepared.model,
           instructions: PLAN_INSTRUCTIONS,
           prompt: planPrompt(topic, sources, change),
-          // Room for a model that thinks whatever it is asked, before its plan.
-          maxOutputTokens: 4_096,
+          maxOutputTokens: outputTokens("research-plan"),
           maxRetries: 1,
           abortSignal: AbortSignal.timeout(PLAN_TIMEOUT_MS),
         });
         reply = result.text;
-        thoughtOnly = result.finishReason === "length" && reply.trim() === "";
       } catch (error) {
+        if (error instanceof CutShortError && !error.wrote) {
+          return {
+            planned: false,
+            reason: "failed",
+            error: {
+              kind: "no-answer",
+              message: "The model spent its whole reply thinking.",
+              wording: { key: "error.research.plan.thoughtOnly" },
+            },
+          };
+        }
         return { planned: false, reason: "failed", error: classifyProviderError(error) };
       }
       const plan = readPlan(reply, topic);
@@ -670,12 +679,8 @@ export function createResearch(options: ResearchOptions) {
           reason: "failed",
           error: {
             kind: "no-answer",
-            message: thoughtOnly
-              ? "The model spent its whole reply thinking."
-              : "The model's reply had no steps.",
-            wording: {
-              key: thoughtOnly ? "error.research.plan.thoughtOnly" : "error.research.plan.noSteps",
-            },
+            message: "The model's reply had no steps.",
+            wording: { key: "error.research.plan.noSteps" },
           },
         };
       }

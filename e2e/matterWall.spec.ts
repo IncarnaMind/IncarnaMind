@@ -336,8 +336,12 @@ for (const language of ["en", "zh-CN"] as const) {
     // The sidebar hidden: the button shows it again.
     await setSidebarShown(window, false);
     const answer = await askInAssistant(window, w.ask);
+    // Said once, in the reply: the card under it keeps only its button.
+    await expect(answer.getByTestId("assistant-answer-text")).toHaveText(w.said);
+    await expect(answer.getByText(w.said)).toHaveCount(1);
     const line = answer.getByTestId("command-yours");
-    await expect(line).toContainText(w.said);
+    await expect(line).not.toContainText(w.said);
+    await expect(answer.getByTestId("answer-write-note")).toHaveCount(0);
     await motionSettled(window);
     if (SCREENSHOTS)
       await window.screenshot({ path: join(SCREENSHOTS, `wall-refusal-${language}-900.png`) });

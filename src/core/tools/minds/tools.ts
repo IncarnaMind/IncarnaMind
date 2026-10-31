@@ -1063,9 +1063,14 @@ function writtenBy(
 /**
  * The Minds' Tools for one Answer in the assistant (see the module's
  * comment), and `settle`, to call once its Run is done: what they wrote
- * before `cite` gave their markers' records gets its Citations then.
+ * before `cite` gave their markers' records gets its Citations then. `failed`:
+ * the Run failed, and what a call wrote as its content came in, a call that
+ * never ran, is taken back first, with a Note it made for it (#2275).
  */
-export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle(): void } {
+export function mindTools(options: MindToolsOptions): {
+  tools: Tool[];
+  settle(failed?: boolean): void;
+} {
   const { minds, focused } = options;
   const ownRequests = new Set<string>();
   // A revision of text this Answer wrote takes its place: the Answer's card counts it once.
@@ -1851,7 +1856,21 @@ export function mindTools(options: MindToolsOptions): { tools: Tool[]; settle():
     }
   >();
 
-  const settle = (): void => {
+  const takeBackUnmade = (): void => {
+    for (const [toolCallId, stream] of streams) {
+      const { writer } = stream;
+      if (!writer) continue;
+      withdraw(writer);
+      minds.writing(writer.mind.id, null);
+      if (stream.created) minds.discard(writer.mind.id);
+      if (writer.written > 0)
+        options.failed(toolCallId, { kind: "stopped", mindId: writer.mind.id });
+    }
+    streams.clear();
+  };
+
+  const settle = (failed = false): void => {
+    if (failed) takeBackUnmade();
     for (const [toolCallId, each] of unsettled) {
       const { blocks, cited, unrecorded, ...notes } = options.blocksOf(each.markdown);
       if (blocks.length !== each.ids.length) {

@@ -13,6 +13,8 @@ registerMenu("mind", [
   "mind.openTab",
   "mind.openChat",
   "mind.outline",
+  "mind.duplicate",
+  "mind.tidy",
   ...EXPORTS,
   "mind.history",
   "mind.check",
@@ -95,6 +97,7 @@ registerMenu(
   [
     "mind.openChat",
     "mind.outline",
+    "mind.duplicate",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",

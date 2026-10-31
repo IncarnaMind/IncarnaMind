@@ -106,6 +106,16 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
 export const comparableSentence = (text: string): string =>
   text.replaceAll(INLINE_NODE, "").replace(/\s+/gu, " ").trim();
 
+/**
+ * A sentence as a check's own "edited" comparison reads it. Tidy's changes alone — a space
+ * between Chinese and Latin, and a comma's width — are not an edit; the sentence it shows
+ * keeps the text as written.
+ */
+export const comparableCheckSentence = (text: string): string =>
+  comparableSentence(text)
+    .replace(/(?<=\p{Script=Han})\s+(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])\s+(?=\p{Script=Han})/gu, "")
+    .replace(/，/g, ",");
+
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’.,-]*/gu;
 
