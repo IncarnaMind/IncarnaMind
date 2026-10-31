@@ -13,9 +13,9 @@
 
 <p align="center"><b>从一堆乱文件，到一份核对过的报告。</b></p>
 
-<p align="center">基于你自己的文件写作、提问、分析表格、做会议笔记，<br>再把每一句话、每一个数字对照它出自的那一页核对。</p>
+<p align="center">免费开源的桌面应用，支持 macOS、Windows 和 Linux。<br>基于你自己的文件写作、提问、分析表格、做会议笔记，<br>再把每一句话、每一个数字对照它出自的那一页核对。</p>
 
-<p align="center"><b>免费开源。</b>在你的电脑上运行，不用注册。可用 ChatGPT、Claude、Gemini，或通过 Ollama 用本地模型。</p>
+<p align="center">不用注册账号。可用 ChatGPT、Claude、Gemini，或通过 Ollama 用本地模型。</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-zh.svg" width="131" height="40" alt="下载测试版"></a>&nbsp;&nbsp;<a href="https://tally.so/r/LZA5aG?ref=readme-zh"><img src="docs/images/notify-zh.svg" width="187" height="40" alt="alpha 上线时通知我"></a></p>
 
@@ -33,7 +33,7 @@
 
 <p align="center"><img src="docs/images/demo-check-zh-CN.gif" width="880" alt="授信委员会报告里的一个数字被标为与文档矛盾：报告写 36.8%，第三季度业绩写 38.6%，卡片引出原页的那句话。改正之后重新核对，这句话通过。在应用里录制，模型为 Claude Sonnet 5.5。"></p>
 
-<p align="center"><sub>片中展示的功能现在都能用。<a href="docs/images/demo-tour-2026-10-25-zh-CN.mp4">观看一分钟完整影片</a>：整理文件、起草、图表、核对、Word 和会议。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
+<p align="center"><sub>片中展示的功能现在都能用。<a href="#一分钟看完">观看一分钟完整影片</a>。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
 
 ## 下载
 
@@ -90,6 +90,12 @@ npm install && npm run dev
 - 整个应用都有中文和英文。
 
 </details>
+
+## 一分钟看完
+
+**一份授信报告从头到尾：整理文件、点开引文、对比三家银行、做图表、开会记笔记、整份核对、导出 Word。** 在应用里录制，模型为 Claude Sonnet 5.5。
+
+[观看影片（MP4，8 MB）](docs/images/demo-tour-2026-10-25-zh-CN.mp4)
 
 ## 核对是怎么做的
 

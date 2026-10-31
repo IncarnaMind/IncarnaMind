@@ -13,9 +13,9 @@
 
 <p align="center"><b>From messy files to a checked report.</b></p>
 
-<p align="center">Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
+<p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
 
-<p align="center"><b>Free and open source.</b> It runs on your computer with nothing to sign up for. Use ChatGPT, Claude, Gemini or a local model through Ollama.</p>
+<p align="center">No account needed. Works with ChatGPT, Claude, Gemini or a local model through Ollama.</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
@@ -31,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-check-en.gif" width="880" alt="A credit memo is checked against its files. One figure comes back contradicted: the memo says 36.8% where the Q3 results say 38.6%, and the card quotes the page. The page opens, and the figure is fixed in one click. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-check-en.gif" width="880" alt="A credit memo checked against its files. One figure is marked: the memo says 36.8% where the Q3 results say 38.6%, and the card quotes the page. The page opens, the figure is fixed, and a calculated figure shows its formula and sources. Recorded in the app with Claude Sonnet 5.5."></p>
 
-<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the one-minute film</a>: sorting files, drafting, charts, the check, Word and meetings.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
+<p align="center"><sub>Everything shown is in the app today. <a href="#see-it-in-one-minute">Watch the one-minute tour</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
 ## Download
 
@@ -90,6 +90,12 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 - The whole app is in English and Chinese.
 
 </details>
+
+## See it in one minute
+
+**A credit memo from start to finish: sort the files, draft, chart a spreadsheet, check every figure, export to Word, and take notes on an expert call.** Recorded in the app with Claude Sonnet 5.5.
+
+[Watch the film (MP4, 7 MB)](docs/images/demo-tour-2026-10-25-en.mp4)
 
 ## How the check works
 
