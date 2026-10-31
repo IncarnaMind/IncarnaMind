@@ -170,6 +170,14 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
       shown: "+ Summary / + Total = price*volume*margin, see the note.",
       bold: [],
     },
+    {
+      name: "a Chinese label beside a full-width colon stays bold, and the words beside it stay plain",
+      page: "## Summary\n\n**上限：**每月五千元。",
+      seen: "**上限：**每月五千元。",
+      reply: "## Summary\n\n**上限：**每月五千元，含税。",
+      shown: "+ Summary / + 上限：每月五千元，含税。",
+      bold: ["上限："],
+    },
   ])(
     "“make it longer” over waiting text: $name",
     async ({ page: content, seen, reply, shown, bold }) => {
@@ -871,7 +879,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
 });
 
 describe("Changes it can't revise", { timeout: 30_000 }, () => {
-  // protects=over changes the User asked for (Edit with AI's, here from an earlier edit_mind), the assistant changes nothing, is told to say so first, the card says why, and the next Question knows it failed; fails_when=it changes the Mind another way, the problem isn't recorded, or the record says it worked; no_claim=how the model words it.
+  // protects=when the assistant can't act, its Answer offers Review (the waiting problem the Answer's line reads) and changes nothing: over changes the User asked for, nothing changes, the model is told to say so first and to point at Review under its reply, and the next Question knows it failed; fails_when=it changes the Mind another way, the problem isn't recorded, or the record says it worked; no_claim=how the model words it.
   test("over changes it can't revise, nothing changes, and it says why", async () => {
     let record = "";
     const model = scriptedModel((call): ScriptedReply => {
@@ -889,6 +897,7 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
     const first = await askAssistant(core, { text: "shorten the summary", mindId: mind.id });
     await client.settled();
     const before = shownWithChanges(client);
+    const waiting = pendingProposals(client.blocks).length;
     const checkpoints = (await core.listCheckpoints(mind.id)).checkpoints.length;
 
     const second = await askAssistant(core, {
@@ -903,8 +912,10 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
       mindProblem: { kind: "waiting", mindId: mind.id, count: 2, mixed: false },
     });
     expect(lastResult(model)).toContain("Say so first, in one sentence");
+    expect(lastResult(model)).toContain("Review under your reply shows them");
     await client.settled();
     expect(shownWithChanges(client)).toEqual(before);
+    expect(pendingProposals(client.blocks)).toHaveLength(waiting);
     expect((await core.listCheckpoints(mind.id)).checkpoints).toHaveLength(checkpoints);
     expect(waitingProblemOf(second)).toEqual({ mindId: mind.id, count: 2 });
 
