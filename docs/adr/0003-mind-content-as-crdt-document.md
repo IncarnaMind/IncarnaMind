@@ -180,10 +180,15 @@ An absence sentence can be Supported only after the check reads every scoped Doc
 - **Content schema version 37** adds `readDocuments` to a `claimCheck` mark: each Document read, its content version and the Locations shown. An older version's editor would strip the field, losing the card's Locations and the dependency that requires a re-check, so it opens these Notes read-only. Older content is version 37 content as it is.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
 
+## Amendment: a table of contents Block (2026-10-30, #1935)
+
+- **Content schema version 38** adds the `tableOfContents` Block to a Note: an atom that draws the Note's headings and jumps to each, in the editor, the exports and Word's own table of contents field. It stores no copy of the headings, so a heading edited above it keeps the list true without rewriting the Block. An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 38 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
 ## Amendment: pictures in a Note (2026-10-31, #1937)
 
 A picture pasted, dropped or chosen into a Note is kept in the Note itself, as the rest of its content is, so it survives a reload, goes with the Note when it is copied, and is exported with it.
 
-- **Content schema version 38** adds the `picture` Block: a picture the User pasted or dropped, kept in the Note's data as a `data:` URL (the app's Content-Security-Policy allows no other kind), with the size it is drawn at and the alt text the User writes for it. It is a Block of its own, unlike `image`, which is a Word file's picture inside a paragraph's text (#104). An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 38 content as it is.
+- **Content schema version 39** adds the `picture` Block: a picture the User pasted or dropped, kept in the Note's data as a `data:` URL (the app's Content-Security-Policy allows no other kind), with the size it is drawn at and the alt text the User writes for it. It is a Block of its own, unlike `image`, which is a Word file's picture inside a paragraph's text (#104). An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 39 content as it is.
 - **A picture is read by nothing that wasn't asked to read it.** A Question's context, a check, a suggestion and an edit read the Note's words and never the picture, so no picture goes to a model with them. A Question the User selected the picture for sends it, and only to a model that reads images; that is a kind of data the chat flow now names (`pictures`), so a User who allowed Questions before is asked once more (ADR-0022). Local mode sends nothing, as for any other flow.
 - **No SQL table, no migration.** The picture lives in the Mind's Yjs document; the pictures a Question asked about are Block ids in its `focus`, a JSON value conversations already keep.

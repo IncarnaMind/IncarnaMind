@@ -31,6 +31,8 @@ export interface ExportLabels {
   figureNote(worked: FigureWorked, figure: string, sources: readonly FigureNoteSource[]): string;
   /** The words before and after a calculated figure's inputs' cluster in a citation style: "calculated from ", "". */
   figureCluster(note: boolean): [before: string, after: string];
+  /** A table of contents' heading: "Contents", "目录". */
+  contents: string;
 }
 
 /** How a calculated figure was worked out: its formula in words, or the saved Analysis it came from. */
@@ -63,6 +65,7 @@ export function exportLabels(language: Language): ExportLabels {
     translate(language, key, params);
   return {
     question: t("export.question"),
+    contents: t("export.contents"),
     notes: t("export.html.notes"),
     backToText: t("export.html.back"),
     unverified: t("export.unverified"),

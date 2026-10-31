@@ -2540,6 +2540,21 @@ describe("Needs re-check", () => {
     ]);
   });
 
+  test("Tidy's spaces and comma widths alone keep a check without parts' verdict", () => {
+    const check: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: "导出为Word文件,你好。",
+    };
+    const now = {
+      text: "导出为 Word 文件，你好。",
+      versions: null,
+      folderId: null,
+      scope: null,
+    };
+    expect(claimCheckShown(check, now)).toEqual({ state: "supported" });
+  });
+
   test("a new version of its evidence Document makes its check need a re-check", async () => {
     const { core, client, check, tides, dataDir } = await mindWith([SUPPORTED]);
     await check();

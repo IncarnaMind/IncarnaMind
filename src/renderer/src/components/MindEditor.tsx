@@ -108,6 +108,7 @@ import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
+import { TableOfContentsView } from "../editor/TableOfContentsView";
 import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
@@ -401,6 +402,7 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
           pictureView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).

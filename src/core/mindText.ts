@@ -96,6 +96,7 @@ import {
   type StyledRun,
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
+  TABLE_OF_CONTENTS_NODE,
   TEXT_COLOR_MARK,
   TEXT_FONT_MARK,
   TEXT_SIZE_MARK,
@@ -343,6 +344,8 @@ export type Block = (
       picture?: Image;
     }
   | { kind: "question"; content: Inline[] }
+  /** A table of contents (#1935): built from the Note's headings by whatever draws it. */
+  | { kind: "toc" }
   /** The Bibliography a citation style adds at the end of an export (./exports/citations). */
   | { kind: "bibliography"; heading: string; items: BibliographyItem[]; hangingIndent: boolean }
 ) &
@@ -558,6 +561,43 @@ export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: st
   return { line: "", question: "" };
 }
 
+export interface HeadingEntry {
+  block: Extract<Block, { kind: "heading" }>;
+  level: number;
+  text: string;
+}
+
+/** Every heading of the Blocks, in the order a writer meets them (a table of contents, #1935). */
+export function headingEntries(blocks: readonly Block[]): HeadingEntry[] {
+  const entries: HeadingEntry[] = [];
+  const visit = (block: Block) => {
+    switch (block.kind) {
+      case "heading": {
+        const text = block.content
+          .flatMap((inline) => (inline.kind === "text" ? [inline.text] : []))
+          .join("")
+          .trim();
+        if (text !== "") entries.push({ block, level: block.level, text });
+        break;
+      }
+      case "list":
+        for (const item of block.items) for (const child of item) visit(child);
+        break;
+      case "quote":
+        for (const child of block.content) visit(child);
+        break;
+      case "table":
+        for (const row of block.rows)
+          for (const cell of row) for (const child of cell.content) visit(child);
+        break;
+      default:
+        break;
+    }
+  };
+  for (const block of blocks) visit(block);
+  return entries;
+}
+
 /** How many Question Blocks the Mind has. */
 export function countQuestions(blocks: Y.XmlFragment): number {
   return blocks
@@ -702,6 +742,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "quote", content: readChildren(element.toArray(), options) }];
     case "horizontalRule":
       return [{ kind: "rule" }];
+    case TABLE_OF_CONTENTS_NODE:
+      return [{ kind: "toc" }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
     case COMPARISON_TABLE_NODE: {
