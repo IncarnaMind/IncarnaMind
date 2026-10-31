@@ -47,14 +47,22 @@ async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
   await core.deleteAgain(items.map(({ kind, id, deletedAt }) => ({ kind, id, deletedAt })));
 }
 
-/** What the undo line says a restore did: where one item went back to, if it was in a Folder still there. */
-function restoredMessage(items: readonly DeletedItem[]): WordsInLine {
+/**
+ * What the undo line says a restore did: where one item went back to, if it was in a Folder still
+ * there, and when a Meeting came back without its audio (#1253), as `audioLost` says.
+ */
+function restoredMessage(items: readonly DeletedItem[], audioLost: () => boolean): WordsInLine {
   const [only] = items;
-  if (!only || items.length > 1)
-    return (t) => t("object.restored.count", { count: formatCount(items.length, languageNow()) });
+  if (!only || items.length > 1) {
+    return (t) => {
+      const count = formatCount(items.length, languageNow());
+      return t(audioLost() ? "meetings.audio.someNotRestored" : "object.restored.count", { count });
+    };
+  }
   const folder = useAppStore.getState().library?.groups.find((group) => group.id === only.groupId);
   return (t) => {
     const name = deletedName(only);
+    if (audioLost()) return t("meetings.audio.notRestored", { name });
     return folder
       ? t("object.restoredTo", { name, folder: folder.name })
       : t("object.restored", { name });
@@ -67,17 +75,18 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
   const count = () => formatCount(items.length, languageNow());
   const slow = (said: Words, work: () => Promise<void>) =>
     items.length > 1 ? sayWhileSlow(said, work) : work();
+  let audioLost = false;
   const restore = () =>
     slow(
       (t) => t("object.restoring.count", { count: count() }),
       async () => {
-        await core.restore(refsOf(items));
+        audioLost = (await core.restore(refsOf(items))).audioLost.length > 0;
         await refresh();
       },
     );
   await restore();
   useUndo.getState().push({
-    said: restoredMessage(items),
+    said: restoredMessage(items, () => audioLost),
     name: (t) => t("undo.name.restore"),
     undo: () =>
       slow(

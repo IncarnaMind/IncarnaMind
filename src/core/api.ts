@@ -8978,6 +8978,15 @@ export interface RestoreRef extends DeletedRef {
   links?: TagLinkState[];
 }
 
+/** What a restore couldn't bring back as it was. */
+export interface RestoreResult {
+  /**
+   * The Notes whose Meeting came back without the audio it had kept: it was no longer on this
+   * computer, deleted by an earlier version with the Note, or by something outside IncarnaMind.
+   */
+  audioLost: string[];
+}
+
 /** What Undo of a Restore puts back in Recently deleted: an item, at the time it was deleted before it came back. */
 export interface DeletedAgainRef extends DeletedRef {
   /** ISO 8601, UTC. */
@@ -10212,11 +10221,13 @@ export interface CoreApi {
    * and Tags with their links, all or none, and sends the events any change sends. With `reopen`,
    * Undo putting the User back where they were, a Mind's tabs, which its delete closed, come back
    * where they were and as they were; without it the window stays as it is, since a restore must
-   * not replace the Note the User is in. One not deleted is left as it is. Throws, changing
-   * nothing, for one deleted permanently or more than `RECENTLY_DELETED_DAYS` ago, or that can't
-   * come back now (its name taken, its Linked folder unlinked). Never touches the User's files.
+   * not replace the Note the User is in. A Mind comes back with its Meeting, as it was, with its
+   * Transcript and its audio, unless the audio's day ended meanwhile (#1253). One not deleted is
+   * left as it is. Throws, changing nothing, for one deleted permanently or more than
+   * `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its Linked folder
+   * unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<void>;
+  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<RestoreResult>;
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
@@ -10283,7 +10294,11 @@ export interface CoreApi {
   listMinds(): Promise<Mind[]>;
   /** Changes a Mind's title (trimmed; empty means "Untitled") and returns the Mind. */
   renameMind(mindId: string, title: string): Promise<Mind>;
-  /** Soft-deletes a Mind: it leaves the list, and its rows stay, marked deleted (ADR-0003). */
+  /**
+   * Soft-deletes a Mind: it leaves the list, and its rows stay, marked deleted (ADR-0003). Its
+   * Meeting goes with it, stopped first if it records, and its Transcript Document and audio stay
+   * for `restore` (#1253).
+   */
   deleteMind(mindId: string): Promise<void>;
   /**
    * Returns a Mind's content for editing. A client applies `state` to an empty

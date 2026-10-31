@@ -1588,7 +1588,24 @@ export function createTranscripts(options: TranscriptsOptions) {
       options.changed();
     },
 
-    /** The Meeting's Mind was deleted: its Transcript's working files go; its Document stays. */
+    /** The Meeting's Transcript Document, once its first line made one. */
+    documentOf(meetingId: string): string | null {
+      return load(meetingId).documentId;
+    },
+
+    /**
+     * The Meeting is back from Recently deleted (#1253): its file is read again, for lines that
+     * came, and a finish, while its Document waited there.
+     */
+    restored(meetingId: string): void {
+      const state = load(meetingId);
+      if (closed || !state.documentId || state.cues.length === 0) return;
+      documents.check(state.savedPath ?? vttPath(meetingId)).catch((error: unknown) => {
+        log.error("transcript.indexFailed", { meetingId, message: messageOf(error) });
+      });
+    },
+
+    /** The Meeting is gone for good: its Transcript's working state goes, and its working file. */
     forget(meetingId: string): void {
       const state = states.get(meetingId);
       if (state?.live) {

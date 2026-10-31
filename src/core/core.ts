@@ -2352,22 +2352,30 @@ export function createCore(adapters: CoreAdapters): Core {
     return { style, textLanguage: chineseText ? ("zh-CN" as const) : ("en" as const) };
   };
   const mindCitationStyle = (mindId: string): MindCitationStyle => mindStyleAndText(mindId).style;
-  /** Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again. */
-  const removeMind = (mindId: unknown, at: string = now()) => {
-    const deleted = db.transaction(() => {
-      const mind = minds.delete(mindId, at);
-      content.remove(mind.id, at);
-      return mind;
-    });
-    content.removed(deleted.id, at);
-    meetings.mindDeleted(deleted.id);
-    mindsChanged();
-    layouts.forgetDeletedMinds();
-  };
-
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+
+  /**
+   * Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again.
+   * Its Meeting goes with it, stopped first as Stop stops it, and its Transcript Document (#1253).
+   */
+  const removeMind = (mindId: unknown, at: string = now()) => {
+    const recording = typeof mindId === "string" ? meetings.liveOf(mindId) : null;
+    if (recording) stopMeeting(recording.id);
+    const deleted = db.transaction(() => {
+      const mind = minds.delete(mindId, at);
+      content.remove(mind.id, at);
+      removeDocuments(
+        meetings.deletedWith(mind.id, at).filter((id) => liveDocument(id)),
+        at,
+      );
+      return mind;
+    });
+    content.removed(deleted.id, at);
+    mindsChanged();
+    layouts.forgetDeletedMinds();
   };
 
   /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
@@ -3385,6 +3393,16 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
+    meetings: {
+      transcriptsDeletedWith: (mindId, deletedAt) =>
+        meetings.transcriptsDeletedWith(mindId, deletedAt),
+      restoreWith: (mindId, deletedAt) => meetings.restoreWith(mindId, deletedAt),
+      restored: (meetingIds) => {
+        const audioLost = meetings.restored(meetingIds);
+        meetingFill.restored(meetingIds);
+        return audioLost;
+      },
+    },
     mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
@@ -4228,6 +4246,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
   meetingFill.resume();
+  /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
+  const stopMeeting = (meetingId: unknown): Meeting => {
+    const stopped = meetings.stop(meetingId);
+    meetingFill.stopped(stopped.id);
+    return meetings.get(stopped.id);
+  };
 
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
@@ -5306,6 +5330,7 @@ export function createCore(adapters: CoreAdapters): Core {
     listDeleted: async () => recentlyDeleted.list(),
     deletePermanently: async (refs) => {
       recentlyDeleted.deletePermanently(refs);
+      meetings.dropPurged();
       await Promise.all([
         webPages.dropPurged(),
         sources.dropPurged(),
@@ -5882,11 +5907,7 @@ export function createCore(adapters: CoreAdapters): Core {
     recordMemo: async (input) => meetings.recordMemo(input),
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
-    stopMeeting: async (meetingId) => {
-      const stopped = meetings.stop(meetingId);
-      meetingFill.stopped(stopped.id);
-      return meetings.get(stopped.id);
-    },
+    stopMeeting: async (meetingId) => stopMeeting(meetingId),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),

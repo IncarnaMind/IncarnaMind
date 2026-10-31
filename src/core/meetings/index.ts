@@ -15,8 +15,11 @@
  * where its last saved part ends, and it waits, paused, for the User to resume.
  *
  * Its audio is kept for at most a day after the last stretch, then deleted;
- * the User can delete it sooner. While audio is being captured, background
- * work holds back (`onCapturingChange`): live capture comes first.
+ * the User can delete it sooner. Deleting its Mind never deletes it (#1253):
+ * the Meeting goes to Recently deleted with the Mind, stopped if it recorded,
+ * and comes back with it, until Recently deleted drops it or its day ends.
+ * While audio is being captured, background work holds back
+ * (`onCapturingChange`): live capture comes first.
  *
  * Where this copy can transcribe, the audio also goes to the Meeting's
  * Transcript as it comes (./transcript, #136). What goes wrong with the
@@ -601,7 +604,10 @@ export function createMeetings(options: MeetingsOptions) {
 
   // ---- Retention ----
 
-  function deleteAudio(meetingId: string, reason: "user" | "expired" | "discarded"): void {
+  function deleteAudio(
+    meetingId: string,
+    reason: "user" | "expired" | "discarded" | "purged",
+  ): void {
     if (live?.meetingId === meetingId) {
       live.runs.clear();
     }
@@ -620,12 +626,12 @@ export function createMeetings(options: MeetingsOptions) {
     deleteAudio(row.id, "discarded");
   }
 
-  /** Deletes audio a day past its Meeting's last stretch. */
+  /** Deletes audio a day past its Meeting's last stretch, in Recently deleted too. */
   function sweep(): void {
     const at = now();
     const due = db.all<{ id: string }>(
       `SELECT id FROM meetings
-       WHERE deleted_at IS NULL AND audio_expires_at IS NOT NULL AND audio_expires_at <= ?
+       WHERE audio_expires_at IS NOT NULL AND audio_expires_at <= ?
          AND status IN ('paused', 'stopped')`,
       [at],
     );
@@ -636,6 +642,28 @@ export function createMeetings(options: MeetingsOptions) {
     }
     changed();
   }
+
+  /**
+   * Deletes the audio, the Transcript's working state and the health record of Meetings whose
+   * Mind was deleted permanently; again at each start, for a quit that cut it short.
+   */
+  function dropPurged(): void {
+    const purged = db.all<{ id: string }>(
+      `SELECT id FROM meetings WHERE audio_deleted_at IS NULL
+         AND mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
+    );
+    const at = now();
+    for (const { id } of purged) {
+      transcripts?.forget(id);
+      health.forget(id);
+      deleteAudio(id, "purged");
+      save(id, { audio_deleted_at: at, audio_expires_at: null });
+    }
+  }
+
+  /** The Transcript Documents of these Meetings, those that have one. */
+  const transcriptsOf = (meetingIds: readonly string[]): string[] =>
+    meetingIds.flatMap((id) => transcripts?.documentOf(id) ?? []);
 
   // ---- After a crash or a quit ----
 
@@ -698,12 +726,15 @@ export function createMeetings(options: MeetingsOptions) {
   }
 
   recover();
-  // A Transcript a quit cut off while it was being finished is finished now.
+  // A Transcript a quit cut off while it was being finished is finished now, in Recently deleted
+  // too, so it is whole if it comes back.
   for (const { id } of db.all<{ id: string }>(
-    "SELECT id FROM meetings WHERE deleted_at IS NULL AND status = 'stopped'",
+    `SELECT id FROM meetings WHERE status = 'stopped'
+       AND mind_id NOT IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
   )) {
     transcripts?.resume(id);
   }
+  dropPurged();
   sweep();
   const sweeping = setInterval(() => {
     try {
@@ -967,25 +998,97 @@ export function createMeetings(options: MeetingsOptions) {
       await capture.openSettings(source);
     },
 
-    /** The Mind was deleted: its Meeting stops, and its audio goes with it. */
-    mindDeleted(mindId: string): void {
+    /**
+     * The Mind went to Recently deleted at `at`, in this transaction: its Meetings go with it, at
+     * its time, as they are, their audio kept until Recently deleted drops it or its day ends
+     * (#1253). One recording is stopped first (`stop`). Returns their Transcript Documents, which
+     * go with them.
+     */
+    deletedWith(mindId: string, at: string): string[] {
       const rows = db.all<MeetingRow>(
         `SELECT ${COLUMNS} FROM meetings WHERE mind_id = ? AND deleted_at IS NULL`,
         [mindId],
       );
-      if (rows.length === 0) return;
+      if (rows.length === 0) return [];
+      if (rows.some(isLiveRow)) {
+        throw new Error("A Meeting being recorded is stopped before its Mind is deleted.");
+      }
+      const ids = rows.map((row) => row.id);
+      db.run(
+        "UPDATE meetings SET deleted_at = ?, updated_at = ? WHERE mind_id = ? AND deleted_at IS NULL",
+        [at, at, mindId],
+      );
+      for (const meetingId of ids) log.info("meeting.deleted", { meetingId });
+      changed();
+      return transcriptsOf(ids);
+    },
+
+    /** The Transcript Documents of the Mind's Meetings deleted with it at `deletedAt`. */
+    transcriptsDeletedWith(mindId: string, deletedAt: string): string[] {
+      return transcriptsOf(
+        db
+          .all<{ id: string }>("SELECT id FROM meetings WHERE mind_id = ? AND deleted_at = ?", [
+            mindId,
+            deletedAt,
+          ])
+          .map((row) => row.id),
+      );
+    },
+
+    /**
+     * Brings back the Mind's Meetings deleted with it at `deletedAt`, in the restore's
+     * transaction, then `restored`. One an earlier version left recording when it deleted the
+     * Mind stays deleted: its audio and its Transcript's state went then. Returns their ids.
+     */
+    restoreWith(mindId: string, deletedAt: string): string[] {
+      const where = "mind_id = ? AND deleted_at = ? AND status IN ('ready', 'stopped')";
+      const ids = db
+        .all<{ id: string }>(`SELECT id FROM meetings WHERE ${where}`, [mindId, deletedAt])
+        .map((row) => row.id);
+      if (ids.length > 0) {
+        db.run(`UPDATE meetings SET deleted_at = NULL, updated_at = ? WHERE ${where}`, [
+          now(),
+          mindId,
+          deletedAt,
+        ]);
+      }
+      return ids;
+    },
+
+    /**
+     * Meetings `restoreWith` brought back: audio whose day ended meanwhile goes now, and their
+     * Transcripts are read again. Returns the Minds whose Meeting came back without the audio it
+     * kept, which was no longer on this computer.
+     */
+    restored(meetingIds: readonly string[]): string[] {
+      if (meetingIds.length === 0) return [];
+      for (const meetingId of meetingIds) kept.delete(meetingId);
+      sweep();
       const at = now();
-      for (const row of rows) {
-        if (live?.meetingId === row.id) end(live);
-        microphonePausedAt.delete(row.id);
-        microphoneResumedAt.delete(row.id);
-        transcripts?.forget(row.id);
-        health.forget(row.id);
-        deleteAudio(row.id, "discarded");
-        db.run("UPDATE meetings SET deleted_at = ?, updated_at = ? WHERE id = ?", [at, at, row.id]);
+      const lost: string[] = [];
+      for (const meetingId of meetingIds) {
+        const row = rowOf(meetingId);
+        log.info("meeting.restored", { meetingId });
+        transcripts?.restored(meetingId);
+        if (row.audio_expires_at === null || row.audio_deleted_at !== null || hasAudio(meetingId)) {
+          continue;
+        }
+        // An earlier version deleted it with the Mind, or something outside IncarnaMind did.
+        log.warn("meeting.audioNotRestored", { meetingId });
+        save(meetingId, { audio_deleted_at: at, audio_expires_at: null });
+        lost.push(row.mind_id);
       }
       changed();
+      return lost;
     },
+
+    /** Deletes what Meetings of Minds deleted permanently kept; see `dropPurged`. */
+    dropPurged,
+
+    /** Whether the Meeting waits in Recently deleted with its Mind. */
+    isDeleted: (meetingId: string): boolean =>
+      db.get("SELECT 1 FROM meetings WHERE id = ? AND deleted_at IS NOT NULL", [meetingId]) !==
+      undefined,
 
     /** The computer is going to sleep: what is waiting is saved, and capture stops until it wakes. */
     sleeping(): void {

@@ -5657,6 +5657,10 @@ export const en = {
   "meetings.audio.keep": "Keep it",
   "meetings.audio.deleted": "Audio deleted",
   "meetings.audio.none": "No audio was recorded",
+  "meetings.audio.notRestored":
+    "Restored “{name}” without its audio: it was no longer on this computer.",
+  "meetings.audio.someNotRestored":
+    "Restored {count} items without some meeting audio: it was no longer on this computer.",
   "meetings.health.label": "Recording details",
   "meetings.health.show": "Show recording details",
   "meetings.health.hide": "Hide recording details",

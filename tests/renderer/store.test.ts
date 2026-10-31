@@ -3,6 +3,7 @@ import {
   type CoreEventName,
   type CoreEvents,
   DEFAULT_ASSISTANT,
+  type DeletedItem,
   type Document,
   type DocumentGroupAssignment,
   type Folder,
@@ -156,6 +157,7 @@ beforeEach(() => {
   // A quiet spell, so each test starts with nothing waiting.
   vi.advanceTimersByTime(1000);
   for (const each of methods.values()) each.mockReset();
+  method("restore").mockResolvedValue({ audioLost: [] });
   useAppStore.setState({
     documents: [doc("a"), doc("b"), doc("c")],
     library: snapshot([assignment("a", "pending"), assignment("b", "pending")]),
@@ -484,7 +486,7 @@ describe("changes the User can take back", () => {
     expect(ids()).toEqual(["c"]);
 
     const restoring = slow();
-    method("restore").mockReturnValue(restoring.done);
+    method("restore").mockReturnValue(restoring.done.then(() => ({ audioLost: [] })));
     const undone = useUndo.getState().undo();
     await vi.advanceTimersByTimeAsync(0);
     expect(ids()).toEqual(["a", "b", "c"]);
@@ -610,6 +612,58 @@ describe("changes the User can take back", () => {
     await useAppStore.getState().deleteMind("m");
     expect(said(top())).toBe("已将“Plan”移到回收站");
     expect(named(top())).toBe("删除‘Plan’");
+  });
+
+  // protects=Undo of a Note's delete says so when its Meeting came back without its audio, and says nothing more when it came back whole, in English and Chinese (#1253); fails_when=lost audio goes unsaid, or a whole restore says audio was lost; no_claim=how the core finds the audio gone.
+  test("Undo of a Note's delete says when its Meeting's audio couldn't come back, and only then", async () => {
+    await useAppStore.getState().deleteMind("m");
+    await useUndo.getState().undo();
+    expect(method("restore")).toHaveBeenLastCalledWith([{ kind: "mind", id: "m" }], {
+      reopen: true,
+    });
+    expect(useUndo.getState().line).toBeNull();
+
+    await useUndo.getState().redo();
+    method("restore").mockResolvedValue({ audioLost: ["m"] });
+    await useUndo.getState().undo();
+    const note = useUndo.getState().line?.note;
+    expect(note?.(words)).toBe(
+      "Restored “Plan” without its audio: it was no longer on this computer.",
+    );
+    expect(note?.((key, params) => translate("zh-CN", key, params))).toBe(
+      "已恢复“Plan”，但音频已不在这台电脑上，无法恢复。",
+    );
+  });
+
+  // protects=Restore from Recently deleted says so when a Note's Meeting came back without its audio, for one item or several, and only then, in English and Chinese (#1253); fails_when=lost audio goes unsaid, or a whole restore says audio was lost; no_claim=how the core finds the audio gone.
+  test("Restore from Recently deleted says when a Meeting's audio couldn't come back, and only then", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const zh = undoLines((key, params) => translate("zh-CN", key, params));
+    const item = (id: string, name: string): DeletedItem => ({
+      kind: "mind",
+      id,
+      name,
+      deletedAt: "2026-10-06T09:00:00.000Z",
+      documentKind: null,
+      groupId: null,
+      linkedFolderId: null,
+    });
+    method("listDeleted").mockResolvedValue([]);
+
+    await restoreItems([item("m", "Plan")]);
+    expect(said(top())).toBe("Restored “Plan”");
+
+    method("restore").mockResolvedValue({ audioLost: ["m"] });
+    await restoreItems([item("m", "Plan")]);
+    expect(said(top())).toBe(
+      "Restored “Plan” without its audio: it was no longer on this computer.",
+    );
+    expect(zh.said(top())).toBe("已恢复“Plan”，但音频已不在这台电脑上，无法恢复。");
+    await restoreItems([item("m", "Plan"), item("n", "Budget")]);
+    expect(said(top())).toBe(
+      "Restored 2 items without some meeting audio: it was no longer on this computer.",
+    );
+    expect(zh.said(top())).toBe("已恢复 2 项，但部分会议音频已不在这台电脑上，无法恢复。");
   });
 });
 

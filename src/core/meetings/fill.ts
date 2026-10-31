@@ -86,6 +86,7 @@ export interface MeetingFillOptions {
     storedFill(meetingId: string): StoredFill | null;
     setFill(meetingId: string, fill: StoredFill): Meeting;
     unfinishedFills(): { meetingId: string; fill: StoredFill }[];
+    isDeleted(meetingId: string): boolean;
   };
   /** The Transcript's Passages, in reading order, once its newest version has them. */
   transcript(documentId: string): Promise<WindowedPassage[]>;
@@ -621,6 +622,16 @@ export function createMeetingFill(options: MeetingFillOptions) {
       .finally(() => starting.delete(meetingId));
   }
 
+  /** A fill no longer under way wrote nothing, and says so; one waiting for a saved Transcript starts. */
+  function pickUp(meetingId: string, fill: StoredFill): void {
+    if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
+      set(meetingId, { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] });
+    } else if (fill.state === "waiting") {
+      const transcript = meetings.get(meetingId).transcript;
+      if (transcript?.state === "saved" && !transcript.separating) start(meetingId);
+    }
+  }
+
   return {
     /** Stop was pressed: the notes wait for the Transcript. */
     stopped(meetingId: string): void {
@@ -639,8 +650,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
     },
 
-    /** The Transcript is finished, saved or with no lines: the notes are filled in now, if they wait for it. */
+    /**
+     * The Transcript is finished, saved or with no lines: the notes are filled in now, if they wait
+     * for it. In Recently deleted, they wait until the Meeting is back (`restored`).
+     */
     transcriptSaved(meetingId: string): void {
+      if (meetings.isDeleted(meetingId)) return;
       if (meetings.storedFill(meetingId)?.state === "waiting") start(meetingId);
     },
 
@@ -673,17 +688,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
     /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */
     resume(): void {
-      for (const { meetingId, fill } of meetings.unfinishedFills()) {
-        if (fill.state === "filling") {
-          set(meetingId, {
-            state: "failed",
-            problem: { kind: "stopped", message: "" },
-            blocks: [],
-          });
-        } else {
-          const transcript = meetings.get(meetingId).transcript;
-          if (transcript?.state === "saved" && !transcript.separating) start(meetingId);
-        }
+      for (const { meetingId, fill } of meetings.unfinishedFills()) pickUp(meetingId, fill);
+    },
+
+    /** Meetings back from Recently deleted (#1253): their fills go on as after a start. */
+    restored(meetingIds: readonly string[]): void {
+      for (const meetingId of meetingIds) {
+        const fill = meetings.storedFill(meetingId);
+        if (fill) pickUp(meetingId, fill);
       }
     },
 

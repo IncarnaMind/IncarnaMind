@@ -5367,6 +5367,8 @@ export const zhCN = {
   "meetings.audio.keep": "保留",
   "meetings.audio.deleted": "音频已删除",
   "meetings.audio.none": "没有录到音频",
+  "meetings.audio.notRestored": "已恢复“{name}”，但音频已不在这台电脑上，无法恢复。",
+  "meetings.audio.someNotRestored": "已恢复 {count} 项，但部分会议音频已不在这台电脑上，无法恢复。",
   "meetings.health.label": "录制详情",
   "meetings.health.show": "显示录制详情",
   "meetings.health.hide": "隐藏录制详情",

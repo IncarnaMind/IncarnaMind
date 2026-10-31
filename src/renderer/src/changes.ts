@@ -48,6 +48,13 @@ export function deleted(
 ): Undoable {
   const count = refs.length;
   const counted = () => formatCount(count, languageNow());
+  /** Whether the last Undo brought a Meeting back without its audio (#1253). */
+  let audioLost = false;
+  // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
+  // Recently deleted leaves the window as it is.
+  const restore = async () => {
+    audioLost = (await core.restore(refs, { reopen: true })).audioLost.length > 0;
+  };
   return {
     said: (t) =>
       count > 1
@@ -58,18 +65,18 @@ export function deleted(
         ? t("undo.name.delete.documents", { count: counted() })
         : t("undo.name.delete", { name: shownIn(t, shown) }),
     undo: async () => {
-      // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
-      // Recently deleted leaves the window as it is.
-      if (!here) return core.restore(refs, { reopen: true });
+      if (!here) return restore();
       // Back on the page at once, as they went: the core follows, and a refusal takes them out again.
       here.putBack();
       try {
-        await core.restore(refs, { reopen: true });
+        await restore();
       } catch (error) {
         here.takeOut();
         throw error;
       }
     },
+    undoneNote: () =>
+      audioLost ? (t) => t("meetings.audio.notRestored", { name: shownIn(t, shown) }) : null,
     redo: async () => {
       await remove();
     },
