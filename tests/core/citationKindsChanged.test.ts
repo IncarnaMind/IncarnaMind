@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { citationState, needsRecheck, newVersionCitation } from "../../src/shared/citations";
-import { citingModel, setUpWithDocuments } from "../helpers/citations";
+import { checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { sha256, waitForProcessing } from "../helpers/documents";
 import { docxOf, xlsxOf } from "../helpers/office";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
@@ -141,13 +141,16 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
       const documents = await core.listDocuments();
       const state = citationState(citation, documents);
       expect(state.changedAfterCited).toBe(true);
-      const recheck = await core.recheckCitation({
-        documentId: document.id,
-        quote: citation.quote,
-        pageFrom: citation.pageFrom,
-        pageTo: citation.pageTo,
-        contentHash: citation.contentHash,
-      });
+      const recheck = checkedResult(
+        await core.recheckCitation({
+          mindId: null,
+          documentId: document.id,
+          quote: citation.quote,
+          pageFrom: citation.pageFrom,
+          pageTo: citation.pageTo,
+          contentHash: citation.contentHash,
+        }),
+      );
       expect(recheck.changed?.parts).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: "removed", text: expect.stringContaining("sixty") }),
@@ -169,13 +172,16 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
     const documents = await core.listDocuments();
     const state = citationState(citation, documents);
     expect(state.changedAfterCited).toBe(true);
-    const recheck = await core.recheckCitation({
-      documentId: document.id,
-      quote: citation.quote,
-      pageFrom: citation.pageFrom,
-      pageTo: citation.pageTo,
-      contentHash: citation.contentHash,
-    });
+    const recheck = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        contentHash: citation.contentHash,
+      }),
+    );
     expect(recheck.check).toBe("found");
     expect(recheck.changed ?? null).toBeNull();
     expect(needsRecheck(state, citation, recheck)).toBe(false);
@@ -196,13 +202,16 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
       check: "found",
       changedAfterCited: false,
     });
-    const recheck = await core.recheckCitation({
-      documentId: document.id,
-      quote: citation.quote,
-      pageFrom: citation.pageFrom,
-      pageTo: citation.pageTo,
-      contentHash: citation.contentHash,
-    });
+    const recheck = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        contentHash: citation.contentHash,
+      }),
+    );
     expect(recheck.check).toBe("found");
     expect(recheck.changed ?? null).toBeNull();
   });

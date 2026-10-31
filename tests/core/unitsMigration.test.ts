@@ -198,6 +198,7 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
 
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: IDS.notes,
         quote: "Spring tides came at full moon.",
         pageFrom: null,

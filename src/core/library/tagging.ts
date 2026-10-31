@@ -19,6 +19,7 @@
  * route, and Tev1 4B filed 71 of 75 text Documents to qwen3.5:4b's 59.
  */
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
+import { priceFor } from "../cost/price";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
@@ -121,8 +122,9 @@ export function automaticTagging(input: {
 /** About what 100 Documents cost at a price per million tokens. */
 export function costPer100(price: DescribedModel["price"]): TaggingCost {
   if (!price) return { kind: "unknown" };
+  const paid = priceFor(price, TYPICAL_REQUEST.input);
   const amount =
-    ((TYPICAL_REQUEST.input * price.input + TYPICAL_REQUEST.output * price.output) * 100) / 1e6;
+    ((TYPICAL_REQUEST.input * paid.input + TYPICAL_REQUEST.output * paid.output) * 100) / 1e6;
   return { kind: "estimate", currency: price.currency, amount };
 }
 

@@ -47,6 +47,8 @@ interface LoadedMind {
   storedRows: number;
   /** Updates the document emitted that aren't reported and stored yet. */
   outbox: { update: Uint8Array; cause: EditCause | undefined }[];
+  /** Whether the document holds just what is stored: no change it made waits to be stored. */
+  stored: boolean;
   cause: EditCause | undefined;
   unsaved: Unsaved | null;
   /**
@@ -178,6 +180,7 @@ export function createMindContent(
       doc,
       storedRows: rows,
       outbox: [],
+      stored: true,
       cause: undefined,
       unsaved: null,
       deletedAt: null,
@@ -186,6 +189,7 @@ export function createMindContent(
     // listener must not throw: Yjs calls it while finishing a transaction.
     doc.on("update", (update: Uint8Array) => {
       mind.outbox.push({ update, cause: mind.cause });
+      mind.stored = false;
     });
     loaded.set(mindId, mind);
     // A Mind a newer version wrote is left exactly as stored.
@@ -224,9 +228,12 @@ export function createMindContent(
       const at = now();
       db.transaction(() => {
         for (const row of rows) insert(mindId, row, at, mind.deletedAt);
+        // What the rows hold is every change the document made, the waiting ones included.
+        mind.stored = mind.outbox.length === 0;
         options.persisted?.(mindId);
       });
     } catch (failure) {
+      mind.stored = false;
       if (waiting?.timer) clearTimeout(waiting.timer);
       const unsaved: Unsaved = {
         update: rows.length === 1 && rows[0] ? rows[0] : Y.mergeUpdates([...rows]),
@@ -317,9 +324,14 @@ export function createMindContent(
       }
     },
 
-    /** Reads only committed content (or the current storage transaction), excluding unsaved edits. */
+    /**
+     * Reads only committed content (or the current storage transaction), excluding unsaved edits.
+     * `look` must not change the document, nor keep it.
+     */
     readPersisted<T>(mindId: string, look: (doc: Y.Doc) => T): T {
-      const { doc } = fromStorage(mindId, loaded.get(mindId)?.deletedAt != null);
+      const mind = loaded.get(mindId);
+      if (mind?.stored) return look(mind.doc);
+      const { doc } = fromStorage(mindId, mind?.deletedAt != null);
       try {
         return look(doc);
       } finally {
@@ -329,7 +341,7 @@ export function createMindContent(
 
     apply(mindId: string, update: unknown, cause?: EditCause): void {
       if (!(update instanceof Uint8Array) || update.byteLength === 0) {
-        throw new InvalidInputError("A Mind update must be a non-empty Uint8Array.");
+        throw new InvalidInputError("A Note update must be a non-empty Uint8Array.");
       }
       const mind = load(mindId);
       requireWritable(mind);

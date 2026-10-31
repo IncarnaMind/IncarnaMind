@@ -10,7 +10,13 @@ import {
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { markedSentences } from "../../src/core/answers/checks/sentences";
 import { readClaimCheck, restsOn } from "../../src/shared/claimChecks";
-import { checkGenerate, checkingModel, type Plan, requestedFigures } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  type Plan,
+  requestedFigures,
+} from "../helpers/checks";
 import { type SourceFile, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -22,6 +28,8 @@ const QUOTE = "The rate is 38.6%.";
 const REPORT = { name: "Report.md", contents: QUOTE };
 const correctionLines = (from = "36.8%", to = "38.6%") =>
   `The report gives another rate.\nChange 1: ${from}\nTo 1: ${to}`;
+const correctionIn = (result: ClaimCheckResult) =>
+  result.verdict === "not-checked" ? undefined : result.correction;
 const contradicted = (says = correctionLines()): Plan => ({
   verdict: "contradicted",
   quote: QUOTE,
@@ -87,6 +95,24 @@ describe("A correction in a check reply", () => {
     });
   });
 
+  test("takes each choice's marker from the quote its To line ends with", () => {
+    const read = readVerdict(
+      [
+        "Verdict: contradicted",
+        "The Documents give other rates. [^3][^4]",
+        "Change 1: 36.8%",
+        "To 1: 38.6% [^4]",
+        "Change 2: 36.8%",
+        "To 2: 39.4% [^3]",
+      ].join("\n"),
+    );
+
+    expect(read?.correction?.choices).toEqual([
+      { wording: "38.6%", marker: 4 },
+      { wording: "39.4%", marker: 3 },
+    ]);
+  });
+
   test.each([
     ["a To line is missing", "Change 1: 36.8%"],
     [
@@ -132,7 +158,7 @@ describe("A correction from the public core", () => {
     expect(marked.figures?.[0]?.correction).toEqual(marked.correction);
   });
 
-  test("stays null when a figure's deciding value differs from the correction", async () => {
+  test("has none when a figure's deciding value differs from the correction", async () => {
     const quote = "Revenue was £21, previously £22.";
     const marked = await markWith(
       {
@@ -144,10 +170,11 @@ describe("A correction from the public core", () => {
       [{ name: "Revenue.md", contents: quote }],
     );
 
-    expect(marked).toMatchObject({ state: "contradicted", correction: null });
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction).toBeUndefined();
   });
 
-  test("stays null when a replacement merely contains the deciding digits", async () => {
+  test("has none when a replacement merely contains the deciding digits", async () => {
     const quote = "Revenue was 36.8%, previously 136.8%.";
     const marked = await markWith(
       {
@@ -159,10 +186,11 @@ describe("A correction from the public core", () => {
       [{ name: "Revenue.md", contents: quote }],
     );
 
-    expect(marked).toMatchObject({ state: "contradicted", correction: null });
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction).toBeUndefined();
   });
 
-  test("stays null rather than attaching a later figure's correction to the first", async () => {
+  test("has none rather than attaching a later figure's correction to the first", async () => {
     const claim = "Revenue was £20 and profit was £30.";
     const quote = "Revenue was £21 and profit was £31.";
     const marked = await markWith(
@@ -209,7 +237,8 @@ describe("A correction from the public core", () => {
       [{ name: "Results.md", contents: quote }],
     );
 
-    expect(marked).toMatchObject({ state: "contradicted", correction: null });
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction).toBeUndefined();
   });
 
   test.each([
@@ -220,13 +249,14 @@ describe("A correction from the public core", () => {
       correctionLines(),
     ],
     ["equals the old substring", CLAIM, correctionLines("36.8%", "36.8%")],
-  ])("stays null when the old substring %s", async (_case, claim, says) => {
+  ])("has none when the old substring %s", async (_case, claim, says) => {
     const result = await checkWith(contradicted(says), claim);
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a replacement changes the claim's named period", async () => {
+  test("has none when a replacement changes the claim's named period", async () => {
     const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
     const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
     const result = await checkWith(
@@ -239,10 +269,11 @@ describe("A correction from the public core", () => {
       claim,
       [{ name: "Q3 results.md", contents: quote }],
     );
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a replacement changes a period outside the old substring", async () => {
+  test("has none when a replacement changes a period outside the old substring", async () => {
     const claim = "Gross margin fell to 36.8% in Q2, mostly in online.";
     const quote = "Gross margin fell to 38.6% in Q3, mostly in online.";
     const result = await checkWith(
@@ -254,10 +285,11 @@ describe("A correction from the public core", () => {
       [{ name: "Q3 results.md", contents: quote }],
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a replacement duplicates the surrounding English period", async () => {
+  test("has none when a replacement duplicates the surrounding English period", async () => {
     const claim = "Gross margin fell to 36.8% in Q2.";
     const quote = "Gross margin fell to 38.6% in Q2.";
     const result = await checkWith(
@@ -269,10 +301,11 @@ describe("A correction from the public core", () => {
       [{ name: "Q2 results.md", contents: quote }],
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a replacement duplicates the surrounding Chinese period", async () => {
+  test("has none when a replacement duplicates the surrounding Chinese period", async () => {
     const claim = "第二季度毛利率降至36.8%。";
     const quote = "毛利率降至38.6%（第二季度）。";
     const result = await checkWith(
@@ -284,10 +317,11 @@ describe("A correction from the public core", () => {
       [{ name: "第二季度业绩.md", contents: quote }],
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a Chinese replacement's Citation changes the surrounding period", async () => {
+  test("has none when a Chinese replacement's Citation changes the surrounding period", async () => {
     const claim = "第二季度毛利率降至36.8%。";
     const quote = "第三季度毛利率降至38.6%。";
     const result = await checkWith(
@@ -299,18 +333,20 @@ describe("A correction from the public core", () => {
       [{ name: "第三季度业绩.md", contents: quote }],
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when the replacement is absent from its Citation", async () => {
+  test("has none when the replacement is absent from its Citation", async () => {
     const result = await checkWith(
       contradicted("The report gives another rate.\nChange 1: 36.8%\nTo 1: 39.4%"),
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("stays null when a Chinese replacement changes the named period", async () => {
+  test("has none when a Chinese replacement changes the named period", async () => {
     const claim = "第二季度毛利率降至36.8%。";
     const quote = "第三季度毛利率降至38.6%。";
     const result = await checkWith(
@@ -322,7 +358,8 @@ describe("A correction from the public core", () => {
       [{ name: "第三季度业绩.md", contents: quote }],
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
   test("allows a long replacement that adds detail without changing a named period", async () => {
@@ -382,24 +419,26 @@ describe("A correction from the public core", () => {
     });
   });
 
-  test("stays null when a second choice has no found Citation", async () => {
+  test("has none when a second choice has no found Citation", async () => {
     const result = await checkWith(
       contradicted(
         "The reports differ.\nChange 1: 36.8%\nTo 1: 38.6% [^1]\nChange 2: 36.8%\nTo 2: 39.4% [^2]",
       ),
     );
 
-    expect(result).toMatchObject({ verdict: "contradicted", correction: null });
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
   });
 
-  test.each(["supported", "unsupported"] as const)("stays null for %s", async (verdict) => {
+  test.each(["supported", "unsupported"] as const)("has none for %s", async (verdict) => {
     const result = await checkWith({ verdict, quote: QUOTE, says: correctionLines() });
 
-    expect(result).toMatchObject({ verdict, correction: null });
+    expect(result.verdict).toBe(verdict);
+    expect(correctionIn(result)).toBeUndefined();
   });
 
   test.each(["same", "neither"] as const)(
-    "stays null when the contradiction is not finally confirmed (%s)",
+    "has none when the contradiction is not finally confirmed (%s)",
     async (judgement) => {
       const claim = "Harbours publish the times of high water every year in January.";
       const quote = "Harbours publish the times of high water every year.";
@@ -417,9 +456,64 @@ describe("A correction from the public core", () => {
         [{ name: "Tides.md", contents: quote }],
       );
 
-      expect(result).toMatchObject({ verdict: "unsupported", correction: null });
+      expect(result.verdict).toBe("unsupported");
+      expect(correctionIn(result)).toBeUndefined();
     },
   );
+});
+
+/** A Run that names `parts` in its first turn, then checks each part as `plans` say. */
+function partsModel(plans: Record<string, Plan>, parts: readonly string[]) {
+  return scriptedModel(
+    (call) => {
+      const reply = checkReply(call, plans);
+      const first = !call.results.some((result) => result.tool === "search_documents");
+      if (!first || !call.system.includes("Parts:")) return reply;
+      return {
+        ...reply,
+        text: `Parts: ${JSON.stringify(parts.map((text) => ({ kind: "fact", text })))}`,
+      };
+    },
+    { generate: checkGenerate(plans) },
+  );
+}
+
+describe("A correction in a sentence of several parts", () => {
+  const SENTENCE = "The rate is 36.8%, and the board approved the plan.";
+  const RATE = "The rate is 36.8%";
+  const BOARD = "the board approved the plan";
+  const MINUTES = "The board approved the plan.";
+
+  async function checkParts(board: Plan): Promise<ClaimCheckResult> {
+    const { core } = await setUpWithDocuments(
+      partsModel({ [RATE]: contradicted(), [BOARD]: board }, [RATE, BOARD]),
+      [REPORT, { name: "Minutes.md", contents: MINUTES }],
+    );
+    return core.checkClaim({ claim: SENTENCE });
+  }
+
+  test("is the sentence's when its one other part is supported", async () => {
+    const result = await checkParts({ verdict: "supported", quote: MINUTES });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+      parts: [{ verdict: "contradicted", correction: { from: "36.8%" } }, { verdict: "supported" }],
+    });
+  });
+
+  test("stays on its part when another part is unsupported", async () => {
+    const result = await checkParts({ verdict: "unsupported" });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      parts: [
+        { verdict: "contradicted", correction: { from: "36.8%" } },
+        { verdict: "unsupported" },
+      ],
+    });
+    expect(correctionIn(result)).toBeUndefined();
+  });
 });
 
 interface ConflictCase {
@@ -592,11 +686,13 @@ describe("A correction persisted on a claim mark", () => {
       ],
     });
     expect(check && restsOn(check)).toEqual(expect.arrayContaining([first, second]));
-    expect(CONTENT_SCHEMA_VERSION).toBe(36);
+    expect(CONTENT_SCHEMA_VERSION).toBe(42);
   });
 
   test("an older mark without one, and a malformed one, read safely", () => {
-    expect(readClaimCheck({ id: "legacy", state: "contradicted" })?.correction).toBeNull();
+    const legacy = readClaimCheck({ id: "legacy", state: "contradicted" });
+    expect(legacy?.state).toBe("contradicted");
+    expect(legacy?.correction).toBeUndefined();
     expect(
       readClaimCheck({
         id: "invalid",
@@ -606,7 +702,7 @@ describe("A correction persisted on a claim mark", () => {
           choices: [{ wording: "36.8%", evidence: evidence("same") }],
         },
       })?.correction,
-    ).toBeNull();
+    ).toBeUndefined();
     expect(
       readClaimCheck({
         id: "invalid-evidence",
@@ -621,6 +717,6 @@ describe("A correction persisted on a claim mark", () => {
           ],
         },
       })?.correction,
-    ).toBeNull();
+    ).toBeUndefined();
   });
 });

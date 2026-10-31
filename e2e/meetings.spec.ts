@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import type { FakeCapture } from "../src/core/meetings/fakeCapture";
 import type { TestHooks } from "../src/shared/testHooks";
@@ -903,11 +904,39 @@ test("asking during the call: the assistant listens to the live transcript, its 
   await motionSettled(window);
   await shot(window, "meeting-ask-answer-en");
 
-  // The Citation opens the transcript, hidden till now, at that line, beside the meeting's Mind.
+  // The transcript is still being written: let it move on from the version the Answer cited, so
+  // the Citation opens the version it was made from, as any Citation whose Document changed does
+  // (#2159), and its one action takes the live transcript at the same time.
+  const citedHash = await answer.getByTestId("assistant-answer-text").evaluate((dom) => {
+    const found: string[] = [];
+    (dom as unknown as { editor: Editor }).editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation" && typeof node.attrs.contentHash === "string") {
+        found.push(node.attrs.contentHash);
+      }
+    });
+    return found[0] ?? null;
+  });
+  if (citedHash === null) throw new Error("The Citation stores no version.");
+  const transcriptHash = () =>
+    window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const transcript = (await core.listDocuments()).find((each) => each.kind === "transcript");
+      return transcript?.contentHash ?? null;
+    });
+  await expect.poll(transcriptHash, { timeout: 30_000 }).not.toBe(citedHash);
+
+  // The Citation opens the version it was made from, the transcript hidden till now, beside the meeting's Mind.
   await expect(window.getByTestId("viewer-transcript")).toHaveCount(0);
   await pointAndClick(window, chip);
   const card = window.getByTestId("citation-card");
   if (await card.isVisible()) await card.getByTestId("citation-open").click();
+  const viewer = window.getByTestId("viewer");
+  await expect(viewer.getByTestId("viewer-as-cited")).toBeVisible();
+  await expect(
+    viewer.getByTestId("viewer-cited").locator("[data-quote-highlight]").first(),
+  ).toBeInViewport();
+  await pointAndClick(window, viewer.getByTestId("viewer-open-current"));
+  await expect(viewer.getByTestId("viewer-as-cited")).toHaveCount(0);
   const transcript = window.getByTestId("viewer-transcript");
   await expect(transcript).toBeVisible();
   await expect(transcript.locator("[data-quote-highlight]").first()).toBeInViewport();

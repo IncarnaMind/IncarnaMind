@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
-import { markSentence, textOf } from "../../src/core/answers/checks/sentences";
+import { markSentence, textOf, wordsOf } from "../../src/core/answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "../../src/core/answers/citations";
 import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
@@ -18,6 +18,7 @@ import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
 import { augmentFigureFooting, figureSchedule } from "../../src/core/figureSchedule";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { partWithResult, resultFromParts } from "../../src/shared/claimParts";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
 import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -321,7 +322,6 @@ test("a matching source total names an omitted source row only from a checked ex
       result: {
         verdict: "supported",
         evidence: input.citation,
-        correction: null,
         says: null,
         unsupported: null,
         calculation: null,
@@ -352,6 +352,76 @@ test("a matching source total names an omitted source row only from a checked ex
     },
   ]);
   expect(result.verdict).toBe("unsupported");
+  const owned = augmentFigureFooting(
+    blocks,
+    resultFromParts([
+      partWithResult(
+        { kind: "fact", span: { start: 0, end: 2 } },
+        { ...aggregateFigureResults(results, null), figures: results, remainder: null },
+      ),
+    ]),
+    source.documents,
+  );
+  expect(owned.verdict).toBe("unsupported");
+  expect(owned.parts?.[0]?.figures?.at(-1)?.footing).toEqual(total?.footing);
+  expect(owned.parts?.[0]?.figures?.at(-1)?.sourceFooting).toEqual(total?.sourceFooting);
+  expect(resultFromParts(owned.parts ?? [])).toEqual(owned);
+});
+
+test("a sentence's record cites and the versions they read stay through the footing", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Amount", true)),
+      row(cell("l1", "A"), cell("a1", "10")),
+      row(cell("lt", "Total"), cell("at", "10")),
+    ),
+  );
+  const source = sourceTable(["Item\tAmount", "A\t10", "Total\t10"]);
+  const results = figuresInMind(blocks).map((occurrence, index): FigureCheckResult => {
+    const input = source.input(index + 2);
+    return {
+      ...finding(occurrence),
+      sourceInput: input,
+      result: {
+        verdict: "supported",
+        evidence: input.citation,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [{ documentId: "accounts", contentHash: "v1" }],
+        excluded: [],
+      },
+    };
+  });
+  const aggregate = aggregateFigureResults(results, null);
+  const recordCites = [
+    {
+      raw: "Ex. 7 at 3",
+      outcome: "not-found" as const,
+      documentId: "exhibit",
+      contentHash: "e1",
+    },
+  ];
+  const result = augmentFigureFooting(
+    blocks,
+    {
+      ...aggregate,
+      versions: [...aggregate.versions, { documentId: "exhibit", contentHash: "e1" }],
+      recordCites,
+      figures: results,
+      remainder: null,
+    },
+    source.documents,
+  );
+  expect(result.recordCites).toEqual(recordCites);
+  expect(result.versions).toEqual(
+    expect.arrayContaining([
+      { documentId: "accounts", contentHash: "v1" },
+      { documentId: "exhibit", contentHash: "e1" },
+    ]),
+  );
 });
 
 function findBlock(blocks: Y.XmlFragment | Y.XmlElement, id: string): Y.XmlElement {
@@ -372,7 +442,7 @@ function markOccurrence(
 ) {
   if (occurrence.locator.kind !== "text") throw new Error("Not a text occurrence");
   const element = findBlock(blocks, occurrence.locator.from.blockId);
-  const parent = { ...basis(textOf(element)), id: `check-${String(element.getAttribute("id"))}` };
+  const parent = { ...basis(wordsOf(element)), id: `check-${String(element.getAttribute("id"))}` };
   const child = { ...parent, ...finding(occurrence), ...overrides };
   markSentence(element, 0, textOf(element).length, {
     ...parent,
@@ -394,7 +464,6 @@ function checkedResult(
     result: {
       verdict: "supported",
       evidence: input.citation,
-      correction: null,
       says: null,
       unsupported: null,
       calculation: null,

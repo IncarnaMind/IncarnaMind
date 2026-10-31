@@ -20,13 +20,15 @@ import {
   readReference,
   webPageReference,
 } from "../referenceRecords/read";
-import { stripBoilerplate } from "./boilerplate";
+import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
 import { creationDate, pdfDate, w3cDate } from "./creationDate";
+import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
+import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
@@ -55,9 +57,12 @@ import { unreadMessage } from "./unreadMessage";
  * workbook records the hidden sheets and rows past the limit it left out).
  * 14: #1818 (PDF form fields are included in the pages' text). 15:
  * #2042 (a Document's name is in a keyword index of its own, not in each
- * Passage's row; see `NAME_INDEX_CURRENT_SINCE`).
+ * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
+ * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
+ * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
+ * deposition layouts keep their printed page and line anchors).
  */
-export const PROCESSING_VERSION = 15;
+export const PROCESSING_VERSION = 18;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -74,10 +79,15 @@ export const PROCESSING_VERSION = 15;
  * which record the hidden sheets and rows past the limit they left out, their
  * Units as they were; version 14 only PDFs', whose pages include form fields.
  * Version 15 changed no Passage or Unit, only the keyword index (see
- * `NAME_INDEX_CURRENT_SINCE`).
+ * `NAME_INDEX_CURRENT_SINCE`). Version 16 only PDFs', whose wrapped CJK lines
+ * are joined while other text and embeddings stay as they are. Version 17 only
+ * PDFs', whose breaks the page ended itself (a heading's, say) stay. Version 18
+ * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
+ * gains printed page and line anchors and keeps its "Page N" lines, which
+ * cleanup took for running headers; other PDFs' pages come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 14,
+  pdf: 18,
   text: 5,
   markdown: 5,
   docx: 7,
@@ -94,9 +104,10 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * version would build: since version 6, the index reads traditional
  * characters as simplified ones (see ./keywords). Such a Document processed
  * by an older version, and current for its kind, is processed again at
- * startup. One without Han characters has nothing to fold: its version is
- * set to this one without its file being read, so its text is looked
- * through only once.
+ * startup. One without Han characters has nothing to fold and is never
+ * queued by this rule: its version stays where its last read put it (see
+ * `record` in ./index), and each start looks through its name and text once
+ * to find out.
  */
 export const HAN_CURRENT_SINCE = 6;
 
@@ -559,7 +570,24 @@ async function processBytes(
   try {
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
+    // The running headers go while a page's lines are the ones extraction joined as they
+    // always were; the wider join comes after, where it reaches the model.
+    const starts: number[] = [];
+    const stripped =
+      kind === "pdf"
+        ? stripBoilerplate(addDepositionAnchors(extracted.units), BOILERPLATE_PARAMETERS, starts)
+        : extracted.units;
+    // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
+    // layout, as a transcript's numbered lines are, and joining two of them would merge a
+    // table's rows or a deposition's lines (and move their anchors).
+    const pages =
+      kind === "pdf"
+        ? stripped.map((unit, index) => {
+            if (unit.label?.scan || hasPrintedLines(unit)) return unit;
+            const kept = unit.page === null ? undefined : extracted.keptBreaks?.get(unit.page);
+            return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
+          })
+        : stripped;
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
@@ -590,3 +618,12 @@ async function processBytes(
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** The page's kept newlines after the text before them was cut off: the ones cut away are gone. */
+function moved(
+  kept: ReadonlySet<number> | undefined,
+  cut: number,
+): ReadonlySet<number> | undefined {
+  if (kept === undefined || cut === 0) return kept;
+  return new Set([...kept].map((at) => at - cut).filter((at) => at >= 0));
+}

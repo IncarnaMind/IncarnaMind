@@ -3,7 +3,7 @@ import { createOnnxCrossEncoder } from "../../src/core/reranking/onnx";
 
 const create = vi.hoisted(() => vi.fn(async () => ({ release: async () => {} })));
 
-vi.mock("onnxruntime-node", () => ({ InferenceSession: { create } }));
+vi.mock("onnxruntime-node", () => ({ InferenceSession: { create }, Tensor: class {} }));
 vi.mock("@huggingface/tokenizers", () => ({ Tokenizer: class {} }));
 vi.mock("node:fs/promises", () => ({ readFile: async () => "{}" }));
 

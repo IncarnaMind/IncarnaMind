@@ -2,6 +2,7 @@ import type {
   CheckFigure,
   ClaimCheckAttributes,
   ClaimCheckBasis,
+  ClaimCheckPart,
   ClaimJudgment,
   FigureCheckAttributes,
   FigureCheckResult,
@@ -18,8 +19,10 @@ import {
   readFigureInput,
 } from "./calculatedFigures";
 import type { ClaimCheckShown } from "./claimChecks";
+import { checkWithParts, figuresByPart, partWithResult, pendingPart } from "./claimParts";
 import type { FigureFooting } from "./figureFooting";
 import type { Ambiguity, Figure, Reading } from "./figures";
+import type { InlineTextProjection } from "./inlineText";
 
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -285,12 +288,16 @@ export function aggregateFigureResults(
   remainder: ClaimJudgment | null | undefined,
 ): ClaimJudgment {
   const shown = (result: ClaimJudgment): ClaimCheckShown =>
-    result.verdict === "not-checked"
-      ? { state: "not-checked", reason: result.reason }
-      : { state: result.verdict };
+    result.kept
+      ? { state: "kept" }
+      : result.verdict === "not-checked"
+        ? { state: "not-checked", reason: result.reason }
+        : { state: result.verdict };
   const summary = aggregateFigureStates(
     figures.map((figure) =>
-      figureProblem(figure) !== null && figure.result.verdict !== "contradicted"
+      !figure.result.kept &&
+      figureProblem(figure) !== null &&
+      figure.result.verdict !== "contradicted"
         ? { state: "unsupported" }
         : shown(figure.result),
     ),
@@ -311,14 +318,26 @@ export function aggregateFigureResults(
         .map((item) => [`${item.documentId}\n${item.reason}`, item]),
     ).values(),
   ];
-  const selected = all.find((result) => result.verdict === summary.state);
+  const selected = all.find((result) => !result.kept && result.verdict === summary.state);
   if (selected) return { ...selected, versions, excluded };
+  if (summary.state === "kept")
+    return {
+      verdict: "supported",
+      kept: true,
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      versions,
+      excluded,
+    };
   if (summary.state === "unsupported") {
     const total = figures.find((figure) => figureProblem(figure) !== null);
     return {
       verdict: "unsupported",
       evidence: total?.sourceInput?.citation ?? total?.source ?? null,
-      correction: null,
       says: null,
       unsupported: { reason: null, covered: null, uncovered: null, found: true },
       calculation: null,
@@ -357,7 +376,59 @@ export function beginFigureCheck(
   basis: ClaimCheckBasis,
   figures: readonly CheckFigure[],
   selected: ReadonlySet<string> | null,
+  projection?: InlineTextProjection,
 ): ClaimCheckAttributes {
+  if (basis.parts) {
+    const { kept: _kept, ...activeBasis } = basis;
+    const plans = basis.parts;
+    const owned = figuresByPart(basis.text, plans, figures, projection);
+    if (!owned)
+      return checkWithParts(
+        basis,
+        plans.map((part) =>
+          partWithResult(part, {
+            verdict: "not-checked",
+            reason: "malformed",
+            detail: null,
+            versions: [],
+            excluded: [],
+          }),
+        ),
+      );
+    const parts = plans.map((plan, index): ClaimCheckPart => {
+      const previousPart = previous?.parts?.find(
+        (part) =>
+          part.kind === plan.kind &&
+          part.span.start === plan.span.start &&
+          part.span.end === plan.span.end,
+      );
+      const current = previousPart ?? plan;
+      const occurrences = owned[index] ?? [];
+      if (selected && !occurrences.some((figure) => selected.has(figure.id))) return current;
+      if (plan.verdict !== "checking" && selected === null) return current;
+      if (plan.kind === "opinion" && plan.verdict === null && selected === null)
+        return pendingPart(plan);
+      if (!occurrences.length)
+        return selected ? current : { ...pendingPart(plan), verdict: "checking" };
+      const native = occurrences.map((figure) => {
+        const old = current.figures?.find((child) => child.id === figure.id);
+        if (selected && !selected.has(figure.id) && old) return old;
+        return {
+          ...emptyFigureFinding(figure),
+          result: { verdict: "checking" as const, versions: [], excluded: [] },
+        };
+      });
+      return {
+        ...pendingPart(plan),
+        verdict: "checking",
+        figures: native,
+        ...(selected
+          ? current.remainder !== undefined && { remainder: current.remainder }
+          : { remainder: { verdict: "checking", versions: [], excluded: [] } }),
+      };
+    });
+    return checkWithParts(activeBasis, parts);
+  }
   const initial: ClaimCheckAttributes = previous ?? basis;
   const { figures: _figures, remainder: _remainder, ...old } = initial;
   const { kept: _kept, ...current } = basis;
@@ -393,6 +464,42 @@ export function settleFigureCheck(
   check: ClaimCheckAttributes,
   settle: (basis: ClaimCheckBasis) => ClaimCheckBasis,
 ): ClaimCheckAttributes {
+  if (check.parts) {
+    if (
+      !check.parts.some(
+        (part) =>
+          part.verdict === "checking" ||
+          part.figures?.some((figure) => figure.result.verdict === "checking") ||
+          part.remainder?.verdict === "checking",
+      )
+    )
+      return check;
+    const settled = settle(check);
+    const failure = {
+      verdict: "not-checked" as const,
+      reason: settled.reason ?? "failed",
+      detail: settled.detail,
+      versions: settled.versions,
+      excluded: settled.excluded,
+    };
+    const parts = check.parts.map(
+      (part): ClaimCheckPart => ({
+        ...part,
+        ...(part.verdict === "checking" && {
+          verdict: "not-checked",
+          reason: failure.reason,
+          detail: failure.detail,
+        }),
+        ...(part.figures && {
+          figures: part.figures.map((figure) =>
+            figure.result.verdict === "checking" ? { ...figure, result: failure } : figure,
+          ),
+        }),
+        ...(part.remainder?.verdict === "checking" && { remainder: failure }),
+      }),
+    );
+    return checkWithParts(settled, parts);
+  }
   const pending = (basis: ClaimCheckBasis) =>
     basis.request === check.request && basis.state === "checking" ? settle(basis) : basis;
   return {

@@ -355,12 +355,12 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
 
     const none = toolModel(
       { tool: "edit_mind", input: { instruction: "Shorten it" } },
-      "No Mind is open.",
+      "No Note is open.",
     );
     const other = await setUp(none);
     const unfocused = await ask(other.core, { text: "Shorten the summary" });
     expect(mindCalls(unfocused)[0]?.status).toBe("failed");
-    expect(lastResult(none)).toContain("No Mind is open beside the assistant");
+    expect(lastResult(none)).toContain("No Note is open beside the assistant");
     expect(pendingProposals(other.client.blocks)).toEqual([]);
     expect(await checkpointsOf(other.core, other.mind.id)).toHaveLength(0);
   });
@@ -625,6 +625,122 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     expect(shown[2]).toContain("[-really -]");
   });
 
+  // protects=the model is told which sentences are no longer in the text, so what it says was removed is what was; fails_when=the result names none, or names a sentence that stays; no_claim=how the model words its reply.
+  test("an edit's result names the sentences that are no longer in the text", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+      if (passage !== undefined) {
+        return {
+          text: `${passage.replace("Work is full time. ", "")}\n<why>Removed the hours.</why>`,
+        };
+      }
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: "Remove the part about hours" } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [note("Pay is monthly. Work is full time. The post is senior.")]);
+    await client.settled();
+
+    await ask(core, { text: "Remove the part about the hours", mindId: mind.id });
+
+    const told = lastResult(model);
+    expect(told).toContain(
+      "no longer in the text as they were (taken out or reworded): “Work is full time.”",
+    );
+    expect(told).not.toContain("“Pay is monthly.”");
+  });
+
+  // protects=the result names what the Mind really lost, not what the rewrite left out: a paragraph the reply drops stays unless the request asks to remove it, and the model isn't told it went; fails_when=the result lists a paragraph that is still there, or leaves out one that went; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Make it shorter",
+      stays: true,
+      notes: ["Pay is monthly.", "Work is full time, Monday to Friday."],
+    },
+    {
+      asked: "删去整个“工作安排”部分，其他部分保持不变。",
+      stays: false,
+      notes: ["薪酬按月发放。", "全职，周一至周五上班。"],
+    },
+  ])(
+    "a paragraph the reply leaves out is told as gone only when it went: $asked",
+    async ({ asked, stays, notes }) => {
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        const passage = /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1];
+        if (passage !== undefined) {
+          return { text: `${passage.split("\n\n")[0]} Noted.\n<why>Done.</why>` };
+        }
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      });
+      const { core, mind, client } = await setUp(model);
+      writeMind(client, [note(notes[0] as string), note(notes[1] as string)]);
+      await client.settled();
+
+      await ask(core, { text: asked, mindId: mind.id });
+
+      await client.settled();
+      const told = lastResult(model);
+      expect(told).toContain(
+        stays ? "they are still in the text" : "no longer in the text as they were",
+      );
+      expect(told).toContain(`“${notes[1]}”`);
+      expect(told).not.toContain(
+        stays ? "no longer in the text as they were" : "they are still in the text",
+      );
+      expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
+    },
+  );
+
+  // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
+  test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>/.test(call.prompt))
+        return { text: "<why>The section was already removed.</why>" };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: "Tidy the section" } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [note("Pay is monthly."), note("Work is full time.")]);
+    await client.settled();
+    const before = shownWithChanges(client);
+
+    await ask(core, { text: "Tidy it", mindId: mind.id });
+
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(before);
+    expect(lastResult(model)).toContain("The section was already removed.");
+    expect(lastResult(model)).toContain(
+      "the text is as it was: don't say it was changed, removed or already done",
+    );
+  });
+
+  // protects=a section the Mind doesn't have is refused with the Mind's headings, so the model can name one on its next call; fails_when=the refusal gives no headings, or something is changed; no_claim=that a real model then names one.
+  test("a section the Mind doesn't have is refused with the Mind's own headings", async () => {
+    const model = toolModel(
+      { tool: "edit_mind", input: { part: "Hours.", instruction: "Remove it" } },
+      "Done.",
+    );
+    const { core, mind, client } = await setUp(model);
+    writeMind(client, [
+      heading(2, "Role"),
+      note("The post is senior."),
+      heading(2, "Working pattern"),
+      note("Full time."),
+    ]);
+    await client.settled();
+    const before = shownWithChanges(client);
+
+    await ask(core, { text: "Remove the part about the hours", mindId: mind.id });
+
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(before);
+    expect(lastResult(model)).toContain("its headings are “Role”, “Working pattern”");
+  });
+
   // protects=a wrong start is refused instead of the request's ordinal overriding the model; fails_when=the paragraph the pattern guessed is edited anyway; no_claim=that a real model chooses a wrong start.
   test("a wrong start does not fall back to the paragraph the request names", async () => {
     const model = toolModel(
@@ -866,6 +982,67 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
       },
     ]);
   });
+
+  /**
+   * A model that writes CONTENT and a third paragraph with `tool`, its input streamed; `cut`: the
+   * reply reaches its output limit inside the third paragraph, so the call is never whole.
+   */
+  function writing(tool: "add_to_mind" | "create_mind", cut: boolean) {
+    const content = `${CONTENT}\n\nThe warehouse lease ends in March.`;
+    const input = tool === "create_mind" ? { title: "Risks", content } : { content };
+    const json = JSON.stringify(input);
+    return scriptedModel(
+      ({ results }): ScriptedReply =>
+        results.length === 0
+          ? {
+              calls: [
+                {
+                  tool,
+                  input,
+                  streamInput: true,
+                  ...(cut && { raw: json.slice(0, json.indexOf("lease ends")) }),
+                },
+              ],
+              cutOff: cut,
+            }
+          : { text: "Added a risks section." },
+    );
+  }
+
+  // protects=a write cut at its output limit partway leaves the Note as it was, with no Note made for it, and asks nothing more, so Try again can't write it twice; fails_when=the paragraphs it finished stay, a Note it made stays, or a second request carries the cut call back (#2275).
+  test.each(["add_to_mind", "create_mind"] as const)(
+    "%s cut at its limit takes back what it wrote, where a whole one stays",
+    async (tool) => {
+      const whole = await setUp(writing(tool, false));
+      await ask(whole.core, { text: "Add a risks section", mindId: whole.mind.id });
+      await whole.client.settled();
+      const model = writing(tool, true);
+      const { core, mind, client } = await setUp(model);
+
+      const answer = await ask(core, { text: "Add a risks section", mindId: mind.id }, "failed");
+
+      await client.settled();
+      expect(answer.errorKind).toBe("cut-short");
+      expect(answerRequests(model)).toHaveLength(1);
+      expect(changesIn(answer)).toEqual([]);
+      const before = ["Summary", "The quarter was very good, and sales were really strong."];
+      expect(shownWithChanges(client)).toEqual(before);
+      const risks = async (each: Core) =>
+        (await each.listMinds()).filter((listed) => listed.title === "Risks");
+      if (tool === "create_mind") {
+        expect(await risks(whole.core)).toHaveLength(1);
+        expect(await risks(core)).toEqual([]);
+      } else {
+        expect(shownWithChanges(whole.client)).toEqual([
+          ...before,
+          "+ Risks",
+          "+ The supplier is late.",
+          "+ The courier contract renews in February.",
+          "+ The warehouse lease ends in March.",
+        ]);
+      }
+    },
+  );
 });
 
 describe("A name that fits several places asks which one", { timeout: 30_000 }, () => {
@@ -1081,7 +1258,7 @@ describe("A name that fits several places asks which one", { timeout: 30_000 }, 
     expect(lastResult(model)).toContain(
       '"There are 2 headings called “Notes”: number 1 and number 2. Which one?"',
     );
-    expect(lastResult(model)).toContain("select the one they mean in the Mind");
+    expect(lastResult(model)).toContain("select the one they mean in the Note");
     await expectUntouched(set, ["Notes", "Note one.", "Notes", "Note two."]);
   });
 

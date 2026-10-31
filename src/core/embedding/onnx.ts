@@ -9,8 +9,10 @@
  * what sentence-transformers and transformers.js compute for it. One text at a
  * time: with the int8 model, batching changes the results.
  */
+
 import { readFile } from "node:fs/promises";
 import type { Embedder, EmbeddingModelFiles } from "../adapters";
+import { ONNX_RUNTIME, TOKENIZERS } from "../engineModules";
 
 type OnnxRuntime = typeof import("onnxruntime-node");
 type InferenceSession = import("onnxruntime-node").InferenceSession;
@@ -28,9 +30,8 @@ export function createOnnxEmbedder(): Embedder {
   let loading: Promise<Loaded> | undefined;
 
   async function load(files: EmbeddingModelFiles): Promise<Loaded> {
-    // Loaded only when needed: the native runtime is large.
-    const ort = await import("onnxruntime-node");
-    const { Tokenizer } = await import("@huggingface/tokenizers");
+    const ort = await ONNX_RUNTIME.load();
+    const { Tokenizer } = await TOKENIZERS.load();
     const [tokenizerJson, tokenizerConfig] = await Promise.all([
       readFile(files.tokenizer, "utf8"),
       readFile(files.tokenizerConfig, "utf8"),

@@ -29,7 +29,6 @@ const CITATIONS = [
 const verdict = (kind: "supported" | "unsupported"): ClaimCheckResult => ({
   verdict: kind,
   evidence: null,
-  correction: null,
   says: null,
   unsupported: null,
   calculation: null,

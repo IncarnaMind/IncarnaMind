@@ -5,7 +5,7 @@
  * background without slowing an Answer.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -53,14 +53,21 @@ const MOON = "The Moon raises two bulges of water on the Earth.";
 /**
  * A viewer drawing off screen, as the desktop app's hidden window does: it
  * keeps what it was asked to draw, and draws a picture of one pixel. Held,
- * it waits until let go, or until the drawing is called off.
+ * it waits until let go, or until the drawing is called off. Told to fail,
+ * its next drawings fail as the compositor's do when it gives no picture.
  */
 function fakeViewer(steps: string[] = []) {
   const asked: PageCaptureRequest[] = [];
   let held: { promise: Promise<void>; release: () => void } | null = null;
+  let failing = 0;
   const capturePage: CapturePage = async (request, signal) => {
     asked.push(request);
     steps.push("drawing");
+    if (failing > 0) {
+      failing--;
+      steps.push("failed");
+      throw new Error("UnknownVizError");
+    }
     if (held) {
       const { promise } = held;
       await new Promise<void>((resolve, reject) => {
@@ -95,6 +102,23 @@ function fakeViewer(steps: string[] = []) {
       held?.release();
       held = null;
     },
+    /** The next `count` drawings fail. */
+    fail(count: number) {
+      failing = count;
+    },
+  };
+}
+
+/** A log that keeps what it is told, for a test to read. */
+function keptLog() {
+  const lines: { event: string; fields?: LogFields }[] = [];
+  const keep = (event: string, fields?: LogFields) => {
+    lines.push({ event, fields });
+  };
+  return {
+    lines,
+    log: { info: keep, warn: keep, error: keep },
+    of: (prefix: string) => lines.filter((line) => line.event.startsWith(prefix)),
   };
 }
 
@@ -106,9 +130,9 @@ const pictures = (dataDir: string) => {
 
 /** The cited pages recorded, saved or waiting, and not gone. */
 const liveRows = (dataDir: string) =>
-  queryDatabase<{ id: string; image_type: string | null }>(
+  queryDatabase<{ id: string; image_type: string | null; content_hash: string; tries: number }>(
     dataDir,
-    "SELECT id, image_type FROM cited_pages WHERE deleted_at IS NULL ORDER BY rowid",
+    "SELECT id, image_type, content_hash, tries FROM cited_pages WHERE deleted_at IS NULL ORDER BY rowid",
   );
 
 // Freeze alpha.4's retained-unit cleanup (e61443ec4), so a current reader cannot mask incompatibility.
@@ -343,6 +367,12 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     const [citation] = citationsIn(client, answerId);
     if (!citation) throw new Error("Nothing was cited.");
     const saved = await savedPage(core, citation);
+    // The viewer reads it by the Citation's place, through the bridge (#2159).
+    const { documentId, contentHash, pageFrom, pageTo, location } = citation;
+    if (documentId === null || contentHash === null) throw new Error("The Citation has no place.");
+    expect(
+      await core.readCitedPage({ documentId, contentHash, pageFrom, pageTo, location }),
+    ).toEqual(saved);
 
     await rm(document.path);
     await core.reconcileDocuments();
@@ -350,6 +380,10 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     expect(await core.citedPageImage(citation)).toEqual(saved);
     await core.deleteDocument(document.id);
     expect(await core.citedPageImage(citation)).toEqual(saved);
+    // The window reads a live Document's page only: the source pack still has the deleted one's.
+    await expect(
+      core.readCitedPage({ documentId, contentHash, pageFrom, pageTo, location }),
+    ).rejects.toThrow();
     core.close();
 
     const again = startCore(dataDir);
@@ -491,7 +525,7 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     expect(pictures(dataDir)).toEqual([]);
   });
 
-  test("a page is drawn only from the version cited: a file that changes first isn't, and an old version's page stays", async () => {
+  test("a page is drawn only from the version cited: a file that changes first isn't, its page waits, and an old version's page stays", async () => {
     const viewer = fakeViewer();
     const v1 = `# Tides\n\n${SPRING}\n`;
     const v2 = `# Tides\n\n${SPRING} Neap tides fall between them.\n`;
@@ -502,18 +536,11 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
       ],
       answer: "Spring tides come at new and full moon [^1].",
     });
-    const warnings: { event: string; fields?: LogFields }[] = [];
-    const log = {
-      info: () => {},
-      error: () => {},
-      warn: (event: string, fields?: LogFields) => {
-        warnings.push({ event, fields });
-      },
-    };
+    const logged = keptLog();
     const { core, client, mind, dataDir, documents } = await setUpWithDocuments(
       model,
       [{ name: "Notes.md", contents: v1 }],
-      { capturePage: viewer.capturePage, log },
+      { capturePage: viewer.capturePage, log: logged.log },
     );
     const [document] = documents;
     if (!document?.path) throw new Error("Nothing was added.");
@@ -526,18 +553,24 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     await vi.waitFor(() => expect(viewer.steps).toEqual(["drawing"]));
     await writeFile(document.path, v2);
     viewer.release();
-    await vi.waitFor(() => expect(liveRows(dataDir)).toEqual([]));
-    expect(await core.citedPageImage(changed)).toBeNull();
-    expect(pictures(dataDir)).toEqual([]);
-    expect(warnings.filter((warning) => warning.event.startsWith("citedPage."))).toEqual([
+    await vi.waitFor(() => expect(logged.of("citedPage.")).toHaveLength(1));
+    expect(logged.of("citedPage.")).toEqual([
       {
         event: "citedPage.notSaved",
         fields: {
           documentId: document.id,
           reason: "The Document changed while its page was drawn.",
+          tries: 0,
+          lasting: false,
         },
       },
     ]);
+    // It waits, not saved, for its file to have that version again: no drawing failed.
+    expect(liveRows(dataDir)).toMatchObject([
+      { image_type: null, content_hash: sha256(v1), tries: 0 },
+    ]);
+    expect(await core.citedPageImage(changed)).toBeNull();
+    expect(pictures(dataDir)).toEqual([]);
 
     // The new version is cited and saved; when the file changes again, its page stays.
     await core.reconcileDocuments();
@@ -548,6 +581,11 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
     if (!cited) throw new Error("Nothing was cited.");
     expect(cited.contentHash).toBe(sha256(v2));
     const saved = await savedPage(core, cited);
+    // Each drawing was of the version its Citation quotes.
+    expect(viewer.asked.map((request) => request.document.contentHash)).toEqual([
+      sha256(v1),
+      sha256(v2),
+    ]);
     await writeFile(document.path, v1);
     await core.reconcileDocuments();
     await waitForDocuments(core, (listed) => expect(listed[0]?.contentHash).toBe(sha256(v1)));
@@ -641,6 +679,172 @@ describe("The cited page, saved when a Citation is made", { timeout: 60_000 }, (
       "Tides",
       "Moon",
     ]);
+  });
+
+  test("a page whose picture the compositor didn't give waits, and is saved when it is next asked for", async () => {
+    const viewer = fakeViewer();
+    const logged = keptLog();
+    const model = citingModel({
+      query: "barrier crest",
+      records: (passages) => [
+        {
+          marker: 1,
+          passage: passages[0]?.id ?? "none",
+          location: "§ 2.1 Sensitivity",
+          quote: "Raising the barrier crest by 40 centimetres",
+        },
+      ],
+      answer: "The crest helps [^1].",
+    });
+    viewer.fail(1);
+    const { core, client, mind, dataDir, documents } = await setUpWithDocuments(
+      model,
+      [{ name: "Review.docx", contents: fixture("Coastal Flood Risk Review.docx") }],
+      { capturePage: viewer.capturePage, log: logged.log },
+    );
+    const { answerId } = await askAndFinish(core, client, mind.id, "What does the crest do?");
+    const [citation] = citationsIn(client, answerId);
+    if (!citation) throw new Error("Nothing was cited.");
+
+    // Not saved, and not given up: it waits, one failure counted, and nothing more is drawn.
+    await vi.waitFor(() => expect(viewer.steps).toEqual(["drawing", "failed"]));
+    await vi.waitFor(() => expect(liveRows(dataDir)).toMatchObject([{ tries: 1 }]));
+    expect(liveRows(dataDir)).toMatchObject([{ image_type: null }]);
+    expect(pictures(dataDir)).toEqual([]);
+
+    // Asked for, as a source pack does, it is drawn again and saved, of the version cited.
+    expect(await core.citedPageImage(citation)).toBeNull();
+    expect((await savedPage(core, citation)).type).toBe("image/png");
+    expect(viewer.steps).toEqual(["drawing", "failed", "drawing", "drawn"]);
+    expect(viewer.asked.map((request) => request.document.contentHash)).toEqual([
+      documents[0]?.contentHash,
+      documents[0]?.contentHash,
+    ]);
+    expect(pictures(dataDir)).toEqual([`${liveRows(dataDir)[0]?.id}.png`]);
+    // The log keeps the failed drawing apart from the one that saved it.
+    expect(logged.of("citedPage.")).toEqual([
+      {
+        event: "citedPage.notSaved",
+        fields: {
+          documentId: documents[0]?.id,
+          reason: "UnknownVizError",
+          tries: 1,
+          lasting: false,
+        },
+      },
+      { event: "citedPage.saved", fields: { documentId: documents[0]?.id, tries: 2 } },
+    ]);
+  });
+
+  test("a page whose file is moved away before the Library notices waits, counts no failure, and is drawn when the file is back", async () => {
+    const viewer = fakeViewer();
+    const logged = keptLog();
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id ?? "none", location: "§ Tides", quote: SPRING },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    viewer.fail(1);
+    const { core, client, mind, dataDir, documents } = await setUpWithDocuments(
+      model,
+      [{ name: "Notes.md", contents: `# Tides\n\n${SPRING}\n` }],
+      { capturePage: viewer.capturePage, log: logged.log },
+    );
+    const [document] = documents;
+    if (!document?.path) throw new Error("Nothing was added.");
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+    const [citation] = citationsIn(client, answerId);
+    if (!citation) throw new Error("Nothing was cited.");
+    await vi.waitFor(() => expect(liveRows(dataDir)).toMatchObject([{ tries: 1 }]));
+
+    // Moved away, then its page asked for, as an export does, before the Library has noticed.
+    const moved = `${document.path}.moved`;
+    await rename(document.path, moved);
+    expect(await core.citedPageImage(citation)).toBeNull();
+    await vi.waitFor(() => expect(logged.of("citedPage.notSaved")).toHaveLength(2));
+    expect(logged.of("citedPage.notSaved").at(-1)?.fields).toMatchObject({
+      reason: "The Document's file isn't there.",
+      tries: 1,
+      lasting: false,
+    });
+    expect(viewer.asked).toHaveLength(1);
+    expect(liveRows(dataDir)).toMatchObject([{ image_type: null, tries: 1 }]);
+
+    // Back, with the version cited: drawn at the next start, from that version.
+    await rename(moved, document.path);
+    await core.reconcileDocuments();
+    await waitForDocuments(core, (listed) => expect(listed[0]?.fileStatus).toBe("available"));
+    core.close();
+    const again = startCore(dataDir, { capturePage: viewer.capturePage });
+    expect((await savedPage(again, citation)).type).toBe("image/png");
+    expect(viewer.asked.map((request) => request.document.contentHash)).toEqual([
+      document.contentHash,
+      document.contentHash,
+    ]);
+  });
+
+  test("a page whose drawing keeps failing waits, is tried at each later chance up to three times, then again when cited again", async () => {
+    const viewer = fakeViewer();
+    const logged = keptLog();
+    const model = citingModel({
+      query: "spring tides",
+      records: (passages) => [
+        { marker: 1, passage: passages[0]?.id ?? "none", location: "§ Tides", quote: SPRING },
+      ],
+      answer: "Spring tides come at new and full moon [^1].",
+    });
+    viewer.fail(Number.POSITIVE_INFINITY);
+    const { core, client, mind, dataDir } = await setUpWithDocuments(
+      model,
+      [{ name: "Notes.md", contents: `# Tides\n\n${SPRING}\n` }],
+      { capturePage: viewer.capturePage, log: logged.log },
+    );
+    const first = await askAndFinish(core, client, mind.id, "When are spring tides?");
+    const [citation] = citationsIn(client, first.answerId);
+    if (!citation) throw new Error("Nothing was cited.");
+    const tried = (times: number) =>
+      vi.waitFor(() => {
+        expect(viewer.asked).toHaveLength(times);
+        expect(liveRows(dataDir)).toMatchObject([{ image_type: null, tries: times }]);
+      });
+    await tried(1);
+    // Asked for: tried again.
+    expect(await core.citedPageImage(citation)).toBeNull();
+    await tried(2);
+    core.close();
+
+    // The next start tries again: the third failure, which lasts.
+    const second = startCore(dataDir, { capturePage: viewer.capturePage, log: logged.log });
+    await tried(3);
+    expect(logged.of("citedPage.notSaved").map((line) => line.fields?.lasting)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    second.close();
+
+    // Not on its own any more: neither the start after nor asking for its page draws it.
+    const third = startCore(dataDir, { capturePage: viewer.capturePage, log: logged.log });
+    expect(await third.citedPageImage(citation)).toBeNull();
+    expect(viewer.asked).toHaveLength(3);
+    expect(liveRows(dataDir)).toMatchObject([{ image_type: null, tries: 3 }]);
+    third.close();
+
+    // Cited again, it is tried again, and saved once a drawing gives its picture.
+    viewer.fail(0);
+    const fourth = startCore(dataDir, {
+      capturePage: viewer.capturePage,
+      createChatModel: () => model,
+    });
+    const fourthClient = await connectToMind(fourth, mind.id);
+    const again = await askAndFinish(fourth, fourthClient, mind.id, "When are spring tides again?");
+    const [cited] = citationsIn(fourthClient, again.answerId);
+    if (!cited) throw new Error("Nothing was cited.");
+    await savedPage(fourth, citation);
+    expect(viewer.asked).toHaveLength(4);
+    expect(liveRows(dataDir)).toHaveLength(1);
   });
 
   test("a drawing a quit cut short is made at the next start, and what a quit left half written goes", async () => {

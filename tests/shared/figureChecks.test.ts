@@ -26,7 +26,6 @@ function basis(state: ClaimCheckBasis["state"] = "supported"): ClaimCheckBasis {
     modelId: "model",
     text: sentence,
     evidence: null,
-    correction: null,
     says: null,
     unsupported: null,
     calculation: null,

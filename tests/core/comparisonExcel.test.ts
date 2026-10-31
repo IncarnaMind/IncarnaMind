@@ -5,6 +5,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { describe, expect, onTestFinished, test } from "vitest";
+import * as Y from "yjs";
 import { MIND_CONTENT_FIELD } from "../../src/core";
 import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import type { CitedWork } from "../../src/core/api";
@@ -57,7 +58,7 @@ describe("A comparison table exported to Excel", () => {
     const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
     if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
     expect(saved).toMatchObject({ unverifiedCitations: 0 });
-    expect(saved.file.name).toBe("Tides.xlsx");
+    expect(saved.file.name).toBe("Comparison table.xlsx");
 
     const { sheets } = await shownWorkbook(saved.file.path);
     expect(sheets.map((sheet) => sheet.name)).toEqual(["Comparison table", "Sources"]);
@@ -86,6 +87,27 @@ describe("A comparison table exported to Excel", () => {
     expect(table.at("B2").note).toContain("“Revenue: $1.2m.”");
     expect(table.at("F2").note).not.toContain("As written");
     expect(table.at("F2").note).toContain("“Auditor: Smith & Partners, appointed in 2019.”");
+  });
+
+  // protects=a named table names the workbook and its table sheet; fails_when=the file or sheet keeps the Mind's name or the default "Comparison table"; no_claim=Excel's own rendering of sheet names.
+  test("names the file and the sheet after the table's own name", async () => {
+    const { core, client, mind, tableId } = await compareReports();
+    client.doc.transact(() => {
+      const table = client.doc
+        .getXmlFragment(MIND_CONTENT_FIELD)
+        .toArray()
+        .find(
+          (block): block is Y.XmlElement =>
+            block instanceof Y.XmlElement && block.getAttribute("id") === tableId,
+        );
+      table?.setAttribute("title", "Refinancing offers");
+    });
+    await client.settled();
+    const saved = await core.saveComparisonExport({ mindId: mind.id, tableId });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    expect(saved.file.name).toBe("Refinancing offers.xlsx");
+    const { sheets } = await shownWorkbook(saved.file.path);
+    expect(sheets.map((sheet) => sheet.name)).toEqual(["Refinancing offers", "Sources"]);
   });
 
   // protects=the Sources sheet lists each Citation, a row each, with its Document, Location, quote and check, and opens the cell that cites it; fails_when=a Citation is missing, or its row links elsewhere; no_claim=none beyond protects.
@@ -207,6 +229,8 @@ describe("A comparison table exported to Excel", () => {
     const bookOf = (label?: string) =>
       comparisonBook({
         reading: reading(label),
+        title: "Comparison table",
+        language: "en",
         textLanguage: "en",
         t,
         facts: () => ({

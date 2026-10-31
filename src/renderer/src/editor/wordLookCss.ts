@@ -1,6 +1,7 @@
 import type { WordLook, WordParagraphLook, WordRunLook } from "../../../core/api";
-import { lineHeightCss } from "../../../shared/paragraphFormat";
 import { attribute, border, pt, rule } from "./wordCss";
+import { fontStack } from "./wordFonts";
+import { paragraphLineHeight } from "./wordLineHeights";
 import { DEFAULT_BODY, pageWidth, wordLookZoomCss } from "./wordLookZoom";
 import { WORD_LOOK_DOM_ATTRIBUTE, WORD_RUN_DOM_ATTRIBUTE } from "./wordSchema";
 import { wordTableCss } from "./wordTableCss";
@@ -38,29 +39,9 @@ const HIGHLIGHTS = new Map([
   ["white", "#FFFFFF"],
 ]);
 
-/** The family name decides the fallback's kind: sans, mono, else the Mind's serif. */
-const SANS =
-  /sans|gothic|arial|helvetica|calibri|carlito|segoe|verdana|tahoma|trebuchet|aptos|roboto|lato|yahei|雅黑|黑体|hei\b|dengxian|等线|pingfang|苹方/i;
-const MONO = /mono|courier|consolas|menlo/i;
-
 export const wordLookScope = (mindId: string) => `word-look-${mindId}`;
 
 const escapedClass = (name: string) => name.replace(/[^\w-]/g, (character) => `\\${character}`);
-
-const quoted = (font: string) => `"${font.replace(/["\\]/g, "")}"`;
-
-function fontFamily(look: WordRunLook): string | null {
-  const fonts = [...new Set([look.font, look.eastAsia])].filter((each): each is string =>
-    Boolean(each),
-  );
-  if (fonts.length === 0) return null;
-  const fallback = fonts.some((font) => MONO.test(font))
-    ? "var(--font-mono)"
-    : fonts.some((font) => SANS.test(font))
-      ? "var(--font-sans)"
-      : "var(--font-serif)";
-  return `${fonts.map(quoted).join(", ")}, ${fallback}`;
-}
 
 /**
  * What a run's look sets, every property so a run never keeps its
@@ -69,7 +50,7 @@ function fontFamily(look: WordRunLook): string | null {
  */
 function runDeclarations(look: WordRunLook): string[] {
   const size = look.vertical && look.size !== undefined ? look.size * RAISED_SIZE : look.size;
-  const family = fontFamily(look);
+  const family = fontStack(look);
   return [
     family ? `font-family: ${family}` : "",
     size !== undefined ? `font-size: ${pt(size)}` : "",
@@ -90,7 +71,12 @@ function inlineDeclarations(look: WordRunLook): string[] {
   ].filter(Boolean);
 }
 
-function paragraphDeclarations(look: WordParagraphLook): string[] {
+function paragraphDeclarations(
+  look: WordParagraphLook,
+  run: WordRunLook | undefined,
+  word: WordLook,
+): string[] {
+  const { single, lineHeight } = paragraphLineHeight(look, run, word, pt);
   return [
     `text-align: ${look.align === "distribute" ? "justify" : (look.align ?? "left")}`,
     look.align === "distribute" ? "text-align-last: justify" : "",
@@ -99,7 +85,8 @@ function paragraphDeclarations(look: WordParagraphLook): string[] {
     `text-indent: ${look.firstLine ? pt(look.firstLine) : "0"}`,
     `margin-top: ${look.before ? pt(look.before) : "0"}`,
     `margin-bottom: ${look.after ? pt(look.after) : "0"}`,
-    `line-height: ${lineHeightCss(look.line, pt)}`,
+    `--word-single: ${single}`,
+    `line-height: ${lineHeight}`,
     look.characterSize ? `--word-char: ${pt(look.characterSize)}` : "",
     // A heading's bold is the app's; the text's own marks carry the file's.
     "font-weight: 400",
@@ -145,7 +132,10 @@ export function wordLookCss(mindId: string, look: WordLook): string {
         : undefined;
     const selector = `${scope} ${attribute(WORD_LOOK_DOM_ATTRIBUTE, key)}`;
     rules.push(
-      rule(selector, [...paragraphDeclarations(paragraph), ...(run ? runDeclarations(run) : [])]),
+      rule(selector, [
+        ...(run ? runDeclarations(run) : []),
+        ...paragraphDeclarations(paragraph, run, look),
+      ]),
     );
     if (alignsColumns(paragraph)) {
       rules.push(
@@ -181,6 +171,10 @@ export function wordLookCss(mindId: string, look: WordLook): string {
   rules.push(
     `${scope} :is(code, a) [${WORD_RUN_DOM_ATTRIBUTE}] { font-family: inherit; color: inherit; }`,
     `${scope} [${WORD_LOOK_DOM_ATTRIBUTE}] :is([contenteditable="false"], .citation-marker) { text-indent: 0; letter-spacing: normal; text-transform: none; font-variant-caps: normal; }`,
+  );
+  // A table of contents kept as is takes the room its lines take in the file, not a box's.
+  rules.push(
+    `${scope} .word-block[data-word-lines] { gap: 0; padding: 0; border-radius: 0; background: none; box-shadow: none; }`,
   );
   rules.push(...wordTableCss(scope, look), ...wordLookZoomCss(scope, look));
   return rules.filter(Boolean).join("\n");

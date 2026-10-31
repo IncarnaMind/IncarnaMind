@@ -40,7 +40,7 @@ const SENDS_EN = {
   onRequest:
     "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
+    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
     "each sentence you check",
     "the paragraph you pause on, for writing suggestions",
     "the text you ask the assistant to change",
@@ -51,7 +51,7 @@ const SENDS_ZH = {
   onRequest:
     "给文档打标签和整理，会发送每个文档的名称和摘录，以及你的文件夹和标签名称；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   items: [
-    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个），以及会议的转写稿",
+    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
     "你核对的每一句话",
     "写作建议时你停下的那一段",
     "你让助手修改的文字",
@@ -144,7 +144,8 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
     "Sends each new Document’s name and first passages, and your Folder and Tag names, to OpenAI.",
   );
-  await automatic.check();
+  await automatic.click();
+  await expect(automatic).toBeChecked();
   await closeSettings(window);
 
   // A Document added since is tagged without asking.
@@ -168,7 +169,15 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging", "classification"]) {
+  for (const flow of [
+    "chat",
+    "edits",
+    "checks",
+    "document-check",
+    "suggestions",
+    "tagging",
+    "classification",
+  ]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );

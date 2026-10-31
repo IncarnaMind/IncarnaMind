@@ -13,6 +13,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   type WritingPlace,
 } from "../../src/core";
+import { translate } from "../../src/shared/i18n";
 import {
   aiUseOfAccepted,
   outOfDateProposals,
@@ -819,6 +820,34 @@ describe("Edit with AI", () => {
     expect(await quitting).toEqual({ kind: "cancelled" });
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
+
+  test.each([
+    "Remove the whole part about hours (full time, Monday to Friday) and leave the rest",
+    "Delete the list item about hours",
+    "删去整个“工作安排”部分（全职、周一至周五、核心工作时间），其他部分保持不变。",
+    "删去这一条关于工时的列表项（全职工作，周一至周五）。",
+  ])(
+    "a part named in a longer request is removed by a reply of no text but why: %s",
+    async (asked) => {
+      const { core, mind, client } = await setUp(
+        editingModel(() => "<why>Removed, as asked.</why>"),
+      );
+      const hours = paragraph(text("Work is full time, Monday to Friday."));
+      const pay = paragraph(text("Pay is monthly."));
+      writeMind(client, [hours, pay]);
+      await client.settled();
+
+      const result = await core.editWithAi(
+        wholeParagraph(client, mind.id, hours.attrs.id, "instruction", asked),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(shownWithChanges(client)).toEqual([
+        "- Work is full time, Monday to Friday.",
+        "Pay is monthly.",
+      ]);
+    },
+  );
 
   test("asked to remove a paragraph, a reply of no text but why removes it; any other empty reply fails with its reason", async () => {
     const { core, mind, client } = await setUp(
@@ -1950,6 +1979,38 @@ describe("Edit with AI and the model's service", () => {
       await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
     ).toEqual({ kind: "local-mode" });
     expect(calls).toHaveLength(1);
+  });
+
+  // protects=a selection whose rewrite can't fit Edit with AI's output limit is turned away before anything is sent, with the shared "too much text" line in English and Chinese, while a long one that fits is sent; fails_when=it is sent and its rewrite comes back cut short (#2275).
+  test("a selection whose rewrite would pass the output limit isn't sent; a long one that fits is", async () => {
+    const calls: EditCall[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(editingModel(() => "潮汐。", calls)).createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    await core.allowDataFlow("edits", "https://api.openai.com");
+    const mind = await core.createMind({ title: "Long" });
+    const client = await connectToMind(core, mind.id);
+    // 9,000 Chinese characters rewrite in about 13,500 tokens; 11,000 in about 16,500, over 16,000.
+    const fits = paragraph(text("潮".repeat(9_000)));
+    const over = paragraph(text("汐".repeat(11_000)));
+    writeMind(client, [fits, over]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, fits.attrs.id, "improve")),
+    ).toMatchObject({ kind: "proposed" });
+    expect(calls).toHaveLength(1);
+    await resolveChanges(client, "reject");
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, over.attrs.id, "improve")),
+    ).toEqual({ kind: "too-long" });
+    expect(calls).toHaveLength(1);
+    expect(translate("en", "edit.problem.too-long")).toBe(
+      "Too much text for the model: select less.",
+    );
+    expect(translate("zh-CN", "edit.problem.too-long")).toBe("选中的文字太长，请少选一些。");
   });
 
   test("Local mode turned on while the edit waits for consent: the prompt closes, nothing is sent, and the edit says Local mode (#1120)", async () => {

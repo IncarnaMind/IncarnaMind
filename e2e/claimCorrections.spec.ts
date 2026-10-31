@@ -193,7 +193,7 @@ for (const [language, width] of [
     await expect(firstLine.locator("[data-generated]")).toHaveText("38.6%");
     await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
     await expect(window.getByTestId("undo-line")).toContainText(
-      translate(language, "claim.correction.done"),
+      translate(language, "claim.usedDocumentWording"),
     );
     await screenshot(window, `correction-applied-${language}`);
     await pointAndClick(window, window.getByTestId("undo-action"));
@@ -213,7 +213,7 @@ for (const [language, width] of [
 
     await pointAndClick(window, marks.nth(1));
     await expect(card.getByTestId("claim-correct")).toHaveText(
-      translate(language, "claim.correction.long"),
+      translate(language, "claim.useDocumentWording"),
     );
     await withinCard(window);
     await window.keyboard.press("Escape");

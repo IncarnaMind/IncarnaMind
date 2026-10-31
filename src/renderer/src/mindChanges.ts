@@ -213,6 +213,13 @@ export function showChanges(row: ChangedMind): void {
   revealChange(row.mindId, belongsTo(row.requests));
 }
 
+/** Review beside the Note's count of what waits: the Mind, at the change of this Answer that waits, else at the first of any. */
+export function showNoteWaiting(row: ChangedMind): void {
+  useAppStore.getState().openMind(row.mindId);
+  const own = waiting({ mindId: row.mindId, requests: row.requests });
+  revealChange(row.mindId, own && own.count > 0 ? belongsTo(row.requests) : () => true);
+}
+
 /** Review, where changes waiting kept the assistant from changing a Mind: the Mind, at its first change. */
 export function showWaitingChanges(mindId: string): void {
   useAppStore.getState().openMind(mindId);
@@ -244,7 +251,7 @@ async function rejectMade(row: ChangedMind): Promise<Done | null> {
   return {
     count: rejected.count,
     undo: async () => {
-      await core.restore([{ kind: "mind", id: row.mindId }]);
+      await core.restore([{ kind: "mind", id: row.mindId }], { reopen: true });
       await rejected.undo();
       await openBeside(row.mindId);
     },

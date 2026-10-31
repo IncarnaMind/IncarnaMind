@@ -37,6 +37,7 @@ export const deletedCommands: readonly Command[] = [
   },
   {
     id: "deleted.deletePermanently",
+    assistant: { never: "permanent" },
     label: countLabel("deleted.deletePermanently"),
     group: "danger",
     destructive: true,
@@ -48,6 +49,7 @@ export const deletedCommands: readonly Command[] = [
   },
   {
     id: "deleted.empty",
+    assistant: { never: "permanent" },
     label: "deleted.emptyAction",
     group: "danger",
     destructive: true,

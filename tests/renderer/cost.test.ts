@@ -3,7 +3,9 @@ import {
   estimateLine,
   formatMoney,
   formatSpent,
+  formatTokens,
   notCheckedKey,
+  reasonText,
   runStopParts,
   runStopText,
   setAsideText,
@@ -69,7 +71,9 @@ describe("Cost in words", () => {
   test("a stopped run says why, with when to try again when the provider said", () => {
     const now = new Date(2026, 9, 12, 9, 0);
     const later = new Date(2026, 9, 12, 14, 30).toISOString();
-    expect(runStopText({ reason: "cost-cap" }, t("en"), "en", now)).toBe("Monthly cap reached");
+    expect(runStopText({ reason: "cost-cap" }, t("en"), "en", now)).toBe(
+      "Could pass your monthly cap",
+    );
     expect(runStopText({ reason: "plan-limit", resetsAt: null }, t("en"), "en", now)).toBe(
       "Plan limit reached",
     );
@@ -84,7 +88,7 @@ describe("Cost in words", () => {
     expect(parts[1]).toMatch(/^Try again after (14:30|2:30 pm)$/);
     expect(parts).toHaveLength(2);
     expect(runStopParts({ reason: "cost-cap" }, t("en"), "en", now)).toEqual([
-      "Monthly cap reached",
+      "Could pass your monthly cap",
     ]);
     const tomorrow = new Date(2026, 9, 13, 14, 30).toISOString();
     expect(runStopText({ reason: "plan-limit", resetsAt: tomorrow }, t("en"), "en", now)).toMatch(
@@ -150,6 +154,22 @@ describe("Cost in words", () => {
     expect(
       estimateLine({ ...estimate, cost: { amount: 1, currency: "USD" } }, t("en"), "en"),
     ).not.toBeNull();
+    for (const amount of [0.4, 1]) {
+      expect(
+        estimateLine(
+          {
+            ...estimate,
+            cost: { amount, currency: "USD" },
+            cap: null,
+            spentTowardCap: null,
+            setAsideTowardCap: null,
+          },
+          t("en"),
+          "en",
+          { always: true },
+        )?.parts,
+      ).toEqual([`About $${amount.toFixed(2)}`, "310K tokens"]);
+    }
     expect(estimateLine({ ...estimate, cost: null }, t("en"), "en")?.parts).toEqual([
       "310K tokens",
       "$12.40 of $20.00 used this month",
@@ -160,6 +180,32 @@ describe("Cost in words", () => {
       estimateLine({ ...estimate, cost: { amount: 0.4, currency: "USD" } }, t("zh-CN"), "zh-CN")
         ?.parts,
     ).toEqual(["约 $0.40", "31万 token", "本月已用 $12.40，上限 $20.00"]);
+    // A read that may send more than it does names the most it may cost; that most counts toward
+    // showing the line at all.
+    const upTo = {
+      ...estimate,
+      cost: { amount: 0.4, currency: "USD" as const },
+      upTo: { calls: 30, tokens: 340_000, cost: { amount: 1.2, currency: "USD" as const } },
+      cap: null,
+      spentTowardCap: null,
+      setAsideTowardCap: null,
+    };
+    expect(estimateLine(upTo, t("en"), "en")?.parts).toEqual([
+      "About $0.40, up to $1.20",
+      "310K tokens",
+    ]);
+    expect(estimateLine(upTo, t("zh-CN"), "zh-CN")?.parts).toEqual([
+      "约 $0.40，最多 $1.20",
+      "31万 token",
+    ]);
+    expect(
+      estimateLine(
+        { ...upTo, upTo: { ...upTo.upTo, cost: { amount: 0.4, currency: "USD" } } },
+        t("en"),
+        "en",
+        { always: true },
+      )?.parts,
+    ).toEqual(["About $0.40", "310K tokens"]);
     expect(estimateLine({ billing: "plan" }, t("en"), "en")).toBeNull();
     expect(estimateLine({ billing: "free" }, t("en"), "en")).toBeNull();
     // "model calls" never appears in the interface (#1941).
@@ -168,5 +214,54 @@ describe("Cost in words", () => {
         /model calls?|模型调用/,
       );
     }
+  });
+});
+
+test.each([
+  [708_000, "708K", "70.8万"],
+  [2_710_000, "2.71M", "271万"],
+  [310_000, "310K", "31万"],
+  [12_345_678, "12.3M", "1230万"],
+])("%d tokens read to the same three figures in English and Chinese", (tokens, en, zh) => {
+  expect(formatTokens(tokens, "en")).toBe(en);
+  expect(formatTokens(tokens, "zh-CN")).toBe(zh);
+});
+
+describe("A whole read stopped at the most it may spend", () => {
+  test.each([
+    ["en", "Stopped after $0.38; this read may spend up to $0.41.", "Continue"],
+    ["zh-CN", "已花 $0.38 后停止，这次读取最多可花 $0.41。", "继续"],
+  ] as const)("says what it spent and its most, with Continue (%s)", (language, line, action) => {
+    const detail = JSON.stringify({
+      most: { amount: 0.41, currency: "USD" },
+      spent: { amount: 0.38, currency: "USD" },
+      judgesAbsence: false,
+    });
+    expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
+    expect(t(language)("claim.readBudget.continue")).toBe(action);
+  });
+
+  test.each([
+    ["en", "Stopped at the most this read may spend."],
+    ["zh-CN", "已停止：已达到这次读取最多可花的费用。"],
+  ] as const)(
+    "a detail it can't read still says it stopped, without amounts (%s)",
+    (language, line) => {
+      expect(reasonText(t(language), language, "read-budget", "not money")).toBe(line);
+      expect(
+        reasonText(
+          t(language),
+          language,
+          "read-budget",
+          JSON.stringify({ most: { amount: "0.41" } }),
+        ),
+      ).toBe(line);
+    },
+  );
+
+  test("another reason says its detail as it is", () => {
+    expect(reasonText(t("en"), "en", "failed", "The service failed.")).toBe(
+      "The check failed: The service failed.",
+    );
   });
 });

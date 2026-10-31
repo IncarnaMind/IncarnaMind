@@ -247,21 +247,26 @@ export function textBlocks(
   blocks: Y.XmlFragment,
   { charts = false }: { charts?: boolean } = {},
 ): { element: Y.XmlElement; busy: boolean }[] {
+  return blocks.toArray().flatMap((child) => textBlocksOf(child, { charts }));
+}
+
+/** `textBlocks` of one of the Mind's top-level Blocks. */
+export function textBlocksOf(
+  block: unknown,
+  { charts = false }: { charts?: boolean } = {},
+): { element: Y.XmlElement; busy: boolean }[] {
   const found: { element: Y.XmlElement; busy: boolean }[] = [];
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, busy: boolean) => {
-    for (const child of parent.toArray()) {
-      if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) continue;
-      if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
-        found.push({ element: child, busy });
-        continue;
-      }
-      visit(
-        child,
-        busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming"),
-      );
+  const visit = (child: unknown, busy: boolean) => {
+    if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) return;
+    if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
+      found.push({ element: child, busy });
+      return;
     }
+    const answering =
+      busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming");
+    for (const each of child.toArray()) visit(each, answering);
   };
-  visit(blocks, false);
+  visit(block, false);
   return found;
 }
 
@@ -470,6 +475,46 @@ function withEmphasis(
   }
   flush();
   return out;
+}
+
+/** A text Block's words as the Mind holds them without `request`'s changes, or once they are accepted; null for a Block that isn't there in that view. */
+function viewOf(element: Y.XmlElement, request: string, accepted: boolean): string | null {
+  const whole = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+  if (whole?.request === request && whole.kind === (accepted ? "delete" : "insert")) return null;
+  let text = "";
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    for (const run of node.toDelta() as Run[]) {
+      if (typeof run.insert !== "string") continue;
+      const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request;
+      const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK])?.request === request;
+      if (accepted ? removes : adds) continue;
+      text += run.insert;
+    }
+  }
+  return text;
+}
+
+/**
+ * The text of the Blocks from `from` to `to`, a line to a Block, as the Mind holds it and as it
+ * will read once the changes of `request` are accepted: what an edit really did, not what the
+ * model wrote.
+ */
+export function textAround(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  request: string,
+): { before: string; after: string } {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = all.findIndex(
+    (element) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === from.blockId,
+  );
+  const last = all.findIndex((element) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === to.blockId);
+  const chosen = first < 0 || last < first ? [] : all.slice(first, last + 1);
+  const lines = (accepted: boolean) =>
+    chosen.flatMap((element) => viewOf(element, request, accepted) ?? []).join("\n");
+  return { before: lines(false), after: lines(true) };
 }
 
 /** About this many characters of the words around a selection are shown to the model. */

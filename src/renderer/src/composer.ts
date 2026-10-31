@@ -1,7 +1,12 @@
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { create } from "zustand";
-import { type AskedQuote, MOST_ASKED_QUOTES, type SearchScope } from "../../core/api";
+import {
+  type AskedQuote,
+  MOST_ASKED_QUOTES,
+  type SearchScope,
+  type TurnPlace,
+} from "../../core/api";
 import { folderScope } from "../../shared/searchScope";
 
 /** What the composer holds for one Mind until it is asked: the text, the Search scope and a Skill. */
@@ -32,6 +37,11 @@ export interface Draft {
 export interface Paste {
   id: string;
   text: string;
+  /**
+   * The Note, or the conversation with no Note open, it was pasted in: saved as a Document, it is
+   * filed by that place's Folder wall wherever the composer has moved since (#2243).
+   */
+  place: TurnPlace;
 }
 
 /** These words from that place: a draft and a Question hold each once. */
@@ -73,6 +83,16 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((each) => typeof each === "string");
 
+const isIdOrNull = (value: unknown) => value === null || typeof value === "string";
+
+const isPaste = (value: unknown): value is Paste =>
+  isObject(value) &&
+  typeof value.id === "string" &&
+  typeof value.text === "string" &&
+  isObject(value.place) &&
+  isIdOrNull(value.place.mindId) &&
+  isIdOrNull(value.place.conversationId);
+
 /** The quotes in what a reload left, as far as they read. */
 export const quotesFrom = (value: unknown): AskedQuote[] =>
   Array.isArray(value) ? value.filter(isQuote) : [];
@@ -97,9 +117,7 @@ function isDraft(value: unknown): value is Draft {
     validScope &&
     (skill === null || typeof skill === "string") &&
     Array.isArray(pastes) &&
-    pastes.every(
-      (paste) => isObject(paste) && typeof paste.id === "string" && typeof paste.text === "string",
-    ) &&
+    pastes.every(isPaste) &&
     (quotes === undefined || (Array.isArray(quotes) && quotes.every(isQuote)))
   );
 }

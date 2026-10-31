@@ -1,13 +1,15 @@
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
+import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
+import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -26,6 +28,7 @@ import {
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
+import { fingerprintOfBlocks } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -37,14 +40,23 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
+import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
-import { hasSearchScope, holdsText, mindSearchScope, type ScopeKind } from "../shared/searchScope";
+import {
+  folderScope,
+  hasSearchScope,
+  holdsText,
+  mindSearchScope,
+  NO_SCOPE,
+  type ScopeKind,
+} from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
+import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
+import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
@@ -80,6 +92,7 @@ import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
 import {
   type AddDocumentsResult,
+  type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
   type CheckRecordFailure,
@@ -89,16 +102,23 @@ import {
   type CoreApi,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
+  DELETED_KINDS,
+  type DeletedAgainRef,
+  type DeletedItem,
   type Document,
   type DocumentStatus,
   type EmbeddingModelStatus,
   type EmbeddingSettings,
+  type ExportFile,
+  type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
+  type FigureSchedule,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type Mind,
   type MindCitationStyle,
   type MindContentSnapshot,
@@ -107,13 +127,18 @@ import {
   NOT_IN_A_FOLDER_ID,
   type OwnFileKind,
   type ProviderError,
+  RECENTLY_DELETED_DAYS,
   type ReadyQuestion,
+  type RecheckCitationInput,
+  type RecheckResult,
   type SavedExport,
   type SavedFile,
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingRoute,
   type Task,
+  type TurnPlace,
   type UnlockDocumentInput,
   type UnreadFile,
   type Unsubscribe,
@@ -163,7 +188,7 @@ import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
 import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
-import { createWebPages } from "./documents/web";
+import { createWebPages, wallKey } from "./documents/web";
 import { createEdits, editText } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
@@ -180,7 +205,7 @@ import {
   TranslatableError,
 } from "./errors";
 import { type AnyEventListener, createEventHub } from "./events";
-import { createExamples } from "./examples";
+import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
@@ -216,7 +241,7 @@ import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
-import { accessFor, isKnownKind } from "./mindAccess";
+import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
 import {
@@ -231,7 +256,7 @@ import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindT
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
-import { createOutputFiles } from "./outputFiles";
+import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
 import { PAPER as PAGE_PAPER } from "./pageDefaults";
 import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
@@ -293,7 +318,7 @@ import { createRateLimitPause } from "./tags/rateLimit";
 import { createTagger, TAGGING_FLOW_SENDS } from "./tags/tagger";
 import { inFlow } from "./timing/flows";
 import { createTimings } from "./timing/timings";
-import type { CommandsHost, MarkingSettled } from "./tools/commands/run";
+import { type CommandsHost, type MarkingSettled, same } from "./tools/commands/run";
 import { createCommandSteps } from "./tools/commands/steps";
 import { createWebSearch, WEB_SEARCH_SENDS } from "./tools/web";
 import { createPublicFetch } from "./tools/web/fetcher";
@@ -308,6 +333,7 @@ import { createSpeakerModel } from "./transcription/speakerModel";
 import { createUnsavedChanges } from "./unsavedChanges";
 import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
+import { createWindowCommands } from "./windowCommands";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 
@@ -425,6 +451,14 @@ export interface Core extends CoreApi, CoreEventSource {
 /** How long a Question asked during a call waits for the live transcript's newest lines to be indexed (#144). */
 const LIVE_TRANSCRIPT_WAIT_MS = 3_000;
 
+/**
+ * How long asking the example's ready Question waits for its Documents to be read (#2218): long
+ * for a large file on a slow disk, short enough that a read that never ends says so.
+ */
+const EXAMPLE_READY_WAIT_MS = 20_000;
+
+const EXAMPLE_READY_LOOK_MS = 100;
+
 const isBehind = (meeting: Meeting) => meeting.transcript?.state === "behind";
 
 /**
@@ -450,6 +484,29 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
     throw new InvalidInputError({ key: "error.document.passwordMissing" });
   }
   return { documentId: parseDocumentId(input.documentId), password };
+}
+
+/** `deleteAgain`'s input: each item, and the time it was deleted before its Restore. */
+function parseDeletedAgain(input: unknown): DeletedAgainRef[] {
+  if (!Array.isArray(input))
+    throw new InvalidInputError("deleteAgain expects a list of { kind, id, deletedAt }.");
+  return input.map((each): DeletedAgainRef => {
+    if (
+      !isRecord(each) ||
+      typeof each.id !== "string" ||
+      each.id === "" ||
+      typeof each.deletedAt !== "string" ||
+      Number.isNaN(Date.parse(each.deletedAt))
+    )
+      throw new InvalidInputError("deleteAgain expects a list of { kind, id, deletedAt }.");
+    const kind = DELETED_KINDS.find((known) => known === each.kind);
+    if (!kind) throw new InvalidInputError(`deleteAgain can't take a ${String(each.kind)}.`);
+    return {
+      kind,
+      id: each.id,
+      deletedAt: new Date(Date.parse(each.deletedAt)).toISOString(),
+    };
+  });
 }
 
 /** A Citation's Document, Units and quote, as `readScannedQuote` and `readableQuote` take them. */
@@ -500,7 +557,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
   mkdirSync(dataDir, { recursive: true });
 
-  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  const db = openDatabase(join(dataDir, DATABASE_FILE), adapters.log);
   try {
     adapters.log?.info("core.startup.databaseOpened");
     migrate(db);
@@ -1278,6 +1335,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const questions = createQuestions(events);
+  const windowCommands = createWindowCommands(events);
 
   // Requests to one service kept apart, as its operator asks: Look up and Find sources share them.
   const paceTimers = adapters.paceTimers ?? realTimers;
@@ -1364,18 +1422,218 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
-  const resolveScope = (scope: SearchScope) =>
-    resolveSearchScope(scope, {
+  const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
+    const walled = new Set(
+      library
+        .folders()
+        .filter((folder) => folder.keepInside)
+        .map((folder) => folder.id),
+    );
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    if (own !== null && walled.has(own)) return folderScope(own);
+    return { ...scope, folderIds: scope.folderIds.filter((id) => !walled.has(id)) };
+  };
+  const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
+    const wanted = scope ?? NO_SCOPE;
+    const walled = library.folders().filter((folder) => folder.keepInside);
+    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const ownWall = own !== null && walled.some((folder) => folder.id === own);
+    const wallIds = wanted.folderIds.filter((id) => walled.some((folder) => folder.id === id));
+    const explicitFolderScope =
+      mindId === null &&
+      wallIds.length === 1 &&
+      wanted.folderIds.every((id) => walled.some((folder) => folder.id === id)) &&
+      wanted.tagIds.length === 0 &&
+      wanted.documentIds.length === 0;
+    if (ownWall || explicitFolderScope) {
+      return resolveSearchScope(ownWall ? constrainedScope(wanted, mindId) : wanted, {
+        folderTree: (folderId) => folders.subtree(folderId),
+        organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+        documentIds: (filter) => documents.ids(filter),
+      });
+    }
+    const constrained = constrainedScope(wanted, mindId);
+    if (!ownWall && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
+    const resolved = resolveSearchScope(constrained, {
       folderTree: (folderId) => folders.subtree(folderId),
       organizedFolderDocuments: (folderId) => library.documentIds(folderId),
       documentIds: (filter) => documents.ids(filter),
     });
+    if (ownWall || walled.length === 0) return resolved;
+    const excluded = new Set(walledDocuments());
+    return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
+  };
+  /**
+   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
+   * inside a wall only those behind it, from outside never one a wall keeps inside.
+   */
+  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
+    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
+    const picked = resolveSearchScope(scope, {
+      folderTree: (folderId) => folders.subtree(folderId),
+      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      documentIds: (filter) => documents.ids(filter),
+    });
+    return (picked ?? []).filter((id) => searched.has(id));
+  };
+  const folderIdsInScope = (folderIds: readonly string[]) =>
+    folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
+      ? [...folderIds]
+      : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
+  const walledFolderId = (folderId: string | null): string | null => {
+    if (folderId === null || folderId === NOT_IN_A_FOLDER_ID) return null;
+    return library.folders().find((folder) => folder.id === folderId)?.keepInside === true
+      ? folderId
+      : null;
+  };
+  // The fingerprints of the files IncarnaMind writes (#80).
+  const ownFiles = createOwnFiles(db, now);
+  // Behind a wall: filed in it, or a file IncarnaMind wrote from one of its Notes, wherever that
+  // file was indexed again (a Linked folder holding the Output location).
+  const behindWall = (folderId: string) => [
+    ...library.allDocumentIds(folderId),
+    ...ownFiles.writtenFrom([folderId]),
+  ];
+  const wallOfDocument = (documentId: string) =>
+    library
+      .folders()
+      .find((folder) => folder.keepInside && behindWall(folder.id).includes(documentId));
+  const walledDocument = (documentId: string): string | null =>
+    wallOfDocument(documentId)?.id ?? null;
+  const walledDocuments = (): string[] =>
+    library
+      .folders()
+      .filter((folder) => folder.keepInside)
+      .flatMap((folder) => behindWall(folder.id));
+  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted walled Folder's own. */
+  const deletedWall = (item: DeletedItem): string | null =>
+    item.kind === "folder"
+      ? library.snapshot().deletedGroups.some((group) => group.id === item.id && group.keepInside)
+        ? item.id
+        : null
+      : walledFolderId(item.groupId);
+  const walledFolderName = (documentId: string): string | null =>
+    wallOfDocument(documentId)?.name ?? null;
+  const folderOfNote = (mindId: string | null): string | null =>
+    mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+  /** The Folder of a Question's place, as the web tools take it; null once the place is deleted. */
+  const folderOfPlace = (place: AnswerPlace): string | null => {
+    try {
+      if (place.mindId !== null) return minds.get(place.mindId).folderId;
+      return place.conversationId ? conversations.get(place.conversationId).folderId : null;
+    } catch (error) {
+      // Deleted while the Answer was written: the page stays in no Folder.
+      if (error instanceof NotFoundError) return null;
+      throw error;
+    }
+  };
+  /** A Note and a conversation as the API takes them: an id or null each, neither left out. */
+  const parseTurnPlace = (input: unknown): TurnPlace => {
+    const idOf = (value: unknown) => {
+      if (value === null) return null;
+      if (typeof value === "string" && value !== "") return value;
+      throw new InvalidInputError({ key: "error.turnPlace" });
+    };
+    const place = isRecord(input) ? input : {};
+    return { mindId: idOf(place.mindId), conversationId: idOf(place.conversationId) };
+  };
+  /**
+   * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
+   * Note's Folder, else the conversation's, judged against today's walls (#1934). Throws
+   * `NotFoundError` once that Note or conversation is deleted: it is behind no wall then, nor
+   * outside every one.
+   */
+  const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
+    if (mindId !== null) return walledFolderId(minds.get(mindId).folderId);
+    if (conversationId === null) return null;
+    return walledFolderId(conversations.get(conversationId).folderId);
+  };
+  const walledFolder = (mindId: string | null): string | null => {
+    const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    return walledFolderId(folderId);
+  };
+  /**
+   * The one place deciding where the assistant files what it makes (#1934): work behind the wall
+   * `wallId` files it in that Folder, whatever Folder was `asked`; work outside every wall never
+   * files it in a walled Folder. Null: it can't be filed, so nothing may be made, as when the
+   * wall's Folder is gone or the turn's wall isn't known.
+   */
+  const filedWithin = (
+    wallId: string | null,
+    asked: string | null,
+  ): { folderId: string | null } | null => {
+    if (wallId === null) {
+      if (asked === null) return { folderId: null };
+      // A Folder that gained a wall takes nothing from outside it; one that is gone takes nothing.
+      if (walledFolderId(asked) !== null) return { folderId: null };
+      return library.folders().some((folder) => folder.id === asked) ? { folderId: asked } : null;
+    }
+    return library.folders().some((folder) => folder.id === wallId) ? { folderId: wallId } : null;
+  };
+  /**
+   * Whether work on the wall `wallId`'s side (null: outside every wall) may be filed in `folderId`
+   * now: the walls are read here, and a Document behind another wall (`behind`) never crosses it
+   * (#2250). One door for a page, a paste and a move alike.
+   */
+  const mayFileWithin = (
+    wallId: string | null,
+    folderId: string | null,
+    behind: string | null,
+  ): boolean =>
+    (behind === null || behind === wallId) && filedWithin(wallId, folderId)?.folderId === folderId;
+  /**
+   * Files a Document by the walls as they are at this moment (#2250): a wall switched on while the
+   * work was under way is judged here, never where it was before. A Document behind another wall
+   * stays where it is, and a Folder that gained a wall takes nothing from outside it. Null: it
+   * isn't filed, because `filedWithin` gives this side no Folder or the Document is on another side.
+   */
+  const fileWithin = (
+    documentId: string,
+    wallId: string | null,
+    asked: string | null,
+  ): { folderId: string | null } | null => {
+    const filed = filedWithin(wallId, asked);
+    if (filed === null) return null;
+    if (!mayFileWithin(wallId, filed.folderId, walledDocument(documentId))) return null;
+    if (filed.folderId !== null) library.assign(documentId, filed.folderId);
+    return filed;
+  };
+  const unscopedDocuments = (mindId: string | null): string[] | null => {
+    const made = examples.made();
+    if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
+    const left = new Set(made.documentIds);
+    const own = documents.ids({}).filter((id) => !left.has(id));
+    // The examples are the User's Library until a Document of their own exists (#1942).
+    return own.length > 0 ? own : null;
+  };
+  /**
+   * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
+   * User has a Document of their own, and theirs alone from then on (#1942). An example's own Note
+   * always searches every Document. Every searching surface resolves a default scope here or
+   * through `unscopedDocuments` — a Question in a Mind goes through `resolveScope ??
+   * unscopedDocuments` — so all of them follow one rule; the Library count and the renderer state
+   * the same rule for browsing.
+   */
+  const scopeDocuments = (
+    scope: SearchScope | null,
+    mindId: string | null = null,
+  ): string[] | null => {
+    if (scope && hasSearchScope(scope)) return resolveScope(scope, mindId);
+    const unscoped = unscopedDocuments(mindId);
+    const resolved = resolveScope(NO_SCOPE, mindId);
+    if (resolved === null) return unscoped;
+    if (unscoped === null) return resolved;
+    const own = new Set(unscoped);
+    return resolved.filter((id) => own.has(id));
+  };
   const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
     const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+    const wall = walledFolderId(folderId);
+    if (wall !== null) return folderScope(wall);
     const holds =
       folderId !== null &&
       documents
-        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [])
+        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }, mindId) ?? [])
         .some(holdsText);
     const searched = mindSearchScope(
       scope ?? { folderIds: [], tagIds: [], documentIds: [] },
@@ -1405,7 +1663,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return [...named, ...all.filter((folder) => filed.has(folder.id))];
   };
   const unreadIn = (wanted: SearchScope | null): UnreadFile[] => {
-    const inScope = wanted ? resolveScope(wanted) : null;
+    const inScope = scopeDocuments(wanted);
     const unread = findUnreadDocuments(documents.unread(inScope ?? undefined));
     // Files in a format not read belong to folders on disk only: a Tag or a Document can't name
     // them. A folder holds those in it and under it, even where no Document is.
@@ -1462,19 +1720,14 @@ export function createCore(adapters: CoreAdapters): Core {
     readiness: (model) => chat.readiness(model),
     prepare: (model) => chat.prepareModel(model, "web-search", "off"),
     // A page an Answer saves is never loaded whole: that is for the User to ask for, page by page.
-    savePage: (address, fetch) =>
-      webPages.save({ address, keepLook: false }, undefined, fetch, "search"),
-    folderOf: (place) => {
-      try {
-        if (place.mindId !== null) return minds.get(place.mindId).folderId;
-        return place.conversationId ? conversations.get(place.conversationId).folderId : null;
-      } catch (error) {
-        // Deleted while the Answer was written: the page stays in no Folder.
-        if (error instanceof NotFoundError) return null;
-        throw error;
-      }
+    savePage: (address, fetch, reuse, added) =>
+      webPages.save({ address, keepLook: false }, added, fetch, "search", reuse),
+    folderOf: (place) => folderOfPlace(place),
+    filedWithin: (wallId, asked) => filedWithin(wallId, asked),
+    walledDocument,
+    file: (documentId, wallId, asked) => {
+      fileWithin(documentId, wallId, asked);
     },
-    file: (documentId, folderId) => library.assign(documentId, folderId),
     document: (id) => documents.get(id),
     onStatus: (listener) => events.on("document.status", listener),
     ...(adapters.web && { fetch: adapters.web }),
@@ -1490,7 +1743,65 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
+    allows: async (input, touches, mindId, wallOverride) => {
+      const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
+      const refuse = () => {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      };
+      // Default deny: an id that is one of the kinds the command declares must be on the turn's
+      // side of the wall. One that is none of them names nothing to reach, and the command itself
+      // says it isn't found.
+      const deleted = touches.includes("deleted") ? await commandsHost.core.listDeleted() : [];
+      const wallOf = (id: string): string | null | undefined => {
+        for (const kind of touches) {
+          if (kind === "mind" && mindExists(id)) return walledFolder(id);
+          if (kind === "document" && documents.getMany([id]).length > 0) {
+            return walledDocument(id);
+          }
+          if (kind === "folder" && library.folders().some((folder) => folder.id === id)) {
+            return walledFolderId(id);
+          }
+          if (kind === "tag" && tags.list().some((tag) => tag.id === id)) return null;
+          const item = kind === "deleted" ? deleted.find((each) => each.id === id) : undefined;
+          if (item) return deletedWall(item);
+        }
+        return undefined;
+      };
+      // Accepting files each suggestion in its suggested Folder, so it goes through the same door
+      // as a move: from the Document's own side of the wall, into a Folder `filedWithin` allows.
+      if (input.command === ACCEPT_SUGGESTIONS) {
+        const suggested = new Map(
+          library.snapshot().assignments.map((each) => [each.documentId, each.groupId]),
+        );
+        const crossing = input.ids.some((id) => {
+          const into = suggested.get(id) ?? null;
+          return walledDocument(id) !== wallId || filedWithin(wallId, into)?.folderId !== into;
+        });
+        if (crossing) {
+          const key = wallId === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside";
+          throw new InvalidInputError({ key });
+        }
+      }
+      for (const id of input.ids) {
+        const wall = wallOf(id);
+        if (wall !== undefined && wall !== wallId) refuse();
+      }
+      // With no ids it sorts every Document in no Folder: outside work, never a walled turn's.
+      if (input.command === "documents.organize" && input.ids.length === 0 && wallId !== null) {
+        refuse();
+      }
+      // A move files what it moves, so it goes where `filedWithin` would file it or not at all: a
+      // walled turn's only into its wall, never into a Folder the move makes (#1934).
+      if (input.command === "document.moveTo" || input.command === "mind.moveTo") {
+        const target =
+          library.folders().find((folder) => same(folder.name, input.folder ?? ""))?.id ?? null;
+        if (filedWithin(wallId, target)?.folderId !== target) {
+          throw new InvalidInputError({ key: "error.folder.wallMove" });
+        }
+      }
+    },
     outputFolder: async () => outputs.settings().location,
+    window: (request, signal, ended) => windowCommands.run(request, signal, ended),
     exportMind: async (mindId, format, folder, approved, marking) => {
       const options = optionsFor(format, settings.get().user.exportOptions);
       let written = options;
@@ -1516,8 +1827,20 @@ export function createCore(adapters: CoreAdapters): Core {
         name: exported.fileName,
         data: exported.data,
         ownFile: ownFileOf(written),
+        fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
+      try {
+        await saveExportFiles(
+          exported.files,
+          folder ?? file.folder,
+          typeof mindId === "string" ? mindId : null,
+        );
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(file.path, fingerprintOf(exported.data)).catch(() => undefined);
+        throw error;
+      }
       await rememberExportChoices(exported, oneOff);
       recordExport(written);
       return { file, marking: settled };
@@ -1548,6 +1871,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
     defaultModel: () => settings.get().user.chatModel,
+    readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     writesThenCites: ({ provider, modelId }, flow) =>
@@ -1565,19 +1889,30 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
-      libraryCount: () => documents.ids({}).length,
+      // The Library's count is what its page shows: the examples until the User has a Document of
+      // their own, and theirs alone from then on (#1942).
+      libraryCount: () => {
+        const example = new Set(examples.made().documentIds);
+        const all = documents.ids({});
+        const own = all.filter((id) => !example.has(id));
+        return own.length > 0 ? own.length : all.length;
+      },
       names: () => documents.names(),
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+      passagesCovering: (documentId, from, to, overlapping) =>
+        documents.passagesCovering(documentId, from, to, overlapping),
       recheckWhereSelected: (quote) => recheckWhereSelected(documents, quote),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       unread: (documentIds) => findUnreadDocuments(documents.unread(documentIds ?? undefined)),
       reading: (documentIds) =>
         documents.reading(documentIds ?? undefined).map((each) => ({ name: each.name })),
       search: searchDocuments,
+      webAddress: (documentId) => documents.getMany([documentId])[0]?.web?.address ?? null,
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
@@ -1597,21 +1932,44 @@ export function createCore(adapters: CoreAdapters): Core {
               }),
           ),
       },
-      { kind: "sources", tools: async () => sources.tools() },
+      { kind: "sources", tools: async (_signal, turn) => sources.tools(turn) },
     ],
     connectorsNeedingSignIn: () => connectors.needingSignIn(),
     web: webSearch,
     commands: {
       host: commandsHost,
-      findable: async () => {
+      findable: async (mindId: string | null, wallOverride?: string | null) => {
         const { core } = commandsHost;
-        const [listed, mindsNow, libraryNow, tagsNow] = await Promise.all([
+        const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
+        const [listed, mindsNow, libraryNow, tagsNow, deletedNow] = await Promise.all([
           core.listDocuments(),
           core.listMinds(),
           core.getLibrary(),
           core.listTags(),
+          core.listDeleted(),
         ]);
-        return { documents: listed, minds: mindsNow, library: libraryNow, tags: tagsNow };
+        const allowed = wallId
+          ? resolveSearchScope(folderScope(wallId), {
+              folderTree: (folderId) => folders.subtree(folderId),
+              organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+              documentIds: (filter) => documents.ids(filter),
+            })
+          : resolveScope(NO_SCOPE, mindId);
+        // Only what is on the turn's side of the wall can be found, named or offered (#1934).
+        const shown = allowed === null ? null : new Set(allowed);
+        const onSide = (wall: string | null) => wall === wallId;
+        return {
+          documents: shown === null ? listed : listed.filter((document) => shown.has(document.id)),
+          minds: mindsNow.filter((mind) => onSide(walledFolder(mind.id))),
+          library: {
+            groups: libraryNow.groups.filter((group) => onSide(walledFolderId(group.id))),
+            assignments: libraryNow.assignments.filter(
+              (each) => shown === null || shown.has(each.documentId),
+            ),
+          },
+          tags: wallId === null ? tagsNow : [],
+          deleted: deletedNow.filter((item) => onSide(deletedWall(item))),
+        };
       },
       steps: commandSteps,
     },
@@ -1689,8 +2047,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true) => {
-        const added = conversations.add(input, answerModel, read);
+      add: (input, answerModel, read, emit = true, askedIn) => {
+        const added = conversations.add(input, answerModel, read, askedIn);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -1717,18 +2075,22 @@ export function createCore(adapters: CoreAdapters): Core {
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
+      writeToolCalls: (answerId, toolCalls) => {
+        const answer = conversations.writeToolCalls(answerId, toolCalls);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
     },
     resolveScope,
-    workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
+    workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    walledFolder,
+    walledFolderId,
+    walledDocuments,
+    filedWithin,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
-    unscopedDocuments: (mindId) => {
-      const made = examples.made();
-      if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
-      const left = new Set(made.documentIds);
-      return documents.ids({}).filter((id) => !left.has(id));
-    },
+    unscopedDocuments,
     interfaceLanguage: () => settings.get().language,
     emptyScopeAnswer: () => translate(settings.get().language, "scope.answer.empty"),
     liveTextBehind: (lines) =>
@@ -1759,7 +2121,12 @@ export function createCore(adapters: CoreAdapters): Core {
       live: (ids) => documents.getMany(ids),
       searchableCount: (ids) => documents.searchableCount(ids),
     },
-    evidence: (ids) => evidence.scope(ids).documentIds ?? [...ids],
+    evidence: (ids, mindId) => {
+      const allowed =
+        resolveScope({ folderIds: [], tagIds: [], documentIds: [...ids] }, mindId) ?? [];
+      const permitted = ids.filter((id) => allowed.includes(id));
+      return evidence.scope(permitted).documentIds ?? [...permitted];
+    },
     checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
@@ -1831,6 +2198,9 @@ export function createCore(adapters: CoreAdapters): Core {
     searchedScope,
     mindExists,
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
+    walledFolder,
+    walledFolderId,
+    filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId) => makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }).id,
     moveMind: (mindId, folderId) => {
@@ -1846,6 +2216,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     library: {
       folderExists: (folderId) => library.folders().some((folder) => folder.id === folderId),
+      folderName: (folderId) =>
+        library.folders().find((folder) => folder.id === folderId)?.name ?? null,
       folderNames: () => library.folders().map((folder) => folder.name),
       createFolder: (name, description) => library.create({ name, description }).id,
       file: (documentIds, folderId) => {
@@ -1885,7 +2257,7 @@ export function createCore(adapters: CoreAdapters): Core {
       runsLocally: (choice) => chat.metered(choice)?.billing === "free",
     },
     answers,
-    resolveScope,
+    scopeDocuments,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       get: (taskId) => tasks.record(taskId),
@@ -1931,7 +2303,7 @@ export function createCore(adapters: CoreAdapters): Core {
     requireMind: (mindId) => {
       writableMind(mindId);
     },
-    resolveScope,
+    scopeDocuments,
     searchedScope,
     searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
     localOnly: () => embedding.localOnly(),
@@ -1980,9 +2352,8 @@ export function createCore(adapters: CoreAdapters): Core {
     return { style, textLanguage: chineseText ? ("zh-CN" as const) : ("en" as const) };
   };
   const mindCitationStyle = (mindId: string): MindCitationStyle => mindStyleAndText(mindId).style;
-  /** Sends a Mind to Recently deleted; its tabs close. */
-  const removeMind = (mindId: unknown) => {
-    const at = now();
+  /** Sends a Mind to Recently deleted; its tabs close. `at`: Undo of a Restore deleting it again. */
+  const removeMind = (mindId: unknown, at: string = now()) => {
     const deleted = db.transaction(() => {
       const mind = minds.delete(mindId, at);
       content.remove(mind.id, at);
@@ -1992,6 +2363,49 @@ export function createCore(adapters: CoreAdapters): Core {
     meetings.mindDeleted(deleted.id);
     mindsChanged();
     layouts.forgetDeletedMinds();
+  };
+
+  /** Sends a Document or several to Recently deleted. */
+  const removeDocuments = (ids: readonly string[], at: string = now()) => {
+    for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+
+  /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
+  const removeConversation = (conversationId: unknown, at: string = now()) => {
+    answers.stopConversation(conversations.get(conversationId).id);
+    conversations.delete(conversationId, at);
+    conversationsChanged();
+  };
+
+  /** Sends a Folder to Recently deleted; what it held goes to Not in a Folder. */
+  const removeFolder = (id: unknown, at: string = now()) => {
+    const deletion = db.transaction(() => {
+      const folder = library.folder(id);
+      const left = minds.leaveFolder(folder.id);
+      const leftConversations = conversations.leaveFolder(folder.id);
+      const { assignments } = library.delete(
+        folder.id,
+        {
+          minds: left.map((mind) => mind.id),
+          conversations: leftConversations.map((conversation) => conversation.id),
+        },
+        at,
+      );
+      const live = (items: { id: string; live: boolean }[]) =>
+        items.filter((item) => item.live).map((item) => item.id);
+      return { assignments, mindIds: live(left), conversationIds: live(leftConversations) };
+    });
+    if (deletion.mindIds.length > 0) mindsChanged();
+    if (deletion.conversationIds.length > 0) conversationsChanged();
+    return deletion;
+  };
+
+  /** Sends a Tag to Recently deleted. */
+  const removeTag = (tagId: unknown, at: string = now()) => {
+    const documentIds = tags.delete(tagId, at);
+    // Tags first, so a listener filtering by the deleted Tag hears it's gone before it refreshes.
+    tagsChanged();
+    announceTagged(documentIds);
   };
 
   // Edit with AI (#93): the change comes back as Proposals; Citations it keeps are checked again.
@@ -2054,6 +2468,29 @@ export function createCore(adapters: CoreAdapters): Core {
     return mind;
   };
 
+  /** The schedules last given as changes, by token, for the next to be given as what differs. */
+  const givenSchedules = new Map<string, { mindId: string; rows: FigureSchedule["rows"] }>();
+  let scheduleTokens = 0;
+  function figureScheduleChangeFor(mindId: string, since: unknown) {
+    const schedule = readFigureSchedule(mindId);
+    // A token this core didn't give, or no longer keeps, gets the whole schedule.
+    const given = typeof since === "string" ? givenSchedules.get(since) : undefined;
+    const token = String(++scheduleTokens);
+    givenSchedules.set(token, { mindId: schedule.mindId, rows: schedule.rows });
+    // A window keeps one schedule per Note it shows, so a few are enough.
+    for (const old of givenSchedules.keys()) {
+      if (givenSchedules.size <= 8) break;
+      givenSchedules.delete(old);
+    }
+    return figureScheduleChange(
+      schedule,
+      token,
+      given && typeof since === "string" && given.mindId === schedule.mindId
+        ? { token: since, rows: given.rows }
+        : null,
+    );
+  }
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2061,7 +2498,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return figureSchedule({
         mindId: mind.id,
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        basis: targetHash(blocks.toString()),
+        basis: fingerprintOfBlocks(blocks),
         blocks,
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
@@ -2116,6 +2553,24 @@ export function createCore(adapters: CoreAdapters): Core {
         kind: DEFAULT_MIND_KIND,
         folderId,
       }),
+    wordRefusal: async (path) => (await wordImports.check(path)).refusal,
+    async importWord({ path, folderId, documentId, name }) {
+      const imported = await wordImports.import(
+        { path, origin: "someone-else", folderId },
+        {
+          documentId,
+          title: translate(settings.get().language, "verify.mindTitle", { name }),
+        },
+      );
+      return imported.ok ? { ok: true, mind: imported.mind } : imported;
+    },
+    wordWritten: (mindId) => wordImports.written(mindId),
+    async discardWordMind(mindId) {
+      if (wordImports.isClosed() || minds.locate(mindId)?.deletedAt !== null) return;
+      removeMind(mindId);
+      recentlyDeleted.deletePermanently([{ kind: "mind", id: mindId }]);
+      await wordImports.dropPurged();
+    },
     watch: {
       minds: () => minds.list().map((mind) => ({ id: mind.id, folderId: mind.folderId })),
       documentVersions: () =>
@@ -2127,7 +2582,11 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     },
     mindFolder: (mindId) => minds.get(mindId).folderId,
+    walledFolder,
+    walledDocument,
+    walledFolderName,
     searchedScope,
+    pickedDocuments,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),
@@ -2136,36 +2595,71 @@ export function createCore(adapters: CoreAdapters): Core {
     consent,
     localOnly: () => embedding.localOnly(),
     resolveScope,
+    scopeDocuments,
     unread: unreadIn,
     evidence,
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
+      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      live: (documentIds) => documents.getMany(documentIds),
+      passages: (documentId) => documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
-      searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
+      getMany: (documentIds) => documents.getMany(documentIds),
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
+      unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
     },
     engine: answerEngine,
     retention,
     editText,
+    estimateRead(model, read) {
+      const metered = chat.metered(model ?? undefined);
+      return metered && meter.estimateRead(metered, read);
+    },
+    readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
+  /**
+   * A Citation checked again in the Note it goes into: one whose Document is kept inside a walled
+   * Folder that Note is outside isn't read from there, so the check it was made with stands, as
+   * for a Citation made before the wall (#1934).
+   */
+  const recheckIn = (input: RecheckCitationInput): RecheckResult => {
+    const wall = walledDocument(input.documentId);
+    if (wall === null || input.mindId === null || wall === walledFolder(input.mindId)) {
+      return recheckCitation(documents, input);
+    }
+    return { keptInside: walledFolderName(input.documentId) ?? "" };
+  };
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({
     content,
     requireMind: (mindId) => writableMind(mindId).id,
-    recheck: (input) => recheckCitation(documents, input),
-    askedScope: ({ from }) =>
-      from.artifactKind === "conversation"
-        ? conversations.askedScope(from.artifactId, from.anchor.messageId)
-        : null,
+    recheck: recheckIn,
+    askedScope: ({ from }, mindId) => {
+      const asked =
+        from.artifactKind === "conversation"
+          ? conversations.askedScope(from.artifactId, from.anchor.messageId)
+          : null;
+      // A Note outside a wall never takes a walled Folder or Document into its scope (#1934).
+      if (asked === null || walledFolder(mindId) !== null) return asked;
+      const walled = new Set(walledDocuments());
+      return {
+        ...asked,
+        folderIds: asked.folderIds.filter((id) => walledFolderId(id) === null),
+        documentIds: asked.documentIds.filter((id) => !walled.has(id)),
+      };
+    },
     mindFolder: (mindId) => minds.get(mindId).folderId,
     recordAiUse: (inputs) => void aiUse.record(inputs),
     now: () => adapters.now?.() ?? new Date(),
@@ -2185,11 +2679,9 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
   });
 
-  // The fingerprints of the files IncarnaMind writes (#80). A Document already indexed with
-  // the same bytes is marked at once, and every window hears of it.
-  const ownFiles = createOwnFiles(db, now);
-  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind) => {
-    const marked = ownFiles.record(data, kind);
+  // A Document already indexed with the same bytes is marked at once, and every window hears of it.
+  const recordOwnFile = (data: Uint8Array, kind: OwnFileKind, folderId: string | null) => {
+    const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
   };
   const exportDependencies: ExportsDependencies = {
@@ -2263,8 +2755,84 @@ export function createCore(adapters: CoreAdapters): Core {
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
   });
-  const ownFileOf = (options: ExportMindOptions): OwnFileKind =>
+  const ownFileOf = (options: Pick<ExportMindOptions, "format">): OwnFileKind =>
     options.format === "source-pack" ? "source-pack" : "export";
+  /**
+   * Each export saved since the app opened, by its path: the Note it came from, and the
+   * fingerprint of the bytes IncarnaMind last wrote there, so a file the User changed since is
+   * never written over (#110).
+   */
+  const exportFiles = new Map<
+    string,
+    { mindId: string; path: string; format: ExportFormat; wrote: string }
+  >();
+  /**
+   * Each Change of an export, by the path it wrote, newest last (#110): the id its Undo names, so
+   * an Undo refused on one side never makes the next one put back the wrong step; the bytes it
+   * replaced, null where it wrote a copy beside; and the Note's comment choice before it, null
+   * where it set none.
+   */
+  const rewrittenExports = new Map<
+    string,
+    { id: string; before: Uint8Array | null; comments: boolean | null }[]
+  >();
+  const keepStep = (path: string, before: Uint8Array | null, comments: boolean | null) => {
+    const id = crypto.randomUUID();
+    rewrittenExports.set(path, [...(rewrittenExports.get(path) ?? []), { id, before, comments }]);
+    return id;
+  };
+  /**
+   * Changes and Undos of one export run one after another, each reading what the last one wrote,
+   * so two at once never both write over the same bytes (#110).
+   */
+  const exportTurns = new Map<string, Promise<void>>();
+  const inExportTurn = <T>(path: unknown, run: () => Promise<T>): Promise<T> => {
+    const key = typeof path === "string" ? path : "";
+    const turn = (exportTurns.get(key) ?? Promise.resolve()).then(run);
+    const settled = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    exportTurns.set(key, settled);
+    void settled.then(() => {
+      if (exportTurns.get(key) === settled) exportTurns.delete(key);
+    });
+    return turn;
+  };
+  const verificationOfNote = (mindId: string) =>
+    content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
+  const setNoteComments = (mindId: string, on: boolean) => {
+    const verifying = content.edit(mindId, (blocks) => {
+      const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+      const now = settings && readVerification(settings);
+      if (!settings || !now) return false;
+      if (now.comments !== on) writeVerification(settings, { ...now, comments: on });
+      return true;
+    });
+    if (!verifying) throw new InvalidInputError({ key: "error.verify.notVerifying" });
+  };
+  /**
+   * Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name. False
+   * when it couldn't, which the result line says; the file is saved all the same.
+   */
+  const keepSent = (
+    mindId: string,
+    options: ExportMindOptions,
+    name: string,
+    read: NonNullable<ReturnType<typeof content.storedState>>,
+  ): boolean => {
+    if (options.format !== "docx" && options.format !== "pdf") return true;
+    try {
+      checkpoints.sent(mindId, name, read);
+      return true;
+    } catch (error) {
+      console.error(
+        `export: History couldn't keep Mind ${mindId} as it was sent as ${name}`,
+        error,
+      );
+      return false;
+    }
+  };
   /**
    * Keeps where Citations went and whether a Word file marks AI text, the first time an export
    * settles them, so Export options and the next file say the choice rather than the default
@@ -2344,15 +2912,42 @@ export function createCore(adapters: CoreAdapters): Core {
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
-  /** Saves an export in the Output location, as the window's save: what went wrong is a result, not an error. */
+  /**
+   * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
+   * export's pictures. The User let that folder take the export, so it takes these too.
+   */
+  const saveExportFiles = async (
+    files: readonly ExportFile[] | undefined,
+    folder: string,
+    from: string | null,
+  ): Promise<void> => {
+    for (const file of files ?? []) {
+      // A picture named after its content: the file there already holds these bytes, so it is
+      // linked, not copied again as "picture-… 2.png" (#1937).
+      if (await outputs.holds(folder, file.name, file.data)) continue;
+      await outputs.save({
+        name: file.name,
+        data: file.data,
+        ownFile: "export",
+        fromFolder: folderOfNote(from),
+        folder,
+        approved: true,
+      });
+    }
+  };
+  /**
+   * Saves an export in the Output location, as the window's save: what went wrong is a result, not
+   * an error. `from`: the Note it was written from, whose Folder wall it stays behind; null for none.
+   */
   const saveExport = async (
     name: string,
     data: Uint8Array,
+    from: string | null,
     after: () => void = () => undefined,
     ownFile: OwnFileKind = "export",
   ): Promise<SavedExport> => {
     try {
-      const file = await outputs.save({ name, data, ownFile });
+      const file = await outputs.save({ name, data, ownFile, fromFolder: folderOfNote(from) });
       after();
       return { status: "saved", file };
     } catch (error) {
@@ -2790,11 +3385,14 @@ export function createCore(adapters: CoreAdapters): Core {
     tags,
     library,
     mindsChanged,
-    mindsRestored: (mindIds) => {
+    mindsRestored: (mindIds, reopen) => {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
       wordImports.resume(mindIds);
+      if (reopen) layouts.reopenMinds(mindIds);
+      else layouts.forgetMinds(mindIds);
     },
+    mindsForgotten: (mindIds) => layouts.forgetMinds(mindIds),
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -3159,7 +3757,8 @@ export function createCore(adapters: CoreAdapters): Core {
       mindsChanged();
       layouts.forgetDeletedMinds();
     },
-    restoreMind: (mindId) => recentlyDeleted.restore([{ kind: "mind", id: mindId }]),
+    restoreMind: (mindId) =>
+      recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
     linkFolder: (path) => documents.linkedFolders.add(path),
     unlinkFolder,
@@ -3205,9 +3804,37 @@ export function createCore(adapters: CoreAdapters): Core {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
       own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
-      example: examples.exampleReady(),
+      example: examples.readyQuestion(),
       language: settings.get().language,
     });
+  };
+  const stopReadyWaits = new Set<() => void>();
+  /**
+   * The example's ready Answer as it can be written now, waiting while a Document it cites is
+   * read, so pressing the card's button answers instead of doing nothing (#2218). `stopped`: Stop
+   * came first, so its Answer says Stopped; `timedOut`: the read hadn't finished in time.
+   */
+  const whenExampleReady = async (): Promise<{
+    state: ExampleReadyState;
+    stopped: boolean;
+    timedOut: boolean;
+  }> => {
+    let stopped = false;
+    const stop = () => {
+      stopped = true;
+    };
+    stopReadyWaits.add(stop);
+    try {
+      const deadline = Date.now() + (adapters.exampleReadyWaitMs ?? EXAMPLE_READY_WAIT_MS);
+      for (;;) {
+        const state = examples.readyState();
+        if (stopped || state.kind !== "reading") return { state, stopped, timedOut: false };
+        if (Date.now() >= deadline) return { state, stopped, timedOut: true };
+        await new Promise((settle) => setTimeout(settle, EXAMPLE_READY_LOOK_MS));
+      }
+    } finally {
+      stopReadyWaits.delete(stop);
+    }
   };
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
@@ -3644,16 +4271,26 @@ export function createCore(adapters: CoreAdapters): Core {
     version: adapters.agents?.version ?? "0.0.0",
     access: {
       say: (key, params) => translate(settings.get().language, key, params),
-      folders: () => library.folders().map((folder) => ({ id: folder.id, name: folder.name })),
+      folders: () =>
+        library.folders().map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          keepInside: folder.keepInside,
+        })),
+      foldersInScope: folderIdsInScope,
       documentsIn: (folderIds) => {
-        const folders = folderIds.filter((id) => id !== NOT_IN_A_FOLDER_ID);
+        const only = walledFolderId(folderIds.length === 1 ? (folderIds[0] ?? null) : null);
+        if (only !== null) return library.documentIds(only);
+        const allowed = folderIdsInScope(folderIds);
+        const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
         const filed =
           folders.length === 0
             ? []
             : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
-        return folders.length === folderIds.length
-          ? filed
-          : [...new Set([...filed, ...library.unfiledDocumentIds()])];
+        if (!allowed.includes(NOT_IN_A_FOLDER_ID)) return filed;
+        const walled = new Set(walledDocuments());
+        const unfiled = library.unfiledDocumentIds().filter((id) => !walled.has(id));
+        return [...new Set([...filed, ...unfiled])];
       },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
@@ -3680,7 +4317,9 @@ export function createCore(adapters: CoreAdapters): Core {
               : {}),
           }),
         );
-        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language));
+        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language), {
+          pictures: false,
+        }).text;
       },
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
@@ -3735,11 +4374,39 @@ export function createCore(adapters: CoreAdapters): Core {
   api = {
     createMind: async (input) =>
       makeMind(parseCreateMindInput(input), { headed: isRecord(input) && input.headed === true }),
+    duplicateMind: async (mindId) => {
+      const source = minds.get(mindId);
+      const name = mindName(source) || translate(settings.get().language, "mind.untitled");
+      const settingsOfSource = content.readSettings(source.id, (mindSettings) => [
+        ...mindSettings.entries(),
+      ]);
+      const copy = makeMind({
+        title: translate(settings.get().language, "mind.copyName", { name }),
+        kind: parseKind(source.kind) ?? DEFAULT_MIND_KIND,
+        folderId: source.folderId,
+      });
+      content.apply(copy.id, content.state(source.id));
+      // The copy is the source's, choices included: the new-Mind defaults makeMind wrote would
+      // otherwise race the source's in the merge, and one of the two would win by client id.
+      content.editSettings(copy.id, (mindSettings) => {
+        for (const key of [...mindSettings.keys()]) mindSettings.delete(key);
+        for (const [key, value] of settingsOfSource) mindSettings.set(key, value);
+      });
+      wordImports.copyPackage(source.id, copy.id);
+      return minds.get(copy.id);
+    },
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
     importWordFile: async (input) => wordImports.import(input),
     addWordOriginal: async (mindId, path) => {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
+    },
+    wordFonts: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => {
+        const look = fragment.doc && wordLookOf(fragment.doc);
+        return look ? wordFontsOf(look) : [];
+      });
     },
     listMinds: async () => minds.list(),
     renameMind: async (mindId, title) => {
@@ -3783,15 +4450,29 @@ export function createCore(adapters: CoreAdapters): Core {
     askInConversation: async (input) =>
       answers.askInConversation(conversations.parseQuestion(input)),
     askExampleReadyQuestion: async () => {
-      const ready = examples.readyAnswer();
-      if (!ready) {
-        throw new InvalidInputError({ key: "error.examples.reading" });
+      const { state, stopped, timedOut } = await whenExampleReady();
+      if (state.kind === "unreadable") {
+        throw new InvalidInputError({
+          key: "error.examples.unreadable",
+          values: { document: state.document },
+        });
       }
+      if (state.kind === "gone") {
+        throw new InvalidInputError({
+          key: "error.examples.gone",
+          values: { document: state.document },
+        });
+      }
+      if (state.kind === "absent") throw new InvalidInputError({ key: "error.examples.absent" });
+      if (timedOut) throw new InvalidInputError({ key: "error.examples.reading" });
+      const example = examples.readyQuestion();
+      const mindId = state.kind === "ready" ? state.mindId : examples.status().mindId;
+      if (!example || !mindId) throw new InvalidInputError({ key: "error.examples.absent" });
       const { turn } = conversations.add(
         {
           conversationId: null,
-          text: ready.question,
-          mind: { id: ready.mindId, folderId: minds.get(ready.mindId).folderId },
+          text: example.question,
+          mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
           model: null,
@@ -3801,10 +4482,11 @@ export function createCore(adapters: CoreAdapters): Core {
         },
         null,
         null,
+        () => minds.get(mindId).folderId ?? "",
       );
       const answer = conversations.writeAnswer(turn.answer.id, {
-        text: ready.answer,
-        citations: ready.citations,
+        text: state.kind === "ready" && !stopped ? state.answer : "",
+        citations: state.kind === "ready" && !stopped ? state.citations : [],
         figures: [],
         analyses: [],
         toolCalls: [],
@@ -3812,17 +4494,24 @@ export function createCore(adapters: CoreAdapters): Core {
         textOrigin: null,
         read: null,
         steps: { sentAt: null, finishedAt: now(), phases: [], reasoning: null, example: true },
-        outcome: { status: "done", error: null },
+        outcome: { status: stopped ? "stopped" : "done", error: null },
       });
       events.emit("conversation.message", turn.question);
       events.emit("conversation.message", answer ?? turn.answer);
       conversationsChanged();
-      return { conversationId: turn.conversation.id, answerId: turn.answer.id };
+      return {
+        conversationId: turn.conversation.id,
+        answerId: turn.answer.id,
+        stopped,
+      };
+    },
+    stopExampleReadyQuestion: async () => {
+      for (const stop of [...stopReadyWaits]) stop();
     },
     regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
     countScopeDocuments: async (scope) => {
       const wanted = parseSearchScope(scope);
-      return documents.searchableCount((wanted ? resolveScope(wanted) : null) ?? undefined);
+      return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
@@ -3839,12 +4528,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readMindContents: async (mindIds) => {
       if (!Array.isArray(mindIds)) {
-        throw new InvalidInputError("A list of Mind ids must be an array.");
+        throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
-          throw new InvalidInputError("A Mind id must be text.");
+          throw new InvalidInputError("A Note id must be text.");
         }
         try {
           minds.get(mindId);
@@ -3878,12 +4567,7 @@ export function createCore(adapters: CoreAdapters): Core {
       conversationsChanged();
       return conversation;
     },
-    deleteConversation: async (conversationId) => {
-      // What an Answer being written has is kept, before the conversation goes.
-      answers.stopConversation(conversations.get(conversationId).id);
-      conversations.delete(conversationId, now());
-      conversationsChanged();
-    },
+    deleteConversation: async (conversationId) => removeConversation(conversationId),
     resolveReference: async (input) => {
       const reference = parseReference(input);
       if (!reference) throw new InvalidInputError("That isn't a reference IncarnaMind can follow.");
@@ -3971,24 +4655,59 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new NotFoundError({ key: "error.folder.notFound" });
       }
       const since = now();
-      const result = await webPages.save(input);
+      // A save under way for the other side of a wall is never joined: the User's Folder would
+      // take a turn's page across it, or never get its own (#2243).
+      const into = typeof folderId === "string" ? walledFolderId(folderId) : null;
+      let made = false;
+      const result = await webPages.save(
+        input,
+        () => {
+          made = true;
+        },
+        undefined,
+        "user",
+        { key: wallKey(into) },
+      );
+      let filed = false;
       if (result.outcome === "saved" && !result.existing && typeof folderId === "string") {
-        library.assign(result.document.id, folderId);
+        // Judged at the filing (#2250): a page this save only joined another's goes nowhere its
+        // Folder moved to a wall meanwhile, and the User's own page goes where that wall now is.
+        const now = walledFolderId(folderId);
+        if (made || now === into) filed = fileWithin(result.document.id, now, folderId) !== null;
       }
+      const notFiled =
+        result.outcome === "saved" && !result.existing && typeof folderId === "string" && !filed;
       const added: Pick<AddDocumentsResult, "documents" | "skipped"> =
         result.outcome === "saved"
           ? { documents: [result.document], skipped: [] }
           : { documents: [], skipped: [{ path: result.address, reason: "unreadable" }] };
       usageData.record({ event: "documents_added", fields: addedCounts(added, since) });
       return result.outcome === "saved"
-        ? { ...result, document: documents.get(result.document.id) }
+        ? {
+            ...result,
+            document: documents.get(result.document.id),
+            ...(notFiled ? { notFiled: true as const } : {}),
+          }
         : result;
     },
     keepWebPageLook: async (documentId) => webPages.keepLook(documentId),
     fetchWebPageAgain: async (documentId, options) => webPages.fetchAgain(documentId, options),
+    wallOfTurn: async (input) => turnWall(parseTurnPlace(input)),
     saveTextAsDocument: async (input) => {
       if (!isRecord(input) || typeof input.text !== "string" || input.text.trim() === "") {
         throw new InvalidInputError("There is no text to save.");
+      }
+      const place = parseTurnPlace(input);
+      let wall: string | null;
+      try {
+        wall = turnWall(place);
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+        const key = place.mindId !== null ? "error.paste.noteGone" : "error.paste.conversationGone";
+        throw new NotFoundError({ key });
+      }
+      if (filedWithin(wall, null) === null) {
+        throw new InvalidInputError({ key: "error.folder.notFiled" });
       }
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");
@@ -4002,6 +4721,16 @@ export function createCore(adapters: CoreAdapters): Core {
       const { documents: added } = await documents.add([join(folder, name)]);
       const saved = added[0];
       if (!saved) throw new InvalidInputError("The text couldn't be saved.");
+      // Judged again at the filing (#2250): a Folder that gained a wall between the paste and the
+      // Save, or while it was written, takes the paste by the wall it has now.
+      let atFiling: string | null = null;
+      try {
+        atFiling = turnWall(place);
+      } catch (error) {
+        // Deleted while it was written: nothing more is filed, and the text stays saved.
+        if (!(error instanceof NotFoundError)) throw error;
+      }
+      fileWithin(saved.id, atFiling, null);
       return saved;
     },
     listDocuments: async (options) => {
@@ -4018,12 +4747,8 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("documents.renamed", [renamed]);
       return renamed;
     },
-    deleteDocument: async (id) => {
-      for (const deleted of documents.delete(id)) activity.documentDeleted(deleted);
-    },
-    deleteDocuments: async (ids) => {
-      for (const deleted of documents.delete(ids)) activity.documentDeleted(deleted);
-    },
+    deleteDocument: async (id) => removeDocuments([id]),
+    deleteDocuments: async (ids) => removeDocuments(ids),
     retryDocument: async (id) => documents.retry(id),
     unlockDocument: async (input) => {
       const { documentId, password } = parseUnlock(input);
@@ -4051,6 +4776,14 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.getMany(kept).map((each) => each.id);
     },
     readDocumentText: async (id) => documents.readText(id),
+    readVersionText: async (input) => documents.readVersionText(input),
+    readCitedPage: async (input) => {
+      const id = isRecord(input) ? input.documentId : undefined;
+      if (typeof id === "string" && documents.getMany([id]).length === 0) {
+        throw new NotFoundError({ key: "error.document.notFound" });
+      }
+      return citedPages.image(input);
+    },
     readScannedText: async (id) => documents.readScannedText(id),
     readScannedQuote: async (input) => documents.readScannedQuote(parseQuoted(input)),
     readableQuote: async (input) => documents.readableQuote(parseQuoted(input)),
@@ -4112,12 +4845,17 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const page = (value: unknown) =>
         typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
-      return recheckCitation(documents, {
+      // Left out, the Note can't be judged, so it is never taken as one outside a wall.
+      if (input.mindId !== null && typeof input.mindId !== "string") {
+        throw new InvalidInputError({ key: "error.citation.recheckNote" });
+      }
+      return recheckIn({
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
+        mindId: input.mindId,
       });
     },
     citeSelection: async (input) => {
@@ -4139,7 +4877,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const scope = parseSearchScope(options?.scope);
       const found = await evidence.search(
         query,
-        evidence.scope(scope ? resolveScope(scope) : null, parseCheckedDocument(options?.checked)),
+        evidence.scope(scopeDocuments(scope), parseCheckedDocument(options?.checked)),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },
@@ -4245,6 +4983,9 @@ export function createCore(adapters: CoreAdapters): Core {
       inFlow("comparison", async () => comparisons.resizeColumn(input)),
     setComparisonColumnHidden: (input) =>
       inFlow("comparison", async () => comparisons.hideColumn(input)),
+    addComparisonRows: (input) => inFlow("comparison", async () => comparisons.addRows(input)),
+    removeComparisonRow: (input) => inFlow("comparison", async () => comparisons.removeRow(input)),
+    moveComparisonRow: (input) => inFlow("comparison", async () => comparisons.moveRow(input)),
     undoComparisonStructure: (input) =>
       inFlow("comparison", () => comparisons.undoStructure(input)),
     redoComparisonStructure: (input) =>
@@ -4279,8 +5020,11 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
+    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    chooseRecordCiteSource: (input) =>
+      inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
     findClaims: (input) => inFlow("verify", () => checks.findClaims(input)),
     verifyClaims: (input) => inFlow("verify", () => checks.verifyClaims(input)),
@@ -4288,9 +5032,12 @@ export function createCore(adapters: CoreAdapters): Core {
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
     planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
+    holdMindCheck: async (input) => checks.holdMindCheck(input),
+    forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
+    getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -4450,23 +5197,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
     updateLibraryGroup: async (id, input) => library.update(id, input),
-    deleteLibraryGroup: async (id) => {
-      const deletion = db.transaction(() => {
-        const folder = library.folder(id);
-        const left = minds.leaveFolder(folder.id);
-        const leftConversations = conversations.leaveFolder(folder.id);
-        const { assignments } = library.delete(folder.id, {
-          minds: left.map((mind) => mind.id),
-          conversations: leftConversations.map((conversation) => conversation.id),
-        });
-        const live = (items: { id: string; live: boolean }[]) =>
-          items.filter((item) => item.live).map((item) => item.id);
-        return { assignments, mindIds: live(left), conversationIds: live(leftConversations) };
-      });
-      if (deletion.mindIds.length > 0) mindsChanged();
-      if (deletion.conversationIds.length > 0) conversationsChanged();
-      return deletion;
-    },
+    deleteLibraryGroup: async (id) => removeFolder(id),
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
       const before = library.settings();
@@ -4499,6 +5230,27 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return models;
     },
+    getTaggingRoute: async (flow = "tagging"): Promise<TaggingRoute> => {
+      if (flow !== "tagging" && flow !== "classification" && flow !== "scan-images")
+        throw new InvalidInputError({ key: "error.library.flow" });
+      const classifier =
+        flow === "tagging" ? await tagging.resolve() : organizeModelOf(library.settings());
+      if (!classifier) return { where: "none" };
+      if (flow === "scan-images") {
+        if (decisionModelElsewhere(classifier)) return { where: "none" };
+        if (classifier.kind !== "chat")
+          return classifier.kind === "auto" ||
+            (classifier.kind === "ollama" && classifier.usePageImages)
+            ? { where: "local" }
+            : { where: "none" };
+        const reader = chat.imageModel(classifier.choice);
+        const model = reader && chat.describeModel(reader);
+        if (!model) return { where: "none" };
+        return model.service ? { where: "cloud", service: model.service } : { where: "local" };
+      }
+      const service = tagging.service(classifier);
+      return service ? { where: "cloud", service } : { where: "local" };
+    },
     classifyDocuments: async (ids) => {
       library.classify(ids);
       const classifier = organizeModelOf(library.settings());
@@ -4521,7 +5273,34 @@ export function createCore(adapters: CoreAdapters): Core {
       if (change?.after.tagging?.status === "pending") tagger.resume();
       return change;
     },
-    restore: async (refs) => recentlyDeleted.restore(refs),
+    restore: async (refs, options) => recentlyDeleted.restore(refs, options),
+    deleteAgain: async (refs) => {
+      const items = parseDeletedAgain(refs);
+      const current = now();
+      const nowMs = Date.parse(current);
+      const earliest = nowMs - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000;
+      // A time outside Recently deleted's 30 days would list it expired or purge it at once:
+      // deleting it again at `current` keeps it restorable (#2238).
+      const atOf = (item: DeletedAgainRef) => {
+        const time = Date.parse(item.deletedAt);
+        return time >= earliest && time <= nowMs ? item.deletedAt : current;
+      };
+      // Documents go back together, as their deletion did (#1349), before what came after them.
+      const byTime = new Map<string, string[]>();
+      for (const item of items) {
+        if (item.kind !== "document") continue;
+        const at = atOf(item);
+        byTime.set(at, [...(byTime.get(at) ?? []), item.id]);
+      }
+      for (const [at, ids] of byTime) removeDocuments(ids, at);
+      for (const item of items) {
+        const at = atOf(item);
+        if (item.kind === "mind") removeMind(item.id, at);
+        else if (item.kind === "conversation") removeConversation(item.id, at);
+        else if (item.kind === "folder") removeFolder(item.id, at);
+        else if (item.kind === "tag") removeTag(item.id, at);
+      }
+    },
     undoCommands: async (run) => commandSteps.undo(run),
     redoCommands: async (run) => commandSteps.redo(run),
     listDeleted: async () => recentlyDeleted.list(),
@@ -4535,18 +5314,52 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
       transcripts?.dropPurged();
     },
-    acceptAssignments: async (ids) => library.accept(ids),
+    acceptAssignments: async (ids, checked, wall) => {
+      if (checked !== undefined && wall !== undefined) {
+        // Judged here, at the filing (#2250): a Folder that gained a wall since the check, or a
+        // Document that left it, accepts nothing. One that now waits for another Folder is the
+        // move check's to refuse, with its own words (#2243).
+        const side = wall;
+        const suggested = new Map(
+          library.snapshot().assignments.map((each) => [each.documentId, each]),
+        );
+        const crossing = ids.some((id) => {
+          const into = checked[id] ?? null;
+          const waiting = suggested.get(id);
+          if (!waiting?.suggested || waiting.groupId !== into) return false;
+          return !mayFileWithin(side, into, walledDocument(id));
+        });
+        if (crossing) {
+          throw new InvalidInputError({
+            key: side === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside",
+          });
+        }
+      }
+      return library.accept(ids, checked);
+    },
     rejectAssignments: async (ids) => library.reject(ids),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
       const folderId = parseFolderChoice(input.folderId);
-      const mindIds = parseIds(input.mindIds, "The Minds to move");
+      const mindIds = parseIds(input.mindIds, "The Notes to move");
       const documentIds = parseIds(input.documentIds, "The Documents to move");
       const conversationIds = parseIds(input.conversationIds, "The conversations to move");
+      const wall = input.wall;
+      if (wall !== undefined && wall !== null && typeof wall !== "string") {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      }
       // All or none: every one is checked before anything moves.
       if (folderId !== null) library.folder(folderId);
       for (const id of mindIds) minds.get(id);
       for (const id of conversationIds) conversations.get(id);
+      // The assistant's move judges the walls again here, when it moves (#2250): the one door.
+      if (wall !== undefined) {
+        const side = typeof wall === "string" ? wall : null;
+        const crossing =
+          documentIds.some((id) => !mayFileWithin(side, folderId, walledDocument(id))) ||
+          mindIds.some((id) => !mayFileWithin(side, folderId, walledFolder(id)));
+        if (crossing) throw new InvalidInputError({ key: "error.folder.wallMove" });
+      }
       const move = db.transaction(() => ({
         folderId,
         minds: minds.move(mindIds, folderId),
@@ -4580,12 +5393,7 @@ export function createCore(adapters: CoreAdapters): Core {
       tagsChanged();
       return tag;
     },
-    deleteTag: async (tagId) => {
-      const documentIds = tags.delete(tagId, now());
-      // Tags first, so a listener filtering by the deleted Tag hears it's gone before it refreshes.
-      tagsChanged();
-      announceTagged(documentIds);
-    },
+    deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
         const document = documents.get(documentId);
@@ -4713,6 +5521,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listApprovalRequests: async () => approvals.requests(),
     listUserQuestions: async () => questions.list(),
     answerUserQuestion: async (requestId, answer) => questions.answer(requestId, answer),
+    answerWindowCommand: async (requestId, result) => windowCommands.answer(requestId, result),
+    forgetCommandWindow: async (input) =>
+      windowCommands.forget(isRecord(input) ? input.clientId : undefined),
     respondToApproval: async (requestId, decision, options) =>
       approvals.respond(requestId, decision, options),
 
@@ -4770,18 +5581,131 @@ export function createCore(adapters: CoreAdapters): Core {
         setTextOnlyDocuments(mindSettings, documentIds),
       );
     },
+    printMind: async (mindId) =>
+      mindExports.print(mindId, optionsFor("pdf", settings.get().user.exportOptions)),
     exportMind: async (mindId, options) => {
       const exported = await mindExports.export(mindId, options);
       // The host saves these bytes as a file: IncarnaMind's, wherever it goes. Noting so is
       // never needed for the file itself: a copy saved while storage refuses every write (#1119)
       // still goes out.
       try {
-        recordOwnFile(exported.data, ownFileOf(options));
+        recordOwnFile(exported.data, ownFileOf(options), folderOfNote(mindId));
         recordExport(options);
       } catch (error) {
         console.error("export: the file couldn't be noted as IncarnaMind's", error);
       }
       return exported;
+    },
+    rewriteMindExport: (mindId, options, path, checkComments) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        if (!known || known.mindId !== mindId || known.format !== options?.format) {
+          throw new InvalidInputError({ key: "error.export.rewrite.notThisNote" });
+        }
+        if (checkComments !== undefined && typeof checkComments !== "boolean") {
+          throw new InvalidInputError({ key: "error.export.checkComments" });
+        }
+        const verification = verificationOfNote(known.mindId);
+        if (checkComments !== undefined && verification === null) {
+          throw new InvalidInputError({ key: "error.verify.notVerifying" });
+        }
+        const choiceBefore = checkComments === undefined ? null : verification?.comments === true;
+        const read = content.storedState(known.mindId);
+        const {
+          fileName: _name,
+          fromWord: _,
+          theirChanges: _waiting,
+          data,
+          word,
+          files,
+          ...counts
+        } = await mindExports.export(known.mindId, options, checkComments);
+        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
+        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
+          return { status: "review", word };
+        // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
+        // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
+        await saveExportFiles(files, dirname(known.path), known.mindId);
+        const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
+        const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
+        let file: SavedFile;
+        let changedFile: string | undefined;
+        let step: string;
+        if (written.kind === "written") {
+          file = written.file;
+          step = keepStep(file.path, written.before, choiceBefore);
+        } else {
+          changedFile = basename(known.path);
+          try {
+            file = await outputs.save({
+              name: changedFile,
+              data,
+              ownFile: ownFile.kind,
+              fromFolder: ownFile.fromFolder,
+              folder: dirname(known.path),
+              approved: true,
+            });
+          } catch (error) {
+            throw fileProblem(changedFile, error);
+          }
+          step = keepStep(file.path, null, choiceBefore);
+        }
+        exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
+        // Only once the file holds them, so the choice never says what the file doesn't.
+        if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
+        const sentKept = read === null || keepSent(known.mindId, options, file.name, read);
+        return {
+          status: "saved",
+          file,
+          step,
+          ...counts,
+          word,
+          sentKept,
+          ...(changedFile !== undefined && { changedFile }),
+        };
+      }),
+    restoreMindExport: (path, step) =>
+      inExportTurn(path, async () => {
+        const known = typeof path === "string" ? exportFiles.get(path) : undefined;
+        const steps = known ? rewrittenExports.get(known.path) : undefined;
+        const at = steps?.findIndex((each) => each.id === step) ?? -1;
+        const kept = steps?.[at];
+        if (!known || !steps || !kept) {
+          throw new InvalidInputError({
+            key: "error.export.restore.nothing",
+            values: { name: typeof path === "string" ? basename(path) : "" },
+          });
+        }
+        const values = { name: basename(known.path) };
+        const changed = new TranslatableError({ key: "error.export.restore.changed", values });
+        // A later Change wrote the file since: this step's bytes would take that one back too.
+        if (at < steps.length - 1) throw changed;
+        const ownFile = { kind: ownFileOf(known), fromFolder: folderOfNote(known.mindId) };
+        const done = kept.before
+          ? await outputs.rewrite(known.path, kept.before, known.wrote, ownFile)
+          : await outputs.remove(known.path, known.wrote);
+        if (done.kind === "gone") {
+          // The copy can never come back to be taken away, so its step goes with it.
+          exportFiles.delete(known.path);
+          rewrittenExports.delete(known.path);
+          throw new TranslatableError({ key: "error.export.restore.copyGone" });
+        }
+        if (done.kind === "changed") throw changed;
+        if (done.kind === "read-only") {
+          throw new TranslatableError({ key: "error.export.rewrite.locked", values });
+        }
+        if (kept.before)
+          exportFiles.set(known.path, { ...known, wrote: fingerprintOf(kept.before) });
+        else exportFiles.delete(known.path);
+        steps.pop();
+        if (steps.length === 0) rewrittenExports.delete(known.path);
+        if (kept.comments !== null) setNoteComments(known.mindId, kept.comments);
+      }),
+    setCheckComments: async (mindId, on) => {
+      const mind = writableMind(mindId);
+      if (typeof on !== "boolean")
+        throw new InvalidInputError({ key: "error.export.checkComments" });
+      setNoteComments(mind.id, on);
     },
     saveMindExport: async (mindId, options) => {
       // The export reads the Note before its first await, so this is the text the file holds,
@@ -4793,6 +5717,7 @@ export function createCore(adapters: CoreAdapters): Core {
         theirChanges: _waiting,
         data,
         word,
+        files,
         ...counts
       } = await mindExports.export(mindId, options);
       // What a Word file can't keep is said before anything is saved (#105).
@@ -4801,24 +5726,25 @@ export function createCore(adapters: CoreAdapters): Core {
       const saved = await saveExport(
         fileName,
         data,
+        typeof mindId === "string" ? mindId : null,
         () => recordExport(options),
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
-      // Sent as Word or PDF (#1933): History keeps the Note as it went, with the file's name.
-      let sentKept = true;
-      if (read && (options.format === "docx" || options.format === "pdf")) {
-        try {
-          checkpoints.sent(mindId, saved.file.name, read);
-        } catch (error) {
-          // The file is saved all the same: the result line says History couldn't keep it.
-          sentKept = false;
-          console.error(
-            `export: History couldn't keep Mind ${mindId} as it was sent as ${saved.file.name}`,
-            error,
-          );
-        }
+      try {
+        await saveExportFiles(files, saved.file.folder, typeof mindId === "string" ? mindId : null);
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(saved.file.path, fingerprintOf(data)).catch(() => undefined);
+        throw error;
       }
+      exportFiles.set(saved.file.path, {
+        mindId,
+        path: saved.file.path,
+        format: options.format,
+        wrote: fingerprintOf(data),
+      });
+      const sentKept = read === null || keepSent(mindId, options, saved.file.name, read);
       await rememberExportChoices(counts, null);
       return { ...saved, ...counts, word, sentKept };
     },
@@ -4829,7 +5755,7 @@ export function createCore(adapters: CoreAdapters): Core {
       for (const { format, make } of await checkRecord.files(mindId)) {
         try {
           const { fileName, data } = await make();
-          const result = await saveExport(fileName, data);
+          const result = await saveExport(fileName, data, mindId);
           if (result.status !== "saved") return result;
           saved.push({ format, file: result.file });
         } catch (error) {
@@ -4863,7 +5789,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const name = translate(settings.get().language, "figures.exportName", {
         name: schedule.name,
       });
-      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes);
+      return saveExport(`${safeFileName(name, "Note")}.xlsx`, bytes, mindId);
     },
     saveComparisonExport: async (input) => {
       const ref: Record<string, unknown> = isRecord(input) ? input : {};
@@ -4871,12 +5797,16 @@ export function createCore(adapters: CoreAdapters): Core {
         ref.mindId,
         ref.tableId,
       );
-      const saved = await saveExport(fileName, data);
+      const saved = await saveExport(
+        fileName,
+        data,
+        typeof ref.mindId === "string" ? ref.mindId : null,
+      );
       return saved.status === "saved" ? { ...saved, unverifiedCitations, hiddenColumns } : saved;
     },
     saveSkillExport: async (skillId) => {
       const { fileName, data } = await skills.exportZip(skillId);
-      return saveExport(fileName, data);
+      return saveExport(fileName, data, null);
     },
     formatCitations: (request) => citationStyles.format(request),
     getMindCitationStyle: async (mindId) => mindCitationStyle(minds.get(mindId).id),

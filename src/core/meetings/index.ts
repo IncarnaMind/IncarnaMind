@@ -741,7 +741,7 @@ export function createMeetings(options: MeetingsOptions) {
       typeof mindId === "string" &&
       db.get("SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL", [mindId])
     ) {
-      throw new InvalidInputError("That Mind has a Meeting already.");
+      throw new InvalidInputError("That Note has a Meeting already.");
     }
     const id = randomUUID();
     const at = now();

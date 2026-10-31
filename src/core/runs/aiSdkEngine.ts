@@ -236,9 +236,20 @@ function toModelMessages(messages: readonly RunMessage[]): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const message of messages) {
     if (message.role === "user") {
+      const pictures = message.pictures ?? [];
       out.push({
         role: "user",
-        content: message.text,
+        content:
+          pictures.length > 0
+            ? [
+                ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+                ...pictures.map((picture) => ({
+                  type: "file" as const,
+                  data: picture.data,
+                  mediaType: picture.mediaType,
+                })),
+              ]
+            : message.text,
         ...(message.stablePrefix && { providerOptions: stablePrefixOptions(message.stablePrefix) }),
       });
     } else if (message.role === "assistant") {
@@ -339,9 +350,6 @@ function fromModelMessages(messages: readonly ModelMessage[]): RunMessage[] {
 const LAST_STEP_NOTE =
   "You can make no more calls, and none can record a Citation now. Write the Answer now from what has been read, without Citation markers, and say plainly what you didn't check. Don't write a call, and don't say what you would do next.";
 
-/** The most the last step may write, its thinking included, unless the model's own most is less. */
-const LAST_STEP_TOKENS = 8_000;
-
 /** What a call on the last step is answered with: it isn't made. */
 const NO_MORE_CALLS =
   "No more calls are allowed: that was the last step. Write the Answer now from what has been read, and say plainly what you didn't check.";
@@ -437,6 +445,9 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       // One more than `maxSteps`: a model that calls a Tool on the last step has it refused and
       // gets one more call to write.
       stepCountIs(maxSteps + 1) as StopCondition<ToolSet>,
+      // A step that failed, cut at its output limit too (#2275), ends the Run: the SDK would send a
+      // call whose input was cut back to the model as a Tool error, and go on.
+      ({ steps }) => steps.at(-1)?.finishReason === "error",
       ({ steps }) => {
         const last = steps.at(-1);
         return (
@@ -471,6 +482,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       if (!write)
         return {
           ...(messages && { messages }),
+          maxOutputTokens: request.outputTokens.step,
           // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
           ...(stepNumber === 0 &&
             request.firstTool &&
@@ -485,7 +497,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
           { role: "user" as const, content: LAST_STEP_NOTE },
         ],
         ...((noRoom || !request.lastStep?.keepTools) && { toolChoice: "none" as const }),
-        maxOutputTokens: Math.min(LAST_STEP_TOKENS, request.lastStep?.tokens ?? LAST_STEP_TOKENS),
+        maxOutputTokens: request.outputTokens.last,
       };
     },
     abortSignal: signal,

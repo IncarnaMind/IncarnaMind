@@ -19,7 +19,13 @@ import {
   unfinishedSentence,
 } from "../../src/core/suggestions/prompt";
 import { setUpWithDocuments } from "../helpers/citations";
-import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
+import {
+  createTempDataFolder,
+  nextEvent,
+  queryDatabase,
+  saveProviderUnasked,
+  startCore,
+} from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
 
@@ -387,6 +393,44 @@ describe("suggestions as the User writes", () => {
 
     await vi.waitFor(async () => expect(await core.citedPageImage(shown.citation)).not.toBeNull());
     expect(asked).toMatchObject([{ document: { name: "Tides" }, area: { kind: "section" } }]);
+  });
+
+  test("a suggestion accepted while its cited page's drawing fails gives the page its tries back, and it is drawn again (#2161)", async () => {
+    let calls = 0;
+    let started = () => {};
+    const drawingStarted = new Promise<void>((resolve) => (started = resolve));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const capturePage: CapturePage = async () => {
+      calls++;
+      if (calls === 2) {
+        started();
+        await held;
+      }
+      if (calls <= 2) throw new Error("UnknownVizError");
+      return { data: new Uint8Array([1]), type: "image/png", width: 1, height: 1, text: [] };
+    };
+    const { core, mind, dataDir } = await setUp(suggestingModel(SPRING), [TIDES, BREAD], {
+      capturePage,
+    });
+    const pages = () =>
+      queryDatabase<{ tries: number; image_type: string | null }>(
+        dataDir,
+        "SELECT tries, image_type FROM cited_pages WHERE deleted_at IS NULL",
+      );
+    const first = suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES)));
+    await core.acceptSuggestion({ suggestionId: first.suggestionId, characters: 42 });
+    await vi.waitFor(() => expect(pages()).toEqual([{ tries: 1, image_type: null }]));
+
+    // Asked for, it is drawn again; the same Citation is accepted again while that drawing fails.
+    expect(await core.citedPageImage(first.citation)).toBeNull();
+    await drawingStarted;
+    const second = suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES)));
+    await core.acceptSuggestion({ suggestionId: second.suggestionId, characters: 42 });
+    release();
+
+    await vi.waitFor(() => expect(pages()).toEqual([{ tries: 1, image_type: "image/png" }]));
+    expect(calls).toBe(3);
   });
 
   test("turning them off stops the request in flight and sends no more", async () => {

@@ -89,7 +89,7 @@ const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
   }),
 );
 
-export const tabCommands: readonly Command[] = [
+const tabList: readonly Command[] = [
   {
     ...fromMenu("tab.close"),
     menuLabel: "tabs.menu.close",
@@ -267,3 +267,10 @@ export const tabCommands: readonly Command[] = [
     },
   },
 ];
+
+// Tabs are how the User arranges the window: the assistant opens things, but never moves, renames,
+// pins or closes tabs (#1421).
+export const tabCommands: readonly Command[] = tabList.map((command) => ({
+  ...command,
+  assistant: false,
+}));

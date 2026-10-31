@@ -5,6 +5,8 @@ export interface ShownWordLook {
   shown: MindLook;
   choose(look: MindLook): void;
   openOriginal: (() => void) | null;
+  /** The fonts the look draws its text in (`wordFontsOf`). */
+  fonts: readonly string[];
 }
 
 const looks = heldByMind<ShownWordLook>();

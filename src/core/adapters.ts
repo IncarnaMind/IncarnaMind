@@ -198,6 +198,11 @@ export interface OllamaApp {
  */
 export interface Printer {
   print(document: PrintDocument): Promise<Uint8Array>;
+  /**
+   * Lays the document out as `print` does, then prints it on a printer the User chooses.
+   * Absent (a host that can only make PDFs): printing on a printer is refused.
+   */
+  printToPrinter?(document: PrintDocument): Promise<void>;
 }
 
 /**
@@ -999,6 +1004,11 @@ export interface CoreAdapters {
    * and how long a background check of one claim may take (3 minutes).
    */
   contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
+  /**
+   * How long asking the example's ready Question waits for its Documents to be read before it
+   * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.
+   */
+  exampleReadyWaitMs?: number;
   /**
    * The Connectors directory's entries, in its JSON form, in place of the
    * list that ships with the app; tests point an entry at a local stand-in.
