@@ -111,15 +111,26 @@ test("typing on the 304-page contract in its look takes each key in a moment, as
 });
 
 test("the Word corpus's largest file opens in its look about as fast as drawn plain", async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(480_000);
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
   const corpus = largestCorpusFile();
   await importWordFile(app, window, files, basename(corpus), readFileSync(corpus));
   const editor = window.getByTestId("mind-editor");
-  await expect(editor.locator(":scope > *").first()).toBeVisible();
-  await expect(window.getByTestId("mind-word-progress")).toHaveCount(0);
+  const progress = window.getByTestId("mind-word-progress");
+  // The import is the setup, not the speed check: the largest file's first Block can take
+  // longer than Playwright's 5 s on a loaded runner. The dialog hides before the imported Mind
+  // mounts, so an absent progress element alone doesn't mean the import is done: wait until it
+  // is running or the Mind has Blocks, then for its done state, then for the first Block.
+  await expect
+    .poll(
+      async () => (await progress.count()) > 0 || (await editor.locator(":scope > *").count()) > 0,
+      { timeout: 120_000 },
+    )
+    .toBe(true);
+  await expect(progress).toHaveCount(0, { timeout: 120_000 });
+  await expect(editor.locator(":scope > *").first()).toBeVisible({ timeout: 120_000 });
   const blocks = await editor.locator(":scope > *").count();
   const ids = await window.evaluate(
     async (title) => {

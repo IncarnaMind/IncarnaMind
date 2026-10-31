@@ -69,6 +69,14 @@ async function write(window: Page, blocks: Y.XmlElement[]): Promise<void> {
   }, update);
 }
 
+interface TidyRelation {
+  order: string[];
+  workingInClick: boolean;
+  busySeen: boolean;
+  tidySeen: boolean;
+  resultSeen: boolean;
+}
+
 interface PrintCall {
   text: string;
   lang: string;
@@ -393,7 +401,7 @@ test("Tidy Chinese text spaces Latin text beside an address, a date and a file n
   await expect(window.getByTestId("undo-line")).toContainText("Tidied 3 places · Undo");
 });
 
-test("Tidy says it is working within 100 ms on a large Note", async () => {
+test("Tidy's working line is in the Note as the command is clicked, before the tidy changes it, and the result replaces it", async () => {
   test.setTimeout(180_000);
   const { window, editor } = await startMind();
   const blocks = Array.from({ length: 5_000 }, (_, index) => {
@@ -407,42 +415,81 @@ test("Tidy says it is working within 100 ms on a large Note", async () => {
     timeout: 60_000,
   });
 
-  // A person's click on the command, then the line that says it is working.
+  // The click, the working line, the first tidy change and the result line, in the order they
+  // reach the page: the line is already there when the click finishes, not after the work.
   await window.evaluate(() => {
-    const state: { clickedAt: number | null; shownAt: number | null } = {
-      clickedAt: null,
-      shownAt: null,
+    const state: TidyRelation = {
+      order: [],
+      workingInClick: false,
+      busySeen: false,
+      tidySeen: false,
+      resultSeen: false,
     };
-    (window as unknown as { __tidyTiming?: typeof state }).__tidyTiming = state;
-    const observer = new MutationObserver(() => {
-      const line = document.querySelector('[data-testid="undo-note"]');
-      if (line?.textContent?.includes("Tidying")) {
-        state.shownAt = performance.now();
-        observer.disconnect();
-      }
-    });
-    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    (window as unknown as { __tidyRelation?: TidyRelation }).__tidyRelation = state;
+    const busy = () =>
+      document.querySelector('[data-testid="undo-note"]')?.textContent?.includes("Tidying") ??
+      false;
     document.addEventListener(
       "click",
       () => {
-        if (state.clickedAt === null) state.clickedAt = performance.now();
+        state.workingInClick = busy();
+        state.order.push("click");
       },
-      { capture: true, once: true },
+      { once: true },
     );
+    const busyObserver = new MutationObserver(() => {
+      if (!state.busySeen && busy()) {
+        state.busySeen = true;
+        state.order.push("working");
+        busyObserver.disconnect();
+      }
+    });
+    busyObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
+    const tidied = () =>
+      [...document.querySelectorAll('[data-testid="mind-editor"] p')].some((paragraph) =>
+        (paragraph.textContent ?? "").includes("导出为 Word 文件，你好。"),
+      );
+    const tidyObserver = new MutationObserver(() => {
+      if (!state.tidySeen && tidied()) {
+        state.tidySeen = true;
+        state.order.push("tidy");
+        tidyObserver.disconnect();
+      }
+    });
+    const editorRoot = document.querySelector('[data-testid="mind-editor"]');
+    if (editorRoot)
+      tidyObserver.observe(editorRoot, { subtree: true, childList: true, characterData: true });
+    const resultObserver = new MutationObserver(() => {
+      const line = document.querySelector('[data-testid="undo-message"]');
+      if (!state.resultSeen && line?.textContent?.includes("Tidied")) {
+        state.resultSeen = true;
+        state.order.push("result");
+        resultObserver.disconnect();
+      }
+    });
+    resultObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
   });
 
   await runCommand(window, "mind.tidy", "Tidy Chinese text");
   await expect(editor.locator("p", { hasText: "导出为 Word 文件，你好。" }).first()).toBeVisible({
     timeout: 60_000,
   });
-  const timing = await window.evaluate(
-    () =>
-      (window as unknown as { __tidyTiming?: { clickedAt: number | null; shownAt: number | null } })
-        .__tidyTiming,
+  await expect(window.getByTestId("undo-note")).toHaveCount(0);
+  await expect(window.getByTestId("undo-message")).toContainText("Tidied");
+
+  const relation = await window.evaluate(
+    () => (window as unknown as { __tidyRelation?: TidyRelation }).__tidyRelation,
   );
-  expect(timing?.clickedAt).not.toBeNull();
-  expect(timing?.shownAt).not.toBeNull();
-  expect((timing?.shownAt ?? 0) - (timing?.clickedAt ?? 0)).toBeLessThan(100);
+  expect(relation?.workingInClick).toBe(true);
+  expect(relation?.busySeen).toBe(true);
+  expect(relation?.tidySeen).toBe(true);
+  expect(relation?.resultSeen).toBe(true);
+  const order = relation?.order ?? [];
+  expect(order).toContain("working");
+  expect(order).toContain("tidy");
+  expect(order).toContain("result");
+  expect(order.indexOf("working")).toBeLessThan(order.indexOf("tidy"));
+  expect(order.indexOf("tidy")).toBeLessThan(order.indexOf("result"));
 });
 
 for (const language of ["en", "zh-CN"] as const) {
