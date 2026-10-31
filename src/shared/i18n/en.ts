@@ -992,6 +992,7 @@ export const en = {
   "claim.reason.refused": "The model declined to check it.",
   "claim.reason.malformed": "The model’s reply couldn’t be read.",
   "claim.reason.empty": "The model gave an empty reply.",
+  "claim.reason.cut-short": "The model’s reply reached its length limit and was cut short.",
   "claim.reason.no-evidence": "Verdict hidden: the model’s quote isn’t in that Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
@@ -1857,6 +1858,8 @@ export const en = {
   "tagging.problem.too-long": "Couldn’t tag: the Document’s excerpt is too long for the AI model.",
   "tagging.problem.cost-cap": "Couldn’t tag: it could pass your monthly cap.",
   "tagging.problem.no-answer": "Couldn’t tag: the AI model sent no reply.",
+  "tagging.problem.cut-short":
+    "Couldn’t tag: the AI model’s reply reached its length limit and was cut short.",
   "tagging.problem.unknown": "Couldn’t tag, and the AI model’s service didn’t say why.",
   "status.choose": "Choose…",
   "status.downloading": "Search model",
@@ -2463,6 +2466,7 @@ export const en = {
   "providers.test.cost-cap":
     "Nothing sent: this month’s spending cap is reached. Change it in Settings → General.",
   "providers.test.no-answer": "The model sent no reply.",
+  "providers.test.cut-short": "The model’s reply reached its length limit and was cut short.",
   "providers.test.ollama-not-running":
     "Ollama isn’t running on this computer. Open it, then test again.",
   "providers.test.data-retention":
@@ -3198,6 +3202,7 @@ export const en = {
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
   "answer.error.too-long.hosted": "This is too long for {model}",
   "answer.error.no-answer": "The model sent no Answer",
+  "answer.error.cut-short": "The model’s reply reached its length limit and was cut short",
   "answer.error.unknown": "Something went wrong with {service}",
   "answer.error.not-signed-in": "You’re not signed in to ChatGPT",
   "answer.error.plan-limit": "Your ChatGPT plan’s usage limit is reached",

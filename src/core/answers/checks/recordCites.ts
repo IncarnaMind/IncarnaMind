@@ -16,6 +16,7 @@ import { depositionMapper } from "../../documents/deposition";
 import { TranslatableError } from "../../errors";
 import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
+import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import {
@@ -173,7 +174,7 @@ async function compare(
       instructions,
       prompt: confirmPrompt({ claim, quote: passage, passage }),
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 400,
+      maxOutputTokens: outputTokens("record-cite"),
       maxRetries: 1,
       abortSignal: signal,
     });

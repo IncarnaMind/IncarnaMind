@@ -4654,6 +4654,8 @@ export type ProviderErrorKind =
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
+  /** The model's reply reached its call's output limit and was cut off (#2275). */
+  | "cut-short"
   | "unknown";
 
 export interface ProviderError {
@@ -5634,7 +5636,8 @@ export type ClaimCheckFailure =
   | "consent-revoked"
   | "local-mode"
   | "absence-read-limit"
-  | "kept-inside";
+  | "kept-inside"
+  | "cut-short";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {

@@ -29,6 +29,7 @@ const KINDS: ProviderErrorKind[] = [
   "too-long",
   "cost-cap",
   "no-answer",
+  "cut-short",
   "unknown",
 ];
 
