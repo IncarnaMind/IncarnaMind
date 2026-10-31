@@ -632,8 +632,13 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
 const writingKind = (request: AnswerRequest): ModelCallKind =>
   request.toolSet === "check" ? "check-step" : "answer";
 
+/** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
-  Math.min(outputTokens(kind), request.maxOutput ?? Number.POSITIVE_INFINITY);
+  Math.min(
+    outputTokens(kind),
+    request.maxOutput ?? Number.POSITIVE_INFINITY,
+    request.window?.outputTokens ?? Number.POSITIVE_INFINITY,
+  );
 
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };

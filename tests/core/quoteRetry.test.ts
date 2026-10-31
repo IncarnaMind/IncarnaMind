@@ -145,6 +145,25 @@ describe("A small local model's quotes the check doesn't find", () => {
     expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
   });
 
+  // protects=a reply that stops as a whole one does but whose JSON is cut off is read for nothing, whatever its finish says; fails_when=the JSON is repaired and its cut quote recorded as found (#2275).
+  test("a reply whose JSON doesn't parse whole is read for nothing, though it stopped normally", async () => {
+    const broken = await smallModel(
+      {
+        answer: "Spring tides come at new and full moon [^1].",
+        citations: [{ marker: 1, passage: "P1", quote: "Spring tides come at new and full moon" }],
+      },
+      { content: '{"quotes":[{"marker":1,"quote":"Spring tides happen at new moon', cutOff: false },
+    );
+
+    const { finished } = await ask(broken);
+
+    expect(retries(broken)).toHaveLength(1);
+    expect(finished.citations).toMatchObject([
+      { quote: "Spring tides come at new and full moon", check: "not-found" },
+    ]);
+    expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
+  });
+
   test("a new quote the check still doesn't find is dropped: the record keeps its own, not found", async () => {
     const ollama = await smallModel(
       {
