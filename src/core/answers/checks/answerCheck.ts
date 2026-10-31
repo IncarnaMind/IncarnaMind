@@ -37,6 +37,8 @@ export interface CitedSentence {
   markers: number[];
   /** It shows a Calculated figure, whose own check is the Calculation check (ADR-0021). */
   calculated: boolean;
+  /** It is a table's row: its cells, read as one line. */
+  inTable: boolean;
 }
 
 const MARKER = /\[\^(\d+)\]/g;
@@ -61,6 +63,7 @@ export function citedSentences(
   const found: CitedSentence[] = [];
   for (const line of text.split("\n")) {
     if (FOOTNOTE_LINE.test(line)) continue;
+    const inTable = line.trimStart().startsWith("|");
     const markers: number[] = [];
     const marked = line
       .replace(BLOCK_MARKUP, "")
@@ -82,7 +85,7 @@ export function citedSentences(
       const sentence = withoutMarkers(marked.slice(from, to));
       if (inside.length > 0 && isClaim(sentence)) {
         const calculated = marked.slice(from, to).includes(FIGURE_START);
-        found.push({ sentence, context, markers: inside, calculated });
+        found.push({ sentence, context, markers: inside, calculated, inTable });
       }
     }
   }
@@ -121,13 +124,14 @@ export interface AnswerCheckOptions {
 /**
  * The sentences the check reads: claims whose Citations' quotes were found, each with those. One
  * that shows a Calculated figure is left to the figure's own check: the sentence holds a number no
- * Passage states.
+ * Passage states. A table's row is no sentence: its cells read as one line say nothing a check can
+ * judge whole.
  */
 function sentencesToCheck(
   input: Pick<AnswerCheckInput, "text" | "citations" | "figures">,
 ): (CitedSentence & { found: MarkedCitation[] })[] {
   return citedSentences(input.text, input.figures)
-    .filter((each) => !each.calculated)
+    .filter((each) => !each.calculated && !each.inTable)
     .map((each) => ({
       ...each,
       found: each.markers.flatMap((marker) => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Core, MarkedCitation } from "../../src/core";
+import { citedSentences } from "../../src/core/answers/checks/answerCheck";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
@@ -305,5 +306,35 @@ describe("a check names whether a thing has happened or is still to happen", () 
 
     expect(already.verdict).toBe("unsupported");
     expect(planned.verdict).toBe("supported");
+  });
+});
+
+describe("the sentences of an Answer its check reads", () => {
+  test("a table's row and a sentence with a Calculated figure are told apart from an ordinary cited sentence", () => {
+    const text = [
+      "The library opened in 1968[^1]. 图书馆于 1968 年开放[^2]。",
+      "",
+      "| Quarter | Revenue |",
+      "|:--|--:|",
+      "| Q1 | Revenue was 289.4 [^3] |",
+      "",
+      "Revenue grew [=1] in 2025[^4].",
+    ].join("\n");
+
+    const found = citedSentences(text, [{ marker: 1, shown: "20.4%" }]);
+
+    expect(
+      found.map(({ sentence, markers, calculated, inTable }) => [
+        sentence,
+        markers,
+        calculated,
+        inTable,
+      ]),
+    ).toEqual([
+      ["The library opened in 1968.", [1], false, false],
+      ["图书馆于 1968 年开放。", [2], false, false],
+      ["Q1 Revenue was 289.4", [3], false, true],
+      ["Revenue grew 20.4% in 2025.", [4], true, false],
+    ]);
   });
 });
