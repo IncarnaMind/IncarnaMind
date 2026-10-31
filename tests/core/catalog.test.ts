@@ -229,6 +229,101 @@ describe("The provider catalog", () => {
     expect(catalogModel("google", "gemini-3.8-flash")?.price?.note?.en).toContain("2027-01-01");
   });
 
+  // protects=Claude Haiku 5.5's prices over 100,000 prompt tokens stay in the catalog on every route that bills them, after any refresh; fails_when=a refresh or a hand-written price drops the tier; no_claim=that the routes' prices are current.
+  test("Claude Haiku 5.5 costs five times as much over 100,000 prompt tokens on every route that sells it", () => {
+    const global = { above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05 };
+    const regional = { above: 100_000, input: 0.55, output: 2.75, cacheRead: 0.055 };
+    expect(catalogModel("anthropic", "claude-haiku-5-5")?.price).toEqual({
+      currency: "USD",
+      input: 0.1,
+      output: 0.5,
+      cacheRead: 0.01,
+      tiers: [global],
+    });
+    const routes: [string, string, typeof global][] = [
+      ["openrouter", "anthropic/claude-haiku-5.5", global],
+      ["openrouter", "~anthropic/claude-haiku-latest", global],
+      ["venice", "claude-haiku-5-5", global],
+      ["bedrock", "anthropic.claude-haiku-5-5", global],
+      ["bedrock", "global.anthropic.claude-haiku-5-5", global],
+      ["bedrock", "us.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "eu.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "au.anthropic.claude-haiku-5-5", regional],
+      ["bedrock", "jp.anthropic.claude-haiku-5-5", regional],
+    ];
+    for (const [set, id, tier] of routes) {
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toEqual([tier]);
+    }
+  });
+
+  // protects=every default model its provider bills by prompt length keeps its tiers after a refresh, and the flat ones stay flat; fails_when=a refresh or a hand-written price drops a tier, or a flat model gains one unseen; no_claim=that the prices are current.
+  test("the default models billed by prompt length carry their tiers, from their providers' price pages, and the flat ones none", () => {
+    const tiered: [string, string, unknown[]][] = [
+      ["openai", "gpt-6-luna", [{ above: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02 }]],
+      ["openai", "gpt-6.1-sol", [{ above: 272_000, input: 4, output: 15, cacheRead: 0.2 }]],
+      ["openai", "gpt-6-astra", [{ above: 272_000, input: 20, output: 75, cacheRead: 2 }]],
+      [
+        "openrouter",
+        "openai/gpt-6-luna",
+        [{ above: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02 }],
+      ],
+      [
+        "google",
+        "gemini-3.1-pro-preview",
+        [{ above: 200_000, input: 4, output: 18, cacheRead: 0.4 }],
+      ],
+      ["xai", "grok-4.3", [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }]],
+      ["xai", "grok-4.7", [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }]],
+      ["qwen", "qwen3.7-plus", [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }]],
+      ["qwen/intl", "qwen3.7-plus", [{ above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 }]],
+      [
+        "qwen",
+        "qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+          { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
+        ],
+      ],
+      [
+        "qwen/intl",
+        "qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.1, output: 0.4, cacheRead: 0.02 },
+          { above: 256_000, input: 0.2, output: 0.8, cacheRead: 0.04 },
+        ],
+      ],
+      [
+        "openrouter",
+        "qwen/qwen3.7-flash",
+        [
+          { above: 32_000, input: 0.1, output: 0.4, cacheRead: 0.02 },
+          { above: 256_000, input: 0.2, output: 0.8, cacheRead: 0.04 },
+        ],
+      ],
+    ];
+    for (const [set, id, tiers] of tiered) {
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toEqual(tiers);
+    }
+    const flat: [string, string][] = [
+      ["anthropic", "claude-sonnet-5-5"],
+      ["anthropic", "claude-fable-5-1"],
+      ["openrouter", "anthropic/claude-sonnet-5.5"],
+      ["google", "gemini-3.8-flash"],
+      ["google", "gemini-3.5-flash-lite"],
+      ["qwen", "qwen3.8-flash"],
+      ["qwen", "qwen3.8-max"],
+      ["qwen/intl", "qwen3.8-flash"],
+      ["kimi", "kimi-k2.6"],
+      ["glm", "glm-5.3"],
+      ["glm", "glm-5.3-flash"],
+      ["deepseek", "deepseek-flash"],
+    ];
+    for (const [set, id] of flat) {
+      expect(catalogModel(set, id)?.price?.input, `${set}/${id}`).toBeGreaterThanOrEqual(0);
+      expect(catalogModel(set, id)?.price?.tiers, `${set}/${id}`).toBeUndefined();
+    }
+  });
+
   test("a model is found by its id, or a dated snapshot by the id without its date; nothing else is guessed from a name", () => {
     expect(catalogModel("openai", "gpt-6.1-sol")?.name).toBe("GPT-6.1 Sol");
     expect(catalogModel("openai", "gpt-5-2025-08-07")?.id).toBe("gpt-5");

@@ -115,6 +115,83 @@ describe("the catalog update's diff", () => {
   });
 });
 
+describe("the catalog's prices by prompt length (#2285)", () => {
+  const haiku = {
+    ...model("Haiku", { input: 0.1, output: 0.5 }),
+    cost: {
+      input: 0.1,
+      output: 0.5,
+      cache_read: 0.01,
+      cache_write: 0.125,
+      tiers: [
+        {
+          input: 0.5,
+          output: 2.5,
+          cache_read: 0.05,
+          cache_write: 0.625,
+          tier: { type: "context", size: 100000 },
+        },
+      ],
+    },
+  };
+  const { tiers: _tiers, ...flatCost } = haiku.cost;
+  const flat = { ...haiku, cost: flatCost };
+
+  // protects=a refresh from models.dev keeps a model's higher prices for a long prompt; fails_when=the builder drops models.dev's tiers; no_claim=that models.dev's prices are right.
+  test("models.dev's prices over a prompt length become the price's tiers, lowest threshold first, and nothing else does", () => {
+    const qwen = {
+      ...model("Qwen", { input: 0.1, output: 0.4 }),
+      cost: {
+        input: 0.1,
+        output: 0.4,
+        tiers: [
+          { input: 0.4, output: 1.6, tier: { type: "context", size: 256000 } },
+          { input: 0.2, output: 0.8, tier: { type: "context", size: 32000 } },
+          { input: 0.05, output: 0.2, tier: { type: "batch", size: 1 } },
+        ],
+      },
+    };
+    const { providers } = generateModels(
+      { anthropic: { models: { haiku, qwen } }, deepseek: { models: { haiku } } },
+      {},
+    );
+
+    expect(providers.anthropic?.models.map((each) => each.price)).toEqual([
+      {
+        currency: "USD",
+        input: 0.1,
+        output: 0.5,
+        cacheRead: 0.01,
+        tiers: [{ above: 100000, input: 0.5, output: 2.5, cacheRead: 0.05 }],
+      },
+      {
+        currency: "USD",
+        input: 0.1,
+        output: 0.4,
+        tiers: [
+          { above: 32000, input: 0.2, output: 0.8 },
+          { above: 256000, input: 0.4, output: 1.6 },
+        ],
+      },
+    ]);
+    // DeepSeek bills in yuan: its source's dollar prices, tiers too, are left for overrides.ts.
+    expect(providers.deepseek?.models[0]?.price).toBeUndefined();
+  });
+
+  // protects=the weekly pull request shows a tier that a refresh adds or drops, so a person sees it before it ships; fails_when=a dropped tier passes as no change; no_claim=which way is right.
+  test("a tier a refresh drops or adds is in the diff", () => {
+    const tiered = generateModels({ anthropic: { models: { haiku } } }, {}).providers;
+    const plain = generateModels({ anthropic: { models: { haiku: flat } } }, {}).providers;
+
+    expect(diffModels(tiered, plain).changed).toEqual([
+      "anthropic/haiku: prices by prompt length over 100000 tokens $0.5 in / $2.5 out / $0.05 cached -> none",
+    ]);
+    expect(diffModels(plain, tiered).changed).toEqual([
+      "anthropic/haiku: prices by prompt length none -> over 100000 tokens $0.5 in / $2.5 out / $0.05 cached",
+    ]);
+  });
+});
+
 describe("the catalog's reading of ids that answer by another API", () => {
   const audio = {
     ...model("Audio", { input: 2, output: 8 }),

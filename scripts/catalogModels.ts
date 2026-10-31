@@ -38,6 +38,8 @@ import type {
   CatalogModel,
   GeneratedProviderModels,
   ModelInput,
+  Price,
+  PriceTier,
 } from "../src/core/providers/catalog/types";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -123,7 +125,18 @@ interface ModelsDevModel {
   temperature?: boolean;
   modalities?: { input?: string[]; output?: string[] };
   limit?: { context?: number; input?: number; output?: number };
-  cost?: { input?: number; output?: number; cache_read?: number };
+  cost?: {
+    input?: number;
+    output?: number;
+    cache_read?: number;
+    /** Prices for a longer prompt: `tier.size` is the prompt length a request is over. */
+    tiers?: {
+      input?: number;
+      output?: number;
+      cache_read?: number;
+      tier?: { type?: string; size?: number };
+    }[];
+  };
   status?: string;
 }
 
@@ -174,9 +187,26 @@ function readsAndWritesText(model: ModelsDevModel): boolean {
   );
 }
 
+/** models.dev's prices by prompt length, lowest threshold first; other kinds of tier are left out. */
+function tiersOf(cost: ModelsDevModel["cost"]): PriceTier[] {
+  const tiers: PriceTier[] = [];
+  for (const { tier, input, output, cache_read } of cost?.tiers ?? []) {
+    if (tier?.type !== "context" || tier.size === undefined) continue;
+    if (input === undefined || output === undefined) continue;
+    tiers.push({
+      above: tier.size,
+      input,
+      output,
+      ...(cache_read !== undefined && { cacheRead: cache_read }),
+    });
+  }
+  return tiers.sort((a, b) => a.above - b.above);
+}
+
 function factsOf(id: string, model: ModelsDevModel, prices: boolean): CatalogModel {
   const { context = 0, input: maxInput, output: maxOutput } = model.limit ?? {};
   const cost = model.cost;
+  const tiers = tiersOf(cost);
   const status =
     model.status === "deprecated"
       ? "deprecated"
@@ -205,6 +235,7 @@ function factsOf(id: string, model: ModelsDevModel, prices: boolean): CatalogMod
           input: cost.input,
           output: cost.output,
           ...(cost.cache_read !== undefined && { cacheRead: cost.cache_read }),
+          ...(tiers.length > 0 && { tiers }),
         },
       }),
     ...(status && { status }),
@@ -297,6 +328,16 @@ const money = (value: number | undefined, currency = "USD") =>
   value === undefined ? "none" : `${currency === "USD" ? "$" : `${currency} `}${value}`;
 const tokens = (value: number | undefined) => (value === undefined ? "none" : String(value));
 const list = (value: readonly string[] | undefined) => (value?.length ? value.join(", ") : "none");
+const tiersText = (price: Price | undefined) => {
+  if (!price?.tiers?.length) return "none";
+  const at = (value: number | undefined) => money(value, price.currency);
+  return price.tiers
+    .map(
+      (tier) =>
+        `over ${tier.above} tokens ${at(tier.input)} in / ${at(tier.output)} out / ${at(tier.cacheRead)} cached`,
+    )
+    .join("; ");
+};
 
 /** The differences between two entries of one model, one phrase each. */
 function changesOf(before: CatalogModel, after: CatalogModel): string[] {
@@ -312,6 +353,7 @@ function changesOf(before: CatalogModel, after: CatalogModel): string[] {
   per("input", "input");
   per("output", "output");
   per("cacheRead", "cached input");
+  differ("prices by prompt length", tiersText(was), tiersText(now));
   differ("context", tokens(before.context), tokens(after.context));
   differ("input limit", tokens(before.maxInput), tokens(after.maxInput));
   differ("output limit", tokens(before.maxOutput), tokens(after.maxOutput));
