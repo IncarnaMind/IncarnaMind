@@ -664,6 +664,127 @@ describe("What is left of a read its budget stopped", () => {
       new Set(marks.map((each) => JSON.stringify(JSON.parse(each.detail ?? "null")?.spent))).size,
     ).toBe(1);
   });
+
+  test("what a read spent is read when it ends: a request still open when another is refused counts", async () => {
+    const TWO = "The tenant may keep a cat, and rent is due monthly.";
+    const [OPEN, REFUSED] = ["The tenant may keep a cat", "rent is due monthly"];
+    const both = Object.fromEntries([TWO, OPEN, REFUSED].map((each) => [each, unsupported]));
+    // The open request's search, settled after the other part was refused: $0.005 at $0.10 a million.
+    const SETTLED_LATE: ReportedUsage = {
+      inputTokens: { total: 50_000, noCache: 50_000, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 0, text: 0, reasoning: undefined },
+    };
+    let armed = false;
+    let refusedAnswered = false;
+    const runs: ModelCall[] = [];
+    const firstOf = (call: ModelCall, part: string) =>
+      armed && isCheckRun(call) && sentenceOf(call) === part && call.results.length === 0;
+    const model = scriptedModel(
+      (call) => {
+        runs.push(call);
+        const reply = checkReply(call, both);
+        if ("error" in reply) return reply;
+        if (firstOf(call, REFUSED)) {
+          refusedAnswered = true;
+          return { ...reply, usage: SPENT };
+        }
+        return firstOf(call, OPEN) ? { ...reply, usage: SETTLED_LATE } : reply;
+      },
+      {
+        generate(call) {
+          if (!call.system.startsWith("You sort the sentences")) return checkGenerate(both)(call);
+          const sentences = listedSentences(call.prompt).map(({ number, text: said }) => ({
+            number,
+            parts: (said === TWO ? [OPEN, REFUSED] : [said]).map((words) => ({
+              kind: "fact",
+              text: words,
+            })),
+          }));
+          return { text: JSON.stringify({ sentences }) };
+        },
+      },
+    );
+    // One part's first request stays open, reserved and unsettled, until the other's is refused.
+    let release = () => {};
+    const released = new Promise<void>((done) => {
+      release = done;
+    });
+    let holding = false;
+    const stream = model.doStream;
+    model.doStream = async (options) => {
+      const result = await stream(options);
+      const call = runs.find((each) => each.options === options);
+      if (call && firstOf(call, OPEN)) {
+        holding = true;
+        await released;
+      }
+      return result;
+    };
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Lease.md", contents: LEASE },
+    ]);
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("checks", provider.service.id);
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId: "claude-haiku-5-5" };
+    const within = { folderIds: [], tagIds: [], documentIds: [documents[0]?.id ?? ""] };
+    const block = note(TWO);
+    writeMind(client, [block]);
+    await client.settled();
+    const blockId = String(block.attrs?.id);
+    const place = { from: { blockId, offset: 0 }, to: { blockId, offset: TWO.length } };
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      mode: "all",
+      model: chosen,
+    });
+    const plan = await core.planDocumentCheck({ mindId: mind.id, ...place, within, model: chosen });
+    if (plan.kind !== "ready" || plan.parts !== 2) throw new Error("The read is not of two parts.");
+    const spentUsd = async () =>
+      (await core.getCostSummary()).spent.find((each) => each.currency === "USD")?.amount ?? 0;
+    const before = await spentUsd();
+    let atRefusal: number | null = null;
+    // The refused part's window reports once it is refused; the held part can't report before.
+    core.on("documentCheck.progress", () => {
+      if (!holding || !refusedAnswered || atRefusal !== null) return;
+      void spentUsd().then((spent) => {
+        atRefusal = spent;
+        release();
+      });
+    });
+
+    armed = true;
+    await core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-document",
+      ...place,
+      within,
+      plan: plan.id,
+      model: chosen,
+    });
+    await client.settled();
+
+    const [mark] = claimSpans(readMind(client)).map((span) => span.check);
+    const ended = (await spentUsd()) - before;
+    expect(atRefusal).not.toBeNull();
+    // The open request settled after the refusal, and the read spent it too.
+    expect(ended - ((atRefusal ?? 0) - before)).toBeCloseTo(0.005, 9);
+    const stops = [mark, ...(mark?.parts ?? [])].filter((each) => each?.reason === "read-budget");
+    expect(mark?.parts?.find((part) => part.span.end === TWO.length - 1)?.reason).toBe(
+      "read-budget",
+    );
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+    for (const stop of stops) {
+      expect(JSON.parse(stop?.detail ?? "null")?.spent?.amount).toBeCloseTo(ended, 9);
+    }
+  });
 });
 
 test("the recorded lease's read is held to $0.50, asked or not", async () => {
