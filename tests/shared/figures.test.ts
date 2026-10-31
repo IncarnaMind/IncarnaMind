@@ -11,6 +11,7 @@
 import { describe, expect, test } from "vitest";
 import {
   type AmbiguityKind,
+  currencyOnItsFigure,
   type Figure,
   type FigureContext,
   type FigureUnit,
@@ -1195,6 +1196,27 @@ describe("stated units", () => {
 
   test("a figure's own scale isn't a statement", () => {
     expect(stated("$1.2m and 3,500万元")).toEqual([]);
+  });
+});
+
+describe("a currency a line writes on its own figure", () => {
+  test("is the line's statement when no other figure on it writes another", () => {
+    expect(currencyOnItsFigure("Sale price £385,000.00", EN)).toEqual({
+      chars: "£",
+      code: "GBP",
+    });
+    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({ chars: "¥", code: "CNY" });
+    expect(currencyOnItsFigure("Sale price 385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Less: agent's fee (4,620.00)", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price £385,000.00 deposit $12,000.00", EN)).toBeNull();
+  });
+
+  test("leaves a “¥” the Document doesn't settle unstated", () => {
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", { language: "ja" })).toEqual({
+      chars: "¥",
+      code: "JPY",
+    });
   });
 });
 

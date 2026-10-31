@@ -1215,6 +1215,25 @@ export function readStatedUnits(
   });
 }
 
+/**
+ * The currency a line writes on its own first figure ("Sale price £385,000.00"), as written and
+ * as a code, when no other figure on the line writes another; null when none does, when the
+ * reader leaves it two ways ("¥" outside a Chinese Document), or when the line writes two.
+ * A first figure of 0 is a scale written with a currency ("All figures in £000"), not an amount.
+ */
+export function currencyOnItsFigure(
+  text: string,
+  context: FigureContext = {},
+): { chars: string; code: string } | null {
+  const figures = readFigures(text, { ...context, header: null });
+  const [first] = figures;
+  if (!first || first.unit.kind !== "currency" || first.currency === null) return null;
+  if (first.value === 0) return null;
+  if (first.ambiguous.some((each) => each.kind === "currency")) return null;
+  const codes = new Set(figures.flatMap(currenciesOf));
+  return codes.size === 1 ? { chars: first.currency, code: first.unit.code } : null;
+}
+
 // Numerals -------------------------------------------------------------------
 
 /** A number as its digits and where the point falls, so scaling stays exact until the end. */

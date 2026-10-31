@@ -1293,6 +1293,226 @@ describe("Amounts in brackets are negative (#978)", { timeout: 60_000 }, () => {
   });
 });
 
+/** The statement of #1001: the currency is on the sale price, and the deductions below it are bare. */
+const MIXED_LINES = [
+  "Sale price £385,000.00",
+  "Less: agent's fee (4,620.00)",
+  "Less: legal fees (1,500.00)",
+  "Less: search and other costs (804.00)",
+];
+const MIXED = {
+  name: "Completion statement 14 Mill Lane.pdf",
+  contents: buildPdf([{ lines: ["Completion statement: 14 Mill Lane", ...MIXED_LINES] }]),
+};
+const MIXED_ZH = {
+  name: "房产交易结算表.pdf",
+  contents: buildPdf([
+    {
+      chineseLines: [
+        "房产交易结算表",
+        "成交价 ¥3,850,000.00",
+        "减：中介费 （46,200.00）",
+        "减：律师费 （15,000.00）",
+        "减：其他费用 （8,040.00）",
+      ],
+    },
+  ]),
+};
+
+describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }, () => {
+  const labels = ["Sale price", "Agent's fee", "Legal fees", "Other costs"];
+  const inputs = (cited: number[], numbers: readonly string[], unitQuote: string) =>
+    labels.map((label, index) => ({
+      name: ["price", "agent", "legal", "other"][index],
+      label,
+      citation: cited[index],
+      number: numbers[index],
+      ...(index > 0 ? { unitQuote } : {}),
+    }));
+  const figure = (cited: number[], numbers: readonly string[], unitQuote: string) => ({
+    marker: 1,
+    label: "Net sale proceeds",
+    formula: "price + agent + legal + other",
+    inputs: inputs(cited, numbers, unitQuote),
+  });
+  const unitOf = (currency: string, chars: string, quote: string) => ({
+    citation: { quote, check: "found" },
+    scale: 1,
+    scaleWord: null,
+    currency,
+    currencyChars: chars,
+  });
+
+  // protects=#1001; fails_when=a bare fee under "Sale price £385,000.00" has no currency, a second currency is guessed, or the input doesn't keep where its currency came from; no_claim=the wording of the Answer, which the scripted model writes.
+  test("the sale price's £ is the bare fees' currency: £378,076.00, with each fee negative and its unit's line kept", async () => {
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: { figures: [figure(cited, numbers, "Sale price £385,000.00")] },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [MIXED]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(shown(answerBlocks(answer))).toBe("The net sale proceeds were £378,076.00.");
+    expect(
+      answer.figures[0]?.inputs.map((input) => [input.number.chars, input.number.value]),
+    ).toEqual([
+      ["£385,000.00", 385_000],
+      ["(4,620.00)", -4_620],
+      ["(1,500.00)", -1_500],
+      ["(804.00)", -804],
+    ]);
+    expect(answer.figures[0]?.inputs.map((input) => input.unitStatement)).toMatchObject([
+      null,
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+      unitOf("GBP", "£", "Sale price £385,000.00"),
+    ]);
+    expect(finished.uncalculated).toBe(0);
+  });
+
+  test("in Chinese: ¥ on 成交价 is the bare fees' currency, and the net income is in 元", async () => {
+    const numbers = ["¥3,850,000.00", "（46,200.00）", "（15,000.00）", "（8,040.00）"];
+    const model = calculatingModel({
+      queries: ["成交价 中介费"],
+      steps: [
+        citeStatement(
+          "房产交易结算表",
+          [
+            "成交价 ¥3,850,000.00",
+            "减：中介费 （46,200.00）",
+            "减：律师费 （15,000.00）",
+            "减：其他费用 （8,040.00）",
+          ],
+          (cited) => [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "净收入",
+                    formula: "price + agent + legal + other",
+                    inputs: inputs(cited, numbers, "成交价 ¥3,850,000.00"),
+                  },
+                ],
+              },
+            },
+          ],
+        ),
+      ],
+      answer: "出售房产的净收入为[=1][^1]。",
+    });
+    const { core } = await setUpCalculating(model, [MIXED_ZH]);
+
+    const { answer } = await askAndRead(core, "出售房产的净收入是多少？");
+
+    expect(shown(answerBlocks(answer))).toBe("出售房产的净收入为3,780,760.00元。");
+    expect(answer.figures[0]?.inputs.map((input) => input.number.value)).toEqual([
+      3_850_000, -46_200, -15_000, -8_040,
+    ]);
+    expect(answer.figures[0]?.inputs.slice(1).map((input) => input.unitStatement)).toMatchObject([
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+      unitOf("CNY", "¥", "成交价 ¥3,850,000.00"),
+    ]);
+  });
+
+  test("a Passage that names two currencies gives the bare fees neither, and the model is told why", async () => {
+    const document = {
+      name: "Completion statement 14 Mill Lane.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Completion statement: 14 Mill Lane",
+            "Sale price £385,000.00",
+            "Deposit $12,000.00",
+            ...MIXED_LINES.slice(1),
+          ],
+        },
+      ]),
+    };
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: { figures: [figure(cited, numbers, "Sale price £385,000.00")] },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [document]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    expect(told(model, "calculate")[0]).toContain(
+      'the unitQuote "Sale price £385,000.00" gives GBP, but p. 1 names more than one currency (GBP, USD); quote the line that applies, from a Passage that names one.',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(1);
+    expect(translate("en", "answer.figures.uncalculated.one")).toBe(
+      "1 figure couldn’t be calculated",
+    );
+    expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
+  });
+
+  test("a unitQuote that isn't in the Passage, or writes no currency, is refused as today", async () => {
+    const numbers = ["£385,000.00", "(4,620.00)", "(1,500.00)", "(804.00)"];
+    const model = calculatingModel({
+      queries: ["sale price deductions"],
+      steps: [
+        citeStatement("Completion statement", MIXED_LINES, (cited) => [
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                figure(cited, numbers, "Sale price £999,999.00"),
+                { ...figure(cited, numbers, "Less: agent's fee (4,620.00)"), marker: 2 },
+              ],
+            },
+          },
+        ]),
+      ],
+      answer: "The net sale proceeds were [=1] and [=2][^1].",
+    });
+    const { core } = await setUpCalculating(model, [MIXED]);
+
+    const { answer, finished } = await askAndRead(
+      core,
+      "What were the net sale proceeds of 14 Mill Lane?",
+    );
+
+    const [toldOnce] = told(model, "calculate");
+    expect(toldOnce).toContain(
+      "the unitQuote isn't word for word in P1; copy the line that states the unit exactly, from the same Passage.",
+    );
+    expect(toldOnce).toContain(
+      'the unitQuote "Less: agent\'s fee (4,620.00)" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".',
+    );
+    expect(answer.figures).toEqual([]);
+    expect(finished.uncalculated).toBe(2);
+  });
+});
+
 describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }, () => {
   test("are kept with each Answer, and read back the same after a restart; Answers from before keep none", async () => {
     const dataDir = await createTempDataFolder();

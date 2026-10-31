@@ -19,6 +19,7 @@ import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { createOllamaModels, outputTokensFor } from "../../src/core/providers/ollamaModels";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { readFigures } from "../../src/shared/figures";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -266,7 +267,13 @@ async function ask(core: Core, text: string) {
 
 const textOf = (nodes: readonly NodeJSON[]): string =>
   nodes
-    .map((node) => (node.type === "text" ? (node.text ?? "") : `${textOf(node.content ?? [])} `))
+    .map((node) =>
+      node.type === "text"
+        ? (node.text ?? "")
+        : node.type === "calculatedFigure"
+          ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
+          : `${textOf(node.content ?? [])} `,
+    )
     .join("");
 
 /**
@@ -335,6 +342,81 @@ describe.each(LIVE)("An amount asked for in another scale, live: $name (#577)", 
           expect([120_345.67, 1_482_600], figure.formula).not.toContainEqual(
             expect.closeTo(figure.value as number, 2),
           );
+      }
+    },
+  );
+});
+
+/** A completion statement (#1001): the currency is on its first amount, and the deductions below it are bare. */
+const STATEMENT = buildPdf([
+  {
+    lines: [
+      "Completion statement: 14 Mill Lane",
+      "Sale price £385,000.00",
+      "Less: agent's fee (4,620.00)",
+      "Less: legal fees (1,500.00)",
+      "Less: search and other costs (804.00)",
+    ],
+  },
+]);
+
+const STATEMENT_ZH = buildPdf([
+  {
+    chineseLines: [
+      "房产交易结算表",
+      "成交价 ¥3,850,000.00",
+      "减：中介费 （46,200.00）",
+      "减：律师费 （15,000.00）",
+      "减：其他费用 （8,040.00）",
+    ],
+  },
+]);
+
+describe.each(LIVE)("A currency on a statement's first amount, live: $name (#1001)", (live) => {
+  test.skipIf(live.apiKey === undefined)(
+    `${live.name}: the sale price's currency is read for the bare deductions, in English and Chinese`,
+    { timeout: 900_000 },
+    async () => {
+      const report: string[] = [`## #1001 · ${live.name} · ${live.model}`];
+      keepReport(report);
+      const cases = [
+        {
+          question: "What were the net sale proceeds of 14 Mill Lane?",
+          document: { name: "Completion statement 14 Mill Lane.pdf", contents: STATEMENT },
+          value: 378_076,
+          currency: "GBP",
+          inputs: [385_000, -4_620, -1_500, -804],
+          unitLine: "Sale price £385,000.00",
+        },
+        {
+          question: "出售房产的净收入是多少？",
+          document: { name: "房产交易结算表.pdf", contents: STATEMENT_ZH },
+          value: 3_780_760,
+          currency: "CNY",
+          inputs: [3_850_000, -46_200, -15_000, -8_040],
+          unitLine: "成交价 ¥3,850,000.00",
+        },
+      ] as const;
+      for (const each of cases) {
+        const core = await liveCore(live, [each.document]);
+        const { answer, seconds } = await ask(core, each.question);
+        report.push(...reported(each.question, answer, seconds));
+        expect(answer.status, answer.errorMessage ?? "").toBe("done");
+        // Only models the catalog offers calculate get it (ADR-0021); the others answer as before.
+        if (live.kind !== "anthropic" && live.kind !== "openai") {
+          core.close();
+          continue;
+        }
+        const figure = answer.figures.find(
+          (found) => typeof found.value === "number" && Math.abs(found.value - each.value) < 0.005,
+        );
+        expect(figure, textOf(answerBlocks(answer))).toBeDefined();
+        expect(figure?.unit).toEqual({ kind: "currency", code: each.currency });
+        expect(figure?.inputs.map((input) => input.number.value)).toEqual(each.inputs);
+        expect(
+          figure?.inputs.slice(1).map((input) => input.unitStatement?.citation.quote ?? null),
+        ).toEqual([each.unitLine, each.unitLine, each.unitLine]);
+        core.close();
       }
     },
   );

@@ -14,9 +14,10 @@
  * - one the reader can read more than one way (its separator or sign, a
  *   range, points), until the model picks one of the readings it is offered;
  *   a "¥" that could be yuan or yen, until a `unitQuote` names the currency;
- * - a number with no scale of its own where its page states one ("单位：万元",
- *   "in millions"), when the result depends on it, until the model gives that
- *   line as `unitQuote`: a scale is never guessed;
+ * - a number with no currency or scale of its own where another line states one
+ *   (a heading, "单位：万元", or an amount, "Sale price £385,000.00"), when the
+ *   result depends on it, until the model gives that line as `unitQuote`: a
+ *   unit is never guessed, and a Passage that names two currencies gives neither;
  * - what the evaluator refuses: a syntax error, units that don't combine,
  *   division by zero;
  * - a formula that changes an amount's scale itself ("rev / 10000" for 万 to
@@ -30,12 +31,14 @@
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
+  currencyOnItsFigure,
   type Figure,
   type FigureContext,
   type FigureFacts,
   figureContextOf,
   figureContextOfFacts,
   figureLanguageTag,
+  namedCurrencies,
   type Reading,
   readFigures,
   readStatedUnits,
@@ -484,8 +487,8 @@ interface ReadInput {
   reading: Reading;
   /** Which of the reader's readings the model chose, from 1. */
   chosen: number | null;
-  /** The reading under the line it gave as `unitQuote`. */
-  unit: { quoted: Quoted; stated: Reading } | null;
+  /** The reading under the line it gave as `unitQuote`, and that line's currency as written when a figure on it writes one. */
+  unit: { quoted: Quoted; stated: Reading; currencyChars: string | null } | null;
   /** A scale its page states that would change its value; it isn't applied unless the result needs it. */
   candidate: Stated | null;
   cell: FigureInput["cell"];
@@ -770,7 +773,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       }
     }
 
-    let stated: { quoted: Quoted; stated: Reading } | null = null;
+    let stated: ReadInput["unit"] = null;
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
@@ -788,22 +791,45 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (unitProblem && !ownUnit && !ofRow) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
-    if (ofRow) stated = { quoted, stated: ofRow };
+    if (ofRow) stated = { quoted, stated: ofRow, currencyChars: null };
     else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
-      if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
+      const statedLine = readStatedUnits(unit.citation.quote, context, true);
+      // A statement may write its currency on its own first figure ("Sale price £385,000.00") instead of in a heading (#1001).
+      const onFigure =
+        row === null && statedLine.length === 0
+          ? currencyOnItsFigure(unit.citation.quote, context)
+          : null;
+      if (!row && statedLine.length === 0 && !onFigure)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
-      const readings = row
-        ? [row]
-        : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
-      const scales = new Set(readings.filter((each) => each.scale !== 1).map((each) => each.scale));
-      if (scales.size > 1)
-        return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
-      const applies =
-        readings.find((each) => each.scale !== 1) ??
-        readings.find((each) => each.unit.kind !== base.unit.kind) ??
-        null;
-      if (applies) stated = { quoted: unit, stated: applies };
+      if (onFigure) {
+        const named = namedCurrencies(
+          quoted.passageText,
+          context,
+          readFigures(quoted.passageText, { ...context, header: null }),
+        );
+        if (named.size > 1)
+          return `the unitQuote "${unit.citation.quote}" gives ${onFigure.code}, but ${whereOf(quoted)} names more than one currency (${[...named].join(", ")}); quote the line that applies, from a Passage that names one.`;
+        stated = {
+          quoted: unit,
+          stated: { ...base, unit: { kind: "currency", code: onFigure.code } },
+          currencyChars: onFigure.chars,
+        };
+      } else {
+        const readings = row
+          ? [row]
+          : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
+        const scales = new Set(
+          readings.filter((each) => each.scale !== 1).map((each) => each.scale),
+        );
+        if (scales.size > 1)
+          return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
+        const applies =
+          readings.find((each) => each.scale !== 1) ??
+          readings.find((each) => each.unit.kind !== base.unit.kind) ??
+          null;
+        if (applies) stated = { quoted: unit, stated: applies, currencyChars: null };
+      }
     } else if (!ownUnit) {
       const page = quoted.units.map((each) => each.text).join("\n");
       const found: Stated[] = [];
@@ -899,6 +925,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
             scale: read.unit.stated.scale,
             scaleWord: read.unit.stated.scaleWord,
             currency: read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
+            currencyChars: read.unit.currencyChars,
           }
         : null,
     };
@@ -1164,7 +1191,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         JSON.stringify(current.cell) !== JSON.stringify(input.cell) ||
         current.unitStatement?.citation.contentHash !== input.unitStatement?.citation.contentHash ||
         current.unitStatement?.scale !== input.unitStatement?.scale ||
-        current.unitStatement?.currency !== input.unitStatement?.currency
+        current.unitStatement?.currency !== input.unitStatement?.currency ||
+        (current.unitStatement?.currencyChars ?? null) !==
+          (input.unitStatement?.currencyChars ?? null)
       )
         return {
           problem: "the input or its Document has changed since this figure was calculated.",

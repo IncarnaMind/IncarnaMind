@@ -211,3 +211,36 @@ test("a changed or missing unit statement cannot preserve its old reading", () =
     expect(session.recheck(input)).toHaveProperty("problem");
   }
 });
+
+test("a currency written on another line's amount states a bare number's unit, and rechecks", () => {
+  const text = "Sale price £385,000.00\nLess: agent's fee (4,620.00)";
+  const session = source(page(text));
+  const input = session.read("(4,620.00)", { unitQuote: "Sale price £385,000.00" });
+  expect(input.number).toMatchObject({ value: -4620, unit: { kind: "currency", code: "GBP" } });
+  expect(input.unitStatement).toMatchObject({
+    citation: { quote: "Sale price £385,000.00", check: "found" },
+    scale: 1,
+    currency: "GBP",
+    currencyChars: "£",
+  });
+  expect(session.recheck(input)).toEqual({ input });
+});
+
+test("a Passage that names two currencies gives a bare number neither", () => {
+  const text = "Sale price £385,000.00\nDeposit $12,000.00\nLess: agent's fee (4,620.00)";
+  const session = source(page(text));
+  expect(() => session.read("(4,620.00)", { unitQuote: "Sale price £385,000.00" })).toThrow(
+    /gives GBP, but p\. 1 names more than one currency \(GBP, USD\)/,
+  );
+});
+
+test("a unitQuote that isn't in the Passage, or writes no currency, is refused", () => {
+  const text = "Sale price £385,000.00\nLess: agent's fee (4,620.00)";
+  const session = source(page(text));
+  expect(() => session.read("(4,620.00)", { unitQuote: "Sale price £999,999.00" })).toThrow(
+    /isn't word for word in P1/,
+  );
+  expect(() => session.read("(4,620.00)", { unitQuote: "Less: agent's fee (4,620.00)" })).toThrow(
+    /states no unit or scale/,
+  );
+});
