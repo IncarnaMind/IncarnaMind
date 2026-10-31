@@ -8,6 +8,7 @@
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
+import { checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -37,6 +38,12 @@ const upFrontIn = (prompt: string) =>
 function answeringFromWhatItIsGiven(cites: boolean) {
   const searched: string[] = [];
   const model = scriptedModel((call: ModelCall) => {
+    // The Answer's sentence is then checked against its quote (#2311): no search of the Answer's.
+    if (isCheckRun(call)) {
+      return checkReply(call, {
+        "月租金为人民币 4,800 元。": { verdict: "supported", quote: RENT },
+      });
+    }
     const given = shownPassages(upFrontIn(call.prompt));
     if (given.length === 0) {
       if (call.results.some((result) => result.tool === "search_documents")) {

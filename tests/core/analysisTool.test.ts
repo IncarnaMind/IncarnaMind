@@ -19,7 +19,7 @@ import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core"
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, question, readMind, writeMind } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
 
 const SALES_CSV = [
@@ -67,7 +67,7 @@ const salesRun =
   });
 
 function told(model: MockLanguageModelV4, tool: string): string[] {
-  const last = model.doStreamCalls.at(-1);
+  const last = answerRequests(model).at(-1);
   if (!last) throw new Error("The model wasn't asked anything.");
   const texts: string[] = [];
   for (const message of last.prompt) {

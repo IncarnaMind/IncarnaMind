@@ -96,7 +96,18 @@ export type StepRow =
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
   /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
-  | { kind: "check"; count: number; notFound: number; running?: true };
+  | {
+      kind: "check";
+      count: number;
+      notFound: number;
+      /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
+      needALook?: number;
+      /** Of those, the ones whose sentence the Documents contradict. */
+      contradicted?: number;
+      /** Citations whose sentence's judgement couldn't run. */
+      notChecked?: number;
+      running?: true;
+    };
 
 export type FoldedLine =
   | { kind: "searched"; sources: number; extraScopes: number }
@@ -389,11 +400,22 @@ export function stepRows(
   if (live) {
     const count = live.kind === "checking" ? live.count : checking;
     if (count !== null) rows.push({ kind: "check", count, notFound: 0, running: true });
+  } else if (shown.some((citation) => citation.check === "checking")) {
+    // Its sentences are judged after it ends (#2311): the step says so until each has a result.
+    rows.push({ kind: "check", count: shown.length, notFound: 0, running: true });
   } else if (shown.length > 0) {
+    const needALook = shown.filter(
+      (citation) => citation.check === "unsupported" || citation.check === "contradicted",
+    ).length;
+    const contradicted = shown.filter((citation) => citation.check === "contradicted").length;
+    const notChecked = shown.filter((citation) => citation.check === "not-checked").length;
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
+      ...(needALook > 0 && { needALook }),
+      ...(contradicted > 0 && { contradicted }),
+      ...(notChecked > 0 && { notChecked }),
     });
   }
   return rows;

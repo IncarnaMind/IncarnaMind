@@ -382,6 +382,13 @@ export function stopAnswer(answerId: string): void {
   if (conversationId) core.stopConversationAnswer({ conversationId, answerId }).catch(report);
 }
 
+/** Judges again the sentences of an Answer whose Citations are not checked (#2311). */
+export function checkAnswerAgain(answer: { id: string; conversationId: string }): void {
+  core
+    .checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id })
+    .catch(report);
+}
+
 /**
  * A Question has been asked and its Answer isn't here yet: until the core has
  * the Question, and between its two events (the Question, then its Answer),

@@ -1933,17 +1933,23 @@ export interface WordExportReport {
  * sections, blocks of rows or of lines; see src/shared/units.ts), once, when
  * the Answer finishes. "found" means the quote is there, not that it supports
  * the sentence.
- * - "checking": the Answer is still being written.
+ * - "checking": the Answer is still being written, or its sentences judged.
  * - "found", "not-found": see `checkReason` for why it wasn't found.
  * - "cant-check": there is no text to look in (see `checkReason`).
+ * - "not-checked": an Answer's sentence whose judgement couldn't run or was stopped (#2311): its
+ *   Citation shows neither found nor a problem until Check again judges it.
  * - "unsupported", "contradicted": the verdict of checking the claim itself against
- *   the Documents, not only its quote (`verdict` says what the evidence says).
+ *   the Documents, not only its quote (`verdict` says what the evidence says). An Answer in the
+ *   assistant checks its sentences so before it ends (#2311): "found" then also means supported,
+ *   for a sentence that check read and judged; for one it couldn't (no model the checks flow may
+ *   use, no verdict, a Calculated figure's sentence, a table's row), only that the quote is there.
  */
 export type CitationCheck =
   | "checking"
   | "found"
   | "not-found"
   | "cant-check"
+  | "not-checked"
   | "unsupported"
   | "contradicted";
 
@@ -2243,6 +2249,8 @@ export interface Citation {
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
   quotedWords?: QuotedWords;
+  /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
+  verdict?: string | null;
 }
 
 /**
@@ -6637,7 +6645,8 @@ export interface AnswerDelta extends AnswerPlace {
  * is loading the local model; "searching", the User's Documents are being
  * searched; "writing", the model is at work; "checking-quotes", a local model
  * that answered with structured output is asked once more for the quotes of
- * its Citations that the check didn't find (ADR-0007); "checking-figures", it
+ * its Citations that the check didn't find (ADR-0007), or an Answer in the
+ * assistant checks its sentences against what they cite (#2311); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
  * worked out (ADR-0021); "checking-claims", the quick model is checking the
  * reply's claims of changes against what the Tools did.
@@ -10481,8 +10490,13 @@ export interface CoreApi {
    * scope of none (null), every Document's. 0: the scope holds none (#748).
    */
   countScopeDocuments(scope?: SearchScope | null): Promise<number>;
-  /** Stops an Answer of a conversation being written, keeping what it has. */
+  /** Stops an Answer of a conversation being written, keeping what it has, or the judgement of its sentences. */
   stopConversationAnswer(input: ConversationAnswerInput): Promise<void>;
+  /**
+   * Judges again the sentences of an ended Answer whose Citations are not checked (#2311), on the
+   * model that wrote it: Check again on such a Citation's card. Resolves once each has a result.
+   */
+  checkAnswerAgain(input: ConversationAnswerInput): Promise<void>;
   /**
    * How many seconds the model of an Answer of a conversation usually takes
    * before its Answers have words, from its latest ones to a Question of the
@@ -12394,6 +12408,7 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
+  checkAnswerAgain: true,
   usualAnswerWait: true,
   listConversations: true,
   getConversation: true,

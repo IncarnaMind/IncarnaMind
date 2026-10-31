@@ -675,7 +675,16 @@ function StepItem({
         </Step>
       );
     case "check":
-      return <CheckStep count={row.count} notFound={row.notFound} running={row.running} />;
+      return (
+        <CheckStep
+          count={row.count}
+          notFound={row.notFound}
+          needALook={row.needALook ?? 0}
+          contradicted={row.contradicted ?? 0}
+          notChecked={row.notChecked ?? 0}
+          running={row.running}
+        />
+      );
   }
 }
 
@@ -935,14 +944,23 @@ function FailedSearch({
   );
 }
 
-/** The Citations checked against their sources: all found, or how many weren't, with the margin's mark. */
+/**
+ * The Citations checked against their sources: all found, or how many weren't and how many
+ * sentences their quotes don't support (#2311), with the mark of the worst.
+ */
 function CheckStep({
   count,
   notFound,
+  needALook,
+  contradicted,
+  notChecked,
   running,
 }: {
   count: number;
   notFound: number;
+  needALook: number;
+  contradicted: number;
+  notChecked: number;
   running?: boolean | undefined;
 }) {
   const t = useT();
@@ -953,20 +971,29 @@ function CheckStep({
       </Step>
     );
   }
-  const allFound = notFound === 0;
+  const allFound = notFound === 0 && needALook === 0 && notChecked === 0;
+  const mark =
+    contradicted > 0
+      ? "contradicted"
+      : notFound > 0
+        ? "not-found"
+        : needALook > 0
+          ? "unsupported"
+          : notChecked > 0
+            ? "not-checked"
+            : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
-    : t("steps.check.notFound", { count: notFound });
+    : [
+        ...(notFound > 0 ? [t("steps.check.notFound", { count: notFound })] : []),
+        ...(needALook === 1 ? [t("steps.check.needALook.one")] : []),
+        ...(needALook > 1 ? [t("steps.check.needALook", { count: needALook })] : []),
+        ...(notChecked > 0 ? [t("steps.check.notChecked", { count: notChecked })] : []),
+      ].join(" · ");
   return (
     <Step
       kind="check"
-      icon={
-        <CheckMarkIcon
-          check={allFound ? "found" : "not-found"}
-          data-check={allFound ? "found" : "not-found"}
-          className="answer-step-check"
-        />
-      }
+      icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
     >
       <p className="answer-step-title">
         {checkedWords(t, count)}

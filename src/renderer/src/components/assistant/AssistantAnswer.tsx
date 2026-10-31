@@ -8,7 +8,7 @@ import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
 import { repliesOnlyRefusals } from "../../commandFacts";
-import { regenerateAnswer } from "../../conversations";
+import { checkAnswerAgain, regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
   ApprovalCard,
@@ -152,6 +152,7 @@ export function AssistantAnswer({
           label={t("answer.label")}
           streaming={streaming}
           regenerate={regenerate}
+          checkAgain={() => checkAnswerAgain(answer)}
           onOpenTable={(table) => keeping.openTable(answer, table)}
         />
       )}

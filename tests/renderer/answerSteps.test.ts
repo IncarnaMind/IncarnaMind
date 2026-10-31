@@ -519,6 +519,51 @@ describe("an Answer's steps", () => {
       citations: [{ ...quoted(1, "Spring tides"), check: "not-found" }, quoted(2, "Full moon")],
     });
     expect(stepRows(lost).at(-1)).toEqual({ kind: "check", count: 3, notFound: 2 });
+    // A sentence its found quote doesn't support needs a look, as its badge says (#2311).
+    const unbacked = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "unsupported" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unbacked).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 1,
+    });
+    const contradicted = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [
+        { ...quoted(1, "Spring tides"), check: "contradicted" },
+        { ...quoted(2, "Full moon"), check: "unsupported" },
+      ],
+    });
+    const waiting = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "checking" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(waiting).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      running: true,
+    });
+    const unjudged = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "not-checked" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unjudged).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      notChecked: 1,
+    });
+    expect(stepRows(contradicted).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 2,
+      contradicted: 1,
+    });
     expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
   });

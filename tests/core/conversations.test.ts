@@ -17,7 +17,7 @@ import {
   NotFoundError,
 } from "../../src/core";
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
-import { citingModel } from "../helpers/citations";
+import { answerJudged, citingModel } from "../helpers/citations";
 import {
   createTempDataFolder,
   manualClock,
@@ -55,7 +55,14 @@ function answerEndings(core: Core) {
     ended.set(answerId, how);
     waiting.get(answerId)?.();
   };
-  core.on("answer.finished", ({ answerId }) => end(answerId, "finished"));
+  // An Answer ends at once; its Citations wait for their sentences' judgement (#2311).
+  core.on("answer.finished", ({ answerId, conversationId }) => {
+    if (!conversationId) end(answerId, "finished");
+    else
+      void answerJudged(core, conversationId, answerId)
+        .catch(() => undefined)
+        .finally(() => end(answerId, "finished"));
+  });
   core.on("answer.failed", ({ answerId }) => end(answerId, "failed"));
   return (answerId: string) =>
     new Promise<"finished" | "failed">((resolve) => {

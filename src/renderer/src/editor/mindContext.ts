@@ -12,6 +12,9 @@ export const MindIdContext = createContext<string | null>(null);
  */
 export const RegenerateAnswerContext = createContext<(() => void) | null>(null);
 
+/** Judges again an Answer's sentences whose Citations are not checked (#2311); null in a Mind. */
+export const CheckAnswerAgainContext = createContext<(() => void) | null>(null);
+
 /**
  * Where a Mind's composer is drawn: the assistant's composer slot, given only
  * to the Mind the assistant reads (see `MindTab`, `assistantTabOf`). Null for

@@ -1,8 +1,8 @@
 import { APICallError } from "ai";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { ConversationAnswer, Core, CoreEvents } from "../../src/core";
-import { citingModel, shownPassages } from "../helpers/citations";
+import type { Core, CoreEvents } from "../../src/core";
+import { answerEnded, answerJudged, citingModel, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { scriptedModel, scriptedModels } from "../helpers/models";
@@ -51,19 +51,11 @@ async function ask(core: Core, text: string, conversationId: string | null = nul
   const stop = core.on("answer.reasoning", (event) => reasoning.push(event));
   const result = await core.askInConversation({ text, conversationId });
   if (!result.asked) throw new Error(`The Question wasn't asked: ${JSON.stringify(result)}`);
-  await new Promise<void>((resolve) => {
-    const off = core.on("answer.finished", ({ answerId }) => {
-      if (answerId !== result.answerId) return;
-      off();
-      resolve();
-    });
-  });
+  await answerEnded(core, result.answerId);
   stop();
-  const { messages } = await core.getConversation(result.conversation.id);
-  const answer = messages.find((message) => message.id === result.answerId);
-  if (answer?.kind !== "answer") throw new Error("No Answer.");
+  const answer = await answerJudged(core, result.conversation.id, result.answerId);
   return {
-    answer: answer as ConversationAnswer,
+    answer,
     conversationId: result.conversation.id,
     reasoning,
   };

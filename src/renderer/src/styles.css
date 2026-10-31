@@ -5374,8 +5374,8 @@
     --check-wash: none;
   }
   .margin-check[data-check="checking"],
-  .citation-marker[data-check="checking"],
-  .citation-card--checking {
+  .citation-marker:is([data-check="checking"], [data-check="not-checked"]),
+  .citation-card:is(.citation-card--checking, .citation-card--not-checked) {
     --check-ink: var(--color-ink-meta);
     --check-wash: var(--color-chip);
   }
@@ -8479,8 +8479,15 @@
   .answer-step-check[data-check="found"] {
     color: var(--color-success);
   }
-  .answer-step-check[data-check="not-found"] {
+  .answer-step-check[data-check="not-found"],
+  .answer-step-check[data-check="unsupported"] {
     color: var(--color-warning);
+  }
+  .answer-step-check[data-check="not-checked"] {
+    color: var(--color-ink-meta);
+  }
+  .answer-step-check[data-check="contradicted"] {
+    color: var(--color-danger);
   }
   .assistant-answer .answer-step-problem {
     font-size: var(--text-ui);

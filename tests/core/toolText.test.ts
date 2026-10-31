@@ -8,7 +8,12 @@ import {
 import { heldBackFrom, takeToolText, toolTextIn } from "../../src/core/answers/toolText";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  answerRequests,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 const FIRST =
   "Tea drinking began in southwest China, where it was first used as a medicinal drink.";
@@ -37,7 +42,7 @@ function writingModel(reply: (passage: string | undefined) => string) {
 }
 
 const requestsForCitations = (model: ReturnType<typeof scriptedModel>) =>
-  model.doStreamCalls.length - 2;
+  answerRequests(model).length - 2;
 
 describe("A cite record written as text", { timeout: 30_000 }, () => {
   // protects=a <cite> block written in the reply is never shown, and its record becomes the Citation the sentence's marker names, without asking the model; fails_when=the block shows, the Citation is lost, or the model is asked for it; no_claim=what a real model writes.

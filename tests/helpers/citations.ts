@@ -1,9 +1,10 @@
 import type { MockLanguageModelV4 } from "ai/test";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type {
   AnswerSearchTuning,
   CitationAttributes,
   CitationRecheck,
+  ConversationAnswer,
   Core,
   CoreAdapters,
   CoreEvents,
@@ -205,7 +206,13 @@ export function answerEnded(
       core.on("answer.finished", (payload) => {
         if (payload.answerId !== answerId) return;
         for (const stop of stops) stop();
-        resolve({ event: "finished", payload });
+        // An Answer in a conversation ends at once; its Citations wait for their sentences' judgement (#2311).
+        const { conversationId } = payload;
+        if (!conversationId) resolve({ event: "finished", payload });
+        else
+          void answerJudged(core, conversationId, answerId)
+            .catch(() => undefined)
+            .finally(() => resolve({ event: "finished", payload }));
       }),
       core.on("answer.failed", (payload) => {
         if (payload.answerId !== answerId) return;
@@ -214,6 +221,29 @@ export function answerEnded(
       }),
     ];
   });
+}
+
+/**
+ * An Answer in a conversation once its sentences are judged (#2311): it ends at once, and its
+ * Citations wait as checking until their sentences have a result.
+ */
+export async function answerJudged(
+  core: Core,
+  conversationId: string,
+  answerId: string,
+): Promise<ConversationAnswer> {
+  return vi.waitFor(
+    async () => {
+      const { messages } = await core.getConversation(conversationId);
+      const answer = messages.find((message) => message.id === answerId);
+      if (answer?.kind !== "answer") throw new Error("No Answer.");
+      if (answer.citations.some((citation) => citation.check === "checking")) {
+        throw new Error("Its sentences are still being judged.");
+      }
+      return answer;
+    },
+    { timeout: 20_000, interval: 20 },
+  );
 }
 
 /** Writes a Question into the Mind and asks it; returns the Answer's id. */
