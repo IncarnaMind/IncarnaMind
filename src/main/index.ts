@@ -26,7 +26,7 @@ import { installedOllamaModels } from "../core/providers/ollama";
 import { channelFor, EVENT_CHANNEL, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
-import { logAppEnd, unexpectedEnds } from "./appEnd";
+import { crashReloads, logAppEnd, unexpectedEnds } from "./appEnd";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
@@ -371,30 +371,20 @@ function exposeCore(core: Core): void {
   });
 }
 
-/** A page that crashes this often is left, so one that can't stay up doesn't loop. */
-const CRASHES_REOPENED = { count: 3, withinMs: 60_000 };
-
 /**
- * A window whose page crashed loads it again and says so (#2309): left alone, it stays blank. One
- * that crashes again before it has loaded, or too often, is left and logged.
+ * The app's window whose page crashed loads it again and says so (#2309): left alone, it stays
+ * blank. One that crashes too soon or too often (`crashReloads`) is left and logged.
  */
 function reopenAfterCrash(window: BrowserWindow): void {
   const contents = window.webContents;
-  let reopening = false;
-  let reopenedAt: number[] = [];
-  contents.on("did-finish-load", () => {
-    reopening = false;
-  });
+  const reloads = crashReloads();
+  contents.on("did-finish-load", () => reloads.loaded());
   contents.on("render-process-gone", (_event, { reason }) => {
     if (reason === "clean-exit" || window.isDestroyed()) return;
-    const now = performance.now();
-    reopenedAt = reopenedAt.filter((at) => now - at < CRASHES_REOPENED.withinMs);
-    if (reopening || reopenedAt.length >= CRASHES_REOPENED.count) {
+    if (!reloads.crashed()) {
       logger.error("window.notReopened", { reason });
       return;
     }
-    reopenedAt.push(now);
-    reopening = true;
     endsToTell.pageEnded(contents.id);
     logger.info("window.reopened", { reason });
     contents.reload();
@@ -443,6 +433,7 @@ function createWindow(): BrowserWindow {
     if (process.platform !== "darwin" && appWindows().length === 0) appEnd.quit("lastWindow");
   });
   reopenAfterCrash(window);
+  appEnd.watchSessionEnd(window);
 
   // Links open in the User's browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -693,7 +684,7 @@ app.whenReady().then(async () => {
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
-  powerMonitor.on("shutdown", () => appEnd.asking("shutdown"));
+  powerMonitor.on("shutdown", () => appEnd.asking("os"));
   appEnd.watchSignals();
   served.resolve();
   startupComplete = true;

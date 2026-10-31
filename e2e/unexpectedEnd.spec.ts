@@ -51,9 +51,9 @@ const takenAgain = (window: Page) =>
 
 /**
  * Kills the app's window's page, as the system would, and waits until the window has loaded it
- * again: until then a script sent to the page is never answered.
+ * again (unless `left`, when it doesn't): until then a script sent to the page is never answered.
  */
-async function killPage(app: ElectronApplication): Promise<void> {
+async function killPage(app: ElectronApplication, { left = false } = {}): Promise<void> {
   const pid = await app.evaluate(({ BrowserWindow }) => {
     const main = BrowserWindow.getAllWindows().find((each) =>
       each.webContents.getURL().includes("window=main"),
@@ -69,10 +69,13 @@ async function killPage(app: ElectronApplication): Promise<void> {
     return main.webContents.getOSProcessId();
   });
   process.kill(pid, "SIGKILL");
+  if (left) return;
   await expect
     .poll(() => app.evaluate(() => (globalThis as { pageLoadedAgain?: boolean }).pageLoadedAgain))
     .toBe(true);
 }
+
+const countOf = (text: string, line: RegExp) => text.match(new RegExp(line, "g"))?.length ?? 0;
 
 /**
  * Runs `script` in the app's window. Playwright keeps a page that crashed as crashed, though the
@@ -131,9 +134,18 @@ test("a window whose page crashes loads it again, says so once, and the log name
   );
 });
 
-test("after a run is killed the next start says IncarnaMind closed, in Chinese; a quit says nothing", async () => {
+test("after a run is killed the next start says IncarnaMind closed, in English and Chinese; a quit says nothing", async () => {
+  const english = await launchApp(dataDir);
+  await dismissChatSetup(english.window);
+  await newMind(english.window);
+  await nameMind(english.window, "Written before it closed");
+  await forceQuit(english.app);
+
   const first = await launchApp(dataDir);
-  await dismissChatSetup(first.window);
+  await expect(first.window.getByTestId("unexpected-end").locator("p")).toHaveText(
+    "IncarnaMind closed unexpectedly. Everything up to then was kept.",
+  );
+  await expect(first.window.getByTestId("sidebar")).toContainText("Written before it closed");
   await (
     await first.window.evaluateHandle(
       () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind,
@@ -178,4 +190,39 @@ test("after a run is killed the next start says IncarnaMind closed, in Chinese; 
   const fourth = await launchApp(dataDir);
   await fourth.app.close();
   expect(await lastRunOf()).toMatch(/ INFO {2}app\.quitAsked by=outside\n.* INFO {2}app\.quit\n/s);
+});
+
+test("a page that crashes a third time in a minute is left, and the log says so", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await expect(window.getByTestId("plus-menu")).toBeVisible();
+
+  await killPage(app);
+  await killPage(app);
+  expect(countOf(await logOf(), / INFO {2}window\.reopened reason=killed\n/)).toBe(2);
+  expect(await logOf()).not.toContain("window.notReopened");
+
+  await killPage(app, { left: true });
+  await expect.poll(logOf).toMatch(/ ERROR window\.notReopened reason=killed\n/);
+  expect(countOf(await logOf(), / ERROR window\.crashed page=index\.html reason=killed /)).toBe(3);
+  expect(countOf(await logOf(), / INFO {2}window\.reopened reason=killed\n/)).toBe(2);
+});
+
+test("on Windows and Linux, closing the last window quits, and the log says so", async () => {
+  test.skip(process.platform === "darwin", "On macOS the app stays open with no window.");
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await expect(window.getByTestId("plus-menu")).toBeVisible();
+  const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
+  await app.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows().find((each) =>
+      each.webContents.getURL().includes("window=main"),
+    );
+    if (!main) throw new Error("The app's window isn't there.");
+    main.close();
+  });
+  await closed;
+  expect(await lastRunOf()).toMatch(
+    / INFO {2}app\.quitAsked by=lastWindow\n.* INFO {2}app\.quit\n.* INFO {2}app\.exited pid=\d+ code=0\n/s,
+  );
 });
