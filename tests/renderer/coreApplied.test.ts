@@ -8,7 +8,9 @@ import {
   type ApplyAskedChangesInput,
   type AskedChangeApplication,
   type AskedChangeTransition,
+  type AskInConversationInput,
   type ConversationAnswer,
+  type ConversationAskResult,
   DEFAULT_ASSISTANT,
   type LayoutChange,
   MIND_CONTENT_FIELD,
@@ -124,7 +126,13 @@ const listeners = new Map<string, Set<(payload: unknown) => void>>();
 let activeUndoBridge: UndoBridge | null = null;
 let activeApply: ApplyBridge = async () => null;
 let activeLayout: LayoutBridge = async () => OPEN_LAYOUT;
+let activeAsk: (input: AskInConversationInput) => Promise<ConversationAskResult> = async () => {
+  throw new Error("No Question is asked in this test.");
+};
 const delegatedBridge = {
+  listConversations: async () => [],
+  getConversation: async () => ({ messages: [] }),
+  askInConversation: (input: AskInConversationInput) => activeAsk(input),
   on: (event: string, listener: (payload: unknown) => void) => {
     const registered = listeners.get(event) ?? new Set<(payload: unknown) => void>();
     registered.add(listener);
@@ -1234,5 +1242,193 @@ test("a later editor restores Review without applying twice", async () => {
   expect(offersReview(editor)).toBe(true);
   expect(useUndo.getState().done).toHaveLength(1);
   expect(applyCalls).toBe(2);
+  doc.destroy();
+});
+
+// Value: protects=Undo pressed on the card while its Note opens stays undone; fails_when=the open's reply writes the undone application back and the editor's recovery applies it again; why_new=#2302; seam=held layout change, card Undo, then the editor opening; no_claim=the open that succeeds (guarded by the same check)
+test("Undo pressed while the Note opens stays undone when its editor opens (#2302)", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const opening = Promise.withResolvers<WindowLayout>();
+  let applyCalls = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        applyCalls += 1;
+        return application;
+      },
+      layout: () => opening.promise,
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+  opening.reject(new Error("Open failed."));
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  await undoSettled();
+
+  expect(applyCalls).toBe(1);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
+  expect(nextToRedo(useUndo.getState())).toBeDefined();
+  doc.destroy();
+});
+
+// Value: protects=a new Answer's changes stay applied when it ends while an Undo still runs; fails_when=asking makes way for the Answer's own changes after the Undo and erases its outcome; why_new=#2302; seam=held unrelated Undo, then the Answer's last write; no_claim=asking again (makes way on purpose, covered above)
+test("a new Answer that ends while an Undo runs keeps what it applied (#2302)", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let undoCalls = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => {
+        undoCalls += 1;
+        return transitionOfMind(doc);
+      },
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async () => application,
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const answer = conversationWithChange(application);
+  const asking = Promise.withResolvers<ConversationAskResult>();
+  activeAsk = () => asking.promise;
+  const { useAskedChanges } = await import("../../src/renderer/src/askedChanges");
+  const { askInAssistant } = await import("../../src/renderer/src/conversations");
+  const otherUndo = Promise.withResolvers<void>();
+  useUndo.getState().push({
+    said: () => "Other change",
+    undo: () => otherUndo.promise,
+    redo: async () => undefined,
+  });
+  const earlier = useUndo.getState().undo();
+  const asked = askInAssistant({ text: "Add a line about tides.", mindId: null });
+  asking.resolve({
+    asked: true,
+    conversation: {
+      id: answer.conversationId,
+      title: "",
+      autoTitle: "Add a line about tides.",
+      folderId: null,
+      askedFrom: [],
+      createdAt: answer.createdAt,
+      updatedAt: answer.updatedAt,
+    },
+    questionId: answer.questionId,
+    answerId: answer.id,
+  });
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  otherUndo.resolve();
+  await earlier;
+  await asked;
+  await undoSettled();
+
+  expect(undoCalls).toBe(0);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("applied");
+  expect(useAskedChanges.getState().facts[`${answer.id} mind`]).toMatchObject({ mindId: "mind" });
+  doc.destroy();
+});
+
+// Value: protects=an editor that opens while the card's Undo runs asks the core for nothing; fails_when=recovery asks the core to apply again before the Undo has ended; why_new=#2302 review; seam=held core Undo, then the editor opening; no_claim=recovery before the Undo (covered above)
+test("an editor opened while the card's Undo runs doesn't ask the core to apply again (#2302)", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const undoing = Promise.withResolvers<AskedChangeTransition | null>();
+  const answer = conversationWithChange(application);
+  let applyCalls = 0;
+  mountDom(
+    {
+      undoAskedChanges: () => undoing.promise,
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        // Answers of earlier tests in this file are still followed: only this one's count.
+        if (input.answerId !== answer.id) return null;
+        applyCalls += 1;
+        return application;
+      },
+      layout: async () => {
+        throw new Error("Open failed.");
+      },
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() => (useUndo.getState().running ? true : null));
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  undoing.resolve(transitionOfMind(doc));
+  await undoSettled();
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+
+  expect(applyCalls).toBe(1);
+  expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
+  doc.destroy();
+});
+
+// Value: protects=a change undone on the card stays undone when its Note's editor opens after a newer change dropped that Undo; fails_when=the open applies the application it was given, with no card Undo left to hold it back; why_new=#2302 review; seam=held layout change, card Undo, a newer change, then the editor; no_claim=the failed open (covered above)
+test("Undo while the Note opens, then another change, leaves it undone when the editor opens (#2302)", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const opening = Promise.withResolvers<WindowLayout>();
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => (input.mindId === "mind" ? application : null),
+      layout: () => opening.promise,
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+  useUndo.getState().push({ said: () => "Another change", undo: async () => undefined });
+  opening.resolve(OPEN_LAYOUT);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  await undoSettled();
+
+  expect(appliedLineIn(editor.state)).toBeNull();
+  expect(useUndo.getState().done).toHaveLength(1);
   doc.destroy();
 });

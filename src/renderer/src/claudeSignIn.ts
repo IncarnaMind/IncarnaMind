@@ -68,10 +68,8 @@ async function chooseClaudePlan(keepDefault: boolean): Promise<string> {
   if (existing && (keepDefault || chatModel?.providerId === existing.id)) return existing.id;
   const modelId = catalogProvider("anthropic")?.roles.answers;
   if (!modelId) throw new Error("The catalog names no Answers model for Anthropic.");
-  const saved = await core.saveChatProvider({ kind: "claude-account", modelId });
-  if (keepDefault && chatModel) {
-    await useAppStore.getState().updateSettings({ user: { chatModel } });
-  }
+  // The core keeps the default as it saves: one chosen while it saves stays too (#2302).
+  const saved = await core.saveChatProvider({ kind: "claude-account", modelId, keepDefault });
   return saved.id;
 }
 
