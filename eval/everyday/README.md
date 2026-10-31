@@ -95,9 +95,9 @@ its floor. The Answers' tokens, priced with the app's own prices:
 | Total (10 requests, 20 runs) | 9 of 10 requests | 1,270,011 | 33,648 | $0.0539 |
 
 The change-claim probes on the same model: 85 of 90 unmade claims caught and 60 of 60 honest replies
-left alone. The five misses are `unmade-translated-en` (0 of 5), as on `main`. The two new probes
-use the wording a "make the summary longer" reply used: `main`'s instructions flagged it 5 of 5,
-this change's 0 of 5.
+left alone. `main`'s instructions, read with the same applied state, caught 84 of 90 and left 50 of
+60: both check-mark probes were flagged 5 of 5 in each language, which this change leaves alone. The
+five misses this change keeps are `unmade-translated-en` (0 of 5), as on `main`.
 
 ### 2026-10-26: the mixed reports library (#2019)
 

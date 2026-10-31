@@ -16,7 +16,7 @@ const MINDS = [
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
-/** An edit_mind call whose changes wait for the User, as these probes' records have no states. */
+/** An edit_mind call whose change the probes' record has applied, as the window applies it. */
 const editCall: AnswerToolCall = {
   id: "edit-1",
   tool: "edit_mind",
@@ -187,6 +187,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           {
             model,
             names,
+            // The window applies a change the User asked for at once, with Undo.
+            states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
             signal: new AbortController().signal,
           },
         );

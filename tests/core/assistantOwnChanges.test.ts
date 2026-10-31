@@ -890,14 +890,16 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
         return { text: "No." };
       }
       return called(call, "edit_mind")
-        ? { text: "Done." }
+        ? {
+            text: "The changes are waiting there; accept or reject them first. Review under my reply shows them.",
+          }
         : { calls: [{ tool: "edit_mind", input: { instruction: "Shorten it" } }] };
     });
     const { core, mind, client } = await setUp(model);
     const first = await askAssistant(core, { text: "shorten the summary", mindId: mind.id });
     await client.settled();
     const before = shownWithChanges(client);
-    const waiting = pendingProposals(client.blocks).length;
+    const waiting = pendingProposals(client.blocks).map((each) => each.id);
     const checkpoints = (await core.listCheckpoints(mind.id)).checkpoints.length;
 
     const second = await askAssistant(core, {
@@ -913,9 +915,10 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
     });
     expect(lastResult(model)).toContain("Say so first, in one sentence");
     expect(lastResult(model)).toContain("Review under your reply shows them");
+    expect(second.text).toContain("Review under my reply shows them");
     await client.settled();
     expect(shownWithChanges(client)).toEqual(before);
-    expect(pendingProposals(client.blocks)).toHaveLength(waiting);
+    expect(pendingProposals(client.blocks).map((each) => each.id)).toEqual(waiting);
     expect((await core.listCheckpoints(mind.id)).checkpoints).toHaveLength(checkpoints);
     expect(waitingProblemOf(second)).toEqual({ mindId: mind.id, count: 2 });
 
