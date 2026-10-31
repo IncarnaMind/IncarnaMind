@@ -222,7 +222,11 @@ function ChatGptPlanWay({
         data-testid="setup-chatgpt"
         data-setup-choice
         disabled={!storage.canSave}
-        onClick={() => void sign.run()}
+        onClick={() =>
+          void sign.run(
+            sign.failure?.kind === "record-unreadable" ? { replaceUnreadable: true } : {},
+          )
+        }
         className={`w-full ${buttonStyle(chinese ? "secondary" : "primary", "lg")}`}
       >
         <ChatGptMark className="size-4" />
@@ -233,6 +237,7 @@ function ChatGptPlanWay({
       </p>
       {/* It signs in at once, so it says here what goes to OpenAI (ADR-0022). */}
       <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />
+      <ChatGptSignInState sign={sign} />
     </div>
   );
 }
