@@ -13,6 +13,7 @@ import type {
   TaggingModels,
   TaggingRoute,
 } from "./library/types";
+import type { Localized } from "./providers/catalog/types";
 import type { UiUsageEvent } from "./usageEvents";
 
 export type {
@@ -2646,10 +2647,10 @@ export interface DeviceSettings {
 
 /**
  * Where a Meeting's audio is turned into text: on this computer, or by a cloud service with the
- * User's own key (#141): OpenAI with the key of the OpenAI provider in Settings › Models, Soniox
- * with a key of its own. #463 adds Qwen.
+ * User's own key (#141): OpenAI and Qwen (Alibaba Cloud Model Studio, for mainland China) with
+ * the key of their provider in Settings › Models, Soniox with a key of its own.
  */
-export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox"] as const;
+export const TRANSCRIPTION_ROUTES = ["local", "openai", "soniox", "qwen"] as const;
 export type TranscriptionRoute = (typeof TRANSCRIPTION_ROUTES)[number];
 export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 
@@ -2657,8 +2658,13 @@ export type CloudTranscriptionRoute = Exclude<TranscriptionRoute, "local">;
 export interface TranscriptionServiceStatus {
   route: CloudTranscriptionRoute;
   name: string;
+  /** Who gets the audio, as the consent line names it ("Alibaba Cloud" for Qwen). */
+  recipient: Localized;
   model: string;
   perHour: Money;
+  /** The region the key is for, named as in Settings › Models. */
+  region: Localized | null;
+  dataUse: { summary: Localized; url: Localized } | null;
   /** "provider": it uses the key of the chat provider of the same name in Settings › Models. */
   key: "provider" | "own";
   hasKey: boolean;

@@ -11,6 +11,7 @@ import { useMeetings, useMeetingTime } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
 import { useGuideInPlace } from "../permissionGuide";
 import { useAppStore } from "../store";
+import { ROUTE_LABELS } from "../transcriptionServices";
 import { hideTranscript, showTranscript, useDocumentTab } from "../transcripts";
 import { CaptureDetailsToggle } from "./CaptureDetails";
 import {
@@ -24,7 +25,6 @@ import {
 import { BarMore } from "./meetings/BarMore";
 import { LevelBars } from "./meetings/LevelBars";
 import { MicrophoneButton } from "./meetings/MicrophoneButton";
-import { ROUTE_LABELS } from "./meetings/TranscriptionRouteSelect";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
@@ -293,20 +293,25 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
   }
   const fellBack = meeting.transcript?.fellBack;
   if (fellBack) {
-    const service = t(ROUTE_LABELS[fellBack.route]);
+    const provider = t(ROUTE_LABELS[fellBack.route]);
     const time = clockTime(fellBack.atMs);
     lines.push({
       key: "cloud",
-      text: t(FELL_BACK[fellBack.reason], { service, time }),
+      text: t(
+        fellBack.reason === "refused" && fellBack.route === "qwen"
+          ? "meetings.line.cloudRefusedRegion"
+          : FELL_BACK[fellBack.reason],
+        { provider, time },
+      ),
       ...(fellBack.reason === "refused" && {
         action: {
           label: t("meetings.key.replace"),
           testId: "meeting-line-change-key",
-          // OpenAI's key is its provider's, in Models; a service's own key is in Meetings.
+          // Soniox's key is its own, in Meetings; the others use their provider's, in Models.
           onClick: () =>
             useAppStore
               .getState()
-              .openSettings(fellBack.route === "openai" ? "models" : "meetings"),
+              .openSettings(fellBack.route === "soniox" ? "meetings" : "models"),
         },
       }),
     });

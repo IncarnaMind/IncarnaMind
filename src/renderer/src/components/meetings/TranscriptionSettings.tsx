@@ -6,6 +6,7 @@ import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
+  ROUTE_LABELS,
   type ServicesView,
   serviceMeta,
   useTranscriptionServices,
@@ -23,6 +24,7 @@ import {
   rowTitleClass,
   ruledRowClass,
 } from "../ui";
+import { CloudLine } from "./CloudLine";
 
 /**
  * Under "Transcribe on" in Settings › Meetings (#141). Before a cloud service is chosen it says
@@ -64,11 +66,11 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
       <p className="text-[13px] leading-5 text-ink-meta tabular-nums">
         {serviceMeta(service, t, language)}
       </p>
-      <p className={rowTextClass}>
-        {localMode
-          ? t("meetings.route.paused")
-          : t("meetings.route.cloudLine", { service: service.name })}
-      </p>
+      {localMode ? (
+        <p className={rowTextClass}>{t("meetings.route.paused")}</p>
+      ) : (
+        <CloudLine service={service} className={rowTextClass} />
+      )}
     </div>
   );
 }
@@ -95,12 +97,19 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service && !services.some((each) => each.hasKey)) return null;
+  if (!service) {
+    return (
+      <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
+        {t("meetings.route.consent")}
+      </p>
+    );
+  }
   return (
-    <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
-      {service
-        ? t("meetings.route.cloudLine", { service: service.name })
-        : t("meetings.route.consent")}
-    </p>
+    <CloudLine
+      service={service}
+      testId="meetings-route-consent"
+      className="text-[12px] leading-5 text-ink-meta"
+    />
   );
 }
 
@@ -141,7 +150,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const { key: text, stray } = checkApiKey(key);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const name = { service: service.name };
+  const name = { provider: t(ROUTE_LABELS[service.route]) };
   const save = async () => {
     setSaving(true);
     const failed = await useTranscriptionServices.getState().setKey(service.route, key);

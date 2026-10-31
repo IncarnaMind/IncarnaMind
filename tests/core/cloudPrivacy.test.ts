@@ -17,11 +17,12 @@ import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
 const SECOND = 1000;
-const ROUTES = ["soniox", "openai"] as const;
+const ROUTES = ["soniox", "openai", "qwen"] as const;
 type Route = (typeof ROUTES)[number];
 const SERVICES: Record<Route, string> = {
   soniox: "https://stt-rt.soniox.com",
   openai: "https://api.openai.com",
+  qwen: "https://dashscope.aliyuncs.com",
 };
 
 /**
@@ -130,6 +131,8 @@ async function meetingOn(route: Route, service: Service) {
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
   if (route === "soniox") {
     await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
+  } else if (route === "qwen") {
+    await core.saveChatProvider({ kind: "qwen", apiKey: "sk-qwen-test", modelId: "qwen3.7-plus" });
   } else {
     await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
   }
@@ -248,23 +251,76 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     });
   }
 
-  test("a key the service refuses says so, and the next Meeting goes to this computer until the key changes", async () => {
-    const service = counting({ refuse: true });
-    const { core, record, meeting } = await meetingOn("soniox", service);
-    record(2 * SECOND);
-    const first = await until(core, meeting.id, (each) => each.fellBack !== null);
-    expect(first.fellBack).toMatchObject({ route: "soniox", reason: "refused" });
-    await core.stopMeeting(meeting.id);
+  test("qwen: deleting one regional provider cannot authorize its old socket with the other region's consent", async () => {
+    const service = counting();
+    const { core, record, meeting } = await meetingOn("qwen", service);
+    const first = (await core.listChatProviders())[0]?.id ?? "";
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "intl-first-dummy",
+      modelId: "qwen3.7-plus",
+    });
+    await core.deleteChatProvider(first);
+    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
 
-    service.mark();
-    const next = await core.createMeeting();
-    await core.startMeeting({ meetingId: next.id });
-    const local = await until(core, next.id, (each) => each.fellBack !== null);
-    expect(local).toMatchObject({ cloud: null, fellBack: { reason: "refused", atMs: 0 } });
-    record(2 * SECOND);
+    const international = (await core.listChatProviders()).find(
+      (provider) => provider.endpoint === "intl",
+    )?.id;
+    await core.deleteChatProvider(international ?? "");
+    await core.saveChatProvider({
+      kind: "qwen",
+      apiKey: "cn-active-dummy",
+      modelId: "qwen3.7-plus",
+    });
+    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "intl-remaining-dummy",
+      modelId: "qwen3.7-plus",
+    });
+    await core.stopMeeting(meeting.id);
+    const exercised = await core.createMeeting();
+    await core.startMeeting({ meetingId: exercised.id });
+    await until(core, exercised.id, (each) => each.cloud === "qwen");
+
+    record(4 * SECOND);
     await settle();
+    const active = (await core.listChatProviders()).find(
+      (provider) => provider.endpoint !== "intl",
+    )?.id;
+    service.mark();
+    await core.deleteChatProvider(active ?? "");
+    await core.revokeConsent("transcription", SERVICES.qwen);
+    record(4 * SECOND);
+    await settle();
+
     expect(service.sentSinceMark()).toBe(0);
+    expect(
+      (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.cloud,
+    ).toBeNull();
   });
+
+  for (const route of ["soniox", "qwen"] as const) {
+    test(`${route}: a key the service refuses says so, and the next Meeting goes to this computer until the key changes`, async () => {
+      const service = counting({ refuse: true });
+      const { core, record, meeting } = await meetingOn(route, service);
+      record(2 * SECOND);
+      const first = await until(core, meeting.id, (each) => each.fellBack !== null);
+      expect(first.fellBack).toMatchObject({ route, reason: "refused" });
+      await core.stopMeeting(meeting.id);
+
+      service.mark();
+      const next = await core.createMeeting();
+      await core.startMeeting({ meetingId: next.id });
+      const local = await until(core, next.id, (each) => each.fellBack !== null);
+      expect(local).toMatchObject({ cloud: null, fellBack: { reason: "refused", atMs: 0 } });
+      record(2 * SECOND);
+      await settle();
+      expect(service.sentSinceMark()).toBe(0);
+    });
+  }
 
   test("OpenAI refusing more with an error but no close falls back at once", async () => {
     const service = counting();

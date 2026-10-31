@@ -4,9 +4,10 @@ import { continueSetup } from "../../conversations";
 import { useLanguage, useT } from "../../i18n";
 import { giveUpWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
-import { useTranscriptionServicesRead } from "../../transcriptionServices";
+import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { CheckLineIcon } from "../lineIcons";
-import { ROUTE_LABELS, TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
+import { CloudLine } from "../meetings/CloudLine";
+import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
@@ -271,11 +272,15 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
         testId="setup-transcription"
         onChosen={setPicked}
       />
-      <p data-testid="setup-transcription-line" className={hintClass}>
-        {cloud
-          ? t("meetings.route.cloudLine", { service: cloud })
-          : t("setup.step.transcription.line")}
-      </p>
+      {service && cloud ? (
+        <CloudLine service={service} testId="setup-transcription-line" className={hintClass} />
+      ) : (
+        <p data-testid="setup-transcription-line" className={hintClass}>
+          {cloud
+            ? t("meetings.route.cloudLine", { provider: cloud })
+            : t("setup.step.transcription.line")}
+        </p>
+      )}
       {/* Before a cloud route is chosen, what choosing one sends (ADR-0022). */}
       {!localOnly && <TranscriptionRouteConsent read={read} />}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
