@@ -313,6 +313,12 @@ export interface DocxTarget {
    * and starting at `start`, drawn from `from` of its scheme: its numId.
    */
   list(kind: ListKind, level: number, start: number, from?: number): number;
+  /**
+   * Another numbering instance of `numId`'s definition, which Word counts on with it, its items at
+   * `level` starting again at `start`: a nested list keeps its parent's numbers ("1.1.") and its
+   * own start (#1419).
+   */
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number;
   /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
   noteBookmark(note: number): string;
 }
@@ -361,6 +367,12 @@ class NewDocxTarget implements DocxTarget {
     return this.lists.length;
   }
 
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    if (!this.lists[numId - 1]) throw new Error(`The list ${numId} isn't in this document.`);
+    this.lists.push({ kind: scheme, level, start, of: numId });
+    return this.lists.length;
+  }
+
   noteBookmark(note: number): string {
     return noteBookmark(note);
   }
@@ -395,7 +407,6 @@ interface Context {
   pending?: boolean;
 }
 
-/** Bullets, or numbers in a scheme. */
 export type ListKind = "bullet" | NumberingScheme;
 
 export interface List {
@@ -409,6 +420,8 @@ export interface List {
    * (#1419).
    */
   from?: number;
+  /** The list whose definition it is an instance of, when it is nested in it. */
+  of?: number;
 }
 
 /** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
@@ -733,9 +746,10 @@ export class DocxWriter {
   /**
    * A Word list: the first paragraph of each item carries its number or bullet. A numbered list
    * and the numbered lists nested in it are one Word numbering, so "1.1." takes its parent's number
-   * and Word goes on with it; each item at its level, a list that starts deeper at that level. A
-   * list's level numbers it and its depth places it: a numbered list under a bullet starts its own
-   * numbering, and still sits a level in (#1419).
+   * and Word goes on with it; each nested list is an instance of it that starts again at its own
+   * start, as the editor draws it. Each item at its level, a list that starts deeper at that level.
+   * A list's level numbers it and its depth places it: a numbered list under a bullet starts its
+   * own numbering, and still sits a level in (#1419).
    */
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
     if (block.checked) return this.todos(block, block.checked, context);
@@ -746,7 +760,9 @@ export class DocxWriter {
     const depth = Math.min(context.listDepth + (context.listStart ?? level ?? 0), 8);
     const from = Math.min(level ?? depth, 8);
     const shared = scheme !== null && context.numbered?.scheme === scheme ? context.numbered : null;
-    const id = shared?.id ?? this.target.list(scheme ?? "bullet", depth, block.start, from);
+    const id = shared
+      ? this.target.restart(shared.id, shared.scheme, depth, block.start)
+      : this.target.list(scheme ?? "bullet", depth, block.start, from);
     const numbering = { id, level: depth };
     const inside: Context = {
       ...context,
@@ -1438,7 +1454,7 @@ export function listDefinition(id: number, kind: ListKind, shift = 0): string {
     const { format, text } =
       kind === "bullet"
         ? { format: "bullet", text: BULLETS[level % 3] ?? "•" }
-        : wordLevel(kind, Math.max(level - shift, 0));
+        : wordLevel(kind, Math.max(level - shift, 0), level);
     levels += `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${escapeXml(text)}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${INDENT * (level + 1)}" w:hanging="${HANGING}"/></w:pPr></w:lvl>`;
   }
   // Outline's "1.1." is one numbering through its levels, not a list of lists.
@@ -1454,19 +1470,21 @@ export function listInstance(numId: number, definition: number, list: List): str
   return `<w:num w:numId="${numId}"><w:abstractNumId w:val="${definition}"/>${list.kind !== "bullet" ? `<w:lvlOverride w:ilvl="${list.level}"><w:startOverride w:val="${list.start}"/></w:lvlOverride>` : ""}</w:num>`;
 }
 
-/** The list definitions, bullets (0) and each scheme (1 on, in their order), and an instance of one for each list. */
 function numbering(lists: readonly List[]): string {
   const kinds: ListKind[] = ["bullet", ...NUMBERING_SCHEMES];
   // LibreOffice treats instances of one definition as one list, so a list that starts deeper,
   // which draws the levels above it ("1.1."), counts them on from the list before: it gets its own.
   const definitions = kinds.map((kind, id) => listDefinition(id, kind));
+  const definitionOf: number[] = [];
   const instances = lists.map((list, index) => {
-    const own = list.kind !== "bullet" && list.level > 0;
-    const definition = own ? definitions.length : kinds.indexOf(list.kind);
+    const nested = list.of === undefined ? undefined : definitionOf[list.of - 1];
+    const own = nested === undefined && list.kind !== "bullet" && list.level > 0;
+    const definition = nested ?? (own ? definitions.length : kinds.indexOf(list.kind));
     if (own)
       definitions.push(
         listDefinition(definition, list.kind, list.level - (list.from ?? list.level)),
       );
+    definitionOf.push(definition);
     return listInstance(index + 1, definition, list);
   });
   return `${XML_DECLARATION}<w:numbering xmlns:w="${NS.w}">${definitions.join("")}${instances.join("")}</w:numbering>`;

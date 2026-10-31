@@ -5,7 +5,8 @@
  * so a Citation is the same footnote, and a list the same Word list, whichever
  * export made it.
  */
-import { elements } from "../../documents/formats/xml";
+import type { NumberingScheme } from "../../../shared/numbering";
+import { child, elements } from "../../documents/formats/xml";
 import {
   type DocxStyles,
   type DocxTarget,
@@ -203,8 +204,8 @@ export class DocumentNumbering {
   private readonly instances: string[] = [];
   private nextDefinition: number;
   private nextInstance: number;
-  /** The definitions added for bullets and for each scheme. */
   private readonly own = new Map<ListKind, number>();
+  private readonly added = new Map<number, number>();
 
   private constructor(
     private readonly pkg: WordPackageWriter,
@@ -244,7 +245,26 @@ export class DocumentNumbering {
     }
     const numId = this.nextInstance++;
     this.instances.push(listInstance(numId, definition, { kind, level, start }));
+    this.added.set(numId, definition);
     return numId;
+  }
+
+  /** Another list of `numId`'s definition, the file's or one added, starting again at `start` at `level`. */
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    const definition = this.added.get(numId) ?? this.fileDefinitionOf(numId);
+    if (definition === null) return numId;
+    const restarted = this.nextInstance++;
+    this.instances.push(listInstance(restarted, definition, { kind: scheme, level, start }));
+    this.added.set(restarted, definition);
+    return restarted;
+  }
+
+  private fileDefinitionOf(numId: number): number | null {
+    const num = (this.part ? elements(this.part.root) : []).find(
+      (each) => each.name === "w:num" && Number(each.attrs["w:numId"]) === numId,
+    );
+    const definition = Number(num && child(num, "w:abstractNumId")?.attrs["w:val"]);
+    return num && Number.isFinite(definition) ? definition : null;
   }
 
   /**
@@ -483,6 +503,10 @@ export class PatchTarget implements DocxTarget {
 
   list(kind: ListKind, level: number, start: number, from?: number): number {
     return this.numbering.list(kind, level, start, from);
+  }
+
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    return this.numbering.restart(numId, scheme, level, start);
   }
 
   /** A note's bookmark, named so it can't resolve to one the file already has. */

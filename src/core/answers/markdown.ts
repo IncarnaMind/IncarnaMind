@@ -57,9 +57,7 @@ const PIPE_ROW = /^ {0,3}\|/;
 const PARTIAL_DELIMITER = /^[ \t|:-]*$/;
 /** A line break written into a table cell, where a row can't break. */
 const BREAK_TAG = /<br[ \t]*\/?>/gi;
-// Up to three spaces, as CommonMark; a numbered list indented three spaces a level more starts at that
-// level, as the Markdown export writes one (#1419).
-const LIST_ITEM = /^( {0,3}|(?: {3}){1,8} {0,2})([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$/;
+const LIST_ITEM = /^( {0,3})([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$/;
 /** Holding back an unclosed formula or link stops after this many characters: it was plain text after all. */
 const MAX_PENDING = 300;
 
@@ -127,8 +125,30 @@ function parseBlocks(lines: readonly string[], open: boolean): NodeJSON[] {
       i++;
       continue;
     }
-    if (START_LEVEL.test(line.trim())) {
-      i++;
+    const declared = START_LEVEL.exec(line.trim());
+    if (declared) {
+      // The export indents the list three spaces a level (#1419); only under its comment, so a
+      // model's indented line is never read as a list.
+      const level = Number(declared[1]);
+      const width = 3 * level;
+      let end = i + 1;
+      while (end < lines.length) {
+        if (isBlank(lines[end] as string)) {
+          let next = end;
+          while (next < lines.length && isBlank(lines[next] as string)) next++;
+          if (next < lines.length && indentOf(lines[next] as string) >= width) end = next;
+          else break;
+        } else if (indentOf(lines[end] as string) >= width) end++;
+        else break;
+      }
+      const inner = parseBlocks(
+        lines.slice(i + 1, end).map((each) => dedent(each, width)),
+        open && end >= lines.length,
+      );
+      const [first] = inner;
+      if (first?.type === "orderedList") first.attrs = { ...first.attrs, startLevel: level };
+      blocks.push(...inner);
+      i = end;
       continue;
     }
     const isLast = i === lines.length - 1;
@@ -427,15 +447,10 @@ function parseList(
     }
   }
 
-  const declared = START_LEVEL.exec(((lines[start - 1] as string | undefined) ?? "").trim())?.[1];
-  const startLevel = declared ? Number(declared) : 0;
   const block: NodeJSON = ordered
     ? {
         type: "orderedList",
-        attrs: {
-          start: Number.parseInt(firstMarker.marker, 10) || 1,
-          ...(startLevel > 0 && { startLevel }),
-        },
+        attrs: { start: Number.parseInt(firstMarker.marker, 10) || 1 },
         content: items,
       }
     : { type: "bulletList", content: items };

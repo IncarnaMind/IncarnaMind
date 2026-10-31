@@ -172,19 +172,22 @@ export function numberingMarker(
 }
 
 /**
- * A level of a scheme as Word's numbering writes it (`w:numFmt`, `w:lvlText`): "%1.", "(%2)",
- * "%1.%2.%3.", with Word's 1-based level numbers.
+ * A level of a scheme as Word's numbering writes it (`w:numFmt`, `w:lvlText`) at Word level `at`
+ * (from 0; `level` unless the list starts its numbering deeper, under a bullet): "%1.", "(%2)",
+ * "%1.%2.%3.". Word's "%n" is the number of its level n (from 1), so a level written deeper
+ * than it is numbers itself from that level (ECMA-376 17.9.11).
  */
 export function wordLevel(
   scheme: NumberingScheme,
   level: number,
+  at = level,
 ): { format: WordNumberFormat; text: string } {
   if (scheme === "outline") {
-    const parts = Array.from({ length: level + 1 }, (_, at) => `%${at + 1}`);
+    const parts = Array.from({ length: level + 1 }, (_, each) => `%${at - level + each + 1}`);
     return { format: "decimal", text: `${parts.join(".")}.` };
   }
   const { format, text } = levelFormat(scheme, level);
-  return { format, text: text.replace("%", `%${level + 1}`) };
+  return { format, text: text.replace("%", `%${at + 1}`) };
 }
 
 // Word writes the Chinese counting format under another name too. Its traditional ideographs
@@ -197,21 +200,23 @@ const sameText = (text: string) => text.replace(/\(/g, "ï¼ˆ").replace(/\)/g, "ï¼
 /**
  * The scheme a Word list is written in, and the level of it the list starts at, from its levels'
  * number formats and texts (`levels`, by level from 0, those it has), or null: a list numbered
- * any other way. The levels its items use (`used`) must all match; Outline's levels must carry
- * their parents' numbers. A list that starts its numbering a level in, under a bullet, draws the
- * scheme's first format at that level (#1419).
+ * any other way. The levels its definition's items use (`used`, the lists nested in it among them)
+ * must all match, counted from the first level its own items use (`own`); Outline's levels must
+ * carry their parents' numbers. A list that starts its numbering a level in, under a bullet, draws
+ * the scheme's first format at that level (#1419).
  */
 export function schemeOfWordLevels(
   levels: ReadonlyMap<number, { format: string; text: string }>,
   used: readonly number[],
+  own: readonly number[] = used,
 ): { scheme: NumberingScheme; startLevel: number } | null {
-  const depth = Math.min(...used);
+  const depth = Math.min(...own);
   const fits = (scheme: NumberingScheme, startLevel: number) =>
     used.every((level) => {
       if (level - depth + startLevel < 0) return false;
       const own = levels.get(level);
       if (!own) return false;
-      const wanted = wordLevel(scheme, level - depth + startLevel);
+      const wanted = wordLevel(scheme, level - depth + startLevel, level);
       const format = SAME_FORMAT[own.format] ?? own.format;
       const lenient = scheme === "chinese" ? sameText : (text: string) => text;
       return format === wanted.format && lenient(own.text.trim()) === lenient(wanted.text);
@@ -249,14 +254,23 @@ export function markerNumber(
 
 /**
  * The one scheme every marker of a list is written in, each at its level ("(a)" at the first,
- * "(i)" at the second), or null: a list whose markers no scheme writes stays typed text.
+ * "(i)" at the second), each number one more than the one before it at its level, or null: a list
+ * whose markers no scheme writes stays typed text. Counting on is what tells "(i) (ii) (iii)" from
+ * letters, which would read them as 9, 243 and 6,327.
  */
 export function schemeOfMarkers(
   markers: readonly { marker: string; level: number }[],
 ): NumberingScheme | null {
-  return (
-    NUMBERING_SCHEMES.find((scheme) =>
-      markers.every(({ marker, level }) => markerNumber(scheme, level, marker) !== null),
-    ) ?? null
-  );
+  const countsOn = (scheme: NumberingScheme) => {
+    const last: number[] = [];
+    return markers.every(({ marker, level }) => {
+      const number = markerNumber(scheme, level, marker);
+      const before = last[level];
+      last.length = level;
+      if (number === null) return false;
+      last[level] = number;
+      return before === undefined || number === before + 1;
+    });
+  };
+  return NUMBERING_SCHEMES.find(countsOn) ?? null;
 }

@@ -92,6 +92,8 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The number a numbered list's first item is drawn with, `nested` in a numbered list's item or not. */
+  firstNumberOf(list: NodeJSON, nested: boolean): number;
   /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
   bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
@@ -991,8 +993,9 @@ export class DocumentPatch {
   }
 
   /**
-   * The numbering a list of the Mind is written with: that of its imported items, else a new one,
-   * shared by a numbered list and the numbered lists nested in it.
+   * The numbering a list of the Mind is written with: that of its imported items, else a new one.
+   * A numbered list nested in another is an instance of the outer one's, which starts again at its
+   * own start; each starts where the editor draws it, a continued list going on from the one before.
    */
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
@@ -1003,16 +1006,18 @@ export class DocumentPatch {
       return own.numId;
     }
     const outerNode = list.numbered?.outer;
+    const nested = outerNode !== undefined && outerNode !== list.list;
+    const start = list.ordered ? this.input.firstNumberOf(list.list, nested) : 1;
     const outer = outerNode
       ? (this.lists.get(outerNode) ??
         this.imported({ ...list, list: outerNode, ordered: true })?.numId)
       : undefined;
-    if (outer !== undefined) {
-      this.lists.set(list.list, outer);
+    if (outer !== undefined && list.numbered) {
       if (outerNode) this.lists.set(outerNode, outer);
-      return outer;
+      const numId = this.input.target.restart(outer, list.numbered.scheme, list.depth, start);
+      this.lists.set(list.list, numId);
+      return numId;
     }
-    const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
     const numId = this.input.target.list(
       list.numbered?.scheme ?? "bullet",
       list.depth,
@@ -1024,12 +1029,10 @@ export class DocumentPatch {
     return numId;
   }
 
-  /** The level a list's items sit at in the file: its imported items' own, else how deep it is. */
   private levelOf(list: ListPlace): number {
     return this.imported(list)?.level ?? list.depth;
   }
 
-  /** The numbering one of a list's imported items is written with, and its level there. */
   private imported(place: ListPlace): { numId: number; level: number } | null {
     for (const item of this.listItems.get(place.list) ?? []) {
       const based = item.key ? this.based.get(item.key) : undefined;

@@ -59,6 +59,26 @@ const WORD_LEVELS: Record<NumberingScheme, readonly [string, string][]> = {
   ],
 };
 
+/** A list under a bullet: Word levels 1 and 2 draw the scheme's first two, numbered from level 1. */
+const UNDER_A_BULLET: Record<NumberingScheme, readonly [[string, string], [string, string]]> = {
+  default: [
+    ["decimal", "%2."],
+    ["lowerLetter", "%3."],
+  ],
+  outline: [
+    ["decimal", "%2."],
+    ["decimal", "%2.%3."],
+  ],
+  clauses: [
+    ["lowerLetter", "(%2)"],
+    ["lowerRoman", "(%3)"],
+  ],
+  chinese: [
+    ["chineseCounting", "%2、"],
+    ["chineseCounting", "（%3）"],
+  ],
+};
+
 async function newMind() {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
@@ -68,7 +88,6 @@ async function newMind() {
   return { core, dataDir, mind, client };
 }
 
-/** The abstract numbering a numId stands for, and its levels' number formats and texts. */
 /** The definition a numbering instance is of. */
 const definitionOf = (numbering: string, numId: string) =>
   new RegExp(`<w:num w:numId="${numId}"><w:abstractNumId w:val="(\\d+)"/>`).exec(numbering)?.[1];
@@ -186,14 +205,26 @@ describe("Numbering schemes in Word", () => {
         [0, "Deposit"],
         [1, "Repairs"],
       ]);
-      const [first, second] = [paragraphs[0]?.numId ?? "", paragraphs[4]?.numId ?? ""];
-      expect(new Set(paragraphs.slice(0, 4).map(({ numId }) => numId))).toEqual(new Set([first]));
+      const [first, monthly, inAdvance, deposit, second] = paragraphs.map(({ numId }) => numId);
+      expect(deposit).toBe(first);
+      // One definition, so "1.1." takes its parent's number; each nested list an instance of its
+      // own, which starts again where the editor draws it.
+      expect(
+        new Set(
+          [first, monthly, inAdvance].map((numId) => definitionOf(numberingXml, numId ?? "")),
+        ),
+      ).toEqual(new Set([definitionOf(numberingXml, first ?? "")]));
+      expect(new Set([first, monthly, inAdvance]).size).toBe(3);
+      expect(startAt(numberingXml, monthly ?? "", 1)).toBe(1);
+      expect(startAt(numberingXml, inAdvance ?? "", 2)).toBe(1);
       expect(second).not.toBe(first);
-      expect(levelsOf(numberingXml, first)).toEqual(WORD_LEVELS[scheme]);
+      expect(levelsOf(numberingXml, first ?? "")).toEqual(WORD_LEVELS[scheme]);
       const deeper = new RegExp(`<w:num w:numId="${second}">[\\s\\S]*?</w:num>`).exec(numberingXml);
       // A definition of its own, or LibreOffice counts the levels its number draws ("1.1.")
       // on from the list before, as it treats the instances of one definition as one list.
-      expect(definitionOf(numberingXml, second)).not.toBe(definitionOf(numberingXml, first));
+      expect(definitionOf(numberingXml, second ?? "")).not.toBe(
+        definitionOf(numberingXml, first ?? ""),
+      );
       expect(deeper?.[0]).toContain('<w:lvlOverride w:ilvl="1"><w:startOverride w:val="1"/>');
 
       const { client: imported } = await importWordBytes(
@@ -215,7 +246,7 @@ describe("Numbering schemes in Word", () => {
   );
 
   // protects=a list added in a scheme to a Mind imported from Word goes back into the original file as Word numbering in that scheme, its nested list in the same numbering, the rest of the file's numbering left as it was; fails_when=it goes back as plain "1." or as a numbering of its own a level; no_claim=a list of the file's own whose scheme the User changes, which keeps the file's numbering.
-  // protects=a numbered list under a bullet sits a level in, in its own scheme's first format, with a numbering of its own that starts at 1; fails_when=it is written flush with the bullet or as the level's own format ("a." for a "1." list); no_claim=how Word lays out a marker wider than its indent, which the LibreOffice check opens.
+  // protects=a numbered list under a bullet sits a level in, in its own scheme's first format numbered from that level, with a numbering of its own that starts at 1; fails_when=it is written flush with the bullet, as the level's own format ("a." for a "1." list), or numbered from Word's first level, which nothing advances (1. 1. 1.); no_claim=how Word lays out a marker wider than its indent, which the LibreOffice check opens.
   test.each(NUMBERING_SCHEMES)(
     "a numbered list under a bullet sits a level in, in %s",
     async (scheme) => {
@@ -234,7 +265,8 @@ describe("Numbering schemes in Word", () => {
       ]);
       const listId = paragraphs[1]?.numId ?? "";
       expect(listId).not.toBe(paragraphs[0]?.numId);
-      expect(levelAt(numberingXml, listId, 1)).toEqual(WORD_LEVELS[scheme][0]);
+      expect(levelAt(numberingXml, listId, 1)).toEqual(UNDER_A_BULLET[scheme][0]);
+      expect(levelAt(numberingXml, listId, 2)).toEqual(UNDER_A_BULLET[scheme][1]);
       expect(startAt(numberingXml, listId, 1)).toBe(1);
     },
   );
@@ -283,7 +315,7 @@ describe("Numbering schemes in Word", () => {
     ]);
     const listId = paragraphs[2]?.numId ?? "";
     expect(listId).not.toBe(paragraphs[0]?.numId);
-    expect(levelAt(numberingXml, listId, 2)).toEqual(WORD_LEVELS.default[0]);
+    expect(levelAt(numberingXml, listId, 2)).toEqual(["decimal", "%3."]);
     expect(startAt(numberingXml, listId, 2)).toBe(1);
   });
 
@@ -328,7 +360,7 @@ describe("Numbering schemes in Word", () => {
       [0, "Bullet"],
       [1, "A"],
     ]);
-    expect(levelAt(numbering, paragraphs[1]?.numId ?? "", 1)).toEqual(WORD_LEVELS.clauses[0]);
+    expect(levelAt(numbering, paragraphs[1]?.numId ?? "", 1)).toEqual(["lowerLetter", "(%2)"]);
   });
 
   test("a list that starts deeper, added to a Word file, gets a definition of its own too", async () => {
@@ -379,9 +411,118 @@ describe("Numbering schemes in Word", () => {
       [1, "Monthly"],
       [0, "Deposit"],
     ]);
-    expect(new Set(paragraphs.map(({ numId }) => numId)).size).toBe(1);
-    expect(levelsOf(part(files, "word/numbering.xml"), paragraphs[0]?.numId ?? "")).toEqual(
-      WORD_LEVELS.clauses,
-    );
+    const numbering = part(files, "word/numbering.xml");
+    const [rent, monthly, deposit] = paragraphs.map(({ numId }) => numId ?? "");
+    expect(deposit).toBe(rent);
+    expect(monthly).not.toBe(rent);
+    expect(definitionOf(numbering, monthly ?? "")).toBe(definitionOf(numbering, rent ?? ""));
+    expect(startAt(numbering, monthly ?? "", 1)).toBe(1);
+    expect(levelsOf(numbering, rent ?? "")).toEqual(WORD_LEVELS.clauses);
+  });
+
+  // protects=a list that continues the one before starts in Word where the editor draws it, in a new file and in a Word file it is added to; fails_when=the file it is added to restarts it at its own start; no_claim=Continue numbering across an Answer or a quote.
+  test.each(["new", "added"] as const)(
+    "a continued list goes on from the list before, in a %s file",
+    async (file) => {
+      const { core, dataDir, mind, client } = await newMind();
+      const lists = [
+        ordered({ numbering: "clauses" }, item("Rent"), item("Deposit")),
+        paragraph("Between the lists."),
+        ordered({ numbering: "clauses", continues: true }, item("Repairs")),
+      ];
+      let mindId = mind.id;
+      if (file === "new") writeMind(client, lists);
+      else {
+        const imported = await importWordBytes(
+          core,
+          dataDir,
+          wordFile({ body: wordParagraph(run("Terms of the lease.")) }),
+          { origin: "own" },
+        );
+        mindId = imported.mindId;
+        editMind(imported.client, (blocks) => [...blocks, ...lists]);
+        await imported.client.settled();
+      }
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+      const numbering = part(files, "word/numbering.xml");
+      const [rent, , repairs] = numberedParagraphs(part(files, "word/document.xml"));
+      expect(startAt(numbering, rent?.numId ?? "", 0)).toBe(1);
+      expect(startAt(numbering, repairs?.numId ?? "", 0)).toBe(3);
+    },
+  );
+
+  // protects=a nested list keeps its own start, and a second nested list in an item starts again, as the editor draws them, in a new file and in a Word file it is added to; fails_when=Word goes on with the outer list's numbering ("a. b." for a list from c., "a. b. c." for one that starts again); no_claim=a nested list that continues the one before, or how a Word file it is added to numbers an item's second paragraph.
+  test.each(["new", "added"] as const)(
+    "a nested list starts where the editor draws it, in a %s file",
+    async (file) => {
+      const { core, dataDir, mind, client } = await newMind();
+      const lists = [
+        ordered({}, item("One", ordered({ start: 3 }, item("C"), item("D"))), {
+          type: "listItem",
+          content: [
+            paragraph("Two"),
+            ordered({}, item("X"), item("Y")),
+            paragraph("Then."),
+            ordered({}, item("Z")),
+          ],
+        }),
+      ];
+      let mindId = mind.id;
+      if (file === "new") writeMind(client, lists);
+      else {
+        const imported = await importWordBytes(
+          core,
+          dataDir,
+          wordFile({ body: wordParagraph(run("Terms of the lease.")) }),
+          { origin: "own" },
+        );
+        mindId = imported.mindId;
+        editMind(imported.client, (blocks) => [...blocks, ...lists]);
+        await imported.client.settled();
+      }
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+      const numbering = part(files, "word/numbering.xml");
+      const paragraphs = numberedParagraphs(part(files, "word/document.xml")).filter(
+        ({ text }) => text !== "Then.",
+      );
+      expect(paragraphs.map(({ level, text }) => [level, text])).toEqual([
+        [0, "One"],
+        [1, "C"],
+        [1, "D"],
+        [0, "Two"],
+        [1, "X"],
+        [1, "Y"],
+        [1, "Z"],
+      ]);
+      const [one, c, , two, x, , z] = paragraphs.map(({ numId }) => numId);
+      expect(two).toBe(one);
+      expect(startAt(numbering, c ?? "", 1)).toBe(3);
+      expect(startAt(numbering, x ?? "", 1)).toBe(1);
+      expect(z).not.toBe(x);
+      expect(startAt(numbering, z ?? "", 1)).toBe(1);
+      expect(definitionOf(numbering, z ?? "")).toBe(definitionOf(numbering, one ?? ""));
+    },
+  );
+
+  // protects=Word's deepest levels: a list nested ten deep sits at levels 0 to 8, the last two at 8, each level numbered from its own Word level; fails_when=a level past 8 is written, or the deepest levels number from another; no_claim=how the editor indents past level 8.
+  test("a list nested past Word's ninth level stays at its ninth", async () => {
+    const { core, mind, client } = await newMind();
+    let list = ordered({ numbering: "outline" }, item("Level 10"));
+    for (let level = 9; level >= 1; level--)
+      list = ordered(level === 1 ? { numbering: "outline" } : {}, item(`Level ${level}`, list));
+    writeMind(client, [list]);
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    const numbering = part(files, "word/numbering.xml");
+    const paragraphs = numberedParagraphs(part(files, "word/document.xml"));
+    expect(paragraphs.map(({ level }) => level)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 8]);
+    const top = paragraphs[0]?.numId ?? "";
+    expect(levelAt(numbering, top, 7)).toEqual(["decimal", "%1.%2.%3.%4.%5.%6.%7.%8."]);
+    expect(levelAt(numbering, top, 8)).toEqual(["decimal", "%1.%2.%3.%4.%5.%6.%7.%8.%9."]);
   });
 });

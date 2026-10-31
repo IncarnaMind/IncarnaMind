@@ -1277,13 +1277,13 @@ class Reader {
   private blocks(container: XmlElement, into: NodeJSON[], inCell: boolean): void {
     const items: Item[] = [];
     this.collect(container, items, inCell);
-    into.push(...groupLists(items, (numId, used) => this.schemeOf(numId, used)));
+    into.push(...groupLists(items, (numId, used, own) => this.schemeOf(numId, used, own)));
   }
 
-  /** The scheme a numbered list is written in at the levels its items use, and the level it starts at; null, another numbering. */
   private schemeOf(
     numId: string,
     used: readonly number[],
+    own: readonly number[],
   ): { scheme: NumberingScheme; startLevel: number } | null {
     const num = this.numbering.nums.get(numId);
     const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
@@ -1296,7 +1296,7 @@ class Reader {
         text: override?.text ?? own?.text ?? "",
       });
     }
-    return schemeOfWordLevels(levels, used);
+    return schemeOfWordLevels(levels, used, own);
   }
 
   private collect(container: XmlElement, items: Item[], inCell: boolean): void {
@@ -2313,17 +2313,31 @@ function groupLists(
   schemeOf: (
     numId: string,
     used: readonly number[],
+    own: readonly number[],
   ) => { scheme: NumberingScheme; startLevel: number } | null,
 ): NodeJSON[] {
-  const used = new Map<string, Set<number>>();
-  for (const { list } of items) {
-    if (!list?.ordered) continue;
-    const levels = used.get(list.numId) ?? new Set();
-    levels.add(list.level);
-    used.set(list.numId, levels);
-  }
+  const levelsUsed = (key: (list: ListInfo) => string) => {
+    const used = new Map<string, Set<number>>();
+    for (const { list } of items) {
+      if (!list?.ordered) continue;
+      const levels = used.get(key(list)) ?? new Set();
+      levels.add(list.level);
+      used.set(key(list), levels);
+    }
+    return used;
+  };
+  // A nested list is an instance of its outer list's definition, as Word writes "Restart at 1":
+  // the scheme is the definition's, the level a list starts at its own items'.
+  const byDefinition = levelsUsed((list) => list.abstract);
+  const byList = levelsUsed((list) => list.numId);
+  const abstractOf = new Map(
+    items.flatMap(({ list }) => (list ? [[list.numId, list.abstract]] : [])),
+  );
   const schemes = new Map(
-    [...used].map(([numId, levels]) => [numId, schemeOf(numId, [...levels])]),
+    [...byList].map(([numId, own]) => [
+      numId,
+      schemeOf(numId, [...(byDefinition.get(abstractOf.get(numId) ?? "") ?? own)], [...own]),
+    ]),
   );
   return groupWordLists(
     items.map(({ node, list }) => {

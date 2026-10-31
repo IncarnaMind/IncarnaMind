@@ -705,9 +705,7 @@ const hasBlockChildren = (element: Y.XmlElement) =>
 
 interface OuterList {
   scheme: NumberingScheme;
-  /** The level of the lists nested in its item. */
   level: number;
-  /** Its numbers so far, a level each, the item's own last. */
   numbers: readonly number[];
 }
 
@@ -741,7 +739,16 @@ function numberingOf(
   return { scheme: isNumberingScheme(scheme) ? scheme : "default", level, numbers };
 }
 
-/** The numbers the numbered list before `element` (among its siblings) ended on, a level each. */
+/**
+ * The number a numbered list's first item is drawn with: `nested` in a numbered list's item, its
+ * own start; else as its own numbering counts it, going on from the list before when it continues.
+ */
+export function firstNumberOf(element: Y.XmlElement, nested: boolean): number {
+  if (nested) return startOf(element);
+  const { level, numbers } = numberingOf(element, undefined);
+  return (numbers[level] ?? 0) + 1;
+}
+
 function lastNumbersBefore(element: Y.XmlElement): number[] | null {
   for (let at = element.prevSibling; at; at = at.prevSibling) {
     if (!(at instanceof Y.XmlElement) || at.nodeName !== "orderedList") continue;

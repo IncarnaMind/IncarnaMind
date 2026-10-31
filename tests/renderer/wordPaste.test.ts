@@ -110,6 +110,34 @@ describe("pasting what Word copies", () => {
     expect(deeper.lastChild?.attrs.startLevel ?? 0).toBe(0);
   });
 
+  // protects=a run's numbers count on at each level, so Roman numerals at a level Clauses writes in letters stay typed rather than becoming (i) (j) (k); fails_when=they are read as letters 9, 243 and 6,327 and drawn as a list from (i); no_claim=a run that starts again at a level within one Word list.
+  test("a run of (i) (ii) (iii) at the first level stays typed; (h) (i) (j) is a list", () => {
+    const roman = pasted(
+      word(
+        listParagraph("l0", 1, "(i)", "One") +
+          listParagraph("l0", 1, "(ii)", "Two") +
+          listParagraph("l0", 1, "(iii)", "Three"),
+      ),
+    );
+    expect(blocks(roman)).toEqual([
+      { type: "paragraph", text: "(i) One" },
+      { type: "paragraph", text: "(ii) Two" },
+      { type: "paragraph", text: "(iii) Three" },
+    ]);
+
+    const letters = pasted(
+      word(
+        listParagraph("l0", 1, "(h)", "Eight") +
+          listParagraph("l0", 1, "(i)", "Nine") +
+          listParagraph("l0", 1, "(j)", "Ten"),
+      ),
+    );
+    expect(blocks(letters).map((block) => block.type)).toEqual(["orderedList"]);
+    expect(letters.firstChild?.attrs.numbering).toBe("clauses");
+    expect(letters.firstChild?.attrs.start).toBe(8);
+    expect(items(letters.firstChild)).toEqual(["Eight", "Nine", "Ten"]);
+  });
+
   test("a run numbered from 3. is a list that starts at 3", () => {
     const doc = pasted(
       word(listParagraph("l0", 1, "3.", "Third") + listParagraph("l0", 1, "4.", "Fourth")),

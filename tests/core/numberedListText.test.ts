@@ -100,4 +100,21 @@ describe("A numbered list's scheme as text", () => {
     });
     expect(markdownToBlocks("1. Rent")[0]?.attrs).toEqual({ start: 1 });
   });
+
+  // protects=a model's reply indented four spaces or more stays the text it is, a list only under the export's level comment, nested items and all; fails_when="Intro:\n    - a" or an indented "1." line reads as a list; no_claim=CommonMark's indented code, which the reader doesn't draw.
+  test("an indented line in a reply is a list only under the export's level comment", () => {
+    expect(markdownToBlocks("Intro:\n    - a").map((block) => block.type)).toEqual(["paragraph"]);
+    expect(markdownToBlocks("Steps:\n\n      1. Rent").map((block) => block.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+
+    const [deeper, after] = markdownToBlocks(
+      "<!-- start-level: 2 -->\n      1. 租金\n         1. 月付\n      2. 押金\n\nThen.",
+    );
+    expect(deeper).toMatchObject({ type: "orderedList", attrs: { start: 1, startLevel: 2 } });
+    expect(deeper?.content?.length).toBe(2);
+    expect(deeper?.content?.[0]?.content?.[1]?.type).toBe("orderedList");
+    expect(after?.type).toBe("paragraph");
+  });
 });

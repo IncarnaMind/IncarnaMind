@@ -31,7 +31,6 @@ interface Context {
   table: boolean;
   /** Inside the text of a footnote the User wrote. */
   note?: boolean;
-  /** Inside a list's item. */
   inList?: boolean;
 }
 
