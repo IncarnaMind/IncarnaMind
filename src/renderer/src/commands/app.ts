@@ -67,6 +67,7 @@ import {
   tagCommands,
 } from "./objects";
 import { pageCommands } from "./page";
+import { pageBreakCommands } from "./pageBreaks";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
 import { pictureCommands } from "./pictures";
@@ -543,6 +544,7 @@ const appCommands: readonly Command[] = [
   },
   ...footnoteCommands,
   ...noteBasicsCommands,
+  ...pageBreakCommands,
   ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
