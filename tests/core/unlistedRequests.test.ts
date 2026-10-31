@@ -174,17 +174,49 @@ const requests = (model: MockLanguageModelV4, from = 0) =>
  */
 const OLD_WORDS = ["Mind", "Minds"] as const;
 
-/** The old words a text says as words of their own: “IncarnaMind” and create_mind say none. */
-const oldWordsIn = (text: string) =>
-  OLD_WORDS.filter((word) => new RegExp(`\\b${word}\\b`).test(text));
+/** Each old word a text says as a word of its own, with the words round it: “IncarnaMind” and create_mind say none. */
+const oldWordsIn = (text: string): string[] =>
+  OLD_WORDS.flatMap((word) =>
+    [...text.matchAll(new RegExp(`\\b${word}\\b`, "g"))].map(
+      ({ index = 0 }) => `…${text.slice(Math.max(0, index - 40), index + word.length + 40)}…`,
+    ),
+  );
 
-/** Every request a model was sent, streamed or not: its system prompt, messages, Tools and their results. */
-const everyRequest = (model: MockLanguageModelV4) =>
-  JSON.stringify(
-    [...model.doStreamCalls, ...model.doGenerateCalls].map(({ prompt, tools }) => ({
-      prompt,
-      tools,
-    })),
+/** What a model reads of a request: its system prompt and messages, its Tools, the schema its reply follows, and its provider's options. */
+const READ_PARTS = ["prompt", "tools", "responseFormat", "providerOptions"];
+
+/** Every string in a value, decoded, with where it sits: "generate 0 › prompt › 0 › content". */
+function stringsIn(value: unknown, place: string): { place: string; text: string }[] {
+  if (typeof value === "string") return [{ place, text: value }];
+  if (Array.isArray(value)) {
+    return value.flatMap((each, index) => stringsIn(each, `${place} › ${index}`));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, each]) => stringsIn(each, `${place} › ${key}`));
+  }
+  return [];
+}
+
+interface Sent {
+  doStreamCalls: readonly object[];
+  doGenerateCalls: readonly object[];
+}
+
+/** Every string a model was sent, streamed or not, by the request and the part it sits in. */
+const stringsSent = (model: Sent) =>
+  [
+    ...model.doStreamCalls.map((call, index) => ({ call, name: `stream ${index}` })),
+    ...model.doGenerateCalls.map((call, index) => ({ call, name: `generate ${index}` })),
+  ].flatMap(({ call, name }) =>
+    Object.entries(call)
+      .filter(([part]) => READ_PARTS.includes(part))
+      .flatMap(([part, value]) => stringsIn(value, `${name} › ${part}`)),
+  );
+
+/** Each old word a model was sent, as "where it sits: …the words round it…". */
+const oldWordsSent = (model: Sent) =>
+  stringsSent(model).flatMap(({ place, text }) =>
+    oldWordsIn(text).map((said) => `${place}: ${said}`),
   );
 
 const ASKED = {
@@ -274,6 +306,34 @@ describe("A model no list names, or one in a flow no list admits it to", {
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
   });
 
+  test("the scan finds an old word anywhere a model reads it, a line's first word too, and says where", () => {
+    const sent = {
+      doStreamCalls: [
+        {
+          prompt: [{ role: "system", content: "Examples:\nMind here means a Note." }],
+          tools: [
+            { type: "function", name: "create_mind", description: "Makes a Note.\n\tMinds too." },
+          ],
+        },
+      ],
+      doGenerateCalls: [
+        {
+          prompt: [{ role: "system", content: "IncarnaMind calls create_mind for a Note." }],
+          responseFormat: {
+            type: "json",
+            schema: { properties: { about: { description: "Mind when it is one" } } },
+          },
+        },
+      ],
+    };
+
+    expect(oldWordsSent(sent)).toEqual([
+      "stream 0 › prompt › 0 › content: …Examples:\nMind here means a Note.…",
+      "stream 0 › tools › 0 › description: …Makes a Note.\n\tMinds too.…",
+      "generate 0 › responseFormat › schema › properties › about › description: …Mind when it is one…",
+    ]);
+  });
+
   test.each(["en", "zh-CN"] as const)(
     "every request of an assistant turn, its Tools, a rewrite and the claim check that asks again says Note, never Mind (%s)",
     async (language) => {
@@ -341,13 +401,14 @@ describe("A model no list names, or one in a flow no list admits it to", {
       const reply = read.messages.find((message) => message.id === claimed.answerId);
       expect(reply?.kind === "answer" && reply.text).toBe(asked.denied);
 
-      for (const each of [model, retried, reasked])
-        expect(oldWordsIn(everyRequest(each))).toEqual([]);
+      for (const each of [model, retried, reasked]) expect(oldWordsSent(each)).toEqual([]);
       expect(oldWordsIn(DRAFT_INSTRUCTIONS)).toEqual([]);
-      // The scan above can't pass with the claim check's request left out.
-      expect(JSON.stringify(reasked.doGenerateCalls)).toContain(
-        "For each claim that a Note was made",
+      // The scan above can't pass with the claim check's request, or the schema of its verdict, left out.
+      const checked = stringsSent({ doStreamCalls: [], doGenerateCalls: reasked.doGenerateCalls });
+      expect(checked.some(({ text }) => text.includes("For each claim that a Note was made"))).toBe(
+        true,
       );
+      expect(checked.some(({ place }) => place.includes(" › responseFormat › "))).toBe(true);
       // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
       const again = requests(reasked).find((request) =>
         JSON.stringify(request).includes("but no Tool did that"),
