@@ -4,17 +4,21 @@ import type { EditorView } from "@tiptap/pm/view";
 import { CITATION_NODE } from "../../../core/api";
 
 /**
- * Where the User's selection starts: what the page shows, while the editor
- * holds it, else where the editor's own selection starts. A press can follow
+ * Where the User's selection starts: what the page shows, while it shows a
+ * selection, else where the editor's own selection starts. A press can follow
  * the click that made the selection by a few milliseconds, before the editor
- * has read it, and the page is what the User is extending from then (#2279).
+ * has read it, so the page speaks first; a caret on the page is nothing to
+ * extend, though the editor's selection can lag behind it (#2279).
  *
  * @returns null when there is no selection to extend.
  */
 function selectionStart(view: EditorView): number | null {
   const chosen = view.dom.ownerDocument.getSelection();
   const node = chosen?.anchorNode;
-  if (chosen?.type === "Range" && node && view.dom.contains(node)) {
+  if (chosen && node && view.dom.contains(node)) {
+    // A caret is nothing to extend, and the editor's own selection can lag behind the click
+    // that left it, so it is not asked when the page shows a caret (#2279).
+    if (chosen.isCollapsed) return null;
     try {
       return view.posAtDOM(node, chosen.anchorOffset);
     } catch {
@@ -121,7 +125,17 @@ export const ShiftClickSelection = Extension.create({
         },
         props: {
           handleDOMEvents: {
-            mousedown: (view, event) => extendSelectionTo(view, event),
+            mousedown: (view, event) => {
+              // A marker press is taken in capture, above, before the Citation's node view and
+              // ProseMirror's own press handling can change the selection.
+              if (
+                event.target instanceof Element &&
+                event.target.closest("[data-testid='citation']")
+              ) {
+                return false;
+              }
+              return extendSelectionTo(view, event);
+            },
           },
         },
       }),

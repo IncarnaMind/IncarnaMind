@@ -95,6 +95,28 @@ const tailAt = (window: Page, x: number, y: number) =>
     [x, y],
   );
 
+/**
+ * A point just past the first character after the first Citation, and that character. Four
+ * pixels past the Citation can be before a full-width mark, so a drag ending there selects no
+ * text after it (the Chinese fixture follows the Citation with `，`).
+ */
+const afterCharacter = (window: Page) =>
+  window.evaluate(() => {
+    const wrapper = document.querySelector('[data-testid="citation"]')?.closest(".node-citation");
+    if (!(wrapper instanceof Element)) return null;
+    const node = wrapper.nextSibling;
+    if (!(node instanceof Text)) return null;
+    const text = node.data;
+    let index = 0;
+    while (index < text.length && /\s/.test(text[index] ?? "")) index++;
+    if (index >= text.length) return null;
+    const range = document.createRange();
+    range.setStart(node, index);
+    range.setEnd(node, index + 1);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.right + 2, y: rect.y + rect.height / 2, char: text[index] as string };
+  });
+
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [1600, 900] as const) {
     for (const paused of [true, false] as const) {
@@ -115,6 +137,8 @@ for (const language of ["en", "zh-CN"] as const) {
           const afterX = box.x + box.width + 4;
           const tail = await tailAt(window, afterX, y);
           if (tail === null) throw new Error("No place to press.");
+          const beyond = await afterCharacter(window);
+          if (!beyond) throw new Error("No character after the Citation.");
 
           // Double-click the word; a person's pause is the selection menu showing.
           await window.mouse.dblclick(word.x, word.y);
@@ -151,22 +175,38 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(window.getByTestId("citation-card")).toHaveCount(0);
           await expect(window.getByTestId("viewer")).toHaveCount(0);
 
-          // Dragging across it does the same, to the character the pointer ends on.
+          // Dragging past the character after the Citation does the same, to where the pointer ends.
           await window.keyboard.press("Escape");
           await window.waitForTimeout(520);
           await window.mouse.move(word.x, word.y, { steps: 3 });
           await window.mouse.down();
-          await window.mouse.move(afterX, y, { steps: 6 });
+          await window.mouse.move(beyond.x, beyond.y, { steps: 6 });
           await window.mouse.up();
+          const draggedTail = await tailAt(window, beyond.x, beyond.y);
+          if (draggedTail === null) throw new Error("No place to end the drag.");
           const dragged = await selection(window);
           expect(dragged.covers).toBe(true);
           expect(dragged.text.startsWith(word.text)).toBe(true);
-          expect(dragged.text.endsWith(tail)).toBe(true);
-          expect(dragged.text.length).toBeLessThanOrEqual(word.text.length + 2 + tail.length);
+          // The far end is past the character that follows the Citation, which is selected.
+          expect(draggedTail.startsWith(beyond.char)).toBe(true);
+          expect(dragged.text.endsWith(draggedTail)).toBe(true);
+          expect(dragged.text.length).toBeLessThanOrEqual(
+            word.text.length + 2 + draggedTail.length,
+          );
 
           // With no selection to extend (a caret), a Shift-press on the Citation acts on it.
+          // The drag's menu opens a moment after its mouseup; closed, it cannot cover the word.
+          await expect(window.getByTestId("selection-menu")).toBeVisible();
           await window.keyboard.press("Escape");
+          await expect(window.getByTestId("selection-menu")).toHaveCount(0);
+          // The drag began on the same word; a click within half a second of that press is a
+          // double-click to the browser, which takes the word rather than leaving a caret.
+          await window.waitForTimeout(520);
           await window.mouse.click(word.x, word.y);
+          expect(
+            await window.evaluate(() => getSelection()?.type),
+            "The plain click left a caret, so there is nothing to extend.",
+          ).toBe("Caret");
           await shiftClick(window, box.x + box.width / 8, y);
           // Its card is pinned, so it stays once the pointer leaves.
           await expect(window.getByTestId("citation-card")).toHaveCount(1);
