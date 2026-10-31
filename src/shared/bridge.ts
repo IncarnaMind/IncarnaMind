@@ -16,6 +16,12 @@ export const channelFor = (method: CoreApiMethod): string => `core:${method}`;
 export const EVENT_CHANNEL = "core:event";
 
 /**
+ * Answers once the main process serves every channel. The first window's page loads before the
+ * core starts (#2104), so the preload holds each call and message until then.
+ */
+export const SERVED_CHANNEL = "host:served";
+
+/**
  * Helpers the preload script adds next to the core, as `window.incarnamindFiles`.
  * They need Electron (in the renderer's process, or the main process's dialogs
  * and shell), so they aren't part of the core's API.

@@ -19,6 +19,7 @@ import {
   FILES_CHANNELS,
   type FilesBridge,
   type MenuCommand,
+  SERVED_CHANNEL,
 } from "../shared/bridge";
 import {
   CITED_PAGE_ARGUMENT,
@@ -45,6 +46,13 @@ import {
 } from "../shared/permissionGuide";
 import { titleBarOf } from "../shared/titleBar";
 
+const served = ipcRenderer.invoke(SERVED_CHANNEL);
+const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
+  served.then(() => ipcRenderer.invoke(channel, ...args));
+const send = (channel: string, ...args: unknown[]): void => {
+  void served.then(() => ipcRenderer.send(channel, ...args));
+};
+
 function listen<T>(channel: string, listener: (value: T) => void): () => void {
   const receive = (_event: unknown, value: T) => listener(value);
   ipcRenderer.on(channel, receive);
@@ -56,7 +64,7 @@ function listen<T>(channel: string, listener: (value: T) => void): () => void {
 const methods = Object.fromEntries(
   coreApiMethods.map((method) => [
     method,
-    (...args: unknown[]) => ipcRenderer.invoke(channelFor(method), ...args),
+    (...args: unknown[]) => invoke(channelFor(method), ...args),
   ]),
 ) as unknown as CoreApi;
 
@@ -93,29 +101,26 @@ contextBridge.exposeInMainWorld(BRIDGE_KEY, bridge);
 // A sandboxed renderer can't see where a dropped or picked file lives; Electron's preload can.
 const files: FilesBridge = {
   pathForFile: (file) => webUtils.getPathForFile(file),
-  decodePicture: (bytes) => ipcRenderer.invoke(FILES_CHANNELS.decodePicture, bytes),
-  showSavedFile: (path) => ipcRenderer.invoke(FILES_CHANNELS.showSavedFile, path),
-  openSavedFile: (path) => ipcRenderer.invoke(FILES_CHANNELS.openSavedFile, path),
-  pickOutputLocation: () => ipcRenderer.invoke(FILES_CHANNELS.pickOutputLocation),
-  saveMindCopy: (mindId) => ipcRenderer.invoke(FILES_CHANNELS.saveMindCopy, mindId),
-  openDataFolder: () => ipcRenderer.invoke(FILES_CHANNELS.openDataFolder),
-  openLogsFolder: () => ipcRenderer.invoke(FILES_CHANNELS.openLogsFolder),
-  pickSkill: (kind) => ipcRenderer.invoke(FILES_CHANNELS.pickSkill, kind),
-  openDocumentExternally: (documentId) =>
-    ipcRenderer.invoke(FILES_CHANNELS.openDocumentExternally, documentId),
-  showDocumentInFolder: (documentId) =>
-    ipcRenderer.invoke(FILES_CHANNELS.showDocumentInFolder, documentId),
-  pickLinkedFolder: (locating) => ipcRenderer.invoke(FILES_CHANNELS.pickLinkedFolder, locating),
-  pickDocuments: () => ipcRenderer.invoke(FILES_CHANNELS.pickDocuments),
-  pickDocumentsOrFolder: () => ipcRenderer.invoke(FILES_CHANNELS.pickDocumentsOrFolder),
-  pickReferenceFile: () => ipcRenderer.invoke(FILES_CHANNELS.pickReferenceFile),
-  pickWordFile: () => ipcRenderer.invoke(FILES_CHANNELS.pickWordFile),
-  pickFileToVerify: () => ipcRenderer.invoke(FILES_CHANNELS.pickFileToVerify),
-  showLinkedFolder: (linkedFolderId) =>
-    ipcRenderer.invoke(FILES_CHANNELS.showLinkedFolder, linkedFolderId),
-  runsWithoutSandbox: () => ipcRenderer.invoke(FILES_CHANNELS.runsWithoutSandbox),
-  takeUnexpectedEnd: () => ipcRenderer.invoke(FILES_CHANNELS.takeUnexpectedEnd),
-  logError: (report) => ipcRenderer.send(FILES_CHANNELS.logError, report),
+  decodePicture: (bytes) => invoke(FILES_CHANNELS.decodePicture, bytes),
+  showSavedFile: (path) => invoke(FILES_CHANNELS.showSavedFile, path),
+  openSavedFile: (path) => invoke(FILES_CHANNELS.openSavedFile, path),
+  pickOutputLocation: () => invoke(FILES_CHANNELS.pickOutputLocation),
+  saveMindCopy: (mindId) => invoke(FILES_CHANNELS.saveMindCopy, mindId),
+  openDataFolder: () => invoke(FILES_CHANNELS.openDataFolder),
+  openLogsFolder: () => invoke(FILES_CHANNELS.openLogsFolder),
+  pickSkill: (kind) => invoke(FILES_CHANNELS.pickSkill, kind),
+  openDocumentExternally: (documentId) => invoke(FILES_CHANNELS.openDocumentExternally, documentId),
+  showDocumentInFolder: (documentId) => invoke(FILES_CHANNELS.showDocumentInFolder, documentId),
+  pickLinkedFolder: (locating) => invoke(FILES_CHANNELS.pickLinkedFolder, locating),
+  pickDocuments: () => invoke(FILES_CHANNELS.pickDocuments),
+  pickDocumentsOrFolder: () => invoke(FILES_CHANNELS.pickDocumentsOrFolder),
+  pickReferenceFile: () => invoke(FILES_CHANNELS.pickReferenceFile),
+  pickWordFile: () => invoke(FILES_CHANNELS.pickWordFile),
+  pickFileToVerify: () => invoke(FILES_CHANNELS.pickFileToVerify),
+  showLinkedFolder: (linkedFolderId) => invoke(FILES_CHANNELS.showLinkedFolder, linkedFolderId),
+  runsWithoutSandbox: () => invoke(FILES_CHANNELS.runsWithoutSandbox),
+  takeUnexpectedEnd: () => invoke(FILES_CHANNELS.takeUnexpectedEnd),
+  logError: (report) => send(FILES_CHANNELS.logError, report),
   onMenuCommand: (listener) => {
     const receive = (_event: unknown, command: MenuCommand) => listener(command);
     ipcRenderer.on(FILES_CHANNELS.menuCommand, receive);
@@ -123,11 +128,11 @@ const files: FilesBridge = {
       ipcRenderer.removeListener(FILES_CHANNELS.menuCommand, receive);
     };
   },
-  setSidebarHidden: (hidden) => ipcRenderer.send(FILES_CHANNELS.sidebarHidden, hidden),
-  setEditMenu: (state) => ipcRenderer.send(FILES_CHANNELS.editMenu, state),
-  paste: () => ipcRenderer.send(FILES_CHANNELS.paste),
-  setExportMenu: (mindName) => ipcRenderer.send(FILES_CHANNELS.exportMenu, mindName),
-  setExamplesRemoved: (removed) => ipcRenderer.send(FILES_CHANNELS.examplesRemoved, removed),
+  setSidebarHidden: (hidden) => send(FILES_CHANNELS.sidebarHidden, hidden),
+  setEditMenu: (state) => send(FILES_CHANNELS.editMenu, state),
+  paste: () => send(FILES_CHANNELS.paste),
+  setExportMenu: (mindName) => send(FILES_CHANNELS.exportMenu, mindName),
+  setExamplesRemoved: (removed) => send(FILES_CHANNELS.examplesRemoved, removed),
   titleBar: titleBarOf(process.platform),
   onFullScreenChange: (listener) => {
     const receive = (_event: unknown, fullScreen: boolean) => listener(fullScreen);
@@ -137,21 +142,21 @@ const files: FilesBridge = {
     };
   },
   onMeetingHelp: (listener) => listen<GeneralHelpKind>(FILES_CHANNELS.meetingHelp, listener),
-  globalKeysFree: (keys) => ipcRenderer.invoke(FILES_CHANNELS.globalKeysFree, keys),
-  windowKeys: (forms) => ipcRenderer.send(FILES_CHANNELS.windowKeys, forms),
-  showMeetingPanel: (shown) => ipcRenderer.send(FILES_CHANNELS.showMeetingPanel, shown),
-  meetingPanelCommand: (command) => ipcRenderer.send(FILES_CHANNELS.meetingPanelCommand, command),
+  globalKeysFree: (keys) => invoke(FILES_CHANNELS.globalKeysFree, keys),
+  windowKeys: (forms) => send(FILES_CHANNELS.windowKeys, forms),
+  showMeetingPanel: (shown) => send(FILES_CHANNELS.showMeetingPanel, shown),
+  meetingPanelCommand: (command) => send(FILES_CHANNELS.meetingPanelCommand, command),
   onMeetingPanel: (listener) => {
     const stop = listen<PanelState>(FILES_CHANNELS.meetingPanel, listener);
-    ipcRenderer.send(FILES_CHANNELS.meetingPanelWanted);
+    send(FILES_CHANNELS.meetingPanelWanted);
     return stop;
   },
   onSetUpModel: (listener) => listen<void>(FILES_CHANNELS.setUpModel, () => listener()),
-  showPermissionGuide: (source) => ipcRenderer.invoke(FILES_CHANNELS.showPermissionGuide, source),
-  closePermissionGuide: () => ipcRenderer.send(FILES_CHANNELS.closePermissionGuide),
+  showPermissionGuide: (source) => invoke(FILES_CHANNELS.showPermissionGuide, source),
+  closePermissionGuide: () => send(FILES_CHANNELS.closePermissionGuide),
   onPermissionGuide: (listener) => {
     const stop = listen<PermissionGuideState | null>(FILES_CHANNELS.permissionGuide, listener);
-    ipcRenderer.send(FILES_CHANNELS.permissionGuideWanted);
+    send(FILES_CHANNELS.permissionGuideWanted);
     return stop;
   },
 };
@@ -160,10 +165,10 @@ const files: FilesBridge = {
 // and says to the main process where it drew the page; it needs none of the file helpers.
 if (process.argv.includes(CITED_PAGE_ARGUMENT)) {
   const citedPage: CitedPageBridge = {
-    request: () => ipcRenderer.invoke(CITED_PAGE_CHANNELS.request),
-    resize: (height) => ipcRenderer.invoke(CITED_PAGE_CHANNELS.resize, height),
-    drawn: (layout) => ipcRenderer.send(CITED_PAGE_CHANNELS.drawn, layout),
-    failed: (reason) => ipcRenderer.send(CITED_PAGE_CHANNELS.failed, reason),
+    request: () => invoke(CITED_PAGE_CHANNELS.request),
+    resize: (height) => invoke(CITED_PAGE_CHANNELS.resize, height),
+    drawn: (layout) => send(CITED_PAGE_CHANNELS.drawn, layout),
+    failed: (reason) => send(CITED_PAGE_CHANNELS.failed, reason),
   };
   contextBridge.exposeInMainWorld(CITED_PAGE_BRIDGE_KEY, citedPage);
 } else {
@@ -173,13 +178,13 @@ if (process.argv.includes(CITED_PAGE_ARGUMENT)) {
 // The floating panel during a call has the file helpers too, for the window's error log.
 if (process.argv.includes(MEETING_PANEL_ARGUMENT)) {
   const panel: MeetingPanelBridge = {
-    resize: (width, height) => ipcRenderer.send(MEETING_PANEL_CHANNELS.size, width, height),
-    close: () => ipcRenderer.send(MEETING_PANEL_CHANNELS.close),
-    setUp: () => ipcRenderer.send(MEETING_PANEL_CHANNELS.setUp),
-    keys: () => ipcRenderer.invoke(MEETING_PANEL_CHANNELS.keys),
+    resize: (width, height) => send(MEETING_PANEL_CHANNELS.size, width, height),
+    close: () => send(MEETING_PANEL_CHANNELS.close),
+    setUp: () => send(MEETING_PANEL_CHANNELS.setUp),
+    keys: () => invoke(MEETING_PANEL_CHANNELS.keys),
     onKeys: (listener) => listen<HeldKeys>(MEETING_PANEL_CHANNELS.keysChanged, listener),
     onHelp: (listener) => listen<GeneralHelpKind>(MEETING_PANEL_CHANNELS.help, listener),
-    state: (state) => ipcRenderer.send(MEETING_PANEL_CHANNELS.state, state),
+    state: (state) => send(MEETING_PANEL_CHANNELS.state, state),
     onCommand: (listener) => listen<PanelCommand>(MEETING_PANEL_CHANNELS.command, listener),
   };
   contextBridge.exposeInMainWorld(MEETING_PANEL_BRIDGE_KEY, panel);
@@ -188,9 +193,9 @@ if (process.argv.includes(MEETING_PANEL_ARGUMENT)) {
 // The guide beside System Settings has the file helpers too, for the window's error log.
 if (process.argv.includes(PERMISSION_GUIDE_ARGUMENT)) {
   const guide: PermissionGuideBridge = {
-    resize: (width, height) => ipcRenderer.send(PERMISSION_GUIDE_CHANNELS.size, width, height),
-    close: () => ipcRenderer.send(PERMISSION_GUIDE_CHANNELS.close),
-    state: () => ipcRenderer.invoke(PERMISSION_GUIDE_CHANNELS.state),
+    resize: (width, height) => send(PERMISSION_GUIDE_CHANNELS.size, width, height),
+    close: () => send(PERMISSION_GUIDE_CHANNELS.close),
+    state: () => invoke(PERMISSION_GUIDE_CHANNELS.state),
     onState: (listener) =>
       listen<PermissionGuideState | null>(PERMISSION_GUIDE_CHANNELS.state, listener),
   };
