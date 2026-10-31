@@ -8,6 +8,7 @@ import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
 import { type AnswerToolCall, CLAIMED_CHANGES, type ClaimedChange, type MindProblem } from "../api";
 import { isRecord } from "../errors";
 import type { ChatLanguageModel } from "../providers/models";
+import { outputTokens } from "../providers/outputLimits";
 import { tokenUsageOf } from "../providers/promptCache";
 import type { TokenUsage } from "../runs/engine";
 import type { UnmadeFixes } from "./claimedFixes";
@@ -215,7 +216,7 @@ export async function unbackedClaims(
       instructions: CLAIM_CHECK_INSTRUCTIONS,
       prompt,
       output: Output.object({ schema: verdictSchema, name: "change-claims" }),
-      maxOutputTokens: 2_048,
+      maxOutputTokens: outputTokens("claimed-changes"),
       maxRetries: 0,
       abortSignal: signal,
     });

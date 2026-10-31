@@ -2019,7 +2019,7 @@ export function createAnswers(options: AnswersOptions) {
       return true;
     };
 
-    let settleMinds = (): void => undefined;
+    let settleMinds = (_failed: boolean): void => undefined;
     const run = async () => {
       // An outside agent's Question, or a table's cell, whose scope has no Documents has nothing to
       // answer from: it says so without asking the model.
@@ -2485,7 +2485,7 @@ export function createAnswers(options: AnswersOptions) {
               now: () => new Date(),
             })
           : null;
-      if (mindsTools) settleMinds = () => mindsTools.settle();
+      if (mindsTools) settleMinds = (failed) => mindsTools.settle(failed);
       const commands = outside ? undefined : options.commands;
       commandsOffered =
         commands && input.assistant
@@ -3129,12 +3129,12 @@ export function createAnswers(options: AnswersOptions) {
             break;
         }
       }
-      settleMinds();
+      settleMinds(outcome.status === "failed");
       finish(outcome);
     };
     inFlow(flow, run).catch((error: unknown) => {
       options.reportError(error);
-      settleMinds();
+      settleMinds(true);
       finish({ status: "failed", error: classifyProviderError(error) });
     });
   }

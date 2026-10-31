@@ -260,6 +260,7 @@ test("the check's forced first cite goes through the Run engine", async () => {
       },
     ],
     maxSteps: 2,
+    outputTokens: { step: 8_000, last: 8_000 },
     firstTool: "cite",
     gate: async () => ({ run: true }),
     signal: new AbortController().signal,

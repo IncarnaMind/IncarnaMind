@@ -17,6 +17,7 @@ import { jsonSchema, streamText, tool } from "ai";
 import { normaliseAddress } from "../../shared/webAddresses";
 import type { ChatProviderKind, Money } from "../api";
 import type { ChatLanguageModel } from "./models";
+import { CutShortError, outputTokens } from "./outputLimits";
 
 /** A page a web search found. */
 export interface WebResult {
@@ -32,12 +33,6 @@ const TOOL = "web_search";
 
 /** Pages one search gives an Answer, at most. */
 export const MAX_RESULTS = 10;
-
-/**
- * Room for what the model writes after searching: OpenAI's reasoning models
- * count their reasoning in it too, and a search cut off before it is made finds nothing.
- */
-const OUTPUT_TOKENS = 2_048;
 
 const INSTRUCTIONS =
   "Search the web once for what the User asks, as they asked it. Then reply with the single word: done.";
@@ -140,7 +135,7 @@ export async function searchWeb(
         }
       : undefined,
     toolChoice: search ? { type: "tool", toolName: TOOL } : undefined,
-    maxOutputTokens: OUTPUT_TOKENS,
+    maxOutputTokens: outputTokens("web-search"),
     // The gateway searches once independently of the model; mandatory-reasoning models refuse forced Tools (#2248).
     providerOptions:
       kind === "openrouter"
@@ -158,6 +153,8 @@ export async function searchWeb(
     } else if (part.type === "tool-error" && part.toolName === TOOL) {
       throw new Error(`The web search failed: ${messageOf(part.error)}`);
     } else if (part.type === "error") {
+      // The pages found are whole: only the reply written after them, which isn't read, was cut.
+      if (part.error instanceof CutShortError) break;
       throw part.error;
     }
   }

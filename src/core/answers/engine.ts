@@ -87,6 +87,7 @@ import type {
 import { ONE_SEARCH_PARAMETERS, type SearchToolParameters } from "../documents/searchTool";
 import { detectLanguage } from "../documents/textLanguage";
 import type { ChatLanguageModel, ContextWindow } from "../providers/models";
+import { type ModelCallKind, outputTokens } from "../providers/outputLimits";
 import { cacheProviderOptions, stablePrefixOptions, tokenUsageOf } from "../providers/promptCache";
 import {
   classifyProviderError,
@@ -628,6 +629,12 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
   return takesTemperature === false ? undefined : ANSWER_TEMPERATURE;
 }
 
+const writingKind = (request: AnswerRequest): ModelCallKind =>
+  request.toolSet === "check" ? "check-step" : "answer";
+
+const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
+  Math.min(outputTokens(kind), request.maxOutput ?? Number.POSITIVE_INFINITY);
+
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };
 /** The provider refused the temperature: send the request again without one. Internal to the engine. */
@@ -871,7 +878,7 @@ async function searchQuery(
       prompt: searchQueryPrompt(earlier, question),
       temperature,
       // A short query; a cut-off reply falls back to the Question.
-      maxOutputTokens: 256,
+      maxOutputTokens: outputTokens("search-query"),
       // A failure falls back to the Question at once; the Answer's own request still retries.
       maxRetries: 0,
       abortSignal: signal,
@@ -965,7 +972,7 @@ async function translatedQuery(
       prompt: translateQueryPrompt(query, language),
       temperature,
       // A short query; a cut-off reply means no second search.
-      maxOutputTokens: 256,
+      maxOutputTokens: outputTokens("search-query"),
       maxRetries: 0,
       abortSignal: request.signal,
     });
@@ -1906,10 +1913,11 @@ async function* toolLoop(
     maxSteps: stepsLeft,
     ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
-    lastStep: {
-      ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
-      ...(request.toolsEveryRequest && { keepTools: true }),
+    outputTokens: {
+      step: outputOf(request, request.toolSet === "check" ? "check-step" : "answer-step"),
+      last: outputOf(request, writingKind(request)),
     },
+    lastStep: { ...(request.toolsEveryRequest && { keepTools: true }) },
     gate: async (call) => {
       const tool = offered.get(call.tool);
       return tool && request.gate
@@ -2183,6 +2191,7 @@ async function* structured(
     messages: modelMessages(request.messages),
     temperature,
     providerOptions: cacheProviderOptions(request.cacheKey),
+    maxOutputTokens: outputOf(request, writingKind(request)),
     output: Output.object({
       schema: jsonSchema<{ answer: string; citations: unknown; calculations?: unknown }>({
         type: "object",
@@ -2313,6 +2322,7 @@ async function* plain(
       messages: modelMessages(request.messages),
       temperature,
       providerOptions: cacheProviderOptions(request.cacheKey),
+      maxOutputTokens: outputOf(request, writingKind(request)),
       abortSignal: signal,
       onError: () => undefined,
     });
