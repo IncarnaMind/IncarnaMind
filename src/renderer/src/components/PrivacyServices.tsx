@@ -59,18 +59,22 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   const t = useT();
   const language = useLanguage();
   const [busy, setBusy] = useState(false);
-  const item = useRef<HTMLLIElement>(null);
+  const buttons = useRef<HTMLDivElement>(null);
+  const invoked = useRef<HTMLButtonElement | null>(null);
   const stopping = useRef<string | null>(null);
   const { service, uses } = group;
   const decision = decisionOf(uses);
 
-  // A use nothing else holds goes from the list once stopped, and its button with it: the focus
-  // goes to the service's own button then, not to the page, whenever the list is updated.
+  // A consent change can remove the invoked button. Keep focus in this service unless the User
+  // has already moved it elsewhere.
   useLayoutEffect(() => {
-    if (stopping.current === null || uses.some((use) => use.flow === stopping.current)) return;
-    stopping.current = null;
+    const actionGone = invoked.current !== null && !invoked.current.isConnected;
+    const useGone = stopping.current !== null && !uses.some((use) => use.flow === stopping.current);
+    if (!actionGone && !useGone) return;
+    invoked.current = null;
+    if (useGone) stopping.current = null;
     if (document.activeElement?.isConnected && document.activeElement !== document.body) return;
-    item.current?.querySelector<HTMLElement>('button[data-testid^="data-service-"]')?.focus();
+    buttons.current?.querySelector("button")?.focus();
   });
 
   const run = async (action: () => Promise<unknown>) => {
@@ -187,7 +191,6 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
 
   return (
     <li
-      ref={item}
       data-testid="data-service"
       data-service-id={service.id}
       data-consent={decision.kind}
@@ -211,14 +214,17 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
         </DetailsLine>
         <ProviderDataUseNotice service={service} />
       </div>
-      <div className={rowButtonsClass}>
+      <div ref={buttons} className={rowButtonsClass}>
         {actions.map((action) => (
           <button
             key={action.slot}
             type="button"
             data-testid={action.testId}
             aria-busy={busy}
-            onClick={() => void action.run()}
+            onClick={(event) => {
+              invoked.current = event.currentTarget;
+              void action.run();
+            }}
             className={buttonStyle(action.primary ? "primary" : "secondary", "sm")}
           >
             {action.label}

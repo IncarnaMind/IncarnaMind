@@ -58,6 +58,8 @@ const KINDS: ReadonlySet<string> = new Set<WordAtomKind>([
   "other",
 ]);
 
+const PARAGRAPH_KEY = /^p[0-9a-z]{1,16}$/;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -67,6 +69,9 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 export function readWordAtom(attributes: Record<string, unknown>): WordAtomAttributes {
   const kind = typeof attributes.kind === "string" && KINDS.has(attributes.kind);
   const info = isRecord(attributes.info) ? attributes.info : null;
+  const looks = Array.isArray(info?.looks)
+    ? info.looks.filter((key): key is string => typeof key === "string" && PARAGRAPH_KEY.test(key))
+    : [];
   return {
     kind: kind ? (attributes.kind as WordAtomKind) : "other",
     label: text(attributes.label),
@@ -78,6 +83,7 @@ export function readWordAtom(attributes: Record<string, unknown>): WordAtomAttri
       ...(typeof info.field === "string" && { field: info.field }),
       ...(info.display === true && { display: true }),
       ...(typeof info.name === "string" && { name: info.name }),
+      ...(looks.length > 0 && { looks }),
     },
   };
 }

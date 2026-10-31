@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -2483,6 +2483,13 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   return menu;
 }
 
+/** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
+export async function chooseLook(window: Page, look: "word" | "plain"): Promise<void> {
+  const menu = await openPageMenu(window);
+  await pointAndClick(window, menu.getByTestId(`look-${look}`));
+  await expect(menu).toBeHidden();
+}
+
 /** "Show word count while writing", in the page's ⋯ menu: the count is hidden until then. */
 export async function showCountWhileWriting(window: Page): Promise<void> {
   const menu = await openPageMenu(window);
@@ -3293,3 +3300,143 @@ export const addFilesLabel = (language: "en" | "zh-CN") =>
 /** Its label's message key, for the menus and ⌘K that show it. */
 export const addFilesLabelKey =
   process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";
+
+/** Records keydown → next paint for each key typed, and Event Timing entries. */
+export async function installKeyLatency(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const w = window as unknown as {
+      __keys?: number[];
+      __events?: { name: string; duration: number }[];
+    };
+    if (w.__keys) return;
+    w.__keys = [];
+    w.__events = [];
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        const t0 = event.timeStamp;
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => w.__keys?.push(performance.now() - t0);
+          channel.port2.postMessage(0);
+        });
+      },
+      true,
+    );
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          w.__events?.push({ name: entry.name, duration: entry.duration });
+        }
+      }).observe({
+        type: "event",
+        durationThreshold: 16,
+        buffered: false,
+      } as PerformanceObserverInit);
+    } catch {
+      // Event Timing isn't supported
+    }
+  });
+}
+
+/**
+ * The keys timed since the last take, and clears them. With `keys`, waits until that many have
+ * been timed: each is timed once its frame is drawn, after the key itself.
+ */
+export async function takeKeyLatency(window: Page, { keys: typed }: { keys?: number } = {}) {
+  if (typed !== undefined)
+    await expect
+      .poll(() => window.evaluate(() => (window as unknown as { __keys: number[] }).__keys.length))
+      .toBeGreaterThanOrEqual(typed);
+  return window.evaluate(() => {
+    const w = window as unknown as {
+      __keys: number[];
+      __events: { name: string; duration: number }[];
+    };
+    const keys = [...w.__keys].sort((a, b) => a - b);
+    const events = w.__events.filter((e) => /key|input/.test(e.name));
+    w.__keys = [];
+    w.__events = [];
+    const q = (p: number) => keys[Math.min(keys.length - 1, Math.floor(p * keys.length))] ?? 0;
+    const round = (v: number) => Math.round(v * 10) / 10;
+    return {
+      keys: keys.length,
+      median: round(q(0.5)),
+      p95: round(q(0.95)),
+      max: round(keys.at(-1) ?? 0),
+      over50: keys.filter((k) => k > 50).length,
+      eventTimingOver16: events.length,
+      eventTimingMax: round(Math.max(0, ...events.map((e) => e.duration))),
+      // Event Timing (to the presented frame) for keydown only; keys it didn't report took < 16ms.
+      presented: (() => {
+        const downs = events.filter((e) => e.name === "keydown").map((e) => e.duration);
+        const all = [
+          ...downs,
+          ...Array.from({ length: Math.max(0, keys.length - downs.length) }, () => 8),
+        ].sort((a, b) => a - b);
+        const at = (p: number) => all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0;
+        return {
+          keydownsOver16: downs.length,
+          median: at(0.5),
+          p95: at(0.95),
+          max: Math.max(0, ...downs),
+        };
+      })(),
+    };
+  });
+}
+
+/**
+ * How long the Mind takes to open in place until `count` elements match `selector` in its own
+ * pane, never the one it replaces, and a frame after.
+ */
+export async function msToOpen(window: Page, mindId: string, done: string, count: number) {
+  return window.evaluate(
+    async ({ id, selector, wanted }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const inPane = `article[data-mind-id="${CSS.escape(id)}"] ${selector}`;
+      const start = performance.now();
+      await core.changeLayout("main", {
+        type: "open",
+        item: { kind: "mind", mindId: id },
+        where: { in: "place" },
+      });
+      for (;;) {
+        if (document.querySelectorAll(inPane).length >= wanted) break;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      return Math.round(performance.now() - start);
+    },
+    { id: mindId, selector: done, wanted: count },
+  );
+}
+
+/** The largest .docx of the committed Word corpus (eval/word). */
+export function largestCorpusFile(): string {
+  const root = join(__dirname, "../eval/word");
+  let largest = { path: "", size: 0 };
+  const visit = (folder: string) => {
+    for (const name of readdirSync(folder)) {
+      const path = join(folder, name);
+      const stat = statSync(path);
+      if (stat.isDirectory()) visit(path);
+      else if (name.endsWith(".docx") && stat.size > largest.size)
+        largest = { path, size: stat.size };
+    }
+  };
+  visit(root);
+  return largest.path;
+}
+
+/** ⌘J over what is selected, saying what to change: in the selection menu's field, or in the composer where the menu can't open (all of the Mind). */
+export async function askToChange(window: Page, instruction: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect
+    .poll(() => window.evaluate(() => document.activeElement?.getAttribute("data-testid")))
+    .toMatch(/^(selection-edit-field|composer-input)$/);
+  await window.keyboard.type(instruction);
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+  await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
+}

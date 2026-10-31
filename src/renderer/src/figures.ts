@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
@@ -7,6 +7,7 @@ import {
   MIND_CONTENT_FIELD,
   MIND_SIGN_OFFS_FIELD,
 } from "../../core/api";
+import { applyFigureScheduleChange } from "../../shared/figureSchedule";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { useChecks } from "./checks";
 import { core } from "./core";
@@ -21,6 +22,8 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
   const documents = useAppStore((state) => state.documents);
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const [read, setRead] = useState<{ doc: Y.Doc; schedule: FigureSchedule } | null>(null);
+  // The last schedule the core gave, shown or not: the next is asked for as a change to it.
+  const given = useRef<{ mindId: string; token: string; schedule: FigureSchedule } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Source versions and Folder/title changes invalidate the core projection.
   useEffect(() => {
     if (!doc) return;
@@ -38,9 +41,18 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
       pending = true;
       changed = false;
       const basis = fingerprintOfMind(doc);
+      const held = given.current?.mindId === mindId ? given.current : null;
       core
-        .getFigureSchedule(mindId)
-        .then((schedule) => {
+        .getFigureScheduleChange(mindId, held?.token ?? null)
+        .then((change) => {
+          const schedule = applyFigureScheduleChange(held, change);
+          if (!schedule) {
+            // A change to a schedule this window no longer holds: the whole one is asked for.
+            given.current = null;
+            changed = true;
+            return;
+          }
+          given.current = { mindId, token: change.token, schedule };
           if (active && schedule.basis === basis && schedule.basis === fingerprintOfMind(doc))
             setRead({ doc, schedule });
         })

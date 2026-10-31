@@ -1,9 +1,11 @@
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { longContract } from "../tests/helpers/longContract";
 import { paragraph, run, wordFile } from "../tests/helpers/word";
 import { contractFile, resumeFile } from "../tests/helpers/wordLookFiles";
 import {
+  askToChange,
+  chooseLook,
   clickEndOf,
   createDataFolder,
   dismissChatSetup,
@@ -14,11 +16,13 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openPageMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   slideSelect,
+  useLocalChatModel,
 } from "./app";
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -39,11 +43,6 @@ test.afterEach(async () => {
 
 const fontOf = (target: Locator) =>
   target.evaluate((element) => getComputedStyle(element).fontFamily);
-
-async function chooseLook(window: Page, look: "word" | "plain") {
-  await window.getByTestId("group-menu").click();
-  await window.getByTestId(`look-${look}`).click();
-}
 
 test("a contract imported from Word shows the file's look, and Look › Plain Mind draws it as any Mind, and back", async () => {
   const { app, window } = await launchApp(dataDir, { home });
@@ -69,14 +68,23 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-contract.png") });
   }
 
-  await window.getByTestId("group-menu").click();
-  await expect(window.getByTestId("look-word")).toHaveAttribute("aria-checked", "true");
-  await expect(window.getByTestId("look-plain")).toHaveAttribute("aria-checked", "false");
+  // Look is the Note's, beside Style in its ⋯ menu; the group's ⋯ is about the group.
+  await pointAndClick(window, window.getByTestId("group-menu"));
+  await expect(window.getByTestId("group-menu-items").getByRole("menuitem").first()).toBeVisible();
+  await expect(window.getByTestId("look-word")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const menu = await openPageMenu(window);
+  const style = menu.getByTestId("page-style");
+  const word = menu.getByTestId("look-word");
+  await expect(word).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByTestId("look-plain")).toHaveAttribute("aria-checked", "false");
+  const [styleBox, wordBox] = [await style.boundingBox(), await word.boundingBox()];
+  expect(wordBox && styleBox && wordBox.y > styleBox.y).toBe(true);
   if (SCREENSHOTS) {
     await motionSettled(window);
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-menu.png") });
   }
-  await window.getByTestId("look-plain").click();
+  await pointAndClick(window, menu.getByTestId("look-plain"));
   await expect(clause).toHaveCSS("text-align", "start");
   expect(await fontOf(title)).not.toMatch(/Book Antiqua/);
   await expect(clause).toContainText("Prices are fixed for the first twelve months");
@@ -95,14 +103,149 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   }
 
   await setLanguage(window, "zh-CN");
-  await window.getByTestId("group-menu").click();
-  const menu = window.getByTestId("group-menu-items");
-  await expect(menu).toContainText("外观");
-  await expect(window.getByTestId("look-word")).toHaveText("Word 文件原样");
-  await expect(window.getByTestId("look-plain")).toHaveText("普通笔记");
+  const chinese = await openPageMenu(window);
+  await expect(chinese).toContainText("外观");
+  await expect(chinese.getByTestId("look-word")).toHaveText("Word 文件原样");
+  await expect(chinese.getByTestId("look-plain")).toHaveText("普通笔记");
   if (SCREENSHOTS) {
     await motionSettled(window);
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-menu-zh.png") });
+  }
+  await app.close();
+});
+
+/** A memo set in a face no computer has, so its fonts line reads the same on any machine. */
+const MISSING_FONT = "Kestrel Imaginary Serif";
+const missingFontFile = () =>
+  wordFile({
+    styles: `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="${MISSING_FONT}" w:hAnsi="${MISSING_FONT}"/><w:sz w:val="24"/></w:rPr></w:style>`,
+    body: [
+      paragraph("Memo to the board"),
+      paragraph("The supplier holds its prices for the first twelve months."),
+    ].join(""),
+  });
+
+test("a font this computer lacks is drawn with the nearest of its kind, and the Note's ⋯ and the original's Get info say so, in English and Chinese", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await importWordFile(app, window, files, "Board memo.docx", missingFontFile());
+  await expectReadyDocuments(window, 1);
+
+  const line = window.getByTestId("mind-editor").locator("p", { hasText: "holds its prices" });
+  // Its own face first, then the nearest serifs, the shipped Caladea among them, never downloaded.
+  expect(await fontOf(line)).toMatch(
+    new RegExp(`^"${MISSING_FONT}", "Times New Roman", .*\\bCaladea\\b.*serif$`),
+  );
+  const menu = await openPageMenu(window);
+  await expect(menu.getByTestId("look-fonts")).toContainText(
+    "1 font isn’t installed: shown with the nearest",
+  );
+  await expect(menu.getByTestId("look-fonts-names")).toHaveText(MISSING_FONT);
+  // The file's look is the item the keyboard reaches; a screen reader reads the fonts line with it.
+  await expect(menu.getByTestId("look-word")).toHaveAccessibleDescription(
+    new RegExp(`^1 font isn’t installed: shown with the nearest\\s*${MISSING_FONT}$`),
+  );
+  if (SCREENSHOTS) {
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-fonts-menu.png") });
+  }
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+
+  const row = window.getByTestId("document-list-item").filter({ hasText: "Board memo" });
+  await row.getByTestId("open-document").focus();
+  await window.keyboard.press("ControlOrMeta+i");
+  const panel = window.getByTestId("info-panel");
+  await expect(panel.getByTestId("info-fonts")).toContainText(
+    "1 font isn’t installed: shown with the nearest",
+  );
+  await expect(panel.getByTestId("info-fonts")).toContainText(MISSING_FONT);
+  await window.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+
+  await setLanguage(window, "zh-CN");
+  const chinese = await openPageMenu(window);
+  await expect(chinese.getByTestId("look-fonts")).toContainText(
+    "1 种字体未安装，已用最接近的字体显示",
+  );
+  await expect(chinese.getByTestId("look-fonts-names")).toHaveText(MISSING_FONT);
+  await expect(chinese.getByTestId("look-word")).toHaveAccessibleDescription(
+    new RegExp(`^1 种字体未安装，已用最接近的字体显示\\s*${MISSING_FONT}$`),
+  );
+  if (SCREENSHOTS) {
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-fonts-menu-zh.png") });
+  }
+  await window.keyboard.press("Escape");
+  await row.getByTestId("open-document").focus();
+  await window.keyboard.press("ControlOrMeta+i");
+  await expect(panel.getByTestId("info-fonts")).toContainText("字体");
+  await app.close();
+});
+
+/** The Answer's ink, the AI grey (DESIGN.md, `ink-answer`). */
+const INK_ANSWER = "rgb(59, 64, 72)";
+
+test("a clause the User types takes the clause's look, and an AI change in a justified Book Antiqua clause is in its font and alignment, struck and underlined, its new words in the AI grey", async () => {
+  const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await importWordFile(
+    app,
+    window,
+    files,
+    "Supply agreement v5 (from Northwind).docx",
+    contractFile(),
+  );
+  const editor = window.getByTestId("mind-editor");
+  const clause = editor.locator("p", { hasText: "for the first twelve months" });
+  await expect(clause).toHaveCSS("text-align", "justify");
+
+  // Enter at the clause's end gives the next its properties, as in Word.
+  await clickEndOf(window, clause);
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("Deliveries are made within five working days of an order.");
+  const typed = editor.locator("p", { hasText: "Deliveries are made" });
+  await expect(typed).toHaveCSS("text-align", "justify");
+  expect(await fontOf(typed)).toMatch(/^"Book Antiqua"/);
+
+  await slideSelect(window, clause, "Prices are fixed for the first twelve months");
+  await askToChange(window, "replace fixed with held");
+  await expect(clause).toContainText("Prices are held for the first twelve months");
+  const grey = clause.locator(".generated-text");
+  await expect(grey).toHaveText("held");
+  await expect(grey).toHaveCSS("color", INK_ANSWER);
+  expect(await fontOf(grey)).toMatch(/^"Book Antiqua"/);
+  await expect(typed.locator(".generated-text")).toHaveCount(0);
+
+  await pointAndClick(window, editor.getByTestId("applied-line").getByTestId("applied-review"));
+  const removed = clause.locator("del.applied-old");
+  const added = clause.locator(".applied-new");
+  await expect(removed).toContainText("fixed");
+  await expect(added).toContainText("held");
+  for (const mark of [removed, added]) {
+    expect(await fontOf(mark)).toMatch(/^"Book Antiqua"/);
+    expect(await mark.evaluate((element) => getComputedStyle(element).fontSize)).toBe(
+      await clause.evaluate((element) => getComputedStyle(element).fontSize),
+    );
+  }
+  await expect(removed).toHaveCSS("text-decoration-line", "line-through");
+  await expect(added).toHaveCSS("text-decoration-line", "underline");
+  await expect(clause).toHaveCSS("text-align", "justify");
+  if (SCREENSHOTS) {
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-proposal.png") });
+    await setWindowSize(app, window, 1100, 720);
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-proposal-1100.png") });
+    await setLanguage(window, "zh-CN");
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-proposal-zh-1100.png") });
+    await setWindowSize(app, window, 1440, 900);
+    await motionSettled(window);
+    await window.screenshot({ path: join(SCREENSHOTS, "word-look-proposal-zh.png") });
   }
   await app.close();
 });

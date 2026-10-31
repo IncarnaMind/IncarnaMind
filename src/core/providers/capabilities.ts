@@ -20,6 +20,7 @@
 import type { CitationSupport } from "../api";
 import type { ModelFacts } from "./catalog";
 import type { ContextWindow } from "./models";
+import { LONGEST_OUTPUT } from "./outputLimits";
 
 /** What one source says about a model: a field it leaves out, it doesn't say. */
 export type ModelFactsLayer = Partial<ModelFacts>;
@@ -83,15 +84,20 @@ const DEFAULT_OUTPUT_TOKENS = 4_096;
 
 /**
  * The window a cloud model's requests are kept within, from its context
- * window: what a request may send is its input limit where the provider has
- * one, else the window less the room for its longest reply (at most half of
- * the window). None when the context window isn't known: requests are then
- * sent as they are, and nothing is cut to fit a guess.
+ * window: room for the longest reply any call asks of it (its own most, at
+ * most half of the window and at most `LONGEST_OUTPUT`), and the rest for
+ * what a request sends, never more than its input limit where the provider
+ * has one. None when the context window isn't known: requests are then sent
+ * as they are, and nothing is cut to fit a guess.
  */
 export function cloudWindow({ facts }: ModelCapabilities): ContextWindow | undefined {
   const { context, maxInput, maxOutput } = facts;
   if (!context || context <= 0) return undefined;
-  const output = Math.min(maxOutput ?? DEFAULT_OUTPUT_TOKENS, Math.floor(context / 2));
-  const input = maxInput && maxInput < context ? maxInput : context - output;
+  const output = Math.min(
+    maxOutput ?? DEFAULT_OUTPUT_TOKENS,
+    Math.floor(context / 2),
+    LONGEST_OUTPUT,
+  );
+  const input = Math.min(maxInput && maxInput > 0 ? maxInput : context, context - output);
   return { tokens: context, outputTokens: context - input };
 }

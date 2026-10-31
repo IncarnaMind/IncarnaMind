@@ -4,6 +4,7 @@ import type {
   FigureFinding,
   FigureInput,
   FigureSchedule,
+  FigureScheduleChange,
   FigureScheduleRow,
 } from "../core/api";
 import type { Language } from "../core/language";
@@ -134,6 +135,104 @@ export function scheduleLines(
     { id: parent.id, parent },
     ...(expanded.has(parent.id) ? childrenOf(parent, schedule) : []),
   ]);
+}
+
+/** Whether two structured-clone-safe values hold the same, but for the keys left out. */
+function sameValue(a: unknown, b: unknown, leftOut?: ReadonlySet<string>): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (leftOut?.has(key)) continue;
+    if (!Object.hasOwn(b, key) || !sameValue(Reflect.get(a, key), Reflect.get(b, key)))
+      return false;
+  }
+  return true;
+}
+
+const ROW_LEFT_OUT: ReadonlySet<string> = new Set(["number", "place"]);
+const PLACE_LEFT_OUT: ReadonlySet<string> = new Set(["paragraph"]);
+
+/**
+ * Whether a row says what a row held says, but for its number and for its paragraph's, `shift`
+ * paragraphs on: Enter or a new figure above moves every row below it along.
+ */
+function sameRow(held: FigureScheduleRow, row: FigureScheduleRow, shift: number): boolean {
+  return (
+    row.place.paragraph === held.place.paragraph + shift &&
+    sameValue(held.place, row.place, PLACE_LEFT_OUT) &&
+    sameValue(held, row, ROW_LEFT_OUT)
+  );
+}
+
+/** `schedule` as a change to the one held, which `token` will name; whole when none is held. */
+export function figureScheduleChange(
+  schedule: FigureSchedule,
+  token: string,
+  held: { token: string; rows: readonly FigureScheduleRow[] } | null,
+): FigureScheduleChange {
+  const { rows, ...rest } = schedule;
+  if (!held) return { ...rest, token, since: null, from: 0, to: 0, shift: 0, rows };
+  const most = Math.min(held.rows.length, rows.length);
+  let from = 0;
+  while (from < most) {
+    const before = held.rows[from];
+    const now = rows[from];
+    if (!before || !now || !sameRow(before, now, 0)) break;
+    from++;
+  }
+  const lastHeld = held.rows.at(-1);
+  const last = rows.at(-1);
+  const shift = lastHeld && last ? last.place.paragraph - lastHeld.place.paragraph : 0;
+  let same = 0;
+  while (same < most - from) {
+    const before = held.rows[held.rows.length - 1 - same];
+    const now = rows[rows.length - 1 - same];
+    if (!before || !now || !sameRow(before, now, shift)) break;
+    same++;
+  }
+  return {
+    ...rest,
+    token,
+    since: held.token,
+    from,
+    to: held.rows.length - same,
+    shift,
+    rows: rows.slice(from, rows.length - same),
+  };
+}
+
+/**
+ * The schedule a change makes of the one held, its rows the same array when none changed; null
+ * when it changes a schedule other than the one held.
+ */
+export function applyFigureScheduleChange(
+  held: { token: string; schedule: FigureSchedule } | null,
+  change: FigureScheduleChange,
+): FigureSchedule | null {
+  const { token: _token, since, from, to, shift, rows, ...rest } = change;
+  if (since === null) return { ...rest, rows };
+  if (held?.token !== since) return null;
+  const before = held.schedule.rows;
+  if (from === to && rows.length === 0 && shift === 0) return { ...rest, rows: before };
+  const moved = from + rows.length - to;
+  const after = before.slice(to);
+  return {
+    ...rest,
+    rows: [
+      ...before.slice(0, from),
+      ...rows,
+      ...(moved === 0 && shift === 0
+        ? after
+        : after.map((row) => ({
+            ...row,
+            number: row.number + moved,
+            place: { ...row.place, paragraph: row.place.paragraph + shift },
+          }))),
+    ],
+  };
 }
 
 export function selectedFigures(schedule: FigureSchedule, ids: ReadonlySet<string>): string[] {

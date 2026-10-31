@@ -188,6 +188,8 @@ export function CitationView({
   const { peeking, hold, clear: clearPeek } = useCitationPeek();
   const open = pinned || peeking;
   const marker = useRef<HTMLButtonElement>(null);
+  /** Whether the editor took the marker's last press to extend the selection. */
+  const pressTaken = useRef(false);
   // Its dot breathes only while a check the User started runs: an Answer is being written.
   const writing = useAnswers((store) => store.writing.size > 0);
   const answering = useAnswerBeingWritten() !== null;
@@ -420,8 +422,13 @@ export function CitationView({
         title={styled.kind === "runs" ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        // Keep the editor's selection and focus where they are.
-        onMouseDown={(event) => event.preventDefault()}
+        // Keep the editor's selection and focus where they are. A Shift-press with something to
+        // extend is the Note's, which extends the selection through the Citation before this
+        // (ShiftClickSelection, #2279); a press it didn't take is kept here, as before.
+        onMouseDown={(event) => {
+          pressTaken.current = event.nativeEvent.defaultPrevented;
+          if (!pressTaken.current) event.preventDefault();
+        }}
         // In a cluster, the pointer shows the card of the Citation whose words it is over.
         onPointerMove={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
         // The pointer can come back without moving: the card first placed before its font
@@ -433,6 +440,11 @@ export function CitationView({
         }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
+          // A Shift-press the editor took extended the selection, so it is not an activation of
+          // the Citation; a key's click, or a press with nothing to extend, still is.
+          const taken = pressTaken.current;
+          pressTaken.current = false;
+          if (event.shiftKey && event.detail > 0 && taken) return;
           const target = markerOfWork(workAt(event.target, inCluster));
           if (target && target !== marker.current) target.click();
           else onClick();

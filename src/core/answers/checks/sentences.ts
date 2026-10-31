@@ -18,6 +18,7 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
+import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import {
@@ -36,7 +37,7 @@ import {
   type TextStretch,
   type WaitingSentences,
 } from "../../api";
-import { layout, textBlocks } from "../../proposals/write";
+import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
 import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
 
@@ -552,10 +553,10 @@ function completeParts(raw: unknown, check: ClaimCheckAttributes): boolean {
   return parts == null || readClaimParts(parts, check.text, check.state) !== null;
 }
 
-/** Every check's mark in the Mind, in order. */
-export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
+/** Every check's mark in one of the Mind's top-level Blocks, in order. */
+const marksOfBlock = perBlock((block): readonly MarkedSentence[] => {
   const found = new Map<string, MarkedSentence>();
-  for (const { element } of textBlocks(blocks, { charts: true })) {
+  for (const { element } of textBlocksOf(block, { charts: true })) {
     if (element.nodeName === CHART_NODE) {
       const raw = element.getAttribute(CLAIM_CHECK_MARK);
       const check = readClaimCheck(raw);
@@ -607,6 +608,28 @@ export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
     }
   }
   return [...found.values()];
+});
+
+/**
+ * The first of each check's marks in the Mind's Blocks, in order, each Block read once while it
+ * stays the same: the Note's figures are read with them on every change (#746).
+ */
+function firstMarks<T extends { check: ClaimCheckAttributes }>(
+  blocks: Y.XmlFragment,
+  marksOf: (block: Y.XmlElement) => readonly T[],
+): T[] {
+  const found = new Map<string, T>();
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const mark of marksOf(block))
+      if (!found.has(mark.check.id)) found.set(mark.check.id, { ...mark });
+  }
+  return [...found.values()];
+}
+
+/** Every check's mark in the Mind, in order. */
+export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
+  return firstMarks(blocks, marksOfBlock);
 }
 
 /** Whether the User keeps a sentence as their own view (#1111, #1909): a kept mark at its place, with its words as they were. */
@@ -626,13 +649,19 @@ export function keptAsView(
  * Every check in the Mind with the whole sentences its marked text is in, as they read now, and
  * where its mark is (`MarkedSentence`).
  */
-export function checkedSentences(blocks: Y.XmlFragment): (MarkedSentence & {
+export function checkedSentences(blocks: Y.XmlFragment): CheckedSentence[] {
+  return firstMarks(blocks, checkedOfBlock);
+}
+
+type CheckedSentence = MarkedSentence & {
   sentence: string;
   cited: CitedQuote[];
   noteText?: string;
   place?: RecordCitePlace;
-})[] {
-  return markedSentences(blocks).map((marked) => {
+};
+
+const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
+  marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
     if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
     const { text, spans } = claimFrame(element);
@@ -646,8 +675,8 @@ export function checkedSentences(blocks: Y.XmlFragment): (MarkedSentence & {
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
     };
-  });
-}
+  }),
+);
 
 /**
  * Each Citation's sentence as checks read it, by the Citation's id: what a person's own check of

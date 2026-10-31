@@ -9,7 +9,7 @@ import {
   TypeValidationError,
   UnsupportedFunctionalityError,
 } from "ai";
-import type { ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
+import type { Money, ProviderError, ProviderErrorKind, SignInRouteProblem } from "../api";
 import {
   ConsentDeclinedError,
   ConsentRevokedError,
@@ -56,6 +56,22 @@ export class CostCapError extends Error {
   override name = "CostCapError";
   constructor() {
     super("The monthly cap would be passed, so nothing was sent.");
+  }
+}
+
+/**
+ * A request would take its Run past the most the User agreed it may spend (`budget`): nothing was
+ * sent. `spent`: what the Run's requests had settled at.
+ */
+export class RunBudgetError extends Error {
+  override name = "RunBudgetError";
+  constructor(
+    readonly budget: Money,
+    readonly spent: Money,
+  ) {
+    super(
+      `The Run's budget of ${budget.amount} ${budget.currency} would be passed, so nothing was sent.`,
+    );
   }
 }
 
@@ -278,6 +294,9 @@ function sortedError(cause: unknown): ProviderError {
     };
   }
   if (cause instanceof CostCapError) return { kind: "cost-cap", message };
+  if (cause instanceof RunBudgetError) {
+    return { kind: "cost-cap", message, budget: { most: cause.budget, spent: cause.spent } };
+  }
   // A plan's sign-in couldn't be refreshed for a passing reason (e.g. the provider's server failed).
   if (cause instanceof OAuthTokenError) return { kind: "provider", message };
 

@@ -8,6 +8,7 @@ import type {
   ClaimCheckPart,
   ClaimCheckScope,
   ClaimPartSpan,
+  WholeRead,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
 import { checkedScope } from "../../../shared/claimChecks";
@@ -17,6 +18,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
+import { reasonText } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
@@ -223,6 +225,7 @@ function PartRow({
   onOpen,
   working,
   lookedIn,
+  read,
   checking,
   stale,
   citing,
@@ -237,6 +240,7 @@ function PartRow({
   onUseWording?(part: ClaimCheckPart): void;
   onOpen(): void;
   lookedIn: string;
+  read?: WholeRead;
   checking: boolean;
   stale: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
@@ -244,6 +248,7 @@ function PartRow({
   citations?: PartCitations;
 }) {
   const t = useT();
+  const language = useLanguage();
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
   );
@@ -261,7 +266,7 @@ function PartRow({
   const menu = useObjectMenu(target);
   const reason =
     part.verdict === "not-checked" && part.reason
-      ? t(`claim.reason.${part.reason}`, { detail: part.detail ?? "" })
+      ? reasonText(t, language, part.reason, part.detail)
       : part.verdict !== "unsupported"
         ? null
         : part.unsupported?.kind === "forecast-certainty"
@@ -269,9 +274,22 @@ function PartRow({
           : part.unsupported?.kind === "unbacked-cause"
             ? t("claim.unbackedCause")
             : (part.unsupported?.reason ??
-              (part.verdict === "unsupported"
-                ? t("claim.unsupported.notFound", { scope: lookedIn })
-                : null));
+              (part.verdict !== "unsupported"
+                ? null
+                : read
+                  ? t(
+                      read.pages === read.of
+                        ? "claim.readAll.notFound"
+                        : read.of === 1
+                          ? "claim.readSome.notFound.one"
+                          : "claim.readSome.notFound",
+                      {
+                        scope: lookedIn,
+                        pages: read.pages,
+                        of: read.of,
+                      },
+                    )
+                  : t("claim.unsupported.notFound", { scope: lookedIn })));
   const wording =
     !stale &&
     !checking &&
@@ -402,6 +420,7 @@ export function ClaimPartRows({
   onOpen,
   working,
   scope,
+  read,
   checking = false,
   stale = false,
   citations,
@@ -414,6 +433,8 @@ export function ClaimPartRows({
   onUseWording?(part: ClaimCheckPart): void;
   onOpen(): void;
   scope?: ClaimCheckScope;
+  /** After Check against a Document… (#1554): how much of the pick was read. */
+  read?: WholeRead;
   checking?: boolean;
   stale?: boolean;
   working?(calculation: ClaimCalculation): ReactNode;
@@ -499,6 +520,7 @@ export function ClaimPartRows({
             onOpen={onOpen}
             working={working}
             lookedIn={lookedIn}
+            read={read}
             checking={checking}
             stale={stale}
             citing={citing[index] ?? []}

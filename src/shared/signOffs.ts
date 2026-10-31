@@ -604,6 +604,7 @@ export function figureSignOffs(
   }
   const current = new Set(figureIds);
   const left = figures.filter((record) => !used.has(record) && !current.has(record.target.id));
+  if (left.length === 0) return found;
   for (const level of [0, 1]) {
     for (const id of figureIds) {
       if (found.has(id)) continue;
