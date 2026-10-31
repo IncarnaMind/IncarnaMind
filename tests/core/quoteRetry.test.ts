@@ -145,6 +145,25 @@ describe("A small local model's quotes the check doesn't find", () => {
     expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
   });
 
+  // protects=a reply that stops as a whole one does but whose JSON is cut off is read for nothing, whatever its finish says; fails_when=the JSON is repaired and its cut quote recorded as found (#2275).
+  test("a reply whose JSON doesn't parse whole is read for nothing, though it stopped normally", async () => {
+    const broken = await smallModel(
+      {
+        answer: "Spring tides come at new and full moon [^1].",
+        citations: [{ marker: 1, passage: "P1", quote: "Spring tides come at new and full moon" }],
+      },
+      { content: '{"quotes":[{"marker":1,"quote":"Spring tides happen at new moon', cutOff: false },
+    );
+
+    const { finished } = await ask(broken);
+
+    expect(retries(broken)).toHaveLength(1);
+    expect(finished.citations).toMatchObject([
+      { quote: "Spring tides come at new and full moon", check: "not-found" },
+    ]);
+    expect(finished.quoteRetry).toMatchObject({ records: 1, recovered: 0 });
+  });
+
   test("a new quote the check still doesn't find is dropped: the record keeps its own, not found", async () => {
     const ollama = await smallModel(
       {
@@ -364,5 +383,37 @@ describe("What the request shows of an Answer and a Passage", () => {
   test("the phase is said in English and in Chinese", () => {
     expect(translate("en", "answer.phase.checking-quotes")).toBe("Checking quotes…");
     expect(translate("zh-CN", "answer.phase.checking-quotes")).toBe("正在核对引文…");
+  });
+});
+
+describe("A structured Answer's final reply", () => {
+  // protects=a structured Answer's reply that stops normally but whose JSON is cut off records nothing and says the model sent no Answer, where the whole reply records its found Citation; fails_when=the cut JSON is repaired and its cut quote recorded as found (#2275).
+  test("is recorded only when its JSON parses whole", async () => {
+    const json = JSON.stringify({
+      answer: "Spring tides come at new and full moon [^1].",
+      citations: [{ marker: 1, passage: "P1", quote: SPRING }],
+    });
+    const answered = async (content: string) => {
+      const server = await startOllamaServer({
+        models: [QWEN35],
+        reply: (body): OllamaChatReply =>
+          isAnswer(body) ? { content } : { content: JSON.stringify({ tags: [] }) },
+      });
+      const { core, mind, client } = await setUpLocalModel(server, QWEN35.name, {
+        documents: [{ name: "Tides.md", contents: TIDES }],
+      });
+      const asked = question("When are spring tides?");
+      writeMind(client, [asked]);
+      return (await askAndEnd(core, client, mind.id, asked.attrs.id)).ended;
+    };
+
+    expect(await answered(json)).toMatchObject({
+      event: "finished",
+      payload: { citations: [{ quote: SPRING, check: "found" }] },
+    });
+    expect(await answered(json.slice(0, json.indexOf(" and at full moon")))).toMatchObject({
+      event: "failed",
+      payload: { error: { kind: "no-answer" } },
+    });
   });
 });

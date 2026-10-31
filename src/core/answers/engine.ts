@@ -120,7 +120,7 @@ import {
   translateQueryPrompt,
   withPassageNotes,
 } from "./prompt";
-import { retryQuotes } from "./quoteRetry";
+import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
@@ -632,8 +632,13 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
 const writingKind = (request: AnswerRequest): ModelCallKind =>
   request.toolSet === "check" ? "check-step" : "answer";
 
+/** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
-  Math.min(outputTokens(kind), request.maxOutput ?? Number.POSITIVE_INFINITY);
+  Math.min(
+    outputTokens(kind),
+    request.maxOutput ?? Number.POSITIVE_INFINITY,
+    request.window?.outputTokens ?? Number.POSITIVE_INFINITY,
+  );
 
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };
@@ -786,7 +791,10 @@ export function parseRecords(value: unknown): CitationRecordInput[] {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence. */
+/**
+ * The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence: only
+ * to show as it streams. What is recorded comes from the reply parsed whole (#2275).
+ */
 const parseAnswerJson = (raw: string) =>
   parsePartialJson(raw.replace(/^\s*```(?:json)?[ \t]*\n?/i, "").replace(/\n?```\s*$/, ""));
 
@@ -2252,11 +2260,19 @@ async function* structured(
     return;
   }
   if (signal.aborted) return;
-  const { value } = await parseAnswerJson(raw);
+  const value = await replyJson(raw);
   const answer = (value as { answer?: unknown } | undefined)?.answer;
   // The model didn't answer in JSON after all: it can't do structured output.
   if (typeof answer !== "string" && !emitted) {
     yield { type: "unsupported" };
+    return;
+  }
+  if (value === undefined) {
+    yield { type: "text-retracted", length: emitted.length };
+    yield {
+      type: "failed",
+      error: { kind: "no-answer", message: "The model's reply ended before its JSON was whole." },
+    };
     return;
   }
   const records = parseRecords((value as { citations?: unknown } | undefined)?.citations);

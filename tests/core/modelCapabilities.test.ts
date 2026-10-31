@@ -91,7 +91,8 @@ describe("Models in the app, by the catalog", () => {
     expect(readsImages(prepared.capabilities)).toBe(true);
     expect(givesStructuredOutput(prepared.capabilities)).toBe(true);
     expect(prepared.support).toBe("tools");
-    expect(prepared.window).toEqual({ tokens: 1_000_000, outputTokens: 128_000 });
+    // Room kept for the longest reply any call asks, 32,000 tokens, not the model's own 128,000.
+    expect(prepared.window).toEqual({ tokens: 1_000_000, outputTokens: 32_000 });
     // A cloud model's quotes are never asked for again (ADR-0007).
     expect(prepared.retryQuotes).toBeUndefined();
   });
@@ -359,7 +360,7 @@ describe("A provider's model list", () => {
     });
     const next = await core.prepareChatModel({ providerId: provider.id, modelId: "claude-next" });
     expect(readsImages(next.capabilities)).toBe(true);
-    expect(next.window).toEqual({ tokens: 2_000_000, outputTokens: 128_000 });
+    expect(next.window).toEqual({ tokens: 2_000_000, outputTokens: 32_000 });
   });
 });
 

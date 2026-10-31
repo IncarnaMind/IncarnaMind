@@ -28,9 +28,9 @@ const FIGURE = {
 
 /**
  * Asks with a small local model's window, as the model layer hands it out; the retry request gets
- * `retry` (none: no JSON), cut off at its limit when `cut`.
+ * `retry` (none: no JSON; a string: written as it is), cut off at its limit when `cut`.
  */
-async function ask(retry?: object, cut = false) {
+async function ask(retry?: object | string, cut = false) {
   const given: unknown[][] = [];
   const documents: AnswerTools = {
     documentCount: 1,
@@ -61,7 +61,10 @@ async function ask(retry?: object, cut = false) {
   };
   const model = scriptedModel((call) =>
     call.system.startsWith("You fix the calculated figures")
-      ? { text: retry ? JSON.stringify(retry) : "I can't.", cutOff: cut }
+      ? {
+          text: typeof retry === "string" ? retry : retry ? JSON.stringify(retry) : "I can't.",
+          cutOff: cut,
+        }
       : {
           text: JSON.stringify({
             answer: "Gross margin rose [=1][^1].",
@@ -123,6 +126,20 @@ describe("A local model's figures that couldn't be worked out", { timeout: 30_00
     const fixed = { calculations: [{ ...FIGURE, marker: "[=1]" }] };
 
     const { events, given } = await ask(fixed, true);
+
+    expect(given).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "figures-retried",
+      retry: { figures: 1, recovered: 0, durationMs: expect.any(Number) },
+    });
+  });
+
+  // protects=a fix whose JSON doesn't parse whole is never worked out, though the reply stopped normally: calculate never gets a figure with part of its inputs; fails_when=the JSON is repaired into a figure missing an input (#2275).
+  test("stay out when the reply's JSON doesn't parse whole, though it stopped normally", async () => {
+    const whole = JSON.stringify({ calculations: [{ ...FIGURE, marker: "[=1]" }] });
+    const broken = whole.slice(0, whole.indexOf('{"name":"gm2024"'));
+
+    const { events, given } = await ask(broken);
 
     expect(given).toHaveLength(1);
     expect(events).toContainEqual({

@@ -3252,7 +3252,7 @@ export const en = {
   "answer.error.retry": "Try again",
   "answer.error.addCredit": "Add credit",
   "answer.error.useAnotherKey": "Use another key",
-  "answer.error.cost-cap": "Monthly cap reached",
+  "answer.error.cost-cap": "Could pass your monthly cap",
   "answer.error.changeCap": "Change cap",
   "answer.error.plan-limit.ollama": "Your Ollama Cloud usage is used up",
   "answer.error.planModel": "{model}’s limit on your plan is used up until {time}.",
@@ -3261,7 +3261,7 @@ export const en = {
   "answer.error.planModels.forNow": "Your plan’s limits are used up for now.",
   "answer.error.answerWith": "Answer with {model}",
 
-  "run.stopped.cost-cap": "Monthly cap reached",
+  "run.stopped.cost-cap": "Could pass your monthly cap",
   "run.stopped.plan-limit": "Plan limit reached",
   "run.stopped.cancelled": "Stopped",
   "run.stopped.tryAfter": "Try again after {time}",

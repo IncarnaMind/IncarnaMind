@@ -153,8 +153,9 @@ export async function searchWeb(
     } else if (part.type === "tool-error" && part.toolName === TOOL) {
       throw new Error(`The web search failed: ${messageOf(part.error)}`);
     } else if (part.type === "error") {
-      // The pages found are whole: only the reply written after them, which isn't read, was cut.
-      if (part.error instanceof CutShortError) break;
+      // Pages found are whole: only the reply written after them, which isn't read, was cut. Cut
+      // before any, the search is said to have failed rather than to have found nothing.
+      if (part.error instanceof CutShortError && found.size > 0) break;
       throw part.error;
     }
   }
