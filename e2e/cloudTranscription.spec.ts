@@ -232,14 +232,14 @@ test("with the Qwen key from Models, Other ways… offers it with its region and
   const bar = window.getByTestId("meeting-bar");
   const refused = bar.getByTestId("meeting-line-cloud");
   await expect(refused).toContainText(
-    "Qwen didn’t accept the key: a key works only in the region it was made in, so check the region in Settings › Models. Transcribing on this computer.",
+    "Qwen refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
     { timeout: 20_000 },
   );
   await expect(bar).toHaveAttribute("data-status", "recording");
   await shot(window, "meeting-bar-qwen-refused-en");
   await setLanguage(window, "zh-CN");
   await expect(refused).toContainText(
-    "通义千问不接受这个密钥：密钥只能用于创建它的地域，请在“设置 › 模型”中检查地域。正在这台电脑上转写。",
+    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他地域）。请在“设置 › 模型”中检查密钥和地域。正在这台电脑上转写。",
   );
   await shot(window, "meeting-bar-qwen-refused-zh");
   await bar.getByTestId("meeting-line-change-key").click();

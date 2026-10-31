@@ -36,6 +36,7 @@ function counting(options: FakeCloudOptions = {}) {
   let total = 0;
   let marked = 0;
   let closes = 0;
+  const opened: string[] = [];
   const held: (() => void)[] = [];
   const service = {
     holdOpen: false,
@@ -46,12 +47,15 @@ function counting(options: FakeCloudOptions = {}) {
     sentSinceMark: () => total - marked,
     /** How many cloud streams the app has closed: the audio sent before one has all arrived by then. */
     closes: () => closes,
+    /** The address of every connection the app opened, in order. */
+    opened: () => [...opened],
     release: () => {
       service.holdOpen = false;
       for (const open of held.splice(0)) open();
     },
     connect: ((url, key, events) => {
       const openai = url === OPENAI_TRANSCRIPTION_URL;
+      opened.push(url);
       let quiet = false;
       const inner = fake(url, key, {
         open: () => {
@@ -300,6 +304,79 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     expect(
       (await core.listMeetings()).find((each) => each.id === exercised.id)?.transcript?.cloud,
     ).toBeNull();
+  });
+
+  test("qwen: the key moving to another region sends nothing there, sets Meetings back to this computer and says so, until Qwen is chosen again for that region", async () => {
+    const service = counting();
+    const { core, record, meeting } = await meetingOn("qwen", service);
+    await until(core, meeting.id, (each) => each.cloud === "qwen");
+    record(4 * SECOND);
+    const beijing = (await core.listChatProviders())[0]?.id ?? "";
+    await core.saveChatProvider({
+      kind: "qwen",
+      endpoint: "intl",
+      apiKey: "sk-qwen-intl-test",
+      modelId: "qwen3.7-plus",
+    });
+    await core.deleteChatProvider(beijing);
+
+    await vi.waitFor(() => expect(service.closes()).toBe(2), { timeout: 20_000, interval: 20 });
+    service.mark();
+    const before = (await core.listMeetings())[0]?.transcript?.lines ?? 0;
+    record(4 * SECOND);
+    const local = await until(core, meeting.id, (each) => each.lines > before);
+    expect(service.sentSinceMark()).toBe(0);
+    expect(local).toMatchObject({ cloud: null, fellBack: { route: "qwen", reason: "moved" } });
+    expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+    const qwen = async () =>
+      (await core.listTranscriptionServices()).services.find((each) => each.route === "qwen");
+    expect(await qwen()).toMatchObject({
+      hasKey: true,
+      chooseAgain: true,
+      region: { en: "International (Singapore)", zh: "国际（新加坡）" },
+    });
+    const singapore = (flows: Awaited<ReturnType<Core["listDataFlows"]>>) =>
+      flows.find(
+        (each) =>
+          each.flow.id === "transcription" &&
+          each.flow.service.id === "https://dashscope-intl.aliyuncs.com",
+      );
+    expect(singapore(await core.listDataFlows())?.consent).not.toBe("accepted");
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (each) => each.state === "saved");
+
+    const next = await core.createMeeting();
+    await core.startMeeting({ meetingId: next.id });
+    record(2 * SECOND);
+    await settle();
+    expect(service.sentSinceMark()).toBe(0);
+    expect(service.opened()).toEqual([
+      "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+      "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+    ]);
+    await core.stopMeeting(next.id);
+
+    await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+    expect(singapore(await core.listDataFlows())).toMatchObject({
+      consent: "accepted",
+      chosen: true,
+    });
+    expect(await qwen()).toMatchObject({ chooseAgain: false });
+    const chosen = await core.createMeeting();
+    await core.startMeeting({ meetingId: chosen.id });
+    await until(core, chosen.id, (each) => each.cloud === "qwen");
+    record(4 * SECOND);
+    // Only the Singapore connections are open now, so what arrives went there.
+    await vi.waitFor(() => expect(service.sentSinceMark()).toBeGreaterThan(0), {
+      timeout: 20_000,
+      interval: 20,
+    });
+    expect(service.opened()).toEqual([
+      "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+      "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+      "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
+      "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference",
+    ]);
   });
 
   for (const route of ["soniox", "qwen"] as const) {

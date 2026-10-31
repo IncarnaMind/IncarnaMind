@@ -303,6 +303,13 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
           : FELL_BACK[fellBack.reason],
         { provider, time },
       ),
+      ...(fellBack.reason === "moved" && {
+        action: {
+          label: t("meetings.line.chooseAgain"),
+          testId: "meeting-line-choose-again",
+          onClick: () => useAppStore.getState().openSettings("meetings"),
+        },
+      }),
       ...(fellBack.reason === "refused" && {
         action: {
           label: t("meetings.key.replace"),
@@ -365,6 +372,7 @@ const FELL_BACK: Record<
   refused: "meetings.line.cloudRefused",
   cap: "meetings.line.cloudCap",
   "local-mode": "meetings.line.cloudLocalMode",
+  moved: "meetings.line.cloudMoved",
 };
 
 const MICROPHONE_LINES: Partial<Record<MeetingSourceState, MessageKey>> = {

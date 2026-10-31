@@ -3189,6 +3189,8 @@ export const en = {
   "meetings.route.settingsLink": "Settings › Meetings",
   "meetings.route.consent": "A cloud service gets the meeting’s audio while you record.",
   "meetings.route.paused": "Paused: “Keep everything on this computer” is on.",
+  "meetings.route.chooseAgain":
+    "Audio now stays on this computer. Choose {provider} again to send it to {region}.",
   "meetings.route.perHour": "about {price} an hour",
   "meetings.route.perHourFirst": "About {price} an hour",
   "meetings.route.providerKey": "uses your {provider} key",
@@ -5586,7 +5588,10 @@ export const en = {
   "meetings.line.cloudCap": "Transcribing on this computer (the monthly cap was reached at {time})",
   "meetings.line.cloudRefused": "{provider} didn’t accept the key. Transcribing on this computer.",
   "meetings.line.cloudRefusedRegion":
-    "{provider} didn’t accept the key: a key works only in the region it was made in, so check the region in Settings › Models. Transcribing on this computer.",
+    "{provider} refused the key (wrong, expired or for another region). Check the key and its region in Settings › Models. Transcribing on this computer.",
+  "meetings.line.cloudMoved":
+    "Transcribing on this computer: your {provider} key is for another region now. Choose {provider} again to send the audio there.",
+  "meetings.line.chooseAgain": "Choose again",
   "meetings.line.cloudLocalMode":
     "Transcribing on this computer: “Keep everything on this computer” is on.",
   "meetings.line.openSettings.mac": "Open System Settings",

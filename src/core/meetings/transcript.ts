@@ -287,7 +287,7 @@ const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): stri
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
 
-type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode";
+type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode" | "moved";
 
 /** The engine couldn't start, or stopped, while what was left was being transcribed. */
 class EngineError extends Error {}
@@ -785,7 +785,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live.engine === "local") return null;
     if (!live.cloud) return "user";
     const now = options.cloud?.sending(live.engine, live.cloud.stream) ?? "stopped";
-    return now === "ok" ? null : now === "local-mode" ? "local-mode" : "user";
+    return now === "ok" ? null : now === "stopped" ? "user" : now;
   }
 
   function heardOpened(stream: string): void {

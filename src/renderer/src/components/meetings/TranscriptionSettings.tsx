@@ -53,11 +53,12 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
   if (!service) {
     return (
       <p id={id} data-testid="meetings-route-line" className={rowTextClass}>
-        {t(
-          services.some((each) => each.hasKey)
-            ? "meetings.route.consent"
-            : "meetings.route.hereLine",
-        )}
+        {chooseAgainLine(services, t, language) ??
+          t(
+            services.some((each) => each.hasKey)
+              ? "meetings.route.consent"
+              : "meetings.route.hereLine",
+          )}
       </p>
     );
   }
@@ -82,6 +83,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
  */
 export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const t = useT();
+  const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   if (read.state === "failed") {
     return (
@@ -100,7 +102,7 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   if (!service) {
     return (
       <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
-        {t("meetings.route.consent")}
+        {chooseAgainLine(services, t, language) ?? t("meetings.route.consent")}
       </p>
     );
   }
@@ -111,6 +113,20 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
       className="text-[12px] leading-5 text-ink-meta"
     />
   );
+}
+
+function chooseAgainLine(
+  services: readonly TranscriptionServiceStatus[],
+  t: ReturnType<typeof useT>,
+  language: ReturnType<typeof useLanguage>,
+): string | null {
+  const service = services.find((each) => each.chooseAgain);
+  if (!service) return null;
+  const words = language === "zh-CN" ? "zh" : "en";
+  return t("meetings.route.chooseAgain", {
+    provider: t(ROUTE_LABELS[service.route]),
+    region: (service.region ?? service.recipient)[words],
+  });
 }
 
 /** A transcription service's own key (Soniox's): pasted, checked with the service, kept in the keychain. */
