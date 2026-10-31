@@ -106,6 +106,7 @@ export {
   MindReadOnlyError,
   NotFoundError,
   SecretStorageError,
+  SecretsFileDamagedError,
 } from "./errors";
 export * from "./language";
 export type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
