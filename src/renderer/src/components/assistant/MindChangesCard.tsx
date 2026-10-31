@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { useAskedChanges } from "../../askedChanges";
-import { type ChangedMind, changedMinds } from "../../changedMinds";
+import { answerGroups, type ChangedMind, changedMinds } from "../../changedMinds";
 import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
-import { askInAssistant } from "../../conversations";
+import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import {
   resolveAllChanges,
@@ -49,7 +49,13 @@ export function MindChangesCard({
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
   const waiting = useWaitingChanges(rows);
-  const noteTotal = useWaitingBesidesApplied(rows.length === 1 ? (rows[0]?.mindId ?? null) : null);
+  const messages = useConversations((state) => state.messages);
+  const noteMindId = rows.length === 1 ? (rows[0]?.mindId ?? null) : null;
+  const noteGroups = useMemo(
+    () => (noteMindId ? answerGroups(messages, noteMindId) : []),
+    [messages, noteMindId],
+  );
+  const noteTotal = useWaitingBesidesApplied(noteMindId, noteGroups);
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;
