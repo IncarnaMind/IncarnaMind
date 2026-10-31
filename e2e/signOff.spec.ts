@@ -372,8 +372,34 @@ for (const [language, width] of [
       await screenshot(window, `sign-off-figure-card-checked-${language}`);
       await close();
 
-      // Undo takes the mark back, as any edit of the Note.
       await pointAndClick(window, window.getByTestId("undo-action"));
+      await openAt(0);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await expect(line).toHaveCount(0);
+      await close();
+
+      // From the figure's right-click menu, in the shared order: a toggle that shows ticked.
+      await pointAndClick(window, markers.nth(0), { button: "right" });
+      const menuToggle = window.getByRole("menuitemcheckbox", { name: words.action });
+      await expect(menuToggle).toHaveAttribute("aria-checked", "false");
+      await pointAndClick(window, menuToggle);
+      await pointAndClick(window, markers.nth(0), { button: "right" });
+      await expect(window.getByRole("menuitemcheckbox", { name: words.action })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await window.keyboard.press("Escape");
+
+      // ⌘K reaches it too, ticked, and choosing it takes the mark off.
+      await openAt(0);
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(words.action);
+      const item = window
+        .getByTestId("palette")
+        .locator('[data-key="command:figure.signOffRemove"]');
+      await expect(item.getByTestId("palette-checked")).toBeVisible();
+      await pointAndClick(window, item);
       await openAt(0);
       await expect(toggle).toHaveAttribute("aria-pressed", "false");
       await expect(line).toHaveCount(0);
@@ -417,10 +443,14 @@ for (const [language, width] of [
       await expect(toggle).toHaveAttribute("aria-pressed", "false");
       await screenshot(window, `sign-off-figure-card-changed-${language}`);
       await close();
-      // The other sentence was not edited: its mark still reads checked.
       await openAt(2);
       await expect(line).toHaveText(words.mine);
       await close();
+
+      const health = await checkCard(window);
+      await expect(health.getByTestId("health-sign-offs")).toContainText(words.count);
+      await expect(health.getByTestId("health-sign-offs")).toContainText(words.countChanged);
+      await window.keyboard.press("Escape");
     } finally {
       await removeDataFolder(sources);
       await app.close();

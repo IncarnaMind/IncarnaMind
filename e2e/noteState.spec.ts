@@ -48,7 +48,7 @@ const WORDS = {
     notChecked: "Not checked",
     look: "1 needs a look",
     checked: "Checked ",
-    checkFirst: "Not checked since your last edit · Check first",
+    checkFirst: "1 sentence to check · Check first",
     see: "Show",
     running: "A check is running",
     checking: /claims? being checked/,
@@ -57,7 +57,7 @@ const WORDS = {
     notChecked: "未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
-    checkFirst: "上次编辑后未核对 · 先核对",
+    checkFirst: "1 句待核对 · 先核对",
     see: "查看",
     running: "正在核对",
     checking: /正在核对 \d+ 条说法/,
@@ -231,6 +231,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await goHome(window);
     await expect(rowState(window, "Tides")).toHaveText(words.notChecked);
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
+    // The edited sentence counts in the badge's card, and the Export menu counts the same.
+    const card = await checkCard(window);
+    await expect(card.getByTestId("health-toCheck")).toContainText("1");
+    await window.keyboard.press("Escape");
     await pointAndClick(window, window.getByTestId("export-mind"));
     await expect(window.getByTestId("export-note-state")).toHaveText(words.checkFirst);
     await window.keyboard.press("Escape");
