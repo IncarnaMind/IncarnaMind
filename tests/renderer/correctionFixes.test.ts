@@ -389,6 +389,99 @@ describe("Correct a contradiction from the Documents", () => {
     reopened.destroy();
   });
 
+  test.each([
+    {
+      language: "en",
+      text: "The Supplier delivers 1,500 units each quarter.",
+      shown: "1,500 units",
+      from: "1,500",
+      to: "1,200",
+      after: "1,200 units",
+    },
+    {
+      language: "zh-CN",
+      text: "每个停车位每月收费人民币1,000元。",
+      shown: "人民币1,000元",
+      from: "1,000元",
+      to: "800元",
+      after: "人民币800元",
+    },
+  ])("reads again a figure the old words cover part of ($language)", (each) => {
+    const at = each.text.indexOf(each.shown);
+    const reading = readFigures(each.shown, { language: each.language })[0];
+    if (!reading) throw new Error("The fixture has no figure.");
+    const source = evidence("agreement", `${each.after}`);
+    const contradicted = contradictedPart(0, each.text.length, each.from, [
+      { wording: each.to, evidence: source },
+    ]);
+    const attrs = checkWithParts(basis("one", each.text), [
+      {
+        ...contradicted,
+        figures: [
+          {
+            id: JSON.stringify([
+              "text",
+              "block-one",
+              "old",
+              at,
+              at + each.shown.length,
+              each.shown,
+            ]),
+            locator: {
+              kind: "text",
+              from: { blockId: "block-one", offset: at },
+              to: { blockId: "block-one", offset: at + each.shown.length },
+            },
+            reading: { ...reading, start: at, end: at + each.shown.length },
+            calculated: null,
+            context: each.text,
+            sourceInput: null,
+            roundedFrom: null,
+            difference: null,
+            footing: [],
+            result: {
+              verdict: "unsupported",
+              evidence: null,
+              says: null,
+              unsupported: { reason: null, covered: null, uncovered: null, found: true },
+              calculation: null,
+              citedCaseUnchecked: false,
+              citedCaseFound: false,
+              versions: [],
+              excluded: [],
+            },
+          },
+        ],
+        remainder: {
+          verdict: "contradicted",
+          evidence: source,
+          correction: contradicted.correction,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          versions: [],
+          excluded: [],
+        },
+      },
+    ]);
+    const { editor, doc } = editorWith([
+      { type: "paragraph", attrs: { id: "block-one" }, content: [marked(each.text, attrs)] },
+    ]);
+    expect(claim(editor, "one").shown.state).toBe("contradicted");
+
+    expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+    const occurrences = figuresInMind(doc.getXmlFragment(MIND_CONTENT_FIELD));
+    expect(occurrences.map((occurrence) => occurrence.reading.chars)).toEqual([each.after]);
+    const corrected = claim(editor, "one");
+    expect(corrected.check.figures?.map((figure) => [figure.id, figure.state])).toEqual(
+      occurrences.map((occurrence) => [occurrence.id, "supported"]),
+    );
+    expect(corrected.shown.state).toBe("supported");
+  });
+
   test("changes the words in the contradicted part, not the same words in another part", () => {
     const text = "Sales rose 36.8%, and the rate is 36.8%.";
     const choices = [{ wording: "40.25%", evidence: evidence("report", "The rate is 40.25%.") }];

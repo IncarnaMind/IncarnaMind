@@ -1272,10 +1272,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             return (
               old.length === 1 &&
               old[0]?.chars === owner.reading.chars &&
-              replacement.length > 0 &&
-              replacement.every(
-                (figure) => Math.abs(figure.value) === Math.abs(deciding.number.value),
-              )
+              replacement.length === 1 &&
+              Math.abs(replacement[0]?.value ?? Number.NaN) === Math.abs(deciding.number.value)
             );
           };
           // The figure's own check already found the Document's number and its quote, so the
@@ -1308,12 +1306,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         // Every other result stands, or is a figure whose words the correction writes over: its
         // number couldn't be compared, and the Document's takes its place.
         const replaced = readFigures(found.correction.from, language).map((figure) => figure.chars);
+        const writesOver = (chars: string) =>
+          replaced.some((old) => chars.includes(old) || old.includes(chars));
         if (
           figures.some(
             (figure) =>
               figure !== owner &&
               figure.result.verdict !== "supported" &&
-              !(figure.result.verdict === "unsupported" && replaced.includes(figure.reading.chars)),
+              !(figure.result.verdict === "unsupported" && writesOver(figure.reading.chars)),
           ) ||
           (owner && remainder && remainder.verdict !== "supported")
         )
@@ -2054,6 +2054,39 @@ function keepsNamedPeriods(from: string, replacement: string): boolean {
   return before.length === after.length && before.every((period, index) => period === after[index]);
 }
 
+/** Whether `quote` names every period `sentence` does: a Document's value for another is no correction. */
+function namesPeriodsOf(sentence: string, quote: string): boolean {
+  const named = new Set(namedPeriods(quote));
+  return namedPeriods(sentence).every((period) => named.has(period));
+}
+
+/** An overlap at least this long, or one character that isn't a letter or digit ("$", " "). */
+const overlaps = (words: string) => words.length >= 2 || /^[^\p{L}\p{N}]$/u.test(words);
+
+/**
+ * The Document's words as they fit between `before` and `after`: without the words either side
+ * already has. Asked for 60日内, Claude Haiku 5.5 gave 货款应在开票后45日内支付 (#1481).
+ */
+function inPlace(before: string, after: string, wording: string): string {
+  let start = 0;
+  for (let length = Math.min(before.length, wording.length); length > 0; length--) {
+    const words = wording.slice(0, length);
+    if (before.endsWith(words) && overlaps(words)) {
+      start = length;
+      break;
+    }
+  }
+  let end = wording.length;
+  for (let length = Math.min(after.length, wording.length - start); length > 0; length--) {
+    const words = wording.slice(wording.length - length);
+    if (after.startsWith(words) && overlaps(words)) {
+      end = wording.length - length;
+      break;
+    }
+  }
+  return wording.slice(start, end);
+}
+
 /**
  * A confirmed contradiction's correction of `claim`, a part of `sentence` or all of it: old words
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
@@ -2076,7 +2109,15 @@ function correctionFor(
   const markers = new Set<number>();
   const wordings = new Set<string>();
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
-  for (const choice of read.choices) {
+  for (const stated of read.choices) {
+    const choice = {
+      ...stated,
+      wording: inPlace(
+        claim.slice(0, first),
+        claim.slice(first + read.from.length),
+        stated.wording,
+      ),
+    };
     if (
       markers.has(choice.marker) ||
       choice.wording === "" ||
@@ -2093,7 +2134,7 @@ function correctionFor(
     if (
       citation?.check !== "found" ||
       !citation.quote.includes(choice.wording) ||
-      !keepsNamedPeriods(claim, citation.quote)
+      !namesPeriodsOf(claim, citation.quote)
     )
       return null;
     markers.add(choice.marker);

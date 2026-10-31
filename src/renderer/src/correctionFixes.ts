@@ -39,8 +39,9 @@ import {
 } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { figurePlace, writeSentenceCheck } from "./editor/figurePlaces";
-import { languageNow, translateNow } from "./i18n";
+import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
+import { sentenceFigureContext } from "./unsupportedFixes";
 
 /** One part's old words and the Document's wording for them. */
 interface Edit {
@@ -168,14 +169,15 @@ export function correctableCount(editor: Editor): number {
 }
 
 /** A text figure of the sentence where the edits left it: its place, reading, id and context. */
-/** The edit that writes over a text figure's words, if one does. */
+/** The edit that writes over some of a text figure's words, if one does. */
 function replacing(before: ProseMirrorNode, plan: CorrectionPlan, figure: FigureFinding) {
   const old = figure.locator.kind === "text" ? figurePlace(before, figure) : null;
   return old && !old.node
-    ? plan.edits.find((edit) => edit.from <= old.from && old.to <= edit.to)
+    ? plan.edits.find((edit) => edit.from < old.to && old.from < edit.to)
     : undefined;
 }
 
+/** A text figure of the sentence where the edits left it: its place, reading, id and context. */
 function movedFigure<Figure extends FigureFinding>(
   before: ProseMirrorNode,
   tr: Transaction,
@@ -186,19 +188,30 @@ function movedFigure<Figure extends FigureFinding>(
   const place = after.place;
   const old = figurePlace(before, figure);
   if (!place || !old || old.node || figure.locator.kind !== "text") return null;
-  const owner = replacing(before, plan, figure);
-  const replacements = owner ? readFigures(owner.choice.wording, { language: languageNow() }) : [];
-  const replacement = replacements.length === 1 ? replacements[0] : undefined;
-  if (owner && !replacement) return null;
-  const start = owner ? tr.mapping.map(owner.from, -1) : 0;
-  const from = replacement ? start + replacement.start : tr.mapping.map(old.from, -1);
-  const to = replacement ? start + replacement.end : tr.mapping.map(old.to);
+  const edit = replacing(before, plan, figure);
+  const language = sentenceFigureContext(after.sentence.text);
+  // A figure inside the old words is the Document's figure in their place; one the old words
+  // cover part of ("1,500" of "1,500 units") is read again where it now is.
+  const inside = edit && edit.from <= old.from && old.to <= edit.to;
+  const written = inside ? readFigures(edit.choice.wording, language) : [];
+  if (inside && written.length !== 1) return null;
+  const start = edit ? tr.mapping.map(edit.from, -1) : 0;
+  const from = written[0] ? start + written[0].start : tr.mapping.map(old.from, -1);
+  // Before a Citation added at its end: the figure's words end where they did.
+  const to = written[0] ? start + written[0].end : tr.mapping.map(old.to, -1);
   const $from = tr.doc.resolve(from);
   const places = paragraphPlaces($from.parent, $from.start() - 1);
   const rawFrom = places.starts.indexOf(from);
   const rawTo = places.ends.indexOf(to) + 1;
   if (rawFrom < 0 || rawTo <= rawFrom) return null;
-  const reading = { ...(replacement ?? figure.reading), start: rawFrom, end: rawTo };
+  const reread = edit && !inside ? readFigures(places.text.slice(rawFrom, rawTo), language) : [];
+  if (
+    edit &&
+    !inside &&
+    (reread.length !== 1 || reread[0]?.start !== 0 || reread[0]?.end !== rawTo - rawFrom)
+  )
+    return null;
+  const reading = { ...(written[0] ?? reread[0] ?? figure.reading), start: rawFrom, end: rawTo };
   return {
     ...figure,
     id: JSON.stringify([
@@ -216,7 +229,7 @@ function movedFigure<Figure extends FigureFinding>(
     },
     reading,
     ...(figure.context === plan.claim.sentence.text && { context: after.sentence.text }),
-    ...(owner && { difference: 0, roundedFrom: null }),
+    ...(edit && { difference: 0, roundedFrom: null }),
   };
 }
 

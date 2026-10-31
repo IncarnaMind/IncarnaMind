@@ -238,6 +238,55 @@ describe("A correction from the public core", () => {
   });
 
   test.each([
+    {
+      language: "English",
+      claim: "Payment is due within 60 days of invoice.",
+      quote: "Payment is due within 45 days of invoice.",
+      to: "due within 45 days of invoice",
+      from: "60 days",
+      wording: "45 days",
+    },
+    {
+      language: "Chinese",
+      claim: "货款应在开票后60日内支付。",
+      quote: "货款应在开票后45日内支付。",
+      to: "货款应在开票后45日内支付",
+      from: "60日内",
+      wording: "45日内",
+    },
+  ])("fits $language Document words to the place of the old words", async (each) => {
+    const result = await checkWith(
+      {
+        ...contradicted(`The agreement differs.\nChange 1: ${each.from}\nTo 1: ${each.to}`),
+        quote: each.quote,
+      },
+      each.claim,
+      [{ name: "Agreement.md", contents: each.quote }],
+    );
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: each.from, choices: [{ wording: each.wording }] },
+    });
+  });
+
+  test("keeps a correction whose quote names the sentence's period more than once", async () => {
+    const claim = "The base rent is $15,000 per month.";
+    const quote = "The base rent is $14,250 per month, paid on the 5th day of each month.";
+    const marked = await markWith(
+      {
+        ...contradicted("The lease gives another rent.\nChange 1: $15,000\nTo 1: $14,250"),
+        quote,
+      },
+      claim,
+      [{ name: "Lease.md", contents: quote }],
+    );
+
+    expect(marked.state).toBe("contradicted");
+    expect(marked.correction?.choices[0]?.wording).toBe("$14,250");
+  });
+
+  test.each([
     { name: "only the figure", from: "$15,000", to: "$14,250", offered: true },
     {
       name: "the whole sentence",
@@ -363,7 +412,7 @@ describe("A correction from the public core", () => {
     expect(correctionIn(result)).toBeUndefined();
   });
 
-  test("has none when a replacement duplicates the surrounding English period", async () => {
+  test("drops the surrounding English period a replacement repeats", async () => {
     const claim = "Gross margin fell to 36.8% in Q2.";
     const quote = "Gross margin fell to 38.6% in Q2.";
     const result = await checkWith(
@@ -375,8 +424,10 @@ describe("A correction from the public core", () => {
       [{ name: "Q2 results.md", contents: quote }],
     );
 
-    expect(result.verdict).toBe("contradicted");
-    expect(correctionIn(result)).toBeUndefined();
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+    });
   });
 
   test("has none when a replacement duplicates the surrounding Chinese period", async () => {
@@ -453,7 +504,12 @@ describe("A correction from the public core", () => {
 
     expect(result).toMatchObject({
       verdict: "contradicted",
-      correction: { from: "old strategy", choices: [{ wording: quote }] },
+      correction: {
+        from: "old strategy",
+        choices: [
+          { wording: "2026 liquidity and capital preservation strategy after a full risk review" },
+        ],
+      },
     });
   });
 
