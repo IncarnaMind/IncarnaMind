@@ -9396,6 +9396,11 @@ export interface FormattedCluster {
 export interface BibliographyEntry {
   /** The Document it lists; null for a Citation's Document deleted since. */
   documentId: string | null;
+  /**
+   * The Document the Citation names, kept after it leaves the Library: a person's check line
+   * belongs to the cited work's own record, never to a live Document.
+   */
+  workDocumentId: string | null;
   /** The number the style sets apart before the entry ("[1]"), or null. */
   label: StyledRun[] | null;
   runs: StyledRun[];

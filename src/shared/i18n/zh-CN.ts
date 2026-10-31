@@ -3790,6 +3790,7 @@ export const zhCN = {
   "export.keywords": "导出 下载 保存 PDF Word docx Markdown 引用页面 合集",
   "export.format": "格式",
   "export.checkFirst": "上次编辑后未核对 · 先核对",
+  "export.checkFirstAction": "先核对",
   "export.show": "查看",
   "export.running": "正在核对",
   "export.format.docx": "Word（.docx）",

@@ -531,6 +531,91 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+// protects=a Document that leaves the Library keeps its source's check line in APA, IEEE and GB/T 7714: the line is the cited work's own record, never a live Document's (#1933), in English and Chinese; fails_when=the removed Document's reference loses its line or the line speaks for the whole document; no_claim=how each style words its own entries.
+test.each(["en", "zh-CN"] as const)(
+  "a check stays under its source after its Document leaves the Library (%s)",
+  async (language) => {
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    const sources = await createTempDataFolder();
+    const [gone, live] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Gone.txt", "The old harbour filled at high water."),
+      await writeSourceFile(sources, "Live.txt", "The new harbour fills at high water."),
+    ]);
+    if (!gone || !live) throw new Error("The Documents weren't added.");
+    const mind = await core.createMind({ title: "A source that left" });
+    const client = await connectToMind(core, mind.id);
+    const cited = (id: string, document: Document, quote: string) => ({
+      type: "citation",
+      attrs: {
+        passageId: `passage-${id}`,
+        documentId: document.id,
+        documentName: document.name,
+        contentHash: document.contentHash,
+        pageFrom: null,
+        pageTo: null,
+        quote,
+        check: "found",
+        id,
+      },
+    });
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          { type: "text", text: language === "en" ? "The harbour fills" : "港口满了" },
+          cited("c-gone", gone, "The old harbour filled at high water."),
+          { type: "text", text: language === "en" ? ", and again" : "，又一次" },
+          cited("c-live", live, "The new harbour fills at high water."),
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    await client.settled();
+    const sentences = citationSentences(client.blocks);
+    const at = "2026-10-28T09:00:00.000Z";
+    addSignOff(client.doc, {
+      id: "mark-gone",
+      target: { kind: "citation", id: "c-gone" },
+      at,
+      contentHash: "checked-before-it-changed",
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    addSignOff(client.doc, {
+      id: "mark-live",
+      target: { kind: "citation", id: "c-live" },
+      at,
+      contentHash: citationSignOffBasis(sentences.get("c-live")?.sentence ?? "", {
+        documentId: live.id,
+        contentHash: live.contentHash,
+        quote: "The new harbour fills at high water.",
+      }),
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    await client.settled();
+    await core.deleteDocument(gone.id);
+    await client.settled();
+
+    const date = formatDate(at, language);
+    const checked = translate(language, "export.checkedBy", { name: "Ada", date });
+    const changed = translate(language, "export.checkedBy.changed", { name: "Ada", date });
+    const count = (text: string, part: string) => text.split(part).length - 1;
+    for (const style of ["apa", "ieee", "gb-t-7714-2015-numeric"]) {
+      await core.setMindCitationStyle(mind.id, style);
+      const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      const text = `${textOfDocx(part(word, "word/document.xml"))}${Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("")}`;
+      expect(count(text, checked), style).toBe(1);
+      expect(count(text, changed), style).toBe(1);
+      expect(text, style).toContain(gone.name);
+    }
+  },
+);
+
 // protects=when History can't keep the Note as it was sent, the file is still saved and the result says so, so the User learns it where it happened (#1933); fails_when=the save reports nothing wrong; no_claim=why storage refused.
 test("a sent version History couldn't keep is said with the saved file", async () => {
   const dataDir = await createTempDataFolder();

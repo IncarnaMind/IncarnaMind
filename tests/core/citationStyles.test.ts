@@ -390,11 +390,18 @@ describe("formatting a Mind's Citations", () => {
     expect(formatted.bibliography).toEqual([
       {
         documentId: lease.id,
+        workDocumentId: lease.id,
         label: null,
         runs: [{ text: "Lease agreement" }],
         needsDetails: false,
       },
-      { documentId: prospect.id, label: null, runs: [{ text: "prospect" }], needsDetails: false },
+      {
+        documentId: prospect.id,
+        workDocumentId: prospect.id,
+        label: null,
+        runs: [{ text: "prospect" }],
+        needsDetails: false,
+      },
     ]);
   });
 
