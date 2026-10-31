@@ -168,6 +168,42 @@ const requests = (model: MockLanguageModelV4, from = 0) =>
       providerOptions,
     }));
 
+/**
+ * What the interface calls a Note was once a Mind in what the model reads (#2312); the Chinese
+ * text wrote it in Latin letters too, as in “已在新的 Mind 中整理好总结”.
+ */
+const OLD_WORDS = ["Mind", "Minds"] as const;
+
+/** The old words a text says as words of their own: “IncarnaMind” and create_mind say none. */
+const oldWordsIn = (text: string) =>
+  OLD_WORDS.filter((word) => new RegExp(`\\b${word}\\b`).test(text));
+
+/** Every request a model was sent, streamed or not: its system prompt, messages, Tools and their results. */
+const everyRequest = (model: MockLanguageModelV4) =>
+  JSON.stringify(
+    [...model.doStreamCalls, ...model.doGenerateCalls].map(({ prompt, tools }) => ({
+      prompt,
+      tools,
+    })),
+  );
+
+const ASKED = {
+  en: {
+    first: FIRST,
+    fix: "Fix the typos in this",
+    add: "add a summary",
+    claiming: "I've added the summary to the note.",
+    denied: "I didn't add it.",
+  },
+  "zh-CN": {
+    first: "大潮什么时候来？",
+    fix: "改掉这里的错别字",
+    add: "加一段总结",
+    claiming: "我已经把总结加到笔记里了。",
+    denied: "我没有加。",
+  },
+} as const;
+
 const normalised = (value: unknown) =>
   `${JSON.stringify(value, null, 1)
     .replace(UUID, "<id>")
@@ -238,79 +274,91 @@ describe("A model no list names, or one in a flow no list admits it to", {
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
   });
 
-  test("an assistant turn, its offered Tools and the notes it is asked again by never call a Note a Mind", async () => {
-    const model = tidesModel();
-    const panel = await setUpWithDocuments(model, [TIDES]);
-    const first = await panel.core.askInConversation({ text: FIRST, mindId: panel.mind.id });
-    if (!first.asked) throw new Error("The Question wasn't asked.");
-    await answerEnded(panel.core, first.answerId);
+  test.each(["en", "zh-CN"] as const)(
+    "every request of an assistant turn, its Tools, a rewrite and the claim check that asks again says Note, never Mind (%s)",
+    async (language) => {
+      const asked = ASKED[language];
+      const model = tidesModel();
+      const panel = await setUpWithDocuments(model, [TIDES]);
+      await panel.core.updateSettings({ user: { language } });
+      const first = await panel.core.askInConversation({
+        text: asked.first,
+        mindId: panel.mind.id,
+      });
+      if (!first.asked) throw new Error("The Question wasn't asked.");
+      await answerEnded(panel.core, first.answerId);
 
-    const retried = scriptedModel((call: ModelCall): ScriptedReply => {
-      const passage =
-        call.system === EDIT_INSTRUCTIONS
-          ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
-          : undefined;
-      if (passage !== undefined) return { text: passage.replace("visted", "visited") };
-      if (!call.results.some((result) => result.tool === "edit_mind")) {
-        return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
+      const retried = scriptedModel((call: ModelCall): ScriptedReply => {
+        const passage =
+          call.system === EDIT_INSTRUCTIONS
+            ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
+            : undefined;
+        if (passage !== undefined) return { text: passage.replace("visted", "visited") };
+        if (!call.results.some((result) => result.tool === "edit_mind")) {
+          return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
+        }
+        return call.prompt.includes("your edits left")
+          ? { text: "Fixed “compleatly”." }
+          : { text: "Fixed “visted” and “compleatly”." };
+      });
+      const fixing = await setUpWithDocuments(retried, [TIDES]);
+      await fixing.core.updateSettings({ user: { language } });
+      writeMind(fixing.client, [
+        heading(2, "Trip notes"),
+        note("We visted the harbour, and the tide went out compleatly."),
+      ]);
+      await fixing.client.settled();
+      const turn = await fixing.core.askInConversation({
+        text: asked.fix,
+        mindId: fixing.mind.id,
+      });
+      if (!turn.asked) throw new Error("The Question wasn't asked.");
+      await answerEnded(fixing.core, turn.answerId);
+
+      // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
+      const kinds = ["made", "added", "changed", "removed"] as const;
+      const reasked = scriptedModel(
+        (call: ModelCall): ScriptedReply => ({
+          text: call.prompt.includes("but no Tool did that") ? asked.denied : asked.claiming,
+        }),
+        {
+          generate: (call) =>
+            claimCheckReply(
+              call,
+              kinds.map((kind) => ({ sentence: asked.claiming, kind })),
+            ),
+        },
+      );
+      const asking = await setUpWithDocuments(reasked, [TIDES]);
+      await asking.core.updateSettings({ user: { language } });
+      const claimed = await asking.core.askInConversation({
+        text: asked.add,
+        mindId: asking.mind.id,
+      });
+      if (!claimed.asked) throw new Error("The Question wasn't asked.");
+      await answerEnded(asking.core, claimed.answerId);
+
+      for (const each of [model, retried, reasked])
+        expect(oldWordsIn(everyRequest(each))).toEqual([]);
+      expect(oldWordsIn(DRAFT_INSTRUCTIONS)).toEqual([]);
+      // The claim check was among what was read, and it names the Note.
+      expect(JSON.stringify(reasked.doGenerateCalls)).toContain(
+        "For each claim that a Note was made",
+      );
+      // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
+      const again = requests(reasked).find((request) =>
+        JSON.stringify(request).includes("but no Tool did that"),
+      );
+      expect(again).toBeDefined();
+      const said = JSON.stringify(again);
+      for (const phrase of [
+        "made a Note",
+        "added text to a Note",
+        "changed a Note",
+        "removed or replaced text in a Note",
+      ]) {
+        expect(said, phrase).toContain(phrase);
       }
-      return call.prompt.includes("your edits left")
-        ? { text: "Fixed “compleatly”." }
-        : { text: "Fixed “visted” and “compleatly”." };
-    });
-    const fixing = await setUpWithDocuments(retried, [TIDES]);
-    writeMind(fixing.client, [
-      heading(2, "Trip notes"),
-      note("We visted the harbour, and the tide went out compleatly."),
-    ]);
-    await fixing.client.settled();
-    const turn = await fixing.core.askInConversation({
-      text: "Fix the typos in this",
-      mindId: fixing.mind.id,
-    });
-    if (!turn.asked) throw new Error("The Question wasn't asked.");
-    await answerEnded(fixing.core, turn.answerId);
-
-    const claiming = "I've added the summary to the note.";
-    // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
-    const kinds = ["made", "added", "changed", "removed"] as const;
-    const reasked = scriptedModel(
-      (call: ModelCall): ScriptedReply => ({
-        text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
-      }),
-      {
-        generate: (call) =>
-          claimCheckReply(
-            call,
-            kinds.map((kind) => ({ sentence: claiming, kind })),
-          ),
-      },
-    );
-    const asking = await setUpWithDocuments(reasked, [TIDES]);
-    const claimed = await asking.core.askInConversation({
-      text: "add a summary",
-      mindId: asking.mind.id,
-    });
-    if (!claimed.asked) throw new Error("The Question wasn't asked.");
-    await answerEnded(asking.core, claimed.answerId);
-
-    expect(JSON.stringify(requests(model))).not.toMatch(/\bMinds?\b/);
-    expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
-    expect(JSON.stringify(requests(reasked))).not.toMatch(/\bMinds?\b/);
-    expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
-    // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
-    const again = requests(reasked).find((request) =>
-      JSON.stringify(request).includes("but no Tool did that"),
-    );
-    expect(again).toBeDefined();
-    const said = JSON.stringify(again);
-    for (const phrase of [
-      "made a Note",
-      "added text to a Note",
-      "changed a Note",
-      "removed or replaced text in a Note",
-    ]) {
-      expect(said, phrase).toContain(phrase);
-    }
-  });
+    },
+  );
 });
