@@ -1,0 +1,24 @@
+{
+ "rounds": 10,
+ "bashTrue": {
+  "plain": 5,
+  "sandboxed": 53
+ },
+ "pythonPass": {
+  "plain": 21,
+  "sandboxed": 58
+ },
+ "pythonImportPandas": {
+  "plain": 343,
+  "sandboxed": 372
+ },
+ "runCode50kRows": {
+  "total": 498,
+  "stage": 2,
+  "run": 470,
+  "collect": 26,
+  "checks": [
+   "recalculated"
+  ]
+ }
+}

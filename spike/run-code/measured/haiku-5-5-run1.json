@@ -1,0 +1,439 @@
+{
+ "model": "claude-haiku-5-5",
+ "trials": [
+  {
+   "question": "What was total revenue across all regions and quarters, and how much of it came from North?",
+   "requests": 4,
+   "usage": [
+    {
+     "inputTokens": 813,
+     "inputTokenDetails": {
+      "noCacheTokens": 813,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 330,
+     "outputTokenDetails": {
+      "textTokens": 288,
+      "reasoningTokens": 42
+     },
+     "totalTokens": 1143,
+     "raw": {
+      "input_tokens": 813,
+      "output_tokens": 330,
+      "output_tokens_details": {
+       "thinking_tokens": 42
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2088,
+     "inputTokenDetails": {
+      "noCacheTokens": 2088,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 388,
+     "outputTokenDetails": {
+      "textTokens": 267,
+      "reasoningTokens": 121
+     },
+     "totalTokens": 2476,
+     "raw": {
+      "input_tokens": 2088,
+      "output_tokens": 388,
+      "output_tokens_details": {
+       "thinking_tokens": 121
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3336,
+     "inputTokenDetails": {
+      "noCacheTokens": 3336,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 446,
+     "outputTokenDetails": {
+      "textTokens": 283,
+      "reasoningTokens": 163
+     },
+     "totalTokens": 3782,
+     "raw": {
+      "input_tokens": 3336,
+      "output_tokens": 446,
+      "output_tokens_details": {
+       "thinking_tokens": 163
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3901,
+     "inputTokenDetails": {
+      "noCacheTokens": 3901,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 80,
+     "outputTokenDetails": {
+      "textTokens": 80,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 3981,
+     "raw": {
+      "input_tokens": 3901,
+      "output_tokens": 80,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 3,
+   "figures": [
+    {
+     "name": "total_revenue",
+     "value": 1134,
+     "how": "sum",
+     "rows": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "check": "recalculated"
+    },
+    {
+     "name": "north_revenue",
+     "value": 380.25,
+     "how": "sum",
+     "rows": [
+      2,
+      5,
+      8
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    1,
+    1,
+    0
+   ],
+   "code": [
+    "bba07bc9cd7c",
+    "50ad7c463a50",
+    "5bc0be3a3a7d"
+   ],
+   "answer": "Total revenue across all regions and quarters was 1134 [=1]. North contributed 380.25 [=2] of that, about 33.5% (380.25 / 1134).\n\nThe file has nine rows: North, South and East across Q1–Q3."
+  },
+  {
+   "question": "Which region had the highest revenue in Q3, and what was that revenue?",
+   "requests": 4,
+   "usage": [
+    {
+     "inputTokens": 812,
+     "inputTokenDetails": {
+      "noCacheTokens": 812,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 330,
+     "outputTokenDetails": {
+      "textTokens": 250,
+      "reasoningTokens": 80
+     },
+     "totalTokens": 1142,
+     "raw": {
+      "input_tokens": 812,
+      "output_tokens": 330,
+      "output_tokens_details": {
+       "thinking_tokens": 80
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2192,
+     "inputTokenDetails": {
+      "noCacheTokens": 2192,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 440,
+     "outputTokenDetails": {
+      "textTokens": 250,
+      "reasoningTokens": 190
+     },
+     "totalTokens": 2632,
+     "raw": {
+      "input_tokens": 2192,
+      "output_tokens": 440,
+      "output_tokens_details": {
+       "thinking_tokens": 190
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3523,
+     "inputTokenDetails": {
+      "noCacheTokens": 3523,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 369,
+     "outputTokenDetails": {
+      "textTokens": 224,
+      "reasoningTokens": 145
+     },
+     "totalTokens": 3892,
+     "raw": {
+      "input_tokens": 3523,
+      "output_tokens": 369,
+      "output_tokens_details": {
+       "thinking_tokens": 145
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3964,
+     "inputTokenDetails": {
+      "noCacheTokens": 3964,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 58,
+     "outputTokenDetails": {
+      "textTokens": 58,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 4022,
+     "raw": {
+      "input_tokens": 3964,
+      "output_tokens": 58,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 3,
+   "figures": [
+    {
+     "name": "q3_max_revenue",
+     "value": 162,
+     "how": "max",
+     "rows": [
+      8,
+      9,
+      10
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    1,
+    1,
+    0
+   ],
+   "code": [
+    "272dc14237a1",
+    "2697b5903cf4",
+    "559b99c88414"
+   ],
+   "answer": "The region with the highest Q3 revenue was East, at 162 [=1] (units as given in the file).\n\nFor comparison, North was 128.75 and South was 99 in Q3."
+  },
+  {
+   "question": "What is South's average quarterly revenue?",
+   "requests": 3,
+   "usage": [
+    {
+     "inputTokens": 802,
+     "inputTokenDetails": {
+      "noCacheTokens": 802,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 290,
+     "outputTokenDetails": {
+      "textTokens": 218,
+      "reasoningTokens": 72
+     },
+     "totalTokens": 1092,
+     "raw": {
+      "input_tokens": 802,
+      "output_tokens": 290,
+      "output_tokens_details": {
+       "thinking_tokens": 72
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2118,
+     "inputTokenDetails": {
+      "noCacheTokens": 2118,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 464,
+     "outputTokenDetails": {
+      "textTokens": 194,
+      "reasoningTokens": 270
+     },
+     "totalTokens": 2582,
+     "raw": {
+      "input_tokens": 2118,
+      "output_tokens": 464,
+      "output_tokens_details": {
+       "thinking_tokens": 270
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2661,
+     "inputTokenDetails": {
+      "noCacheTokens": 2661,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 66,
+     "outputTokenDetails": {
+      "textTokens": 66,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 2727,
+     "raw": {
+      "input_tokens": 2661,
+      "output_tokens": 66,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 2,
+   "figures": [
+    {
+     "name": "south_avg",
+     "value": 99.5,
+     "how": null,
+     "rows": null,
+     "check": "unchecked"
+    }
+   ],
+   "exits": [
+    1,
+    0
+   ],
+   "code": [
+    "ea3e505d6767",
+    "fee6eedd5908"
+   ],
+   "answer": "South's average quarterly revenue is 99.5 [=1]. This is the mean of its three quarters in sales.csv: Q1 98.0, Q2 101.5 and Q3 99.0."
+  }
+ ]
+}
