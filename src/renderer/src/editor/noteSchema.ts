@@ -39,6 +39,7 @@ import {
 import { Numbering } from "./numbering";
 import { ProposalAttributes, ProposalDelete, ProposalInsert } from "./proposalSchema";
 import { Answer, MindDocument, Question, QuestionContextFlag } from "./questionSchema";
+import { TableOfContents } from "./tableOfContents";
 import {
   InlineImage,
   WordAtom,
@@ -99,6 +100,8 @@ export interface NoteSchemaOptions {
   /** Draws what a Word import kept as it is (#104): in the text, and as Blocks. */
   wordAtomView?: NodeViewRenderer;
   wordBlockView?: NodeViewRenderer;
+  /** Draws a table of contents (#1935). */
+  tableOfContentsView?: NodeViewRenderer;
 }
 
 /**
@@ -135,6 +138,7 @@ export function noteExtensions({
   comparisonViews,
   wordAtomView,
   wordBlockView,
+  tableOfContentsView,
 }: NoteSchemaOptions = {}): Extensions {
   const onClick = onEditMath && ((_node: unknown, pos: number) => onEditMath(pos));
   const CodeBlock = CodeBlockLowlight.extend({
@@ -182,6 +186,7 @@ export function noteExtensions({
     Footnote.configure({ view: footnoteView ?? null }),
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),
+    TableOfContents.configure({ view: tableOfContentsView ?? null }),
     ComparisonTable.configure({ view: comparisonViews?.table ?? null }),
     ComparisonRow.configure({ view: comparisonViews?.row ?? null }),
     ComparisonCell.configure({ view: comparisonViews?.cell ?? null }),

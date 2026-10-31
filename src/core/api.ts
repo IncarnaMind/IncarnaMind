@@ -255,12 +255,15 @@ export interface CreateMindInput {
  *   read to decide an absence sentence, which an older editor would strip,
  *   losing both the card's Locations and the dependency that makes a changed
  *   Document need a re-check. Older content is version 37 content as it is.
- * - 38: a check against a Document the User picked, read whole (#1554):
+ * - 38: a table of contents Block (#1935). An older editor would drop it when
+ *   it saves the Note, so it opens these Notes read-only. Existing content is
+ *   version 38 content as it is.
+ * - 39: a check against a Document the User picked, read whole (#1554):
  *   "check-against-document" and `read` on its mark, recording exactly how
  *   much was read. An older version would treat it as a search and check it
- *   again. Older content is version 38 content as it is.
+ *   again. Older content is version 39 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 38;
+export const CONTENT_SCHEMA_VERSION = 39;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -719,8 +722,12 @@ export const NOTE_BLOCK_TYPES = [
   "horizontalRule",
   "table",
   "chart",
+  "tableOfContents",
   "wordBlock",
 ] as const;
+
+/** A table of contents (#1935): a Block drawn from the Note's headings, and Word's own in a .docx. */
+export const TABLE_OF_CONTENTS_NODE = "tableOfContents";
 
 /** The node type of a Question Block. Its content is the User's text (inline). */
 export const QUESTION_BLOCK = "question";
@@ -10156,6 +10163,11 @@ export interface CoreApi {
   /** Makes a Mind, in a Folder if given (it must exist), and returns it. */
   createMind(input?: CreateMindInput): Promise<Mind>;
   /**
+   * Makes a copy of a Mind, "{name} (copy)", with its Blocks, Citations, checks and sign-offs:
+   * the copy is the User's own to change, and the Mind it came from is untouched.
+   */
+  duplicateMind(mindId: string): Promise<Mind>;
+  /**
    * Reads a Word file for the import screen (#104): whether it can be imported, whose
    * document it looks like, and an earlier draft of it imported into the Folder (none, or
    * null: Not in a Folder). Keeps nothing, and changes nothing.
@@ -11669,6 +11681,11 @@ export interface CoreApi {
    */
   exportMind(mindId: string, options: ExportMindOptions): Promise<MindExport>;
   /**
+   * Prints a Mind as its PDF export lays it out, with each footnote at the foot of its page, in
+   * the printer the User chooses. Nothing is saved, and the Mind doesn't change.
+   */
+  printMind(mindId: string): Promise<void>;
+  /**
    * What the Mind's web page to share would hold with these options (Questions, someone's changes
    * waiting): its Documents, their quotes and pictures.
    */
@@ -12153,6 +12170,7 @@ export type CoreApiMethod = keyof CoreApi;
 // A Record over every method name: adding a method to CoreApi without listing it here fails the type-check.
 const methods: Record<CoreApiMethod, true> = {
   createMind: true,
+  duplicateMind: true,
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
@@ -12467,6 +12485,7 @@ const methods: Record<CoreApiMethod, true> = {
   restoreBuiltInSkills: true,
   previewMindExport: true,
   exportMind: true,
+  printMind: true,
   previewSharePage: true,
   setSharePageTextOnly: true,
   saveMindExport: true,

@@ -251,6 +251,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.openTab",
     "—",
     "mind.outline",
+    "mind.duplicate",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
@@ -265,6 +266,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.moveTo",
     "folder.newWith",
     "—",
+    "mind.tidy",
     "mind.rename",
     "—",
     "mind.delete",
@@ -378,8 +380,10 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   const tabMenu = tab.getByTestId("tab-actions");
   const byRightClick = await menuCommands(tabMenu);
   // Its Mind's items first, then the tab's own, and Delete last.
-  expect(byRightClick.slice(0, 11)).toEqual([
+  const tabOwn = byRightClick.indexOf("tab.split");
+  expect(byRightClick.slice(0, tabOwn)).toEqual([
     "mind.outline",
+    "mind.duplicate",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
@@ -389,7 +393,6 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.checkContradictions",
     "mind.style",
     "—",
-    "tab.split",
   ]);
   expect(byRightClick.slice(-2)).toEqual(["—", "mind.delete"]);
   expect(byRightClick.indexOf("tab.rename")).toBeLessThan(byRightClick.indexOf("tab.close"));
@@ -481,8 +484,12 @@ test("the context-menu key and Shift+F10 open the focused row's menu; arrows mov
   // Export options… opens the sheet.
   await row.focus();
   await window.keyboard.press("Shift+F10");
-  for (let step = 0; step < 3; step++) await window.keyboard.press("ArrowDown");
-  await expect(menu.getByTestId("mind.exportMenu")).toBeFocused();
+  const target = menu.getByTestId("mind.exportMenu");
+  for (let step = 0; step < 20; step++) {
+    if (await target.evaluate((item) => item === document.activeElement)) break;
+    await window.keyboard.press("ArrowDown");
+  }
+  await expect(target).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("export-menu")).toBeVisible();
   await expect(menu).toBeHidden();
@@ -517,6 +524,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "打开",
     "在新标签页中打开",
     /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
+    "创建副本",
     "导出…",
     "导出 AI 使用声明",
     "导出核对记录…",
@@ -529,6 +537,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "做成技能",
     /^移动到…(⇧⌘M|Ctrl\+Shift\+M)$/,
     /^新建文件夹并放入此笔记(⌃⌘N)?$/,
+    "整理中文排版",
     /^重命名F2$/,
     "删除",
   ]);
@@ -938,7 +947,8 @@ for (const language of ["en", "zh-CN"] as const) {
             : /^向右拆分(⌥⌘\\|Ctrl\+Alt\+\\)$/,
         );
       }
-      expect(ids.length, name).toBeLessThanOrEqual(17);
+      // Duplicate and Tidy Chinese text join this menu with the Note basics (#1935).
+      expect(ids.length, name).toBeLessThanOrEqual(19);
       // It fits: no scrollbar, and inside the window.
       const fits = await menu.evaluate((element) => ({
         scrolls: element.scrollHeight > element.clientHeight + 1,

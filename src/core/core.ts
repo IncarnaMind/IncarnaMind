@@ -236,7 +236,7 @@ import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
-import { accessFor, isKnownKind } from "./mindAccess";
+import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
 import {
@@ -2065,7 +2065,7 @@ export function createCore(adapters: CoreAdapters): Core {
       },
     },
     resolveScope,
-    workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
+    workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     walledFolder,
@@ -4308,6 +4308,27 @@ export function createCore(adapters: CoreAdapters): Core {
   api = {
     createMind: async (input) =>
       makeMind(parseCreateMindInput(input), { headed: isRecord(input) && input.headed === true }),
+    duplicateMind: async (mindId) => {
+      const source = minds.get(mindId);
+      const name = mindName(source) || translate(settings.get().language, "mind.untitled");
+      const settingsOfSource = content.readSettings(source.id, (mindSettings) => [
+        ...mindSettings.entries(),
+      ]);
+      const copy = makeMind({
+        title: translate(settings.get().language, "mind.copyName", { name }),
+        kind: parseKind(source.kind) ?? DEFAULT_MIND_KIND,
+        folderId: source.folderId,
+      });
+      content.apply(copy.id, content.state(source.id));
+      // The copy is the source's, choices included: the new-Mind defaults makeMind wrote would
+      // otherwise race the source's in the merge, and one of the two would win by client id.
+      content.editSettings(copy.id, (mindSettings) => {
+        for (const key of [...mindSettings.keys()]) mindSettings.delete(key);
+        for (const [key, value] of settingsOfSource) mindSettings.set(key, value);
+      });
+      wordImports.copyPackage(source.id, copy.id);
+      return minds.get(copy.id);
+    },
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
     importWordFile: async (input) => wordImports.import(input),
     addWordOriginal: async (mindId, path) => {
@@ -5486,6 +5507,8 @@ export function createCore(adapters: CoreAdapters): Core {
         setTextOnlyDocuments(mindSettings, documentIds),
       );
     },
+    printMind: async (mindId) =>
+      mindExports.print(mindId, optionsFor("pdf", settings.get().user.exportOptions)),
     exportMind: async (mindId, options) => {
       const exported = await mindExports.export(mindId, options);
       // The host saves these bytes as a file: IncarnaMind's, wherever it goes. Noting so is

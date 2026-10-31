@@ -409,6 +409,18 @@ const NOT_TEXT = new Set([
 ]);
 
 /**
+ * Says a change is being made now, before it starts, so a long one shows at once; the line goes
+ * when `done` is called, unless something else has said since.
+ */
+export function showWorking(said: Words): () => void {
+  const shown = ++lines;
+  useUndo.setState({ line: { id: shown, note: said, busy: true } });
+  return () => {
+    if (useUndo.getState().line?.id === shown) useUndo.setState({ line: null });
+  };
+}
+
+/**
  * Makes a change; one that takes longer than a second says what it is doing on the undo line,
  * where what it did shows next, until it is done.
  */

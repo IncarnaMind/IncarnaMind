@@ -146,6 +146,19 @@ export const mindCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && ctx.here?.["mind.rename"] !== undefined,
   },
   {
+    id: "mind.duplicate",
+    label: "mind.duplicate",
+    group: "main",
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => onlyOne(ctx) && ofMind(ctx),
+    // Undo sends the copy to Recently deleted.
+    reversible: true,
+    async run(ctx) {
+      const mind = mindOf(ctx);
+      if (mind) await store().duplicateMind(mind.id);
+    },
+  },
+  {
     id: "mind.delete",
     label: "mind.deleteAction",
     group: "danger",

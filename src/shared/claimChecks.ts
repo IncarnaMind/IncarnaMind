@@ -40,7 +40,7 @@ import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figur
 import type { MessageKey } from "./i18n";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
-import { comparableSentence, isClaim } from "./sentences";
+import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
 export const SENTENCES_CHECKED_AT_MOST = 12;
@@ -453,7 +453,7 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   if (
     check.parts !== undefined
       ? now.text !== check.text
-      : comparableSentence(now.text) !== comparableSentence(check.text)
+      : comparableCheckSentence(now.text) !== comparableCheckSentence(check.text)
   ) {
     return { state: "needs-recheck", why: "edited" };
   }
@@ -527,7 +527,7 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
       : shown;
   }
   if (
-    comparableSentence(now.text) === comparableSentence(check.text) &&
+    comparableCheckSentence(now.text) === comparableCheckSentence(check.text) &&
     referentsMoved(check, now)
   ) {
     return { state: "needs-recheck", why: "referent" };
