@@ -2883,7 +2883,7 @@ export function createAnswers(options: AnswersOptions) {
             coverageInstructions(
               coverage,
               asked.each,
-              options.documents.searchableCount(documentIds),
+              options.documents.searchableBySize(input.documentIds),
             ),
             skillInstructions(listed, forced, withSkillTools, scripts),
             connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",

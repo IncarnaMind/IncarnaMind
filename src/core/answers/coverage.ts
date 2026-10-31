@@ -185,11 +185,14 @@ const quotedList = (names: readonly string[]) =>
         .map((name) => `“${name}”`)
         .join(", ")} and “${names.at(-1)}”`;
 
-/** What the model is told of the Documents a Question asks about; "" when nothing. */
+/**
+ * What the model is told of the Documents a Question asks about, `documents`
+ * the Documents in scope, the most text first; "" when nothing.
+ */
 export function coverageInstructions(
   coverage: AnswerCoverage | null,
   each: boolean,
-  documents: number,
+  documents: readonly SizedDocument[],
 ): string {
   const covered = coverage?.used.map((document) => document.name) ?? [];
   const searchEach =
@@ -198,9 +201,17 @@ export function coverageInstructions(
     return `The User asked about the main Documents: IncarnaMind took ${quotedList(covered)}, the largest, and says so above your reply, with an offer of others. Answer from ${covered.length === 1 ? "it" : "these"}; don't ask which.`;
   }
   if (coverage?.kind === "largest") {
-    return `This Answer covers the ${covered.length} largest of ${covered.length + coverage.rest.length} Documents: ${quotedList(covered)}. IncarnaMind says so above your reply and offers the rest, so don't name or apologise for the others. ${searchEach}`;
+    // The reply names what the next summary covers, as the offer above it does no more than count them (#894).
+    const rest = documents.filter((document) => coverage.rest.includes(document.id));
+    const next = rest.slice(0, COVERED_AT_ONCE).map((document) => document.name);
+    const after = rest.length - next.length;
+    const left =
+      after > 0
+        ? `the next summary takes ${quotedList(next)}, and ${after} more ${after === 1 ? "comes" : "come"} after those`
+        : `${quotedList(next)} ${next.length === 1 ? "is" : "are"} left for the next summary`;
+    return `This Answer covers the ${covered.length} largest of the ${documents.length} Documents, as one summary covers ${COVERED_AT_ONCE} at a time: ${quotedList(covered)}. In your reply, not in a Note, say that ${left}, say why, and offer to go on; IncarnaMind says so above your reply too, with a button for it. ${searchEach}`;
   }
-  return each && documents > 1
-    ? `The User asked about each of the ${documents} Documents. ${searchEach}`
+  return each && documents.length > 1
+    ? `The User asked about each of the ${documents.length} Documents. ${searchEach}`
     : "";
 }
