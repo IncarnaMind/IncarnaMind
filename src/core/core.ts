@@ -2408,10 +2408,9 @@ export function createCore(adapters: CoreAdapters): Core {
   const givenSchedules = new Map<string, { mindId: string; rows: FigureSchedule["rows"] }>();
   let scheduleTokens = 0;
   function figureScheduleChangeFor(mindId: string, since: unknown) {
-    if (since !== null && typeof since !== "string")
-      throw new InvalidInputError("A schedule to change is named by its token, or null.");
     const schedule = readFigureSchedule(mindId);
-    const given = since === null ? undefined : givenSchedules.get(since);
+    // A token this core didn't give, or no longer keeps, gets the whole schedule.
+    const given = typeof since === "string" ? givenSchedules.get(since) : undefined;
     const token = String(++scheduleTokens);
     givenSchedules.set(token, { mindId: schedule.mindId, rows: schedule.rows });
     // A window keeps one schedule per Note it shows, so a few are enough.
@@ -2422,7 +2421,7 @@ export function createCore(adapters: CoreAdapters): Core {
     return figureScheduleChange(
       schedule,
       token,
-      given && since !== null && given.mindId === schedule.mindId
+      given && typeof since === "string" && given.mindId === schedule.mindId
         ? { token: since, rows: given.rows }
         : null,
     );
