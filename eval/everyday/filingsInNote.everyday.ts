@@ -71,6 +71,10 @@ interface InNoteRow {
   reply: string;
 }
 
+/** An Answer that ended with the figure, its found Citation and no sentence saying the Document lacks it. */
+const passedRow = (row: InNoteRow) =>
+  row.status === "done" && row.answered && row.cited && row.absence.length === 0;
+
 test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "filings-in-note")(
   "filing Questions asked in a Note",
   async () => {
@@ -149,12 +153,12 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "filings-in-note")(
           };
           rows.push(row);
           log(
-            `${each.id} #${round}: ${row.answered && row.cited && row.absence.length === 0 ? "passed" : `failed (answered ${row.answered}, cited ${row.cited}, absence ${row.absence.length})`}`,
+            `${each.id} #${round}: ${passedRow(row) ? "passed" : `failed (${row.status}, answered ${row.answered}, cited ${row.cited}, absence ${row.absence.length})`}`,
           );
         }
       }
     } finally {
-      const passed = rows.filter((row) => row.answered && row.cited && row.absence.length === 0);
+      const passed = rows.filter(passedRow);
       const folder = join(
         config.resultsDir,
         `${new Date().toISOString().replace(/[:.]/g, "-")}-filings-in-note`,
