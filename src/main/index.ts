@@ -371,22 +371,29 @@ function exposeCore(core: Core): void {
   });
 }
 
+/** A page that crashes this often is left, so one that can't stay up doesn't loop. */
+const CRASHES_REOPENED = { count: 3, withinMs: 60_000 };
+
 /**
  * A window whose page crashed loads it again and says so (#2309): left alone, it stays blank. One
- * that crashes again before it has loaded is left, so a page that can't load doesn't loop.
+ * that crashes again before it has loaded, or too often, is left and logged.
  */
 function reopenAfterCrash(window: BrowserWindow): void {
   const contents = window.webContents;
   let reopening = false;
+  let reopenedAt: number[] = [];
   contents.on("did-finish-load", () => {
     reopening = false;
   });
   contents.on("render-process-gone", (_event, { reason }) => {
     if (reason === "clean-exit" || window.isDestroyed()) return;
-    if (reopening) {
+    const now = performance.now();
+    reopenedAt = reopenedAt.filter((at) => now - at < CRASHES_REOPENED.withinMs);
+    if (reopening || reopenedAt.length >= CRASHES_REOPENED.count) {
       logger.error("window.notReopened", { reason });
       return;
     }
+    reopenedAt.push(now);
     reopening = true;
     endsToTell.pageEnded(contents.id);
     logger.info("window.reopened", { reason });
