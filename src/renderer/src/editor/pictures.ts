@@ -63,6 +63,8 @@ export async function insertPictures(
   files: readonly File[],
   { at, onProblem }: PictureInsertOptions = {},
 ): Promise<void> {
+  // A Note a newer version wrote is only looked at: no picture goes into the copy either.
+  if (!editor.isEditable) return;
   const kept: { type: string; attrs: Record<string, unknown> }[] = [];
   for (const file of files) {
     const prepared = await preparePicture(file, { convert: convertPicture });
