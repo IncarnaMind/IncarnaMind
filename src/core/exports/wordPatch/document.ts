@@ -92,6 +92,8 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The number a numbered list's first item is drawn with, `nested` in a numbered list's item or not. */
+  firstNumberOf(list: NodeJSON, nested: boolean): number;
   /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
   bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
@@ -986,27 +988,61 @@ export class DocumentPatch {
     const numId = this.numIdOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${Math.min(list.depth, 8)}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${this.levelOf(list)}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
-  /** The numbering a list of the Mind is written with: that of its imported items, else a new one. */
+  /**
+   * The numbering a list of the Mind is written with: that of its imported items, else a new one.
+   * A numbered list nested in another is an instance of the outer one's, which starts again at its
+   * own start; each starts where the editor draws it, a continued list going on from the one before.
+   */
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
     if (known !== undefined) return known;
-    for (const item of this.listItems.get(list.list) ?? []) {
-      const based = item.key ? this.based.get(item.key) : undefined;
-      if (!based?.counterpart.list || based.counterpart.list.ordered !== list.ordered) continue;
-      const numId = numIdIn(this.pPrOf(based.element));
-      if (numId !== null && numId !== "0") {
-        this.lists.set(list.list, Number(numId));
-        return Number(numId);
-      }
+    const own = this.imported(list);
+    if (own) {
+      this.lists.set(list.list, own.numId);
+      return own.numId;
     }
-    const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
-    const numId = this.input.target.list(list.ordered, Math.min(list.depth, 8), start);
+    const outerNode = list.numbered?.outer;
+    const nested = outerNode !== undefined && outerNode !== list.list;
+    const start = list.ordered ? this.input.firstNumberOf(list.list, nested) : 1;
+    const outer = outerNode
+      ? (this.lists.get(outerNode) ??
+        this.imported({ ...list, list: outerNode, ordered: true })?.numId)
+      : undefined;
+    if (outer !== undefined && list.numbered) {
+      if (outerNode) this.lists.set(outerNode, outer);
+      const numId = this.input.target.restart(outer, list.numbered.scheme, list.depth, start);
+      this.lists.set(list.list, numId);
+      return numId;
+    }
+    const numId = this.input.target.list(
+      list.numbered?.scheme ?? "bullet",
+      list.depth,
+      start,
+      list.level,
+    );
     this.lists.set(list.list, numId);
+    if (outerNode) this.lists.set(outerNode, numId);
     return numId;
+  }
+
+  private levelOf(list: ListPlace): number {
+    return this.imported(list)?.level ?? list.depth;
+  }
+
+  private imported(place: ListPlace): { numId: number; level: number } | null {
+    for (const item of this.listItems.get(place.list) ?? []) {
+      const based = item.key ? this.based.get(item.key) : undefined;
+      if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
+      const pPr = this.pPrOf(based.element);
+      const numId = numIdIn(pPr);
+      if (numId !== null && numId !== "0")
+        return { numId: Number(numId), level: levelIn(pPr) ?? place.depth };
+    }
+    return null;
   }
 
   /** An imported item of the same list, the nearest before this one, else after: a new item takes its look. */
@@ -1498,6 +1534,12 @@ const isHeaderRow = (row: NodeJSON) =>
 /** The numId a paragraph's own numbering names, if it has any. */
 function numIdIn(pPr: string): string | null {
   return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
+}
+
+/** The level a paragraph's own numbering puts it at, if it names one. */
+function levelIn(pPr: string): number | null {
+  const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
+  return value === undefined ? null : Math.min(Number(value), 8);
 }
 
 /**
