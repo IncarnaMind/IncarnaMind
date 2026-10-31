@@ -693,6 +693,17 @@ const plainSentence = (sentence: string) =>
 const TAKEN_OUT_SENTENCES = 6;
 const TAKEN_OUT_CHARACTERS = 110;
 
+/** The text a rewrite marked to take out, as the model is told it: a few, each cut short. */
+const quotesSaid = (quotes: readonly string[]) =>
+  quotes
+    .slice(0, TAKEN_OUT_SENTENCES)
+    .map((quote) =>
+      quote.length > TAKEN_OUT_CHARACTERS
+        ? `“${quote.slice(0, TAKEN_OUT_CHARACTERS)}…”`
+        : `“${quote}”`,
+    )
+    .join(", ");
+
 /**
  * What a rewrite took out, as the model is told so it reports what happened and not what it
  * meant to do: the sentences of the old text the new one doesn't hold. Null when none went.
@@ -723,7 +734,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
   const now = new Set(sentencesOf(after));
   const written = new Set(sentencesOf(wrote));
   const gone = was.filter((sentence) => !now.has(sentence));
-  // Text the rewrite left out stays unless the request asked to take text out, as a model may
+  // Text the rewrite left out stays unless it quoted it as taken out (#2180), as a model may
   // return only what it changed: said plainly, so its own "removed" is not repeated.
   const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
   const told = [
@@ -734,7 +745,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
       : []),
     ...(stayed.length > 0
       ? [
-          `The rewrite left these sentences out, but they are still in the text, as the request didn't ask to take text out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+          `The rewrite left these sentences out, but they are still in the text, as it didn't mark them as taken out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
         ]
       : []),
   ];
@@ -885,6 +896,11 @@ function notProposed(
       return new Refusal(
         { kind: "no-table", mindId },
         noTableMessage(name, noTableSaid, result.text),
+      );
+    case "unplaced":
+      return new Refusal(
+        { kind: "unplaced", mindId },
+        `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quotesSaid(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
       );
     case "proposed":
       return "";
@@ -2297,12 +2313,13 @@ export function mindTools(options: MindToolsOptions): {
       }
       options.changed(toolCallId, change);
       // What the Mind holds once the changes are accepted, not the rewrite's words: it keeps what the
-      // reply left out unless the request asked to take it out. A revision replaces its text whole.
+      // reply left out unless it quoted it as taken out. A revision replaces its text whole.
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
       const gone = around ? takenOut(around.before, around.after, length?.after) : null;
-      const went = length ? ` (${lengths(length.before, length.after)})` : "";
+      const span = around ?? length;
+      const went = span ? ` (${lengths(span.before, span.after)})` : "";
       return [
         revised
           ? revisedText(mind, change, went)
