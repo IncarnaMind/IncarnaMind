@@ -351,18 +351,25 @@ export function createMeter(options: {
     return settled + setAside;
   };
 
-  /** What a Run's requests billed per token have cost, settled, and set aside by those still open. */
+  /** What a Run's requests billed per token settled at, and what those still open set aside. */
   const runIn = (runId: string, currency: Currency) =>
     db
-      .all<{ currency: Currency; amount: number }>(
-        `SELECT currency, coalesce(sum(CASE WHEN status <> 'reserved' THEN cost ELSE reserved END), 0)
-           AS amount
+      .all<{ currency: Currency; settled: number; set_aside: number }>(
+        `SELECT currency,
+           coalesce(sum(CASE WHEN status <> 'reserved' THEN cost END), 0) AS settled,
+           coalesce(sum(CASE WHEN status = 'reserved' THEN reserved END), 0) AS set_aside
          FROM model_requests
          WHERE run_id = ? AND deleted_at IS NULL AND billing = 'per-token' AND currency IS NOT NULL
          GROUP BY currency`,
         [runId],
       )
-      .reduce((sum, row) => sum + inCurrency(row.amount, row.currency, currency), 0);
+      .reduce(
+        (sum, row) => ({
+          settled: sum.settled + inCurrency(row.settled, row.currency, currency),
+          setAside: sum.setAside + inCurrency(row.set_aside, row.currency, currency),
+        }),
+        { settled: 0, setAside: 0 },
+      );
 
   const towardCap = (cap: MonthlyCap | null, since: string) => {
     if (!cap) return { spentTowardCap: null, setAsideTowardCap: null };
@@ -422,9 +429,11 @@ export function createMeter(options: {
       }
       const budget = task?.budget;
       if (task && budget && price && reserved !== null) {
-        const after =
-          runIn(task.id, budget.currency) + inCurrency(reserved, price.currency, budget.currency);
-        if (after > budget.amount) throw new RunBudgetError(budget);
+        const { settled, setAside } = runIn(task.id, budget.currency);
+        const after = settled + setAside + inCurrency(reserved, price.currency, budget.currency);
+        if (after > budget.amount) {
+          throw new RunBudgetError(budget, { currency: budget.currency, amount: settled });
+        }
       }
       db.run(
         `INSERT INTO model_requests (id, provider_id, model_id, flow, billing, status, currency,

@@ -21,22 +21,35 @@ export function formatMoney({ amount, currency }: Money, language: Language): st
   }).format(amount);
 }
 
-/**
- * What a check's reason says beside it (`detail`): the most a whole read may spend, which the core
- * keeps as Money's JSON, as an amount; any other reason's detail as it is.
- */
-export function reasonDetail(reason: string | null, detail: string | null, language: Language) {
-  if (reason !== "read-budget" || !detail) return detail ?? "";
-  let budget: unknown;
-  try {
-    budget = JSON.parse(detail);
-  } catch {
-    return "";
-  }
-  const { amount, currency } = (budget ?? {}) as Partial<Money>;
+const moneyOf = (value: unknown): Money | null => {
+  const { amount, currency } = (value ?? {}) as Partial<Money>;
   return typeof amount === "number" && (currency === "USD" || currency === "CNY")
-    ? formatMoney({ amount, currency }, language)
-    : "";
+    ? { amount, currency }
+    : null;
+};
+
+/**
+ * What a check's reason says beside it: a whole read stopped at its budget, what it spent and the
+ * most it may spend (the core keeps both as JSON in `detail`), as amounts; any other reason's
+ * `detail` as it is.
+ */
+export function reasonParams(
+  reason: string | null,
+  detail: string | null,
+  language: Language,
+): MessageParams {
+  if (reason !== "read-budget") return { detail: detail ?? "" };
+  let stopped: { most?: unknown; spent?: unknown } = {};
+  try {
+    stopped = JSON.parse(detail ?? "") ?? {};
+  } catch {
+    // A detail that can't be read still says the read stopped, without amounts.
+  }
+  const said = (value: unknown) => {
+    const money = moneyOf(value);
+    return money ? formatMoney(money, language) : "";
+  };
+  return { spent: said(stopped.spent), most: said(stopped.most) };
 }
 
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */

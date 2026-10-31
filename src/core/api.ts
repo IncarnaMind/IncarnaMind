@@ -4671,8 +4671,11 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
-  /** "cost-cap" from a Run's own budget rather than the monthly cap: that budget (#1554). */
-  budget?: Money;
+  /**
+   * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
+   * the Run had spent when it stopped.
+   */
+  budget?: { most: Money; spent: Money };
 }
 
 /**
@@ -5630,7 +5633,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
  *   but a look at its quote found it doesn't state that (#1554).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
- *   nothing more was sent (`detail`: that most, as Money's JSON).
+ *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
+ *   `{ most: Money; spent: Money }`).
  */
 export type ClaimCheckFailure =
   | "refused"

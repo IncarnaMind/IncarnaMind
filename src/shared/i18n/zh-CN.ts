@@ -1011,7 +1011,7 @@ export const zhCN = {
   "claim.reason.absence-read-limit": "说某样东西不存在的句子，需要通读文档才能核对。",
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
-  "claim.reason.read-budget": "已在 {detail} 停止，这是这次读取最多可花的费用。",
+  "claim.reason.read-budget": "已花 {spent} 后停止，这次读取最多可花 {most}。",
   "claim.readBudget.continue": "继续",
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",

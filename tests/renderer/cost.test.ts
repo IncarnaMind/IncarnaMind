@@ -4,7 +4,7 @@ import {
   formatMoney,
   formatSpent,
   notCheckedKey,
-  reasonDetail,
+  reasonParams,
   runStopParts,
   runStopText,
   setAsideText,
@@ -216,21 +216,26 @@ describe("Cost in words", () => {
 
 describe("A whole read stopped at the most it may spend", () => {
   test.each([
-    ["en", "Stopped at $0.41, the most this read may spend.", "Continue"],
-    ["zh-CN", "已在 $0.41 停止，这是这次读取最多可花的费用。", "继续"],
-  ] as const)("says where it stopped, with Continue (%s)", (language, line, action) => {
-    const detail = reasonDetail(
-      "read-budget",
-      JSON.stringify({ amount: 0.41, currency: "USD" }),
-      language,
-    );
-    expect(t(language)("claim.reason.read-budget", { detail })).toBe(line);
+    ["en", "Stopped after $0.38; this read may spend up to $0.41.", "Continue"],
+    ["zh-CN", "已花 $0.38 后停止，这次读取最多可花 $0.41。", "继续"],
+  ] as const)("says what it spent and its most, with Continue (%s)", (language, line, action) => {
+    const detail = JSON.stringify({
+      most: { amount: 0.41, currency: "USD" },
+      spent: { amount: 0.38, currency: "USD" },
+    });
+    expect(
+      t(language)("claim.reason.read-budget", reasonParams("read-budget", detail, language)),
+    ).toBe(line);
     expect(t(language)("claim.readBudget.continue")).toBe(action);
   });
 
-  test("another reason's detail is as it is, and a budget that can't be read says no amount", () => {
-    expect(reasonDetail("failed", "The service failed.", "en")).toBe("The service failed.");
-    expect(reasonDetail("read-budget", "not money", "en")).toBe("");
-    expect(reasonDetail("read-budget", JSON.stringify({ amount: "0.41" }), "en")).toBe("");
+  test("another reason's detail is as it is, and amounts that can't be read are left out", () => {
+    expect(reasonParams("failed", "The service failed.", "en")).toEqual({
+      detail: "The service failed.",
+    });
+    expect(reasonParams("read-budget", "not money", "en")).toEqual({ spent: "", most: "" });
+    expect(reasonParams("read-budget", JSON.stringify({ most: { amount: "0.41" } }), "en")).toEqual(
+      { spent: "", most: "" },
+    );
   });
 });

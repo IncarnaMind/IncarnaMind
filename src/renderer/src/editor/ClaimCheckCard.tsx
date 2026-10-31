@@ -45,7 +45,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
-import { reasonDetail } from "../cost";
+import { reasonParams } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -698,7 +698,7 @@ function ClaimCard({
   const reason =
     shown.state === "not-checked"
       ? t(`claim.reason.${shown.reason}`, {
-          detail: reasonDetail(shown.reason, check.detail, language),
+          ...reasonParams(shown.reason, check.detail, language),
           cap: SENTENCES_CHECKED_AT_MOST,
         })
       : shown.state === "needs-recheck"

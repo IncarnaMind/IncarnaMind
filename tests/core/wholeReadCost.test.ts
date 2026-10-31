@@ -297,6 +297,8 @@ describe("A whole read held to the most it may spend", () => {
       to: { blockId, offset: KEEP.length + 1 + RENT.length },
     };
     const within = { folderIds: [], tagIds: [], documentIds: [documents[0]?.id ?? ""] };
+    const spentUsd = async () =>
+      (await core.getCostSummary()).spent.find((each) => each.currency === "USD")?.amount ?? 0;
     const read = async () => {
       const plan = await core.planDocumentCheck({
         mindId: mind.id,
@@ -324,6 +326,7 @@ describe("A whole read held to the most it may spend", () => {
       return {
         plan,
         most: plan.estimate.upTo?.cost,
+        spent: await spentUsd(),
         marks,
         runs: calls.slice(sent).filter(isCheckRun),
       };
@@ -339,7 +342,11 @@ describe("A whole read held to the most it may spend", () => {
       expect(first.marks.get(KEEP)?.state).toBe("supported");
       const stopped = first.marks.get(RENT);
       expect(stopped).toMatchObject({ state: "not-checked", reason: "read-budget" });
-      expect(JSON.parse(stopped?.detail ?? "null")).toEqual(first.most);
+      // What the read spent before it stopped: all of this core's spending, none of it still open.
+      expect(JSON.parse(stopped?.detail ?? "null")).toEqual({
+        most: first.most,
+        spent: { currency: "USD", amount: expect.closeTo(first.spent, 9) },
+      });
       // Refused before it was sent: the model never heard of the second sentence.
       expect(first.runs.some((call) => sentenceOf(call) === RENT)).toBe(false);
 

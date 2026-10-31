@@ -18,7 +18,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
-import { reasonDetail } from "../cost";
+import { reasonParams } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
@@ -266,9 +266,7 @@ function PartRow({
   const menu = useObjectMenu(target);
   const reason =
     part.verdict === "not-checked" && part.reason
-      ? t(`claim.reason.${part.reason}`, {
-          detail: reasonDetail(part.reason, part.detail, language),
-        })
+      ? t(`claim.reason.${part.reason}`, reasonParams(part.reason, part.detail, language))
       : part.verdict !== "unsupported"
         ? null
         : part.unsupported?.kind === "forecast-certainty"

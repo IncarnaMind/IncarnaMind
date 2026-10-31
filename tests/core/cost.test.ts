@@ -1172,7 +1172,11 @@ describe("A Run's budget (#1554)", () => {
       (error: unknown) => classifyProviderError(error),
     );
 
-    expect(refused).toMatchObject({ kind: "cost-cap", budget: BUDGET });
+    // What the Run had spent: the first request's 100,000 output tokens and 40 input, at $0.0500.
+    expect(refused).toMatchObject({
+      kind: "cost-cap",
+      budget: { most: BUDGET, spent: { currency: "USD", amount: expect.closeTo(0.050004, 6) } },
+    });
     expect(model.doStreamCalls).toHaveLength(1);
     expect(rows(dataDir)).toHaveLength(1);
     // Another Run, and work in none, keep their own counts.

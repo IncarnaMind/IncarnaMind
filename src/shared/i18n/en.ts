@@ -1036,7 +1036,7 @@ export const en = {
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
   "claim.reason.kept-inside": "Kept inside {detail}",
-  "claim.reason.read-budget": "Stopped at {detail}, the most this read may spend.",
+  "claim.reason.read-budget": "Stopped after {spent}; this read may spend up to {most}.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",

@@ -205,7 +205,7 @@ export function failureOf(error: ProviderError): {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
     case "cost-cap":
-      // The budget, as Money's JSON, for the card to say in the User's currency format.
+      // The budget and the spend, as JSON, for the card to say in the User's currency format.
       return error.budget
         ? { reason: "read-budget", detail: JSON.stringify(error.budget) }
         : { reason: "cost-cap", detail: null };
