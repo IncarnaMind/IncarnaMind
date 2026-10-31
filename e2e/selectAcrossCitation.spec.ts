@@ -103,7 +103,8 @@ const selectionThrough = (window: Page) =>
   window.evaluate(() => {
     const wrapper = document.querySelector('[data-testid="citation"]')?.closest(".node-citation");
     if (!(wrapper instanceof Element)) return false;
-    const walker = document.createTreeWalker(wrapper.parentNode ?? wrapper, NodeFilter.SHOW_TEXT);
+    const root = wrapper.closest('[data-testid="mind-editor"]') ?? wrapper.ownerDocument.body;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node: Text | null = null;
     for (let each = walker.nextNode(); each; each = walker.nextNode()) {
       if (wrapper.contains(each) || !(each instanceof Text)) continue;
@@ -131,7 +132,8 @@ const afterCharacter = (window: Page) =>
   window.evaluate(() => {
     const wrapper = document.querySelector('[data-testid="citation"]')?.closest(".node-citation");
     if (!(wrapper instanceof Element)) return null;
-    const walker = document.createTreeWalker(wrapper.parentNode ?? wrapper, NodeFilter.SHOW_TEXT);
+    const root = wrapper.closest('[data-testid="mind-editor"]') ?? wrapper.ownerDocument.body;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let node: Text | null = null;
     for (let each = walker.nextNode(); each; each = walker.nextNode()) {
       if (wrapper.contains(each) || !(each instanceof Text)) continue;
