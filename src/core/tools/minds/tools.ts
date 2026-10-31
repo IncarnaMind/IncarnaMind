@@ -723,7 +723,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
   const now = new Set(sentencesOf(after));
   const written = new Set(sentencesOf(wrote));
   const gone = was.filter((sentence) => !now.has(sentence));
-  // Text the rewrite left out stays unless the request asked to take text out, as a model may
+  // Text the rewrite left out stays unless it quoted it as taken out (#2180), as a model may
   // return only what it changed: said plainly, so its own "removed" is not repeated.
   const stayed = was.filter((sentence) => now.has(sentence) && !written.has(sentence));
   const told = [
@@ -734,7 +734,7 @@ function takenOut(before: string, after: string, wrote: string = after): string 
       : []),
     ...(stayed.length > 0
       ? [
-          `The rewrite left these sentences out, but they are still in the text, as the request didn't ask to take text out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+          `The rewrite left these sentences out, but they are still in the text, as it didn't mark them as taken out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
         ]
       : []),
   ];
@@ -2297,7 +2297,7 @@ export function mindTools(options: MindToolsOptions): {
       }
       options.changed(toolCallId, change);
       // What the Mind holds once the changes are accepted, not the rewrite's words: it keeps what the
-      // reply left out unless the request asked to take it out. A revision replaces its text whole.
+      // reply left out unless it quoted it as taken out. A revision replaces its text whole.
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));

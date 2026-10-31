@@ -93,27 +93,25 @@ import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { inFlow } from "../timing/flows";
-import { asksToRemove, waitsForUser } from "./applies";
+import { waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
-  LOCAL_EDIT_INSTRUCTIONS,
   passageSoFar,
   readEditReply,
+  readRemovals,
   reasonOf,
   sameText,
 } from "./prompt";
+
+/** The new text a reply gives, without what it quotes as taken out. */
+const textOf = (reply: string) => readRemovals(reply).text.trim();
 
 const failedEdit = (failure: unknown): EditWithAiResult =>
   gateStop(failure) instanceof LocalModeError
     ? { kind: "local-mode" }
     : { kind: "failed", error: classifyProviderError(failure) };
-
-// The whole passage deleted, as `asksToRemove` reads a part named: "Remove it", "Delete the part
-// about pensions". Never a shortening ("Cut it down to two sentences").
-const REMOVAL =
-  /^(?:please\s+)?(?:remove|delete|drop|cut|take out|get rid of)\s+(?:it|this|that|(?:the|this|that)\s+(?:whole\s+|entire\s+)?(?:paragraph|section|sentence|passage|part|line|text|bullet)(?:\s+about\s+[^,.;]+)?)(?:\s+(?:entirely|completely|altogether))?\s*[.!]?$|^(?:请)?(?:把(?:它|这段|这一段|这部分|这句|整段)?)?(?:删掉|删除|删去|去掉|移除)(?:它|这段|这一段|这部分|这句|整段)?[。！]?$/i;
 
 /** What the "edits" flow sends: the selected text, with the paragraphs it is in. */
 export const EDITS_FLOW_SENDS = ["selection"] as const;
@@ -365,11 +363,7 @@ function editCall(
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
-  const instructions = explain
-    ? EXPLAIN_INSTRUCTIONS
-    : prepared.provider.kind === "ollama"
-      ? LOCAL_EDIT_INSTRUCTIONS
-      : EDIT_INSTRUCTIONS;
+  const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
@@ -472,7 +466,7 @@ export async function editText(
     console.warn(`Edit with AI (${ask.action}) of a passage not in a Mind failed:`, failure);
     return null;
   }
-  const text = readEditReply(raw, passage.text);
+  const text = textOf(readEditReply(raw, passage.text));
   return text === "" ? null : text;
 }
 
@@ -554,10 +548,6 @@ export function createEdits(options: EditsOptions) {
     const request = randomUUID();
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
     const { requestId } = hooks;
-    // Only for a reply with no <removed/>, which a small local model doesn't write (#2180).
-    const removing =
-      asksToRemove(ask.action, ask.instruction) ||
-      (ask.action === "instruction" && REMOVAL.test(ask.instruction.trim()));
     // Explain's few sentences go in once they are all there.
     const stream = explain
       ? null
@@ -567,12 +557,12 @@ export function createEdits(options: EditsOptions) {
           randomUUID,
           freshCitations(selection, options.recheck),
           {
-            // An edit the User asked for applies at once, here or from the assistant (#880).
+            // An edit the User asked for applies at once, here or from the assistant, and what its
+            // reply leaves out without quoting it as taken out stays (#880, #2180).
             leftOut:
               (requestId !== undefined || ask.requested === "edit") && ask.action === "instruction"
                 ? "keep"
                 : "remove",
-            removesUnmarked: removing,
           },
         );
     let held = false;
@@ -602,7 +592,7 @@ export function createEdits(options: EditsOptions) {
       });
       const count = requestId === undefined ? now.count : landed ? proposed : 0;
       if (count === 0) return { kind: "changed" };
-      const leftOut = held ? [] : (stream?.leftOut() ?? []);
+      const leftOut = stream?.leftOut() ?? [];
       return {
         kind: "proposed",
         request,
@@ -618,7 +608,6 @@ export function createEdits(options: EditsOptions) {
     const holdsBack = (written: RewriteStream) =>
       waitsForUser({
         action: ask.action,
-        removing: removing && !written.marked(),
         ...written.extent(),
         selected: selection.characters,
       });
@@ -709,9 +698,8 @@ export function createEdits(options: EditsOptions) {
       return ended(failedEdit(failure));
     }
     const reply = readEditReply(raw, selection.text);
-    // No text back removes the passage only when that is what was asked; otherwise its reason
-    // ("I can't do this") is why it failed.
-    if (reply === "" && !wrote && !refused && (explain || !removing || reasonOf(raw) === null)) {
+    // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
+    if (reply === "" && !wrote && !refused) {
       return ended({
         kind: "failed",
         error: {
@@ -734,10 +722,7 @@ export function createEdits(options: EditsOptions) {
       const more = stream.write(reply, true);
       if (stream.written().unmadeTable) return false;
       const finished = stream.finish();
-      if (requestId !== undefined) {
-        held = holdsBack(stream);
-        if (held) stream.removeLeftOut();
-      }
+      if (requestId !== undefined) held = holdsBack(stream);
       // Written before the reason came: recorded again with it.
       return finished || more || held || (wrote && reason !== null);
     });
@@ -747,10 +732,10 @@ export function createEdits(options: EditsOptions) {
     }
     if (stream?.written().unmadeTable) {
       takeBackWritten();
-      return ended({ kind: "no-table", text: reply });
+      return ended({ kind: "no-table", text: textOf(reply) });
     }
     if (!wrote) return ended({ kind: "unchanged" });
-    return { result: arrived(), reply, reason };
+    return { result: arrived(), reply: textOf(reply), reason };
   }
 
   /**
@@ -889,7 +874,7 @@ export function createEdits(options: EditsOptions) {
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
-      if (written.unmadeTable) return nothing({ kind: "no-table", text: reply });
+      if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply) });
       if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const top = topLevelBlocks(blocks);
@@ -930,7 +915,7 @@ export function createEdits(options: EditsOptions) {
           ...someNotes(notes),
           stateVector: content.stateVector(input.mindId),
         },
-        length: { before: selection.text, after: reply },
+        length: { before: selection.text, after: textOf(reply) },
         reason: reasonOf(streamed.raw),
         revised: { blockIds },
       };

@@ -1,11 +1,11 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
-import { isEditPrompt } from "../helpers/editPrompt";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -33,7 +33,7 @@ const asked = ({ options }: ModelCall): string => {
 };
 
 const editPassage = (call: ModelCall): string | null =>
-  isEditPrompt(call.system)
+  call.system === EDIT_INSTRUCTIONS
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

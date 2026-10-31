@@ -2,13 +2,15 @@
  * What a rewrite takes out that nobody asked to go (#2180): a Note of five paragraphs, each with a
  * word of its own, edited by requests that are not removals (shorten, improve, more formal,
  * typos, translate, make it a table), then accepted. Reports how many of the paragraphs' words
- * are lost, and how many paragraphs the Note has, so the same run on another build compares.
+ * are lost, and how many paragraphs fewer or more the Note has (more: text other than the
+ * passage came in), so the same run on another build compares.
  * Each model runs only when its key is in the environment, as in ./removalPhrasings.live.test.ts.
  *
  * INCARNAMIND_LIVE_RUNS sets how many times each request runs (5 by default); set
  * INCARNAMIND_LIVE_REPORT to a file to keep the numbers.
  */
 import { appendFile } from "node:fs/promises";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import type * as Y from "yjs";
 import type { ChatProviderKind } from "../../src/core";
@@ -89,9 +91,32 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
     async () => {
       const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 5);
       const report: string[] = [`## ${live.name} · ${live.model} (#2180, over-removal)`];
+      // What the model wrote for the request being run: requests here run one at a time.
+      let raw = "";
       const core = startCore(await createTempDataFolder(), {
-        createChatModel: createAiSdkChatModel,
+        createChatModel: (spec) =>
+          wrapLanguageModel({
+            model: createAiSdkChatModel(spec),
+            middleware: {
+              specificationVersion: "v4",
+              wrapStream: async ({ doStream }) => {
+                const { stream, ...rest } = await doStream();
+                return {
+                  ...rest,
+                  stream: stream.pipeThrough(
+                    new TransformStream({
+                      transform(part, controller) {
+                        if (part.type === "text-delta") raw += part.delta;
+                        controller.enqueue(part);
+                      },
+                    }),
+                  ),
+                };
+              },
+            },
+          }),
       });
+      const losses: string[] = [];
       core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
       await core.saveChatProvider({
         kind: live.kind,
@@ -115,6 +140,7 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
       let lostTotal = 0;
       let runsTotal = 0;
       let blocksLost = 0;
+      let blocksMore = 0;
       for (const each of [EN, ZH]) {
         const cases = [
           ...each.requests.map((request) => ({ request, list: false })),
@@ -129,6 +155,7 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
         for (const { request, list } of cases) {
           let lost = 0;
           let blocks = 0;
+          let more = 0;
           let overall = 0;
           for (let run = 1; run <= runs; run++) {
             const mind = await core.createMind({ title: each.language });
@@ -153,6 +180,7 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
             const first = sizes[0];
             const last = sizes.at(-1);
             if (!first || !last) throw new Error("No blocks.");
+            raw = "";
             const result = await core.editWithAi({
               requestId: crypto.randomUUID(),
               mindId: mind.id,
@@ -184,18 +212,30 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
             const before = list ? each.list.length : each.blocks.length;
             lost += gone;
             blocks += Math.max(0, before - count);
+            // A table made of a list is one Block for each cell, never one for each item.
+            if (!list) more += Math.max(0, count - before);
+            if (gone > 0 || count < before || (!list && count > before)) {
+              losses.push(
+                `- ${each.language} ${request.action} “${request.ask}” (${result.kind}): ${JSON.stringify(after)}`,
+                `  reply: ${JSON.stringify(raw)}`,
+              );
+            }
             if (gone > 0 || count < before) overall++;
           }
           lostTotal += lost;
           blocksLost += blocks;
+          blocksMore += more;
           runsTotal += runs;
           report.push(
-            `  ${each.language} ${list ? "[list] " : ""}${request.action} “${request.ask}”: words lost ${lost}, paragraphs fewer ${blocks}, runs with any loss ${overall}/${runs}`,
+            `  ${each.language} ${list ? "[list] " : ""}${request.action} “${request.ask}”: words lost ${lost}, paragraphs fewer ${blocks}, more ${more}, runs with any loss ${overall}/${runs}`,
           );
         }
       }
+      const cost = await core.getCostSummary();
       report.push(
-        `  all: words lost ${lostTotal}, paragraphs fewer ${blocksLost} in ${runsTotal} runs`,
+        `  all: words lost ${lostTotal}, paragraphs fewer ${blocksLost}, more ${blocksMore} in ${runsTotal} runs`,
+        ...losses,
+        `  requests ${cost.providers.reduce((sum, each) => sum + each.requests, 0)}, spent ${cost.spent.map((money) => `${money.amount.toFixed(4)} ${money.currency}`).join(", ") || "0"}`,
       );
       core.close();
       if (process.env.INCARNAMIND_LIVE_REPORT) {

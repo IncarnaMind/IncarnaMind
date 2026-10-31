@@ -68,6 +68,7 @@ import {
   type TextPlace,
 } from "../api";
 import { MOST_OF_IT, mapsOnto } from "../edits/applies";
+import { readRemovals } from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
 
 /** The Blocks whose text can be edited: Notes' and Answers' paragraphs and headings. */
@@ -640,23 +641,6 @@ interface NewToken {
 }
 
 const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\$([^$\n]+)\$|\n/g;
-/** The mark in any shape a model writes it: <removed/>, <removed>words</removed>, <removed/>words</removed>, a lone </removed>. */
-const REMOVED_TAG = /<\/?removed\b[^<>\n]*>/;
-/** An escape pair, or the mark: the mark anywhere else in a paragraph's words is not text. */
-const ESCAPE_OR_REMOVED_TAG = /\\[\s\S]|[ \t]*<\/?removed\b[^<>\n]*>/g;
-
-/**
- * Whether a paragraph starts with the mark, so is one of the selection's taken out (#2180), and
- * the words it names a section by, if any. Null: a paragraph of words, with any mark in them dropped.
- */
-function removalOf(written: string): { title?: string } | null {
-  if (!new RegExp(`^${REMOVED_TAG.source}`).test(written)) return null;
-  const title = written
-    .replace(ESCAPE_OR_REMOVED_TAG, (each) => (each.startsWith("\\") ? each : ""))
-    .replace(/\s+/g, " ")
-    .trim();
-  return title === "" ? {} : { title };
-}
 
 /**
  * One of the new text's paragraphs: its tokens, and the kind of Block it is
@@ -664,29 +648,15 @@ function removalOf(written: string): { title?: string } | null {
  * shown some, so the paragraph's kind is unknown and it may take any Block's.
  * Only the new text has tables (`NewTable`).
  */
-type NewParagraph = NewText | NewTable | NewRemoval;
+type NewParagraph = NewText | NewTable;
 
 interface NewText {
   kind: BlockKind | null;
   tokens: NewToken[];
   table?: undefined;
   open?: undefined;
-  removed?: undefined;
   /** It holds lines that read as a table's rows but make no table. */
   unmade?: true;
-  notes: Notes;
-}
-
-/** The model's mark that a paragraph of the selection is taken out (#2180): no text of its own. */
-interface NewRemoval {
-  /** The heading it names, when it takes out a section. */
-  title?: string;
-  kind: null;
-  tokens: NewToken[];
-  table?: undefined;
-  open?: undefined;
-  removed: true;
-  unmade?: undefined;
   notes: Notes;
 }
 
@@ -698,7 +668,6 @@ interface NewTable {
   table: { align: TableAlign[]; rows: NewToken[][][] };
   /** Its next row may still be coming: the line after it is the last, and has no "|" yet. */
   open?: true;
-  removed?: undefined;
   unmade?: undefined;
   notes: Notes;
 }
@@ -818,11 +787,8 @@ function newParagraphs(
       node: { name: FOOTNOTE_NODE, attributes: source.getAttributes() as Attributes, source },
     };
   };
-  const tokensOf = (marked: string, notes: Notes): NewToken[] => {
+  const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
-    const written = marked.replace(ESCAPE_OR_REMOVED_TAG, (each) =>
-      each.startsWith("\\") ? each : "",
-    );
     const emphasis = emphasisOf(written);
     const paragraph = emphasis?.plain ?? withoutEmphasisEscapes(written);
     // A paragraph with none of its own leaves the words it adds with the marks they sit beside.
@@ -869,11 +835,9 @@ function newParagraphs(
     return tokens;
   };
   // A line that starts with a Block's mark starts a paragraph, even after a single line break.
-  // A line that is a mark also starts a paragraph, and ends one.
-  const markLine = String.raw`[ \t]*<removed\b[^<>\n]*>[^<>\n]*(?:</removed\s*>)?[ \t]*`;
-  const apart = new RegExp(
-    String.raw`\n[ \t]*\n+|\n(?=${selection.marked ? `${BLOCK_MARKER}|` : ""}${markLine}(?:\n|$))|(?<=^${markLine})\n|(?<=\n${markLine})\n`,
-  );
+  const apart = selection.marked
+    ? new RegExp(String.raw`\n[ \t]*\n+|\n(?=${BLOCK_MARKER})`)
+    : /\n[ \t]*\n+/;
   // Pipe lines the passage already had are the User's text, not a table that failed.
   const had = new Set(selection.text.split("\n").map((line) => line.trim()));
   const unmade = (paragraph: string) =>
@@ -882,14 +846,7 @@ function newParagraphs(
     const index = selection.citations.findIndex((citation) => citesSource(citation, source));
     return index < 0 ? null : `[${index + 1}]`;
   };
-  type Part =
-    | TableText
-    | {
-        marker: ReturnType<typeof readBlockMarker>;
-        paragraph: string;
-        removed?: true;
-        title?: string;
-      };
+  type Part = TableText | { marker: ReturnType<typeof readBlockMarker>; paragraph: string };
   const parts = tablesApart(text).flatMap((part): Part[] =>
     typeof part !== "string"
       ? [part]
@@ -897,9 +854,7 @@ function newParagraphs(
           .split(apart)
           .map((paragraph) => paragraph.trim())
           .filter((paragraph) => paragraph !== "")
-          .map((written): Part => {
-            const removal = removalOf(written);
-            if (removal) return { marker: null, paragraph: "", removed: true, ...removal };
+          .map((written) => {
             if (!selection.marked) return { marker: null, paragraph: written };
             const marker = readBlockMarker(written);
             return {
@@ -931,15 +886,6 @@ function newParagraphs(
         notes,
       };
     }
-    if (part.removed) {
-      return {
-        kind: null,
-        tokens: [],
-        removed: true,
-        notes,
-        ...(part.title && { title: part.title }),
-      };
-    }
     const { marker, paragraph } = part;
     return {
       kind: marker?.kind ?? (selection.marked && !anyMarker ? null : "paragraph"),
@@ -948,6 +894,25 @@ function newParagraphs(
       notes,
     };
   });
+}
+
+/**
+ * The words of each paragraph a <removed>…</removed> quotes (#2180), to tell which of the
+ * selection's it is: a line each, as a model may run a section's paragraphs together, and a
+ * cell each of a table.
+ */
+function quotedRuns(quote: string, selection: Selection): NewToken[][] {
+  return newParagraphs(quote, selection, new Map())
+    .flatMap((paragraph) => {
+      if (paragraph.table) return paragraph.table.rows.flat(1);
+      const runs: NewToken[][] = [[]];
+      for (const token of paragraph.tokens) {
+        if (token.node?.name === BREAK) runs.push([]);
+        else runs.at(-1)?.push(token);
+      }
+      return runs;
+    })
+    .filter((run) => run.some((token) => token.text?.trim()));
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,7 +1518,10 @@ function wordsOf(tokens: readonly { key: string; text?: string }[]): string[] {
 }
 
 /** The share of `old`'s words that `next` has: 1 when `next` says all of it, in whatever shape. */
-function covered(old: readonly OldToken[], next: readonly NewToken[]): number {
+function covered(
+  old: readonly { key: string; text?: string }[],
+  next: readonly { key: string; text?: string }[],
+): number {
   const a = wordsOf(old);
   if (a.length === 0) return 0;
   const counts = new Map<string, number>();
@@ -1587,6 +1555,23 @@ function likeness(old: readonly OldToken[], next: readonly NewToken[]): number {
 
 /** How alike a paragraph of unknown kind must be to one of the selection's to pair with it. */
 const UNKNOWN_KIND_LIKENESS = 0.3;
+
+/**
+ * How alike a new paragraph is to one of the selection's as a place to go: as `likeness`, but a
+ * paragraph of unknown kind reads as a heading only when most of its words are the heading's. A
+ * reply of one plain new sentence has no mark because it needs none, so "Working hours are
+ * flexible." is no rewrite of the heading "Hours" (#2180).
+ */
+function placeLikeness(segment: Segment, paragraph: NewParagraph): number {
+  if (
+    paragraph.kind === null &&
+    segment.kind.startsWith("heading:") &&
+    covered(paragraph.tokens, segment.tokens) < MOST_OF_IT
+  ) {
+    return 0;
+  }
+  return likeness(segment.tokens, paragraph.tokens);
+}
 /**
  * How alike a new list item must be to one of the selection's to be its new
  * version: less, and the old one is removed and the new one added (DESIGN.md,
@@ -1647,7 +1632,7 @@ function replacedIn(
   const gap = (oldTo: number, newTo: number) => {
     const olds = between.slice(oldFrom, oldTo);
     const news = held.slice(newFrom, newTo);
-    // A table made from a list or paragraphs says all of them in one: it stands in for each it covers.
+    // A table made of a list or paragraphs says them all in one: it stands in for each it covers.
     for (const paragraph of news) {
       if (!paragraph.table) continue;
       for (const segment of olds) {
@@ -1660,7 +1645,7 @@ function replacedIn(
     }
     const alike = olds
       .flatMap((segment, i) =>
-        news.map((paragraph, j) => ({ i, j, alike: likeness(segment.tokens, paragraph.tokens) })),
+        news.map((paragraph, j) => ({ i, j, alike: placeLikeness(segment, paragraph) })),
       )
       .filter((each) => each.alike > 0)
       .sort((a, b) => b.alike - a.alike);
@@ -1685,8 +1670,6 @@ function replacedIn(
 
 /** How alike a new paragraph of unknown kind must be to one of the selection's to take its kind. */
 const MOVED_LIKENESS = 0.5;
-/** How far ahead of the next heading the one a removal names must be, when none has the same words. */
-const SECTION_MARGIN = 0.2;
 
 /**
  * The kind of a new paragraph the model wrote no mark for: that of the
@@ -1697,7 +1680,7 @@ function kindByLikeness(segments: readonly Segment[], paragraph: NewParagraph): 
   let found: BlockKind = "paragraph";
   let best = MOVED_LIKENESS;
   for (const segment of segments) {
-    const alike = likeness(segment.tokens, paragraph.tokens);
+    const alike = placeLikeness(segment, paragraph);
     if (alike >= best) {
       best = alike;
       found = segment.kind;
@@ -1722,7 +1705,7 @@ function pairUp(
     const segment = segments[i] as Segment;
     const paragraph = paragraphs[j] as NewParagraph;
     if (paragraph.kind !== null && paragraph.kind !== segment.kind) return null;
-    const alike = likeness(segment.tokens, paragraph.tokens);
+    const alike = placeLikeness(segment, paragraph);
     // Of unknown kind, only a paragraph like it can take a Block's place.
     if (paragraph.kind === null && alike < UNKNOWN_KIND_LIKENESS) return null;
     if (!counterpart(segment, alike, translating)) return null;
@@ -1815,19 +1798,17 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * middle is added, not written over the one after it, and one moved up is
  * added where it now goes. When two are like none of the selection's before
  * any is much like one (a translation), each pairs in order as it comes.
- * `finish` takes out the selection's paragraphs the text never reached; a
- * request stopped before leaves them. Call each in a Yjs transaction on the
- * document `selection` was read from.
+ * `finish` takes out the selection's paragraphs the text never reached, or with
+ * `leftOut: "keep"` keeps them unless the text quotes them between <removed>
+ * and </removed> (#2180); a request stopped before leaves them. Call each in a
+ * Yjs transaction on the document `selection` was read from.
  */
 export function createRewriteStream(
   selection: Selection,
   request: string,
   newId: () => string,
   fresh: (text: string) => ReadonlyMap<number, Attributes>,
-  {
-    leftOut: onLeftOut = "remove",
-    removesUnmarked = false,
-  }: { leftOut?: "keep" | "remove"; removesUnmarked?: boolean } = {},
+  { leftOut: onLeftOut = "remove" }: { leftOut?: "keep" | "remove" } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
   const notes = notesOf();
@@ -1888,13 +1869,11 @@ export function createRewriteStream(
     at = Math.max(at, to);
   };
 
-  /** Characters of the selection's paragraphs the model took out by saying so (#2180). */
-  let markedOut = 0;
-  /** Where the selection's pairing stood as each <removed/> came: which left-out paragraph it means is told at the end. */
-  const marks: { near: number; title?: string }[] = [];
-  /** The text is only <removed/>: all of the selection goes. */
-  let everything = false;
-  /** Paragraphs added anew, which a left-out paragraph much like one of them was moved to. */
+  /** The paragraphs the finished text quotes between <removed> and </removed>, each by its words (#2180). */
+  let quotes: NewToken[][] = [];
+  /** Characters of the selection's paragraphs the text quotes as taken out. */
+  let quotedOut = 0;
+  /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
@@ -1961,7 +1940,7 @@ export function createRewriteStream(
     for (let index = at; index < segments.length; index++) {
       const segment = segments[index] as Segment;
       if (paragraph.kind !== null && paragraph.kind !== segment.kind) continue;
-      const alike = likeness(segment.tokens, paragraph.tokens);
+      const alike = placeLikeness(segment, paragraph);
       if (alike > most || (best === null && alike === most)) {
         best = index;
         most = alike;
@@ -1985,75 +1964,43 @@ export function createRewriteStream(
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };
 
-  /** Of the paragraphs left out and kept, those the text says again were moved, and those it marked <removed/> are taken out. */
+  /**
+   * Of the paragraphs left out and kept, those the text says again were moved, and those it
+   * quotes as taken out go: each quote is the selection's paragraph most like it, when much like
+   * it, so one the text also rewrites is never taken for another.
+   */
   const settleLeftOut = () => {
     const said = [...addedAnew];
-    const gone: Segment[] = [];
+    const moved: Segment[] = [];
     for (const segment of [...kept]) {
       const again = said.findIndex(
         (paragraph) =>
           (paragraph.kind === null || paragraph.kind === segment.kind) &&
-          likeness(segment.tokens, paragraph.tokens) >= MOVED_LIKENESS,
+          placeLikeness(segment, paragraph) >= MOVED_LIKENESS,
       );
       if (again < 0) continue;
       said.splice(again, 1);
-      gone.push(...kept.splice(kept.indexOf(segment), 1));
+      moved.push(...kept.splice(kept.indexOf(segment), 1));
     }
-    const moved = gone.length;
-    // A reply with no mark at all, to a request that asks for a removal: what it left out goes.
-    if (everything || (removesUnmarked && marks.length === 0)) gone.push(...kept.splice(0));
-    // A section a mark names goes with its heading and all that is under it; every other mark is
-    // the one left-out paragraph nearest to where the pairing stood.
-    const taken = new Set<Segment>();
-    const headingLevel = (segment: Segment) =>
-      segment.kind.startsWith("heading:") ? Number(segment.kind.slice("heading:".length)) : null;
-    const sectionNamed = (title: string): Segment[] => {
-      const named = splitWords(title).map((word) => ({ key: keyOf.text(word), text: word }));
-      const headings = segments
-        .map((segment, index) => ({
-          index,
-          level: headingLevel(segment),
-          alike: likeness(segment.tokens, named),
-        }))
-        .filter((each) => each.level !== null)
-        .sort((a, b) => b.alike - a.alike);
-      const [best, next] = headings;
-      // The same words, or one clearly ahead of the next: two headings that read alike ("Pay", "Pay review") are not told apart by a guess.
-      const sure =
-        best !== undefined &&
-        best.alike >= MOVED_LIKENESS &&
-        (best.alike === 1
-          ? next?.alike !== 1
-          : next === undefined || best.alike - next.alike >= SECTION_MARGIN);
-      const heading = sure && best !== undefined ? segments[best.index] : undefined;
-      const level = heading === undefined ? null : headingLevel(heading);
-      if (heading === undefined || level === null || best === undefined) return [];
-      const section = [heading];
-      for (const segment of segments.slice(best.index + 1)) {
-        const deeper = headingLevel(segment);
-        if (deeper !== null && deeper <= level) break;
-        section.push(segment);
-      }
-      return section;
-    };
-    for (const { title } of marks) {
-      if (everything || title === undefined) continue;
-      for (const segment of sectionNamed(title)) if (kept.includes(segment)) taken.add(segment);
+    const alike = segments
+      .filter((segment) => segment.tokens.length > 0)
+      .flatMap((segment) =>
+        quotes.map((quote, j) => ({ segment, j, alike: likeness(segment.tokens, quote) })),
+      )
+      .filter((each) => each.alike >= MOVED_LIKENESS)
+      .sort((a, b) => b.alike - a.alike);
+    const quoted = new Set<Segment>();
+    const used = new Set<number>();
+    const matched = new Set<Segment>();
+    for (const { segment, j } of alike) {
+      if (matched.has(segment) || used.has(j)) continue;
+      matched.add(segment);
+      used.add(j);
+      if (kept.includes(segment)) quoted.add(segment);
     }
-    for (const { near, title } of marks) {
-      if (everything || title !== undefined) continue;
-      let nearest: Segment | undefined;
-      for (const segment of kept) {
-        if (taken.has(segment)) continue;
-        const distance = (each: Segment) => Math.abs(segments.indexOf(each) - near);
-        if (nearest === undefined || distance(segment) < distance(nearest)) nearest = segment;
-      }
-      if (nearest !== undefined) taken.add(nearest);
-    }
-    gone.push(...kept.filter((segment) => taken.has(segment)));
-    kept.splice(0, kept.length, ...kept.filter((segment) => !taken.has(segment)));
-    markedOut += gone.slice(moved).reduce((sum, segment) => sum + lengthOf(segment.tokens), 0);
-    remove(gone);
+    kept.splice(0, kept.length, ...kept.filter((segment) => !quoted.has(segment)));
+    for (const segment of quoted) quotedOut += lengthOf(segment.tokens);
+    remove([...moved, ...quoted].sort((a, b) => segments.indexOf(a) - segments.indexOf(b)));
   };
 
   /** Runs `write`, and says whether it wrote any Proposal. */
@@ -2075,7 +2022,9 @@ export function createRewriteStream(
     write: (text: string, done = false): boolean =>
       wrote(() => {
         if (unmade) return;
-        const paragraphs = newParagraphs(text, selection, fresh(text));
+        const { text: said, quoted } = readRemovals(text, done);
+        const paragraphs = newParagraphs(said, selection, fresh(said));
+        if (done) quotes = quoted.flatMap((quote) => quotedRuns(quote, selection));
         const open = paragraphs.findIndex((paragraph) => paragraph.open);
         const finished = done
           ? paragraphs.length
@@ -2085,23 +2034,14 @@ export function createRewriteStream(
           unmade = true;
           return;
         }
-        const [only] = paragraphs;
-        const wholly = done && paragraphs.length === 1 && only?.removed === true;
-        if (done && taken === 0 && !paragraphs.some((paragraph) => paragraph.removed)) {
+        if (done && taken === 0) {
           held.push(...paragraphs);
           taken = paragraphs.length;
         }
         for (; taken < finished; taken++) {
           const paragraph = paragraphs[taken];
-          if (!paragraph) continue;
-          if (!paragraph.removed) take(paragraph);
-          else
-            marks.push({
-              near: at + held.length,
-              ...(paragraph.title && { title: paragraph.title }),
-            });
+          if (paragraph) take(paragraph);
         }
-        if (wholly) everything = true;
         if (done) writeHeld(segments.length);
       }),
 
@@ -2118,7 +2058,7 @@ export function createRewriteStream(
           const alike =
             segment !== undefined &&
             (paragraph.kind === null || paragraph.kind === segment.kind) &&
-            likeness(segment.tokens, paragraph.tokens) >= MOVED_LIKENESS;
+            placeLikeness(segment, paragraph) >= MOVED_LIKENESS;
           if (!alike) {
             addNew(paragraph);
             continue;
@@ -2132,7 +2072,7 @@ export function createRewriteStream(
         held.length = 0;
       }),
 
-    /** The model is done: the selection's paragraphs it never reached go, and those it marked <removed/>. */
+    /** The model is done: the selection's paragraphs it never reached go, and those it quotes as taken out. */
     finish: (): boolean =>
       wrote(() => {
         if (unmade) return;
@@ -2140,9 +2080,6 @@ export function createRewriteStream(
         removeUpTo(segments.length);
         settleLeftOut();
       }),
-
-    /** The text holds a <removed/> or says everything goes. */
-    marked: (): boolean => marks.length > 0 || everything,
 
     /** The Proposals written so far. */
     written: (): Written => ({
@@ -2152,13 +2089,10 @@ export function createRewriteStream(
       notes: { ...notesWritten },
     }),
 
-    /** Characters removed count the paragraphs it left out, not those it said it takes out. */
+    /** Characters removed: not those it quotes as taken out, nor those it left out, which stay. */
     extent: () => ({
       mapped: mapsOnto(notes.characters.written - notes.characters.added, notes.characters.written),
-      removed:
-        notes.characters.removed -
-        markedOut +
-        kept.reduce((sum, segment) => sum + lengthOf(segment.tokens), 0),
+      removed: notes.characters.removed - quotedOut,
       added: notes.characters.added,
     }),
 
@@ -2176,11 +2110,6 @@ export function createRewriteStream(
               },
             ]
           : [];
-      }),
-
-    removeLeftOut: (): boolean =>
-      wrote(() => {
-        remove(kept.splice(0));
       }),
 
     /** Where the next paragraph goes; null with no place for any. */
