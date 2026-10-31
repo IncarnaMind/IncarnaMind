@@ -401,14 +401,47 @@ const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
+/**
+ * The settings that come after `w:updateFields` in WordprocessingML's order (CT_Settings), where
+ * Word reads it: the field request goes before them, never at the end of the part.
+ */
+const SETTINGS_AFTER_UPDATE_FIELDS = [
+  "hdrShapeDefaults",
+  "footnotePr",
+  "endnotePr",
+  "compat",
+  "docVars",
+  "rsids",
+  "mathPr",
+  "attachedSchema",
+  "themeFontLang",
+  "clrSchemeMapping",
+  "doNotIncludeSubdocsInStats",
+  "doNotAutoCompressPictures",
+  "forceUpgrade",
+  "captions",
+  "readModeInkLockDown",
+  "smartTagType",
+  "schemaLibrary",
+  "shapeDefaults",
+  "doNotEmbedSmartTags",
+  "decimalSymbol",
+  "listSeparator",
+] as const;
+
 /** Asks Word to update the fields, so a table of contents' cached result is rebuilt as it opens. */
 async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): Promise<void> {
   const settings = await writer.part("word/settings.xml");
   if (settings) {
-    const has = /<w:updateFields\b/.test(settings.text);
-    const text = has
-      ? settings.text.replace(/<w:updateFields\b[^>]*\/>/, '<w:updateFields w:val="true"/>')
-      : settings.text.replace(/<\/w:settings>/, '<w:updateFields w:val="true"/></w:settings>');
+    // An older export may have put the request at the end: it is removed and written where it
+    // belongs, before the first setting the schema places after it.
+    const without = settings.text
+      .replace(/<w:updateFields\b[^>]*\/>/, "")
+      .replace(/<w:updateFields\b[^>]*>.*?<\/w:updateFields>/, "");
+    const before = new RegExp(`<(?:w|m):(?:${SETTINGS_AFTER_UPDATE_FIELDS.join("|")})\\b`);
+    const text = before.test(without)
+      ? without.replace(before, '<w:updateFields w:val="true"/>$&')
+      : without.replace(/<\/w:settings>/, '<w:updateFields w:val="true"/></w:settings>');
     if (text !== settings.text) writer.set("word/settings.xml", text);
     return;
   }

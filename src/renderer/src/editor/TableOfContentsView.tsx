@@ -14,6 +14,7 @@ export function TableOfContentsView({ editor }: NodeViewProps) {
     <NodeViewWrapper
       data-testid="table-of-contents"
       className="table-of-contents"
+      role="navigation"
       aria-label={t("editor.toc.title")}
       contentEditable={false}
     >

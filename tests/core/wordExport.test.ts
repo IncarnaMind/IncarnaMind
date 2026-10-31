@@ -1180,6 +1180,29 @@ describe("Blocks added, deleted and moved", () => {
     expect(part("[Content_Types].xml")).toContain("/word/settings.xml");
   });
 
+  test("w:updateFields is written in its schema position in an existing settings part, not at the end (#1935)", async () => {
+    const settings = `<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:alwaysMergeEmptyNamespace/><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:compat/></w:settings>`;
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Scope", { style: "Heading1" }) + paragraph("Body."),
+      parts: [
+        {
+          name: "word/settings.xml",
+          data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${settings}`,
+        },
+      ],
+      rels: '<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>',
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { part } = await exported(core, mindId);
+    const written = part("word/settings.xml");
+    const at = written.indexOf('<w:updateFields w:val="true"/>');
+    expect(at).toBeGreaterThan(written.indexOf("w:alwaysMergeEmptyNamespace"));
+    expect(at).toBeLessThan(written.indexOf("w:footnotePr"));
+    expect(at).toBeLessThan(written.indexOf("w:compat"));
+  });
+
   test("a new paragraph with a Citation goes after the one before it, in its look; the Citation is a footnote", async () => {
     const { core, mindId, client } = await setUp({
       body: paragraph(run("Intro.", { font: "Georgia" })) + paragraph("Outro."),

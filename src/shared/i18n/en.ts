@@ -1418,6 +1418,7 @@ export const en = {
   "editor.replace.all": "Replace all",
   "editor.toc.insert": "Insert table of contents",
   "editor.toc.title": "Contents",
+  "editor.tidy.working": "Tidying…",
   "editor.tidy.done.one": "Tidied 1 place",
   "editor.tidy.done.other": "Tidied {count} places",
   "editor.tidy.none": "Nothing to tidy",

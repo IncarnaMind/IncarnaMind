@@ -116,6 +116,7 @@ export function tidyNote(editor: Editor): void {
     });
 
     const spaceAfter = new Set<number>();
+    const spaceMarks = new Map<number, readonly Mark[]>();
     for (let at = 0; at + 1 < runs.length; at++) {
       const left = runs[at];
       const right = runs[at + 1];
@@ -130,6 +131,12 @@ export function tidyNote(editor: Editor): void {
       if (isSpace(before) || isSpace(after)) continue;
       if ((isHan(before) && isWord(after)) || (isWord(before) && isHan(after))) {
         spaceAfter.add(at);
+        // The marks both runs share: a check stays whole across the space, and neither run's
+        // bold, link or other mark is stretched over text that didn't have it.
+        spaceMarks.set(
+          at,
+          left.marks.filter((mark) => right.marks.some((other) => other.eq(mark))),
+        );
         blockChanges++;
       }
     }
@@ -153,7 +160,9 @@ export function tidyNote(editor: Editor): void {
       const text = child.text.slice(0, run.start) + run.tidied + child.text.slice(run.end);
       if (text !== child.text) content.push(editor.state.schema.text(text, run.marks));
       else content.push(child);
-      if (spaceAfter.has(runIndex)) content.push(editor.state.schema.text(" "));
+      if (spaceAfter.has(runIndex)) {
+        content.push(editor.state.schema.text(" ", spaceMarks.get(runIndex)));
+      }
     });
     total += blockChanges;
     return {

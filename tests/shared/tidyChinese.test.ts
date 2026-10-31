@@ -55,11 +55,11 @@ describe("tidyChinese", () => {
     // A dot in a file name or an address is the name's, not the sentence's stop.
     expect(tidyChinese("报告.docx")).toBe("报告.docx");
     expect(tidyChinese("例子.cn/路径?")).toBe("例子.cn/路径?");
-    expect(tidyChinese("报告.docx,第一.第二")).toBe("报告.docx,第一。第二");
-    expect(tidyChinese("例子@example.com,第一.第二")).toBe("例子@example.com,第一。第二");
-    expect(tidyChinese("打开src/report.docx,第一.第二")).toBe("打开 src/report.docx,第一。第二");
+    expect(tidyChinese("报告.docx,第一.第二")).toBe("报告.docx，第一。第二");
+    expect(tidyChinese("例子@example.com,第一.第二")).toBe("例子@example.com，第一。第二");
+    expect(tidyChinese("打开src/report.docx,第一.第二")).toBe("打开 src/report.docx，第一。第二");
     // The same state also has ordinary text that is tidied: a positive beside each kept name.
-    expect(tidyChinese("见例子.cn/路径?,第一.第二")).toBe("见例子.cn/路径?,第一。第二");
+    expect(tidyChinese("见例子.cn/路径?,第一.第二")).toBe("见例子.cn/路径?，第一。第二");
   });
 
   test("the clause reaching a file name or an email is still tidied, and the text beside an address, path or date gets its space", () => {
@@ -69,6 +69,17 @@ describe("tidyChinese", () => {
     );
     expect(tidyChinese("用Word打开例子.cn/路径?")).toBe("用 Word 打开例子.cn/路径?");
     expect(tidyChinese("见report.docx和2026/10/30后")).toBe("见 report.docx 和 2026/10/30 后");
+  });
+
+  test("half-width punctuation after Latin text or an address is full-width in Chinese, and the name stays as written", () => {
+    expect(tidyChinese("main.py,运行")).toBe("main.py，运行");
+    expect(tidyChinese("5kg,Model3")).toBe("5kg，Model3");
+    expect(tidyChinese("访问https://example.com/a,然后")).toBe("访问 https://example.com/a，然后");
+    // The name itself keeps its characters; the parentheses after it are the sentence's.
+    expect(tidyChinese("http://a.cn(备注)")).toBe("http://a.cn（备注）");
+    // Straight quotes pair across the protected name, so it stays as written inside them.
+    expect(tidyChinese('"zhang@example.com"')).toBe("“zhang@example.com”");
+    expect(tidyChinese('联系"zhang@example.com"')).toBe("联系“zhang@example.com”");
   });
 
   test("an empty string stays empty", () => {

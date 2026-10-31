@@ -3,6 +3,7 @@ import { core } from "../core";
 import { mindEditor } from "../editor/openEditors";
 import { tidyNote } from "../editor/tidyNote";
 import { insertTableOfContents } from "../editor/tocCommands";
+import { showWorking } from "../undo";
 import type { Command, CommandContext } from "./registry";
 import { mindShown, onlyOne } from "./targets";
 
@@ -11,6 +12,23 @@ function openNote(ctx: CommandContext): Editor | null {
   const mindId = mindShown(ctx);
   const editor = mindId === null ? null : mindEditor(mindId);
   return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
+}
+
+/**
+ * Resolves once the window has painted the line just set. The fallback keeps a hidden or throttled
+ * window moving; it is under the 100 ms the line must show within.
+ */
+function afterPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(finish));
+    setTimeout(finish, 80);
+  });
 }
 
 export const noteBasicsCommands: readonly Command[] = [
@@ -53,9 +71,16 @@ export const noteBasicsCommands: readonly Command[] = [
     // The note's own undo (⌘Z) takes it back, and its line offers Undo.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
-    run(ctx) {
+    async run(ctx) {
       const editor = openNote(ctx);
-      if (editor) tidyNote(editor);
+      if (!editor) return;
+      const done = showWorking((t) => t("editor.tidy.working"));
+      await afterPaint();
+      try {
+        tidyNote(editor);
+      } finally {
+        done();
+      }
     },
   },
 ];

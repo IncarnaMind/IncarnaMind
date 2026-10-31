@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import * as Y from "yjs";
 import { CONTENT_SCHEMA_VERSION, type CoreBridge } from "../src/core/api";
 import {
@@ -23,6 +23,7 @@ import {
   setWindowSize,
   slideSelect,
 } from "./app";
+import { pdfText } from "./pdfText";
 
 /*
  * Note basics (#1935): find and replace, a Note duplicated from its menu, a
@@ -66,6 +67,57 @@ async function write(window: Page, blocks: Y.XmlElement[]): Promise<void> {
     if (!mind) throw new Error("There is no Note.");
     await core.applyMindUpdate(mind.id, new Uint8Array(bytes));
   }, update);
+}
+
+interface PrintCall {
+  text: string;
+  lang: string;
+  options: unknown;
+  pdf: string;
+}
+
+const printCalls = (app: ElectronApplication): Promise<PrintCall[]> =>
+  app.evaluate(() => (globalThis as unknown as { __printCalls?: PrintCall[] }).__printCalls ?? []);
+
+/**
+ * Answers the print dialog where it cannot be: the app's print page prints itself to a PDF as
+ * the printer would print it, and the page's text, language and the PDF come back to the test.
+ */
+async function answerPrintDialog(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ webContents }) => {
+    const [first] = webContents.getAllWebContents();
+    if (!first) throw new Error("There is no window to print from.");
+    const prototype = Object.getPrototypeOf(first) as {
+      print: (options: unknown, callback: (success: boolean, reason?: string) => void) => void;
+    };
+    (globalThis as unknown as { __printCalls?: PrintCall[] }).__printCalls = [];
+    prototype.print = (options, callback) => {
+      const page = webContents
+        .getAllWebContents()
+        .find((contents) => contents.getURL().includes("print.html"));
+      if (!page) {
+        callback(false, "The print page didn't open.");
+        return;
+      }
+      void page
+        .executeJavaScript("[document.body.innerText, document.documentElement.lang]")
+        .then(async ([text, lang]) => {
+          const pdf = await page.printToPDF({
+            preferCSSPageSize: true,
+            printBackground: true,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          });
+          (globalThis as unknown as { __printCalls?: PrintCall[] }).__printCalls?.push({
+            text: String(text),
+            lang: String(lang),
+            options,
+            pdf: Buffer.from(pdf).toString("base64"),
+          });
+          callback(true);
+        })
+        .catch((error: unknown) => callback(false, String(error)));
+    };
+  });
 }
 
 /** Names the Note in front through the core. */
@@ -205,6 +257,7 @@ test("a table of contents from the slash menu follows the headings as they chang
   await window.keyboard.press("Enter");
   const contents = editor.getByTestId("table-of-contents");
   await expect(contents).toBeVisible();
+  await expect(editor.getByRole("navigation", { name: "Contents" })).toBeVisible();
   await screenshot(editor, "note-toc-en");
   const entries = contents.getByTestId("table-of-contents-entry");
   await expect(entries).toHaveText(["Spring tides"]);
@@ -234,9 +287,10 @@ test("a table of contents from the slash menu follows the headings as they chang
   await expect(menu.getByTestId("mind.duplicate")).toBeVisible();
   await window.keyboard.press("Escape");
 
-  // In Chinese the block and its entries speak Chinese.
+  // In Chinese the block, its landmark and its entries speak Chinese.
   await setLanguage(window, "zh-CN");
   await expect(contents).toContainText("目录");
+  await expect(editor.getByRole("navigation", { name: "目录" })).toBeVisible();
   await expect(entries).toHaveText(["Spring tides", "!Neap tides"]);
 });
 
@@ -338,6 +392,83 @@ test("Tidy Chinese text spaces Latin text beside an address, a date and a file n
   await expect(paragraphs.nth(2)).toHaveText("打开 report.docx 后");
   await expect(window.getByTestId("undo-line")).toContainText("Tidied 3 places · Undo");
 });
+
+test("Tidy says it is working within 100 ms on a large Note", async () => {
+  test.setTimeout(180_000);
+  const { window, editor } = await startMind();
+  const blocks = Array.from({ length: 5_000 }, (_, index) => {
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute("id", `tidy-${index}`);
+    paragraph.insert(0, [new Y.XmlText("导出为Word文件,你好。")]);
+    return paragraph;
+  });
+  await write(window, blocks);
+  await expect(editor.locator("p", { hasText: "导出为Word文件,你好。" }).first()).toBeVisible({
+    timeout: 60_000,
+  });
+
+  // A person's click on the command, then the line that says it is working.
+  await window.evaluate(() => {
+    const state: { clickedAt: number | null; shownAt: number | null } = {
+      clickedAt: null,
+      shownAt: null,
+    };
+    (window as unknown as { __tidyTiming?: typeof state }).__tidyTiming = state;
+    const observer = new MutationObserver(() => {
+      const line = document.querySelector('[data-testid="undo-note"]');
+      if (line?.textContent?.includes("Tidying")) {
+        state.shownAt = performance.now();
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    document.addEventListener(
+      "click",
+      () => {
+        if (state.clickedAt === null) state.clickedAt = performance.now();
+      },
+      { capture: true, once: true },
+    );
+  });
+
+  await runCommand(window, "mind.tidy", "Tidy Chinese text");
+  await expect(editor.locator("p", { hasText: "导出为 Word 文件，你好。" }).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  const timing = await window.evaluate(
+    () =>
+      (window as unknown as { __tidyTiming?: { clickedAt: number | null; shownAt: number | null } })
+        .__tidyTiming,
+  );
+  expect(timing?.clickedAt).not.toBeNull();
+  expect(timing?.shownAt).not.toBeNull();
+  expect((timing?.shownAt ?? 0) - (timing?.clickedAt ?? 0)).toBeLessThan(100);
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Print sends the Note's print page to the printer (${language})`, async () => {
+    test.setTimeout(180_000);
+    const { app, window, editor } = await startMind();
+    const line = "Printed from the Note. 打印测试。";
+    await window.keyboard.type(line);
+    await expect(editor.locator("p").first()).toHaveText(line);
+    if (language === "zh-CN") await setLanguage(window, "zh-CN");
+    await answerPrintDialog(app);
+
+    await runCommand(window, "mind.print", language === "zh-CN" ? "打印" : "Print");
+    await expect.poll(() => printCalls(app), { timeout: 30_000 }).toHaveLength(1);
+    const [printed] = await printCalls(app);
+    expect(printed?.lang).toBe(language);
+    expect(printed?.options).toMatchObject({ printBackground: true, silent: false });
+    expect(printed?.text).toContain("Printed from the Note.");
+
+    const bytes = Buffer.from(printed?.pdf ?? "", "base64");
+    expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect((await pdfText(bytes)).join("\n")).toContain("Printed from the Note.");
+    // The system dialog itself is the only part no headless run can answer.
+    await expect(window.getByTestId("undo-problem")).toHaveCount(0);
+  });
+}
 
 test("find and replace in a Note a newer version wrote: Replace is off, says why in both languages, and nothing changes", async () => {
   const { app, window } = await launchApp(dataDir);

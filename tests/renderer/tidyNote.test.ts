@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { undoStackOf } from "../../src/renderer/src/editor/editorUndo";
 import { tidyNote } from "../../src/renderer/src/editor/tidyNote";
 import { tidyChinese } from "../../src/shared/tidyChinese";
@@ -118,6 +119,24 @@ describe("tidying Chinese text in the Note", () => {
       "打开 report.docx 后",
     ]);
     expect(tidied).toEqual(lines.map((line) => tidyChinese(line)));
+  });
+
+  test("the space between two checked runs keeps the check, so the check's range stays whole", () => {
+    const check = {
+      type: "claimCheck",
+      attrs: { id: "c1", state: "supported", text: "潮汐document" },
+    };
+    const editor = editorWith([
+      paragraph(marked("潮汐", [{ type: "bold" }, check]), marked("document", [check])),
+    ]);
+    tidyNote(editor);
+
+    expect(editor.state.doc.textContent).toBe("潮汐 document");
+    // The shared check, and not the bold that only the first run has.
+    expect(marksIn(editor)).toContainEqual({ text: " document", marks: ["claimCheck"] });
+    const spans = claimSpans(editor.state.doc);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]?.sentence.text).toBe("潮汐 document");
   });
 
   test("a whole Note is one Undo step", async () => {

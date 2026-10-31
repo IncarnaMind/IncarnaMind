@@ -1375,6 +1375,7 @@ export const zhCN = {
   "editor.replace.all": "全部替换",
   "editor.toc.insert": "插入目录",
   "editor.toc.title": "目录",
+  "editor.tidy.working": "正在整理…",
   "editor.tidy.done.one": "已整理 1 处",
   "editor.tidy.done.other": "已整理 {count} 处",
   "editor.tidy.none": "没有需要整理的地方",

@@ -48,6 +48,17 @@ function after(text: string, at: number, context: TidyContext): string | undefin
   return context.after;
 }
 
+/** Whether the token ending just before `at` has a digit in it: `5kg`, `Model3`, `report2.docx`. */
+function tokenHasDigit(text: string, at: number): boolean {
+  let found = false;
+  for (let index = at - 1; index >= 0; index--) {
+    const char = text[index] ?? "";
+    if (!/[A-Za-z0-9._%+-]/.test(char)) break;
+    if (isDigit(char)) found = true;
+  }
+  return found;
+}
+
 /** Whether the pair of parentheses starting at `at` is whole: no other parenthesis inside. */
 function closedAt(text: string, at: number): number {
   for (let index = at + 1; index < text.length; index++) {
@@ -79,7 +90,12 @@ function fullWidthPunctuation(
     const convert = (mark: string) => replaced.set(index, mark);
     switch (char) {
       case ",":
-        if (isHan(previous) && !isDigit(next)) convert("，");
+        // A comma in Chinese text, even after a Latin word or address: `main.py，运行`; a number's
+        // comma stays, and so does an English paragraph's. A measurement or model name with a
+        // digit in it marks the text as mixed Chinese too (`5kg，Model3`).
+        if ((isHan(previous) || chinese || tokenHasDigit(text, index)) && !isDigit(next)) {
+          convert("，");
+        }
         break;
       case ".":
         // A decimal point, a file name's dot and an address's dot keep their place.
@@ -125,28 +141,42 @@ function fullWidthPunctuation(
   return out;
 }
 
-/** Straight quotation marks become Chinese ones, in a paragraph that is Chinese: “ ” and ‘ ’. */
-function curlyQuotes(text: string): string {
-  if (!HAN.test(text)) return text;
+/**
+ * Straight quotation marks become Chinese ones, in a paragraph that is Chinese: “ ” and ‘ ’.
+ * A straight mark outside a protected name pairs with one on the other side of it, so quotes
+ * around an email or a file name become curly while the name stays as written.
+ */
+function curlyQuotes(text: string, chinese: boolean, skip: (index: number) => boolean): string {
+  if (!chinese) return text;
   let out = text.replaceAll("「", "“").replaceAll("」", "”");
   out = out.replaceAll("『", "‘").replaceAll("』", "’");
+  const doubles: number[] = [];
+  let at = 0;
+  for (const char of out) {
+    if (char === '"' && !skip(at)) doubles.push(at);
+    at += char.length;
+  }
   // An unpaired mark in this run may close one in another run: leaves both as they are.
-  if ((out.match(/"/g) ?? []).length % 2 === 0) {
-    let open = true;
-    out = out.replace(/"/g, () => {
-      const mark = open ? "“" : "”";
-      open = !open;
-      return mark;
+  if (doubles.length > 0 && doubles.length % 2 === 0) {
+    const replaced = new Map<number, string>();
+    doubles.forEach((index, order) => {
+      replaced.set(index, order % 2 === 0 ? "“" : "”");
     });
+    let built = "";
+    at = 0;
+    for (const char of out) {
+      built += replaced.get(at) ?? char;
+      at += char.length;
+    }
+    out = built;
   }
-  if ((out.match(/'/g) ?? []).length % 2 === 0) {
-    let open = true;
-    out = out.replace(/'(?![A-Za-z])|(?<![A-Za-z])'/g, () => {
-      const mark = open ? "‘" : "’";
-      open = !open;
-      return mark;
-    });
-  }
+  let open = true;
+  out = out.replace(/'(?![A-Za-z])|(?<![A-Za-z])'/g, (match, offset: number) => {
+    if (skip(offset)) return match;
+    const mark = open ? "‘" : "’";
+    open = !open;
+    return mark;
+  });
   return out;
 }
 
@@ -192,15 +222,15 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
 const FILE_EXTENSION =
   "(?:docx?|pdf|xlsx?|pptx?|txt|md|csv|tsv|png|jpe?g|gif|svg|zip|json|html?|xml|ya?ml|toml|py|ts|tsx|js|jsx|mp3|mp4|mov|wav|rtf|pages|numbers|key|ppt|doc|xls|epub|tex|bib)";
 const ADDRESSES: readonly RegExp[] = [
-  /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
+  /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]+/giu,
   /@[\p{L}\p{N}.-]+\.[A-Za-z]{2,}/gu,
   new RegExp(`[A-Za-z0-9._%+'-]+\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
   new RegExp(`\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
-  /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]*)?/gu,
-  /(?<=\p{Script=Han})\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》]*)?/gu,
+  /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]*)?/gu,
+  /(?<=\p{Script=Han})\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、()（）“”‘’《》]*)?/gu,
   /[A-Za-z0-9._%+'-]+(?:[\\/][A-Za-z0-9._%+'-]+)+/gu,
-  /[A-Za-z]:\\[^\s,;，。；：！？、（）“”‘’《》]+/gu,
-  /www\.[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
+  /[A-Za-z]:\\[^\s,;，。；：！？、()（）“”‘’《》]+/gu,
+  /www\.[^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]+/giu,
 ];
 
 /** Where an address, a file name or a path is, so the tidy leaves those characters alone. */
@@ -227,10 +257,8 @@ function protectedRanges(text: string): { start: number; end: number }[] {
 
 /** One stretch of ordinary text, tidied as it is. */
 function tidyPiece(text: string, context: TidyContext): string {
-  let out = curlyQuotes(text);
-  out = withoutSpacesBesideFullWidth(out, context);
-  out = spacesBetweenScripts(out, context);
-  return out;
+  const out = withoutSpacesBesideFullWidth(text, context);
+  return spacesBetweenScripts(out, context);
 }
 
 /** `text` set as Chinese text is: spaces between scripts, full-width punctuation, Chinese quotes. */
@@ -242,7 +270,9 @@ export function tidyChinese(text: string, context: TidyContext = {}): string {
   const inRange = (index: number) => protectedChars[index] === 1;
   // Full-width punctuation sees the whole run, so a pair around a protected address still pairs.
   const punctuated = fullWidthPunctuation(text, context, inRange);
-  if (ranges.length === 0) return tidyPiece(punctuated, context);
+  // A name marks the text as mixed Chinese even without a Han character: `"zhang@example.com"`.
+  const quoted = curlyQuotes(punctuated, HAN.test(text) || ranges.length > 0, inRange);
+  if (ranges.length === 0) return tidyPiece(quoted, context);
   let out = "";
   let at = 0;
   const piece = (from: number, to: number) => {
@@ -251,19 +281,19 @@ export function tidyChinese(text: string, context: TidyContext = {}): string {
     // the run's own outer edges are left to the caller (a Note joins its runs itself).
     const outerLeading = context.edgeSpaces !== false && context.leading !== false;
     const outerTrailing = context.edgeSpaces !== false && context.trailing !== false;
-    out += tidyPiece(punctuated.slice(from, to), {
-      before: from > 0 ? punctuated[from - 1] : context.before,
-      after: to < punctuated.length ? punctuated[to] : context.after,
+    out += tidyPiece(quoted.slice(from, to), {
+      before: from > 0 ? quoted[from - 1] : context.before,
+      after: to < quoted.length ? quoted[to] : context.after,
       edgeSpaces: true,
       leading: from > 0 || outerLeading,
-      trailing: to < punctuated.length || outerTrailing,
+      trailing: to < quoted.length || outerTrailing,
     });
   };
   for (const range of ranges) {
     piece(at, range.start);
-    out += punctuated.slice(range.start, range.end);
+    out += quoted.slice(range.start, range.end);
     at = range.end;
   }
-  piece(at, punctuated.length);
+  piece(at, quoted.length);
   return out;
 }
