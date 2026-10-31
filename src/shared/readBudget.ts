@@ -24,17 +24,20 @@ export function readsUnasked(estimate: RunEstimate | null, partsSorted: boolean)
 }
 
 /**
- * The most a whole read may spend, which the meter never lets it pass: the most it may cost, or
- * $0.50 for a read that starts without asking and may cost more. Null for a read with no known
- * price, or a model not billed per token, as for the monthly cap.
+ * The most a whole read may spend, which the meter never lets it pass, never above all it may
+ * cost: $0.50 for a read that starts without asking; for one that asks, twice what it costs about,
+ * and at least $0.50. Its ceiling counts every call at its output limit, far above what a read
+ * costs, so a read that reaches its budget stops and asks again (Continue). Null for a read with
+ * no known price, or a model not billed per token, as for the monthly cap.
  */
 export function readBudget(estimate: RunEstimate | null, partsSorted: boolean): Money | null {
   if (estimate?.billing !== "per-token") return null;
   const most = estimate.upTo?.cost ?? null;
   if (!most) return null;
-  return readsUnasked(estimate, partsSorted)
-    ? { ...most, amount: Math.min(most.amount, UNASKED_ABOUT) }
-    : most;
+  const promised = readsUnasked(estimate, partsSorted)
+    ? UNASKED_ABOUT
+    : Math.max(UNASKED_ABOUT, 2 * (estimate.cost?.amount ?? most.amount));
+  return { ...most, amount: Math.min(most.amount, promised) };
 }
 
 /**

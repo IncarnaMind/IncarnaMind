@@ -5264,7 +5264,8 @@ export type RunEstimate =
        * The most it may come to, with the requests it sends only when what it reads asks for
        * them: in a whole read (#1554), every other call each check's Run may make, what a check
        * may ask after its Run, the looks at a quote a window's judgement gives, and a judgement
-       * its sentence's last check said it wouldn't need.
+       * its sentence's last check said it wouldn't need. A whole read's `cost` here is its
+       * budget, which the meter holds it to (../shared/readBudget).
        */
       upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;

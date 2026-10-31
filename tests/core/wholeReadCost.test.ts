@@ -35,6 +35,10 @@ interface RecordedRead {
   meteredUsd: number;
   /** Recorded once each window reached the model once in each request. */
   windowOnce: boolean;
+  /** The sentence's parts were sorted, by a check of the Note, before the read. */
+  sorted: boolean;
+  /** The sentence says something is absent, so each window's absence is judged. */
+  absence: boolean;
 }
 
 interface Recorded {
@@ -228,36 +232,45 @@ async function readPlans(recorded: Recorded, sorted = false) {
   return plans;
 }
 
-test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded, and its calls are theirs", async () => {
+test("a whole read's budget covers every read Claude Haiku 5.5 recorded, and about is close to what it cost", async () => {
   const recorded: Recorded = JSON.parse(
     await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-whole-read.json"), "utf8"),
   );
-  const plans = await readPlans(recorded);
+  const unsorted = await readPlans(recorded);
+  const sorted = await readPlans(recorded, true);
   for (const read of recorded.reads) {
-    const plan = plans.get(read.sentence);
+    const plan = (read.sorted ? sorted : unsorted).get(read.sentence);
     if (plan?.kind !== "ready" || plan.estimate?.billing !== "per-token") {
       throw new Error("The read has no per-token estimate.");
     }
     expect(plan.tokens).toBe(recorded.lease.tokens);
     const most = plan.estimate.upTo;
     // Each of a Run's eleven calls may write its 8,000-token limit, and the calls after it carry
-    // that: about 2.7M tokens on this lease, where 500 a call would make it about 1.3M. The first
-    // window's calls from the third on carry a prompt over 100,000 tokens as Claude may count it,
-    // priced at the 5x tier: about $1.09, where the base price alone would make it about $0.31.
+    // that: about 2.7M tokens on this lease, where 500 a call would make it about 1.3M.
     expect(most?.tokens).toBeGreaterThan(2_400_000);
-    expect(most?.cost?.amount).toBeGreaterThan(1);
-    expect(most?.cost?.amount).toBeLessThan(1.2);
     expect(most?.calls).toBeGreaterThanOrEqual(read.requests);
     expect(most?.tokens).toBeGreaterThanOrEqual(read.inputTokens + read.outputTokens);
+    // Asked or not, the read is held to $0.50: about is a cent or two, twice that is less.
+    expect(most?.cost).toEqual({ amount: 0.5, currency: "USD" });
     expect(most?.cost?.amount).toBeGreaterThanOrEqual(Math.max(read.usd, read.meteredUsd));
+    // About is close to what a read cost, once each window reached the model once, where the
+    // plan knew what the read would judge. Unsorted, an ordinary sentence's plan still counts an
+    // absence judgement it never sends: about is then 1.6 to 1.8 times high, and the read asks.
+    if (read.windowOnce && (read.sorted || read.absence)) {
+      const about = plan.estimate.cost?.amount ?? 0;
+      expect(about / read.usd).toBeGreaterThan(0.85);
+      expect(about / read.usd).toBeLessThan(1.25);
+    }
   }
-  // About as many requests as the reads made once each window reached the model once: 7 and 8.
-  const sent = recorded.reads.filter((read) => read.windowOnce).map((read) => read.requests);
+  // About as many requests as an unsorted read made once each window reached the model once.
+  const sent = recorded.reads
+    .filter((read) => read.windowOnce && !read.sorted)
+    .map((read) => read.requests);
   const mean = sent.reduce((sum, each) => sum + each, 0) / sent.length;
-  for (const plan of plans.values()) {
-    expect(
-      plan.kind === "ready" && plan.estimate?.billing === "per-token" && plan.estimate.calls,
-    ).toBe(Math.round(mean));
+  for (const plan of unsorted.values()) {
+    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token")
+      throw new Error("No plan.");
+    expect(Math.abs(plan.estimate.calls - mean)).toBeLessThanOrEqual(1);
   }
 });
 
@@ -381,12 +394,12 @@ describe("A whole read held to the most it may spend", () => {
     },
   );
 
-  test("one that would start unasked, at about $0.50 or less, is held to $0.50 where it may cost more, and its card says so", async () => {
+  test("on Sonnet 5.5's price, where every call at its limit costs more than $0.50, both reads are held to $0.50", async () => {
     const { first, again } = await readTwice("en", "claude-sonnet-5-5");
 
-    // Not sorted yet, the first read asks, and is held to all it may cost.
+    // Not sorted yet, the first read asks: about a few cents, so twice about is under $0.50.
     expect(first.plan.parts).toBeNull();
-    expect(first.most?.amount).toBeGreaterThan(0.5);
+    expect(first.most).toEqual({ amount: 0.5, currency: "USD" });
     expect(again.plan.parts).toBe(1);
     expect(
       again.plan.estimate?.billing === "per-token" && again.plan.estimate.cost?.amount,
@@ -653,7 +666,7 @@ describe("What is left of a read its budget stopped", () => {
   });
 });
 
-test("the recorded lease's read is held to $0.50 once its parts are sorted, its ceiling at the tier above", async () => {
+test("the recorded lease's read is held to $0.50, asked or not", async () => {
   const recorded: Recorded = JSON.parse(
     await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-whole-read.json"), "utf8"),
   );
@@ -663,14 +676,17 @@ test("the recorded lease's read is held to $0.50 once its parts are sorted, its 
     const asked = unsorted.get(sentence);
     const unasked = sorted.get(sentence);
     if (asked?.kind !== "ready" || unasked?.kind !== "ready") throw new Error("Not ready.");
-    // Unsorted, it asks, held to its whole ceiling: the 5x tier above 100,000 tokens included.
+    if (asked.estimate?.billing !== "per-token" || unasked.estimate?.billing !== "per-token") {
+      throw new Error("No per-token estimate.");
+    }
+    // Unsorted, it asks: about two cents, so twice about is under $0.50, and $0.50 is its "up to",
+    // far under the ceiling of every call at its output limit (about $1.09, at the tier above
+    // 100,000 tokens).
     expect(asked.parts).toBeNull();
-    const ceiling = asked.estimate?.billing === "per-token" ? asked.estimate.upTo?.cost : null;
-    expect(ceiling?.amount).toBeGreaterThan(1);
-    expect(ceiling?.amount).toBeLessThan(1.2);
-    // Sorted, about $0.015, it starts unasked, and the "up to" its card shows is that budget.
+    expect(asked.estimate.cost?.amount).toBeLessThan(0.025);
+    expect(asked.estimate.upTo?.cost).toEqual({ amount: 0.5, currency: "USD" });
+    // Sorted, about $0.012, it starts unasked, held to $0.50.
     expect(unasked.parts).toBe(1);
-    if (unasked.estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
     expect(unasked.estimate.cost?.amount).toBeLessThan(0.02);
     expect(readsUnasked(unasked.estimate, true)).toBe(true);
     expect(unasked.estimate.upTo?.cost).toEqual({ amount: 0.5, currency: "USD" });

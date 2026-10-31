@@ -866,11 +866,16 @@ export function createMeter(options: {
       });
       return {
         billing: "per-token",
-        ...priced(read.likely, (each, known) =>
-          costOf({ ...each, cachedInputTokens: each.cached ? each.inputTokens : 0 }, known, at, {
-            cacheWrites,
-          }),
-        ),
+        ...priced(read.likely, (each, known) => {
+          // Priced as the provider counts it: at the app's own count "about" read a third low.
+          const inputTokens = Math.ceil(each.inputTokens * ratio);
+          return costOf(
+            { ...each, inputTokens, cachedInputTokens: each.cached ? inputTokens : 0 },
+            known,
+            at,
+            { cacheWrites },
+          );
+        }),
         upTo: priced(read.most, (each, known) =>
           reservationOf(
             {

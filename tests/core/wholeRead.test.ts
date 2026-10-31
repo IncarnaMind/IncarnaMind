@@ -1990,10 +1990,10 @@ describe("The estimate a whole read's cost question shows", () => {
     const estimate = meter.estimateRead(model, { likely, most });
 
     if (estimate.billing !== "per-token") throw new Error("No per-token estimate.");
-    // Its tokens as a provider with no measured count may count them, 1.5 for each; its price for
-    // the prompts as sent, the cache's tokens at the cache's price.
+    // As a provider with no measured count may count it, 1.5 tokens for each: its tokens, and its
+    // price, the cache's tokens at the cache's price.
     expect(estimate).toMatchObject({ calls: 4, tokens: 263_250 });
-    expect(estimate.cost?.amount).toBeCloseTo((116_500 + 58_000 * 0.1 + 1_500 * 5) / 1e6, 10);
+    expect(estimate.cost?.amount).toBeCloseTo((174_750 + 87_000 * 0.1 + 1_500 * 5) / 1e6, 10);
     expect(estimate.upTo).toMatchObject({ calls: 3, tokens: 120_100 });
     expect(estimate.upTo?.cost?.amount).toBeCloseTo((69_200 + 16_300 * 5) / 1e6, 10);
 
@@ -2001,12 +2001,12 @@ describe("The estimate a whole read's cost question shows", () => {
     const anthropic = meter.estimateRead({ ...model, kind: "anthropic" }, { likely, most });
     if (anthropic.billing !== "per-token") throw new Error("No per-token estimate.");
     expect(anthropic).toMatchObject({ calls: 4, tokens: 254_525 });
-    expect(anthropic.cost?.amount).toBeCloseTo((116_500 + 58_000 * 0.1 + 1_500 * 5) / 1e6, 10);
+    expect(anthropic.cost?.amount).toBeCloseTo((168_925 + 84_100 * 0.1 + 1_500 * 5) / 1e6, 10);
     expect(anthropic.upTo).toMatchObject({ calls: 3, tokens: 116_640 });
     expect(anthropic.upTo?.cost?.amount).toBeCloseTo((69_200 * 1.25 + 16_300 * 5) / 1e6, 10);
 
-    // A prompt over a tier's threshold is priced at the tier: what is sent, by its own length; the
-    // most, as the meter reserves it, by its length as the provider may count it (1.5 times).
+    // A prompt over a tier's threshold is priced at the tier, its length as the provider may count
+    // it (1.5 times): what is likely sent, so counted; the most, as the meter reserves it.
     const tiered = meter.estimateRead(
       {
         ...model,
@@ -2026,7 +2026,7 @@ describe("The estimate a whole read's cost question shows", () => {
       },
     );
     if (tiered.billing !== "per-token") throw new Error("No per-token estimate.");
-    expect(tiered.cost?.amount).toBeCloseTo((120_000 * 5 + 500 * 25) / 1e6, 10);
+    expect(tiered.cost?.amount).toBeCloseTo((180_000 * 5 + 500 * 25) / 1e6, 10);
     expect(tiered.upTo?.cost?.amount).toBeCloseTo(
       (80_000 * 5 + 1_000 * 25 + 60_000 * 1 + 1_000 * 5) / 1e6,
       10,

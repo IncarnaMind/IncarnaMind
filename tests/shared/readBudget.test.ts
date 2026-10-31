@@ -20,11 +20,26 @@ describe("The most a whole read may spend", () => {
     expect(readBudget(estimate(0.02, 0.41), true)).toEqual({ amount: 0.41, currency: "USD" });
   });
 
-  test("one that asks is held to its most: about more than $0.50, or parts not sorted yet", () => {
-    expect(readsUnasked(estimate(0.51, 3), true)).toBe(false);
-    expect(readBudget(estimate(0.51, 3), true)).toEqual({ amount: 3, currency: "USD" });
+  test("one that asks is held to twice its about, at least $0.50, never over all it may cost", () => {
+    expect(readsUnasked(estimate(1, 3), true)).toBe(false);
+    expect(readBudget(estimate(1, 3), true)).toEqual({ amount: 2, currency: "USD" });
+    expect(readBudget(estimate(1, 1.5), true)).toEqual({ amount: 1.5, currency: "USD" });
+    expect(readBudget(estimate(0.51, 3), true)).toEqual({ amount: 1.02, currency: "USD" });
     expect(readsUnasked(estimate(0.02, 3), false)).toBe(false);
-    expect(readBudget(estimate(0.02, 3), false)).toEqual({ amount: 3, currency: "USD" });
+    expect(readBudget(estimate(0.02, 3), false)).toEqual({ amount: 0.5, currency: "USD" });
+    expect(readBudget(estimate(0.02, 0.3), false)).toEqual({ amount: 0.3, currency: "USD" });
+  });
+
+  test("one that starts unasked never gets a budget over $0.50", () => {
+    for (const [about, most] of [
+      [0.5, 3],
+      [0.5, 0.51],
+      [0.3, 100],
+      [0.01, 1.09],
+    ] as const) {
+      expect(readsUnasked(estimate(about, most), true)).toBe(true);
+      expect(readBudget(estimate(about, most), true)?.amount).toBeLessThanOrEqual(0.5);
+    }
   });
 
   test("no price, a plan or a model on this computer: no budget, as for the monthly cap", () => {
