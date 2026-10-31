@@ -297,7 +297,8 @@ function chartMarkdown(block: Extract<Block, { kind: "chart" }>, naming: Naming)
           ? citationSource(value.citation as unknown as Record<string, unknown>, naming)
           : null;
         return cell([
-          ...words(value.shown),
+          // As a calculated figure in the text reads (#2307).
+          ...words(value.figure ? `${value.shown} (calculated)` : value.shown),
           ...(source?.source
             ? ([
                 { kind: "text", text: " ", marks },
