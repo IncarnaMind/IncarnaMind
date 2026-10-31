@@ -399,7 +399,7 @@ async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: bo
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1600]) {
-    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
+    test(`the Ask line holds one height as their file is read and becomes the Question, and a long Question wraps inside the card (${language}, ${width}px)`, async () => {
       test.setTimeout(180_000);
       const sources = await createDataFolder();
       const slow = join(sources, "Harbour times.pdf");
@@ -465,19 +465,23 @@ for (const language of ["en", "zh-CN"] as const) {
         await a.window.getByTestId("add-documents-input").setInputFiles([long]);
         await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
         const cut = await height();
-        expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
-        // The whole Question stays the line's name and its tooltip, and the line cuts it.
+        // D304: past the limit the Question is cut in the middle, and the line may wrap: the
+        // card grows with it, and the whole Question stays its name and its tooltip.
+        expect(cut).toBeGreaterThanOrEqual(reading);
         expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
         const wholeLabel = (await button.getAttribute("title")) ?? "";
         const shownLabel = await button.innerText();
-        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
-        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
-        if (language === "en")
-          // English cuts at a word's end, so what follows the shown text starts a word.
-          expect(
-            wholeLabel.slice(shownLabel.length - 1),
-            `${language} ${width}px, a word's end`,
-          ).toMatch(/^\s/u);
+        expect(shownLabel, `${language} ${width}px, cut`).toContain("…");
+        expect(wholeLabel.startsWith(shownLabel.slice(0, shownLabel.indexOf("…")))).toBe(true);
+        expect(wholeLabel.endsWith(shownLabel.slice(shownLabel.indexOf("…") + 1))).toBe(true);
+        expect(shownLabel).not.toContain(LONG_NAME);
+        const [buttonBox, cardBox] = await Promise.all([button.boundingBox(), card.boundingBox()]);
+        if (!buttonBox || !cardBox) throw new Error("The Ask line isn't showing.");
+        expect(buttonBox.x).toBeGreaterThanOrEqual(cardBox.x - 0.5);
+        expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
+        expect(buttonBox.y + buttonBox.height).toBeLessThanOrEqual(
+          cardBox.y + cardBox.height + 0.5,
+        );
       } finally {
         await a.app.close();
         await removeDataFolder(first);
@@ -515,7 +519,7 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-test("a Chinese Question longer than the line cuts at a character, whole in its name (#2084)", async () => {
+test("a Chinese Question longer than the limit cuts in the middle, its start and end kept, with the whole in its tooltip (#2084, D304)", async () => {
   const sources = await createDataFolder();
   const name = "港口简报与冬季疏浚计划联合评审会议纪要（第二季度）";
   const file = join(sources, `${name}.md`);
@@ -529,17 +533,26 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
     const whole = `提问：“${name}”讲了什么？`;
     await expect(button).toHaveAttribute("title", whole, { timeout: 30_000 });
     const shown = await button.innerText();
-    // A character cut, as Chinese reads: the line ends inside the name, not only at a space.
-    expect(shown.endsWith("…")).toBe(true);
-    expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
-    expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+    // Past the limit the cut keeps the start and the end, as a name past it keeps its extension.
+    expect(shown).toContain("…");
+    expect(whole.startsWith(shown.slice(0, shown.indexOf("…")))).toBe(true);
+    expect(whole.endsWith(shown.slice(shown.indexOf("…") + 1))).toBe(true);
+    expect(shown).not.toContain(name);
+    // Whatever the line wraps to, the button and its words stay inside the window.
+    const [buttonBox, cardBox] = await Promise.all([
+      button.boundingBox(),
+      window.getByTestId("first-open-steps").boundingBox(),
+    ]);
+    if (!buttonBox || !cardBox) throw new Error("The ready line isn't showing.");
+    expect(buttonBox.x).toBeGreaterThanOrEqual(cardBox.x - 0.5);
+    expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
   } finally {
     await app.close();
     await removeDataFolder(sources);
   }
 });
 
-test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
+test("the English example's Question shows whole at 900 px, wrapping as the system font needs (#2084, D304)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
     await setWindowSize(app, window, 900, 900);
@@ -550,6 +563,10 @@ test("the English example's Question shows whole on one line at 900 px (#2084)",
     const whole = "Ask: “What leverage does the agreement allow?”";
     await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
     await expect(button).toHaveText(whole);
+    const box = await button.boundingBox();
+    if (!box) throw new Error("The ready line isn't showing.");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(900);
   } finally {
     await app.close();
   }

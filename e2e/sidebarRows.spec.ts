@@ -225,6 +225,71 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     }
   });
+
+  test(`${language}: names within the line's limit show whole in the undo line at the narrowest sidebar, and all of it stays inside`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1100, 700);
+      await setLanguage(window, language);
+      await newMind(window);
+      await setSidebarWidth(window, NARROWEST);
+      const message = window.getByTestId("undo-message");
+      const undo = window.getByTestId("undo-action");
+      const sidebar = await boxOf(window.getByTestId("sidebar"));
+      const thirty = "Harbour dues review, volume 22";
+      expect([...thirty]).toHaveLength(30);
+      for (const name of ["Boardpack", thirty]) {
+        await renameInTab(window, name);
+        await expect(undo).toBeVisible();
+        // D304: a name within the limit is never cut for a narrow pane or a wide system font;
+        // the line wraps instead, so the whole message is its text and it needs no tooltip.
+        await expect(message).toContainText(name);
+        expect((await message.textContent()) ?? "").not.toContain("…");
+        expect(await message.getAttribute("title")).toBeNull();
+        for (const each of [message, undo]) {
+          const box = await boxOf(each);
+          expect(box.x).toBeGreaterThanOrEqual(sidebar.x - 0.5);
+          expect(box.x + box.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 0.5);
+          expect(box.y).toBeGreaterThanOrEqual(sidebar.y - 0.5);
+          expect(box.y + box.height).toBeLessThanOrEqual(sidebar.y + sidebar.height + 0.5);
+        }
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`${language}: a 60-column name is cut in the middle in the undo line, keeping its extension and the whole in the tooltip`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1100, 700);
+      await setLanguage(window, language);
+      await newMind(window);
+      await setSidebarWidth(window, NARROWEST);
+      const name = "Quarterly review of harbour dues and the wider coastal levy.docx";
+      expect([...name].length).toBeGreaterThan(40);
+      await renameInTab(window, name);
+      const message = window.getByTestId("undo-message");
+      await expect(message).toContainText("…");
+      const said = (await message.textContent()) ?? "";
+      expect(said).toContain([...name].slice(0, 4).join(""));
+      expect(said).toMatch(/…[^…]*\.docx”/);
+      expect(said).not.toContain(name);
+      expect(await message.getAttribute("title")).toContain(name);
+      const sidebar = await boxOf(window.getByTestId("sidebar"));
+      const box = await boxOf(message);
+      expect(box.x).toBeGreaterThanOrEqual(sidebar.x - 0.5);
+      expect(box.x + box.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 0.5);
+      expect(box.y).toBeGreaterThanOrEqual(sidebar.y - 0.5);
+      expect(box.y + box.height).toBeLessThanOrEqual(sidebar.y + sidebar.height + 0.5);
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 test("the rule above Settings is inset like the header's rule, at every sidebar width", async () => {

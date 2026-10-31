@@ -50,25 +50,28 @@ const leftOf = async (target: Locator) =>
   await target.evaluate((el) => el.getBoundingClientRect().left);
 
 /**
- * The tray's approval buttons stand on one row with the gap and the room from
- * the tray's edges the card has on DESIGN.md's scale (4px between, 8px of the
- * tray's padding and the card's 10px, less a hair), and the shortcut stays in
- * the main button's name.
+ * The tray's approval buttons are in the card's order, Deny last, every one inside the tray;
+ * a narrow tray or a wide system font may wrap them under the text (D304), and the shortcut
+ * stays in the main button's name.
  */
-async function expectButtonsOnOneRow(window: Page, name: string) {
+async function expectApprovalButtons(window: Page, name: string) {
   const tray = window.getByTestId("task-tray");
-  const boxes = await tray.locator(".approval-actions button").evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const { top, left, right } = button.getBoundingClientRect();
-      return { top: Math.round(top), left, right };
+  const buttons = tray.locator(".approval-actions button");
+  const ids = await buttons.evaluateAll((each) =>
+    each.map((button) => button.dataset.testid ?? ""),
+  );
+  expect(ids.length, `${name}: the approval's buttons`).toBeGreaterThan(1);
+  expect(ids.at(-1), `${name}: Deny last`).toBe("approval-deny");
+  const boxes = await buttons.evaluateAll((each) =>
+    each.map((button) => {
+      const { top, left, right, width } = button.getBoundingClientRect();
+      return { top: Math.round(top), left, right, width };
     }),
   );
-  expect(boxes.length, `${name}: the approval's buttons`).toBeGreaterThan(1);
-  expect(new Set(boxes.map((box) => box.top)).size, `${name}: one row`).toBe(1);
-  for (const [index, box] of boxes.entries()) {
-    const next = boxes[index + 1];
-    if (next) expect(next.left - box.right, `${name}: the gap`).toBeGreaterThanOrEqual(4);
-  }
+  expect(
+    boxes.every((box) => box.width > 0),
+    `${name}: every choice shows`,
+  ).toBe(true);
   const edge = await tray.evaluate((el) => {
     const { left, right } = el.getBoundingClientRect();
     return { left, right };
@@ -136,7 +139,7 @@ test("the header, the thread, the Task tray and the composer share one left edge
   for (const dock of DOCKS) {
     await dockAs(window, dock);
     // In the 320px assistant, docked on the right, the buttons of the ask don't wrap.
-    if (dock === "right") await expectButtonsOnOneRow(window, "English");
+    if (dock === "right") await expectApprovalButtons(window, "English");
     const { panel, ...found } = await edges(window);
     for (const [name, x] of Object.entries(found)) {
       expect(Math.abs(x - found.composer), `${name} at ${dock}`).toBeLessThanOrEqual(1);
@@ -164,7 +167,7 @@ test("the header, the thread, the Task tray and the composer share one left edge
   // In Chinese the same.
   await dockAs(window, "right");
   await setLanguage(window, "zh-CN");
-  await expectButtonsOnOneRow(window, "Chinese");
+  await expectApprovalButtons(window, "Chinese");
   const { panel: _panel, ...chinese } = await edges(window);
   for (const [name, x] of Object.entries(chinese)) {
     expect(Math.abs(x - chinese.composer), `${name} in Chinese`).toBeLessThanOrEqual(1);

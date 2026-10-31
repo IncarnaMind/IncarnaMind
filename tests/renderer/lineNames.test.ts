@@ -5,8 +5,9 @@ import { moveMessage } from "../../src/renderer/src/moves";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
- * A name inside a line is cut in the middle, and the line's own words are not
- * (DESIGN.md, Words on screen): the undo line, problems and replies say it through `saidInLine`.
+ * A name inside a line is cut in the middle past the limit, and the line's own words are never
+ * cut (DESIGN.md, Words on screen; D304): the undo line, problems and replies say it through
+ * `saidInLine`. A name within the limit is whole; the line wraps instead.
  */
 
 const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
@@ -52,6 +53,24 @@ describe("a name in a line", () => {
     expect(message).not.toContain(LONG);
   });
 
+  test("a name within the limit shows whole, with no second message", () => {
+    const name = "Harbour dues review, volume 22";
+    expect([...name]).toHaveLength(30);
+    const said = saidInLine(en, (t) => t("object.renamed", { name }));
+    expect(said.message).toBe(`Renamed to “${name}”`);
+    expect(said.fullMessage).toBeUndefined();
+  });
+
+  test("a name past the limit is cut in the middle, keeping its start and its extension", () => {
+    const name = "Quarterly review of harbour dues and the wider coastal levy.docx";
+    const { message, fullMessage } = saidInLine(en, (t) => t("object.renamed", { name }));
+    expect(message).toContain("…");
+    expect(message).toContain([...name].slice(0, 4).join(""));
+    expect(message).toMatch(/…[^…]*\.docx”/);
+    expect(message).not.toContain(name);
+    expect(fullMessage).toContain(name);
+  });
+
   test("a name made part of a bigger value goes through `cut`", () => {
     const { message, fullMessage } = saidInLine(en, (t, cut) =>
       t("coverage.main", { documents: `“${cut(LONG)}” and “Report”` }),
@@ -59,24 +78,6 @@ describe("a name in a line", () => {
     expect(message).toContain("…");
     expect(message).toContain("“Report”");
     expect(fullMessage).toContain(LONG);
-  });
-
-  test("a line with less room cuts each name shorter, never the words around it", () => {
-    const { within } = saidInLine(en, (t) => t("move.done", { name: LONG, folder: LONG }));
-    expect(within(40)).toBe(
-      "Moved “Quarterly review of … levy schedule 2026” to Quarterly review of … levy schedule 2026",
-    );
-    expect(within(20)).toBe("Moved “Quarterly …dule 2026” to Quarterly …dule 2026");
-    expect(within(8)).toBe("Moved “Quar…026” to Quar…026");
-    expect(within(100)).toBe(`Moved “${LONG}” to ${LONG}`);
-  });
-
-  test("a name under the room is cut shorter all the same, when the line needs it", () => {
-    const { message, fullMessage, within } = saidInLine(en, (t) =>
-      t("object.renamed", { name: "Tide tables of the east basin" }),
-    );
-    expect(message).toBe(fullMessage ?? message);
-    expect(within(16)).toBe("Renamed to “Tide tab…t basin”");
   });
 
   test("a move says its name and its Folder cut, and the Edit menu's name is left alone", () => {

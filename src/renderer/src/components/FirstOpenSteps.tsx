@@ -1,15 +1,8 @@
-import {
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import type { CommandId } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
-import { fitName } from "../../../shared/naming";
+import { nameInLine } from "../../../shared/naming";
 import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
@@ -19,7 +12,7 @@ import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from ".
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
 import { goToMistake } from "../editor/mistakeMark";
-import { useLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
@@ -356,39 +349,6 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   );
 }
 
-function useFittedLine(text: string, atWords: boolean, room: RefObject<HTMLElement | null>) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [shown, setShown] = useState(text);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const update = () => {
-      // Measuring writes each text tried into the line itself. A fit that hasn't changed doesn't
-      // render again, and the last text tried would stay, cut where no word ends: put back what is
-      // drawn before setting the fit.
-      const drawn = element.textContent ?? "";
-      const fitted = fitName(
-        text,
-        (each) => {
-          element.textContent = each;
-          return element.scrollWidth <= element.clientWidth;
-        },
-        atWords,
-      );
-      element.textContent = drawn;
-      setShown(fitted);
-    };
-    update();
-    // The line's width changes only as its text does, so the row it is given says when the room
-    // changed; the line too, as a text that no longer fits must be measured again.
-    const observer = new ResizeObserver(update);
-    if (room.current) observer.observe(room.current);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [text, atWords, room]);
-  return [ref, shown] as const;
-}
-
 function ReadyLine({
   question,
   waitingFor,
@@ -433,8 +393,9 @@ function ReadyLine({
     if (asking) stopRef.current?.focus();
     else if (row.kind === "question") askRef.current?.focus();
   }, [asking, row.kind]);
-  const label = question === null ? "" : t("firstOpen.step.question.ready", { question });
-  const [ref, shown] = useFittedLine(label, useLanguage() !== "zh-CN", room);
+  const fullLabel = question === null ? "" : t("firstOpen.step.question.ready", { question });
+  const label =
+    question === null ? "" : t("firstOpen.step.question.ready", { question: nameInLine(question) });
   let line: ReactNode;
   if (row.kind === "waiting")
     line = (
@@ -464,17 +425,15 @@ function ReadyLine({
           ref={askRef}
           type="button"
           data-testid={testId}
-          aria-label={label}
-          title={label}
+          aria-label={fullLabel}
+          title={fullLabel === label ? undefined : fullLabel}
           disabled={row.disabled}
           onClick={onAsk}
-          // A button keeps its size in a row; this one gives way so its line can cut, not overflow.
+          // A button keeps its size in a row; this one gives way so its line can wrap, not overflow.
           style={{ flexShrink: 1, minWidth: 0 }}
           className={buttonStyle("secondary", "sm")}
         >
-          <span ref={ref} className="block truncate">
-            {shown}
-          </span>
+          <span className="block break-words">{label}</span>
         </button>
         <span className="shrink-0 text-[13px] leading-5 text-ink-meta">
           <OwnQuestion message="firstOpen.step.question.own" />

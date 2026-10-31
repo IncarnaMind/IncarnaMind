@@ -1,17 +1,7 @@
-import {
-  type ReactNode,
-  type RefObject,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
-import { NAME_IN_LINE_COLUMNS } from "../../../shared/naming";
+import { type ReactNode, type RefObject, useContext, useEffect, useRef } from "react";
 import { shortcutLabel } from "../commands/keymap";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { useLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
 import { useBreathing, useFade } from "../motion";
 import { useAppStore } from "../store";
@@ -197,13 +187,10 @@ export function UndoLineBody({
   return <ChangeLine said={said} undo={undo} line={shown} inPill={inPill} />;
 }
 
-const MAX_LINES = 2;
-const LEAST_NAME_COLUMNS = 8;
-
 /**
- * The message takes two lines at most (DESIGN.md, Sidebar): a name in it is cut shorter, two
- * columns at a time, until it does, and again when the sidebar changes width or the language
- * changes, its words being of another length. Its words never are cut.
+ * The message wraps rather than cutting a name within the line's limit, so a narrow pane or a
+ * wide system font may take it to a third line (DESIGN.md, Sidebar; D304). Only a name past the
+ * limit is cut, in the middle, and the whole message is its tooltip.
  */
 function ChangeLine({
   said,
@@ -216,47 +203,6 @@ function ChangeLine({
   line: RefObject<HTMLDivElement | null>;
   inPill: boolean;
 }) {
-  const { within } = said;
-  const [columns, setColumns] = useState(NAME_IN_LINE_COLUMNS);
-  const [, measureAgain] = useReducer((times: number) => times + 1, 0);
-  const language = useLanguage();
-  const [measuredIn, setMeasuredIn] = useState(language);
-  if (measuredIn !== language) {
-    setMeasuredIn(language);
-    setColumns(NAME_IN_LINE_COLUMNS);
-  }
-
-  // After every render, as the room can change without the columns. The whole line is measured:
-  // "· Undo" goes with the message's last word, so it can push that word to a line of its own.
-  useLayoutEffect(() => {
-    const element = line.current;
-    if (!element || columns <= LEAST_NAME_COLUMNS) return;
-    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-    const padding =
-      Number.parseFloat(getComputedStyle(element).paddingTop) +
-      Number.parseFloat(getComputedStyle(element).paddingBottom);
-    if (element.getBoundingClientRect().height - padding > lineHeight * MAX_LINES + 1) {
-      setColumns(columns - 2);
-    }
-  });
-
-  useEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    let width: number | null = null;
-    const watch = new ResizeObserver(([entry]) => {
-      const next = entry?.contentRect.width ?? 0;
-      if (width !== null && next !== width) {
-        setColumns(NAME_IN_LINE_COLUMNS);
-        measureAgain();
-      }
-      width = next;
-    });
-    watch.observe(element);
-    return () => watch.disconnect();
-  }, [line]);
-
-  const shown = within(columns);
   const whole = said.fullMessage ?? said.message;
   // No-break spaces join the message's last word, the dot and Undo, and they don't break inside
   // their span, so a wrapped line never leaves "· Undo" alone: Chinese can break after any
@@ -264,8 +210,8 @@ function ChangeLine({
   return (
     // Chinese wraps between words, at the quotes around a name, not inside a word (`break-keep`).
     <div ref={line} className={`${changeLineClass(inPill)} break-words break-keep`}>
-      <span data-testid="undo-message" title={shown === whole ? undefined : whole}>
-        {shown}
+      <span data-testid="undo-message" title={said.message === whole ? undefined : whole}>
+        {said.message}
       </span>
       <span className="whitespace-nowrap">
         <span aria-hidden="true">{"\u00A0·\u00A0"}</span>

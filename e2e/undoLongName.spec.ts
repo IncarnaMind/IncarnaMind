@@ -18,11 +18,11 @@ import {
 
 /*
  * The undo line after Move (into a Folder with a 70-character name too), Rename and Delete of a
- * Document with a 70-character name (#1122, #1154): the names are cut in the middle, shorter as
- * the room is less, so that the line takes two lines at most at the default sidebar width; the
- * line's own words and Undo stay whole, with the full names in the tooltip and in Undo's accessible
- * name. When the language switches while the line shows, the names are cut again for the new
- * words, as a line made in that language is. Set INCARNAMIND_SCREENSHOTS to a folder to also save
+ * Document with a 70-character name (#1122, #1154, D304): a name past about 40 columns is cut in
+ * the middle, its start and end kept; a shorter one shows whole and the line wraps, a third line
+ * allowed for a narrow pane or a wide system font. The line's own words and Undo stay whole, with
+ * the full names in the tooltip and in Undo's accessible name. A language switch rewrites the
+ * line's words; the names keep the same cut. Set INCARNAMIND_SCREENSHOTS to a folder to also save
  * screenshots.
  */
 
@@ -86,15 +86,6 @@ function outsideSidebar(line: Locator): Promise<string[]> {
   });
 }
 
-/** How many lines the words of `target` take: the distinct tops of their boxes. */
-function linesOf(target: Locator): Promise<number> {
-  return target.evaluate((element) => {
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
-  });
-}
-
 async function chooseFromRow(window: Page, command: string): Promise<void> {
   const row = window.getByTestId("library-document");
   await row.hover();
@@ -119,7 +110,7 @@ async function boxOf(target: Locator) {
   return box;
 }
 
-/** The line says its own words whole and its names cut in the middle, in two lines at most, with Undo level with its last. */
+/** The line says its own words whole and its names cut in the middle past the limit, with Undo level with its last words. */
 async function expectWholeLine(
   window: Page,
   names: readonly string[],
@@ -151,16 +142,15 @@ async function expectWholeLine(
     expect(accessible).toContain(name);
   }
 
-  // At the default sidebar width the line is two lines at most, and everything is inside the line.
-  const [lineBox, messageLines, messageBox, undoBox, sidebarBox] = await Promise.all([
+  // The line wraps as a narrow pane or a wide system font needs (a third line is allowed, D304);
+  // every word of it stays inside the sidebar and the line.
+  const [lineBox, messageBox, undoBox, sidebarBox] = await Promise.all([
     boxOf(line),
-    linesOf(message),
     textBoxOf(message),
     textBoxOf(undo),
     boxOf(sidebar),
   ]);
   expect(sidebarBox.width).toBeCloseTo(248, 0);
-  expect(messageLines).toBeLessThanOrEqual(2);
   expect(await outsideSidebar(message)).toEqual([]);
   expect(await outsideSidebar(undo)).toEqual([]);
   for (const box of [messageBox, undoBox]) {
@@ -179,7 +169,7 @@ async function expectWholeLine(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: after Move, Rename and Delete of a Document with a 70-character name, the undo line keeps its words and Undo whole, cuts the names in the middle and takes two lines at most, at 900 and 1,440 px`, async () => {
+  test(`${language}: after Move, Rename and Delete of a Document with a 70-character name, the undo line keeps its words and Undo whole, cuts the names in the middle and wraps as it needs, at 900 and 1,440 px`, async () => {
     test.setTimeout(90_000);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -230,18 +220,16 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-/** The line fits its room: two lines at most, all of it inside the sidebar. */
+/** The line keeps all of it inside the sidebar, however many lines it wraps to. */
 async function expectFits(line: Locator): Promise<void> {
   const message = line.getByTestId("undo-message");
-  expect(await linesOf(message)).toBeLessThanOrEqual(2);
   expect(await outsideSidebar(message)).toEqual([]);
   expect(await outsideSidebar(line.getByTestId("undo-action"))).toEqual([]);
 }
 
 /*
- * Each language leaves its own room for the names (its words are of another length, and English
- * breaks lines at spaces where Chinese breaks anywhere), so the same names are cut to different
- * lengths. Which language leaves more depends on how long the names are.
+ * The line's words follow its language; a name keeps the cut of its columns, whatever the words
+ * around it.
  */
 const SWITCHES = [
   { from: "en", to: "zh-CN", length: 69 },
@@ -250,7 +238,7 @@ const SWITCHES = [
 
 const PHRASE = "Quarterly review of harbour dues and the wider coastal levy schedule";
 
-test("a language switch while the undo line shows cuts its names again for the new words, as a line made in that language is, at 900 and 1,440 px", async () => {
+test("a language switch while the undo line shows says the line in the new language, with the same name cut, at 900 and 1,440 px", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir);
   try {
