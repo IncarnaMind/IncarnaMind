@@ -217,9 +217,11 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.waitForTimeout(520);
           await window.mouse.move(word.x, word.y, { steps: 3 });
           await window.mouse.down();
-          await window.mouse.move(beyond.x, beyond.y, { steps: 6 });
+          // Well past the character, as a browser can round a drag's end back to the boundary
+          // before the pointer (Linux does), which would leave that character out.
+          await window.mouse.move(beyond.x + 12, beyond.y, { steps: 6 });
           await window.mouse.up();
-          const draggedTail = await tailAt(window, beyond.x, beyond.y);
+          const draggedTail = await tailAt(window, beyond.x + 12, beyond.y);
           if (draggedTail === null) throw new Error("No place to end the drag.");
           const dragged = await selection(window);
           expect(dragged.covers).toBe(true);
