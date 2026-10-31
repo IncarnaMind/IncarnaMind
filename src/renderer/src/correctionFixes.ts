@@ -19,12 +19,15 @@ import {
   type ClaimPartSpan,
   type FigureFinding,
   GENERATED_MARK,
+  PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
   type RecordAiUseInput,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
 import { checkedCitation, checkWithParts } from "../../shared/claimParts";
 import { readFigures } from "../../shared/figures";
-import { targetHash } from "../../shared/proposals";
+import { readProposalAttribute, targetHash } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { citationClosingLength } from "./checks";
 import { core } from "./core";
@@ -82,6 +85,28 @@ function correctionsOf(
   );
 }
 
+/**
+ * Whether a change waiting for review covers these words: someone's tracked change from Word, or
+ * one asked for. Writing over it would drop it unreviewed.
+ */
+function underReview(state: EditorState, from: number, to: number): boolean {
+  const $from = state.doc.resolve(from);
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if (readProposalAttribute($from.node(depth).attrs[PROPOSAL_ATTRIBUTE])) return true;
+  }
+  let found = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    found ||=
+      readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]) !== null ||
+      node.marks.some(
+        (mark) =>
+          mark.type.name === PROPOSAL_INSERT_MARK || mark.type.name === PROPOSAL_DELETE_MARK,
+      );
+    return !found;
+  });
+  return found;
+}
+
 function editOf(
   state: EditorState,
   claim: ShownClaim,
@@ -99,7 +124,12 @@ function editOf(
   const at = start + index;
   const place = placeInSentence(state, claim, { from: at, to: at + old.length });
   // The old words alone, with no Citation or worked-out figure inside them that the edit would take.
-  if (!place || state.doc.textBetween(place.from, place.to, "\n", INLINE_NODE) !== old) return null;
+  if (
+    !place ||
+    state.doc.textBetween(place.from, place.to, "\n", INLINE_NODE) !== old ||
+    underReview(state, place.from, place.to)
+  )
+    return null;
   return { correction, choice, evidence, span, at, old, from: place.from, to: place.to };
 }
 

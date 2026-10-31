@@ -1714,3 +1714,71 @@ test.each([
     expect(correctionOf(result)?.choices[0]?.wording).toBe(wording);
   },
 );
+
+test.each([
+  {
+    claim: "Revenue was $1.5m in the year.",
+    figure: "$1.5m",
+    body: "Revenue was $1.2m ($1,200,000) in the year.",
+    number: "$1.2m",
+    from: "1.5",
+    to: "1,200,000",
+    language: "en" as const,
+    wording: "$1.2m",
+  },
+  {
+    claim: "Revenue was $1.5m in the year.",
+    figure: "$1.5m",
+    body: "Revenue was $1.2m in the year.",
+    number: "$1.2m",
+    from: "1.5",
+    to: "1.2",
+    language: "en" as const,
+    wording: "1.2",
+  },
+  {
+    claim: "营收为1.5亿元。",
+    figure: "1.5亿元",
+    body: "营收为1.2亿元（120,000,000元）。",
+    number: "1.2亿元",
+    from: "1.5",
+    to: "120,000,000元",
+    language: "zh-CN" as const,
+    wording: "1.2亿元",
+  },
+  {
+    claim: "营收为1.5亿元。",
+    figure: "1.5亿元",
+    body: "营收为1.2亿元。",
+    number: "1.2亿元",
+    from: "1.5",
+    to: "1.2",
+    language: "zh-CN" as const,
+    wording: "1.2",
+  },
+])(
+  "a figure's digits changed to $to give $wording: the Document's number, read whole (#1481)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: `Verdict: contradicted\nChange 1: ${each.from}\nTo 1: ${each.to} [^1]\nEvidence: [1]\nFigures: ${JSON.stringify(
+        {
+          items: [
+            {
+              ...item(),
+              verdict: "contradicted",
+              source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+            },
+          ],
+          remainder: null,
+        },
+      )}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+  },
+);

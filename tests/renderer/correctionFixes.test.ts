@@ -16,6 +16,7 @@ import {
   FOOTNOTE_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  PROPOSAL_DELETE_MARK,
 } from "../../src/core/api";
 import {
   applyCorrection,
@@ -820,4 +821,80 @@ describe("Correct a contradiction from the Documents", () => {
       "unsupported",
     ]);
   });
+});
+
+describe("Old words a correction leaves alone (#1481)", () => {
+  const cases = [
+    { language: "English", before: "The rate is ", old: "36.8%", after: "." },
+    { language: "Chinese", before: "增长率为", old: "36.8%", after: "。" },
+  ];
+  const deletionsIn = (editor: Editor) => {
+    const found: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.marks.some((mark) => mark.type.name === PROPOSAL_DELETE_MARK))
+        found.push(node.text ?? "");
+      return true;
+    });
+    return found;
+  };
+
+  test.each(cases)(
+    "in $language, words under someone's tracked deletion from Word keep it, and the same words without it are corrected",
+    ({ before, old, after }) => {
+      const text = `${before}${old}${after}`;
+      for (const tracked of [true, false]) {
+        const attrs = check(`rate-${tracked}`, text);
+        const deletion = { type: PROPOSAL_DELETE_MARK, attrs: { id: "word-1", request: "word" } };
+        const { editor } = editorWith([
+          {
+            type: "paragraph",
+            content: [
+              marked(before, attrs),
+              {
+                type: "text",
+                text: old,
+                marks: [{ type: CLAIM_CHECK_MARK, attrs }, ...(tracked ? [deletion] : [])],
+              },
+              marked(after, attrs),
+            ],
+          },
+        ]);
+        const shown = claim(editor, `rate-${tracked}`);
+
+        expect(correctionsFor(editor, shown)).toHaveLength(tracked ? 0 : 1);
+        expect(applyCorrection(editor, "mind", shown)).toBe(!tracked);
+        expect(deletionsIn(editor)).toEqual(tracked ? [old] : []);
+        expect(textOf(editor)).toBe(tracked ? text : `${before}38.6%${INLINE_NODE}${after}`);
+      }
+    },
+  );
+
+  test.each(cases)(
+    "in $language, old words with a Citation inside them stay, and old words with one after them are corrected",
+    ({ before, old, after }) => {
+      for (const inside of [true, false]) {
+        const attrs = check(`cited-${inside}`, `${before}${old}${after}`);
+        const source = citation(evidence("other", "Another quote."));
+        const { editor } = editorWith([
+          {
+            type: "paragraph",
+            content: inside
+              ? [
+                  marked(`${before}${old.slice(0, 2)}`, attrs),
+                  source,
+                  marked(`${old.slice(2)}${after}`, attrs),
+                ]
+              : [marked(`${before}${old}`, attrs), source, marked(after, attrs)],
+          },
+        ]);
+        const shown = claim(editor, `cited-${inside}`);
+        const unchanged = textOf(editor);
+
+        expect(correctionsFor(editor, shown)).toHaveLength(inside ? 0 : 1);
+        expect(applyCorrection(editor, "mind", shown)).toBe(!inside);
+        if (inside) expect(textOf(editor)).toBe(unchanged);
+        else expect(textOf(editor)).toContain(`${before}38.6%`);
+      }
+    },
+  );
 });

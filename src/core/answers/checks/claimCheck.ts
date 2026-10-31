@@ -1283,17 +1283,15 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         if (owner) {
           const deciding = checkedNumber(owner);
           const changes = (from: string, to: string) => {
-            const replacement = readFigures(to, context);
+            const first = request.claim.indexOf(from);
+            const written = writtenAt(request.claim, first, from, to, context) ?? [];
             return (
               readFigures(from, context).length === 1 &&
               writesOver(from, owner.reading.chars) &&
               (deciding
                 ? // The Document may write its number twice: 人民币九万八千元（¥98,000）.
-                  replacement.length > 0 &&
-                  replacement.every(
-                    (written) => Math.abs(written.value) === Math.abs(deciding.number.value),
-                  )
-                : replacement.length === 1 && replacement[0]?.unit.kind === owner.reading.unit.kind)
+                  written.some((each) => sameNumber(each, deciding.number))
+                : written.length === 1 && written[0]?.unit.kind === owner.reading.unit.kind)
             );
           };
           // The figure's own check already found the Document's number and its quote, so the
@@ -2101,7 +2099,81 @@ function checkedNumber(figure: FigureCheckResult): FigureInput | null {
     : null;
 }
 
-const HAN = /\p{Script=Han}/u;
+const scriptOf = (text: string): "han" | "latin" | null =>
+  /\p{Script=Han}/u.test(text) ? "han" : /\p{Script=Latin}/u.test(text) ? "latin" : null;
+
+/**
+ * Whether `wording` is in the language of the words it replaces, or of the nearest words around
+ * them when they have none: Claude Haiku 5.5 gave a Chinese sentence's 60日内 "within 30 days",
+ * and an English sentence that names 华信公司 "30日内" (#1481). Figures alone fit anywhere.
+ */
+function inLanguageAt(claim: string, first: number, end: number, wording: string): boolean {
+  const written = scriptOf(wording);
+  if (written === null) return true;
+  const nearest =
+    [...claim.slice(0, first)].reverse().find((char) => scriptOf(char) !== null) ??
+    [...claim.slice(end)].find((char) => scriptOf(char) !== null) ??
+    "";
+  return written === (scriptOf(claim.slice(first, end)) ?? scriptOf(nearest));
+}
+
+const sameNumber = (a: { value: number; unit: unknown }, b: { value: number; unit: unknown }) =>
+  Math.abs(a.value - b.value) <= 1e-9 * Math.max(1, Math.abs(a.value), Math.abs(b.value)) &&
+  JSON.stringify(a.unit) === JSON.stringify(b.unit);
+
+/**
+ * The figures the corrected sentence reads where the old words and any figure they were part of
+ * stood, or null when a figure the old words were part of doesn't read whole again: "1.5" of
+ * "1.5亿元" written as "120,000,000元" leaves 亿元 behind (#1481).
+ */
+function writtenAt(
+  claim: string,
+  first: number,
+  from: string,
+  wording: string,
+  context: FigureContext,
+): Figure[] | null {
+  const end = first + from.length;
+  const old = readFigures(claim, context).filter((each) => each.start < end && each.end > first);
+  const start = Math.min(first, ...old.map((each) => each.start));
+  const stop = Math.max(end, ...old.map((each) => each.end)) + wording.length - from.length;
+  const corrected = claim.slice(0, first) + wording + claim.slice(end);
+  const written = readFigures(corrected, context).filter(
+    (each) => each.start < stop && each.end > start,
+  );
+  const partOfOne = old.some((each) => each.start < first || each.end > end);
+  return partOfOne && (written[0]?.start !== start || written.at(-1)?.end !== stop)
+    ? null
+    : written;
+}
+
+/**
+ * Whether the corrected sentence reads, where the old words stood, the very numbers the quote
+ * reads in the same words, with their scale and sign: "1.5" of "$1.5m" written as "1,200,000"
+ * reads $1,200,000m, and "4,620.00" is not the quote's "(4,620.00)" (#1481).
+ */
+function readsAsQuote(
+  claim: string,
+  first: number,
+  from: string,
+  wording: string,
+  quote: string,
+  context: FigureContext,
+): boolean {
+  const written = writtenAt(claim, first, from, wording, context);
+  const at = quote.indexOf(wording);
+  if (written === null || at < 0) return false;
+  const quoted = readFigures(quote, documentFigureContext([{ text: quote }])).filter(
+    (each) => each.start < at + wording.length && each.end > at,
+  );
+  return (
+    written.length === quoted.length &&
+    written.every((each, index) => {
+      const same = quoted[index];
+      return same !== undefined && sameNumber(each, same);
+    })
+  );
+}
 
 /**
  * The Document's words as far as `quote` holds them, to the end of a clause: Claude Haiku 5.5 went
@@ -2183,10 +2255,8 @@ function correctionFor(
   const wordings = new Set<string>();
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
   const figure = figureOnly(read.from, context);
-  // Chinese words never take the place of words in a sentence without any: Claude Haiku 5.5 gave a
-  // Chinese lease's 30日内 for an English sentence's "60 days" (#1481).
-  const readable = (wording: string) => !HAN.test(wording) || HAN.test(sentence);
-  for (const stated of read.choices.filter((choice) => readable(choice.wording))) {
+  const end = first + read.from.length;
+  for (const stated of read.choices) {
     const inPlaceOf = (words: string) =>
       inPlace(claim.slice(0, first), claim.slice(first + read.from.length), words);
     const citation = finalCitation(stated.marker);
@@ -2199,6 +2269,8 @@ function correctionFor(
     const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
     const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
     const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
+    // Another Document's words in another language are left out, as a choice no one could take.
+    if (!inLanguageAt(claim, first, end, choice.wording)) continue;
     if (
       markers.has(choice.marker) ||
       choice.wording === "" ||
@@ -2209,8 +2281,8 @@ function correctionFor(
         claim.slice(0, first) + choice.wording + claim.slice(first + read.from.length),
       ) ||
       wordings.has(choice.wording) ||
-      !citation.quote.includes(choice.wording) ||
-      !namesPeriodsOf(claim, citation.quote)
+      !namesPeriodsOf(claim, citation.quote) ||
+      !readsAsQuote(claim, first, read.from, choice.wording, citation.quote, context)
     )
       return null;
     markers.add(choice.marker);

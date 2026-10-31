@@ -987,6 +987,159 @@ test("a figure's wording in another language than its quote is not cut at a thou
   expect(correctionIn(result)).toBeUndefined();
 });
 
+describe("A correction read again in its sentence (#1481)", () => {
+  test.each([
+    {
+      name: "a dollar figure's digits keep its scale",
+      claim: "Revenue was $1.5m in the year.",
+      from: "1.5",
+      to: "1,200,000",
+      quote: "Revenue was $1.2m ($1,200,000) in the year.",
+      wording: undefined,
+    },
+    {
+      name: "a dollar figure's digits written in its scale",
+      claim: "Revenue was $1.5m in the year.",
+      from: "1.5",
+      to: "1.2",
+      quote: "Revenue was $1.2m in the year.",
+      wording: "1.2",
+    },
+    {
+      name: "a whole dollar figure",
+      claim: "The base rent is $15,000 per month.",
+      from: "$15,000",
+      to: "$14,250",
+      quote: "The Tenant shall pay a base rent of $14,250 per month.",
+      wording: "$14,250",
+    },
+    {
+      name: "亿元 digits keep their scale",
+      claim: "营收为1.5亿元。",
+      from: "1.5",
+      to: "120,000,000元",
+      quote: "营收为1.2亿元（120,000,000元）。",
+      wording: undefined,
+    },
+    {
+      name: "万元 digits keep their scale",
+      claim: "月租金为9.5万元。",
+      from: "9.5",
+      to: "98,000",
+      quote: "月租金为98,000元。",
+      wording: undefined,
+    },
+    {
+      name: "亿元 digits written in their scale",
+      claim: "营收为1.5亿元。",
+      from: "1.5",
+      to: "1.2",
+      quote: "营收为1.2亿元。",
+      wording: "1.2",
+    },
+    {
+      name: "a number the Document writes twice",
+      claim: "月租金为人民币九万五千元。",
+      from: "人民币九万五千元",
+      to: "人民币九万八千元（¥98,000）",
+      quote: "月租金调整为人民币九万八千元（¥98,000）。",
+      wording: "人民币九万八千元（¥98,000）",
+    },
+    {
+      name: "a positive figure the Document brackets as negative",
+      claim: "The cash adjustment was 4,260.00.",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "The cash adjustment was (4,620.00).",
+      wording: undefined,
+    },
+    {
+      name: "a bracketed figure the Document writes as positive",
+      claim: "The cash adjustment was (4,620.00).",
+      from: "4,620.00",
+      to: "4,260.00",
+      quote: "The cash adjustment was 4,260.00.",
+      wording: undefined,
+    },
+    {
+      name: "a figure of the same sign",
+      claim: "The cash adjustment was 4,260.00.",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "The cash adjustment was 4,620.00.",
+      wording: "4,620.00",
+    },
+    {
+      name: "a 元 figure the Document brackets as negative",
+      claim: "现金调整额为4,260.00元。",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "现金调整额为(4,620.00)元。",
+      wording: undefined,
+    },
+    {
+      name: "a 元 figure of the same sign",
+      claim: "现金调整额为4,260.00元。",
+      from: "4,260.00",
+      to: "4,620.00",
+      quote: "现金调整额为4,620.00元。",
+      wording: "4,620.00",
+    },
+    {
+      name: "English words in a Chinese sentence",
+      claim: "押金在60日内退还。",
+      from: "60日内",
+      to: "within 30 days",
+      quote: "The Landlord shall return it within 30 days.",
+      wording: undefined,
+    },
+    {
+      name: "Chinese words in a Chinese sentence",
+      claim: "押金在60日内退还。",
+      from: "60日内",
+      to: "30日内",
+      quote: "押金在30日内退还。",
+      wording: "30日内",
+    },
+    {
+      name: "Chinese words in an English sentence that names 华信公司",
+      claim: "The deposit from 华信公司 is returned within 60 days.",
+      from: "60 days",
+      to: "30日内",
+      quote: "押金在30日内退还。",
+      wording: undefined,
+    },
+    {
+      name: "English words in an English sentence that names 华信公司",
+      claim: "The deposit from 华信公司 is returned within 60 days.",
+      from: "60 days",
+      to: "30 days",
+      quote: "The deposit is returned within 30 days.",
+      wording: "30 days",
+    },
+  ])("gives $wording for $name", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The Document gives another value.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      // The sentence's own words let its search find the quote in either language.
+      files: [{ name: "Accounts.md", contents: `${each.quote}\n${each.claim}` }],
+      dates: ["2026-01-01T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
 describe("A wording that goes on past its quote", () => {
   test.each([
     {
