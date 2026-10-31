@@ -20,12 +20,17 @@ import {
   type CitationAttributes,
   FOOTNOTE_NODE,
   QUESTION_BLOCK,
+  WORD_ATOM_NODE,
 } from "../../../core/api";
 import { citationReference } from "../../../shared/citations";
+import { noteCopies } from "./noteCopies";
 import { asOwnUndoStep } from "./selectionCommands";
 
-/** What a footnote's text holds: text with its marks, line breaks, and Citations. */
-export const FOOTNOTE_CONTENT = `(text | hardBreak | ${CITATION_NODE})*`;
+/**
+ * What a footnote's text holds: text with its marks, line breaks, Citations,
+ * and, in a Word file's note, what the import keeps as is (#746).
+ */
+export const FOOTNOTE_CONTENT = `(text | hardBreak | ${CITATION_NODE} | ${WORD_ATOM_NODE})*`;
 
 export interface FootnoteOptions {
   /** Draws the footnote's marker: its number, and what clicking it does. */
@@ -66,6 +71,24 @@ export const Footnote = Node.create<FootnoteOptions>({
 
   addOptions() {
     return { view: null };
+  },
+
+  addAttributes() {
+    return {
+      source: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-word-source"),
+        renderHTML: (attributes: Record<string, unknown>) =>
+          typeof attributes.source === "string" ? { "data-word-source": attributes.source } : {},
+      },
+      endnote: {
+        default: null,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-endnote") === "true" ? true : null,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.endnote === true ? { "data-endnote": "true" } : {},
+      },
+    };
   },
 
   parseHTML() {
@@ -111,7 +134,7 @@ export const Footnote = Node.create<FootnoteOptions>({
   },
 
   addProseMirrorPlugins() {
-    return [openFootnotePlugin()];
+    return [openFootnotePlugin(), noteCopies()];
   },
 });
 

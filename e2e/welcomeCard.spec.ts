@@ -15,6 +15,7 @@ import {
   gettingStarted,
   interceptOpenDialog,
   launchApp,
+  linkedFolderRow,
   nameMind,
   newMind,
   openPageMenu,
@@ -268,10 +269,35 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
       const { mindId } = await bridge.getExamples();
       if (mindId) await bridge.deleteMind(mindId);
     });
-    // The one row goes with its Mind: its Documents and its Linked folder row stay reachable.
+    // The one row goes with its Mind; its Linked folder row opens the Library on that folder's
+    // Documents, the examples' included.
     await expect(window.getByTestId("example-section")).toHaveCount(0);
-    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(3);
+    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
     await expect(window.getByTestId("linked-folders-section")).toBeVisible();
+    const exampleDocuments = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const examples = await bridge.getExamples();
+      return (await bridge.listDocuments())
+        .filter((doc) => doc.linkedFolderId === examples.linkedFolderId)
+        .map((doc) => doc.name);
+    });
+    expect(exampleDocuments).toHaveLength(2);
+    await linkedFolderRow(window, "Examples").getByTestId("linked-folder-open").click();
+    const library = window.getByTestId("library");
+    await expect(library).toBeVisible();
+    // The view's count is its rows, never the Library's own count plus the examples'.
+    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
+    const rows = library.getByTestId("library-document");
+    await expect(rows).toHaveCount(2);
+    expect((await rows.getByTestId("library-document-name").allInnerTexts()).sort()).toEqual(
+      [...exampleDocuments].sort(),
+    );
+    await expect(library.getByTestId("library-no-match")).toHaveCount(0);
+    // The view counts the source's own Documents before the search, so the header holds while
+    // the rows narrow to one.
+    await library.getByTestId("library-search").fill("Q3");
+    await expect(rows).toHaveCount(1);
+    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
   } finally {
     await app.close();
     await removeDataFolder(sources);

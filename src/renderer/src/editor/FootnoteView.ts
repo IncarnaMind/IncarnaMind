@@ -4,9 +4,10 @@ import type { Decoration } from "@tiptap/pm/view";
 import { BLOCK_ID_ATTRIBUTE } from "../../../core/api";
 import { footnoteNumberOf } from "./citationNumbers";
 import { footnoteText, openFootnote } from "./footnoteSchema";
+import { noteMarker } from "./noteLabels";
 
-/** How a footnote's marker is named to the User: its number and the start of its text. */
-export type FootnoteLabel = (number: number, text: string) => string;
+/** How a footnote's marker is named to the User: its number as it shows, and the start of its text. */
+export type FootnoteLabel = (shown: string, text: string, endnote: boolean) => string;
 
 /** A footnote's text as its marker's tooltip shows it: one line, cut short. */
 const preview = (node: ProseMirrorNode) => {
@@ -49,8 +50,11 @@ export function footnoteView(label: () => FootnoteLabel): NodeViewRenderer {
       const id: unknown = node.attrs[BLOCK_ID_ATTRIBUTE];
       if (typeof id === "string") dom.dataset.footnoteId = id;
       dom.dataset.number = String(number);
-      marker.textContent = number > 0 ? String(number) : "·";
-      const name = label()(number, preview(node));
+      const endnote = node.attrs.endnote === true;
+      dom.classList.toggle("footnote--endnote", endnote);
+      const shown = noteMarker(editor, number, endnote);
+      marker.textContent = shown;
+      const name = label()(shown, preview(node), endnote);
       marker.setAttribute("aria-label", name);
       marker.title = name;
     };
