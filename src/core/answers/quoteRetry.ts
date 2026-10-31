@@ -22,7 +22,7 @@
  *   ("checking-quotes"), and its end reports it (`AnswerFinished.quoteRetry`),
  *   so the evaluation counts the requests, what they recovered and their time.
  */
-import { jsonSchema, Output, parsePartialJson, streamText } from "ai";
+import { jsonSchema, Output, streamText } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
 import { markedSentence, wordsOf } from "./markerPlacement";
@@ -138,13 +138,27 @@ const correctionsSchema = jsonSchema<{ quotes: unknown }>({
   required: ["quotes"],
 });
 
-/** The reply's JSON, even inside a Markdown code fence or after thinking; undefined if there is none. */
+/**
+ * The reply's JSON, even inside a Markdown code fence, after thinking or among other words;
+ * undefined if there is none that parses whole. JSON that is cut off is never repaired (#2275): a
+ * repaired record would hold a quote or figure cut short.
+ */
 export async function replyJson(raw: string): Promise<unknown> {
   const json = raw
     .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "")
     .replace(/^\s*```(?:json)?[ \t]*\n?/i, "")
     .replace(/\n?```\s*$/, "");
-  return (await parsePartialJson(json)).value;
+  const whole = (text: string) => {
+    try {
+      return { value: JSON.parse(text) as unknown };
+    } catch {
+      return null;
+    }
+  };
+  const start = json.search(/[[{]/);
+  const end = Math.max(json.lastIndexOf("}"), json.lastIndexOf("]"));
+  return (whole(json) ?? (start >= 0 && end > start ? whole(json.slice(start, end + 1)) : null))
+    ?.value;
 }
 
 /** The records to ask about, with their sentences in `answer`: those whose marker is in it. */

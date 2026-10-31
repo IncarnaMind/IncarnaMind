@@ -110,7 +110,7 @@ describe("a failed Answer's problem line", () => {
       line: "answer.error.cost-cap",
       fix: { kind: "settings", page: "general", label: "answer.error.changeCap" },
     });
-    expect(translate("en", "answer.error.cost-cap")).toBe("Monthly cap reached");
+    expect(translate("en", "answer.error.cost-cap")).toBe("Could pass your monthly cap");
     expect(translate("en", "answer.error.changeCap")).toBe("Change cap");
   });
 

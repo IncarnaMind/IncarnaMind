@@ -5,11 +5,9 @@ import { shortcutLabel } from "../../commands/keymap";
 import { type CommandContext, commands, isEnabled, offered } from "../../commands/registry";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { findTab } from "../../tabs";
 import { MoreLineIcon } from "../lineIcons";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
-import { LookMenuItems } from "./LookMenu";
 
 /** One item of a tab's or group's menu, which runs a command, or a rule between them. */
 type Item =
@@ -68,14 +66,13 @@ function MenuItems({
   });
 }
 
-/** The ⋯ at a group strip's end: what applies to the group and its shown tab. */
+/** The ⋯ at a group strip's end: what applies to the group. */
 export function GroupMenu({ groupId, merged }: { groupId: string; merged: boolean }) {
   const t = useT();
   const menu = usePopoverMenu();
   const layout = useAppStore((state) => state.layout);
   const group = layout?.groups.find((each) => each.id === groupId);
   const full = (layout?.groups.length ?? 0) >= MAX_TAB_GROUPS;
-  const shown = group?.activeTabId ? findTab(layout, group.activeTabId)?.item : undefined;
   const items: (Item | false)[] =
     menu.open && group
       ? [
@@ -111,9 +108,6 @@ export function GroupMenu({ groupId, merged }: { groupId: string; merged: boolea
         data-testid="group-menu-items"
         className={menuClass}
       >
-        {menu.open && shown?.kind === "mind" && group?.activeTabId && (
-          <LookMenuItems mindId={shown.mindId} tabId={group.activeTabId} close={menu.close} />
-        )}
         <MenuItems
           items={items}
           // An empty group has no tab to act on.

@@ -993,6 +993,26 @@
   .tab-split {
     display: contents;
   }
+  /* The ⌄ after "+", shown only while a tab is hidden: round, as "+" is. */
+  .tab-show-all {
+    display: none;
+    width: 28px;
+    padding: 0;
+    border-radius: 9999px;
+  }
+  .tab-strip:where([data-fit="cut"]) .tab-show-all {
+    display: flex;
+  }
+  /*
+   * The room a full strip makes for its tabs, each step only while the one before isn't enough
+   * (#2244, set by useTabStripFit): Export's label first, then Split, which stays in every menu.
+   */
+  .tab-strip:where([data-fit]) .tab-export > span {
+    display: none;
+  }
+  .tab-strip:where([data-fit="split"], [data-fit="cut"]) .tab-split {
+    display: none;
+  }
   /* A narrow group keeps Split in its ⋯ menu. */
   @container group (width < 420px) {
     .tab-split {
@@ -5196,8 +5216,8 @@
   }
   .margin-check {
     position: absolute;
-    /* The check column: each mark's left edge `--check-gap` after the measure's right edge. */
-    left: var(--check-gap);
+    /* `MarginChecks` places each mark from `--check-gap`, side by side with the marks of the
+       sentences that start on its line (DESIGN.md, Check marks). */
     display: flex;
     align-items: center;
     gap: 2px;

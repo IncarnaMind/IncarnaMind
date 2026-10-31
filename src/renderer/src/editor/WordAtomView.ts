@@ -5,6 +5,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { INVISIBLE_WORD_ATOMS, readWordAtom } from "../../../shared/wordFiles";
 import { languageNow, translateNow } from "../i18n";
 import { pageDate } from "../webPages";
+import { WORD_LOOK_DOM_ATTRIBUTE } from "./wordSchema";
 
 /** Atoms drawn as a box on a line of their own, as Word places them. */
 const BOXED: ReadonlySet<WordAtomKind> = new Set(["textBox", "shape", "smartArt", "chart"]);
@@ -152,8 +153,18 @@ export const wordBlockView: NodeViewRenderer = ({ node: initial }) => {
   dom.contentEditable = "false";
   const draw = (node: ProseMirrorNode) => {
     const atom = readWordAtom(node.attrs);
-    dom.replaceChildren(boxLabel(atom), ...boxLines(atom));
+    const lines = boxLines(atom);
+    const looks = atom.info?.looks;
+    // Each line in its paragraph's look, which the Word look draws at the file's height.
+    if (looks) {
+      lines.forEach((line, at) => {
+        const key = looks[Math.min(at, looks.length - 1)];
+        if (key) line.setAttribute(WORD_LOOK_DOM_ATTRIBUTE, key);
+      });
+    }
+    dom.replaceChildren(boxLabel(atom), ...lines);
     dom.className = "word-block";
+    dom.toggleAttribute("data-word-lines", Boolean(looks));
     dom.dataset.kind = atom.kind;
     dom.dataset.testid = "word-block";
     const description = describe(atom);
