@@ -1,36 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Mind } from "../../core/api";
-import { answerBlocks, hasText } from "../../shared/answerBlocks";
 import { useChecks } from "./checks";
 import { useConversations } from "./conversations";
-import { core } from "./core";
-import { chooseHomeNextStep, type HomeAnswer, type HomeSavedWord, ownAnswer } from "./homeNextStep";
+import { chooseHomeNextStep, type HomeSavedWord, shownAnswer } from "./homeNextStep";
 import type { NoteReading } from "./noteState";
 import { allExamples, isOwnDocument, useAppStore } from "./store";
 
-const ANSWER_SAVED_MS = 500;
-
-/** A save in a note changes no Answer: only the conversations' own writes reload their messages. */
-function useConversationChanges(): number {
-  const [saves, setSaves] = useState(0);
-  useEffect(() => {
-    let pause: ReturnType<typeof setTimeout> | undefined;
-    const later = () => {
-      clearTimeout(pause);
-      pause = setTimeout(() => setSaves((count) => count + 1), ANSWER_SAVED_MS);
-    };
-    const stop = core.on("conversation.message", later);
-    return () => {
-      clearTimeout(pause);
-      stop();
-    };
-  }, []);
-  return saves;
-}
-
 /**
  * Home's next step from the data Home already has: the User's most recently updated own note,
- * their own Answers no note holds, and the state of their notes. Null while that is not known.
+ * the Answer in the assistant that no note holds, and the state of their notes. Null while that
+ * is not known.
  */
 export function useHomeNextStep(
   minds: readonly Mind[],
@@ -38,69 +17,33 @@ export function useHomeNextStep(
   exported: boolean,
   saved: HomeSavedWord | null,
 ) {
-  const conversations = useConversations((state) => state.list);
+  const messages = useConversations((state) => state.messages);
+  const folded = useAppStore((state) => state.layout?.assistant.folded ?? false);
   const examples = useAppStore((state) =>
     allExamples(state)
       .map((each) => each.answerId ?? "")
       .join("|"),
   );
-  const revision = useConversationChanges();
   const running = useChecks((state) => state.running);
   const problems = useChecks((state) => state.problems);
   const hasDocuments = useAppStore((state) =>
     state.documents.some((document) => isOwnDocument(document, allExamples(state))),
   );
-  const [made, setMade] = useState<HomeAnswer[] | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a saved change can finish an Answer without changing the list.
-  useEffect(() => {
-    let current = true;
-    const examplesNow = () =>
-      new Set(allExamples(useAppStore.getState()).flatMap((each) => each.answerId ?? []));
-    Promise.all(conversations.map((conversation) => core.getConversation(conversation.id)))
-      .then((contents) => {
-        if (!current) return;
-        const excluded = examplesNow();
-        setMade(
-          contents.flatMap(({ messages }) =>
-            messages.flatMap((answer) =>
-              answer.kind === "answer" &&
-              ownAnswer(answer, excluded) &&
-              hasText(answerBlocks(answer))
-                ? [
-                    {
-                      id: answer.id,
-                      conversationId: answer.conversationId,
-                      updatedAt: answer.updatedAt,
-                    },
-                  ]
-                : [],
-            ),
-          ),
-        );
-      })
-      .catch((error: unknown) => {
-        if (current) useAppStore.getState().reportError(error);
-      });
-    return () => {
-      current = false;
-    };
-  }, [conversations, examples, revision]);
   const filed = useMemo(
     () => new Set([...notes.values()].flatMap((note) => [...note.filedAnswers])),
     [notes],
   );
-  const answers = useMemo(
-    () => (made === null ? null : made.filter((answer) => !filed.has(answer.id))),
-    [made, filed],
+  const answer = useMemo(
+    () => shownAnswer(messages, folded, new Set(examples.split("|")), filed),
+    [messages, folded, examples, filed],
   );
   const latest = minds[0];
-  if (answers === null) return null;
   // Still reading that note, or its content this version can't read: no step rather than a wrong one.
   const reading = latest ? notes.get(latest.id) : undefined;
   if (latest && !reading) return null;
   return chooseHomeNextStep({
     hasDocuments,
-    answers,
+    answers: answer ? [answer] : [],
     note:
       latest && reading
         ? {

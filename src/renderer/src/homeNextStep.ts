@@ -1,4 +1,5 @@
-import type { ConversationAnswer, Mind } from "../../core/api";
+import type { ConversationAnswer, ConversationMessage, Mind } from "../../core/api";
+import { answerBlocks, hasText } from "../../shared/answerBlocks";
 import type { NoteHealth } from "./editor/healthCounts";
 import type { NoteState } from "./noteState";
 
@@ -38,6 +39,30 @@ export const ownAnswer = (
   answer: Pick<ConversationAnswer, "id" | "status" | "steps">,
   examples: ReadonlySet<string>,
 ): boolean => answer.status === "done" && !isExampleAnswer(answer, examples);
+
+/**
+ * The Answer Home may offer to write: the User's newest own one with text that no note holds, in
+ * the conversation the assistant shows, and none while it is folded. Home never writes an Answer
+ * the User can't read first (#2291), such as one from before a relaunch, which opens on a new chat.
+ */
+export function shownAnswer(
+  messages: readonly ConversationMessage[],
+  folded: boolean,
+  examples: ReadonlySet<string>,
+  filed: ReadonlySet<string>,
+): HomeAnswer | null {
+  if (folded) return null;
+  const answers = messages.filter(
+    (each): each is ConversationAnswer =>
+      each.kind === "answer" && ownAnswer(each, examples) && !filed.has(each.id),
+  );
+  // Newest first, so the text of only the one offered is read, not every Answer on each token.
+  answers.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const answer = answers.find((each) => hasText(answerBlocks(each)));
+  return answer
+    ? { id: answer.id, conversationId: answer.conversationId, updatedAt: answer.updatedAt }
+    : null;
+}
 
 /**
  * The one step Home offers, from the newer of the User's latest unfiled Answer and their most

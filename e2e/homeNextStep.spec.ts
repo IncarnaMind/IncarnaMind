@@ -4,7 +4,9 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  addDocuments,
   askInAssistant,
+  assistantAnswers,
   useOutputLocation as chooseOutputLocation,
   useLocalChatModel as connectLocalChatModel,
   coreOf,
@@ -14,6 +16,7 @@ import {
   interceptOpenDialog,
   interceptOpenPath,
   launchApp,
+  motionRunning,
   nameMind,
   newMind,
   pathsOpened,
@@ -216,3 +219,82 @@ for (const language of ["en", "zh-CN"] as const)
       }
     });
   }
+
+async function reopenFromPalette(window: Page, name: string) {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(name);
+  const found = window
+    .getByTestId("palette")
+    .locator('[data-testid="palette-group"][data-group="conversations"]')
+    .getByTestId("palette-item")
+    .first();
+  await expect(found).toContainText(name);
+  await found.click();
+  await expect(window.getByTestId("palette")).toBeHidden();
+  await expect.poll(() => motionRunning(window)).toBe(0);
+}
+
+for (const language of ["en", "zh-CN"] as const)
+  test(`Home offers to write an Answer only while the assistant shows it, across a relaunch (${language})`, async () => {
+    test.setTimeout(120_000);
+    const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+    const question = language === "en" ? "Payment terms" : "付款条件";
+    const minds = async (window: Page) =>
+      (await coreOf(window)).evaluate(async (core) => (await core.listMinds()).length);
+    let { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await connectLocalChatModel(window);
+      const path = join(sources, "Tides.pdf");
+      await writeFile(path, TIDES);
+      await addDocuments(window, [path]);
+      await goHome(window);
+      const answer = await askInAssistant(window, question);
+      const answerId = await answer.getAttribute("data-answer-id");
+      await expect(await shown(window, "write")).toHaveText(t("home.next.write"));
+
+      // The Answer leaves the assistant, folded or for a new chat, and the offer goes with it.
+      await runCommand(window, "assistant.fold", t("command.assistant.fold"));
+      await expect(answer).toBeHidden();
+      await expect(await shown(window, "ask")).toHaveText(t("home.next.ask"));
+      await runCommand(window, "assistant.fold", t("command.assistant.unfold"));
+      await expect(answer).toBeVisible();
+      await shown(window, "write");
+      await runCommand(window, "assistant.newChat", t("assistant.newChat"));
+      await expect(assistantAnswers(window)).toHaveCount(0);
+      await shown(window, "ask");
+      await app.close();
+
+      ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
+      await expect(window.getByTestId("home")).toBeVisible();
+      await expect(window.getByTestId("assistant-title")).toHaveText(t("conversation.untitled"));
+      await expect(assistantAnswers(window)).toHaveCount(0);
+      await expect
+        .poll(async () =>
+          (await coreOf(window)).evaluate(async (core) => (await core.listConversations()).length),
+        )
+        .toBe(1);
+      await picture(window, `home-offer-relaunch-${language}`);
+      await expect(await shown(window, "ask")).toHaveText(t("home.next.ask"));
+      const before = await minds(window);
+
+      // Opened again, the Answer is on screen, and the offer writes exactly that one.
+      await reopenFromPalette(window, question);
+      const again = window
+        .getByTestId("assistant")
+        .locator(`[data-testid="assistant-answer"][data-answer-id="${answerId}"]`);
+      await expect(again).toBeVisible();
+      const write = await shown(window, "write");
+      await picture(window, `home-offer-reopened-${language}`);
+      await write.click();
+      await expect.poll(() => minds(window)).toBe(before + 1);
+      await expect(window.getByTestId("mind-editor")).toContainText(
+        `scripted Answer to: ${question}`,
+      );
+      await expect(again).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
