@@ -69,7 +69,13 @@ export function AgentPairingRow({
 
   // The Folders as the User just chose them, shown at once; the core's answer then replaces them.
   const [chosen, setChosen] = useState(pairing.folderIds);
-  useEffect(() => setChosen(pairing.folderIds), [pairing.folderIds]);
+  // What the core said last, which a refused change goes back to: the Folders as they were when
+  // it was asked can be older than an agents.changed that came meanwhile (#2302).
+  const said = useRef(pairing.folderIds);
+  useEffect(() => {
+    said.current = pairing.folderIds;
+    setChosen(pairing.folderIds);
+  }, [pairing.folderIds]);
   const rows = useAgentFolderRows(open === "folders");
   const names = [
     ...folders.filter((folder) => chosen.includes(folder.id)).map((folder) => folder.name),
@@ -79,7 +85,7 @@ export function AgentPairingRow({
     const next = on ? [...chosen, folderId] : chosen.filter((id) => id !== folderId);
     setChosen(next);
     core.updateAgent(pairing.id, { folderIds: next }).catch((error: unknown) => {
-      setChosen(pairing.folderIds);
+      setChosen(said.current);
       reportError(error);
     });
   };

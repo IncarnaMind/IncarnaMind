@@ -188,6 +188,8 @@ export type RequestFailure =
   | { kind: "dead-markers"; markers: number[] }
   | { kind: "tool-text"; blocks: string[] }
   | { kind: "uncovered"; documents: string[] }
+  /** Asked about every Document in scope, it cited Documents outside it: the example's. */
+  | { kind: "cited-outside"; documents: number }
   | { kind: "outside"; blocks: number[] }
   | { kind: "beside" }
   | { kind: "untouched" }
@@ -410,13 +412,62 @@ export function givesUpOnCalculating(reply: string): string | null {
   );
 }
 
+// "Left for the next summary" says it wasn't covered as plainly as "not covered" does (#894).
 const NOT_COVERED =
-  /\b(?:couldn't|could not|can't|cannot|didn't|did not|wasn't|weren't|isn't|aren't|not|no|unable|left out|missing|skipped)\b|没有|未能|未|无法|不能|缺少|略去/i;
+  /\b(?:couldn't|could not|can't|cannot|didn't|did not|doesn't|does not|don't|do not|haven't|have not|hasn't|has not|wasn't|weren't|isn't|aren't|not|no|unable|left out|left for|for later|next (?:summary|one|batch|round|time)|missing|skipped)\b|没有|未能|未|无法|不能|缺少|略去|留待|留到|稍后|下次|下一次|下一轮|之后再/i;
+
+const SENTENCE_END = /(?<=[.!?])\s+|(?<=[。！？])/;
+const LIST_ITEM = /^\s*(?:[-*•]\s+|\d+[.)]\s+|\d+、\s*|[①-⑳]\s*)/;
+
+/** The reply's sentences, each list item read with the sentence or heading that leads into it ("These are left for the next summary:"). */
+function sentencesOf(reply: string): string[] {
+  const sentences: string[] = [];
+  let lead = "";
+  for (const line of reply.split("\n")) {
+    if (line.trim() === "") continue;
+    if (LIST_ITEM.test(line)) {
+      sentences.push(`${lead} ${line}`);
+      continue;
+    }
+    const own = line.split(SENTENCE_END);
+    sentences.push(...own);
+    const last = own.at(-1) ?? "";
+    lead = /[:：]\s*$/.test(last) || NOT_COVERED.test(last) ? last : "";
+  }
+  return sentences;
+}
 
 function namedAsUncovered(reply: string, name: string): boolean {
-  return reply
-    .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
-    .some((sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence));
+  return sentencesOf(reply).some(
+    (sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence),
+  );
+}
+
+/**
+ * What an Answer did with each Document in scope, by name: cited it (in its reply or a Mind it
+ * wrote), named it in its reply as not covered, or neither (`unsaid`); and how many Documents
+ * outside its scope it cited, the example's when the example is there.
+ */
+export function documentsCovered(outcome: RequestOutcome): {
+  cited: string[];
+  named: string[];
+  unsaid: string[];
+  outside: number;
+} {
+  const cited = new Set([
+    ...outcome.answer.citations.map((citation) => citation.documentId),
+    ...outcome.citedInMinds,
+  ]);
+  const inScope = new Set(outcome.scoped.map((document) => document.id));
+  const covered = outcome.scoped.filter((document) => cited.has(document.id));
+  const rest = outcome.scoped.filter((document) => !cited.has(document.id));
+  const named = rest.filter((document) => namedAsUncovered(outcome.answer.text, document.name));
+  return {
+    cited: covered.map((document) => document.name),
+    named: named.map((document) => document.name),
+    unsaid: rest.filter((document) => !named.includes(document)).map((document) => document.name),
+    outside: [...cited].filter((id) => !inScope.has(id)).length,
+  };
 }
 
 /**
@@ -589,16 +640,9 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const shaped = toolTextIn(answer.text);
   if (shaped.length > 0) failures.push({ kind: "tool-text", blocks: shaped });
   if (expected.coverAll) {
-    const cited = new Set([
-      ...answer.citations.map((citation) => citation.documentId),
-      ...outcome.citedInMinds,
-    ]);
-    const uncovered = outcome.scoped
-      .filter(
-        (document) => !cited.has(document.id) && !namedAsUncovered(answer.text, document.name),
-      )
-      .map((document) => document.name);
-    if (uncovered.length > 0) failures.push({ kind: "uncovered", documents: uncovered });
+    const { unsaid, outside } = documentsCovered(outcome);
+    if (unsaid.length > 0) failures.push({ kind: "uncovered", documents: unsaid });
+    if (outside > 0) failures.push({ kind: "cited-outside", documents: outside });
   }
   if (expected.only !== undefined) {
     const outside = outcome.changedBlocks.filter((block) => block !== expected.only);
@@ -793,6 +837,8 @@ export function failureLine(failure: RequestFailure): string {
       return `shows a Tool's call written as text: ${failure.blocks.map((block) => `“${block.slice(0, 60)}”`).join(", ")}`;
     case "uncovered":
       return `neither cites nor names as left out ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "cited-outside":
+      return `cites ${failure.documents} Document${failure.documents === 1 ? "" : "s"} outside its scope`;
     case "outside":
       return `changed what it was asked to leave: Block ${failure.blocks.map((block) => block + 1).join(", ")}`;
     case "beside":

@@ -40,6 +40,7 @@ import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
 import type { EverydayCase } from "./cases";
 import {
+  documentsCovered,
   givenToMindsOf,
   pointersIn,
   type RequestFailure,
@@ -181,6 +182,8 @@ export interface CaseResult {
   support: SentenceSupport[] | null;
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
+  /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
+  covered?: ReturnType<typeof documentsCovered>;
   /** Arm C (./decisions): what the decision model chose for the request, and how many of its model requests were forced; absent in arms A and B. */
   decision?: { choice: Route; confidence: number; forced: number };
 }
@@ -626,6 +629,7 @@ export async function runCase(
     asks,
     support,
     claims: each.summary ? citedClaims(answer.text) : null,
+    ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {
       decision: { choice: decision.choice, confidence: decision.confidence, forced },
     }),
