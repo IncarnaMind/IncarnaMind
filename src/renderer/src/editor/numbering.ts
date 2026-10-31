@@ -251,10 +251,9 @@ export const Numbering = Extension.create<object, NumberingStorage>({
             },
             renderHTML: (attributes: Record<string, unknown>) => {
               const level = Number(attributes[START_LEVEL_ATTRIBUTE] ?? Number.NaN);
-              if (!Number.isInteger(level) || level < 0) return {};
-              return level > 0
+              return Number.isInteger(level) && level >= 0
                 ? { "data-start-level": String(level), style: `--start-level: ${level}` }
-                : { "data-start-level": "0" };
+                : {};
             },
           },
           [CONTINUES_ATTRIBUTE]: {

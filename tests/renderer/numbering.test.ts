@@ -308,7 +308,7 @@ describe("Typing a marker", () => {
 });
 
 describe("A list that starts deeper", () => {
-  // protects=Shift-Tab of a whole list back to the first level stores 0, a level the User chose, and the editor's HTML keeps it; fails_when=it stores nothing, which reads the same as a list imported from Word before lists kept their level, so the Word file keeps the deeper level; no_claim=a list that never started deeper, which stores nothing.
+  // protects=Shift-Tab of a whole list back to the first level stores 0, a level the User chose, and the editor's HTML keeps it with the indent the first level has; fails_when=it stores nothing, which reads the same as a list imported from Word before lists kept their level, so the Word file keeps the deeper level, or it writes no --start-level, so the list loses its indent and its markers hang outside the text column; no_claim=a list that never started deeper, which stores nothing.
   test("Shift-Tab back to the first level keeps 0 as the list's start level", () => {
     const editor = editorWith([ordered({ numbering: "chinese", startLevel: 1 }, item("A"))]);
     caretIn(editor, "A");
@@ -321,7 +321,10 @@ describe("A list that starts deeper", () => {
     html.appendChild(
       DOMSerializer.fromSchema(schema).serializeFragment(editor.state.doc.content, { document }),
     );
-    expect(html.innerHTML).toContain('data-start-level="0"');
+    // The list's indent is computed from --start-level, so 0 must be written too, or it has none.
+    const list = html.querySelector("ol");
+    expect(list?.getAttribute("data-start-level")).toBe("0");
+    expect(list?.getAttribute("style")).toBe("--start-level: 0");
     const copied = ProseMirrorDOMParser.fromSchema(schema).parse(html);
     expect(copied.firstChild?.attrs.startLevel).toBe(0);
   });
