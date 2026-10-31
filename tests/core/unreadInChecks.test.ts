@@ -694,6 +694,20 @@ describe("A workbook read in part", () => {
         .filter((unit) => unit.label?.sheet === "Visible" || unit.label?.sheet === "Big")
         .map((unit) => [unit.page, unit.text]);
     expect(visible(after.pages)).toEqual(visible(before.pages));
+    // A Citation made before the re-read still finds its quote at its Unit numbers.
+    const quoted = before.pages.find(
+      (unit) => unit.label?.sheet === "Big" && unit.text.includes("R7777"),
+    );
+    if (!quoted) throw new Error("No Big sheet Unit.");
+    expect(
+      await core.readableQuote({
+        documentId: budget.id,
+        contentHash: budget.contentHash,
+        pageFrom: quoted.page,
+        pageTo: quoted.page,
+        quote: "R7777",
+      }),
+    ).toBe("R7777");
 
     const found = (await core.listUnreadFiles(null)).find((file) => file.name === BUDGET);
     expect(found).toMatchObject({
