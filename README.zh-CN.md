@@ -15,7 +15,7 @@
 
 <p align="center">免费开源的桌面应用，支持 macOS、Windows 和 Linux。<br>基于你自己的文件写作、提问、分析表格、做会议笔记，<br>再把每一句话、每一个数字对照它出自的那一页核对。</p>
 
-<p align="center">不用注册账号。可用 ChatGPT、Claude、Gemini，或通过 Ollama 用本地模型。</p>
+<p align="center">不用注册 IncarnaMind 账号。可用 ChatGPT、Claude、Gemini，或通过 Ollama 用本地模型。</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-zh.svg" width="131" height="40" alt="下载测试版"></a>&nbsp;&nbsp;<a href="https://tally.so/r/LZA5aG?ref=readme-zh"><img src="docs/images/notify-zh.svg" width="187" height="40" alt="alpha 上线时通知我"></a></p>
 

@@ -15,7 +15,7 @@
 
 <p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
 
-<p align="center">No account needed. Works with ChatGPT, Claude, Gemini or a local model through Ollama.</p>
+<p align="center">No IncarnaMind account needed. Works with ChatGPT, Claude, Gemini or a local model through Ollama.</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
