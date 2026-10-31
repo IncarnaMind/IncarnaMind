@@ -114,6 +114,19 @@ function keptToItsQuote(first: string): Record<string, unknown> | null {
   return passage ? (recordFor(passage, quote, 1)?.record ?? null) : null;
 }
 
+/**
+ * A table's row the scripted Answers write gives figures the Passage its Citation quotes holds:
+ * each number of the sentence is in that Passage, so the row is supported.
+ */
+function numbersAllCited(sentence: string, first: string): boolean {
+  if (!/^The User cites this for it/m.test(first)) return false;
+  const numbers = checkWords(sentence).filter((word) => /\d/.test(word));
+  const cited = passagesIn(first)
+    .map((each) => each.text)
+    .join("\n");
+  return numbers.length > 0 && numbers.every((number) => cited.includes(number));
+}
+
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
 
 const withAbsence = (sentence: string, verdict: string): Reply => ({
@@ -155,7 +168,10 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
   if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
-  const kept = KEPT_TO_THE_QUOTE.test(sentence) ? keptToItsQuote(first) : null;
+  const kept =
+    KEPT_TO_THE_QUOTE.test(sentence) || numbersAllCited(sentence, first)
+      ? keptToItsQuote(first)
+      : null;
   if (kept && toolResults(prompt, "cite").length === 0) {
     return { tool: "cite", input: { citations: [kept] } };
   }

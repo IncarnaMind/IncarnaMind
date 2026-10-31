@@ -111,6 +111,7 @@ import {
   type CommandDone,
   type CommandProblem,
   type CommandsFound,
+  type ConversationAnswer,
   type ConversationAskResult,
   type ConversationMessage,
   type ConversationQuestion,
@@ -203,7 +204,7 @@ import {
 import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
-import type { AnswerCheckInput, SupportResult } from "./checks/answerCheck";
+import { type AnswerCheckInput, judgedMarkers, type SupportResult } from "./checks/answerCheck";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -409,6 +410,10 @@ function mindLimit(prepared: PreparedChatModel): number {
 export interface AnswerConversations {
   /** Writes an ended Answer's Tool calls again, one updated since; false if it is gone. */
   writeToolCalls(answerId: string, toolCalls: readonly AnswerToolCall[]): boolean;
+  /** An Answer as stored; null if it is gone. */
+  answer(answerId: string): ConversationAnswer | null;
+  /** Writes an ended Answer's Citations again while it still reads `text`; false if it doesn't. */
+  writeCitations(answerId: string, text: string, citations: readonly MarkedCitation[]): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
    * written, which reads `read`.
@@ -999,6 +1004,61 @@ export function createAnswers(options: AnswersOptions) {
         ? options.resolveScope(folderScope(wallId))
         : options.resolveScope(NO_SCOPE, mindId);
 
+  /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
+  const judgements = new Map<string, AbortController>();
+
+  /**
+   * Judges the sentences of a stored Answer whose Citations wait as checking (#2311), and writes
+   * each Citation's result as soon as it has one: found when its sentences are supported,
+   * unsupported or contradicted otherwise, and not checked when the judgement couldn't run or was
+   * stopped. One judged again in the meantime writes nothing more.
+   */
+  async function judgeAnswer(answer: ConversationAnswer, documentIds: readonly string[] | null) {
+    const waiting = new Set(
+      answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
+    );
+    const controller = new AbortController();
+    judgements.get(answer.id)?.abort();
+    judgements.set(answer.id, controller);
+    let citations = answer.citations;
+    const judged = (marker: number | null, result: SupportResult | null) => {
+      citations = citations.map((citation): MarkedCitation => {
+        if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
+          return citation;
+        }
+        if (!result) return { ...citation, check: "not-checked", checkReason: null };
+        return {
+          ...citation,
+          check: result.check,
+          checkReason: null,
+          ...(result.verdict && { verdict: result.verdict }),
+        };
+      });
+      if (judgements.get(answer.id) === controller) {
+        options.conversations.writeCitations(answer.id, answer.text, citations);
+      }
+    };
+    try {
+      if (options.checkAnswer && answer.model) {
+        await options.checkAnswer({
+          text: answer.text,
+          citations: answer.citations,
+          figures: answer.figures,
+          waiting,
+          documentIds,
+          model: answer.model,
+          signal: controller.signal,
+          onJudged: judged,
+        });
+      }
+    } catch (error) {
+      options.reportError(error);
+    } finally {
+      if (citations.some((citation) => citation.check === "checking")) judged(null, null);
+      if (judgements.get(answer.id) === controller) judgements.delete(answer.id);
+    }
+  }
+
   const contextCitationsFor = (mindId: string | null, wallId?: string | null): ContextCitations => {
     const allowed = readableAcrossWalls(mindId, wallId);
     return createContextCitations((documentId) => allowed === null || allowed.includes(documentId));
@@ -1557,47 +1617,24 @@ export function createAnswers(options: AnswersOptions) {
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
     };
 
-    /** What the check of its sentences made of each checked marker's Citation (#2311). */
-    let sentenceChecks: ReadonlyMap<number, SupportResult> = new Map();
-    const withSupport = (marker: number, citation: Citation): Citation => {
-      const checked = sentenceChecks.get(marker);
-      if (!checked || checked.check === "found") return citation;
-      return {
-        ...citation,
-        check: checked.check,
-        checkReason: null,
-        ...(checked.verdict && { verdict: checked.verdict }),
-      };
-    };
     /**
-     * The User reads an Answer in the assistant by its Citations' checks: one whose quote is found
-     * shows a green check, which its sentence must earn (#2311). An Answer read elsewhere is
+     * The Citations whose sentences an Answer in the assistant has judged once it ends (#2311), by
+     * marker: they wait as checking, never found, so no green check shows before its sentence
+     * earns it.
+     */
+    let waiting: ReadonlySet<number> = new Set();
+    /** Checking while its sentence is judged; not checked when the Answer stopped before that. */
+    let waitingAs: "checking" | "not-checked" = "checking";
+    const withSupport = (marker: number, citation: Citation): Citation =>
+      waiting.has(marker) ? { ...citation, check: waitingAs, checkReason: null } : citation;
+    /**
+     * The User reads an Answer in the assistant by its Citations' checks. An Answer read elsewhere is
      * checked where it lands: in a Note, by its checks; by an outside agent or a Task, as they do.
      */
-    const checkSupport = async (checking: () => void) => {
-      if (!options.checkAnswer || place.conversationId === undefined || flow !== "question") return;
-      settle();
-      const text = withoutFootnoteDefinitions(markdown);
-      const citations = [...new Set(markersIn(text))].flatMap((marker) => {
-        const citation = session.finalCitation(marker);
-        return citation ? [{ marker, ...citation }] : [];
-      });
-      if (!citations.some((each) => each.check === "found")) return;
-      checking();
-      try {
-        sentenceChecks =
-          (await options.checkAnswer({
-            text,
-            citations,
-            figures: placedFigures(text, true).figures,
-            documentIds: input.documentIds,
-            model,
-            signal: controller.signal,
-          })) ?? new Map();
-      } catch (error) {
-        options.reportError(error);
-      }
-    };
+    const judgesItsSentences = () =>
+      options.checkAnswer !== undefined &&
+      place.conversationId !== undefined &&
+      flow === "question";
 
     const finish = (outcome: Outcome) => {
       if (finished) return;
@@ -1622,6 +1659,20 @@ export function createAnswers(options: AnswersOptions) {
         );
       }
       settle();
+      const judging = judgesItsSentences() && outcome.status !== "failed";
+      if (judging) {
+        // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
+        waitingAs = outcome.status === "done" ? "checking" : "not-checked";
+        const text = withoutFootnoteDefinitions(markdown);
+        waiting = judgedMarkers({
+          text,
+          citations: [...new Set(markersIn(text))].flatMap((marker) => {
+            const citation = session.finalCitation(marker);
+            return citation ? [{ marker, ...citation }] : [];
+          }),
+          figures: placedFigures(text, true).figures,
+        });
+      }
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
       if (placed.figures.length > 0 || placed.missing > 0) {
@@ -1652,6 +1703,10 @@ export function createAnswers(options: AnswersOptions) {
           figureRetry,
           usage,
         });
+      }
+      if (judging && written && waitingAs === "checking" && waiting.size > 0) {
+        const stored = options.conversations.answer(answerId);
+        if (stored) void judgeAnswer(stored, input.documentIds);
       }
     };
 
@@ -3203,12 +3258,6 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       settleMinds(outcome.status === "failed");
-      if (outcome.status === "done" && !finished) {
-        await checkSupport(() => {
-          activity = "checking-quotes";
-          showPhase();
-        });
-      }
       finish(outcome);
     };
     inFlow(flow, run).catch((error: unknown) => {
@@ -3978,10 +4027,35 @@ export function createAnswers(options: AnswersOptions) {
       if (!isRecord(input))
         throw new InvalidInputError("stopConversationAnswer expects an object.");
       const conversationId = parseId(input.conversationId, "A conversation id");
-      const generation = active.get(parseId(input.answerId, "An Answer id"));
+      const answerId = parseId(input.answerId, "An Answer id");
+      const generation = active.get(answerId);
       if (generation?.home.place.conversationId === conversationId) {
         generation.finish({ status: "stopped" });
       }
+      judgements.get(answerId)?.abort();
+    },
+
+    /**
+     * Judges again the sentences of an ended Answer whose Citations are not checked (#2311): Check
+     * again on such a Citation's card. Resolves once each has a result.
+     */
+    async checkAnswerAgain(input: unknown): Promise<void> {
+      if (!isRecord(input)) throw new InvalidInputError("checkAnswerAgain expects an object.");
+      const conversationId = parseId(input.conversationId, "A conversation id");
+      const answerId = parseId(input.answerId, "An Answer id");
+      const answer = options.conversations.answer(answerId);
+      if (answer?.conversationId !== conversationId || answer.status === "streaming") return;
+      if (!answer.citations.some((each) => each.check === "not-checked")) return;
+      const { question } = options.conversations.questionOf({ conversationId, answerId });
+      const documentIds = question.scope
+        ? options.resolveScope(question.scope)
+        : readableAcrossWalls(null, wallOfTurn(question));
+      const waiting = answer.citations.map(
+        (citation): MarkedCitation =>
+          citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
+      );
+      if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
+      await judgeAnswer({ ...answer, citations: waiting }, documentIds);
     },
 
     /**

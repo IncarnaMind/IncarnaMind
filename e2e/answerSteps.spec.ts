@@ -143,7 +143,7 @@ async function start(options: { documents?: boolean; local?: boolean; model?: st
   return { app, window };
 }
 
-/** Asks in the assistant, as a person does, and resolves with the Answer once written. */
+/** Asks in the assistant, as a person does, and resolves with the Answer once written and its sentences judged. */
 async function ask(window: Page, question: string): Promise<Locator> {
   const answers = assistantAnswers(window);
   const before = await answers.count();
@@ -153,6 +153,9 @@ async function ask(window: Page, question: string): Promise<Locator> {
   await expect(answers).toHaveCount(before + 1, { timeout: 15_000 });
   const answer = answers.last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
   return answer;
 }
 

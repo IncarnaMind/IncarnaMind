@@ -537,6 +537,26 @@ describe("an Answer's steps", () => {
         { ...quoted(2, "Full moon"), check: "unsupported" },
       ],
     });
+    const waiting = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "checking" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(waiting).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      running: true,
+    });
+    const unjudged = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "not-checked" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unjudged).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      notChecked: 1,
+    });
     expect(stepRows(contradicted).at(-1)).toEqual({
       kind: "check",
       count: 2,

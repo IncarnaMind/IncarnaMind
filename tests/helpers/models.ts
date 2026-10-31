@@ -3,6 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import { comparableSentence } from "../../src/shared/sentences";
 import { listedSentences } from "./claimSentences";
 
 /** A chat model that answers "OK" to every request. */
@@ -386,14 +387,23 @@ export function scriptedModel(
     modelId,
     generate,
     usage = STREAM_USAGE,
+    judgesItsAnswers = "supported",
   }: {
     chunkSize?: number;
     modelId?: string;
     generate?: (call: GenerateCall) => GeneratedReply;
     usage?: ReportedUsage;
+    /**
+     * How a check of a sentence this model wrote in an Answer is answered once the Answer ends
+     * (#2311): supported by the quote it cites, as an Answer that keeps to its quotes is; or as
+     * `script` says, for a test of that judgement.
+     */
+    judgesItsAnswers?: "supported" | "by-script";
   } = {},
 ): MockLanguageModelV4 {
   let index = 0;
+  /** What it wrote as Answers, without their markers, to tell a check of its own sentences. */
+  const written: string[] = [];
   return new MockLanguageModelV4({
     modelId,
     doGenerate: async (options) => {
@@ -441,8 +451,10 @@ export function scriptedModel(
         results: resultsOf(options),
         options,
       };
-      const reply = script(call);
+      const own = judgesItsAnswers === "supported" ? ownSentenceJudged(call, written) : null;
+      const reply = own ?? script(call);
       if ("error" in reply) throw providerError(reply.error);
+      if (!own && reply.text) written.push(wordsOf(reply.text));
       const parts: StreamPart[] = [{ type: "stream-start", warnings: [] }];
       if (reply.reasoning) {
         parts.push({ type: "reasoning-start", id: "thinking" });
@@ -515,6 +527,44 @@ export function scriptedModel(
 }
 
 /** A model factory that always returns `model` and records what it was asked to build. */
+/** Its words, without markers, figures or markup: a check shows a Calculated figure as its number. */
+const wordsOf = (text: string) =>
+  comparableSentence(
+    text
+      .replace(/\s*\[[\^=]\d+\]/g, "")
+      .replace(/[\d.,%$£¥€]+/gu, "")
+      .replace(/[*_`|]/g, " "),
+  );
+
+const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
+const CITED_QUOTE = /^- [^\n]*?: “([^\n]+)”$/m;
+const PASSAGE = /<passage id="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/passage>/g;
+
+/**
+ * A check of a sentence the model wrote in an Answer (#2311): supported by the first quote its
+ * sentence cites, on the Passage given with it. Null for any other request.
+ */
+function ownSentenceJudged(call: ModelCall, written: readonly string[]): ScriptedReply | null {
+  if (!call.system.startsWith("You check one sentence")) return null;
+  const sentence = wordsOf(SENTENCE.exec(call.prompt)?.[1] ?? "").replace(/[。.]$/u, "");
+  if (!sentence || !written.some((text) => text.includes(sentence))) return null;
+  if (call.results.some((result) => result.tool === "cite")) {
+    return {
+      text: "Verdict: supported\nAbsence: no\nThe Document says so [^1].\nEvidence: [1]\nCalculation: none",
+    };
+  }
+  const quote = CITED_QUOTE.exec(call.prompt)?.[1];
+  if (!quote) return null;
+  const shown = [call.prompt, ...call.results.map((result) => result.text)].join("\n");
+  const passage = [...shown.matchAll(PASSAGE)].find((match) => match[2]?.includes(quote))?.[1];
+  if (passage) {
+    return { calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote }] } }] };
+  }
+  // The Passages its quotes are in weren't given with it: it looks for the quote.
+  if (call.results.some((result) => result.tool === "search_documents")) return null;
+  return { calls: [{ tool: "search_documents", input: { query: quote } }] };
+}
+
 export function scriptedModels(model: MockLanguageModelV4) {
   const specs: ChatModelSpec[] = [];
   const createChatModel: ChatModelFactory = (spec) => {

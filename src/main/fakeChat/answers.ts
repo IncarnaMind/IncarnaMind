@@ -120,6 +120,8 @@ export const CITED_ANSWER = "Your Documents answer this [^1].\n\nThat is all.";
 export const KEPT_TO_THE_QUOTE = new RegExp(
   `^(?:${[
     String.raw`Your Documents answer this\.`,
+    // As a table's row reads, its two cells one line.
+    String.raw`Your Documents answer this Documents`,
     "文档回答了这个问题。",
     String.raw`Your Documents say “[^”]+”\.`,
     "文档中写道“[^”]+”。",

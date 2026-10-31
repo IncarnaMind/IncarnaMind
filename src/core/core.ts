@@ -2076,6 +2076,12 @@ export function createCore(adapters: CoreAdapters): Core {
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
+      answer: (answerId) => conversations.answer(answerId),
+      writeCitations: (answerId, text, citations) => {
+        const answer = conversations.writeCitations(answerId, text, citations);
+        if (answer) events.emit("conversation.message", answer);
+        return answer !== null;
+      },
       writeToolCalls: (answerId, toolCalls) => {
         const answer = conversations.writeToolCalls(answerId, toolCalls);
         if (answer) events.emit("conversation.message", answer);
@@ -4516,6 +4522,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
     },
     stopConversationAnswer: async (input) => answers.stopInConversation(input),
+    checkAnswerAgain: (input) => answers.checkAnswerAgain(input),
     usualAnswerWait: async (answerId) => conversations.usualWait(answerId),
     listConversations: async (options) => conversations.list(options),
     getConversation: async (conversationId) => conversations.content(conversationId),

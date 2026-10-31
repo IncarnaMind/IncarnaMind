@@ -69,6 +69,7 @@ import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
+  CheckAnswerAgainContext,
   InFootnoteContext,
   MindIdContext,
   RegenerateAnswerContext,
@@ -145,6 +146,7 @@ export function CitationView({
   // None in the assistant, whose Answers are read only and say how they are written again.
   const mindId = useContext(MindIdContext);
   const regenerateHere = useContext(RegenerateAnswerContext);
+  const checkAgainHere = useContext(CheckAnswerAgainContext);
   const attributes = node.attrs as CitationAttributes;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
@@ -193,6 +195,9 @@ export function CitationView({
   // Its dot breathes only while a check the User started runs: an Answer is being written.
   const writing = useAnswers((store) => store.writing.size > 0);
   const answering = useAnswerBeingWritten() !== null;
+  // An ended Answer's Citation in the assistant shows its number alone while its sentence is
+  // judged, so nothing reads as a result before it has one (#2311).
+  const judging = state.check === "checking" && checkAgainHere !== null && !writing && !answering;
   const dot = useRef<SVGSVGElement>(null);
   useBreathing(dot, state.check === "checking" && (writing || answering));
   /** The marker whose card the pointer over this one asks for: its own, or a neighbour's. */
@@ -452,7 +457,7 @@ export function CitationView({
       >
         {recheckAsked ? (
           <ClaimMarkIcon state="needs-recheck" className="citation-marker-icon" />
-        ) : (
+        ) : judging ? null : (
           <CheckMarkIcon ref={dot} check={state.check} className="citation-marker-icon" />
         )}
         {inFootnote ? (
@@ -507,6 +512,7 @@ export function CitationView({
               onOpen={openFromCard}
               onUpdate={choices.update}
               onKeep={choices.keepOld}
+              onCheckAgain={state.check === "not-checked" ? checkAgainHere : null}
               onRemove={
                 editor.isEditable
                   ? () => {
@@ -655,6 +661,7 @@ function CitationCard({
   onOpen,
   onUpdate,
   onKeep,
+  onCheckAgain,
   onRemove,
   onRegenerate,
   menu,
@@ -679,6 +686,8 @@ function CitationCard({
   /** Null where it isn't offered; with either, the card offers them in place of Open. */
   onUpdate: (() => void) | null;
   onKeep: (() => void) | null;
+  /** An Answer's Citation not checked: judges its sentence again (#2311). Null otherwise. */
+  onCheckAgain: (() => void) | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
   onRemove: (() => void) | null;
   onRegenerate(): void;
@@ -712,9 +721,11 @@ function CitationCard({
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : state.reason
-        ? t(`citation.reason.${state.reason}`)
-        : null;
+      : state.check === "not-checked"
+        ? t("citation.reason.notChecked")
+        : state.reason
+          ? t(`citation.reason.${state.reason}`)
+          : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
@@ -829,6 +840,16 @@ function CitationCard({
             {t("citation.update")}
           </button>
         )}
+        {onCheckAgain && (
+          <button
+            type="button"
+            data-testid="citation-check-again"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onCheckAgain}
+          >
+            {t("claim.checkAgain")}
+          </button>
+        )}
         {onKeep && (
           <button
             type="button"
@@ -875,7 +896,7 @@ function CitationCard({
           <button
             type="button"
             data-testid="citation-open"
-            className="citation-card-action citation-card-action--primary"
+            className={`citation-card-action${onCheckAgain ? "" : " citation-card-action--primary"}`}
             // A deleted Document's view shows the quote it kept.
             onClick={() => onOpen(removed || quoteSaysSo(state.check))}
           >

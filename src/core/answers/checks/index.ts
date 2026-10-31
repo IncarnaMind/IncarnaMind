@@ -167,7 +167,8 @@ export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
 
-type CheckFlow = "checks" | "document-check";
+/** The flows a check sends on; "chat" for an Answer's own sentences, judged as part of its request (#2311). */
+type CheckFlow = "checks" | "document-check" | "chat";
 
 export interface ChecksOptions
   extends Pick<
@@ -1448,8 +1449,26 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  /**
+   * The model that answered, for its Answer's sentences: they are judged as part of its own
+   * request, on the chat flow the User already allowed, never asking again (#2311).
+   */
+  async function answeringModel(choice: ChatModelChoice): Promise<PreparedChatModel | null> {
+    const readiness = await chat.readiness(choice, "chat");
+    if (!readiness.ready) return null;
+    const { service } = readiness.provider;
+    if (service && (options.localOnly() || options.consent.status("chat", service) !== "accepted"))
+      return null;
+    try {
+      return await chat.prepareModel(choice, "chat");
+    } catch (error) {
+      if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
+      throw error;
+    }
+  }
+
   const checkAnswer = createAnswerCheck({
-    prepare: prepareQuietly,
+    prepare: answeringModel,
     claimCheck,
     scope: (documentIds) => options.evidence.scope(documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),

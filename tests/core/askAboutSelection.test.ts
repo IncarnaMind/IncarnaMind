@@ -104,9 +104,9 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
       /<\/selected-text>\n\nThe User's Notes: "Tides"\n\nWhat does this mean\?$/,
     );
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
-    expect(answer.citations).toMatchObject([
-      { check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED },
-    ]);
+    // Found where it was selected; its sentence's judgement is tests/core/answerSupport.test.ts's.
+    expect(answer.citations[0]?.check).not.toBe("not-found");
+    expect(answer.citations).toMatchObject([{ pageFrom: 2, pageTo: 2, quote: REPEATED }]);
     expect(asked).not.toHaveProperty("leftOut");
   });
 
@@ -288,7 +288,8 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
 
     expect(asked).not.toHaveProperty("leftOut");
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
-    expect(answer.citations).toMatchObject([{ check: "found", documentId: saved.document.id }]);
+    expect(answer.citations[0]?.check).not.toBe("not-found");
+    expect(answer.citations).toMatchObject([{ documentId: saved.document.id }]);
     expect(answer.textOrigin).toBe("web-page");
   });
 

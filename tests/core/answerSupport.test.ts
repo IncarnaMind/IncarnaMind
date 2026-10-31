@@ -1,16 +1,16 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, MarkedCitation } from "../../src/core";
 import { citedSentences } from "../../src/core/answers/checks/answerCheck";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
-import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 
 /**
  * An Answer in the assistant shows a found Citation's green check only on a sentence its quote
- * supports (#2311): each sentence with a Citation is checked as Check this Note checks it before
- * the Answer ends. The two cases are the walk's: a Chinese sentence that read "installed" as
+ * supports (#2311): each sentence with a Citation is checked as Check this Note checks it once
+ * the Answer ends, and its Citations wait as checking until then. The two cases are the walk's: a Chinese sentence that read "installed" as
  * already installed, and "dated 2026" under a quote of the Document's title.
  */
 
@@ -88,24 +88,40 @@ function answeringModel(
       }
       return { text: answer };
     },
-    { generate: checkGenerate(plans) },
+    { generate: checkGenerate(plans), judgesItsAnswers: "by-script" },
   );
 }
 
-async function citationsOfAnswer(core: Core, question: string): Promise<MarkedCitation[]> {
+/**
+ * Asks in the assistant: the Answer as it ends, its sentences not judged yet, and as it is once
+ * they are.
+ */
+async function askedAnswer(core: Core, question: string) {
   const asked = await core.askInConversation({ text: question });
   if (!asked.asked) throw new Error("Not asked.");
-  await new Promise<void>((resolve) => {
-    const stop = core.on("answer.finished", ({ answerId }) => {
-      if (answerId !== asked.answerId) return;
-      stop();
-      resolve();
-    });
+  // The Answer as its end is announced, before the judgement of its sentences.
+  const ended = await new Promise<string>((resolve) => {
+    const stops = [
+      core.on("answer.finished", ({ answerId }) => answerId === asked.answerId && end("finished")),
+      core.on("answer.failed", ({ answerId }) => answerId === asked.answerId && end("failed")),
+    ];
+    function end(event: string) {
+      for (const stop of stops) stop();
+      resolve(event);
+    }
   });
   const { messages } = await core.getConversation(asked.conversation.id);
-  const answer = messages.find((each) => each.id === asked.answerId);
-  if (answer?.kind !== "answer") throw new Error("No Answer.");
-  return answer.citations;
+  const atEnd = messages.find((each) => each.id === asked.answerId);
+  if (atEnd?.kind !== "answer") throw new Error("No Answer.");
+  return {
+    ended,
+    atEnd,
+    judged: () => answerJudged(core, asked.conversation.id, asked.answerId),
+  };
+}
+
+async function citationsOfAnswer(core: Core, question: string): Promise<MarkedCitation[]> {
+  return (await (await askedAnswer(core, question)).judged()).citations;
 }
 
 const checkOf = (citations: readonly MarkedCitation[], marker: number) =>
@@ -187,6 +203,127 @@ describe("a sentence its quote doesn't support loses its green check", () => {
     });
     expect(checkOf(citations, 2)).toMatchObject({ quote: TERM, check: "found" });
   });
+});
+
+describe("an Answer works at once, and its Citations wait for their sentences' judgement", () => {
+  const ANSWER = "Installation is planned for February 2027[^1].";
+  const ANSWER_ZH = "窑炉计划在 2027 年 2 月安装[^1]。";
+
+  test.each([
+    { language: "English", question: "When is the kiln installed?", answer: ANSWER },
+    { language: "Chinese", question: "窑炉什么时候安装？", answer: ANSWER_ZH },
+  ])(
+    "in $language, it ends with its Citation checking, never found, then takes its sentence's result",
+    async (each) => {
+      const sentence = each.answer.replace("[^1]", "");
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns installed cost", each.answer, [INSTALLATION], {
+          [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence },
+        }),
+        [KILN_DECK],
+      );
+
+      const asked = await askedAnswer(core, each.question);
+
+      expect(asked.ended).toBe("finished");
+      expect(asked.atEnd).toMatchObject({ status: "done", text: each.answer });
+      expect(asked.atEnd.citations).toMatchObject([{ marker: 1, check: "checking" }]);
+      expect((await asked.judged()).citations).toMatchObject([{ marker: 1, check: "found" }]);
+    },
+  );
+
+  test.each([
+    { language: "English", question: "When is the kiln installed?", answer: ANSWER },
+    { language: "Chinese", question: "窑炉什么时候安装？", answer: ANSWER_ZH },
+  ])(
+    "in $language, a judgement that fails leaves it not checked, never found, and Check again judges it",
+    async (each) => {
+      const sentence = each.answer.replace("[^1]", "");
+      let fails = true;
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns installed cost", each.answer, [INSTALLATION], {
+          [sentence]: {
+            reply: (call) =>
+              fails
+                ? { error: { status: 500, message: "The provider failed." } }
+                : checkReply(call, {
+                    [sentence]: { verdict: "supported", quote: INSTALLATION, says: sentence },
+                  }),
+          },
+        }),
+        [KILN_DECK],
+      );
+
+      const asked = await askedAnswer(core, each.question);
+      const judged = await asked.judged();
+
+      expect(judged.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+      expect(judged.citations.some((citation) => citation.check === "found")).toBe(false);
+
+      fails = false;
+      await core.checkAnswerAgain({ conversationId: judged.conversationId, answerId: judged.id });
+      const again = await answerJudged(core, judged.conversationId, judged.id);
+      expect(again.citations).toMatchObject([{ marker: 1, check: "found" }]);
+    },
+  );
+
+  test.each([
+    {
+      language: "English",
+      question: "What do the kilns cost, and when are they installed?",
+      answer: `The two K9 kilns cost £185,000[^1]. ${ANSWER.replace("[^1]", "[^2]")}`,
+    },
+    {
+      language: "Chinese",
+      question: "窑炉多少钱，什么时候安装？",
+      answer: `两台 K9 窑炉的费用为 £185,000[^1]。${ANSWER_ZH.replace("[^1]", "[^2]")}`,
+    },
+  ])(
+    "in $language, stopping it while a sentence is judged leaves that Citation not checked and keeps the one judged",
+    async (each) => {
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const [first = "", second = ""] = each.answer
+        .replace(/\[\^\d\]/g, "")
+        .split(/(?<=[.。])\s*/)
+        .filter(Boolean);
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns installed cost", each.answer, [COST, INSTALLATION], {
+          [first]: { verdict: "supported", quote: COST, says: first },
+          [second]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
+        }),
+        [KILN_DECK],
+      );
+
+      const asked = await askedAnswer(core, each.question);
+      const { conversationId, id: answerId } = asked.atEnd;
+      await vi.waitFor(
+        async () => {
+          const { messages } = await core.getConversation(conversationId);
+          const answer = messages.find((message) => message.id === answerId);
+          if (answer?.kind !== "answer" || checkOf(answer.citations, 1)?.check !== "found") {
+            throw new Error("Its first sentence isn't judged yet.");
+          }
+        },
+        { timeout: 20_000, interval: 20 },
+      );
+      await core.stopConversationAnswer({ conversationId, answerId });
+      const judged = await asked.judged();
+      release();
+
+      expect(asked.atEnd.citations).toMatchObject([
+        { marker: 1, check: "checking" },
+        { marker: 2, check: "checking" },
+      ]);
+      expect(judged.status).toBe("done");
+      expect(judged.citations).toMatchObject([
+        { marker: 1, check: "found" },
+        { marker: 2, check: "not-checked" },
+      ]);
+    },
+  );
 });
 
 describe("a check reads what the Document's words say, and no date beside them", () => {

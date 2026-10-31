@@ -136,6 +136,13 @@ function passageOf(passages: readonly ShownPassage[], name: string): string {
   return found.id;
 }
 
+/**
+ * Whether a Citation's quote was found, apart from the judgement of its sentence that follows an
+ * Answer in the assistant (#2311, tests/core/answerSupport.test.ts).
+ */
+const quoteCheck = (citation: { check: string }) =>
+  citation.check === "not-found" ? "not-found" : "found";
+
 /** What each call of `tool` told the model, oldest first, as the model's last request shows them. */
 function told(model: MockLanguageModelV4, tool: string): string[] {
   const last = answerRequests(model).at(-1);
@@ -2226,7 +2233,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
       expect(answerRequests(model)).toHaveLength(requests);
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2266,7 +2273,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       expect(answerRequests(model)).toHaveLength(2);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2294,7 +2301,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
     },
   );
 
@@ -2313,7 +2320,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       expect(answerRequests(model)).toHaveLength(3);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "not-found"]);
     },
   );
 
@@ -2342,7 +2349,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       expect(answerRequests(model).length).toBeGreaterThan(3);
       expect(answer.text).toContain("[^2]");
-      expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
+      expect(answer.citations.map(quoteCheck)).toEqual(["found", "not-found"]);
     },
   );
 
@@ -2361,7 +2368,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
     expect(answerRequests(model)).toHaveLength(3);
-    expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
+    expect(answer.citations.map(quoteCheck)).toEqual(["found", "found"]);
   });
 
   test("cites first: what the model writes after its fix is the rest of the Answer", async () => {
@@ -2383,6 +2390,6 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     expect(answer.text).toBe(
       "Revenue was $1,482.6 million in 2025[^1].\n\nAcme grew in every quarter.",
     );
-    expect(answer.citations.map((citation) => citation.check)).toEqual(["found"]);
+    expect(answer.citations.map(quoteCheck)).toEqual(["found"]);
   });
 });

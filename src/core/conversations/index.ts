@@ -1254,6 +1254,31 @@ export function createConversations(db: Database, now: () => string) {
       return toAnswer(storedMessage(answerId));
     },
 
+    /** An Answer as stored; null if it is gone. */
+    answer(answerId: string): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      return row?.kind === "answer" ? toAnswer(storedMessage(answerId)) : null;
+    },
+
+    /**
+     * Writes an ended Answer's Citations again once its sentences are judged (#2311), only while it
+     * still reads `text`: one written again since keeps its own. Returns it, or null if not written.
+     */
+    writeCitations(
+      answerId: string,
+      text: string,
+      citations: readonly MarkedCitation[],
+    ): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer" || row.text !== text) return null;
+      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(citations),
+        now(),
+        answerId,
+      ]);
+      return toAnswer(storedMessage(answerId));
+    },
+
     /** See `CoreApi.renameConversation`. */
     rename(conversationId: unknown, title: unknown): Conversation {
       const row = liveRow(conversationId);

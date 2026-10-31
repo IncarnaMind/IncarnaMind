@@ -17,6 +17,7 @@ import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
+import { type RequestWatch, watchRequests } from "../repeats/requests";
 import { CASES, DOCUMENTS } from "./cases";
 
 const ROOT = resolve(__dirname, "../..");
@@ -37,6 +38,10 @@ interface Row {
   parts: { kind: string; words: string; verdict: string | null; said: string | null }[];
   seconds: number;
   dollars: number;
+  /** The model requests the check made, and their tokens, as the provider reported them. */
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 const spentOf = async (core: Core) =>
@@ -83,6 +88,7 @@ async function checkEach(
   spend: { total: number; cap: number },
   log: Log,
   skipped: { id: string; why: string }[],
+  watch: RequestWatch,
 ): Promise<Row[]> {
   const rows: Row[] = [];
   for (const item of items) {
@@ -104,6 +110,7 @@ async function checkEach(
     const started = Date.now();
     let result: ClaimCheckResult;
     try {
+      watch.take();
       result = await core.checkClaim({ claim: item.sentence, cited: [cited], model });
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
@@ -133,6 +140,14 @@ async function checkEach(
       })),
       seconds: (Date.now() - started) / 1000,
       dollars: (await spentOf(core)) - before,
+      ...(() => {
+        const requests = [...watch.take().values()].flat();
+        return {
+          requests: requests.length,
+          inputTokens: requests.reduce((total, each) => total + each.inputTokens, 0),
+          outputTokens: requests.reduce((total, each) => total + each.outputTokens, 0),
+        };
+      })(),
     };
     rows.push(row);
     spend.total += row.dollars;
@@ -184,7 +199,9 @@ test("Answer sentences against the quotes they cite", async () => {
     webPages: { key: string; address: string; html: string }[],
     items: (documents: Iterable<Document>, core: Core) => Parameters<typeof checkEach>[1],
   ) => {
+    const watch = watchRequests([]);
     const library = await openLibrary({
+      chatModels: watch.chatModels,
       name: `support-${name}`,
       embedder: createWorkerEmbedder(),
       documents,
@@ -205,7 +222,7 @@ test("Answer sentences against the quotes they cite", async () => {
         .filter((each) => !only || only.split(",").includes(each.id))
         .flatMap((each) => Array.from({ length: repeats }, () => each));
       log(`${model?.modelId ?? "dry"} · ${arm} · ${name}: ${wanted.length} sentences`);
-      rows.push(...(await checkEach(core, wanted, model, spend, log, skipped)));
+      rows.push(...(await checkEach(core, wanted, model, spend, log, skipped, watch)));
     } finally {
       await library.close();
     }

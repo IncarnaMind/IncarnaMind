@@ -81,6 +81,7 @@ const CITATION_CHECKS = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ] as const;

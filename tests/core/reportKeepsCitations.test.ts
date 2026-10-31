@@ -311,7 +311,8 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
 
     const [first, , third] = answer.citations;
     expect(first?.contentHash).toBe(citations[0]?.contentHash);
-    expect(first?.check).toBe("found");
+    // Its sentence can't be judged against the version it quotes, which no search reaches (#2311).
+    expect(first?.check).toBe("not-checked");
     const live = (await core.listDocuments()).map((each) => ({ ...each }));
     expect(citationState(first ?? {}, live).changedAfterCited).toBe(true);
     expect(third).toMatchObject({ check: "cant-check", checkReason: "document-removed" });

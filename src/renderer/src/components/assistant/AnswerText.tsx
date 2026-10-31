@@ -11,7 +11,7 @@ import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
-import { RegenerateAnswerContext } from "../../editor/mindContext";
+import { CheckAnswerAgainContext, RegenerateAnswerContext } from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
 import { useT } from "../../i18n";
 import { useTableFades } from "../useTableFades";
@@ -55,6 +55,7 @@ export function AnswerText({
   label,
   streaming,
   regenerate,
+  checkAgain,
   onOpenTable,
 }: {
   answerId: string;
@@ -64,6 +65,8 @@ export function AnswerText({
   streaming: boolean;
   /** Writes the Answer again. */
   regenerate(): void;
+  /** Judges again its sentences whose Citations are not checked. */
+  checkAgain(): void;
   onOpenTable(table: NodeJSON): void;
 }) {
   const t = useT();
@@ -109,10 +112,12 @@ export function AnswerText({
   return (
     // A quote not found offers to write the Answer again, from its Citation's card.
     <RegenerateAnswerContext.Provider value={regenerate}>
-      <div ref={frame} className="assistant-answer-frame">
-        <EditorContent editor={editor} />
-        <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
-      </div>
+      <CheckAnswerAgainContext.Provider value={checkAgain}>
+        <div ref={frame} className="assistant-answer-frame">
+          <EditorContent editor={editor} />
+          <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
+        </div>
+      </CheckAnswerAgainContext.Provider>
     </RegenerateAnswerContext.Provider>
   );
 }
