@@ -1234,7 +1234,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const settings = dialog.getByTestId("meetings-settings");
       const line = settings.getByTestId("meetings-route-line");
       await expect(line).toContainText(
-        translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
+        translate(language, "meetings.route.cloudLine", { provider: "OpenAI" }),
       );
 
       // Settings is closed and opened again while the core can't list the services.
@@ -1252,7 +1252,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await controlReads(app, "core:listTranscriptionServices", { failing: false });
       await pointAndClick(window, meetings.getByTestId("meetings-route-problem-retry"));
       await expect(meetings.getByTestId("meetings-route-line")).toContainText(
-        translate(language, "meetings.route.cloudLine", { service: "OpenAI" }),
+        translate(language, "meetings.route.cloudLine", { provider: "OpenAI" }),
       );
       await expect(problem).toHaveCount(0);
     } finally {
@@ -1444,7 +1444,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, meetings.getByTestId("meetings-route-problem-retry"));
       await expect(problem).toHaveCount(0);
       await expect(meetings.getByTestId("meetings-route-line")).toContainText(
-        translate(language, "meetings.route.cloudLine", { service: "Soniox" }),
+        translate(language, "meetings.route.cloudLine", { provider: "Soniox" }),
       );
       await expect(
         meetings.getByTestId("transcription-key-soniox").getByTestId("transcription-key-saved"),
@@ -1704,7 +1704,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, card.getByTestId("setup-step-transcription-open"));
       await expect(card.getByTestId("setup-transcription")).toHaveValue("soniox");
       await expect(card.getByTestId("setup-transcription-line")).toHaveText(
-        translate(language, "meetings.route.cloudLine", { service: "Soniox" }),
+        translate(language, "meetings.route.cloudLine", { provider: "Soniox" }),
       );
       await expect(card.getByTestId("setup-transcription-use")).toBeEnabled();
     } finally {
