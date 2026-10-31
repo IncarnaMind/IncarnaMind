@@ -49,7 +49,7 @@ import { createElectronPictures } from "./pictures";
 import { createElectronPrinter } from "./printPdf";
 import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
-import { loadOsSandbox } from "./sandbox";
+import { loadOsSandbox, sharedReadDenied } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
 import { createUtilityProcessSeparator } from "./speakerSeparator";
@@ -187,7 +187,11 @@ export async function chooseExecutor(log: Logger): Promise<Executor | undefined>
       processes: loginShellProcesses,
       environment: () => loginShellProcesses.environment(),
       tempDir: tmpdir(),
-      denyRead: [app.getPath("home"), app.getPath("userData")],
+      denyRead: [
+        app.getPath("home"),
+        app.getPath("userData"),
+        ...sharedReadDenied(process.platform, tmpdir()),
+      ],
       reportError: (error) => console.error(error),
     });
   } catch (error) {

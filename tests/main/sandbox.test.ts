@@ -1,9 +1,9 @@
 /**
  * The OS sandbox (#65): what the "os" Executor confines, beyond the Executor
  * contract it also passes (tests/core/executor.test.ts). A program, and every
- * process it starts, can't read the User's home or IncarnaMind's data folder
- * (except the folders it was allowed), writes only its working folder, and
- * has no network.
+ * process it starts, can't read the User's home, IncarnaMind's data folder,
+ * the shared temporary folder or a mounted volume (except the folders it was
+ * allowed), writes only its working folder, and has no network.
  *
  * The home and data folders here are stand-ins in temporary folders, given to
  * the programs as arguments: nothing reads or writes the real home.
@@ -13,16 +13,17 @@
  * it); the contract suite loads it as development does.
  */
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
-import { loadOsSandbox } from "../../src/main/sandbox";
+import { loadOsSandbox, sharedReadDenied } from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
 
 const runtime = dirname(
@@ -47,9 +48,10 @@ function environment(): Record<string, string> {
 /**
  * A stand-in home with an SSH key canary, and a stand-in data folder holding
  * a database and a Skill, and an Executor in the OS sandbox that denies both.
- * `denyAlso` adds folders it denies.
+ * `denyAlso` adds folders it denies, and `tempDir` is where each run gets its
+ * working folder (the shared temporary folder, as in the app).
  */
-async function setUp(denyAlso: string[] = []) {
+async function setUp(options: { denyAlso?: string[]; tempDir?: string } = {}) {
   const root = await realpath(await createTempDataFolder());
   const home = join(root, "home");
   const canary = join(home, ".ssh", "id_canary");
@@ -63,15 +65,15 @@ async function setUp(denyAlso: string[] = []) {
   await writeFile(join(skillDir, "SKILL.md"), "SKILL FILE");
   const outside = join(root, "outside");
   await mkdir(outside);
-  const tempDir = join(root, "temp");
-  await mkdir(tempDir);
+  const tempDir = options.tempDir ?? join(root, "temp");
+  await mkdir(tempDir, { recursive: true });
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env = environment();
   const executor = sandbox.createExecutor({
     processes: createProcessLauncher(async () => env),
     environment: async () => env,
     tempDir,
-    denyRead: [home, data, ...denyAlso],
+    denyRead: [home, data, ...(options.denyAlso ?? [])],
     reportError: (error) => {
       throw error;
     },
@@ -166,6 +168,16 @@ afterEach(() => {
   servers = [];
 });
 
+describe("what is denied reading beyond the User's own folders", () => {
+  test("is the shared temporary folder and the roots this system mounts volumes under", () => {
+    const temporary = "/var/folders/ab/cdefgh/T";
+
+    expect(sharedReadDenied("darwin", temporary)).toEqual([temporary, "/Volumes"]);
+    expect(sharedReadDenied("linux", "/tmp")).toEqual(["/tmp", "/media", "/mnt"]);
+    expect(sharedReadDenied("win32", "C:\\Users\\Someone\\AppData\\Local\\Temp")).toEqual([]);
+  });
+});
+
 describe.skipIf(unavailable !== undefined)(
   `The OS sandbox${unavailable === undefined ? "" : ` (skipped: ${unavailable})`}`,
   { timeout: 60_000 },
@@ -234,11 +246,61 @@ describe.skipIf(unavailable !== undefined)(
       expect(cwd.startsWith(tempDir)).toBe(true);
     });
 
+    test("can't read another app's file in the shared temporary folder, and its own working folder inside it stays readable and writable", async () => {
+      const shared = await mkdtemp(join(tmpdir(), "incarnamind-shared-"));
+      try {
+        const otherAppsFile = join(shared, "another-app.txt");
+        await writeFile(otherAppsFile, "SHARED CANARY");
+        const { executor, skillDir } = await setUp({
+          tempDir: tmpdir(),
+          denyAlso: sharedReadDenied(process.platform, tmpdir()),
+        });
+        const code = `
+const fs = require("node:fs");
+const os = require("node:os");
+const [otherAppsFile, realPath, shared] = process.argv.slice(1);
+const results = {};
+const attempt = (name, act) => {
+  try {
+    results[name] = act();
+  } catch (error) {
+    results[name] = error.code ?? String(error);
+  }
+};
+attempt("read another app's file", () => fs.readFileSync(otherAppsFile, "utf8"));
+attempt("read it through its real path", () => fs.readFileSync(realPath, "utf8"));
+attempt("list the shared folder", () => fs.readdirSync(shared).join(","));
+attempt("write its working folder", () => {
+  fs.writeFileSync("made-here.txt", "mine");
+  return fs.readFileSync("made-here.txt", "utf8");
+});
+results.tempIsItsWorkingFolder = fs.realpathSync(os.tmpdir()) === fs.realpathSync(process.cwd());
+console.log(JSON.stringify(results));
+`;
+
+        const run = await executor.run(
+          nodeRequest(code, [otherAppsFile, await realpath(otherAppsFile), shared], skillDir),
+        );
+
+        expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+        const results = JSON.parse(run.stdout);
+        expect(results["read another app's file"]).not.toBe("SHARED CANARY");
+        expect(results["read it through its real path"]).not.toBe("SHARED CANARY");
+        expect(results["list the shared folder"]).not.toContain("another-app.txt");
+        expect(results["write its working folder"]).toBe("mine");
+        expect(results.tempIsItsWorkingFolder).toBe(true);
+        // The file the script couldn't read is there, outside the sandbox.
+        expect(await readFile(otherAppsFile, "utf8")).toBe("SHARED CANARY");
+      } finally {
+        await rm(shared, { recursive: true, force: true });
+      }
+    });
+
     test("an interpreter installed inside a denied folder still starts (pyenv, conda, the app in ~/Applications)", async () => {
       const installRoot = dirname(dirname(await realpath(process.execPath)));
       const around = dirname(installRoot);
       if (around === dirname(around)) return; // Installed at the top of the disk: nothing to deny around it.
-      const { executor, skillDir } = await setUp([around]);
+      const { executor, skillDir } = await setUp({ denyAlso: [around] });
 
       const run = await executor.run(nodeRequest('console.log("started")', [], skillDir));
 

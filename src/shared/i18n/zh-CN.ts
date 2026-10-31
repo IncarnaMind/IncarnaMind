@@ -3767,7 +3767,7 @@ export const zhCN = {
   "scripts.settings.body": "没有沙盒：脚本在这台电脑上运行，每次运行前先问你。",
   "scripts.settings.bodySandboxed": "脚本在沙盒中运行，每次运行前先问你。",
   "scripts.settings.bodySandboxed.details":
-    "无法访问你的个人文件夹和 IncarnaMind 的数据，只能写入自己的工作文件夹，也不能访问互联网。除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+    "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",
   "scripts.settings.seconds": "秒",
 
@@ -3796,7 +3796,7 @@ export const zhCN = {
   "scripts.card.noSandbox": "没有沙盒：它可以读取、修改、删除你的文件，也能联网。",
   "scripts.card.sandboxed": "在沙盒中运行：不能联网，不能访问个人文件夹。",
   "scripts.card.sandboxed.details":
-    "无法访问你的个人文件夹和 IncarnaMind 的数据，只能写入自己的工作文件夹，也不能访问互联网。",
+    "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。",
   "scripts.card.allowOnce": "允许一次",
   "scripts.card.alwaysRun": "始终运行",
   "scripts.card.alwaysRunHint": "今后直接运行 {skill} 的脚本，不再询问",
@@ -3805,9 +3805,9 @@ export const zhCN = {
   "scripts.alwaysRun.body":
     "今后 {skill} 的脚本将直接运行，不再询问。没有沙盒时，脚本可以删除你的文件，并把数据发到网上。",
   "scripts.alwaysRun.bodySandboxed":
-    "今后 {skill} 的脚本将直接运行，不再询问。脚本在沙盒中运行，但仍能读取其他磁盘上的文件。",
+    "今后 {skill} 的脚本将直接运行，不再询问。脚本在沙盒中运行，但仍能读取这台电脑上的一些文件。",
   "scripts.alwaysRun.bodySandboxed.details":
-    "无法访问你的个人文件夹和 IncarnaMind 的数据，只能写入自己的工作文件夹，也不能访问互联网。",
+    "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。",
   "scripts.alwaysRun.trust": "只对你信任的技能这样做。可在“设置 › 批准”中恢复默认。",
   "scripts.alwaysRun.confirm": "始终运行 {skill} 的脚本",
   "scripts.alwaysRun.cancel": "取消",

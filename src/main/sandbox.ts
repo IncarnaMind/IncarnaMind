@@ -6,12 +6,13 @@
  * Cursor and Zed confine the commands their agents run.
  *
  * A program, and every process it starts:
- * - can't read the folders in `denyRead` (the User's home and IncarnaMind's
- *   data folder), except the folders its request allows (a Skill script's
- *   Skill folder and working folder) and its interpreter's own install when
- *   that is inside one (pyenv, conda, the app itself in ~/Applications). The
- *   rest of the disk stays readable, as sandbox-runtime leaves it: the
- *   system's libraries and interpreters;
+ * - can't read the folders in `denyRead` (the User's home, IncarnaMind's data
+ *   folder, the shared temporary folder and the roots volumes are mounted
+ *   under), except the folders its request allows (a Skill script's Skill
+ *   folder and working folder) and its interpreter's own install when that is
+ *   inside one (pyenv, conda, the app itself in ~/Applications). The rest of
+ *   the disk stays readable, as sandbox-runtime leaves it: the system's
+ *   libraries and interpreters;
  * - can write only the folders its request allows (its working folder),
  *   which is its TMPDIR too. sandbox-runtime hands out /tmp/claude, Claude
  *   Code's, which is denied here;
@@ -63,7 +64,8 @@ export interface OsExecutorOptions {
   tempDir: string;
   /**
    * Folders no program may read, except the folders inside them its request
-   * allows: the User's home and IncarnaMind's data folder.
+   * allows: the User's home, IncarnaMind's data folder, and the shared folders
+   * `sharedReadDenied` names.
    */
   denyRead: readonly string[];
   /** Told when a run's temporary working folder can't be removed. */
@@ -82,6 +84,20 @@ export type OsSandbox =
  * with every other program sandbox-runtime confines on this computer.
  */
 const SANDBOX_RUNTIME_TEMP = ["/tmp/claude", "/private/tmp/claude"];
+
+/**
+ * What every program is denied reading beyond the User's folders (#2350): the
+ * shared temporary folder, which other apps on the computer write to (on
+ * macOS the per-user /var/folders/…/T), and the roots this system mounts
+ * volumes under. A run's working folder is inside the temporary folder, and
+ * its request's allow rules re-open it within the deny. Windows has no OS
+ * sandbox, so nothing is denied there.
+ */
+export function sharedReadDenied(platform: NodeJS.Platform, temporaryFolder: string): string[] {
+  if (platform === "darwin") return [temporaryFolder, "/Volumes"];
+  if (platform === "linux") return [temporaryFolder, "/media", "/mnt"];
+  return [];
+}
 
 /** No network: an empty allowlist, and no proxy to let anything through. */
 const NO_NETWORK = { allowedDomains: [], deniedDomains: [] };
