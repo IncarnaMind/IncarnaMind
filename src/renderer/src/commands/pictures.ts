@@ -31,6 +31,8 @@ export const pictureCommands: readonly Command[] = [
     group: "main",
     // From the note's keymap, the Block at the cursor; from ⌘K or the Note's own menu, the Note.
     appliesTo: ["block", "mind"],
+    // It opens the system's file picker, which the assistant can't answer: the User does.
+    assistant: false,
     reversible: true,
     when: (ctx) => noteOf(ctx) !== null,
     run(ctx) {

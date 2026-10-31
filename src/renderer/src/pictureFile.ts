@@ -24,7 +24,7 @@ export interface KeptPicture {
 /** A picture that can't be kept, and why, for the User's words where they pasted it. */
 export type PreparedPicture =
   | { picture: KeptPicture }
-  | { problem: "unreadable" | "empty" | "too-large" };
+  | { problem: "unreadable" | "empty" | "too-large" | "too-many-pixels" };
 
 /** Whether a file is a HEIC or HEIF picture, which the web engine alone can't read. */
 export const isHeicPicture = (file: Blob & { name?: string }): boolean =>
@@ -96,7 +96,7 @@ async function drawPicture(file: Blob): Promise<PreparedPicture> {
 
 async function keptPicture(image: ImageBitmap): Promise<PreparedPicture> {
   const natural = { width: image.width, height: image.height };
-  if (natural.width * natural.height > PICTURE_MAX_PIXELS) return { problem: "too-large" };
+  if (natural.width * natural.height > PICTURE_MAX_PIXELS) return { problem: "too-many-pixels" };
   // The picture is first drawn at its kept size; over the weight, smaller and lighter copies follow.
   for (const attempt of ATTEMPTS) {
     const size = scaledPictureSize(natural.width, natural.height, attempt.edge);

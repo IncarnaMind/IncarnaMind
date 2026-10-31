@@ -617,7 +617,8 @@ export const en = {
   "editor.picture.heic":
     "HEIC pictures can’t be read on this computer. Save it as a PNG or JPEG first.",
   "editor.picture.empty": "This picture is empty.",
-  "editor.picture.tooLarge": "This picture is too large to add. Try one under 50 MB.",
+  "editor.picture.tooLarge": "This picture is larger than 50 MB. Try a smaller one.",
+  "editor.picture.tooManyPixels": "This picture has too many pixels to add. Try a smaller one.",
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
@@ -1263,6 +1264,7 @@ export const en = {
   "composer.edit.send": "Change it (Enter)",
   "composer.selection.drop": "Don’t ask about this",
   "composer.picture.chip": "Picture",
+  "composer.picture.about": "Asks about this picture",
   "composer.picture.sends": "Asks about this picture, sent to {provider}",
   "composer.picture.onThisComputer": "Asks about this picture, which stays on this computer",
   "composer.picture.unreadableModel":

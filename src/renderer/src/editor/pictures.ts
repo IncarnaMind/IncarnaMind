@@ -37,12 +37,13 @@ export function pictureFilesOf(data: DataTransfer | null): File[] {
   });
 }
 
-export type PictureProblem = "unreadable" | "empty" | "too-large" | "heic";
+export type PictureProblem = "unreadable" | "empty" | "too-large" | "too-many-pixels" | "heic";
 
 const PROBLEM_KEYS: Readonly<Record<PictureProblem, MessageKey>> = {
   unreadable: "editor.picture.unreadable",
   empty: "editor.picture.empty",
   "too-large": "editor.picture.tooLarge",
+  "too-many-pixels": "editor.picture.tooManyPixels",
   heic: "editor.picture.heic",
 };
 
@@ -65,6 +66,8 @@ export async function insertPictures(
 ): Promise<void> {
   // A Note a newer version wrote is only looked at: no picture goes into the copy either.
   if (!editor.isEditable) return;
+  // Where it goes, read before a large picture takes a while to be prepared: the User may type meanwhile.
+  const position = at === undefined ? editor.state.selection.to : at;
   const kept: { type: string; attrs: Record<string, unknown> }[] = [];
   for (const file of files) {
     const prepared = await preparePicture(file, { convert: convertPicture });
@@ -78,7 +81,6 @@ export async function insertPictures(
     kept.push({ type: PICTURE_NODE, attrs: { src, width, height, alt: "" } });
   }
   if (kept.length === 0 || editor.isDestroyed) return;
-  const position = at === undefined ? editor.state.selection.to : at;
   const $at = editor.state.doc.resolve(
     Math.min(Math.max(position, 0), editor.state.doc.content.size),
   );
@@ -155,7 +157,13 @@ export const Pictures = Extension.create({
         key: new PluginKey("pictures"),
         props: {
           handlePaste(_view, event) {
-            const files = pictureFilesOf(event.clipboardData);
+            // Text and an image copied together are rich text first: Word's own paste keeps it.
+            const data = event.clipboardData;
+            const rich =
+              data !== null &&
+              (data.getData("text/html") !== "" || data.getData("text/plain") !== "");
+            if (rich) return false;
+            const files = pictureFilesOf(data);
             if (files.length === 0) return false;
             event.preventDefault();
             void insertPictures(editor, files, { onProblem });

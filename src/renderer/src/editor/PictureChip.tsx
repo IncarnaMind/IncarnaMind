@@ -45,6 +45,14 @@ export function PictureChip({ editor, doc }: { editor: Editor | null; doc: Y.Doc
   const group = groups?.find((each) => each.provider.id === model.providerId);
   const reads = group?.about[model.modelId]?.readsImages;
   const onThisComputer = group?.provider.service === null;
+  const words =
+    groups === null
+      ? t("composer.picture.about")
+      : reads === true
+        ? onThisComputer
+          ? t("composer.picture.onThisComputer")
+          : t("composer.picture.sends", { provider: service })
+        : t("composer.picture.unreadableModel");
   return (
     <span
       data-testid="composer-picture"
@@ -52,13 +60,7 @@ export function PictureChip({ editor, doc }: { editor: Editor | null; doc: Y.Doc
       className="question-skill composer-quote"
     >
       <ImageLineIcon className="question-skill-icon" />
-      <span className="truncate">
-        {reads === false
-          ? t("composer.picture.unreadableModel")
-          : onThisComputer
-            ? t("composer.picture.onThisComputer")
-            : t("composer.picture.sends", { provider: service })}
-      </span>
+      <span className="truncate">{words}</span>
     </span>
   );
 }

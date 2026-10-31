@@ -48,8 +48,9 @@ export async function decodePictureToPng(bytes: Uint8Array): Promise<Uint8Array 
   const from = join(folder, "picture");
   const to = join(folder, "picture.png");
   try {
-    await mkdir(folder, { recursive: true });
-    await writeFile(from, bytes);
+    // The picture is the User's: only this account reads the folder and the file, while they last.
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    await writeFile(from, bytes, { mode: 0o600 });
     await run(command(), args(from, to));
     const png = new Uint8Array(await readFile(to));
     if (png.length === 0 || png.length > MAX_BYTES) return null;
