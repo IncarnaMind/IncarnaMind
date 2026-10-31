@@ -3,13 +3,14 @@
  * the figure schedule the window asks for after it, reads only the Block the key changed, and
  * only the rows that key changed cross to the window: a key costs a 2,000-paragraph Note what it
  * costs a 20-paragraph one. Counted as the reads of the Note's document the core makes and the
- * rows it gives, not as time.
+ * rows it gives, not as time. A Block's kept read is never one a change has since outdated.
  */
 import type { JSONContent } from "@tiptap/core";
 import { expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { CoreBridge, FigureSchedule } from "../../src/core/api";
+import { type CoreBridge, type FigureSchedule, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { applyFigureScheduleChange } from "../../src/shared/figureSchedule";
+import { perBlock } from "../../src/shared/memo";
 import { fingerprintOfMind } from "../../src/shared/mindState";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { appendParagraph, connectToMind, typeInto } from "../helpers/mindClient";
@@ -115,4 +116,58 @@ test("the schedule asked for as changes after each edit is the one read whole", 
     expect(schedule).toEqual(await core.getFigureSchedule(mind.id));
     expect(schedule.basis).toBe(fingerprintOfMind(client.doc));
   }
+});
+
+const paragraphOf = (text: string) => {
+  const paragraph = new Y.XmlElement("paragraph");
+  paragraph.insert(0, [new Y.XmlText(text)]);
+  return paragraph;
+};
+const textIn = (block: Y.XmlElement) => {
+  const text = block.get(0);
+  if (!(text instanceof Y.XmlText)) throw new Error("The Block holds no text.");
+  return text;
+};
+
+test("a Block read in a transaction after another Block is deleted is the Block as it is now", () => {
+  const read = perBlock((block) => block.toString());
+  const doc = new Y.Doc();
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  blocks.insert(0, [paragraphOf("x"), paragraphOf("b")]);
+  const [x, b] = blocks.toArray().filter((each) => each instanceof Y.XmlElement);
+  if (!x || !b) throw new Error("The Blocks weren't made.");
+  read(b);
+  let inside = "";
+  doc.transact(() => {
+    textIn(x).insert(0, "typed ");
+    blocks.insert(2, [paragraphOf("new")]);
+    read(b);
+    textIn(b).insert(0, "B now ");
+    // Deleting x takes its text out of the changed types, so as many types count as changed as when b was read.
+    blocks.delete(0, 1);
+    inside = read(b);
+  });
+  expect(inside).toBe("<paragraph>B now b</paragraph>");
+  expect(read(b)).toBe("<paragraph>B now b</paragraph>");
+});
+
+test("a Block read while observers run is the Block as an observer's own change left it", () => {
+  const read = perBlock((block) => block.toString());
+  const doc = new Y.Doc();
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  blocks.insert(0, [paragraphOf("first"), paragraphOf("second")]);
+  const [first, second] = blocks.toArray().filter((each) => each instanceof Y.XmlElement);
+  if (!first || !second) throw new Error("The Blocks weren't made.");
+  read(second);
+  const seen: string[] = [];
+  let changing = false;
+  blocks.observeDeep(() => {
+    if (changing) return;
+    changing = true;
+    doc.transact(() => textIn(second).insert(0, "CHANGED "));
+    seen.push(read(second));
+  });
+  textIn(first).insert(0, "typed ");
+  expect(seen).toEqual(["<paragraph>CHANGED second</paragraph>"]);
+  expect(read(second)).toBe("<paragraph>CHANGED second</paragraph>");
 });

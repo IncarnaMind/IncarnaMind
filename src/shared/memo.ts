@@ -29,21 +29,19 @@ export function memoized<Args extends unknown[], Result>(
   };
 }
 
-/** A Yjs type, where it sits in its document. */
 interface Placed {
   readonly parent: Placed | null;
 }
 
-/** What has been read from each top-level Block of a document, by the function that read it. */
 interface BlockReads {
   reads: WeakMap<Placed, Map<unknown, unknown>>;
-  /** The Blocks the transaction still going on has changed so far, and how many types that was. */
-  changing: { transaction: Y.Transaction; types: number; blocks: Set<Placed> } | null;
+  /** Transactions whose observers have been called: what they changed is read afresh since. */
+  told: WeakSet<Y.Transaction>;
+  changing: WeakMap<Y.Transaction, { types: number; deletions: number; blocks: Set<Placed> }>;
 }
 
 const documents = new WeakMap<Y.Doc, BlockReads>();
 
-/** The top-level Block a changed type is in, or null for a root type itself. */
 function blockOf(type: Placed): Placed | null {
   let at = type;
   for (let parent = at.parent; parent !== null; parent = at.parent) {
@@ -62,37 +60,49 @@ function changedBlocks(transaction: Y.Transaction): Set<Placed> {
   return blocks;
 }
 
+function deletionsIn(transaction: Y.Transaction): number {
+  let count = 0;
+  for (const deleted of transaction.deleteSet.clients.values()) count += deleted.length;
+  return count;
+}
+
 function readsOf(doc: Y.Doc): BlockReads {
   const known = documents.get(doc);
   if (known) return known;
-  const made: BlockReads = { reads: new WeakMap(), changing: null };
+  const made: BlockReads = { reads: new WeakMap(), told: new WeakSet(), changing: new WeakMap() };
   // Before the observers run, since they read the Blocks too.
   doc.on("beforeObserverCalls", (transaction) => {
     for (const block of changedBlocks(transaction)) made.reads.delete(block);
-    made.changing = null;
+    made.told.add(transaction);
   });
   documents.set(doc, made);
   return made;
 }
 
 /**
- * Whether the transaction still going on has changed the Block, or made it: what it reads now
- * may change again before the transaction ends, so it isn't kept.
+ * Whether a transaction whose observers haven't been called yet has changed the Block, or made
+ * it: what it reads now isn't kept. That is the one still going on, and one an observer started,
+ * which runs at once but is told only once the observers of the one before it are done.
  */
-function changingNow(state: BlockReads, block: Y.XmlElement, transaction: Y.Transaction): boolean {
-  const item = block._item;
-  if (item === null || item.id.clock >= (transaction.beforeState.get(item.id.client) ?? 0))
-    return true;
-  // A type changed again is already counted, and one made in the transaction counts through the
-  // type it was put in, so the Blocks are worked out again only when another type changes.
-  const { changing } = state;
-  if (changing?.transaction !== transaction || changing.types !== transaction.changed.size)
-    state.changing = {
-      transaction,
-      types: transaction.changed.size,
-      blocks: changedBlocks(transaction),
-    };
-  return state.changing?.blocks.has(block) ?? true;
+function changingNow(state: BlockReads, block: Y.XmlElement, doc: Y.Doc): boolean {
+  for (const transaction of doc._transactionCleanups) {
+    if (state.told.has(transaction)) continue;
+    const item = block._item;
+    if (item === null || item.id.clock >= (transaction.beforeState.get(item.id.client) ?? 0))
+      return true;
+    // A type changed again is already counted, and one made in the transaction counts through the
+    // type it was put in. A deleted type leaves `changed`, so its size alone can come back to an
+    // earlier count; deletions only add up.
+    const types = transaction.changed.size;
+    const deletions = deletionsIn(transaction);
+    let known = state.changing.get(transaction);
+    if (known?.types !== types || known.deletions !== deletions) {
+      known = { types, deletions, blocks: changedBlocks(transaction) };
+      state.changing.set(transaction, known);
+    }
+    if (known.blocks.has(block)) return true;
+  }
+  return false;
 }
 
 /**
@@ -105,7 +115,7 @@ export function perBlock<T>(read: (block: Y.XmlElement) => T): (block: Y.XmlElem
     const doc = block.doc;
     if (doc === null || block.parent?.parent !== null) return read(block);
     const state = readsOf(doc);
-    if (doc._transaction && changingNow(state, block, doc._transaction)) return read(block);
+    if (changingNow(state, block, doc)) return read(block);
     const known = state.reads.get(block);
     if (known?.has(read)) return known.get(read) as T;
     const value = read(block);
