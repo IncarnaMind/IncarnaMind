@@ -94,6 +94,9 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId) ?? null);
   const states = useMindNoteStates(menu.open && mind ? [mind] : []);
   const noteState = mind ? (states.get(mind.id)?.state ?? null) : null;
+  // The count the badge's card shows, so a note edited since its check says how many are still to check.
+  const toCheck = mind ? (states.get(mind.id)?.health.toCheck.length ?? 0) : 0;
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const running = useChecks((state) => state.running[mindId] !== undefined);
   // The state's own line, never a block on the export (D266): a run in flight opens the card at
   // its progress, not checked starts a Check, and needs a look opens the card at its marks.
@@ -110,7 +113,12 @@ export function ExportMenu({ mindId }: { mindId: string }) {
             run: () => showCheckCard(mindId),
           }
         : {
-            label: t("export.checkFirst"),
+            label:
+              toCheck > 0
+                ? `${t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
+                    count: format(toCheck),
+                  })} · ${t("export.checkFirstAction")}`
+                : t("export.checkFirst"),
             run: () => {
               startCheck(mindId).catch(useAppStore.getState().reportError);
             },

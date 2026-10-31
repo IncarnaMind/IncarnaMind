@@ -38,6 +38,8 @@ const CACHE_SIZE = 24;
 interface Reference {
   item: CslItem;
   documentId: string | null;
+  /** The Document the Citation names, which stays after it leaves the Library. */
+  workDocumentId: string | null;
   /** The Document's name, as the app shows it, or as it was when cited. */
   name: string;
   needsDetails: boolean;
@@ -75,8 +77,12 @@ function referenceOf(work: CitedWork, document: Document | undefined): Reference
   const name = (document && displayName(document)) || work.documentName || "";
   if (!document) {
     return {
-      item: nameOnlyItem(`name:${name}`, name),
+      item: nameOnlyItem(
+        work.documentId !== null ? `gone:${work.documentId}` : `name:${name}`,
+        name,
+      ),
       documentId: null,
+      workDocumentId: work.documentId,
       name,
       needsDetails: true,
       bare: true,
@@ -96,6 +102,7 @@ function referenceOf(work: CitedWork, document: Document | undefined): Reference
   return {
     item,
     documentId: document.id,
+    workDocumentId: work.documentId,
     name,
     needsDetails: thin(document),
     bare: hasNoDetails(document),
@@ -140,6 +147,7 @@ function numbered(request: CitationFormatRequest, references: Map<string, Refere
   const bibliography: BibliographyEntry[] = [...references.values()]
     .map((reference) => ({
       documentId: reference.documentId,
+      workDocumentId: reference.workDocumentId,
       label: null,
       runs: [{ text: reference.name }],
       needsDetails: false,
@@ -227,6 +235,7 @@ export function createCitationStyles(options: CitationStylesOptions) {
         const fallback = fallbacks.get(entry.id) ?? [];
         return {
           documentId: reference?.documentId ?? null,
+          workDocumentId: reference?.workDocumentId ?? null,
           label: entry.firstField as StyledRun[] | null,
           runs: fallback.length > 0 ? fallback : entry.runs,
           needsDetails: reference?.needsDetails ?? true,
@@ -245,7 +254,11 @@ export function createCitationStyles(options: CitationStylesOptions) {
       const style = catalogue.resolve(request.style, request.language ?? "en");
       const keyOf = (work: CitedWork) => {
         const document = work.documentId !== null ? options.document(work.documentId) : undefined;
-        if (!document) return `name:${work.documentName ?? ""}`;
+        // A Document that left the Library is still its own work: two with one name are two.
+        if (!document)
+          return work.documentId !== null
+            ? `gone:${work.documentId}`
+            : `name:${work.documentName ?? ""}`;
         // Numbered lists each Document once, by name; a style cites each version of a web page.
         return style.engine !== null && webVersionOf(work, document)
           ? versionKey(document.id, work)

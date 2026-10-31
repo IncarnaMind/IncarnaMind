@@ -3955,6 +3955,7 @@ export const en = {
   "export.keywords": "export download save PDF Word docx Markdown source pack cited pages",
   "export.format": "Format",
   "export.checkFirst": "Not checked since your last edit · Check first",
+  "export.checkFirstAction": "Check first",
   "export.show": "Show",
   "export.running": "A check is running",
   "export.format.docx": "Word (.docx)",
