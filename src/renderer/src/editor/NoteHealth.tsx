@@ -51,7 +51,7 @@ import { useOpinionChecks } from "./opinionChecks";
 import { opinionSentenceRanges } from "./opinionLocations";
 import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
-import { COUNT_IDLE_MS } from "./wordCountText";
+import { COUNT_IDLE_MS } from "./WordCount";
 
 const NO_HEALTH: Health = {
   found: [],

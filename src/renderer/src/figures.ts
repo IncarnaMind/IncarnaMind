@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
@@ -7,13 +7,13 @@ import {
   MIND_CONTENT_FIELD,
   MIND_SIGN_OFFS_FIELD,
 } from "../../core/api";
+import { applyFigureScheduleChange } from "../../shared/figureSchedule";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { useChecks } from "./checks";
 import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
-import { COUNT_IDLE_MS } from "./editor/wordCountText";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { startCheck, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
@@ -22,6 +22,8 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
   const documents = useAppStore((state) => state.documents);
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const [read, setRead] = useState<{ doc: Y.Doc; schedule: FigureSchedule } | null>(null);
+  // The last schedule the core gave, shown or not: the next is asked for as a change to it.
+  const given = useRef<{ mindId: string; token: string; schedule: FigureSchedule } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Source versions and Folder/title changes invalidate the core projection.
   useEffect(() => {
     if (!doc) return;
@@ -29,7 +31,6 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
     let active = true;
     let pending = false;
     let changed = false;
-    let idle: ReturnType<typeof setTimeout> | undefined;
     // The schedule shown stays until the core's projection of the new text arrives: actions
     // on it are refused once the text moved on (`requireCurrent`).
     const refresh = () => {
@@ -40,9 +41,18 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
       pending = true;
       changed = false;
       const basis = fingerprintOfMind(doc);
+      const held = given.current?.mindId === mindId ? given.current : null;
       core
-        .getFigureSchedule(mindId)
-        .then((schedule) => {
+        .getFigureScheduleChange(mindId, held?.token ?? null)
+        .then((change) => {
+          const schedule = applyFigureScheduleChange(held, change);
+          if (!schedule) {
+            // A change to a schedule this window no longer holds: the whole one is asked for.
+            given.current = null;
+            changed = true;
+            return;
+          }
+          given.current = { mindId, token: change.token, schedule };
           if (active && schedule.basis === basis && schedule.basis === fingerprintOfMind(doc))
             setRead({ doc, schedule });
         })
@@ -54,24 +64,18 @@ export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSche
           if (active && changed) refresh();
         });
     };
-    // Asked a moment after the text last changed, as the counts are: the core reads the whole Note.
-    const later = () => {
-      clearTimeout(idle);
-      idle = setTimeout(refresh, COUNT_IDLE_MS);
-    };
-    blocks.observeDeep(later);
+    blocks.observeDeep(refresh);
     // The User's own check marks are kept beside the Blocks; each row says how its mark shows.
     const marks = doc.getMap(MIND_SIGN_OFFS_FIELD);
     marks.observe(refresh);
     const stop = core.on("mind.update", (event) => {
-      if (event.mindId === mindId) later();
+      if (event.mindId === mindId) refresh();
     });
     refresh();
     return () => {
       active = false;
-      clearTimeout(idle);
       stop();
-      blocks.unobserveDeep(later);
+      blocks.unobserveDeep(refresh);
       marks.unobserve(refresh);
     };
   }, [mindId, doc, documents, mind?.folderId, mind?.title]);

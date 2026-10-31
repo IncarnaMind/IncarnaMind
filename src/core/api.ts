@@ -5956,6 +5956,21 @@ export interface FigureSchedule {
   progress: { done: number; total: number } | null;
 }
 
+/**
+ * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
+ * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
+ */
+export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
+  /** Names this schedule, for asking for the next as a change to it. */
+  token: string;
+  since: string | null;
+  from: number;
+  to: number;
+  /** How many paragraphs the rows after `to` moved down; their numbers move with `rows`. */
+  shift: number;
+  rows: FigureScheduleRow[];
+}
+
 export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
 
 export type ClaimCheckResult = ClaimJudgment & {
@@ -11089,6 +11104,12 @@ export interface CoreApi {
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  /**
+   * `getFigureSchedule` as a change to the schedule `since` names, one this call gave before:
+   * the rows that differ, so the window asks again after every change without the whole
+   * schedule crossing over. The whole schedule once the core no longer keeps that one.
+   */
+  getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -12214,6 +12235,7 @@ const methods: Record<CoreApiMethod, true> = {
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
+  getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,

@@ -17,7 +17,7 @@ import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck } from "../mindCheck";
 import { useAppStore } from "../store";
 import { shownClaims } from "./claimChecks";
-import { COUNT_IDLE_MS } from "./wordCountText";
+import { COUNT_IDLE_MS } from "./WordCount";
 
 export function useWatchAddedDocuments(editor: Editor, mindId: string): void {
   const checks = useEditorState({

@@ -9,6 +9,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
+import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -110,6 +111,7 @@ import {
   type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
+  type FigureSchedule,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -2401,6 +2403,30 @@ export function createCore(adapters: CoreAdapters): Core {
     usageData.record({ event: "mind_created", fields: {} });
     return mind;
   };
+
+  /** The schedules last given as changes, by token, for the next to be given as what differs. */
+  const givenSchedules = new Map<string, { mindId: string; rows: FigureSchedule["rows"] }>();
+  let scheduleTokens = 0;
+  function figureScheduleChangeFor(mindId: string, since: unknown) {
+    if (since !== null && typeof since !== "string")
+      throw new InvalidInputError("A schedule to change is named by its token, or null.");
+    const schedule = readFigureSchedule(mindId);
+    const given = since === null ? undefined : givenSchedules.get(since);
+    const token = String(++scheduleTokens);
+    givenSchedules.set(token, { mindId: schedule.mindId, rows: schedule.rows });
+    // A window keeps one schedule per Note it shows, so a few are enough.
+    for (const old of givenSchedules.keys()) {
+      if (givenSchedules.size <= 8) break;
+      givenSchedules.delete(old);
+    }
+    return figureScheduleChange(
+      schedule,
+      token,
+      given && since !== null && given.mindId === schedule.mindId
+        ? { token: since, rows: given.rows }
+        : null,
+    );
+  }
 
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
@@ -4865,6 +4891,7 @@ export function createCore(adapters: CoreAdapters): Core {
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
+    getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),

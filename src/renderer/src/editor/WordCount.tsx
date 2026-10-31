@@ -24,7 +24,14 @@ import { CheckLineIcon } from "../components/lineIcons";
 import { ProblemMark } from "../components/ProblemLine";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useLanguage, useT } from "../i18n";
-import { COUNT_IDLE_MS, createMindCounter, type MindCount } from "./wordCountText";
+import { createMindCounter, type MindCount } from "./wordCountText";
+
+/**
+ * How long the editor is left alone before the count is worked out. Counting
+ * runs after this pause, never in a keystroke's own turn, so typing stays as
+ * fast in a long Mind as in a short one.
+ */
+export const COUNT_IDLE_MS = 300;
 
 /**
  * The most a count holds the main thread at once (#812). Only Blocks not

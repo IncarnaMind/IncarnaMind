@@ -9,13 +9,6 @@ import { readProposalAttribute } from "../../../shared/proposals";
 import { countText, NO_COUNT, type TextCount } from "../../../shared/wordCount";
 
 /**
- * How long the editor is left alone before the count is worked out. Counting
- * runs after this pause, never in a keystroke's own turn, so typing stays as
- * fast in a long Mind as in a short one.
- */
-export const COUNT_IDLE_MS = 300;
-
-/**
  * The top-level Block types the count leaves out. Questions are what the User
  * asks, not part of what they write. Captions and the Bibliography would be
  * listed here (and offered as an option in the count's menu) once the editor
