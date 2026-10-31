@@ -318,7 +318,7 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const chosen = picked ?? current;
   const use = async () => {
-    if (chosen && !(await choose(chosen))) return;
+    if (chosen && !(await choose(chosen, { turnOn: true }))) return;
     onDone(chosen?.label ?? t("setup.step.skipped"));
   };
   if (read.state === "failed") {

@@ -33,6 +33,11 @@ export const zhCN = {
   "library.organize.setUp": "在这台电脑上设置模型",
   "library.organize.done.one": "已为 1 个文档推荐文件夹",
   "library.organize.done": "已为 {count} 个文档推荐文件夹",
+  "library.organize.doneFolders": "已为 {count} 个文档推荐文件夹",
+  "library.organize.noneFit": "未能为这些文档推荐文件夹",
+  "library.organize.reading": "正在读取文档内容…",
+  "library.organize": "整理不在文件夹中的文档",
+  "library.organize.keywords": "zhengli 整理 文件夹 标签 归类 推荐",
   "library.review.title": "待确认",
   "library.review.summary": "已整理 {count} 个文档：{parts}",
   "library.review.summary.one": "已整理 1 个文档：{parts}",
@@ -2341,7 +2346,10 @@ export const zhCN = {
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
-  "setup.sorting.sends": "文档名称和摘录，以及文件夹和标签的名称与描述，会发送给 {service}",
+  "setup.sorting.sends":
+    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+  "setup.sorting.sendsWhenOn":
+    "开启自动打标签后（设置 → 自动打标签），每个新文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
   "setup.sorting.chatHere": "标签和文件夹在本机使用 {model} · 不会离开这台电脑",
   "setup.sorting.chat.hints": "选择分类模型前，会议提示不会开启",
@@ -4745,6 +4753,8 @@ export const zhCN = {
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
+  "error.library.cantPropose":
+    "整理所用的模型只能把文档放进已有的文件夹，无法为文件夹命名。先新建文件夹，或为整理选择 AI 模型。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",
   "scan.images.allow": "允许发送页面图片",

@@ -18,6 +18,7 @@ export const OUTPUT_LIMITS = {
   "search-query": { most: 256 },
   tags: { most: 512 },
   organize: { most: 512 },
+  folders: { most: 1_024 },
   "find-claims": { most: 4_000 },
   "claimed-changes": { most: 2_048 },
   "unmarked-quotes": { most: 1_500 },

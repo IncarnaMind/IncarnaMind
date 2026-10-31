@@ -2116,6 +2116,26 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE meetings ADD COLUMN purged_at TEXT;
     `,
   },
+  {
+    version: 119,
+    description:
+      "The preset Invoice Tag says what isn't an invoice, unless the User edited it (#2308)",
+    sql: `
+      -- Its first description let a quote, a registration or notes with prices read as "asks for or
+      -- confirms a payment", and the tagger tagged them Invoice (#2308). Only a description still
+      -- as it was seeded changes (src/core/tags/presets.ts has the same text); one the User wrote
+      -- is theirs.
+      UPDATE tags SET
+        description = 'A bill or receipt that asks for or confirms payment for goods or services supplied, with items, amounts and dates. Not a quote, an estimate, a price list, an order or a registration.',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice'
+        AND description = 'A bill or receipt that asks for or confirms a payment, with items, amounts and dates.';
+      UPDATE tags SET
+        description = '就已提供的商品或服务要求或确认付款的账单或收据，列有项目、金额和日期。报价单、估价、价目表、订单和报名表都不算。',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE preset = 'invoice' AND description = '要求或确认付款的账单或收据，列有项目、金额和日期。';
+    `,
+  },
 ];
 
 /**

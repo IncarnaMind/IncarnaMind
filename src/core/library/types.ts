@@ -135,9 +135,11 @@ export interface LibrarySettings {
    * Tag and sort new and changed Documents by itself, once a model is chosen
    * (#1617). Until the User sets it, it is on for a model on this computer
    * and off for a cloud model, since each Document's name and an excerpt go
-   * to it. Off, nothing is sent by itself: what the User starts by hand
-   * (Organize, a re-tag) still goes. A Document added while it is off isn't
-   * tagged or sorted when it is turned on.
+   * to it. Saving another cloud model as `classifier` with this true, as
+   * choosing one for Tags does, turns it on (#2308), and the Documents then
+   * waiting to be tagged go "off": choosing it sends none of them. Off, nothing is sent by
+   * itself: what the User starts by hand (Organize, a re-tag) still goes. A
+   * Document added while it is off isn't tagged or sorted when it is turned on.
    */
   automatic: boolean;
   /**

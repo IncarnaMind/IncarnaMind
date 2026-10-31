@@ -11,3 +11,14 @@ Nothing leaves the computer for a service the User hasn't chosen. The User choos
 - **Local mode** sends nothing to any cloud service, whatever was chosen.
 
 Considered: a dialog per flow and service (the previous rule), rejected after persona testing found two or three dialogs in the first minute; one dialog per provider at the first send, rejected because the User has already chosen the provider a moment before and the dialog only repeats it.
+
+## Amendment: choosing a model for Tags turns the switch on (2026-10-31, #2308)
+
+Choosing a cloud model for Tags turns **Tag and sort new Documents automatically** on in two places: first-run setup's third step ("Use this") and Settings › Tagging (a model's row, or Other model… once saved). In both, before the choice, a line on screen says what each new Document sends and to which service. It sends the Document's name and type and an excerpt of its start (about 1,500 tokens), with the Tags' and Folders' names and descriptions, in Settings › Privacy's words. The line says that a Linked folder's new Documents go too, and that Documents already in the Library go only when the User runs Organize.
+
+- **The Library already there isn't sent.** Documents that were waiting to be tagged when the model is chosen are set "off", so nothing goes for them until the User starts Organize or a re-tag.
+- **Settings › Models leaves the switch alone.** Changing the sorting model there keeps the switch where it was, and its line says what goes once tagging is on.
+- **The chat model for Answers doesn't turn it on.** Choosing it still doesn't.
+- **Existing profiles keep their switch.** A profile that chose a model before this rule keeps its switch as it was. No migration or default turns it on, and a save that shows the switch off keeps it off.
+
+Before, a User who chose "Tags and Folders use Claude Haiku 5.5" in setup got no Tags at all, with every Document "off" and nothing saying why.

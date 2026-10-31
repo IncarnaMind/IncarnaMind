@@ -117,6 +117,8 @@ test("a pasted key is named by its form and works at once: the waiting Question 
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("local");
     await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
+    // "Tags and Folders use Claude Haiku 5.5" is the choice to tag with it: tagging is on (#2308).
+    await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
   } finally {
     await app.close();
   }
@@ -1023,7 +1025,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const words = await sortingWords(settings);
         expect(words).toContain(translate(language, "setup.sorting.chat", { model }));
         expect(words).toContain(
-          translate(language, "setup.sorting.sends", { service: "Anthropic" }),
+          translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
         );
         expect(words).not.toContain(translate(language, "setup.sorting.chatHere", { model }));
 
@@ -2198,3 +2200,82 @@ test("Compare Documents with no model offers the key field in place, and the com
     await rm(sources, { recursive: true, force: true });
   }
 });
+
+// Choosing the model for Tags turns tagging on only where its line, saying what each new Document
+// sends and to whom, is on screen before the choice (#2308, ADR-0022's amendment).
+for (const language of ["en", "zh-CN"] as const) {
+  test(`step 3 says what each new Document sends to Anthropic before Use this turns tagging on, and Skip leaves it off (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+
+      const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
+      expect(await sortingWords(card)).toContain(sends);
+      expect((await bridge(window).library()).automatic).toBe(false);
+
+      await pointAndClick(window, card.getByTestId("setup-sorting-skip"));
+      await expect(card.getByTestId("setup-step-sorting")).toHaveAttribute("data-done", "true");
+      expect((await bridge(window).library()).automatic).toBe(false);
+
+      await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
+      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+      expect(await sortingWords(card)).toContain(sends);
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+      await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`Settings › Models' choice for sorting says what goes once tagging is on, and leaves the switch where it was (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await saveAnthropicAsDefault(window, "claude-haiku-5-5");
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const chosen = (await core.getSettings()).user.chatModel;
+        const library = (await core.getLibrary()).settings;
+        if (chosen)
+          await core.saveLibrarySettings({
+            ...library,
+            classifier: { kind: "chat", choice: chosen },
+          });
+      });
+      await saveOpenAiAsDefault(window);
+      await dismissChatSetup(window);
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const select = settings.getByTestId("models-sorting");
+      await expect(select.locator("option:checked")).toHaveText("Claude Haiku 5.5");
+      expect(await sortingWords(settings)).toContain(
+        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
+      );
+      expect(await sortingWords(settings)).not.toContain(
+        translate(language, "setup.sorting.sends", { service: "Anthropic" }),
+      );
+      expect((await bridge(window).library()).automatic).toBe(false);
+
+      await select.selectOption({ label: translate(language, "models.sorting.chat") });
+      await expect
+        .poll(async () => (await bridge(window).library()).classifier)
+        .toMatchObject({
+          kind: "chat",
+          choice: { modelId: "gpt-6-luna" },
+        });
+      expect((await bridge(window).library()).automatic).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+}

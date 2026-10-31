@@ -103,7 +103,7 @@ async function invoice(name: string): Promise<string> {
   return path;
 }
 
-test("first run: choosing a provider with a key is the consent for what runs by itself, so no dialog comes before the Answer, and Tags start once they are turned on", async () => {
+test("first run: choosing a provider with a key is the consent for what runs by itself, so no dialog comes before the Answer, and choosing its model for Tags starts them", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
   const consentAsked = await recordConsentRequests(window);
@@ -129,23 +129,22 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await form.getByTestId("provider-use-key").click();
   await continueSetup(window);
 
-  // A cloud model starts with tagging off: nothing is sent for a Document until the User turns it on.
+  // Setup's third step chose OpenAI for Tags and Folders, its line saying what goes: that turned
+  // tagging on (#2308), so a Document is tagged without asking, and Settings shows the switch on.
   await addDocuments(window, [await invoice("Invoice 40")]);
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
-  ).toHaveAttribute("data-tagging", "off");
+  ).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
   const models = await openSettings(window, "models");
   const tagging = await openAdvancedModels(models);
   await tagging.scrollIntoViewIfNeeded();
   const automatic = tagging.getByRole("checkbox", {
     name: /^Tag and sort new Documents automatically/,
   });
-  await expect(automatic).not.toBeChecked();
+  await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
     "Sends each new Document’s name and first passages, and your Folder and Tag names, to OpenAI.",
   );
-  await automatic.click();
-  await expect(automatic).toBeChecked();
   await closeSettings(window);
 
   // A Document added since is tagged without asking.

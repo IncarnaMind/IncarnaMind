@@ -194,7 +194,11 @@ export function useSorting() {
     saved && saved.kind !== "automatic"
       ? (options.find((each) => sortingKey(each.classifier) === sortingKey(saved)) ?? null)
       : (options[0] ?? null);
-  const choose = async (option: SortingOption): Promise<boolean> => {
+  /**
+   * Saves the choice. `turnOn`: the choice was made with its sends line on screen, so it is the
+   * choice to tag and sort with it (#2308); otherwise the switch stays where it was.
+   */
+  const choose = async (option: SortingOption, { turnOn = false } = {}): Promise<boolean> => {
     let settings = useAppStore.getState().library?.settings;
     if (!settings) {
       await useAppStore.getState().refreshLibrary();
@@ -202,7 +206,11 @@ export function useSorting() {
     }
     if (!settings) return false;
     try {
-      await core.saveLibrarySettings({ ...settings, classifier: option.classifier });
+      await core.saveLibrarySettings({
+        ...settings,
+        classifier: option.classifier,
+        ...(turnOn && { automatic: true }),
+      });
       return true;
     } catch (error) {
       useAppStore.getState().reportError(error);
@@ -282,13 +290,17 @@ export function SortingLine({
   option,
   holds = null,
   reading = false,
+  choosing = true,
 }: {
   option: SortingOption | null;
   holds?: SortingOption | null;
   /** The core hasn't answered: nothing is said, and the rows held hold the room. */
   reading?: boolean;
+  /** Choosing here turns tagging on, so the line says so; elsewhere it says what goes once it is on. */
+  choosing?: boolean;
 }) {
   const t = useT();
+  const sends = choosing ? "setup.sorting.sends" : "setup.sorting.sendsWhenOn";
   const rows = (each: SortingOption | null) => {
     if (!each) {
       return <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
@@ -301,7 +313,7 @@ export function SortingLine({
           </p>
           {each.provider && (
             <p className="text-[12px] leading-5 text-ink-meta">
-              {t("setup.sorting.sends", { service: each.provider })}
+              {t(sends, { service: each.provider })}
             </p>
           )}
         </>
@@ -317,7 +329,7 @@ export function SortingLine({
         <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
         {each.provider && (
           <p className="text-[12px] leading-5 text-ink-meta">
-            {t("setup.sorting.sends", { service: each.provider })}
+            {t(sends, { service: each.provider })}
           </p>
         )}
       </>

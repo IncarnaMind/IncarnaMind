@@ -36,6 +36,11 @@ export const en = {
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.done.one": "Organize suggested a Folder for 1 Document",
   "library.organize.done": "Organize suggested a Folder for {count} Documents",
+  "library.organize.doneFolders": "Organize suggested Folders for {count} Documents",
+  "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
+  "library.organize.reading": "Reading what they say…",
+  "library.organize": "Organize Documents not in a Folder",
+  "library.organize.keywords": "organize sort folders tags suggest",
   "library.review.title": "To review",
   "library.review.summary": "Sorted {count} Documents: {parts}",
   "library.review.summary.one": "Sorted 1 Document: {parts}",
@@ -2449,7 +2454,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Documents’ names and excerpts, and Folder and Tag names and descriptions, go to {service}",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+  "setup.sorting.sendsWhenOn":
+    "With tagging by itself on (Settings › Tagging), each new Document’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}.",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
@@ -4981,6 +4988,8 @@ export const en = {
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
+  "error.library.cantPropose":
+    "The model Organize uses can sort into Folders but can’t name them. Make a Folder first, or choose an AI model for Organize.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
   "scan.images.allow": "Allow page images",
