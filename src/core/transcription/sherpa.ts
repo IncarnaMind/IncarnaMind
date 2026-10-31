@@ -15,6 +15,16 @@ import { writtenNumbers } from "./spokenNumbers";
 /** Silero's window at 16 kHz: it reads audio 512 samples at a time. */
 const WINDOW = 512;
 
+/**
+ * How long speech must go on unbroken, in seconds, before the detector counts it. sherpa-onnx
+ * starts a stretch only then, a little before that point, and forgets a shorter run. At a quarter
+ * second, a short first word before a pause or a stop ("对。", "可以。", "Good.") was left out of
+ * its line, so this computer's stretches count from Silero's first windows of speech (#2305).
+ * OpenAI's turns keep the quarter second: they start 1.2 s ahead of the detector anyway.
+ */
+const STRETCH_MIN_SPEECH = WINDOW / MEETING_SAMPLE_RATE;
+const TURN_MIN_SPEECH = 0.25;
+
 /** The engine id the model definitions use (./model). */
 export const QWEN3_ASR = "qwen3-asr";
 
@@ -39,13 +49,13 @@ export const SHERPA_ADDON = engineModule(
 
 type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
 
-function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
+function sileroDetector(sherpa: Sherpa, vadFile: string, minSpeech: number): VoiceDetector {
   const vad = new sherpa.Vad(
     {
       sileroVad: {
         model: vadFile,
         threshold: 0.5,
-        minSpeechDuration: 0.25,
+        minSpeechDuration: minSpeech,
         minSilenceDuration: 0.5,
         // Long speech is cut, so its final text never waits long.
         maxSpeechDuration: 20,
@@ -90,7 +100,7 @@ function sileroDetector(sherpa: Sherpa, vadFile: string): VoiceDetector {
 /** Silero VAD alone, for a cloud service that needs our own turns (OpenAI's live model, #141). */
 export async function createSileroDetectors(vadFile: string): Promise<() => VoiceDetector> {
   const sherpa = await SHERPA.load();
-  return () => sileroDetector(sherpa, vadFile);
+  return () => sileroDetector(sherpa, vadFile, TURN_MIN_SPEECH);
 }
 
 export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
@@ -120,7 +130,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     },
   });
 
-  const detector = () => sileroDetector(sherpa, model.vad);
+  const detector = () => sileroDetector(sherpa, model.vad, STRETCH_MIN_SPEECH);
 
   return {
     detector,
