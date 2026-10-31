@@ -1232,6 +1232,29 @@ describe("loading keeps a list the core pushed after reading it", () => {
 
     expect(folderIds()).toEqual(["mine", "examples"]);
   });
+
+  test("a Document read while loading still waits shows the status the core gave it since (#1741)", async () => {
+    const connectors = later<never[]>();
+    method("listConnectors").mockReturnValue(connectors.promise);
+    method("listFolders").mockResolvedValue([]);
+    const reading = { ...doc("example"), status: "extracting" } as Document;
+    method("listDocuments").mockResolvedValue([reading, doc("mine")]);
+
+    const loading = useAppStore.getState().load();
+    await settle();
+    await settle();
+    // The example's PDF, cut off by the last quit, is read to the end while loading waits.
+    emit("document.status", { ...reading, status: "ready" });
+    vi.advanceTimersByTime(100);
+    connectors.reply([]);
+    await loading;
+    vi.advanceTimersByTime(100);
+
+    expect(useAppStore.getState().documents.map((each) => [each.id, each.status])).toEqual([
+      ["example", "ready"],
+      ["mine", undefined],
+    ]);
+  });
 });
 
 describe("Organize says what it did (#763)", () => {
