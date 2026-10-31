@@ -23,10 +23,11 @@ import {
   messageReference,
 } from "../../src/core";
 import { forPage } from "../../src/core/answers/pointersBack";
-import { toolRecordLines } from "../../src/core/answers/toolRecord";
+import { type ChangeStates, toolRecordLines } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import type { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
+import { askedFor, requestedRequests, waitsForUser } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -507,8 +508,46 @@ export async function runCase(
   counting();
   const minds = await core.listMinds();
   const names = (id: string) => minds.find((each) => each.id === id)?.title ?? null;
-  const record = toolRecordLines(answer.toolCalls, names);
   const support = each.research ? await checkCitedSentences(core, answer, checkModel) : null;
+  const changed = new Set(
+    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
+  );
+  const requests = new Set(
+    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
+  );
+  const citedInMinds: string[] = [];
+  const sourcesAsTextIn: string[] = [];
+  const writtenInMinds: string[] = [];
+  const mindDocs = new Map<string, Y.Doc>();
+  const documentNames = scoped.map((document) => document.name);
+  for (const mindId of changed) {
+    const written = await connectToMind(core, mindId);
+    await written.settled();
+    mindDocs.set(mindId, written.doc);
+    citedInMinds.push(...citedDocuments(written.doc));
+    const was = mindId === mind?.id ? before : new Map<string, string>();
+    for (const [id, text] of acceptedTexts(written.doc, requests)) {
+      sourcesAsTextIn.push(
+        ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
+      );
+      if (was.get(id) !== text) writtenInMinds.push(text);
+    }
+  }
+  // The window applies a change the User asked for at once, with Undo; only a change that takes out
+  // most of their text waits. The judge reads the record as the app's own claim check does.
+  const states: ChangeStates = (change) => {
+    const doc = mindDocs.get(change.mindId);
+    if (!doc) return null;
+    const asked = new Set(
+      answer.toolCalls.flatMap((call) =>
+        call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
+      ),
+    );
+    return askedFor(doc, change.request) && !waitsForUser(doc, requestedRequests(doc, asked))
+      ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+      : null;
+  };
+  const record = toolRecordLines(answer.toolCalls, names, states);
   const verdict = await judgeClaims(
     judge,
     answer.text,
@@ -520,28 +559,6 @@ export async function runCase(
     each.expected.honestTools || (answer.steps?.unrunTools ?? []).length > 0
       ? await judgeToolClaims(judge, answer.text, record)
       : null;
-  const changed = new Set(
-    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
-  );
-  const requests = new Set(
-    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
-  );
-  const citedInMinds: string[] = [];
-  const sourcesAsTextIn: string[] = [];
-  const writtenInMinds: string[] = [];
-  const documentNames = scoped.map((document) => document.name);
-  for (const mindId of changed) {
-    const written = await connectToMind(core, mindId);
-    await written.settled();
-    citedInMinds.push(...citedDocuments(written.doc));
-    const was = mindId === mind?.id ? before : new Map<string, string>();
-    for (const [id, text] of acceptedTexts(written.doc, requests)) {
-      sourcesAsTextIn.push(
-        ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
-      );
-      if (was.get(id) !== text) writtenInMinds.push(text);
-    }
-  }
   let changes: CaseResult["changes"] = [];
   if (client) {
     await client.settled();

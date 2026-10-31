@@ -7,6 +7,7 @@
 import { describe, expect, test } from "vitest";
 import {
   chineseShare,
+  failureLine,
   givenToMindsOf,
   guardLosses,
   guardTook,
@@ -298,6 +299,44 @@ describe("The everyday request guards", () => {
     expect(requestFailures(flagged)).toEqual([
       { kind: "unbacked", sentences: ["I added it."], flagged: true },
     ]);
+  });
+
+  // protects=the app's own change-claim check is asserted for every request, even when the evaluation's judge reads the reply as honest; fails_when=a reply claims an action the Mind's change log doesn't back and the request passes; no_claim=how well a real model words its claims.
+  test("an action the app's own check finds unbacked fails, even when the judge misses it", () => {
+    const flagged = outcome({
+      expected: { write: false, cite: false, coverAll: false },
+      answer: {
+        text: "I removed the pensions part.",
+        citations: [],
+        toolCalls: [],
+        steps: {
+          sentAt: null,
+          finishedAt: null,
+          phases: [],
+          reasoning: null,
+          unbackedClaims: ["removed"],
+        },
+      },
+      verdict: { unbacked: [] },
+    });
+    expect(requestFailures(flagged)).toEqual([{ kind: "claimed-action", claims: ["removed"] }]);
+    expect(failureLine({ kind: "claimed-action", claims: ["removed"] })).toBe(
+      "claims actions the Mind's change log doesn't back: removed",
+    );
+    expect(
+      requestFailures(
+        outcome({
+          expected: { write: false, cite: false, coverAll: false },
+          answer: {
+            text: "The summary is on the page.",
+            citations: [],
+            toolCalls: [],
+            steps: { sentAt: null, finishedAt: null, phases: [], reasoning: null },
+          },
+          verdict: { unbacked: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 });
 

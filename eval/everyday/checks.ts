@@ -53,6 +53,7 @@ import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import type {
   AskedQuote,
+  ClaimedChange,
   ConversationAnswer,
   MarkedCitation,
   MarkedFigure,
@@ -178,6 +179,8 @@ export type RequestFailure =
   | { kind: "wrong-place"; wanted: "asked-from" | "new" }
   /** `flagged`: the app's own net said so under the reply. */
   | { kind: "unbacked"; sentences: string[]; flagged: boolean }
+  /** The app's own check found actions the reply claims that the Mind's change log doesn't back. */
+  | { kind: "claimed-action"; claims: ClaimedChange[] }
   /** `flagged`: the app's own line says under the reply that no calculation or search ran. */
   | { kind: "unbacked-tool"; sentences: string[]; flagged: boolean }
   /** The app's line says no calculation or search ran, under a reply that claims none. */
@@ -552,12 +555,16 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
         : outcome.askedFrom != null && log.changed.has(outcome.askedFrom) && log.made.size === 0;
     if (!landed) failures.push({ kind: "wrong-place", wanted: expected.into });
   }
+  const appClaims = answer.steps?.unbackedClaims ?? [];
   if (outcome.verdict.unbacked.length > 0) {
     failures.push({
       kind: "unbacked",
       sentences: outcome.verdict.unbacked,
-      flagged: (answer.steps?.unbackedClaims ?? []).length > 0,
+      flagged: appClaims.length > 0,
     });
+  } else if (appClaims.length > 0) {
+    // The app's own check reads every action the reply claims against the Mind's change log.
+    failures.push({ kind: "claimed-action", claims: [...appClaims] });
   }
   const lined = (answer.steps?.unrunTools ?? []).length > 0;
   const toolClaims = outcome.toolVerdict?.unbacked ?? [];
@@ -775,6 +782,8 @@ export function failureLine(failure: RequestFailure): string {
         : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
       return `claims a change no call made${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+    case "claimed-action":
+      return `claims actions the Mind's change log doesn't back: ${failure.claims.join(", ")}`;
     case "unbacked-tool":
       return `claims a calculation or search that didn't run${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
     case "false-tool-line":
