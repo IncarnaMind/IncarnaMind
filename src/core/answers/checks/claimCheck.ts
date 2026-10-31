@@ -1258,10 +1258,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const corrected = (
           read: ReadCorrection | undefined,
           citation: (marker: number) => Citation | null,
-        ) => correctionFor(sentence, request.claim, read, citation, scoped.documentDate);
+        ) =>
+          correctionFor(
+            sentence,
+            request.claim,
+            read,
+            citation,
+            scoped.documentDate,
+            documentFigureContext([{ text: sentence }]),
+          );
         const stated = corrected(said?.correction, session.finalCitation);
         const owner = figures.find((figure) => figure.result.verdict === "contradicted");
-        const language = { language: deps.language() };
+        // The sentence's figures as its check read them.
+        const language = documentFigureContext([{ text: sentence }]);
         let found = stated;
         if (owner) {
           const deciding = owner.sourceInput;
@@ -1659,6 +1668,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             verdict.correction,
             session.finalCitation,
             scoped.documentDate,
+            documentFigureContext([{ text: request.originalClaim ?? request.claim }]),
           )
         : null;
     const decided = corrected?.evidence ?? evidence;
@@ -2054,6 +2064,12 @@ function keepsNamedPeriods(from: string, replacement: string): boolean {
   return before.length === after.length && before.every((period, index) => period === after[index]);
 }
 
+/** The one figure `words` are, or null when they are more or less than a figure. */
+function figureOnly(words: string, context: FigureContext): Figure | null {
+  const read = readFigures(words, context);
+  return read.length === 1 && read[0]?.chars === words.trim() ? read[0] : null;
+}
+
 /** Whether `quote` names every period `sentence` does: a Document's value for another is no correction. */
 function namesPeriodsOf(sentence: string, quote: string): boolean {
   const named = new Set(namedPeriods(quote));
@@ -2098,6 +2114,7 @@ function correctionFor(
   read: ReadCorrection | undefined,
   finalCitation: (marker: number) => Citation | null,
   documentDate: AnswerDocuments["documentDate"],
+  context: FigureContext,
 ): { correction: ClaimCorrection; evidence: Citation } | null {
   if (!read || read.from === "" || read.choices.length < 1 || read.choices.length > 2) return null;
   const first = claim.indexOf(read.from);
@@ -2109,15 +2126,17 @@ function correctionFor(
   const markers = new Set<number>();
   const wordings = new Set<string>();
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
+  const figure = figureOnly(read.from, context);
   for (const stated of read.choices) {
-    const choice = {
-      ...stated,
-      wording: inPlace(
-        claim.slice(0, first),
-        claim.slice(first + read.from.length),
-        stated.wording,
-      ),
-    };
+    const fitted = inPlace(
+      claim.slice(0, first),
+      claim.slice(first + read.from.length),
+      stated.wording,
+    );
+    // A figure takes the Document's figure of its own kind, not the words around it.
+    const figures = figure && !figureOnly(fitted, context) ? readFigures(fitted, context) : [];
+    const same = figures.filter((each) => each.unit.kind === figure?.unit.kind);
+    const choice = { ...stated, wording: same.length === 1 && same[0] ? same[0].chars : fitted };
     if (
       markers.has(choice.marker) ||
       choice.wording === "" ||

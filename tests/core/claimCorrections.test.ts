@@ -138,6 +138,18 @@ describe("A correction in a check reply", () => {
     });
   });
 
+  test.each([
+    ["为期三年 (the grant letter, “基金会提供为期三年的资助”)", "为期三年"],
+    ["$14,250 [P1, p. 1]", "$14,250"],
+    ["西境商业地产投资与资产管理（华东）有限公司", "西境商业地产投资与资产管理（华东）有限公司"],
+  ])("reads the To value %s without a note after it", (to, wording) => {
+    const read = readVerdict(
+      `Verdict: contradicted\nThe report differs.\nChange 1: old\nTo 1: ${to}`,
+    );
+
+    expect(read?.correction?.choices).toEqual([{ wording, marker: 1 }]);
+  });
+
   test("reads old words that hold “to 1:” as words, not a field", () => {
     const read = readVerdict(
       "Verdict: contradicted\nThe report gives 3 to 1.\nChange 1: rose to 1: 2\nTo 1: rose to 3: 1",
@@ -289,6 +301,12 @@ describe("A correction from the public core", () => {
   test.each([
     { name: "only the figure", from: "$15,000", to: "$14,250", offered: true },
     {
+      name: "the figure, then the words after it",
+      from: "$15,000",
+      to: "$14,250 per month, paid in advance.",
+      offered: true,
+    },
+    {
       name: "the whole sentence",
       from: "The base rent is $15,000 per month.",
       to: "The base rent is $14,250 per month, paid in advance.",
@@ -430,7 +448,7 @@ describe("A correction from the public core", () => {
     });
   });
 
-  test("has none when a replacement duplicates the surrounding Chinese period", async () => {
+  test("drops the surrounding Chinese period a figure's replacement repeats", async () => {
     const claim = "第二季度毛利率降至36.8%。";
     const quote = "毛利率降至38.6%（第二季度）。";
     const result = await checkWith(
@@ -442,8 +460,10 @@ describe("A correction from the public core", () => {
       [{ name: "第二季度业绩.md", contents: quote }],
     );
 
-    expect(result.verdict).toBe("contradicted");
-    expect(correctionIn(result)).toBeUndefined();
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "36.8%", choices: [{ wording: "38.6%" }] },
+    });
   });
 
   test("has none when a Chinese replacement's Citation changes the surrounding period", async () => {

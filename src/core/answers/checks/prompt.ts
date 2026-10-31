@@ -775,6 +775,12 @@ function fieldLines(line: string): string[] {
 
 const PAIRED_QUOTES = /^(?:"(.+)"|“(.+)”|'(.+)'|‘(.+)’|「(.+)」|『(.+)』)$/su;
 
+/**
+ * A value without the note a model wrote after it: "为期三年 (the grant letter, …)", "$14,250
+ * [P1, p. 1]" from Claude Haiku 5.5 (#1481).
+ */
+const withoutNote = (value: string): string => value.replace(/\s+(?:\([^()]*\)|\[[^[\]]*\])$/u, "");
+
 /** Words a model put in quotation marks, without them. */
 const unquoted = (words: string): string => {
   const match = PAIRED_QUOTES.exec(words);
@@ -811,7 +817,7 @@ function readCorrection(
       if (!match) continue;
       seen = true;
       if ((index !== 1 && index !== 2) || fields.has(index)) return null;
-      fields.set(index, unquoted((match[2] ?? "").replace(MARKERS, "").trim()));
+      fields.set(index, unquoted(withoutNote((match[2] ?? "").replace(MARKERS, "").trim())));
     }
   }
   if (!seen) return undefined;
