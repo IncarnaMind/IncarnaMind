@@ -3085,7 +3085,12 @@ export function createDocuments(options: DocumentsOptions) {
       }
       if (readInput) {
         const parts = parseUnreadParts(row.unread_parts);
-        if (parts === null || parts.hiddenSheets.length === 0) {
+        // The stored parts are the last finished read's. While a read runs, or the latest one
+        // failed, they belong to the setting before it, so they can't say nothing is left out:
+        // Redo straight after Undo must redo (#740).
+        const current =
+          row.status !== "queued" && row.status !== "extracting" && row.failure_reason === null;
+        if (current && (parts === null || parts.hiddenSheets.length === 0)) {
           throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
         }
       } else if (row.read_hidden_sheets !== 1) {

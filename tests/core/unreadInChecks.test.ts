@@ -725,6 +725,19 @@ describe("A workbook read in part", () => {
         sheetsNotRead: ["After"],
       },
     });
+
+    // Undo, then Redo straight away while the re-read runs: Redo must not be refused by the
+    // last finished read's parts (#740).
+    await core.readHiddenSheets(budget.id);
+    await waitForProcessing(core, [budget.id]);
+    await core.readHiddenSheets(budget.id, false);
+    const redone = await core.readHiddenSheets(budget.id, true);
+    expect(redone.readHiddenSheets).toBe(true);
+    const [completed] = await waitForProcessing(core, [budget.id]);
+    expect(completed?.status).toBe("ready");
+    expect(
+      (await core.readDocumentText(budget.id)).pages.some((unit) => unit.label?.sheet === "Q3 raw"),
+    ).toBe(true);
   });
 
   test("the workbook stays read with its hidden sheets when the file changes", async () => {
