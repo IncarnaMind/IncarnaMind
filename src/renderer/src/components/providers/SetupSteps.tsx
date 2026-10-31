@@ -19,7 +19,7 @@ const linkClass =
  * below them (#2310): meeting transcription, best left on this computer, and what sorts Documents
  * and names meeting hints. Each is one click, skippable, and its choice is the consent for its
  * flow (ADR-0022). Only the step in hand shows its details; the other is its title, so a step the
- * User finished folds to its choice and opens again (#2147, D281).
+ * User finished folds to its choice and opens again (#2147).
  */
 export function SetupSteps() {
   const t = useT();

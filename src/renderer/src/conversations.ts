@@ -335,8 +335,9 @@ function askWaitingQuestion(): void {
 }
 
 /**
- * The cursor goes where the User asks next, unless they are typing in the Note or another field:
- * a model that starts working never pulls their next keys into the composer draft (#2310).
+ * The cursor goes where the User asks next, unless they are typing outside the setup card (in the
+ * Note or another field): a model that starts working never pulls their next keys into the
+ * composer draft (#2310).
  */
 function focusComposerUnlessTyping(): void {
   const active = document.activeElement;
