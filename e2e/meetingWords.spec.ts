@@ -58,12 +58,17 @@ test("Words to know: words are added at the top, renamed by double-click and F2,
   await pointAndClick(window, section.getByTestId("meeting-words-add"));
   await expect(rowNames(section)).toHaveText(["星河科技", "Lindqvist"]);
 
-  // A word already there, whatever its case, isn't added twice.
-  await addWord(window, section, "lindqvist");
+  // A word already there, whatever its case, isn't added twice: it stays typed, to be changed.
+  await pointAndClick(window, field);
+  await window.keyboard.type("lindqvist");
+  await window.keyboard.press("Enter");
   await expect(section.getByTestId("meeting-words-problem")).toHaveText(
     "“lindqvist” is in the list already.",
   );
+  await expect(field).toHaveValue("lindqvist");
   await expect(rowNames(section)).toHaveText(["星河科技", "Lindqvist"]);
+  await field.fill("");
+  await expect(section.getByTestId("meeting-words-problem")).toHaveCount(0);
 
   // Renamed where it is: a double-click, Enter saves; F2, Esc keeps the name.
   await rowNames(section).nth(1).hover();
