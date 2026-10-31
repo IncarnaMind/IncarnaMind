@@ -4,8 +4,16 @@
  * are none, every addition AI text citing the Transcript, one Undo, and nothing written when the
  * model fails, a quit cuts it short, or Local mode keeps it off the cloud.
  */
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
-import type { Core, Meeting, MeetingFill, SpeakerSeparator } from "../../src/core";
+import type {
+  ChatModelFactory,
+  Core,
+  Meeting,
+  MeetingFill,
+  SpeakerSeparator,
+} from "../../src/core";
+import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
 import { setMindModel } from "../../src/shared/mindModel";
@@ -38,7 +46,7 @@ const isFill = (call: ModelCall) =>
  * marker, and checks claims as `plans` say.
  */
 function fillingModel(
-  reply: string,
+  reply: string | ((prompt: string) => string),
   quotes: Record<number, string>,
   plans: Record<string, Plan> = {},
   {
@@ -55,23 +63,37 @@ function fillingModel(
     const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
     const citations = transcriptCitations(call, shown, quotes);
     if (citations) return citations;
-    return { text: reply, ...(held && { pause: { after: 0, until: held } }) };
+    const text = typeof reply === "string" ? reply : reply(call.prompt);
+    return { text, ...(held && { pause: { after: 0, until: held } }) };
   });
 }
 
-/** A Meeting with notes `notes` (none: an empty Mind), recorded for 12 seconds and stopped. */
+/**
+ * A Meeting with notes `notes` (none: an empty Mind), recorded for 12 seconds and stopped; the
+ * microphone says `lines.mine` in turn and the computer's sound `lines.theirs`.
+ */
 async function recorded(
   model: ReturnType<typeof scriptedModel>,
   notes: Parameters<typeof writeMind>[1] | null,
   before?: (core: Core) => Promise<void>,
   inMind?: (client: MindClient) => void,
-  speakerSeparator?: SpeakerSeparator,
+  {
+    speakerSeparator,
+    lines = { mine: MY_LINES, theirs: THEIR_LINES },
+    createChatModel,
+  }: {
+    speakerSeparator?: SpeakerSeparator;
+    lines?: { mine: readonly string[]; theirs: readonly string[] };
+    /** Models made from each spec, around `model`. */
+    createChatModel?: ChatModelFactory;
+  } = {},
 ) {
   const dataDir = await createTempDataFolder();
   const { core, record } = await transcribingCore(dataDir, {
     model,
-    engine: { lines: MY_LINES, theirLines: THEIR_LINES },
+    engine: { lines: lines.mine, theirLines: lines.theirs },
     ...(speakerSeparator && { speakerSeparator }),
+    ...(createChatModel && { createChatModel }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   await before?.(core);
@@ -150,7 +172,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       },
     );
     const { separator, requests } = fakeSeparator({ holds });
-    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, separator);
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+    });
     await until(
       core,
       meeting.id,
@@ -172,7 +196,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       1: MY_LINES[0] as string,
     });
     const { separator } = fakeSeparator({ fails: "The speaker process stopped." });
-    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, separator);
+    const { core, meeting } = await recorded(model, NOTES, undefined, undefined, {
+      speakerSeparator: separator,
+    });
     expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
     const transcript = await until(core, meeting.id, (each) => !each.separating);
     expect(transcript.problem?.kind).toBe("speakers");
@@ -461,6 +487,353 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     expect(calls.filter(isFill)).toEqual([]);
     expect(shown(client)).toEqual(before);
+    core.close();
+  });
+});
+
+/** A call in each language: what each side says, the User's two lines, and what the model writes. */
+const CALLS = [
+  {
+    language: "en",
+    mine: MY_LINES,
+    theirs: THEIR_LINES,
+    typed: ["price", "contract"],
+    actionsHeading: "Action items",
+    titles: ["Summary", "Decisions", "Action items", "Open questions"],
+    stop: ".",
+    written: {
+      L1: "The enterprise price is 45 dollars a seat ",
+      L2: "Dana will send the contract by Friday ",
+      SUMMARY: "The budget for this year is approved ",
+      DECISIONS: "The rollout starts in the second quarter ",
+      ACTIONS: "Finish the security review — Them ",
+      QUESTIONS: "Whether the security review is done in time ",
+    },
+    // What a model may write again in a section, and what it may say beside it from the same line.
+    again: {
+      L1: "Enterprise price: 45 dollars a seat ",
+      L2: "Send the contract by Friday — Dana ",
+      beside: "The price holds for two years ",
+    },
+  },
+  {
+    language: "zh-CN",
+    mine: ["我们同意企业版每个席位 45 美元", "Dana 周五前把合同发过来", "第二季度开始上线"],
+    theirs: ["今年的预算已经批了", "安全审查还没做"],
+    typed: ["价格", "合同"],
+    actionsHeading: "待办",
+    titles: ["摘要", "决定", "待办事项", "待定问题"],
+    stop: "。",
+    written: {
+      L1: "企业版每个席位 45 美元",
+      L2: "Dana 周五前把合同发过来",
+      SUMMARY: "今年的预算已经批了",
+      DECISIONS: "第二季度开始上线",
+      ACTIONS: "完成安全审查 — 对方",
+      QUESTIONS: "安全审查能否按时完成",
+    },
+    again: {
+      L1: "企业版每个席位 45 美元，已定",
+      L2: "把合同发过来 — Dana，周五前",
+      beside: "价格两年不变",
+    },
+  },
+] as const;
+
+for (const call of CALLS) {
+  const { written, stop, titles } = call;
+  const ai = (text: string) => `«${text}»￼«${stop}»`;
+  const asked: string[] = [];
+  const limits: (number | undefined)[] = [];
+  // With `repeats`, it writes the typed lines' facts again in DECISIONS and ACTIONS, as models do.
+  const model = ({ repeats = false } = {}) =>
+    fillingModel(
+      (prompt) => {
+        const lines = new Set([...prompt.matchAll(/^(L\d+): /gm)].map((match) => match[1]));
+        const again = (text: string, marker: number) =>
+          repeats ? `\n- ${text}[^${marker}]${stop}` : "";
+        return [
+          lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
+          lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
+          `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
+          `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
+          `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
+          `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
+        ]
+          .filter((part) => part !== false)
+          .join("\n\n");
+      },
+      {
+        1: call.mine[0] as string,
+        2: call.mine[1] as string,
+        3: call.mine[2] as string,
+        4: call.theirs[0] as string,
+        5: call.theirs[1] as string,
+      },
+      {},
+      {
+        seen: (each) => {
+          if (!isFill(each)) return;
+          asked.push(each.prompt);
+          limits.push(each.options.maxOutputTokens);
+        },
+      },
+    );
+  const recordedWith = (
+    notes: Parameters<typeof writeMind>[1],
+    before?: (core: Core) => Promise<void>,
+    options: { repeats?: boolean } = {},
+  ) => {
+    asked.length = 0;
+    limits.length = 0;
+    return recorded(
+      model(options),
+      notes,
+      async (core) => {
+        await core.updateSettings({ user: { language: call.language } });
+        await before?.(core);
+      },
+      undefined,
+      { lines: { mine: call.mine, theirs: call.theirs } },
+    );
+  };
+  const typedLines = () => [note(call.typed[0]), note(call.typed[1])];
+  const sectionsBelow = [
+    `«${titles[0]}»`,
+    ai(written.SUMMARY),
+    `«${titles[1]}»`,
+    ai(written.DECISIONS),
+    `«${titles[2]}»`,
+    ai(written.ACTIONS),
+    `«${titles[3]}»`,
+    ai(written.QUESTIONS),
+  ];
+
+  describe(`With notes typed in the call, the sections they don't cover follow them (#2306, ${call.language})`, {
+    timeout: 60_000,
+  }, () => {
+    // protects=after a call with two typed lines, each line is filled out in place and then the template's sections follow, as AI text citing the Transcript, the User's lines unchanged, in a reply given room for both; fails_when=only the typed lines are filled out, a section is missing or uncited, a typed line changes, or the reply has only an Answer's room; no_claim=a real model's wording, which the PR's real-model run covers.
+    test("two typed lines are filled out in place, then the sections follow, each cited", async () => {
+      const { core, meeting, client } = await recordedWith(typedLines());
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(4 + sectionsBelow.length));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.typed[1],
+        ai(written.L2),
+        ...sectionsBelow,
+      ]);
+      expect(asked.at(-1)).toContain("### CLAIMS:");
+      // The lines and the sections, with the thinking before them, get twice an Answer's room.
+      expect(limits.length).toBeGreaterThan(0);
+      expect(new Set(limits)).toEqual(new Set([16_000]));
+      core.close();
+    });
+
+    // protects=a heading the User typed for a section ("Action items", "待办") is that section's place: its items go under it, after the User's own lines there, and the section isn't written again below; fails_when=the action items are missing under the heading, or a second Action items heading follows; no_claim=headings named otherwise, which follow the notes as any section does.
+    test(`a typed "${call.actionsHeading}" heading is filled in place, not repeated below`, async () => {
+      const { core, meeting, client } = await recordedWith([
+        note(call.typed[0]),
+        heading(2, call.actionsHeading),
+        note(call.typed[1]),
+      ]);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(12));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.actionsHeading,
+        call.typed[1],
+        ai(written.L2),
+        ai(written.ACTIONS),
+        `«${titles[0]}»`,
+        ai(written.SUMMARY),
+        `«${titles[1]}»`,
+        ai(written.DECISIONS),
+        `«${titles[3]}»`,
+        ai(written.QUESTIONS),
+      ]);
+      core.close();
+    });
+
+    // protects=a line that is only a section's name, typed as a paragraph ("Action items", "待办"), stands for that section's heading: its items go right under it, it isn't filled out as a line, and the section isn't written again below; fails_when=the line is filled out as an ordinary line, its items go elsewhere, or a second Action items heading follows; no_claim=a heading's place, which the test above covers.
+    test(`a typed "${call.actionsHeading}" line, not a heading, is that section's place too`, async () => {
+      const { core, meeting, client } = await recordedWith([
+        note(call.typed[0]),
+        note(call.actionsHeading),
+        note(call.typed[1]),
+      ]);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(12));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.actionsHeading,
+        ai(written.ACTIONS),
+        call.typed[1],
+        ai(written.L2),
+        `«${titles[0]}»`,
+        ai(written.SUMMARY),
+        `«${titles[1]}»`,
+        ai(written.DECISIONS),
+        `«${titles[3]}»`,
+        ai(written.QUESTIONS),
+      ]);
+      expect(asked.at(-1)).toContain(`(heading: ### ACTIONS goes under it) ${call.actionsHeading}`);
+      core.close();
+    });
+
+    // protects=a fact a typed line's part states isn't written again in a section, even when the model writes it twice: the decision and the action that repeat the lines go, and a decision citing the same Transcript line but saying something else stays; fails_when=a repeat stays in Decisions or Action items, or the other decision is dropped with it; no_claim=a real model's repeats, which the PR's real-model run counts.
+    test("a fact a typed line states isn't written again in a section", async () => {
+      const { core, meeting, client } = await recordedWith(typedLines(), undefined, {
+        repeats: true,
+      });
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(13));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.typed[1],
+        ai(written.L2),
+        `«${titles[0]}»`,
+        ai(written.SUMMARY),
+        `«${titles[1]}»`,
+        ai(written.DECISIONS),
+        ai(call.again.beside),
+        `«${titles[2]}»`,
+        ai(written.ACTIONS),
+        `«${titles[3]}»`,
+        ai(written.QUESTIONS),
+      ]);
+      core.close();
+    });
+
+    // protects=one Undo takes back the filled-out lines and the sections below them together, leaving the notes exactly as typed; fails_when=a section or an addition stays after Undo, or a typed line changes; no_claim=⌘Z in the editor, which the smoke test covers.
+    test("one Undo restores the notes exactly as typed", async () => {
+      const { core, meeting, client } = await recordedWith([
+        note(call.typed[0]),
+        heading(2, call.actionsHeading),
+        note(call.typed[1]),
+      ]);
+      const before = shown(client);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+      await vi.waitFor(() => expect(shown(client)).toContain(`«${titles[0]}»`));
+      expect(shown(client)).toContain(ai(written.ACTIONS));
+
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(shown(client)).toEqual(before));
+      expect(await fillOf(core, meeting.id)).toMatchObject({ state: "undone" });
+      core.close();
+    });
+  });
+}
+
+describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
+  // protects=a Meeting's notes are asked thinking as an Answer does, and the Citations a reply left out are asked of the small calls' model, which doesn't think first, with room for a record a sentence, so neither reply's room goes to thinking and the addition keeps its Citation; fails_when=the notes are asked at a Task's thinking, the Citations of a thinking model or within a fixed room, or the addition is dropped as uncited; no_claim=how long a real model thinks, which the real-model run measures.
+  test("the notes think as an Answer does, and the Citations they left out are asked without thinking", async () => {
+    const asked: {
+      fill: boolean;
+      cites: boolean;
+      thinking: string | undefined;
+      limit: number | undefined;
+    }[] = [];
+    const sentence = "The enterprise price is 45 dollars a seat";
+    const scripted = scriptedModel((call) => {
+      if (call.json && call.system === CITE_RETRY_INSTRUCTIONS) {
+        const passage = [
+          ...call.prompt.matchAll(/<passage id="(P\d+)">\n([\s\S]*?)\n<\/passage>/g),
+        ].find((each) => each[2]?.includes(MY_LINES[0] as string));
+        // The fake engine says its lines again: only the whole Passage is one place.
+        const quote = passage?.[2]?.replace(/\[\d{1,2}:\d{2}(?: [^\]\n]+)?\]\s*/g, "");
+        const citations = passage ? [{ sentence, passage: passage[1], quote }] : [];
+        return { text: JSON.stringify({ citations }) };
+      }
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      // Writes its markers, but never calls cite.
+      return { text: `### L1\n${sentence} [^1].` };
+    });
+    const createChatModel: ChatModelFactory = (spec) =>
+      wrapLanguageModel({
+        model: scripted,
+        middleware: {
+          specificationVersion: "v4",
+          transformParams: async ({ params }) => {
+            const said = JSON.stringify(params.prompt);
+            asked.push({
+              fill: said.includes("Fill them in from the transcript"),
+              cites: said.includes(CITE_RETRY_INSTRUCTIONS.slice(0, 40)),
+              thinking: spec.thinking,
+              limit: params.maxOutputTokens,
+            });
+            return params;
+          },
+        },
+      });
+    const { core, meeting, client } = await recorded(
+      scripted,
+      [note("price")],
+      // A model that thinks, as Claude does: one that can't is never asked to.
+      async (core) => {
+        const claude = await core.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+        await core.updateSettings({
+          user: { chatModel: { providerId: claude.id, modelId: "claude-haiku-5-5" } },
+        });
+      },
+      undefined,
+      { createChatModel },
+    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    await vi.waitFor(() => expect(shown(client)).toEqual(["price", `«${sentence} »\uFFFC«.»`]));
+    expect(asked.filter((each) => each.fill).map((each) => each.thinking)).toEqual(["answer"]);
+    expect(asked.filter((each) => each.cites).map((each) => each.thinking)).toEqual(["off"]);
+    // Room for a record a sentence: one sentence here, dozens in a long call's notes.
+    expect(asked.filter((each) => each.cites).map((each) => each.limit)).toEqual([150]);
+    core.close();
+  });
+});
+
+describe("A long reply's records, asked for afterwards (#2306)", { timeout: 60_000 }, () => {
+  // protects=when a fill's reply writes many markers and gives no records, the records asked for afterwards place every one: the cap on Citations added where an Answer wrote no marker doesn't drop the model's own markers, so no bullet past the twelfth is lost as uncited; fails_when=a marked bullet past the twelfth loses its Citation and is dropped; no_claim=Citations added to sentences with no marker, still capped.
+  test("every marker of a long reply keeps its Citation", async () => {
+    const points = Array.from(
+      { length: 14 },
+      (_, index) => `Point ${index + 1} of the call is noted here`,
+    );
+    const sentence = "The enterprise price is 45 dollars a seat";
+    const model = scriptedModel((call) => {
+      if (call.json && call.system === CITE_RETRY_INSTRUCTIONS) {
+        const passage = [
+          ...call.prompt.matchAll(/<passage id="(P\d+)">\n([\s\S]*?)\n<\/passage>/g),
+        ][0];
+        // The fake engine says its lines again: only the whole Passage is one place.
+        const quote = passage?.[2]?.replace(/\[\d{1,2}:\d{2}(?: [^\]\n]+)?\]\s*/g, "");
+        const citations = passage
+          ? [sentence, ...points].map((each) => ({ sentence: each, passage: passage[1], quote }))
+          : [];
+        return { text: JSON.stringify({ citations }) };
+      }
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      return {
+        text: [
+          `### L1\n${sentence} [^1].`,
+          "### DECISIONS",
+          ...points.map((point, index) => `- ${point} [^${index + 2}].`),
+        ].join("\n"),
+      };
+    });
+    const { core, meeting, client } = await recorded(model, [note("price")]);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(17));
+    const cited = shown(client).filter((line) => line.includes("\uFFFC"));
+    expect(cited).toHaveLength(15);
+    expect(cited.at(-1)).toBe("«Point 14 of the call is noted here »\uFFFC«.»");
     core.close();
   });
 });
