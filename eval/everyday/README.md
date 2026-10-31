@@ -75,10 +75,10 @@ Note at once, with Undo, or waiting — and neither check reads the app's own ch
 Ten requests covering a page written, made longer, a paragraph changed in place, one removed, text
 added in English and Chinese, and a Question, asked twice each on Claude Haiku 5.5, the claims
 judged by Claude Sonnet 5.5: 9 of 10 requests at their floor, 19 of 20 runs. The one failure was
-`edit-remove`, whose reply said "the first attempt was left waiting for your approval …the removal
-now applies at once", which the app's check read as changes it couldn't back; asked once before this
-change too, the ten came to 26 of 30 runs, every request at its floor. The Answers' tokens, priced
-with the app's own prices:
+`edit-remove`, whose reply said the pension paragraph was "not gone yet … marked as a removal
+waiting for your approval" though its change had applied at once; the app's check read that as an
+unbacked change. Asked once before this change too, the ten came to 26 of 30 runs, every request at
+its floor. The Answers' tokens, priced with the app's own prices:
 
 | Request | Runs passed | Tokens in | Tokens out | Cost |
 |---|---|---|---|---|
