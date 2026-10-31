@@ -27,11 +27,13 @@ import {
   FOOTNOTE_NODE,
   type FormattedCitations,
   IMAGE_NODE,
+  PAGE_BREAK_NODE,
   TABLE_OF_CONTENTS_NODE,
+  WORD_ATOM_NODE,
   type WordExportLoss,
   type WordExportReport,
 } from "../../api";
-import { nodesByPlace, readWordDocument } from "../../documents/formats/docxImport";
+import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, relationshipsOf, reviewOf } from "../../documents/formats/docxPackage";
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
@@ -46,7 +48,7 @@ import {
 import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { Review, type ReviewChoices } from "../wordReview";
-import { AtomPlan } from "./atoms";
+import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
 import { DocumentPatch } from "./document";
 import {
@@ -57,8 +59,9 @@ import {
   isFurniture,
   mindJson,
 } from "./mind";
-import { WordPackageWriter, WordPartError } from "./package";
-import { currentTokens, type Token } from "./paragraph";
+import { notesSplices } from "./notes";
+import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package";
+import { currentTokens, sourceOf as keptSourceOf, type Token } from "./paragraph";
 import {
   DocumentComments,
   DocumentFootnotes,
@@ -67,6 +70,7 @@ import {
   PatchTarget,
   reserveIds,
 } from "./parts";
+import { applySplices } from "./text";
 
 export interface WordPatchInput {
   /** The package kept when the Mind was imported. */
@@ -181,8 +185,19 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     current,
     baseKey,
     currentKey,
-    base.places,
+    {
+      text: base.text,
+      places: base.places,
+      noteXml: (kind, id) => {
+        const part = base.notes[kind];
+        return part ? noteXmlIn(part, kind, id) : undefined;
+      },
+    },
     input.review.trackAs !== null,
+    (node) => {
+      const kept = keptSourceOf(node);
+      return kept !== null && sourceOf(node)?.n === kept;
+    },
   );
 
   // The parts new content goes into.
@@ -255,12 +270,21 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const options = input.readOptions;
   const specialOf = (node: NodeJSON) => {
     const element = yOf.get(node);
+    const kind = node.type === WORD_ATOM_NODE ? node.attrs?.kind : null;
     const special =
       node.type === CITATION_NODE ||
       node.type === FOOTNOTE_NODE ||
+      node.type === PAGE_BREAK_NODE ||
       node.type === "inlineMath" ||
-      (node.type === IMAGE_NODE && !node.attrs?.source);
-    return element && special ? readInlineNodes([element], options) : [];
+      node.type === IMAGE_NODE ||
+      kind === "footnote" ||
+      kind === "endnote";
+    if (!element || !special) return [];
+    const read = readInlineNodes([element], options);
+    // A note kept as is with no text the Note knows is still a note: its mark is never left out.
+    return read.length > 0 || node.type !== WORD_ATOM_NODE
+      ? read
+      : [{ kind: "footnote" as const, content: [] }];
   };
   const textOf = (node: NodeJSON) => {
     const element = yOf.get(node);
@@ -363,6 +387,42 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     );
   }
   if (text !== base.text) writer.set(pkg.part, text);
+
+  const endnotes = base.notes.endnote;
+  const endnoteLinks = endnotes ? await writer.relationshipsOf(endnotes.name) : null;
+  const notes = notesSplices({
+    base,
+    current,
+    plan,
+    edited: (footnote) => {
+      const id = footnote.attrs?.id;
+      const source = typeof id === "string" ? wordSourceOf(doc, id) : null;
+      const element = yOf.get(footnote);
+      return !source || !element || wordFingerprint(element) !== source.f;
+    },
+    // A note kept as is can't be a note inside a note: its text goes in.
+    tokensOf: (content) =>
+      currentTokens(
+        content,
+        (node) => (node.type === WORD_ATOM_NODE ? [] : specialOf(node)),
+        (node) => (node.type === WORD_ATOM_NODE ? copiedText(node) : textOf(node)),
+        reading,
+      ),
+    special: (inline) => docxWriter.inlineXml([inline], { note: true }),
+    link: (kind, href) =>
+      kind === "footnote" || !endnoteLinks
+        ? target.link(href, true)
+        : endnoteLinks.add(RELATIONSHIP_TYPES.hyperlink, href, true),
+    linkStyle: styles.find("character", "Hyperlink"),
+    addLinkStyle: () => styles.id("hyperlink"),
+    ids: target.ids,
+    review,
+    reading,
+  });
+  if (base.notes.footnote) footnotes.edit(base.notes.footnote.text, notes.footnote);
+  if (endnotes && notes.endnote.length > 0) {
+    writer.set(endnotes.name, applySplices(endnotes.text, notes.endnote));
+  }
   footnotes.add(docxWriter.footnotes);
   await footnotes.flush();
   await comments.flush(review.comments);
