@@ -123,6 +123,7 @@ export function LibraryPane() {
   );
   // Tags are named only once a Document of the User's own carries one (#1942), then they are a filter.
   const tagsShown = useAppStore(ownsATag);
+  const sourceFacetOf = useMemo(() => sourceFacet(linkedFolders), [linkedFolders]);
   const facets = useMemo<LibraryFacet<Document>[]>(
     () => [
       ...(tagsShown ? [tagFacet(tags)] : []),
@@ -130,9 +131,9 @@ export function LibraryPane() {
       yearFacet,
       statusFacet,
       folderFacet(folders, folderOf),
-      sourceFacet(linkedFolders),
+      sourceFacetOf,
     ],
-    [tags, tagsShown, folders, folderOf, linkedFolders],
+    [tags, tagsShown, folders, folderOf, sourceFacetOf],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),
@@ -163,9 +164,18 @@ export function LibraryPane() {
     () => sorted(filtered, chosenSort, documentFields(t), language),
     [filtered, chosenSort, t, language],
   );
-  // A source's view counts the Documents it lists, which may be the examples'; the page otherwise
-  // counts the Library's own, as the sidebar does (#1944).
-  const headerCount = facetFilter.source?.length ? ordered.length : libraryDocuments.length;
+  // A source's view counts that source's Documents before the search and the other filters, so
+  // its header holds while they narrow the rows; the page otherwise counts the Library's own, as
+  // the sidebar does (#1944).
+  const sourceCount = useMemo(
+    () =>
+      facetFilter.source?.length
+        ? filterLibrary<Document>(documents, [sourceFacetOf], { source: facetFilter.source }).shown
+            .length
+        : 0,
+    [documents, sourceFacetOf, facetFilter.source],
+  );
+  const headerCount = facetFilter.source?.length ? sourceCount : libraryDocuments.length;
   const narrowing = words.length > 0 || isFiltering(selection);
   const sections = useMemo(
     () => sectionsOf(folders, ordered, folderOf, narrowing),

@@ -293,6 +293,11 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
       [...exampleDocuments].sort(),
     );
     await expect(library.getByTestId("library-no-match")).toHaveCount(0);
+    // The view counts the source's own Documents before the search, so the header holds while
+    // the rows narrow to one.
+    await library.getByTestId("library-search").fill("Q3");
+    await expect(rows).toHaveCount(1);
+    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
   } finally {
     await app.close();
     await removeDataFolder(sources);
