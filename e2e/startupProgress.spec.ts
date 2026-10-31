@@ -113,6 +113,7 @@ function start(
       `--remote-debugging-port=${debugPort}`,
       ...extraPreloads.flatMap((file) => ["-r", join(__dirname, file)]),
       "-r",
+      join(__dirname, "startupProbe.cjs"),      "-r",
       join(__dirname, "startupProgress.cjs"),
     ],
     {
