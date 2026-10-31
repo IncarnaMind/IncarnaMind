@@ -116,12 +116,17 @@ describe("The sherpa-onnx recognizer", () => {
     expect(STREAMS).toEqual([{ hotwords: "陈经理,星河科技,王丽,王总,李明" }]);
 
     STREAMS.length = 0;
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
     toldResult = '{"lang": "", "text": "陈经理，星河科技，王丽，王总，李明。", "tokens": []}';
     RESULTS.push('{"lang": "", "text": "神经理，你好，我是星河科技的王丽。", "tokens": []}');
     expect(await engine.recognizer.decode(samples, "meeting:1:mic", words)).toBe(
       "神经理，你好，我是星河科技的王丽。",
     );
     expect(STREAMS).toEqual([{ hotwords: "陈经理,星河科技,王丽,王总,李明" }, {}]);
+    // The log says it happened, and holds none of the words.
+    expect(warned).toHaveBeenCalledTimes(1);
+    expect(String(warned.mock.calls[0])).not.toMatch(/王|陈|李/);
+    warned.mockRestore();
 
     STREAMS.length = 0;
     expect(await engine.recognizer.decode(samples, "meeting:1:mic", [])).toBe(

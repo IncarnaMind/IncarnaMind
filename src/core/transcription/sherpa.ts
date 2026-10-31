@@ -148,8 +148,12 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
       async decode(samples, _stream, given) {
         const words = contextWords(given);
         const text = await read(samples, words);
-        // It wrote out the list it was told rather than the speech: the stretch is read without it.
-        return words.length > 0 && echoes(text, words) ? read(samples, []) : text;
+        if (words.length === 0 || !echoes(text, words)) return text;
+        // The process has no logger of its own: its output goes to the app's log. No words in it.
+        console.warn(
+          "The speech model wrote the words it was told; the stretch is read without them.",
+        );
+        return read(samples, []);
       },
     },
     // The recognizer and detectors are freed with the process; nothing holds them here.
