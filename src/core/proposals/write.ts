@@ -2111,14 +2111,17 @@ export function createRewriteStream(
   };
 
   /**
-   * Takes the quoted words from `from` to `to` out of a paragraph left out, with the markers
-   * right after them and the spaces that would be left over: those after them, or at the
-   * paragraph's end those before them.
+   * Takes the quoted words from `from` to `to` out of a paragraph left out, with the Citation
+   * and footnote markers right after them and the spaces that would be left over: those after
+   * them, or at the paragraph's end those before them. A formula or a line break after them stays.
    */
   const removePart = (segment: Segment, quotedFrom: number, quotedTo: number) => {
     const { tokens } = segment;
     const blank = (token: OldToken | undefined) =>
-      token !== undefined && (token.text === undefined || /^\s+$/.test(token.text));
+      token !== undefined &&
+      (token.text === undefined
+        ? token.node?.name === CITATION_NODE || token.node?.name === FOOTNOTE_NODE
+        : /^\s+$/.test(token.text));
     let to = quotedTo;
     let after = tokens.findIndex((token) => token.from >= to);
     while (after >= 0 && after < tokens.length && blank(tokens[after])) {

@@ -117,7 +117,8 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
 
     await ask(core, { text: "Shorten the summary", mindId: mind.id });
 
-    expect(lastResult(model)).toContain("from 11 to 11 words, not shorter");
+    // The heading the reply leaves out stays: 12 words after, not the reply's 11.
+    expect(lastResult(model)).toContain("from 11 to 12 words, not shorter");
   });
 
   // protects=edit_mind's rewrite is asked of the Answer's model with thinking off, as its quick calls are: a rewrite as asked needs no reasoning first, and Kimi K2.6 thought for a minute on one (#1635); fails_when=the rewrite goes to the Answer's thinking model; no_claim=how well a real model rewrites without thinking, which the everyday evaluation measures.
@@ -794,6 +795,47 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       expect(shownWithChanges(client)).toEqual(lines);
     },
   );
+
+  // protects=the length the model is told is the Note's once the change is in, with the paragraphs the reply left out and kept, not the reply's words alone (#880, #2180); in Chinese too; fails_when=the length counts only the rewritten paragraph; no_claim=how the model words its reply.
+  test.each([
+    {
+      asked: "Make the parking line shorter",
+      lines: [
+        "The rent is due on the first of each month.",
+        "Parking is 100 a month and the space is in the north garage.",
+        "Water is billed each quarter.",
+      ],
+      reply: "Parking is 100 a month, in the north garage.",
+      went: "from 28 to 24 words",
+    },
+    {
+      asked: "把停车那一行改短",
+      lines: ["租金每月1200元。", "停车每月100元，车位在北区车库。", "水费每月30元。"],
+      reply: "停车每月100元。",
+      went: "from 25 to 18 characters",
+    },
+  ])("the length told counts what the reply left out and kept: $asked", async (each) => {
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      if (call.prompt.includes("<passage>")) return { text: each.reply };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: each.asked } }] }
+        : { text: "Done." };
+    });
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: each.asked, mindId: mind.id });
+
+    await client.settled();
+    expect(lastResult(model)).toContain(`(${each.went})`);
+    const shown = shownWithChanges(client);
+    expect(shown).toHaveLength(3);
+    expect([shown[0], shown[2]]).toEqual([each.lines[0], each.lines[2]]);
+  });
 
   // protects=a rewrite that answers with no text and a comment, for a request that doesn't ask to remove, is a failure whose result says the text is as it was; fails_when=the model is left with the comment alone and repeats "already removed"; no_claim=how the model words its reply.
   test("a rewrite's comment with no text is reported as nothing changed, whatever it says", async () => {

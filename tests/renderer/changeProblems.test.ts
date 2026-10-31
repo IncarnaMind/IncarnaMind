@@ -243,10 +243,10 @@ describe("Why a call changed nothing, on its row", () => {
   test("text marked to remove that isn't there says nothing changed", () => {
     const problem: MindProblem = { kind: "unplaced", mindId: "a" };
     expect(problemText(en, problem, "Q3 review")).toBe(
-      "The text marked to remove isn’t in “Q3 review” word for word, so nothing changed",
+      "The text marked to remove doesn’t match “Q3 review” word for word in one place, so nothing changed",
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
-      "标出要删除的文字在“Q3 review”里找不到原文，因此没有改动",
+      "标出要删除的文字在“Q3 review”里找不到唯一一处原文，因此没有改动",
     );
   });
 });

@@ -2318,7 +2318,8 @@ export function mindTools(options: MindToolsOptions): {
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
       const gone = around ? takenOut(around.before, around.after, length?.after) : null;
-      const went = length ? ` (${lengths(length.before, length.after)})` : "";
+      const span = around ?? length;
+      const went = span ? ` (${lengths(span.before, span.after)})` : "";
       return [
         revised
           ? revisedText(mind, change, went)

@@ -2639,6 +2639,30 @@ describe("An edit the User asked for (#880)", () => {
     },
   );
 
+  // protects=a formula right after a quoted sentence stays, as the reply didn't quote it; the Citation marker after one goes with it (#2180); in Chinese too; fails_when=the formula goes with the sentence; no_claim=none beyond protects.
+  test.each([
+    { language: "English", quoted: "Done.", rest: " More text." },
+    { language: "Chinese", quoted: "已完成。", rest: "接下来。" },
+  ])("a formula after a quoted sentence stays, $language", async ({ quoted, rest }) => {
+    const { core, mind, client } = await setUp(editingModel(() => `<removed>${quoted}</removed>`));
+    writeMind(client, [
+      paragraph(text("Rent is monthly.")),
+      paragraph(text(`${quoted} `), { type: "inlineMath", attrs: { latex: "F = ma" } }, text(rest)),
+      paragraph(text("Water is quarterly.")),
+    ]);
+    await client.settled();
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, "Delete that sentence"));
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Rent is monthly.",
+      `\uFFFC${rest}`,
+      "Water is quarterly.",
+    ]);
+  });
+
   // protects=a quote that isn't in the passage word for word refuses the whole edit and is named, so nothing it wrote leans on text that stayed (#2180); fails_when=a paragraph goes for a paraphrase, the rest applies, or the quote isn't reported; no_claim=how a real model words a quote.
   test("a quote that isn't in the passage word for word refuses the edit, and is named", async () => {
     const weekly = THIRD.replace("each week", "weekly");
@@ -2654,10 +2678,10 @@ describe("An edit the User asked for (#880)", () => {
     });
     expect(shownWithChanges(client)).toEqual([FIRST, SECOND, THIRD]);
     expect(translate("en", "edit.problem.unplaced")).toBe(
-      "The AI marked text to remove that isn’t in the selection word for word, so nothing changed. Try again.",
+      "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.unplaced")).toBe(
-      "AI 标出要删除的文字在选中内容里找不到原文，没有改动。请重试。",
+      "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
     );
   });
 
