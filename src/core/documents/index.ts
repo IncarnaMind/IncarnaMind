@@ -163,6 +163,7 @@ interface DocumentRow {
   failure_reason: string | null;
   failure_message: string | null;
   unread_parts: string | null;
+  read_hidden_sheets: number;
   folder_id: string | null;
   tagging_status: string;
   tagging_error_kind: string | null;
@@ -223,7 +224,8 @@ const versionMomentOf = (row: Pick<DocumentRow, "file_mtime_ms">, readAt: string
     : new Date(row.file_mtime_ms).toISOString();
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
-  failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
+  failure_reason, failure_message, unread_parts, read_hidden_sheets, folder_id, tagging_status,
+  tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
   keywords_version, file_mtime_ms, created_at, updated_at`;
@@ -595,6 +597,7 @@ export function createDocuments(options: DocumentsOptions) {
         : null,
       unreadParts,
       unreadPartsUnknown,
+      readHiddenSheets: row.read_hidden_sheets === 1,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
@@ -786,12 +789,13 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   const jobFor = (
-    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash">,
+    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash" | "read_hidden_sheets">,
   ): ProcessingJob => ({
     task: "process",
     documentId: row.id,
     kind: row.kind as DocumentKind,
     file: row.path,
+    ...(row.read_hidden_sheets === 1 && { readHiddenSheets: true as const }),
     scan:
       textRecognition && row.kind === "pdf"
         ? { reader: textRecognition.reader, keep: keptScans(row) }
@@ -3058,6 +3062,45 @@ export function createDocuments(options: DocumentsOptions) {
       }
       if (row.file_status !== "available") {
         throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      process(id);
+      return toDocument(find(id) ?? row);
+    },
+
+    /**
+     * Reads a workbook with its hidden and very hidden sheets (`readHidden`),
+     * or again without them (#740), and keeps that for every version after. Only
+     * a workbook with hidden sheets left out to read, or one that reads them to
+     * leave them out, whose file is there.
+     */
+    readHiddenSheets(idInput: unknown, readInput: unknown = true): Document {
+      const id = parseId(idInput);
+      if (typeof readInput !== "boolean") {
+        throw new InvalidInputError({ key: "error.document.readHiddenSheets" });
+      }
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      if (row.kind !== "xlsx") {
+        throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+      }
+      if (readInput) {
+        const parts = parseUnreadParts(row.unread_parts);
+        if (parts === null || parts.hiddenSheets.length === 0) {
+          throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+        }
+      } else if (row.read_hidden_sheets !== 1) {
+        return toDocument(row);
+      }
+      if (row.file_status !== "available") {
+        throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      const wanted = readInput ? 1 : 0;
+      if (row.read_hidden_sheets !== wanted) {
+        db.run("UPDATE documents SET read_hidden_sheets = ?, updated_at = ? WHERE id = ?", [
+          wanted,
+          now(),
+          id,
+        ]);
       }
       process(id);
       return toDocument(find(id) ?? row);
