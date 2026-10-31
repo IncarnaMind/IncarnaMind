@@ -3872,6 +3872,45 @@ describe("An edit never loses the User's words (#2333)", () => {
     },
   );
 
+  // protects=a reply that keeps none of the passage's paragraphs and is longer than it is written anew in its place (through the assistant, its guard then holds it for the User), while one that repeats a paragraph and then writes more lines than follow it adds them and keeps the paragraph after; English and Chinese; fails_when=the rewrite is added beside the text it rewrites, or the stray line takes the following paragraph's place; no_claim=what a real model writes.
+  test.each([
+    {
+      lines: ["Parking is free at the north site.", "Hiring stays frozen."],
+      anew: ["Gulls wheel over the quay at dawn.", "Boats rest on the mud at low water."],
+      stray: "Changed to:",
+      fresh: "Parking at the north site is no longer free.",
+    },
+    {
+      lines: ["北区停车免费。", "招聘继续冻结。"],
+      anew: ["清晨海鸥在码头上空盘旋。", "退潮时船只停在泥滩上。"],
+      stray: "改为：",
+      fresh: "北区停车不再免费。",
+    },
+  ])(
+    "a reply written anew takes its place; one that keeps a line adds what follows: $stray",
+    async (each) => {
+      const [first = "", second = ""] = each.lines;
+      const anew = await noteOf(plain([first]), () => each.anew.join("\n\n"));
+      expect(
+        await anew.core.editWithAi(
+          wholeMind(anew.client, anew.mind.id, "Rewrite it to be clearer"),
+        ),
+      ).toMatchObject({ kind: "proposed" });
+      expect(await acceptThenUndo(anew.client, anew.before)).toEqual(each.anew);
+
+      const kept = await noteOf(plain(each.lines), () =>
+        [first, each.stray, each.fresh].join("\n\n"),
+      );
+      await kept.core.editWithAi(wholeMind(kept.client, kept.mind.id, "Change the parking line"));
+      expect(await acceptThenUndo(kept.client, kept.before)).toEqual([
+        first,
+        each.stray,
+        each.fresh,
+        second,
+      ]);
+    },
+  );
+
   // protects=a stray line and a new line in a partial reply, after the line it repeats, are added, and the sections after them stay as they were; English and Chinese; fails_when=they take the place of the paragraphs that follow (seen on Claude Haiku 5.5 in #2192's check); no_claim=what a real model writes.
   test.each([
     {
