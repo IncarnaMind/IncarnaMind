@@ -688,13 +688,19 @@ describe("A workbook read in part", () => {
     expect(after.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(true);
     expect(after.pages.some((unit) => unit.label?.sheet === "Q4 raw")).toBe(true);
     expect(after.pages.map((unit) => unit.text).join("\n")).toContain("Secret");
+    // The visible sheets keep the Unit numbers a Citation already points at.
+    const visible = (pages: typeof before.pages) =>
+      pages
+        .filter((unit) => unit.label?.sheet === "Visible" || unit.label?.sheet === "Big")
+        .map((unit) => [unit.page, unit.text]);
+    expect(visible(after.pages)).toEqual(visible(before.pages));
 
     const found = (await core.listUnreadFiles(null)).find((file) => file.name === BUDGET);
     expect(found).toMatchObject({
       reason: "parts",
       parts: {
         hiddenSheets: [],
-        rowsCut: [{ sheet: "Big", from: MAX_ROWS - 4 }],
+        rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
         sheetsNotRead: ["After"],
       },
     });
@@ -705,7 +711,7 @@ describe("A workbook read in part", () => {
     const checked = (await unreadOfChecks(client)).find((file) => file.name === BUDGET);
     expect(checked?.parts).toEqual({
       hiddenSheets: [],
-      rowsCut: [{ sheet: "Big", from: MAX_ROWS - 4 }],
+      rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
       sheetsNotRead: ["After"],
     });
 

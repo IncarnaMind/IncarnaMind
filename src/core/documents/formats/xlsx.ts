@@ -95,7 +95,9 @@ const LAYOUT_PARTS = [...SHEET_PARTS, "sheetPr", "sheetView", "sheetFormatPr", "
 /**
  * Reads a workbook's visible sheets, and with `readHidden`, its hidden and very
  * hidden ones too. With `layout`, it also reads how they look, for the sheet
- * preview (see the file's comment).
+ * preview (see the file's comment). Hidden sheets are read after the visible
+ * ones, under a budget of their own, so the Units a Citation already points at
+ * keep their numbers (#740).
  */
 export async function readWorkbook(
   bytes: Uint8Array,
@@ -162,20 +164,41 @@ export async function readWorkbook(
   const hiddenSheets: string[] = [];
   const rowsCut: { sheet: string; from: number }[] = [];
   const sheetsNotRead: string[] = [];
+  const entries = descendants(workbook, "sheet");
+  const hiddenEntry = (entry: XmlElement) =>
+    entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
+  const ordered = readHidden
+    ? [...entries.filter((entry) => !hiddenEntry(entry)), ...entries.filter(hiddenEntry)]
+    : entries;
+  const positions = new Map(entries.map((entry, position) => [entry, position]));
   const active = Number(descendants(workbook, "workbookView")[0]?.attrs.activeTab ?? 0);
+  const activeEntry = entries[active];
+  const activeIndex = readHidden && activeEntry ? ordered.indexOf(activeEntry) : active;
   let activeSheet = 0;
   let rowsLeft = limits.rows;
   let cellsLeft = limits.cells;
   let truncated = false;
-  for (const [position, entry] of descendants(workbook, "sheet").entries()) {
+  let visibleTruncated = false;
+  let hiddenPass = false;
+  for (const [index, entry] of ordered.entries()) {
     const part = targets.get(entry.attrs["r:id"] ?? "");
     if (!part || !zip.has(part)) continue;
-    const name = entry.attrs.name ?? `Sheet${position + 1}`;
-    if (!readHidden && (entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden")) {
+    const name = entry.attrs.name ?? `Sheet${(positions.get(entry) ?? 0) + 1}`;
+    const hidden = hiddenEntry(entry);
+    if (!readHidden && hidden) {
       hiddenSheets.push(name);
       continue;
     }
-    if (position === active) activeSheet = sheets.length;
+    // The hidden sheets' pass: the visible pass's cut is kept, and the limits start again, so
+    // the sheets a Citation points at keep their Unit numbers and the hidden ones still read.
+    if (readHidden && hidden && !hiddenPass) {
+      hiddenPass = true;
+      visibleTruncated = truncated;
+      truncated = false;
+      rowsLeft = limits.rows;
+      cellsLeft = limits.cells;
+    }
+    if (index === activeIndex) activeSheet = sheets.length;
     const sheet: Sheet = {
       name,
       cells: [],
@@ -250,7 +273,13 @@ export async function readWorkbook(
       sheet.columnCount = Math.max(sheet.columnCount, end.column + 1);
     }
   }
-  const read = { sheets, truncated, hiddenSheets, rowsCut, sheetsNotRead };
+  const read = {
+    sheets,
+    truncated: visibleTruncated || truncated,
+    hiddenSheets,
+    rowsCut,
+    sheetsNotRead,
+  };
   if (!looks) return read;
   const budget: ImageBudget = { left: MAX_WORKBOOK_IMAGE_BYTES };
   for (const [index, sheet] of sheets.entries()) {

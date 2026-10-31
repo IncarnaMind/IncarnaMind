@@ -583,8 +583,8 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     await expect(row).toHaveText(
       language === "en"
-        ? /“Big”: rows 19,996\+ weren’t read; “After”: the whole sheet wasn’t read/
-        : /“Big”：第 19,996 行及之后的内容未读取；“After”：整张工作表未读取/,
+        ? /“Big”: rows 20,000\+ weren’t read; “After”: the whole sheet wasn’t read/
+        : /“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
     );
     await screenshot(window, `answer-workbook-hidden-read-${language}`);
 
