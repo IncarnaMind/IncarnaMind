@@ -1,0 +1,607 @@
+{
+ "model": "claude-haiku-5-5",
+ "trials": [
+  {
+   "question": "What was total revenue across all regions and quarters, and how much of it came from North?",
+   "requests": 3,
+   "usage": [
+    {
+     "inputTokens": 907,
+     "inputTokenDetails": {
+      "noCacheTokens": 907,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 265,
+     "outputTokenDetails": {
+      "textTokens": 220,
+      "reasoningTokens": 45
+     },
+     "totalTokens": 1172,
+     "raw": {
+      "input_tokens": 907,
+      "output_tokens": 265,
+      "output_tokens_details": {
+       "thinking_tokens": 45
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2122,
+     "inputTokenDetails": {
+      "noCacheTokens": 2122,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 216,
+     "outputTokenDetails": {
+      "textTokens": 216,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 2338,
+     "raw": {
+      "input_tokens": 2122,
+      "output_tokens": 216,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2441,
+     "inputTokenDetails": {
+      "noCacheTokens": 2441,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 41,
+     "outputTokenDetails": {
+      "textTokens": 41,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 2482,
+     "raw": {
+      "input_tokens": 2441,
+      "output_tokens": 41,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 2,
+   "figures": [
+    {
+     "name": "total_revenue",
+     "value": 1134,
+     "how": "sum",
+     "rows": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "check": "recalculated"
+    },
+    {
+     "name": "north_revenue",
+     "value": 380.25,
+     "how": "sum",
+     "rows": [
+      2,
+      5,
+      8
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    1,
+    0
+   ],
+   "errors": [
+    "    raise ValueError(f\"give the column itself, as df[{of!r}], not its name\") | ValueError: give the column itself, as df['revenue'], not its name",
+    ""
+   ],
+   "code": [
+    "fcbcb214164a",
+    "da1a1cfe3430"
+   ],
+   "answer": "Total revenue across all regions and quarters was 1134 [=1], and North contributed 380.25 [=2] of that."
+  },
+  {
+   "question": "Which region had the highest revenue in Q3, and what was that revenue?",
+   "requests": 2,
+   "usage": [
+    {
+     "inputTokens": 906,
+     "inputTokenDetails": {
+      "noCacheTokens": 906,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 327,
+     "outputTokenDetails": {
+      "textTokens": 254,
+      "reasoningTokens": 73
+     },
+     "totalTokens": 1233,
+     "raw": {
+      "input_tokens": 906,
+      "output_tokens": 327,
+      "output_tokens_details": {
+       "thinking_tokens": 73
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 1507,
+     "inputTokenDetails": {
+      "noCacheTokens": 1507,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 254,
+     "outputTokenDetails": {
+      "textTokens": 34,
+      "reasoningTokens": 220
+     },
+     "totalTokens": 1761,
+     "raw": {
+      "input_tokens": 1507,
+      "output_tokens": 254,
+      "output_tokens_details": {
+       "thinking_tokens": 220
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 1,
+   "figures": [
+    {
+     "name": "q3_max_revenue",
+     "value": 162,
+     "how": "max",
+     "rows": [
+      10
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    0
+   ],
+   "errors": [
+    ""
+   ],
+   "code": [
+    "dc1586470bd2"
+   ],
+   "answer": "East had the highest Q3 revenue, at [=1] (North was 128.75 and South was 99)."
+  },
+  {
+   "question": "What is South's average quarterly revenue?",
+   "requests": 4,
+   "usage": [
+    {
+     "inputTokens": 896,
+     "inputTokenDetails": {
+      "noCacheTokens": 896,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 234,
+     "outputTokenDetails": {
+      "textTokens": 156,
+      "reasoningTokens": 78
+     },
+     "totalTokens": 1130,
+     "raw": {
+      "input_tokens": 896,
+      "output_tokens": 234,
+      "output_tokens_details": {
+       "thinking_tokens": 78
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 1339,
+     "inputTokenDetails": {
+      "noCacheTokens": 1339,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 162,
+     "outputTokenDetails": {
+      "textTokens": 162,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 1501,
+     "raw": {
+      "input_tokens": 1339,
+      "output_tokens": 162,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2109,
+     "inputTokenDetails": {
+      "noCacheTokens": 2109,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 194,
+     "outputTokenDetails": {
+      "textTokens": 176,
+      "reasoningTokens": 18
+     },
+     "totalTokens": 2303,
+     "raw": {
+      "input_tokens": 2109,
+      "output_tokens": 194,
+      "output_tokens_details": {
+       "thinking_tokens": 18
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2374,
+     "inputTokenDetails": {
+      "noCacheTokens": 2374,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 60,
+     "outputTokenDetails": {
+      "textTokens": 60,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 2434,
+     "raw": {
+      "input_tokens": 2374,
+      "output_tokens": 60,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 3,
+   "figures": [
+    {
+     "name": "south_avg",
+     "value": 99.5,
+     "how": "mean",
+     "rows": [
+      3,
+      6,
+      9
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    0,
+    1,
+    0
+   ],
+   "errors": [
+    "",
+    "                        ^^ | NameError: name 'df' is not defined",
+    ""
+   ],
+   "code": [
+    "a5b97c7ce658",
+    "056a007316f5",
+    "ae575f855cc4"
+   ],
+   "answer": "South's average quarterly revenue is 99.5 [=1]. This is the mean of its three quarters: Q1 98.0, Q2 101.5 and Q3 99.0."
+  },
+  {
+   "question": "How much did East earn in the first two quarters combined?",
+   "requests": 2,
+   "usage": [
+    {
+     "inputTokens": 899,
+     "inputTokenDetails": {
+      "noCacheTokens": 899,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 478,
+     "outputTokenDetails": {
+      "textTokens": 410,
+      "reasoningTokens": 68
+     },
+     "totalTokens": 1377,
+     "raw": {
+      "input_tokens": 899,
+      "output_tokens": 478,
+      "output_tokens_details": {
+       "thinking_tokens": 68
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 1866,
+     "inputTokenDetails": {
+      "noCacheTokens": 1866,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 49,
+     "outputTokenDetails": {
+      "textTokens": 49,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 1915,
+     "raw": {
+      "input_tokens": 1866,
+      "output_tokens": 49,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 2,
+   "figures": [
+    {
+     "name": "east_q1_q2_revenue",
+     "value": 293.25,
+     "how": "sum",
+     "rows": [
+      4,
+      7
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    0,
+    0
+   ],
+   "errors": [
+    "",
+    ""
+   ],
+   "code": [
+    "361a5432d4ef",
+    "5d5f17e0be24"
+   ],
+   "answer": "East earned 293.25 in Q1 and Q2 combined: 143.25 in Q1 plus 150.00 in Q2 [=1]."
+  },
+  {
+   "question": "In how many region-quarters was revenue above 120?",
+   "requests": 3,
+   "usage": [
+    {
+     "inputTokens": 899,
+     "inputTokenDetails": {
+      "noCacheTokens": 899,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 231,
+     "outputTokenDetails": {
+      "textTokens": 161,
+      "reasoningTokens": 70
+     },
+     "totalTokens": 1130,
+     "raw": {
+      "input_tokens": 899,
+      "output_tokens": 231,
+      "output_tokens_details": {
+       "thinking_tokens": 70
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 1291,
+     "inputTokenDetails": {
+      "noCacheTokens": 1291,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 196,
+     "outputTokenDetails": {
+      "textTokens": 196,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 1487,
+     "raw": {
+      "input_tokens": 1291,
+      "output_tokens": 196,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 1564,
+     "inputTokenDetails": {
+      "noCacheTokens": 1564,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 110,
+     "outputTokenDetails": {
+      "textTokens": 110,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 1674,
+     "raw": {
+      "input_tokens": 1564,
+      "output_tokens": 110,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 2,
+   "figures": [
+    {
+     "name": "region_quarters_above_120",
+     "value": 6,
+     "how": "count",
+     "rows": [
+      2,
+      4,
+      5,
+      7,
+      8,
+      10
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    0,
+    0
+   ],
+   "errors": [
+    "",
+    ""
+   ],
+   "code": [
+    "02b278354626",
+    "da416758ae73"
+   ],
+   "answer": "Six region-quarters had revenue above 120 [=1]. Those are North Q1 (120.50), East Q1 (143.25), North Q2 (131.00), East Q2 (150.00), North Q3 (128.75) and East Q3 (162.00). The other three (South Q1, South Q2, South Q3) were below 120."
+  }
+ ]
+}

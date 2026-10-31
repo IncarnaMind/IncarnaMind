@@ -39,6 +39,8 @@ const QUESTIONS = [
   "What was total revenue across all regions and quarters, and how much of it came from North?",
   "Which region had the highest revenue in Q3, and what was that revenue?",
   "What is South's average quarterly revenue?",
+  "How much did East earn in the first two quarters combined?",
+  "In how many region-quarters was revenue above 120?",
 ];
 
 test.skipIf(process.env.RUN_CODE_MODEL !== "1" || !python || !process.env.ANTHROPIC_API_KEY)(
@@ -96,7 +98,7 @@ test.skipIf(process.env.RUN_CODE_MODEL !== "1" || !python || !process.env.ANTHRO
       const result = await generateText({
         model: anthropic(MODEL),
         system:
-          "You answer questions about the User's Documents. Work numbers out with run_code, never in your head, and give each figure you state with result(..., of=..., how=...) so it can be checked. Write each figure's marker [=n] where its number goes.",
+          "You answer questions about the User's Documents. Work numbers out with run_code, never in your head. Give each figure you state with figure(...) when it is a sum, mean, minimum, maximum or count of a column, so it can be checked, and with result(...) otherwise. Write each figure's marker [=n] where its number goes.",
         prompt: `Passage P1 is from sales.csv (a CSV, 9 rows under the headings region, quarter, revenue):\nregion,quarter,revenue\nNorth,Q1,120.5\nSouth,Q1,98\n…\n\nQuestion: ${question}`,
         tools: {
           [runCode.name]: tool({
@@ -136,7 +138,7 @@ test.skipIf(process.env.RUN_CODE_MODEL !== "1" || !python || !process.env.ANTHRO
     }
     const out = process.env.RUN_CODE_MODEL_OUT;
     if (out) await writeFile(out, JSON.stringify({ model: MODEL, trials }, null, 1));
-    expect(trials.length).toBe(3);
+    expect(trials.length).toBe(5);
   },
   600_000,
 );

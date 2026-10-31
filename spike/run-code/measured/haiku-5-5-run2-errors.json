@@ -1,0 +1,456 @@
+{
+ "model": "claude-haiku-5-5",
+ "trials": [
+  {
+   "question": "What was total revenue across all regions and quarters, and how much of it came from North?",
+   "requests": 3,
+   "usage": [
+    {
+     "inputTokens": 813,
+     "inputTokenDetails": {
+      "noCacheTokens": 813,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 325,
+     "outputTokenDetails": {
+      "textTokens": 268,
+      "reasoningTokens": 57
+     },
+     "totalTokens": 1138,
+     "raw": {
+      "input_tokens": 813,
+      "output_tokens": 325,
+      "output_tokens_details": {
+       "thinking_tokens": 57
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2109,
+     "inputTokenDetails": {
+      "noCacheTokens": 2109,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 372,
+     "outputTokenDetails": {
+      "textTokens": 287,
+      "reasoningTokens": 85
+     },
+     "totalTokens": 2481,
+     "raw": {
+      "input_tokens": 2109,
+      "output_tokens": 372,
+      "output_tokens_details": {
+       "thinking_tokens": 85
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2600,
+     "inputTokenDetails": {
+      "noCacheTokens": 2600,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 94,
+     "outputTokenDetails": {
+      "textTokens": 94,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 2694,
+     "raw": {
+      "input_tokens": 2600,
+      "output_tokens": 94,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 2,
+   "figures": [
+    {
+     "name": "total_revenue",
+     "value": 1134,
+     "how": "sum",
+     "rows": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+     ],
+     "check": "recalculated"
+    },
+    {
+     "name": "north_revenue",
+     "value": 380.25,
+     "how": "sum",
+     "rows": [
+      2,
+      5,
+      8
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    1,
+    0
+   ],
+   "errors": [
+    "    ) | ValueError: of= takes a column of rows read with read_table, and how= one of sum, mean, min, max, count",
+    ""
+   ],
+   "code": [
+    "4433041f240f",
+    "293374cb0f84"
+   ],
+   "answer": "Total revenue across all regions and quarters was 1134 [=1], and North contributed 380.25 [=2] of that, about 33.5%.\n\nThe figures come from the nine rows of sales.csv: North's Q1–Q3 values are 120.50, 131.00 and 128.75."
+  },
+  {
+   "question": "Which region had the highest revenue in Q3, and what was that revenue?",
+   "requests": 4,
+   "usage": [
+    {
+     "inputTokens": 812,
+     "inputTokenDetails": {
+      "noCacheTokens": 812,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 328,
+     "outputTokenDetails": {
+      "textTokens": 260,
+      "reasoningTokens": 68
+     },
+     "totalTokens": 1140,
+     "raw": {
+      "input_tokens": 812,
+      "output_tokens": 328,
+      "output_tokens_details": {
+       "thinking_tokens": 68
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2193,
+     "inputTokenDetails": {
+      "noCacheTokens": 2193,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 288,
+     "outputTokenDetails": {
+      "textTokens": 204,
+      "reasoningTokens": 84
+     },
+     "totalTokens": 2481,
+     "raw": {
+      "input_tokens": 2193,
+      "output_tokens": 288,
+      "output_tokens_details": {
+       "thinking_tokens": 84
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3306,
+     "inputTokenDetails": {
+      "noCacheTokens": 3306,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 418,
+     "outputTokenDetails": {
+      "textTokens": 218,
+      "reasoningTokens": 200
+     },
+     "totalTokens": 3724,
+     "raw": {
+      "input_tokens": 3306,
+      "output_tokens": 418,
+      "output_tokens_details": {
+       "thinking_tokens": 200
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3796,
+     "inputTokenDetails": {
+      "noCacheTokens": 3796,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 47,
+     "outputTokenDetails": {
+      "textTokens": 47,
+      "reasoningTokens": 0
+     },
+     "totalTokens": 3843,
+     "raw": {
+      "input_tokens": 3796,
+      "output_tokens": 47,
+      "output_tokens_details": {
+       "thinking_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 3,
+   "figures": [
+    {
+     "name": "top_q3_revenue",
+     "value": 162,
+     "how": "max",
+     "rows": [
+      8,
+      9,
+      10
+     ],
+     "check": "recalculated"
+    }
+   ],
+   "exits": [
+    1,
+    1,
+    0
+   ],
+   "errors": [
+    "    ) | ValueError: of= takes a column of rows read with read_table, and how= one of sum, mean, min, max, count",
+    "                                                                                     ~~~~~^^^^^^^ | TypeError: float() argument must be a string or a real number, not 'DataFrame'",
+    ""
+   ],
+   "code": [
+    "9b4b9f9dfe99",
+    "42220d3cc574",
+    "187da8fde15d"
+   ],
+   "answer": "East had the highest revenue in Q3, at 162 [=1]. The Q3 figures were North 128.75, South 99 and East 162."
+  },
+  {
+   "question": "What is South's average quarterly revenue?",
+   "requests": 4,
+   "usage": [
+    {
+     "inputTokens": 802,
+     "inputTokenDetails": {
+      "noCacheTokens": 802,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 263,
+     "outputTokenDetails": {
+      "textTokens": 209,
+      "reasoningTokens": 54
+     },
+     "totalTokens": 1065,
+     "raw": {
+      "input_tokens": 802,
+      "output_tokens": 263,
+      "output_tokens_details": {
+       "thinking_tokens": 54
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 2091,
+     "inputTokenDetails": {
+      "noCacheTokens": 2091,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 251,
+     "outputTokenDetails": {
+      "textTokens": 190,
+      "reasoningTokens": 61
+     },
+     "totalTokens": 2342,
+     "raw": {
+      "input_tokens": 2091,
+      "output_tokens": 251,
+      "output_tokens_details": {
+       "thinking_tokens": 61
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 3167,
+     "inputTokenDetails": {
+      "noCacheTokens": 3167,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 397,
+     "outputTokenDetails": {
+      "textTokens": 195,
+      "reasoningTokens": 202
+     },
+     "totalTokens": 3564,
+     "raw": {
+      "input_tokens": 3167,
+      "output_tokens": 397,
+      "output_tokens_details": {
+       "thinking_tokens": 202
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    },
+    {
+     "inputTokens": 4405,
+     "inputTokenDetails": {
+      "noCacheTokens": 4405,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
+     },
+     "outputTokens": 447,
+     "outputTokenDetails": {
+      "textTokens": 202,
+      "reasoningTokens": 245
+     },
+     "totalTokens": 4852,
+     "raw": {
+      "input_tokens": 4405,
+      "output_tokens": 447,
+      "output_tokens_details": {
+       "thinking_tokens": 245
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+       "ephemeral_5m_input_tokens": 0,
+       "ephemeral_1h_input_tokens": 0
+      },
+      "service_tier": "standard",
+      "inference_geo": "global",
+      "speed": "standard"
+     }
+    }
+   ],
+   "calls": 4,
+   "figures": [
+    {
+     "name": "south_avg",
+     "value": 99.5,
+     "how": null,
+     "rows": null,
+     "check": "unchecked"
+    }
+   ],
+   "exits": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "errors": [
+    "    ) | ValueError: of= takes a column of rows read with read_table, and how= one of sum, mean, min, max, count",
+    "                                                                                     ~~~~~^^^^^^^ | TypeError: float() argument must be a string or a real number, not 'DataFrame'",
+    "                                                                                     ~~~~~^^^^^^^ | TypeError: float() argument must be a string or a real number, not 'Series'",
+    ""
+   ],
+   "code": [
+    "c604f5d133ed",
+    "a79e3e9a19e5",
+    "1d26a2bdaa17",
+    "8dc77bd0fba3"
+   ],
+   "answer": ""
+  }
+ ]
+}

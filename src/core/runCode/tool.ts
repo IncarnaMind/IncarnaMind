@@ -60,7 +60,7 @@ export function runCodeTool(options: RunCodeToolOptions): Tool {
     provider: PROVIDER,
     providerTool: RUN_CODE_TOOL,
     description:
-      'Run Python (pandas, numpy, scipy, statsmodels, scikit-learn, matplotlib) or bash on copies of Documents you found, with no network. Give title, language, documents (Passage ids, e.g. ["P3"]) and code. Files are in the working folder\'s ../inputs, read-only. In Python, read_table("sales.csv") gives a DataFrame indexed by sheet row; result(name, value, label, unit, of=column, how="sum"|"mean"|"min"|"max"|"count") gives a figure the app checks against the cells; table(name, df) and files written to out/ come back.',
+      'Run Python (pandas, numpy, scipy, statsmodels, scikit-learn, matplotlib) or bash on copies of Documents you found, with no network. Give title, language, documents (Passage ids, e.g. ["P3"]) and code. Files are in the working folder\'s ../inputs, read-only. In Python, read_table("sales.csv") gives a DataFrame indexed by sheet row. figure(name, column, how, label, unit) gives a figure the app checks against the cells: column is a column of read_table rows after any filtering (df.loc[df.region == "North", "revenue"]), how is "sum", "mean", "min", "max" or "count", and it returns the value. result(name, value, label, unit) gives any other number, shown as unchecked. table(name, df) and files written to out/ come back.',
     inputSchema: {
       type: "object",
       properties: {

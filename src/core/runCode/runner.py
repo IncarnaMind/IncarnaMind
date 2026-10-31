@@ -21,6 +21,7 @@ SITE = os.environ.get("INCARNAMIND_SITE")
 if SITE:
     sys.path.insert(0, SITE)
 HOW = ("sum", "mean", "min", "max", "count")
+SAME_HOW = {"average": "mean", "avg": "mean", "total": "sum", "maximum": "max", "minimum": "min"}
 _figures = []
 _tables = []
 
@@ -41,24 +42,41 @@ def read_table(name, sheet=None):
     return frame
 
 
-def result(name, value, label=None, unit=None, of=None, how=None):
-    """A figure for the Answer; of= the column it was worked out from, how= sum, mean, min, max or count."""
-    figure = {"name": str(name), "label": str(label or name), "unit": unit, "value": float(value)}
-    if of is not None:
-        import pandas as pd
+def _source(of, how):
+    import pandas as pd
 
-        if not isinstance(of, pd.Series) or "input" not in of.attrs or how not in HOW:
-            raise ValueError(
-                "of= takes a column of rows read with read_table, and how= one of " + ", ".join(HOW)
-            )
-        figure["of"] = {
-            "input": of.attrs["input"],
-            "sheet": of.attrs.get("sheet"),
-            "column": str(of.name),
-            "rows": [int(row) for row in of.index],
-            "how": how,
-        }
-    _figures.append(figure)
+    how = SAME_HOW.get(str(how).lower(), str(how).lower())
+    if isinstance(of, str):
+        raise ValueError(f"give the column itself, as df[{of!r}], not its name")
+    if not isinstance(of, pd.Series) or "input" not in of.attrs:
+        raise ValueError("the column must come from a table read with read_table, e.g. df['revenue']")
+    if how not in HOW:
+        raise ValueError("how must be one of " + ", ".join(HOW))
+    return {
+        "input": of.attrs["input"],
+        "sheet": of.attrs.get("sheet"),
+        "column": str(of.name),
+        "rows": [int(row) for row in of.index],
+        "how": how,
+    }
+
+
+def figure(name, of, how, label=None, unit=None):
+    """A figure the app checks: the sum, mean, min, max or count of a column of read_table rows, after any filtering."""
+    source = _source(of, how)
+    value = of.count() if source["how"] == "count" else getattr(of, source["how"])()
+    _figures.append(
+        {"name": str(name), "label": str(label or name), "unit": unit, "value": float(value), "of": source}
+    )
+    return float(value)
+
+
+def result(name, value, label=None, unit=None, of=None, how=None):
+    """Any other figure, shown as worked out by code and not checked; of= and how= as for figure()."""
+    entry = {"name": str(name), "label": str(label or name), "unit": unit, "value": float(value)}
+    if of is not None:
+        entry["of"] = _source(of, how)
+    _figures.append(entry)
 
 
 def table(name, frame):
@@ -85,7 +103,7 @@ def main():
     try:
         runpy.run_path(
             os.path.join(LIB, "main.py"),
-            init_globals={"read_table": read_table, "result": result, "table": table},
+            init_globals={"read_table": read_table, "figure": figure, "result": result, "table": table},
             run_name="__main__",
         )
     except SystemExit as stop:
