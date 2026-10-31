@@ -285,6 +285,8 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
     await linkedFolderRow(window, "Examples").getByTestId("linked-folder-open").click();
     const library = window.getByTestId("library");
     await expect(library).toBeVisible();
+    // The view's count is its rows, never the Library's own count plus the examples'.
+    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
     const rows = library.getByTestId("library-document");
     await expect(rows).toHaveCount(2);
     expect((await rows.getByTestId("library-document-name").allInnerTexts()).sort()).toEqual(

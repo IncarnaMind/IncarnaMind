@@ -163,6 +163,9 @@ export function LibraryPane() {
     () => sorted(filtered, chosenSort, documentFields(t), language),
     [filtered, chosenSort, t, language],
   );
+  // A source's view counts the Documents it lists, which may be the examples'; the page otherwise
+  // counts the Library's own, as the sidebar does (#1944).
+  const headerCount = facetFilter.source?.length ? ordered.length : libraryDocuments.length;
   const narrowing = words.length > 0 || isFiltering(selection);
   const sections = useMemo(
     () => sectionsOf(folders, ordered, folderOf, narrowing),
@@ -337,7 +340,7 @@ export function LibraryPane() {
       <div ref={page} className="group/page @container/page min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
           <LibraryHeader
-            count={documents.length}
+            count={headerCount}
             notSorted={notSortedCount}
             sorted={allSorted}
             onReview={() => useAppStore.getState().openLibrary("review")}
