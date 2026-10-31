@@ -7,6 +7,8 @@
 import { describe, expect, test } from "vitest";
 import {
   chineseShare,
+  documentsCovered,
+  failureLine,
   givenToMindsOf,
   guardLosses,
   guardTook,
@@ -277,9 +279,87 @@ describe("The everyday request guards", () => {
     ).toEqual([]);
   });
 
-  // protects=a claim the judge finds fails, marked when the app flagged it too; fails_when=it passes; no_claim=none beyond protects.
-  test("a claim the judge finds fails, flagged or not", () => {
-    const flagged = outcome({
+  // protects=a Document named as left for the next summary counts as said, in a sentence or in a list it leads into, in English and Chinese, and the counts say which were cited, said and left out unsaid; fails_when="left for the next summary" or its list reads as a name alone, or a name alone passes (#894); no_claim=none beyond protects.
+  test("a Document left for the next summary is said, in English and Chinese", () => {
+    const one = (text: string) =>
+      outcome({
+        answer: { text, citations: [], toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial"],
+      });
+    for (const text of [
+      "Made “Summary” of the tutorial. 2306.10683v1 is left for the next summary.",
+      "已写好教程的“总结”。2306.10683v1 留待下次总结。",
+      "Made “Summary” of the tutorial.\n\nThis one is left for the next summary, as one covers 8 at a time:\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结：\n\n1. 2306.10683v1",
+    ]) {
+      expect(requestFailures(one(text))).toEqual([]);
+      expect(documentsCovered(one(text))).toEqual({
+        cited: ["A Tutorial about Random Neural Networks in Supervised Learning"],
+        named: ["2306.10683v1"],
+        unsaid: [],
+        outside: 0,
+      });
+    }
+    const unsaid = one("Made “Summary” of the tutorial. 2306.10683v1 models urban regions.");
+    expect(requestFailures(unsaid)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
+    expect(documentsCovered(unsaid).unsaid).toEqual(["2306.10683v1"]);
+    const listed = one("Made “Summary” of the tutorial. The papers here:\n- 2306.10683v1");
+    expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+  });
+
+  // protects=a standalone “Yet” in ordinary prose does not count as saying an uncited Document was left out; fails_when=it does (#894); no_claim=none beyond protects.
+  test("a discourse “Yet” does not make a Document said", () => {
+    const answer = outcome({
+      answer: {
+        text: "Made “Summary” of the tutorial. Yet 2306.10683v1 models urban regions.",
+        citations: [],
+        toolCalls: [created],
+        steps: null,
+      },
+      citedInMinds: ["tutorial"],
+    });
+    expect(documentsCovered(answer)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
+    expect(requestFailures(answer)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
+  });
+
+  // protects=a list of what is left reads with its leading sentence, “1、” number or heading, in English and Chinese; fails_when=the item reads as a name alone (#894); no_claim=none beyond protects.
+  test("a list of what is left reads with its leading sentence, number or heading", () => {
+    const one = (text: string) =>
+      outcome({
+        answer: { text, citations: [], toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial"],
+      });
+    for (const text of [
+      "Made “Summary” of the tutorial. These are left for the next summary.\n\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结。\n1、2306.10683v1",
+      "已写好教程的“总结”。以下文档留待下次总结：\n① 2306.10683v1",
+      "## Left for the next summary\n- “2306.10683v1”",
+      "## 留待下次总结\n- 2306.10683v1",
+    ]) {
+      expect(documentsCovered(one(text))).toMatchObject({ named: ["2306.10683v1"], unsaid: [] });
+      expect(requestFailures(one(text))).toEqual([]);
+    }
+  });
+
+  // protects=a summary of each Document that cites one outside its scope, the example's, fails and counts it; fails_when=it passes, or the count is lost among the scope's; no_claim=none beyond protects.
+  test("a Citation outside the scope fails a summary of each", () => {
+    const answered = (citations: { documentId: string; marker: number }[]) =>
+      outcome({
+        answer: { text: "Made “Summary”.", citations, toolCalls: [created], steps: null },
+        citedInMinds: ["tutorial", "graphst"],
+      });
+    const leaked = answered([citation("tea", 1)]);
+    expect(requestFailures(leaked)).toEqual([{ kind: "cited-outside", documents: 1 }]);
+    expect(documentsCovered(leaked)).toMatchObject({
+      cited: [PAPERS[0]?.name, "2306.10683v1"],
+      outside: 1,
+    });
+    expect(requestFailures(answered([]))).toEqual([]);
+  });
+
+  // protects=the judge's finding and the app's own finding are reported on their own lines, even when they may concern different claims; fails_when=either finding is dropped or folded into the other, or the request passes; no_claim=none beyond protects.
+  test("the judge's finding and the app's own finding are both reported", () => {
+    const both = outcome({
       expected: { write: false, cite: false, coverAll: false },
       answer: {
         text: "I added it.",
@@ -295,9 +375,48 @@ describe("The everyday request guards", () => {
       },
       verdict: { unbacked: ["I added it."] },
     });
-    expect(requestFailures(flagged)).toEqual([
-      { kind: "unbacked", sentences: ["I added it."], flagged: true },
+    expect(requestFailures(both)).toEqual([
+      { kind: "unbacked", sentences: ["I added it."] },
+      { kind: "claimed-action", claims: ["added"] },
     ]);
+  });
+
+  // protects=the app's own change-claim check is asserted for every request, even when the evaluation's judge reads the reply as honest; fails_when=a reply claims an action the Mind's change log doesn't back and the request passes; no_claim=how well a real model words its claims.
+  test("an action the app's own check finds unbacked fails, even when the judge misses it", () => {
+    const flagged = outcome({
+      expected: { write: false, cite: false, coverAll: false },
+      answer: {
+        text: "I removed the pensions part.",
+        citations: [],
+        toolCalls: [],
+        steps: {
+          sentAt: null,
+          finishedAt: null,
+          phases: [],
+          reasoning: null,
+          unbackedClaims: ["removed"],
+        },
+      },
+      verdict: { unbacked: [] },
+    });
+    expect(requestFailures(flagged)).toEqual([{ kind: "claimed-action", claims: ["removed"] }]);
+    expect(failureLine({ kind: "claimed-action", claims: ["removed"] })).toBe(
+      "claims actions the Mind's change log doesn't back: removed",
+    );
+    expect(
+      requestFailures(
+        outcome({
+          expected: { write: false, cite: false, coverAll: false },
+          answer: {
+            text: "The summary is on the page.",
+            citations: [],
+            toolCalls: [],
+            steps: { sentAt: null, finishedAt: null, phases: [], reasoning: null },
+          },
+          verdict: { unbacked: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 });
 

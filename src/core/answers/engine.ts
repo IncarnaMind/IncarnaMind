@@ -122,6 +122,7 @@ import {
 } from "./prompt";
 import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
+import { type SmallCallModel, smallCallModel } from "./smallCalls";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
@@ -398,7 +399,8 @@ export interface AnswerRequest {
   model: ChatLanguageModel;
   /**
    * The model for the calls that don't write the Answer: rewriting a
-   * follow-up Question into a search query, and translating the query. Asked
+   * follow-up Question into a search query, translating the query, and
+   * asking for the Citations an Answer left out (./unmarkedQuotes). Asked
    * for only when one is made, and already asked to skip thinking, which
    * would fill their few tokens. Without it, or when it can't be had (e.g. its
    * flow was declined), the Answer's model makes them.
@@ -424,6 +426,8 @@ export interface AnswerRequest {
   streamsInput?(tool: Tool): boolean;
   /** Which Tools the Run is offered. Absent: "answer", every Tool. */
   toolSet?: ToolSet;
+  /** The output limit of each of its replies, when it writes more than an Answer. Absent: by `toolSet`. */
+  outputKind?: ModelCallKind;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -639,7 +643,10 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
 }
 
 const writingKind = (request: AnswerRequest): ModelCallKind =>
-  request.toolSet === "check" ? "check-step" : "answer";
+  request.outputKind ?? (request.toolSet === "check" ? "check-step" : "answer");
+
+const stepKind = (request: AnswerRequest): ModelCallKind =>
+  request.outputKind ?? (request.toolSet === "check" ? "check-step" : "answer-step");
 
 /** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
@@ -826,39 +833,10 @@ function queryIn(reply: string): string {
     .slice(0, MAX_QUERY_LENGTH);
 }
 
-/** The model a call that doesn't write the Answer goes to, with the temperature it gets. */
-interface SmallCallModel {
-  model: ChatLanguageModel;
-  temperature: number | undefined;
-}
-
 /** What a call that doesn't write the Answer gave: its text, and the tokens it counted. */
 interface SmallCallResult<T> {
   value: T;
   usage: TokenUsage | null;
-}
-
-/**
- * The model for the small calls, else the Answer's (see `AnswerRequest.quickModel`).
- * Another model than the Answer's runs at its provider's own temperature.
- */
-async function smallCallModel(
-  request: AnswerRequest,
-  temperature: number | undefined,
-): Promise<SmallCallModel> {
-  if (request.quickModel) {
-    try {
-      const quick = await request.quickModel();
-      const sameModel =
-        quick.provider === request.model.provider && quick.modelId === request.model.modelId;
-      return { model: quick, temperature: sameModel ? temperature : undefined };
-    } catch (error) {
-      if (!request.signal.aborted) {
-        console.error(`The quick-tasks model couldn't be used: ${messageOf(error)}`);
-      }
-    }
-  }
-  return { model: request.model, temperature };
 }
 
 function logEmptySmallCall(
@@ -1986,7 +1964,7 @@ async function* toolLoop(
     ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
     outputTokens: {
-      step: outputOf(request, request.toolSet === "check" ? "check-step" : "answer-step"),
+      step: outputOf(request, stepKind(request)),
       last: outputOf(request, writingKind(request)),
     },
     lastStep: { ...(request.toolsEveryRequest && { keepTools: true }) },

@@ -1,59 +1,31 @@
-import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { ChatProvider, TranscriptionRoute } from "../../../../core/api";
-import { continueSetup } from "../../conversations";
-import { useLanguage, useT } from "../../i18n";
-import { giveUpWaiting } from "../../modelSetup";
+import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
+import type { TranscriptionRoute } from "../../../../core/api";
+import { useT } from "../../i18n";
+import { finishSetupStep, openSetupStep, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { useTranscriptionServicesRead } from "../../transcriptionServices";
-import { CheckLineIcon } from "../lineIcons";
 import { ROUTE_LABELS, TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
-import { CHATGPT_RECIPIENT } from "./ChatGptSignIn";
-import { providerName } from "./ProviderPage";
-import { SendsLine } from "./SendsLine";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
 
 const linkClass =
   "text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";
 
-function recipientOf(provider: ChatProvider, name: string): string | null {
-  // A server on this computer sends nothing anywhere, whatever it is called.
-  if (provider.service === null) return null;
-  if (provider.kind === "chatgpt") return CHATGPT_RECIPIENT;
-  if (provider.kind === "claude-account") return "Anthropic";
-  if (provider.kind === "copilot") return "GitHub";
-  return name;
-}
-
-type StepKey = "transcription" | "sorting";
-
-const STEPS: readonly StepKey[] = ["transcription", "sorting"];
-
 /**
- * Once a model works (#1922), steps 2 and 3 stay while their Answer runs above: meeting
- * transcription, best left on this computer, and what sorts Documents and names meeting hints.
- * Each is one click, skippable, and its choice is the consent for its flow (ADR-0022).
- * Only the step in hand shows its details; the others are a line, so the card changes only as a
- * step is finished or opened, never as the Answer above it or a list below it grows (#2147).
+ * Once a model works (#1922), steps 2 and 3 open one at a time above the composer, which works on
+ * below them (#2310): meeting transcription, best left on this computer, and what sorts Documents
+ * and names meeting hints. Each is one click, skippable, and its choice is the consent for its
+ * flow (ADR-0022). Only the step in hand shows its details; the other is its title, so a step the
+ * User finished folds to its choice and opens again (#2147).
  */
 export function SetupSteps() {
-  const [open, setOpen] = useState<StepKey>("transcription");
-  const [choices, setChoices] = useState<Partial<Record<StepKey, string>>>({});
   const t = useT();
-
-  useEffect(() => {
-    if (STEPS.every((step) => choices[step] !== undefined)) continueSetup();
-  }, [choices]);
-
-  const finish = (step: StepKey, choice: string) => {
-    setChoices((each) => ({ ...each, [step]: choice }));
-    const next = STEPS.find((each) => each !== step && choices[each] === undefined);
-    if (next) setOpen(next);
-  };
-
+  const step = useModelSetup((state) => state.step);
+  const done = useModelSetup((state) => state.done);
+  if (step === null) return null;
   return (
     <SetupCard>
       <ol className="flex flex-col gap-3">
@@ -61,64 +33,39 @@ export function SetupSteps() {
           number={2}
           title={t("setup.step.transcription")}
           testId="transcription"
-          open={open === "transcription"}
-          choice={choices.transcription ?? null}
-          onOpen={() => setOpen("transcription")}
+          open={step === "transcription"}
+          choice={done.transcription}
+          onOpen={() => openSetupStep("transcription")}
         >
-          <TranscriptionStep onDone={(choice) => finish("transcription", choice)} />
+          <TranscriptionStep onDone={(choice) => finishSetupStep("transcription", choice)} />
         </Step>
         <Step
           number={3}
           title={t("setup.step.sorting")}
           testId="sorting"
-          open={open === "sorting"}
-          choice={choices.sorting ?? null}
-          onOpen={() => setOpen("sorting")}
+          open={step === "sorting"}
+          choice={done.sorting}
+          onOpen={() => openSetupStep("sorting")}
         >
-          <SortingStep onDone={(choice) => finish("sorting", choice)} />
+          <SortingStep onDone={(choice) => finishSetupStep("sorting", choice)} />
         </Step>
       </ol>
     </SetupCard>
   );
 }
 
+/**
+ * The steps left, above the composer (#2310): the line above says how many and offers the skip,
+ * so the card is only the step in hand, with no title or foot of its own to keep from it in a
+ * short window.
+ */
 export function SetupCard({ children }: { children: ReactNode }) {
-  const t = useT();
-  const language = useLanguage();
-  const id = useId();
-  const readiness = useAppStore((state) => state.chatReadiness);
-  // The model that works: the card opens on it, so its name and where it sends are on the first
-  // paint, and the row under the title doesn't push step 2 down a moment later (#2130).
-  const provider = readiness?.ready ? readiness.provider : null;
-  const name = provider ? providerName(provider, t, language) : null;
-  const recipient = provider && name ? recipientOf(provider, name) : null;
   return (
     <section
       data-testid="model-setup"
-      aria-labelledby={`${id}-title`}
       className="setup-card flex min-h-0 max-h-[85vh] flex-col gap-2.5 overflow-y-auto px-4"
     >
-      <h2
-        id={`${id}-title`}
-        data-setup-title
-        data-testid="setup-ready-title"
-        className="flex items-center gap-2 text-[15px] leading-6 font-semibold text-ink"
-      >
-        <CheckLineIcon className="size-4 shrink-0 text-ink" />
-        {name ? t("setup.ready", { name }) : t("setup.ready.generic")}
-      </h2>
-      {recipient && <SendsLine provider={recipient} testId="setup-ready-sends" />}
       {children}
-      <div data-setup-foot>
-        <button
-          type="button"
-          data-testid="setup-later"
-          onClick={giveUpWaiting}
-          className="-ml-2 text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline"
-        >
-          {t("providers.setup.later")}
-        </button>
-      </div>
     </section>
   );
 }
@@ -145,15 +92,13 @@ function Step({
   const item = useRef<HTMLLIElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const wasOpen = useRef(open);
-  // In a short card the step opens under the card's sticky title at once, not later when its
-  // list arrives and the focus follows. The button that opened it is gone, so its heading holds
-  // the focus until the step's own field can take it.
+  // In a short card the step opens at the card's top at once, not later when its list arrives
+  // and the focus follows. The button that opened it is gone, so its heading holds the focus
+  // until the step's own field can take it.
   useLayoutEffect(() => {
     const card = item.current?.closest("section");
-    const head = card?.querySelector("[data-setup-title]");
-    if (open && !wasOpen.current && item.current && card && head) {
-      card.scrollTop +=
-        item.current.getBoundingClientRect().top - head.getBoundingClientRect().bottom;
+    if (open && !wasOpen.current && item.current && card) {
+      card.scrollTop += item.current.getBoundingClientRect().top - card.getBoundingClientRect().top;
       heading.current?.focus({ preventScroll: true });
     }
     wasOpen.current = open;

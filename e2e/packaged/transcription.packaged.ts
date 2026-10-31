@@ -16,6 +16,8 @@ import { expectSpeechEngineOnTheAppsRuntime } from "./windowsRuntime";
 const root = resolve(__dirname, "../..");
 // The opening of the Gettysburg Address, read for LibriVox (tests/fixtures/speech/README.md).
 const speech = join(root, "tests/fixtures/speech/gettysburg.wav");
+// Three Mandarin lines, each a short word alone, a pause, then the rest (tests/fixtures/speech/README.md).
+const shortFirstWords = join(root, "tests/fixtures/speech/short-first-words-zh.wav");
 
 test.skip(
   process.platform !== "darwin" && process.platform !== "win32",
@@ -110,5 +112,62 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   await app.close();
   app = undefined;
   // Only a run that got this far has the whole model to keep.
+  await copyModelsOut(dataDir);
+});
+
+// protects=a Chinese line keeps its first word when it is short and a pause follows it ("对。总价是八十万元。"), through the packaged app's real speech engine and model: the stretch starts at the first speech the detector hears, not a quarter second into it (#2305); fails_when=a line reads "总价是80万元" without 对, as when the detector forgot speech shorter than a quarter second; no_claim=how well the engine hears names and numbers (#1031), the computer's sound, or English.
+test("the packaged app keeps the short first word of each Chinese line", async () => {
+  expect(
+    existsSync(packagedExecutable),
+    `${packagedExecutable}: build the packaged app first`,
+  ).toBe(true);
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
+  folders.push(home, dataDir);
+  await copyModelsIn(dataDir);
+  app = await launchPackaged(home, dataDir, { speech: shortFirstWords });
+  const window = await app.firstWindow();
+
+  const start = await recordMeeting(window);
+  await start.getByTestId("meeting-start-audio").selectOption("me");
+  const bar = await startRecording(window, start, { notice: true });
+  const toggle = bar.getByTestId("meeting-transcript-toggle");
+  const stopped = window
+    .getByTestId("meeting-transcript-line")
+    .filter({ hasText: /Transcription stopped|couldn’t/ });
+  await expect(toggle.and(window.locator(":enabled")).or(stopped)).toBeVisible({
+    timeout: 20 * 60_000,
+  });
+  await expect(stopped).toHaveCount(0);
+  await toggle.click();
+
+  // One play of the file is its three lines. A slow runner's live text can fall behind before
+  // them; the rest is then transcribed from the recording after Stop.
+  const words = window.getByTestId("transcript-line").locator(".transcript-text");
+  const behind = window.getByTestId("transcript-behind");
+  await expect
+    .poll(async () => (await words.count()) >= 3 || (await behind.count()) > 0, {
+      timeout: 2 * 60_000,
+    })
+    .toBe(true);
+  if ((await words.count()) < 3) {
+    await bar.getByTestId("meeting-stop").click();
+    await expect(
+      window.getByTestId("meeting-transcript-line").filter({ hasText: "Transcript saved" }),
+    ).toBeVisible({ timeout: 5 * 60_000 });
+  }
+  const said = await words.allTextContents();
+  // Each line with its first word, as tests/fixtures/speech/README.md has them.
+  for (const line of [/^对[，。,.\s]*总价/, /^行[，。,.\s]*周五/, /^是[，。,.\s]*合同/]) {
+    expect(
+      said.some((each) => line.test(each)),
+      `${line} in ${said.join(" | ")}`,
+    ).toBe(true);
+  }
+  // The bug's mark: a line that starts with the words after its first one.
+  expect(said.filter((line) => /^(总价|周五|合同)/.test(line))).toEqual([]);
+
+  await app.close();
+  app = undefined;
   await copyModelsOut(dataDir);
 });

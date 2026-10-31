@@ -15,12 +15,16 @@ export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
   "answer-step": { most: 32_000 },
   "check-step": { most: 8_000 },
+  // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
+  // before them, can pass an Answer's room (#2306).
+  "meeting-fill": { most: 16_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },
   organize: { most: 512 },
   "find-claims": { most: 4_000 },
   "claimed-changes": { most: 2_048 },
-  "unmarked-quotes": { most: 1_500 },
+  // A record for each sentence it cites: a Meeting's notes ask for dozens at once (#2306).
+  "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },
   "figure-retry": { most: 1_800, each: 300 },
   evidence: { most: 4_000, each: 600 },

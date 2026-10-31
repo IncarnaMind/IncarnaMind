@@ -3180,6 +3180,11 @@ export interface Document {
    */
   unreadPartsUnknown: boolean;
   /**
+   * A workbook is read with its hidden and very hidden sheets (#740), because the User asked,
+   * so the viewer shows them too and every version read after keeps reading them.
+   */
+  readHiddenSheets: boolean;
+  /**
    * The Folder its file is in: the Linked folder's own Folder, or one inside
    * it. Null for a file added on its own.
    */
@@ -7219,8 +7224,8 @@ export interface UndoAddToNoteResult {
 }
 
 /**
- * A Conversation a note's Blocks came from (#1940): History names that Conversation
- * under the note's title, also while the note is closed.
+ * A Conversation a note's Blocks came from (#1940), kept while the note is closed: the note it
+ * made, and the Conversation, whose own name is its first Question (#2310).
  */
 export interface NoteConversation {
   mindId: string;
@@ -10704,6 +10709,16 @@ export interface CoreApi {
    */
   retryDocument(id: string): Promise<Document>;
   /**
+   * Reads a workbook with its hidden and very hidden sheets (`readHidden`, the
+   * default), or again without them (`false`), which Undo asks for (#740). The
+   * choice is kept for every version after. Returns it, queued;
+   * "document.status" events report its progress. Throws InvalidInputError for
+   * a Document that isn't a workbook, or one with no hidden sheet left out when
+   * asked to read them, and NotFoundError for an unknown one or one whose file
+   * isn't there.
+   */
+  readHiddenSheets(id: string, readHidden?: boolean): Promise<Document>;
+  /**
    * Opens a password-protected PDF Document with `password` (#763). When it
    * opens, the password is kept on this device, in the system's keychain, by
    * Document, and the Document is read again with it. "wrong-password" when
@@ -12456,6 +12471,7 @@ const methods: Record<CoreApiMethod, true> = {
   deleteDocument: true,
   deleteDocuments: true,
   retryDocument: true,
+  readHiddenSheets: true,
   unlockDocument: true,
   forgetDocumentPassword: true,
   documentPasswordFor: true,
