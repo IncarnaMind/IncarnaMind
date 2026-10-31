@@ -403,7 +403,7 @@ describe("Checking an absence sentence", () => {
 
     expect(result).toMatchObject({ verdict: "supported", evidence: { quote: TERM } });
     // Processing the Document asks for its Tags; that request is no part of the check.
-    expect(requests.filter((system) => !system.startsWith("You sort Documents"))).toHaveLength(3);
+    expect(requests.filter((system) => !system.startsWith("You tag Documents"))).toHaveLength(3);
   });
 
   test("a clause the search found contradicts an absence on a scope too long to read whole", async () => {
@@ -652,7 +652,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
     const part = (text: string) =>
       check?.parts?.find((one) => each.claim.slice(one.span.start, one.span.end) === text);
     const figure = (shown: string) => check?.figures?.find((each) => each.reading.chars === shown);
-    const checkRequests = requests.filter((system) => !system.startsWith("You sort Documents"));
+    const checkRequests = requests.filter((system) => !system.startsWith("You tag Documents"));
     return { check, part, figure, reads, checkRequests };
   }
 
