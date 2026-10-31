@@ -23,7 +23,7 @@ import { DataFromNewerVersionError, isRecord } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
-import { channelFor, EVENT_CHANNEL } from "../shared/bridge";
+import { channelFor, EVENT_CHANNEL, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
@@ -260,6 +260,8 @@ let instanceReady = false;
 let closingForUpdate = false;
 let onReadyToUse: (() => Promise<void>) | undefined;
 const shownWindows = new WeakSet<BrowserWindow>();
+const served = Promise.withResolvers<void>();
+handle(SERVED_CHANNEL, () => served.promise);
 
 /** The app's windows: not the hidden one that records a Meeting's audio, nor the floating panel. */
 const appWindows = () =>
@@ -304,6 +306,9 @@ function finishStartup(): void {
     return;
   instanceReady = true;
   if (instance.kind === "owner") instance.owner.ready(secondLaunch);
+  // The keyword index an older version built is rewritten in the background, off this
+  // thread, once the window has been shown (#2042).
+  setImmediate(() => core?.upgradeKeywordIndex());
   void onReadyToUse?.().catch((error: unknown) =>
     logger.exception("app.updateStartupFailed", error),
   );
@@ -390,9 +395,6 @@ function createWindow(): BrowserWindow {
     window.show();
     shownWindows.add(window);
     finishStartup();
-    // The keyword index an older version built is rewritten in the background, off this
-    // thread, once the window has been shown (#2042).
-    setImmediate(() => core?.upgradeKeywordIndex());
   });
   keepWindowPlace(window, dataDir);
   reportFullScreen(window);
@@ -421,6 +423,15 @@ function createWindow(): BrowserWindow {
     void window.loadFile(join(__dirname, "../renderer/index.html"), { query });
   }
   return window;
+}
+
+/** Settles once the window has painted its page, or once it never can. */
+function firstPaint(window: BrowserWindow): Promise<void> {
+  return new Promise((resolve) => {
+    window.once("ready-to-show", () => resolve());
+    window.once("closed", () => resolve());
+    window.webContents.once("render-process-gone", () => resolve());
+  });
 }
 
 /**
@@ -483,10 +494,17 @@ app.whenReady().then(async () => {
   const taskKinds = await testTaskKinds();
   const executor = await scriptExecutor;
   if (instance.kind === "owner") instance.owner.starting();
-  // The window's page starts loading while the core starts. Its calls reach the core once
-  // `exposeCore` has run, below: they wait until this synchronous run is done.
-  createWindow();
+  // A page's frame takes the scheme handlers there are when it loads, so this one is in place
+  // before the window, and answers once the core has started.
+  const started = Promise.withResolvers<Core>();
+  serveDocumentFiles(started.promise, rendererUrl ? new URL(rendererUrl).origin : null);
+  const first = createWindow();
   logger.info("app.startup.windowReturned");
+  // The core's start holds this thread, for seconds on a slow disk, and the page can neither load
+  // nor show while it does (#2104): the window shows its frame first, and the page's calls wait
+  // until everything is served.
+  await firstPaint(first);
+  logger.info("app.startup.windowPainted");
   try {
     const adapters = createElectronAdapters(logger);
     logger.info("app.startup.adaptersReady");
@@ -505,10 +523,12 @@ app.whenReady().then(async () => {
     });
     logger.info("app.startup.coreReady");
   } catch (error) {
+    for (const window of BrowserWindow.getAllWindows()) window.hide();
     await showStartupError(error);
     app.quit();
     return;
   }
+  started.resolve(core);
   exposeCore(core);
   const settleQuit = guardQuit(
     core,
@@ -529,7 +549,6 @@ app.whenReady().then(async () => {
     trusted: isFromOurRenderer,
     logger,
   });
-  serveDocumentFiles(core, rendererUrl ? new URL(rendererUrl).origin : null);
   serveMeetingPanel(core, {
     rendererUrl,
     appWindows,
@@ -631,6 +650,7 @@ app.whenReady().then(async () => {
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
+  served.resolve();
   startupComplete = true;
   finishStartup();
   logger.info("app.startup.hostReady");

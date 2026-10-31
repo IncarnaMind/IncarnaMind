@@ -279,13 +279,20 @@ export interface CreateMindInput {
  *   read-only notes and breaks until it is opened, when they are converted
  *   from its kept package (`convertWordParts`). What the import keeps as is
  *   gains `hash`, of the file's XML at its place.
- * - 43: a confirmed contradiction's correction (#1481): `correction` on a
+ * - 43: a chart's value drawn from a calculated figure keeps the figure, its
+ *   formula and every Input with its Citation (`figure` on the value in the
+ *   chart's `data`, #2307). An older version's editor reads chart data without
+ *   it and writes it back so when it changes the chart, leaving bare numbers,
+ *   so it opens these Notes read-only. Older content is version 43 content as
+ *   it is: a chart drawn before holds no figure, and its values read as
+ *   quoted until Update draws it again from its table.
+ * - 44: a confirmed contradiction's correction (#1481): `correction` on a
  *   contradicted part of a `claimCheck` mark (and on its figure or remainder)
  *   holds the exact old words and up to two Document wordings with their
- *   Citations, which an older editor would strip. Older content is version 43
+ *   Citations, which an older editor would strip. Older content is version 44
  *   content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 43;
+export const CONTENT_SCHEMA_VERSION = 44;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
