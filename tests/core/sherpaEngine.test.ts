@@ -38,7 +38,7 @@ vi.mock("sherpa-onnx-node", () => ({
   },
 }));
 vi.mock("sherpa-onnx-node/addon.js", () => ({
-  default: { getOfflineStreamResultAsJson: latest },
+  default: { getOfflineStreamResultAsJson: latest, offlineStreamSetOption: () => {} },
 }));
 
 const { createSherpaEngine } = await import("../../src/core/transcription/sherpa");

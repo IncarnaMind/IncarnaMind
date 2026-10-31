@@ -105,6 +105,9 @@ declare module "sherpa-onnx-node" {
 
 /** The package's native addon, for what its JavaScript doesn't give: a result as the JSON the engine wrote. */
 declare module "sherpa-onnx-node/addon.js" {
-  const addon: { getOfflineStreamResultAsJson(handle: unknown): string };
+  const addon: {
+    getOfflineStreamResultAsJson(handle: unknown): string;
+    offlineStreamSetOption(handle: unknown, key: string, value: string): void;
+  };
   export default addon;
 }

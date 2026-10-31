@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
+import type { CoreBridge } from "../../src/core/api";
 import { recordMeeting, startRecording, useOutputLocation } from "../app";
 import {
   copyModelsIn,
@@ -39,7 +40,7 @@ test.afterEach(async () => {
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
 
-// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
+// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
 test("the packaged app transcribes a meeting from the microphone on this computer, and tells its speakers apart", async () => {
   expect(existsSync(packagedExecutable), `${packagedExecutable}: run npm run dist:dir first`).toBe(
     true,
@@ -53,6 +54,12 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   const output = join(home, "Output");
   await mkdir(output);
   await useOutputLocation(window, output);
+  // The real engine is told words (#1031): none of them is said, and none may be written.
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      user: { meetingWords: ["Lindqvist", "Harbor Logistics", "星河科技"] },
+    }),
+  );
 
   const start = await recordMeeting(window);
   await start.getByTestId("meeting-start-audio").selectOption("me");
@@ -73,6 +80,7 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });
   }
+  await expect(lines).not.toContainText(/Lindqvist|Harbor Logistics|星河科技/);
   // The file plays again from its start, so a second line means it went on past the first.
   await expect
     .poll(() => lines.getByTestId("transcript-line").count(), { timeout: 2 * 60_000 })

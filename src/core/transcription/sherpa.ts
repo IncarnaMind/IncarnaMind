@@ -31,11 +31,14 @@ export const SHERPA = engineModule(
   ],
 );
 
-/** Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). */
+/**
+ * Reads a decoded stretch's result itself when sherpa's own reader refuses it (#981). A stream's
+ * options, which tell the model the words a stretch may hold (#1031), are set through it too.
+ */
 export const SHERPA_ADDON = engineModule(
   "sherpa-onnx-node/addon.js",
   async () => exportsOf(await import("sherpa-onnx-node/addon.js")),
-  ["getOfflineStreamResultAsJson"],
+  ["getOfflineStreamResultAsJson", "offlineStreamSetOption"],
 );
 
 type Sherpa = Awaited<ReturnType<typeof SHERPA.load>>;
