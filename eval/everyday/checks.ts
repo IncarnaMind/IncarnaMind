@@ -414,10 +414,31 @@ export function givesUpOnCalculating(reply: string): string | null {
 const NOT_COVERED =
   /\b(?:couldn't|could not|can't|cannot|didn't|did not|doesn't|does not|don't|do not|haven't|have not|hasn't|has not|wasn't|weren't|isn't|aren't|not|no|yet|unable|left out|left for|for later|next (?:summary|one|batch|round|time)|missing|skipped)\b|没有|未能|未|无法|不能|缺少|略去|留待|留到|稍后|下次|下一次|下一轮|之后再/i;
 
+const SENTENCE_END = /(?<=[.!?])\s+|(?<=[。！？])/;
+const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s+/;
+
+/** The reply's sentences, each list item read with the sentence that leads into it ("These are left for the next summary:"). */
+function sentencesOf(reply: string): string[] {
+  const sentences: string[] = [];
+  let lead = "";
+  for (const line of reply.split("\n")) {
+    if (line.trim() === "") continue;
+    if (LIST_ITEM.test(line)) {
+      sentences.push(`${lead} ${line}`);
+      continue;
+    }
+    const own = line.split(SENTENCE_END);
+    sentences.push(...own);
+    const last = own.at(-1) ?? "";
+    lead = /[:：]\s*$/.test(last) ? last : "";
+  }
+  return sentences;
+}
+
 function namedAsUncovered(reply: string, name: string): boolean {
-  return reply
-    .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
-    .some((sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence));
+  return sentencesOf(reply).some(
+    (sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence),
+  );
 }
 
 /**

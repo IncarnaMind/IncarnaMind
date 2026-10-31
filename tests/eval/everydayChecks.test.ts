@@ -278,7 +278,7 @@ describe("The everyday request guards", () => {
     ).toEqual([]);
   });
 
-  // protects=a Document named as left for the next summary counts as said, in English and Chinese, and the counts say which were cited, said and left out unsaid; fails_when="left for the next summary" reads as a name alone, or a name alone passes (#894); no_claim=none beyond protects.
+  // protects=a Document named as left for the next summary counts as said, in a sentence or in a list it leads into, in English and Chinese, and the counts say which were cited, said and left out unsaid; fails_when="left for the next summary" or its list reads as a name alone, or a name alone passes (#894); no_claim=none beyond protects.
   test("a Document left for the next summary is said, in English and Chinese", () => {
     const one = (text: string) =>
       outcome({
@@ -288,6 +288,8 @@ describe("The everyday request guards", () => {
     for (const text of [
       "Made “Summary” of the tutorial. 2306.10683v1 is left for the next summary.",
       "已写好教程的“总结”。2306.10683v1 留待下次总结。",
+      "Made “Summary” of the tutorial.\n\nThis one is left for the next summary, as one covers 8 at a time:\n- “2306.10683v1”",
+      "已写好教程的“总结”。以下文档留待下次总结：\n\n1. 2306.10683v1",
     ]) {
       expect(requestFailures(one(text))).toEqual([]);
       expect(documentsCovered(one(text))).toEqual({
@@ -300,6 +302,8 @@ describe("The everyday request guards", () => {
     const unsaid = one("Made “Summary” of the tutorial. 2306.10683v1 models urban regions.");
     expect(requestFailures(unsaid)).toEqual([{ kind: "uncovered", documents: ["2306.10683v1"] }]);
     expect(documentsCovered(unsaid).unsaid).toEqual(["2306.10683v1"]);
+    const listed = one("Made “Summary” of the tutorial. The papers here:\n- 2306.10683v1");
+    expect(documentsCovered(listed)).toMatchObject({ named: [], unsaid: ["2306.10683v1"] });
   });
 
   // protects=a summary of each Document that cites one outside its scope, the example's, fails and counts it; fails_when=it passes, or the count is lost among the scope's; no_claim=none beyond protects.
