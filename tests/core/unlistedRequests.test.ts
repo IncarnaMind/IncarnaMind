@@ -341,7 +341,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
       for (const each of [model, retried, reasked])
         expect(oldWordsIn(everyRequest(each))).toEqual([]);
       expect(oldWordsIn(DRAFT_INSTRUCTIONS)).toEqual([]);
-      // The claim check was among what was read, and it names the Note.
+      // The scan above can't pass with the claim check's request left out.
       expect(JSON.stringify(reasked.doGenerateCalls)).toContain(
         "For each claim that a Note was made",
       );
