@@ -976,6 +976,8 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    /** The ids of the services tagging and organizing by themselves send to now, Local mode aside. */
+    sendsTo: () => options.sendsTo(savedSettings()).map((service) => service.id),
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1537,16 +1539,19 @@ export function createLibrary(options: {
     /**
      * Tagging and sorting were turned on, or where they send changed: what Organize waits to file
      * by itself is held "off", as automatic tagging's Documents are (`holdExisting` in
-     * ../tags/tagger), so none goes to where it sends now (#2308). Organize, or a re-tag, which the
-     * User starts, still sends them. One it had filed stays in its Folder.
+     * ../tags/tagger), so none goes to where it sends now (#2308). One in a request is held too:
+     * the save made its answer stale, and it would otherwise be sent again. Organize, or a re-tag,
+     * which the User starts, still sends them. One it had filed stays in its Folder.
      */
     holdExisting() {
       const rows = db
         .all<{ document_id: string; group_id: string | null }>(
           `SELECT document_id, group_id FROM document_groups WHERE deleted_at IS NULL
-             AND source = 'automatic' AND status IN ('pending', 'waiting')`,
+             AND source = 'automatic' AND status IN ('pending', 'classifying', 'waiting')`,
         )
-        .filter((row) => !asked.has(row.document_id));
+        .filter(
+          (row) => !asked.has(row.document_id) && !options.isExampleDocument?.(row.document_id),
+        );
       if (rows.length === 0) return;
       const at = now();
       db.transaction(() => {

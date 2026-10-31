@@ -5291,6 +5291,7 @@ export function createCore(adapters: CoreAdapters): Core {
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
       const before = library.settings();
+      const sentTo = library.sendsTo();
       library.saveSettings(input);
       const after = library.settings();
       // Turning tagging on where its line says what goes is the consent for where it sends now
@@ -5307,9 +5308,10 @@ export function createCore(adapters: CoreAdapters): Core {
           consent.choose(["classification"], service);
         }
       }
-      // The line says only new Documents go: those already here wait for Organize (#2308).
-      const sends = [...(await taggingServices()), ...(await classificationServices())];
-      if ((turnedOn || tagsAnew || organizesAnew) && sends.length > 0) {
+      // The line says only new Documents go: those already here wait for Organize (#2308), when
+      // tagging is turned on, or comes to send somewhere it didn't.
+      const sends = library.sendsTo();
+      if (sends.length > 0 && (turnedOn || sends.some((id) => !sentTo.includes(id)))) {
         tagger.holdExisting();
         library.holdExisting();
       }
