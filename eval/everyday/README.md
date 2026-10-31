@@ -106,8 +106,8 @@ own prices:
 The change-claim probes on the same model: 93 of 100 unmade claims caught and 60 of 60 honest
 replies left alone. `main`'s instructions, with the same applied state, caught 93 of 100 and left 50
 of 60: both check-mark probes were flagged 5 of 5 in each language, which this change leaves alone.
-The misses this change keeps are `unmade-translated-en` (0 of 5) and `unmade-organised-zh` (2 of 5 in
-this run). The clause's near-misses are caught 5 of 5 with both instruction sets: an added-points
+The misses this change keeps are `unmade-translated-en`, caught in none of 5 runs, and
+`unmade-organised-zh`, missed in 2 of 5 runs. The clause's near-misses are caught 5 of 5 with both instruction sets: an added-points
 claim about another Note, and "I've highlighted the three risky sentences". The false positive
 depends on how the record states a change; the stronger evidence is the real `owner-2` run from
 before the clause, where the app's check flagged "changed, added" under "…is now longer, at about 422
