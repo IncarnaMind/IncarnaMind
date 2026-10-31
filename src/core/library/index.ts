@@ -34,7 +34,7 @@ import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
-import { untaggedLine } from "../tags/suggest";
+import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
@@ -795,7 +795,7 @@ export function createLibrary(options: {
           const { groupId } = result;
           if (groupId !== null && !offered.some((item) => item.id === groupId))
             throw new Error("The classifier returned an unknown group.");
-          if (result.untagged) console.info(untaggedLine(id));
+          if (result.fallback) console.info(fallbackLine(id));
           const chosen = initial.source === "user";
           const { made } = db.transaction(() => {
             write(

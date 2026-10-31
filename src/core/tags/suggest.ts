@@ -4,6 +4,7 @@
  * (./classify) and Organize's chat model (../library/classifier) give it. Decision models only
  * answer yes or no for each Tag, so they keep choosing from the list.
  */
+import type { DocumentKind } from "../api";
 import { writtenInCjk } from "../documents/textLanguage";
 import { isRecord } from "../errors";
 import { PRESET_TAGS } from "./presets";
@@ -108,44 +109,67 @@ export interface TagAnswer<T> {
   newTags: NewTag[];
 }
 
-/** Added to the instructions of the second request `foundedTags` makes. */
-const NOT_A_BILL =
-  "This Document is not a bill or a receipt: choose and name no Tag for one, only Tags that say what it is or is about.";
+/** How the second request `foundedTags` makes differs: one more line, and a Tag it must name. */
+export interface AskAgain {
+  instruction: string;
+  newTags: Omit<typeof NEW_TAGS_SCHEMA, "description"> & { description: string; minItems: 1 };
+}
+
+// Told only what not to choose, with room for an empty answer, Claude Haiku 5.5 chose nothing (#2308).
+const ASK_AGAIN: AskAgain = {
+  instruction:
+    "This Document is not a bill or a receipt. Give its subject, what it is about, as a Tag in newTags, not Invoice: newTags holds at least one, which may be an existing Tag's name.",
+  newTags: {
+    ...NEW_TAGS_SCHEMA,
+    description: "At least one Tag for what the Document is about.",
+    minItems: 1,
+  },
+};
+
+/** The preset Tag for a Document's kind, in the language of its text: Slides for a deck, else Notes. */
+function kindTag(excerpt: { kind: DocumentKind; text: string }): NewTag[] {
+  const preset = PRESET_TAGS.find(
+    (tag) => tag.key === (excerpt.kind === "pptx" ? "slides" : "notes"),
+  );
+  return preset ? [preset.text[textScript(excerpt.text) === "cjk" ? "zh-CN" : "en"]] : [];
+}
 
 /**
  * The chat model's Tags for a Document from `offered`, without an Invoice Tag where neither its
  * name nor its text says it is a bill or a receipt; a Document with no text, a scan, keeps it.
- * When that Tag was its only one, `ask` is called once more with it left out and `NOT_A_BILL`,
+ * When that Tag was its only one, `ask` is called once more with it left out and `ASK_AGAIN`,
  * so the check doesn't leave the Document with no Tag (#2308); the rest of the answer, such as
- * Organize's Folder, stays the first one's. `untagged`: the second request gave none either.
+ * Organize's Folder, stays the first one's. `fallback`: that gave none either, and the Document
+ * gets its kind's Tag (`kindTag`), which folds into that Tag where it exists.
  */
 export async function foundedTags<T extends { name: string }, A extends TagAnswer<T>>(
-  excerpt: { name: string; text: string },
+  excerpt: { name: string; kind: DocumentKind; text: string },
   offered: readonly T[],
-  ask: (offered: readonly T[], instruction: string | null) => Promise<A>,
-): Promise<A & { untagged: boolean }> {
+  ask: (offered: readonly T[], again: AskAgain | null) => Promise<A>,
+): Promise<A & { fallback: boolean }> {
   const first = await ask(offered, null);
   if (!excerpt.text.trim() || INVOICE_EVIDENCE.test(`${excerpt.name}\n${excerpt.text}`))
-    return { ...first, untagged: false };
+    return { ...first, fallback: false };
   const held = (answer: TagAnswer<T>) => ({
     chosen: answer.chosen.filter((tag) => !isInvoice(tag)),
     newTags: answer.newTags.filter((tag) => !isInvoice(tag)),
   });
   const count = (answer: TagAnswer<T>) => answer.chosen.length + answer.newTags.length;
   const kept = held(first);
-  if (count(kept) > 0 || count(first) === 0) return { ...first, ...kept, untagged: false };
+  if (count(kept) > 0 || count(first) === 0) return { ...first, ...kept, fallback: false };
   const again = held(
     await ask(
       offered.filter((tag) => !isInvoice(tag)),
-      NOT_A_BILL,
+      ASK_AGAIN,
     ),
   );
-  return { ...first, ...again, untagged: count(again) === 0 };
+  if (count(again) > 0) return { ...first, ...again, fallback: false };
+  return { ...first, chosen: [], newTags: kindTag(excerpt), fallback: true };
 }
 
-/** The line logged for a Document `foundedTags` left with no Tag: its id only, never its name or text. */
-export const untaggedLine = (documentId: string) =>
-  `Document ${documentId} has no Tag: its only one, Invoice, had no bill or receipt wording, and asking again gave none.`;
+/** The line logged for a Document given its kind's Tag by `foundedTags`: its id only, never its name or text. */
+export const fallbackLine = (documentId: string) =>
+  `Document ${documentId} got its kind's Tag: its only one, Invoice, had no bill or receipt wording, and asking again gave none.`;
 
 /** A Latin word without its plural ending: "invoices" and "invoice", "studies" and "study". */
 function singular(word: string): string {

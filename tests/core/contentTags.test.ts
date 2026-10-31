@@ -223,11 +223,30 @@ describe("Tags named from what a Document says", () => {
     expect(await tagNamesOf(core, order.id)).toEqual(["Takeaway orders"]);
     expect(more).toEqual([]);
     expect(first?.names).toContain("Invoice");
-    expect(first?.text).not.toContain("not a bill or a receipt");
+    expect(first?.text).not.toContain("Give its subject");
     expect(second?.names).not.toContain("Invoice");
-    expect(second?.text).toContain("not a bill or a receipt");
+    expect(second?.text).toContain("Give its subject, what it is about");
     expect(await tagNamesOf(core, vat.id)).toEqual(["Invoice"]);
     expect(tagging.requests).toHaveLength(3);
+  });
+
+  test("a Chinese order whose second answer is empty too gets 笔记, its kind's Tag in its language", async () => {
+    const { core, tagging } = await start();
+    await core.saveChatProvider(LOCAL);
+    tagging.choose([]);
+    tagging.name((request) =>
+      request.text.includes("Give its subject") ? [] : [{ name: "发票", description: "账单。" }],
+    );
+
+    const order = await add(
+      core,
+      "外卖订单详情.txt",
+      "麻辣香锅外卖。订单号 6021 8833。宫保鸡丁 1 份 32 元，米饭 2 份 4 元，配送费 3 元。实付 39 元，已用微信支付。",
+    );
+    await waitForTagging(core, [order.id]);
+
+    expect(await tagNamesOf(core, order.id)).toEqual(["笔记"]);
+    expect(tagging.requests).toHaveLength(2);
   });
 
   test("past sixty Tags no new one is made, and the ones that exist still apply", async () => {

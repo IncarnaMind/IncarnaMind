@@ -8,6 +8,7 @@ import { outputTokens } from "../providers/outputLimits";
 import type { DocumentExcerpt, TagDecision, TagDefinition } from "../tags/classify";
 import { documentType, excerptFromPassages } from "../tags/classify";
 import {
+  type AskAgain,
   foundedTags,
   NEW_TAGS_SCHEMA,
   type NewTag,
@@ -25,8 +26,8 @@ export interface OrganizationDecision {
   tags: TagDecision[];
   /** Tags the chat model named for the Document, where none in the list fit (see ../tags/suggest). */
   newTags?: NewTag[];
-  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, and asking again gave none. */
-  untagged?: boolean;
+  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, asking again gave none, and it got its kind's. */
+  fallback?: boolean;
 }
 
 /** A Folder Organize proposes, where there are none to sort into. */
@@ -136,7 +137,7 @@ export function chatGroupClassifier(
     async organize(groups, allTags, excerpt, signal, images = []) {
       const pages = readsImages ? images : [];
       const choices = [...groups.map((group) => group.id), UNSORTED];
-      const ask = async (tags: readonly TagDefinition[], instruction: string | null) => {
+      const ask = async (tags: readonly TagDefinition[], again: AskAgain | null) => {
         const data = JSON.stringify({
           groups: groups.map(({ id, name, description }) => ({ id, name, description })),
           tags: tags.map(({ id, name, description }) => ({ id, name, description })),
@@ -147,7 +148,7 @@ export function chatGroupClassifier(
           instructions: [
             ORGANIZE_INSTRUCTIONS,
             ...(pages.length ? [PAGE_IMAGES_INSTRUCTIONS] : []),
-            ...(instruction ? [instruction] : []),
+            ...(again ? [again.instruction] : []),
           ].join("\n"),
           prompt: pages.length
             ? [
@@ -177,7 +178,7 @@ export function chatGroupClassifier(
                     : { type: "string" },
                   ...(tags.length ? {} : { maxItems: 0 }),
                 },
-                newTags: NEW_TAGS_SCHEMA,
+                newTags: again?.newTags ?? NEW_TAGS_SCHEMA,
               },
               required: ["groupId", "tags", "newTags"],
               additionalProperties: false,
@@ -205,7 +206,7 @@ export function chatGroupClassifier(
         groupId: held.groupId,
         tags: chosen.map((tag) => ({ tagId: tag.id, confidence: null, needsReview: false })),
         newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - chosen.length),
-        ...(held.untagged ? { untagged: true } : {}),
+        ...(held.fallback ? { fallback: true } : {}),
       };
     },
     async proposeFolders(documents, existing, language, signal) {

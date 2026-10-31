@@ -232,12 +232,14 @@ describe("Organize with the chat model", () => {
         { name: "Scan 0193", kind: "text", pageCount: null, text },
         new AbortController().signal,
       );
-    const enumOf = (call: CallOptions | undefined) => {
+    const schemaOf = (call: CallOptions | undefined) => {
       const format = call?.responseFormat;
-      const schema = (format?.type === "json" ? format.schema : undefined) as {
-        properties: { tags: { items: { enum: string[] } } };
+      return (format?.type === "json" ? format.schema : undefined) as {
+        properties: { tags: { items: { enum: string[] } }; newTags: { minItems?: number } };
       };
-      return schema.properties.tags.items.enum;
+    };
+    const enumOf = (call: CallOptions | undefined) => {
+      return schemaOf(call).properties.tags.items.enum;
     };
     const order = "Order 5512 confirmed: a three-seat sofa in green, 899.00.";
 
@@ -254,15 +256,23 @@ describe("Organize with the chat model", () => {
     expect(retried.calls).toHaveLength(2);
     expect(enumOf(retried.calls[0])).toEqual(["t-invoice", "t-furniture"]);
     expect(enumOf(retried.calls[1])).toEqual(["t-furniture"]);
-    expect(retried.calls.map(textOf)[1]).toContain("not a bill or a receipt");
-    expect(retried.calls.map(textOf)[0]).not.toContain("not a bill or a receipt");
+    expect(retried.calls.map(textOf)[1]).toContain("Give its subject, what it is about");
+    expect(retried.calls.map(textOf)[0]).not.toContain("Give its subject");
+    expect(schemaOf(retried.calls[1]).properties.newTags.minItems).toBe(1);
+    expect(schemaOf(retried.calls[0]).properties.newTags.minItems).toBeUndefined();
 
     const empty = model(onlyInvoice, { groupId: "g-reports", tags: [], newTags: [] });
     expect(await organize(empty, order)).toEqual({
       groupId: "g-finance",
       tags: [],
-      newTags: [],
-      untagged: true,
+      newTags: [
+        {
+          name: "Notes",
+          description:
+            "Informal notes, such as meeting notes, lecture notes, reading notes or a personal draft.",
+        },
+      ],
+      fallback: true,
     });
     expect(empty.calls).toHaveLength(2);
 

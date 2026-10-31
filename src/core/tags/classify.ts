@@ -12,6 +12,7 @@ import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { sameName } from "./index";
 import {
+  type AskAgain,
   foundedTags,
   NEW_TAGS_SCHEMA,
   type NewTag,
@@ -54,8 +55,8 @@ export interface TagDecision {
 export interface TagChoice {
   decisions: TagDecision[];
   newTags: NewTag[];
-  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, and asking again gave none. */
-  untagged?: boolean;
+  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, asking again gave none, and it got its kind's. */
+  fallback?: boolean;
 }
 
 /** What decides a Document's Tags: the chat model, or Jev. */
@@ -203,18 +204,16 @@ async function chooseTags(input: {
   tags: readonly TagDefinition[];
   excerpt: DocumentExcerpt;
   signal: AbortSignal;
-}): Promise<{ ids: string[]; newTags: NewTag[]; untagged: boolean }> {
+}): Promise<{ ids: string[]; newTags: NewTag[]; fallback: boolean }> {
   const { excerpt } = input;
-  const held = await foundedTags(
-    excerpt,
-    tagsToOffer(input.tags, excerpt.text),
-    (tags, instruction) => askForTags({ ...input, tags }, instruction),
+  const held = await foundedTags(excerpt, tagsToOffer(input.tags, excerpt.text), (tags, again) =>
+    askForTags({ ...input, tags }, again),
   );
   const ids = held.chosen.slice(0, TAGS_PER_DOCUMENT).map((tag) => tag.id);
   return {
     ids,
     newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - ids.length),
-    untagged: held.untagged,
+    fallback: held.fallback,
   };
 }
 
@@ -225,7 +224,7 @@ async function askForTags(
     excerpt: DocumentExcerpt;
     signal: AbortSignal;
   },
-  instruction: string | null,
+  again: AskAgain | null,
 ): Promise<TagAnswer<TagDefinition>> {
   const { model, tags, excerpt, signal } = input;
   const schema = jsonSchema<{ tags: string[]; newTags: unknown[] }>({
@@ -239,14 +238,14 @@ async function askForTags(
           : { type: "string" },
         ...(tags.length ? {} : { maxItems: 0 }),
       },
-      newTags: NEW_TAGS_SCHEMA,
+      newTags: again?.newTags ?? NEW_TAGS_SCHEMA,
     },
     required: ["tags", "newTags"],
     additionalProperties: false,
   });
   const result = await generateText({
     model,
-    instructions: instruction ? `${TAGGING_INSTRUCTIONS}\n${instruction}` : TAGGING_INSTRUCTIONS,
+    instructions: again ? `${TAGGING_INSTRUCTIONS}\n${again.instruction}` : TAGGING_INSTRUCTIONS,
     prompt: taggingPrompt(tags, excerpt),
     output: Output.object({
       schema,
@@ -277,11 +276,11 @@ export function chatClassifier(model: ChatLanguageModel, { local = false } = {})
     local,
     namesTags: true,
     async decide({ tags, excerpt, signal }) {
-      const { ids, newTags, untagged } = await chooseTags({ model, tags, excerpt, signal });
+      const { ids, newTags, fallback } = await chooseTags({ model, tags, excerpt, signal });
       return {
         decisions: ids.map((tagId) => ({ tagId, confidence: null, needsReview: false })),
         newTags,
-        ...(untagged ? { untagged } : {}),
+        ...(fallback ? { fallback } : {}),
       };
     },
   };
