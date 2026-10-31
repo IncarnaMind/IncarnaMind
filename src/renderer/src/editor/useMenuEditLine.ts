@@ -59,7 +59,10 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
                 retry.run();
                 // Asking again clears the line: put the working line back in the box it had, so
                 // the text below it does not jump (#1417).
-                if (problem.kind === "failed" && useEdits.getState().pending[mindId]?.menu) {
+                if (
+                  (problem.kind === "failed" || problem.kind === "cut-short") &&
+                  useEdits.getState().pending[mindId]?.menu
+                ) {
                   setAppliedLine(editor, {
                     kind: "running",
                     blockId,

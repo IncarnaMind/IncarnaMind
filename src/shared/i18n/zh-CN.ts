@@ -1281,6 +1281,7 @@ export const zhCN = {
   "edit.problem.retry": "重试",
   "edit.problem.cant-regenerate": "无法重新生成：请拒绝它，再选中文字用 AI 编辑。",
   "edit.problem.no-table": "AI 生成的表格不完整，没有改动。请重试。",
+  "edit.problem.cut-short": "AI 的回复达到长度上限，已截断，没有改动。",
   "edit.problem.unplaced": "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
   "edit.problem.busy": "上一次修改还在进行。等它完成，或先停止。",
