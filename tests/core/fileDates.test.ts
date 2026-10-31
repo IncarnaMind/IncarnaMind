@@ -138,31 +138,34 @@ function sentText(model: MockLanguageModelV4, from: number): string {
  * was signed. It cites each sentence it writes.
  */
 function contractReader(walk: Walk) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    const passages = shownPassages(
-      [call.prompt, ...call.results.map((each) => each.text)].join("\n\n"),
-    );
-    const contract = passages.find((passage) => passage.document === "Contract");
-    if (!contract) return { calls: [{ tool: "search_documents", input: { query: "contract" } }] };
-    const asksSigned = call.prompt.includes(walk.signed);
-    const lines = asksSigned ? [walk.blank] : walk.sentences;
-    if (!citedSince(call)) {
-      return {
-        calls: [
-          {
-            tool: "cite",
-            input: {
-              citations: lines.map((line, index) => record(contract, index + 1, line.quote)),
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const passages = shownPassages(
+        [call.prompt, ...call.results.map((each) => each.text)].join("\n\n"),
+      );
+      const contract = passages.find((passage) => passage.document === "Contract");
+      if (!contract) return { calls: [{ tool: "search_documents", input: { query: "contract" } }] };
+      const asksSigned = call.prompt.includes(walk.signed);
+      const lines = asksSigned ? [walk.blank] : walk.sentences;
+      if (!citedSince(call)) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: lines.map((line, index) => record(contract, index + 1, line.quote)),
+              },
             },
-          },
-        ],
-      };
-    }
-    const stated = /^date="([^"]+)"$/.exec(contract.date ?? "")?.[1];
-    const cited = lines.map((line, index) => withMarker(line.text, index + 1)).join(" ");
-    const said = stated ? `${cited} ${walk.signedOn(stated)}` : cited;
-    return { text: asksSigned ? said : `${walk.heading}\n\n${said}` };
-  });
+          ],
+        };
+      }
+      const stated = /^date="([^"]+)"$/.exec(contract.date ?? "")?.[1];
+      const cited = lines.map((line, index) => withMarker(line.text, index + 1)).join(" ");
+      const said = stated ? `${cited} ${walk.signedOn(stated)}` : cited;
+      return { text: asksSigned ? said : `${walk.heading}\n\n${said}` };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 const citedSince = (call: ModelCall) => call.results.some((result) => result.tool === "cite");

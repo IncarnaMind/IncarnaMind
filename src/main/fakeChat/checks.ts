@@ -106,11 +106,12 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   });
 }
 
-/** The record of the first quote the check is given, on the Passage shown with it that holds it. */
-function keptToItsQuote(first: string): Record<string, unknown> | null {
-  const quote = /^- [^\n]*?: “([^\n]+)”$/m.exec(first)?.[1];
-  if (!quote) return null;
-  const passage = passagesIn(first).find((each) => each.text.includes(quote));
+/** The first quote the check is given for its sentence. */
+const citedQuote = (first: string) => /^- [^\n]*?: “([^\n]+)”$/m.exec(first)?.[1] ?? null;
+
+/** The record of `quote`, on a Passage shown so far that holds it. */
+function keptToItsQuote(quote: string, shown: readonly string[]): Record<string, unknown> | null {
+  const passage = shown.flatMap(passagesIn).find((each) => each.text.includes(quote));
   return passage ? (recordFor(passage, quote, 1)?.record ?? null) : null;
 }
 
@@ -143,7 +144,7 @@ const withAbsence = (sentence: string, verdict: string): Reply => ({
  * search again before it says a sentence isn't found, it searches the
  * sentence's longer words and numbers alone.
  * Offered calculate, a sentence that states a multiple has it worked out first.
- * The scripted Answers' own sentences (`KEPT_TO_THE_QUOTE`), checked before the Answer ends
+ * The scripted Answers' own sentences (`KEPT_TO_THE_QUOTE`), judged once the Answer ends
  * (#2311), are supported by the quote they cite.
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
@@ -168,10 +169,13 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
   if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
-  const kept =
-    KEPT_TO_THE_QUOTE.test(sentence) || numbersAllCited(sentence, first)
-      ? keptToItsQuote(first)
-      : null;
+  const quote =
+    KEPT_TO_THE_QUOTE.test(sentence) || numbersAllCited(sentence, first) ? citedQuote(first) : null;
+  const kept = quote ? keptToItsQuote(quote, [first, ...searches]) : null;
+  // A quote kept from a Note's Citation may be on a Passage no search for the sentence found.
+  if (quote && !kept && searches.length === 1) {
+    return { tool: "search_documents", input: { query: quote } };
+  }
   if (kept && toolResults(prompt, "cite").length === 0) {
     return { tool: "cite", input: { citations: [kept] } };
   }

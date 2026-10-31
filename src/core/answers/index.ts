@@ -1005,7 +1005,20 @@ export function createAnswers(options: AnswersOptions) {
         : options.resolveScope(NO_SCOPE, mindId);
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
-  const judgements = new Map<string, AbortController>();
+  const judgements = new Map<
+    string,
+    { controller: AbortController; conversationId: string; model: ChatModelChoice | null }
+  >();
+  /**
+   * Ends the judgement of an Answer's sentences: its waiting Citations are written not checked;
+   * `quietly`, for an Answer written again or going away, it writes nothing more.
+   */
+  const endJudgement = (answerId: string, quietly = false) => {
+    const judgement = judgements.get(answerId);
+    if (!judgement) return;
+    if (quietly) judgements.delete(answerId);
+    judgement.controller.abort();
+  };
 
   /**
    * Judges the sentences of a stored Answer whose Citations wait as checking (#2311), and writes
@@ -1018,8 +1031,12 @@ export function createAnswers(options: AnswersOptions) {
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
     );
     const controller = new AbortController();
-    judgements.get(answer.id)?.abort();
-    judgements.set(answer.id, controller);
+    endJudgement(answer.id, true);
+    judgements.set(answer.id, {
+      controller,
+      conversationId: answer.conversationId,
+      model: answer.model,
+    });
     let citations = answer.citations;
     const judged = (marker: number | null, result: SupportResult | null) => {
       citations = citations.map((citation): MarkedCitation => {
@@ -1034,7 +1051,7 @@ export function createAnswers(options: AnswersOptions) {
           ...(result.verdict && { verdict: result.verdict }),
         };
       });
-      if (judgements.get(answer.id) === controller) {
+      if (judgements.get(answer.id)?.controller === controller) {
         options.conversations.writeCitations(answer.id, answer.text, citations);
       }
     };
@@ -1055,7 +1072,7 @@ export function createAnswers(options: AnswersOptions) {
       options.reportError(error);
     } finally {
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
-      if (judgements.get(answer.id) === controller) judgements.delete(answer.id);
+      if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
     }
   }
 
@@ -3990,6 +4007,7 @@ export function createAnswers(options: AnswersOptions) {
       if ("asked" in ready) return ready;
       if (model) options.conversations.setQuestionModel(question.id, model);
       active.get(answerId)?.finish({ status: "stopped" });
+      endJudgement(answerId, true);
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
       // Written again, it proposes its changes again: those still waiting from before go.
       options.withdrawChanges?.(changes);
@@ -4032,7 +4050,7 @@ export function createAnswers(options: AnswersOptions) {
       if (generation?.home.place.conversationId === conversationId) {
         generation.finish({ status: "stopped" });
       }
-      judgements.get(answerId)?.abort();
+      if (judgements.get(answerId)?.conversationId === conversationId) endJudgement(answerId);
     },
 
     /**
@@ -4040,16 +4058,19 @@ export function createAnswers(options: AnswersOptions) {
      * again on such a Citation's card. Resolves once each has a result.
      */
     async checkAnswerAgain(input: unknown): Promise<void> {
-      if (!isRecord(input)) throw new InvalidInputError("checkAnswerAgain expects an object.");
-      const conversationId = parseId(input.conversationId, "A conversation id");
-      const answerId = parseId(input.answerId, "An Answer id");
+      const { answerId, question } = options.conversations.questionOf(input);
       const answer = options.conversations.answer(answerId);
-      if (answer?.conversationId !== conversationId || answer.status === "streaming") return;
+      if (!answer || answer.status === "streaming") return;
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
-      const { question } = options.conversations.questionOf({ conversationId, answerId });
-      const documentIds = question.scope
-        ? options.resolveScope(question.scope)
-        : readableAcrossWalls(null, wallOfTurn(question));
+      // Its Search scope as the Answer had it, resolved as regenerating it does.
+      const from = question.askedFrom;
+      const mindId = from && !from.deleted ? from.mindId : null;
+      const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
+      const { documentIds } = scopeNow(
+        question.scope,
+        mindId,
+        readsMind ? null : wallOfTurn(question),
+      );
       const waiting = answer.citations.map(
         (citation): MarkedCitation =>
           citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
@@ -4284,12 +4305,15 @@ export function createAnswers(options: AnswersOptions) {
       });
     },
 
-    /** Stops every Answer being written in a conversation, e.g. before it is deleted. */
+    /** Stops every Answer being written in a conversation, and its sentences' judgements, e.g. before it is deleted. */
     stopConversation(conversationId: string): void {
       for (const generation of [...active.values()]) {
         if (generation.home.place.conversationId === conversationId) {
           generation.finish({ status: "stopped" });
         }
+      }
+      for (const [answerId, judgement] of [...judgements]) {
+        if (judgement.conversationId === conversationId) endJudgement(answerId, true);
       }
     },
 
@@ -4299,9 +4323,14 @@ export function createAnswers(options: AnswersOptions) {
     /**
      * Local mode just turned on: stops every Answer being written by a model that isn't on
      * this computer, keeping what was written. It ends as failed with the "local-mode"
-     * reason, so the Answer says why.
+     * reason, so the Answer says why. Such a model's judgements of sentences end: not checked.
      */
     async stopCloud(): Promise<void> {
+      for (const [answerId, { model }] of [...judgements]) {
+        if (!model) continue;
+        const readiness = await options.readiness(model);
+        if (!readiness.ready && readiness.reason === "local-mode") endJudgement(answerId);
+      }
       for (const generation of [...active.values()]) {
         const readiness = await options.readiness(generation.model);
         if (readiness.ready || readiness.reason !== "local-mode") continue;
@@ -4315,9 +4344,13 @@ export function createAnswers(options: AnswersOptions) {
       }
     },
 
-    /** Stops every Answer, keeping what was written, e.g. when the app quits. */
+    /**
+     * Stops every Answer, keeping what was written, and every judgement, e.g. when the app quits:
+     * its waiting Citations are left for the next start, which finds them not checked.
+     */
     stopAll(): void {
       for (const generation of [...active.values()]) generation.finish({ status: "stopped" });
+      for (const answerId of [...judgements.keys()]) endJudgement(answerId, true);
     },
   };
 }

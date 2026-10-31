@@ -196,7 +196,8 @@ export function CitationView({
   const writing = useAnswers((store) => store.writing.size > 0);
   const answering = useAnswerBeingWritten() !== null;
   // An ended Answer's Citation in the assistant shows its number alone while its sentence is
-  // judged, so nothing reads as a result before it has one (#2311).
+  // judged, so nothing reads as a result before it has one (#2311), bare as a found one is, so
+  // the usual result moves nothing.
   const judging = state.check === "checking" && checkAgainHere !== null && !writing && !answering;
   const dot = useRef<SVGSVGElement>(null);
   useBreathing(dot, state.check === "checking" && (writing || answering));
@@ -412,6 +413,7 @@ export function CitationView({
         type="button"
         data-testid="citation-chip"
         data-check={state.check}
+        data-judging={judging || undefined}
         data-recheck={recheckAsked || undefined}
         data-number={number || undefined}
         className={`citation-marker ${

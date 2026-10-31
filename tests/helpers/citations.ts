@@ -104,22 +104,25 @@ export interface CitingPlan {
 
 /** A model that calls Tools: it searches once, cites, then writes its Answer. */
 export function citingModel(plan: CitingPlan): MockLanguageModelV4 {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (!call.tools.includes("search_documents")) return { text: "No Tools were offered." };
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    const cited = call.results.some((result) => result.tool === "cite");
-    if (searches.length === 0) {
-      return {
-        text: plan.preamble,
-        calls: [{ tool: "search_documents", input: { query: plan.query } }],
-      };
-    }
-    if (!cited) {
-      const passages = shownPassages(searches.at(-1)?.text ?? "");
-      return { calls: [{ tool: "cite", input: { citations: plan.records(passages) } }] };
-    }
-    return { text: plan.answer, pause: plan.pause };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (!call.tools.includes("search_documents")) return { text: "No Tools were offered." };
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      const cited = call.results.some((result) => result.tool === "cite");
+      if (searches.length === 0) {
+        return {
+          text: plan.preamble,
+          calls: [{ tool: "search_documents", input: { query: plan.query } }],
+        };
+      }
+      if (!cited) {
+        const passages = shownPassages(searches.at(-1)?.text ?? "");
+        return { calls: [{ tool: "cite", input: { citations: plan.records(passages) } }] };
+      }
+      return { text: plan.answer, pause: plan.pause };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 /** A model for a core under test that is never asked an Answer. */
@@ -193,7 +196,10 @@ export async function contextOfNextQuestion(
     .join("\n\n");
 }
 
-/** Resolves with the next "answer.finished" or "answer.failed" event for this Answer. */
+/**
+ * Resolves with the next "answer.finished" or "answer.failed" event for this Answer, an Answer in
+ * a conversation once its sentences are judged; rejects when they never are.
+ */
 export function answerEnded(
   core: Core,
   answerId: string,
@@ -201,7 +207,7 @@ export function answerEnded(
   | { event: "finished"; payload: CoreEvents["answer.finished"] }
   | { event: "failed"; payload: CoreEvents["answer.failed"] }
 > {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const stops = [
       core.on("answer.finished", (payload) => {
         if (payload.answerId !== answerId) return;
@@ -209,10 +215,12 @@ export function answerEnded(
         // An Answer in a conversation ends at once; its Citations wait for their sentences' judgement (#2311).
         const { conversationId } = payload;
         if (!conversationId) resolve({ event: "finished", payload });
-        else
-          void answerJudged(core, conversationId, answerId)
-            .catch(() => undefined)
-            .finally(() => resolve({ event: "finished", payload }));
+        else {
+          answerJudged(core, conversationId, answerId).then(
+            () => resolve({ event: "finished", payload }),
+            reject,
+          );
+        }
       }),
       core.on("answer.failed", (payload) => {
         if (payload.answerId !== answerId) return;

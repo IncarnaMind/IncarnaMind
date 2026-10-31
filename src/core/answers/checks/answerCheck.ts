@@ -165,10 +165,9 @@ const WORSE: Record<SupportResult["check"], number> = {
 };
 
 function supportOf(result: ClaimCheckResult): SupportResult | null {
-  // A sentence that is all opinion claims nothing a quote could fail to back.
-  if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
-    return { check: "found", verdict: null };
-  }
+  // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
+  // a fact sorted as opinion must not show the green check (#2311).
+  if (result.parts && !result.parts.some((part) => part.kind === "fact")) return null;
   switch (result.verdict) {
     case "supported":
       return { check: "found", verdict: null };

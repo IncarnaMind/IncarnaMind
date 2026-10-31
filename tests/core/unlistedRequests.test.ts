@@ -43,43 +43,49 @@ const NEXT = "And when are neap tides?";
 
 /** Searches, cites the line the latest Question asks about, then writes its Answer. */
 const tidesModel = () =>
-  scriptedModel((call: ModelCall): ScriptedReply => {
-    const searched = call.results.find((result) => result.tool === "search_documents");
-    if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
-    const neap = call.prompt.includes(NEXT);
-    if (!call.results.some((result) => result.tool === "cite")) {
-      const quote = neap ? NEAP : SPRING;
-      const passage = shownPassages(searched.text).find((each) => each.text.includes(quote));
+  scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+      const neap = call.prompt.includes(NEXT);
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const quote = neap ? NEAP : SPRING;
+        const passage = shownPassages(searched.text).find((each) => each.text.includes(quote));
+        return {
+          calls: [
+            { tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } },
+          ],
+        };
+      }
       return {
-        calls: [
-          { tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } },
-        ],
+        text: neap
+          ? "Neap tides come at the quarter moons[^1]."
+          : "Spring tides come at new and full moon[^1].",
       };
-    }
-    return {
-      text: neap
-        ? "Neap tides come at the quarter moons[^1]."
-        : "Spring tides come at new and full moon[^1].",
-    };
-  });
+    },
+    { judgesItsAnswers: true },
+  );
 
 /**
  * Writes `first` beside a record whose quote the Passage doesn't hold, fixes the record in a call
  * of its own, then writes `then`.
  */
 const fixingModel = (first: string, then: string) =>
-  scriptedModel((call: ModelCall): ScriptedReply => {
-    const searched = call.results.find((result) => result.tool === "search_documents");
-    if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
-    const passage = shownPassages(searched.text).find((each) => each.text.includes(SPRING))?.id;
-    const cite = (quote: string) => ({
-      tool: "cite",
-      input: { citations: [{ marker: 1, passage, quote }] },
-    });
-    const cites = call.results.filter((result) => result.tool === "cite").length;
-    if (cites === 0) return { text: first, calls: [cite("Spring tides happen every week.")] };
-    return cites === 1 ? { calls: [cite(SPRING)] } : { text: then };
-  });
+  scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (!searched) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+      const passage = shownPassages(searched.text).find((each) => each.text.includes(SPRING))?.id;
+      const cite = (quote: string) => ({
+        tool: "cite",
+        input: { citations: [{ marker: 1, passage, quote }] },
+      });
+      const cites = call.results.filter((result) => result.tool === "cite").length;
+      if (cites === 0) return { text: first, calls: [cite("Spring tides happen every week.")] };
+      return cites === 1 ? { calls: [cite(SPRING)] } : { text: then };
+    },
+    { judgesItsAnswers: true },
+  );
 
 /** Claude Haiku 5.5, saved as the User saves it, its service allowed. */
 async function withHaiku(core: Core) {
@@ -123,13 +129,18 @@ const PRICE = "We agreed the enterprise price is 45 dollars a seat";
 
 /** A Meeting's notes, one line under one heading, filled in by Claude Haiku 5.5 after Stop: every request it made. */
 async function notesFilled() {
-  const model = scriptedModel((call): ScriptedReply => {
-    if (!call.prompt.includes("Fill them in from the transcript")) return { text: "OK" };
-    const transcript = /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(call.prompt);
-    const citations = transcriptCitations(call, shownPassages(transcript?.[1] ?? ""), { 1: PRICE });
-    if (citations) return citations;
-    return { text: "### L1\nThe enterprise price is 45 dollars a seat [^1]." };
-  });
+  const model = scriptedModel(
+    (call): ScriptedReply => {
+      if (!call.prompt.includes("Fill them in from the transcript")) return { text: "OK" };
+      const transcript = /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(call.prompt);
+      const citations = transcriptCitations(call, shownPassages(transcript?.[1] ?? ""), {
+        1: PRICE,
+      });
+      if (citations) return citations;
+      return { text: "### L1\nThe enterprise price is 45 dollars a seat [^1]." };
+    },
+    { judgesItsAnswers: true },
+  );
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model,
     engine: {
@@ -245,19 +256,22 @@ describe("A model no list names, or one in a flow no list admits it to", {
     if (!first.asked) throw new Error("The Question wasn't asked.");
     await answerEnded(panel.core, first.answerId);
 
-    const retried = scriptedModel((call: ModelCall): ScriptedReply => {
-      const passage =
-        call.system === EDIT_INSTRUCTIONS
-          ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
-          : undefined;
-      if (passage !== undefined) return { text: passage.replace("visted", "visited") };
-      if (!call.results.some((result) => result.tool === "edit_mind")) {
-        return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
-      }
-      return call.prompt.includes("your edits left")
-        ? { text: "Fixed “compleatly”." }
-        : { text: "Fixed “visted” and “compleatly”." };
-    });
+    const retried = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        const passage =
+          call.system === EDIT_INSTRUCTIONS
+            ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
+            : undefined;
+        if (passage !== undefined) return { text: passage.replace("visted", "visited") };
+        if (!call.results.some((result) => result.tool === "edit_mind")) {
+          return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
+        }
+        return call.prompt.includes("your edits left")
+          ? { text: "Fixed “compleatly”." }
+          : { text: "Fixed “visted” and “compleatly”." };
+      },
+      { judgesItsAnswers: true },
+    );
     const fixing = await setUpWithDocuments(retried, [TIDES]);
     writeMind(fixing.client, [
       heading(2, "Trip notes"),
@@ -279,6 +293,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
         text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
       }),
       {
+        judgesItsAnswers: true,
         generate: (call) =>
           claimCheckReply(
             call,

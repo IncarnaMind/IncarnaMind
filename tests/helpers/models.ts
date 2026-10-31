@@ -387,18 +387,18 @@ export function scriptedModel(
     modelId,
     generate,
     usage = STREAM_USAGE,
-    judgesItsAnswers = "supported",
+    judgesItsAnswers = false,
   }: {
     chunkSize?: number;
     modelId?: string;
     generate?: (call: GenerateCall) => GeneratedReply;
     usage?: ReportedUsage;
     /**
-     * How a check of a sentence this model wrote in an Answer is answered once the Answer ends
-     * (#2311): supported by the quote it cites, as an Answer that keeps to its quotes is; or as
-     * `script` says, for a test of that judgement.
+     * Whether a check of a sentence this model wrote in an Answer, once the Answer ends (#2311),
+     * is answered supported by the quote it cites, as an Answer that keeps to its quotes is,
+     * instead of as `script` says: for a test of something else than that judgement.
      */
-    judgesItsAnswers?: "supported" | "by-script";
+    judgesItsAnswers?: boolean;
   } = {},
 ): MockLanguageModelV4 {
   let index = 0;
@@ -451,10 +451,12 @@ export function scriptedModel(
         results: resultsOf(options),
         options,
       };
-      const own = judgesItsAnswers === "supported" ? ownSentenceJudged(call, written) : null;
+      const own = judgesItsAnswers ? ownSentenceJudged(call, written) : null;
       const reply = own ?? script(call);
       if ("error" in reply) throw providerError(reply.error);
-      if (!own && reply.text) written.push(wordsOf(reply.text));
+      if (!own && reply.text && call.system.startsWith(ANSWER_INSTRUCTIONS_START)) {
+        written.push(wordsOf(reply.text));
+      }
       const parts: StreamPart[] = [{ type: "stream-start", warnings: [] }];
       if (reply.reasoning) {
         parts.push({ type: "reasoning-start", id: "thinking" });
@@ -526,7 +528,6 @@ export function scriptedModel(
   });
 }
 
-/** A model factory that always returns `model` and records what it was asked to build. */
 /** Its words, without markers, figures or markup: a check shows a Calculated figure as its number. */
 const wordsOf = (text: string) =>
   comparableSentence(
@@ -536,6 +537,8 @@ const wordsOf = (text: string) =>
       .replace(/[*_`|]/g, " "),
   );
 
+/** How an Answer's instructions begin: only what it writes there is an Answer whose sentences are judged. */
+const ANSWER_INSTRUCTIONS_START = "You answer Questions in IncarnaMind";
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
 const CITED_QUOTE = /^- [^\n]*?: “([^\n]+)”$/m;
 const PASSAGE = /<passage id="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/passage>/g;
@@ -565,6 +568,7 @@ function ownSentenceJudged(call: ModelCall, written: readonly string[]): Scripte
   return { calls: [{ tool: "search_documents", input: { query: quote } }] };
 }
 
+/** A model factory that always returns `model` and records what it was asked to build. */
 export function scriptedModels(model: MockLanguageModelV4) {
   const specs: ChatModelSpec[] = [];
   const createChatModel: ChatModelFactory = (spec) => {

@@ -26,7 +26,7 @@ const TIDES = buildPdf([
 
 /** A model that reasons, then answers in one go. */
 const reasoningModel = (answer = "At new and full moon.") =>
-  scriptedModel(() => ({ reasoning: SUMMARY, text: answer }));
+  scriptedModel(() => ({ reasoning: SUMMARY, text: answer }), { judgesItsAnswers: true });
 
 /** A core whose chat model is `model`, on a provider of `kind`, its Questions allowed to go there. */
 async function setUp(model: MockLanguageModelV4, kind: "anthropic" | "ollama") {
@@ -153,12 +153,14 @@ describe("A search's steps", { timeout: 60_000 }, () => {
 
   // protects=a failed search keeps why it failed, sorted as a provider's error, and the Answer goes on; fails_when=the call has no error kind, or the Answer fails with it; no_claim=a reranker that refuses its key stands in for any search model's failure.
   test("keep why a search failed, and the Answer goes on", async () => {
-    const model = scriptedModel((call) =>
-      call.tools.length > 0
-        ? { error: { status: 400, message: "this model does not support tools" } }
-        : {
-            text: JSON.stringify({ answer: "I couldn't search your Documents.", citations: [] }),
-          },
+    const model = scriptedModel(
+      (call) =>
+        call.tools.length > 0
+          ? { error: { status: 400, message: "this model does not support tools" } }
+          : {
+              text: JSON.stringify({ answer: "I couldn't search your Documents.", citations: [] }),
+            },
+      { judgesItsAnswers: true },
     );
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, {
@@ -191,40 +193,44 @@ describe("A search's steps", { timeout: 60_000 }, () => {
 
 describe("A Document read", { timeout: 60_000 }, () => {
   test("after a search miss ends with the figure on the read page cited", async () => {
-    const model = scriptedModel((call) => {
-      if (!call.tools.includes("read_document")) return { text: "read_document was not offered." };
-      const reads = call.results.filter((result) => result.tool === "read_document");
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
-      }
-      if (reads.length === 0) {
-        return {
-          calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
-        };
-      }
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const passages = shownPassages(reads.at(-1)?.text ?? "");
-        return {
-          calls: [
-            {
-              tool: "cite",
-              input: {
-                citations: [
-                  {
-                    marker: 1,
-                    passage: passages[0]?.id,
-                    pageFrom: 2,
-                    pageTo: 2,
-                    quote: "Comparable sales declined 6.2%.",
-                  },
-                ],
+    const model = scriptedModel(
+      (call) => {
+        if (!call.tools.includes("read_document"))
+          return { text: "read_document was not offered." };
+        const reads = call.results.filter((result) => result.tool === "read_document");
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+        }
+        if (reads.length === 0) {
+          return {
+            calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
+          };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = shownPassages(reads.at(-1)?.text ?? "");
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: passages[0]?.id,
+                      pageFrom: 2,
+                      pageTo: 2,
+                      quote: "Comparable sales declined 6.2%.",
+                    },
+                  ],
+                },
               },
-            },
-          ],
-        };
-      }
-      return { text: "Comparable sales declined 6.2% [^1]." };
-    });
+            ],
+          };
+        }
+        return { text: "Comparable sales declined 6.2% [^1]." };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
     const filing = buildPdf([
@@ -244,37 +250,40 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("reads the Document's opening when no pages are given", async () => {
-    const model = scriptedModel((call) => {
-      const reads = call.results.filter((result) => result.tool === "read_document");
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
-      }
-      if (reads.length === 0) {
-        return { calls: [{ tool: "read_document", input: { document: "Filing" } }] };
-      }
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const passages = shownPassages(reads.at(-1)?.text ?? "");
-        return {
-          calls: [
-            {
-              tool: "cite",
-              input: {
-                citations: [
-                  {
-                    marker: 1,
-                    passage: passages[0]?.id,
-                    pageFrom: 1,
-                    pageTo: 1,
-                    quote: "Domestic comparable sales declined 5.1%.",
-                  },
-                ],
+    const model = scriptedModel(
+      (call) => {
+        const reads = call.results.filter((result) => result.tool === "read_document");
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+        }
+        if (reads.length === 0) {
+          return { calls: [{ tool: "read_document", input: { document: "Filing" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = shownPassages(reads.at(-1)?.text ?? "");
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: passages[0]?.id,
+                      pageFrom: 1,
+                      pageTo: 1,
+                      quote: "Domestic comparable sales declined 5.1%.",
+                    },
+                  ],
+                },
               },
-            },
-          ],
-        };
-      }
-      return { text: "Domestic comparable sales declined 5.1% [^1]." };
-    });
+            ],
+          };
+        }
+        return { text: "Domestic comparable sales declined 5.1% [^1]." };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
     const filing = buildPdf([
@@ -291,49 +300,52 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("reads around a Passage the model was already shown", async () => {
-    const model = scriptedModel((call) => {
-      const reads = call.results.filter((result) => result.tool === "read_document");
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "search_documents", input: { query: "Segment results" } }] };
-      }
-      if (reads.length === 0) {
-        const searched = call.results.find((result) => result.tool === "search_documents");
-        const passages = shownPassages(searched?.text ?? "");
-        return {
-          calls: [
-            {
-              tool: "read_document",
-              input: { document: "Filing", passage: passages[0]?.id, after: 1 },
-            },
-          ],
-        };
-      }
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const passages = shownPassages(reads.at(-1)?.text ?? "");
-        const consolidated = passages.find((passage) =>
-          passage.text.includes("Comparable sales declined 6.2%."),
-        );
-        return {
-          calls: [
-            {
-              tool: "cite",
-              input: {
-                citations: [
-                  {
-                    marker: 1,
-                    passage: consolidated?.id,
-                    pageFrom: 2,
-                    pageTo: 2,
-                    quote: "Comparable sales declined 6.2%.",
-                  },
-                ],
+    const model = scriptedModel(
+      (call) => {
+        const reads = call.results.filter((result) => result.tool === "read_document");
+        if (call.results.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "Segment results" } }] };
+        }
+        if (reads.length === 0) {
+          const searched = call.results.find((result) => result.tool === "search_documents");
+          const passages = shownPassages(searched?.text ?? "");
+          return {
+            calls: [
+              {
+                tool: "read_document",
+                input: { document: "Filing", passage: passages[0]?.id, after: 1 },
               },
-            },
-          ],
-        };
-      }
-      return { text: "Comparable sales declined 6.2% [^1]." };
-    });
+            ],
+          };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = shownPassages(reads.at(-1)?.text ?? "");
+          const consolidated = passages.find((passage) =>
+            passage.text.includes("Comparable sales declined 6.2%."),
+          );
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [
+                    {
+                      marker: 1,
+                      passage: consolidated?.id,
+                      pageFrom: 2,
+                      pageTo: 2,
+                      quote: "Comparable sales declined 6.2%.",
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: "Comparable sales declined 6.2% [^1]." };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
     const filing = buildPdf([
@@ -350,20 +362,23 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("stops at three reads in one Answer", async () => {
-    const model = scriptedModel((call) => {
-      const reads = call.results.filter((result) => result.tool === "read_document");
-      if (reads.length < 4) {
-        return {
-          calls: [
-            {
-              tool: "read_document",
-              input: { document: "Filing", pages: String(reads.length + 1) },
-            },
-          ],
-        };
-      }
-      return { text: "Done reading." };
-    });
+    const model = scriptedModel(
+      (call) => {
+        const reads = call.results.filter((result) => result.tool === "read_document");
+        if (reads.length < 4) {
+          return {
+            calls: [
+              {
+                tool: "read_document",
+                input: { document: "Filing", pages: String(reads.length + 1) },
+              },
+            ],
+          };
+        }
+        return { text: "Done reading." };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
     const filing = buildPdf(
@@ -385,13 +400,18 @@ describe("A Document read", { timeout: 60_000 }, () => {
 
   test("a page-range read overlaps one-page Passages and records its capped range", async () => {
     let readText = "";
-    const model = scriptedModel((call) => {
-      if (call.results.length === 0) {
-        return { calls: [{ tool: "read_document", input: { document: "Filing", pages: "1-40" } }] };
-      }
-      readText = call.results.find((result) => result.tool === "read_document")?.text ?? "";
-      return { text: "Read the first three pages." };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.results.length === 0) {
+          return {
+            calls: [{ tool: "read_document", input: { document: "Filing", pages: "1-40" } }],
+          };
+        }
+        readText = call.results.find((result) => result.tool === "read_document")?.text ?? "";
+        return { text: "Read the first three pages." };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
     const filing = buildPdf(
@@ -425,10 +445,12 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("a search miss without a read says I didn't find and has no Citation", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
-        : { text: "I didn't find the consolidated comparable-sales change in “Filing”." },
+    const model = scriptedModel(
+      (call) =>
+        call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
+          : { text: "I didn't find the consolidated comparable-sales change in “Filing”." },
+      { judgesItsAnswers: true },
     );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
@@ -447,17 +469,19 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("refuses a page number outside the safe integer range", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? {
-            calls: [
-              {
-                tool: "read_document",
-                input: { document: "Filing", pages: "9".repeat(400) },
-              },
-            ],
-          }
-        : { text: "I couldn't read that page." },
+    const model = scriptedModel(
+      (call) =>
+        call.results.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "read_document",
+                  input: { document: "Filing", pages: "9".repeat(400) },
+                },
+              ],
+            }
+          : { text: "I couldn't read that page." },
+      { judgesItsAnswers: true },
     );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();
@@ -478,10 +502,12 @@ describe("A Document read", { timeout: 60_000 }, () => {
   });
 
   test("tells the model which pages a search covered", async () => {
-    const model = scriptedModel((call) =>
-      call.results.length === 0
-        ? { calls: [{ tool: "search_documents", input: { query: "Consolidated results" } }] }
-        : { text: "Read the result." },
+    const model = scriptedModel(
+      (call) =>
+        call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "Consolidated results" } }] }
+          : { text: "Read the result." },
+      { judgesItsAnswers: true },
     );
     const { core } = await setUp(model, "ollama");
     const sources = await createSourceFolder();

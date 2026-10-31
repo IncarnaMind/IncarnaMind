@@ -1,8 +1,18 @@
 import { describe, expect, test, vi } from "vitest";
-import type { Core, MarkedCitation } from "../../src/core";
+import { CITATION_NODE, type Core, type MarkedCitation } from "../../src/core";
 import { citedSentences } from "../../src/core/answers/checks/answerCheck";
-import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
+import { pageBlocks } from "../../src/shared/answerBlocks";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { nextTurn, startCore } from "../helpers/core";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { docxOf } from "../helpers/office";
 import { para, pptxOf, sp, txBody } from "../helpers/pptx";
@@ -60,7 +70,7 @@ const TERM = "合同有效期至 2027 年 12 月 31 日";
 
 /**
  * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and checks each sentence
- * as `plans` say; every request it is sent is kept in `calls`.
+ * as `plans` say, naming those in `opinions` all opinion; every request it is sent is kept in `calls`.
  */
 function answeringModel(
   query: string,
@@ -68,11 +78,20 @@ function answeringModel(
   quotes: readonly string[],
   plans: Record<string, Plan>,
   calls: ModelCall[] = [],
+  opinions: readonly string[] = [],
 ) {
   return scriptedModel(
     (call) => {
       calls.push(call);
-      if (isCheckRun(call)) return checkReply(call, plans);
+      if (isCheckRun(call)) {
+        const sentence = sentenceOf(call);
+        if (opinions.includes(sentence) && call.results.length === 0) {
+          const parts = [{ kind: "opinion", text: sentence.replace(/[.。]$/u, "") }];
+          const search = { tool: "search_documents", input: { query: sentence } };
+          return { text: `Parts: ${JSON.stringify(parts)}`, calls: [search] };
+        }
+        return checkReply(call, plans);
+      }
       const searches = call.results.filter((result) => result.tool === "search_documents");
       if (searches.length === 0) {
         return { calls: [{ tool: "search_documents", input: { query } }] };
@@ -88,7 +107,7 @@ function answeringModel(
       }
       return { text: answer };
     },
-    { generate: checkGenerate(plans), judgesItsAnswers: "by-script" },
+    { generate: checkGenerate(plans) },
   );
 }
 
@@ -266,6 +285,98 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       expect(again.citations).toMatchObject([{ marker: 1, check: "found" }]);
     },
   );
+
+  test.each([
+    { language: "English", question: "When is the kiln installed?", answer: ANSWER },
+    { language: "Chinese", question: "窑炉什么时候安装？", answer: ANSWER_ZH },
+  ])(
+    "in $language, a sentence its check sorts as all opinion is not checked, never found, though its quote is there",
+    async (each) => {
+      const sentence = each.answer.replace("[^1]", "");
+      const { core } = await setUpWithDocuments(
+        answeringModel(
+          "kilns installed cost",
+          each.answer,
+          [INSTALLATION],
+          { [sentence]: { verdict: "contradicted", quote: INSTALLATION, says: sentence } },
+          [],
+          [sentence],
+        ),
+        [KILN_DECK],
+      );
+
+      const judged = await (await askedAnswer(core, each.question)).judged();
+
+      expect(judged.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+      expect(judged.citations.some((citation) => citation.check === "found")).toBe(false);
+    },
+  );
+
+  test("closed while its sentence is judged, it writes nothing more, and the next start finds its Citation not checked", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sentence = ANSWER.replace("[^1]", "");
+    const { core, dataDir, models } = await setUpWithDocuments(
+      answeringModel("kilns installed cost", ANSWER, [INSTALLATION], {
+        [sentence]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
+      }),
+      [KILN_DECK],
+    );
+    const asked = await askedAnswer(core, "When is the kiln installed?");
+
+    core.close();
+    release();
+    await nextTurn();
+    const later = startCore(dataDir, { createChatModel: models.createChatModel });
+    const { messages } = await later.getConversation(asked.atEnd.conversationId);
+    const reopened = messages.find((message) => message.id === asked.atEnd.id);
+
+    expect(asked.atEnd.citations).toMatchObject([{ marker: 1, check: "checking" }]);
+    expect(reopened).toMatchObject({
+      status: "done",
+      citations: [{ marker: 1, check: "not-checked" }],
+    });
+  });
+
+  test("added to a Note while its sentence is judged, or once it couldn't be, its Citation goes in as its quote check left it: found", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sentence = ANSWER.replace("[^1]", "");
+    const question = "When is the kiln installed?";
+    const { core } = await setUpWithDocuments(
+      answeringModel("kilns installed cost", ANSWER, [INSTALLATION], {
+        [sentence]: { reply: { text: "Verdict: supported", pause: { after: 0, until: held } } },
+      }),
+      [KILN_DECK],
+    );
+    const checksIn = (blocks: readonly NodeJSON[]): unknown[] =>
+      blocks.flatMap((block) => [
+        ...(block.type === CITATION_NODE ? [block.attrs?.check] : []),
+        ...checksIn(block.content ?? []),
+      ]);
+
+    const asked = await askedAnswer(core, question);
+    const waiting = pageBlocks(asked.atEnd, question);
+    await core.stopConversationAnswer({
+      conversationId: asked.atEnd.conversationId,
+      answerId: asked.atEnd.id,
+    });
+    const notChecked = await asked.judged();
+    release();
+
+    expect(asked.atEnd.citations).toMatchObject([{ marker: 1, check: "checking" }]);
+    expect(checksIn(waiting)).toEqual(["found"]);
+    expect(notChecked.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
+    expect(checksIn(pageBlocks(notChecked, question))).toEqual(["found"]);
+    // A stopped Answer's Citation still checking never had its quote checked.
+    expect(checksIn(pageBlocks({ ...asked.atEnd, status: "stopped" }, question))).toEqual([
+      "checking",
+    ]);
+  });
 
   test.each([
     {

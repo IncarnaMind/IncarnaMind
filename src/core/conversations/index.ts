@@ -746,6 +746,30 @@ export function createConversations(db: Database, now: () => string) {
     ),
   });
 
+  /**
+   * A Citation of an ended Answer still waiting for its sentence's judgement when an earlier run of
+   * the app ended (#2311): nothing judges it any more, so it is not checked, and Check again can
+   * judge it. One of an Answer left being written never had its quote checked: it stays as it was.
+   */
+  db.transaction(() => {
+    for (const row of db.all<{ id: string; citations: string }>(
+      `SELECT id, citations FROM conversation_messages
+       WHERE kind = 'answer' AND status <> 'streaming' AND citations LIKE '%"check":"checking"%'`,
+    )) {
+      const citations = storedList<MarkedCitation>(row.citations).map(
+        (citation): MarkedCitation =>
+          citation.check === "checking"
+            ? { ...citation, check: "not-checked", checkReason: null }
+            : citation,
+      );
+      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(citations),
+        now(),
+        row.id,
+      ]);
+    }
+  });
+
   /** Answers left being written by an earlier run of the app: nothing writes them any more. */
   db.transaction(() => {
     for (const row of db.all<{ seq: number; text: string; figures: string }>(

@@ -1926,16 +1926,17 @@ export interface WordExportReport {
  * sections, blocks of rows or of lines; see src/shared/units.ts), once, when
  * the Answer finishes. "found" means the quote is there, not that it supports
  * the sentence.
- * - "checking": the Answer is still being written, or its sentences judged.
+ * - "checking": the Answer is still being written, or, once it ends, its sentence is judged.
  * - "found", "not-found": see `checkReason` for why it wasn't found.
  * - "cant-check": there is no text to look in (see `checkReason`).
- * - "not-checked": an Answer's sentence whose judgement couldn't run or was stopped (#2311): its
- *   Citation shows neither found nor a problem until Check again judges it.
+ * - "not-checked": an Answer's sentence whose judgement couldn't run (no model the chat flow may
+ *   use now, no verdict, an error) or was stopped (#2311): its Citation shows neither found nor a
+ *   problem until Check again judges it.
  * - "unsupported", "contradicted": the verdict of checking the claim itself against
  *   the Documents, not only its quote (`verdict` says what the evidence says). An Answer in the
- *   assistant checks its sentences so before it ends (#2311): "found" then also means supported,
- *   for a sentence that check read and judged; for one it couldn't (no model the checks flow may
- *   use, no verdict, a Calculated figure's sentence, a table's row), only that the quote is there.
+ *   assistant has each cited sentence judged so after it ends, on the chat flow, its tables' rows
+ *   too (#2311): "found" then also means supported. A sentence showing a Calculated figure is
+ *   judged by the figure's Calculation check instead, so its "found" means the quote is there.
  */
 export type CitationCheck =
   | "checking"

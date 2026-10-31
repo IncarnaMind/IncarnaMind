@@ -29,22 +29,29 @@ Each run writes `eval/results/<start time>-support-<model>-<arm>/report.json`: e
 
 ## Results, 2026-10-31 (#2311)
 
-Claude Haiku 5.5 and Sonnet 5.5 on a direct Anthropic key, before (main at `a317cee1b`) and after the change. Before, an Answer runs no check on its sentences, so every one whose quote is found shows the green check; the "check alone" lines say what the same check would have said. After, a check that couldn't decide shows Not checked, never the green check.
+Claude Haiku 5.5 and Sonnet 5.5 on a direct Anthropic key; before is main at `a317cee1b` with this folder copied in, after is this branch's final check code. Before, an Answer runs no check on its sentences, so every sentence whose quote is found shows the green check; the "check alone" lines say what the same check would have said. After, a sentence shows the green check only when its check says Supported, and a check that couldn't decide shows Not checked. Every figure below comes from a report that records each check's requests and tokens.
+
+Haiku: the cases three times each, the supported set twice. Sonnet, a sample: the four fixtures, eight held-out sentences (installed-zh-1, installed-zh-2, installed-en-2, dated-en-1, dated-en-4b, dated-zh-5b, dated-en-6b, dated-zh-7b) and four controls once each in both arms, and the supported set once after.
 
 | | Haiku before | Haiku after | Sonnet before | Sonnet after |
 |---|--:|--:|--:|--:|
-| Fixtures, green in the Answer | 30 of 30 | 0 of 30 | 8 of 8 | 0 of 8 |
-| Fixtures, check alone says supported | 12 of 30 | 0 of 30 | 1 of 8 | 0 of 8 |
-| Held-out, green in the Answer | 66 of 66 | 3 of 66 | 44 of 44 | 2 of 44 |
-| Held-out, not checked | | 4 of 66 | | 0 of 44 |
-| Held-out, check alone says supported | 5 of 66 | 3 of 66 | 2 of 44 | 2 of 44 |
-| Controls, marked | 0 of 36 | 1 of 36 | 0 of 12 | 0 of 12 |
-| Supported set, marked | 2 of 35 | 3 of 70 | 1 of 35 | 2 of 35 |
+| Fixtures, green in the Answer | 12 of 12 | **0 of 12** | 4 of 4 | **0 of 4** |
+| Fixtures, check alone says supported | 1 of 12 | 0 of 12 | 2 of 4 | 0 of 4 |
+| Held-out, green in the Answer | 66 of 66 | **3 of 66** | 8 of 8 | **1 of 8** |
+| Held-out, check alone says supported | 5 of 66 | 3 of 66 | 1 of 8 | 1 of 8 |
+| Held-out, not checked | | 3 of 66 | | 0 of 8 |
+| Controls, marked | 0 of 36 | 0 of 36 | 0 of 4 | 0 of 4 |
+| Controls, not checked | | 3 of 36 | | 1 of 4 |
+| Supported set, marked | 4 of 70 | 5 of 70 | | 1 of 35 |
+| Supported set, not checked | 16 of 70 (check alone) | 6 of 70 | | 3 of 35 |
+| Requests | 672 | 665 | 53 | 149 |
+| Input / output tokens | 4,598,715 / 118,665 | 4,548,085 / 114,182 | 360,967 / 8,324 | 1,172,239 / 23,098 |
+| Spent (the app's meter) | $0.165 | $0.164 | $0.212 | $0.639 |
 
-- The fixtures the check alone called supported before were "dated 2026" (12 of 18 on Haiku, from the year beside the contract's Passage) and, on Sonnet, the Chinese "已安装好" once in 2.
-- Every held-out sentence still called supported, in both arms and on both models, is "窑炉升级的费用为 £185,000，即两台 K9 窑炉的安装费用": the Answer's own wording in a reproduction, which calls the price of two kilns installed their installation fee. Haiku's 4 not checked are "dated 2026" sentences: dated-en-5b, dated-zh-5b, dated-en-6b and dated-zh-7b, once each.
-- The control marked once is "根据供货协议，交货从 2027 年 1 月开始", which two Documents answer differently. The supported set's marks after are 万千瓦时 against a bare 126 (fs-129, marked before too, on both models), fs-017 once in 7 on Haiku (never in 7 before) and fs-049 on Sonnet, "rose every quarter": contradicted in its one check after, not checked in its one check before, and not checked in all three on Haiku.
-- With the date gone from a check's Passages but before the Time field, Haiku called "包括两台 K9 窑炉并已安装好" supported in 5 of 8 checks: the deck's year had been telling it the installation was still to come. With the Time field it refused all 18.
-- The walk's two Questions, asked in the app's Answers path over the walk's two files, with the judgement first built inside the Answer: on Haiku an Answer took 4.2 s before and 9.5 s after for the kiln Question, and 5.2 s and 10.8 s for the contract, three of each; on Sonnet, 4.1 s and 8.6 s, 5.2 s and 12.6 s, one of each. The Answer now ends when it is written, as before, and its Citations settle that much later (about 5 s on Haiku, 4 to 7 s on Sonnet). The checks cost about $0.004 an Answer on Haiku and $0.04 on Sonnet.
-- Not checked on sentences their quotes support, after: Haiku 3 of 36 controls and 17 of 70 in the supported set, Sonnet 1 of 12 and 6 of 35. Before the change these kept the green check without a judgement; now they say so.
-- Once the Answer ends at once and its sentences are judged after (the final code), the held-out set again: Haiku, three times each, 3 of 66 supported (all "窑炉升级的费用为 £185,000…") and 5 not checked; 305 requests, 1,730,844 input and 47,524 output tokens, $0.058. Sonnet, once each until its $0.25 budget ran out, 18 of 22: none supported, none not checked ("窑炉升级的费用…" unsupported); 80 requests, 512,189 input and 11,703 output tokens, $0.27.
+- Every held-out sentence still green after, on both models, is installed-zh-2, "窑炉升级的费用为 £185,000，即两台 K9 窑炉的安装费用": the Answer's own wording in a reproduction, which calls the price of two kilns installed their installation fee.
+- The control not checked is control-dated-zh-3, "根据供货协议，交货从 2027 年 1 月开始，每季度 12 吨。", in both arms and on both models (`no-evidence`).
+- Not checked on the supported set, by reason. Before the change to the calculation gate (#2311), the check alone left 16 of 70 on Haiku not checked: sheet rows whose unit is only in the column heading, or that hold several amounts (fs-044, fs-147 twice, fs-149 twice, fs-050), a number written in words (fs-018 twice), arithmetic (fs-049, fs-205 and fs-207, twice each), a reply it couldn't read (fs-006) and fs-156 ("每半年") once. After, 6 of 70: arithmetic, which the AI never does in its head (ADR-0021), 4 (fs-049 "rose every quarter", fs-203 "about 23 per cent", fs-205 a sum, twice), and a sentence that writes its number in words, "Forty examination couches" (fs-044), and fs-057, once each. Sonnet's 3 of 35 are all arithmetic (fs-049, fs-205, fs-207 "48,000 fewer"); in an Answer such a figure is a Calculated figure, which this judgement leaves to its Calculation check.
+- The supported set's marks after: fs-129 twice (万千瓦时 against a bare 126, marked before too), fs-018 once (the transcript's "we" read as not the steering group), fs-147 once, fs-049 once (contradicted on "rose every quarter"). Before: fs-129 twice, fs-017 and fs-175.
+- Earlier runs on this branch, whose reports record no tokens, measured the Time field and the stripped dates on the same cases: with the date gone from a check's Passages but before the Time field, Haiku called "包括两台 K9 窑炉并已安装好" supported in 5 of 8 checks; with the Time field it refused all 18.
+- Time: the Answer ends when written, as on main, and its Citations settle as each sentence is judged. With the judgement first built inside the Answer (runs that record no tokens), the walk's Questions took 4.2 to 9.5 s and 5.2 to 10.8 s on Haiku, 4.1 to 8.6 s and 5.2 to 12.6 s on Sonnet; that difference is now how long the badges wait after the end.
+- `eval:support` calls `checkClaim`, as Check this Note does. An Answer's judgement also leaves out what its sort calls opinion and gives the sentence's paragraph, so these numbers stand for the check, not the whole judgement.

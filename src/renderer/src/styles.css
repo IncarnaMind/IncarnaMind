@@ -4844,6 +4844,9 @@
       display: block;
     }
   }
+  .citation-marker[data-judging] {
+    padding: 0 4px;
+  }
   /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
   .citation-marker[data-recheck] {
     padding: 0 5px 0 3px;
