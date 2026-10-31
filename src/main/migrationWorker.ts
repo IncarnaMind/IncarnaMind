@@ -4,9 +4,10 @@
  * ends, so the core opens a migrated file that nothing else holds.
  */
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import type { LogFields } from "../core/adapters";
+import { isRecord } from "../core/errors";
 import { migrate, openDatabase } from "../core/storage";
 
 export type MigrationMessage =
@@ -15,7 +16,9 @@ export type MigrationMessage =
 
 const port = parentPort;
 if (!port) throw new Error("The migration worker must run as a worker thread.");
-const { file } = workerData as { file: string };
+if (!isRecord(workerData) || typeof workerData.file !== "string" || !isAbsolute(workerData.file))
+  throw new Error("The migration worker needs the database file's absolute path as `file`.");
+const file = workerData.file;
 const send = (message: MigrationMessage) => port.postMessage(message);
 
 mkdirSync(dirname(file), { recursive: true });
