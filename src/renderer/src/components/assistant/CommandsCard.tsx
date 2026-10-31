@@ -1,8 +1,15 @@
 import { useMemo } from "react";
 import type { CommandDone, CommandItem, ConversationAnswer } from "../../../../core/api";
-import type { Yours } from "../../../../shared/commands";
+import { type Yours, yoursWordsOf } from "../../../../shared/commands";
 import { keptWords, undoRun, useCommandRuns } from "../../assistantCommands";
-import { commandCallText, commandRuns, runText, undoable, yoursWordsOf } from "../../commandFacts";
+import {
+  commandCallText,
+  commandRuns,
+  refusalsOf,
+  runText,
+  saidInReply,
+  undoable,
+} from "../../commandFacts";
 import { files } from "../../core";
 import { LIBRARY_DELETED } from "../../deletedItems";
 import { showFileLabelKey } from "../../fileInfo";
@@ -47,7 +54,7 @@ export function CommandsCard({
   answer,
   streaming,
 }: {
-  answer: Pick<ConversationAnswer, "id" | "toolCalls">;
+  answer: Pick<ConversationAnswer, "id" | "text" | "toolCalls">;
   streaming: boolean;
 }) {
   const t = useT();
@@ -55,23 +62,19 @@ export function CommandsCard({
   const unrun = answer.toolCalls.filter(
     (call) => call.tool === "run_command" && call.status === "failed",
   );
-  const yours = [
-    ...new Map(
-      answer.toolCalls.flatMap((call) => {
-        const done = call.command;
-        return done?.yours
-          ? [[`${done.yours} ${done.folder?.id ?? ""}`, { what: done.yours, folder: done.folder }]]
-          : [];
-      }),
-    ).values(),
-  ];
+  // A refusal the reply already says keeps only its button, so it is said once; one with no
+  // button then shows nothing here.
+  const yours = refusalsOf(answer).flatMap((each) => {
+    const said = saidInReply(answer.text, each.what, each.folder);
+    return said && yoursWordsOf(each.what, each.folder).open === null ? [] : [{ ...each, said }];
+  });
   const { here, undone, kept } = useCommandRuns();
   const changed = runs.filter(({ done }) => done.some((each) => !each.yours));
   if (streaming || (changed.length === 0 && unrun.length === 0 && yours.length === 0)) return null;
   return (
     <section data-testid="command-changes" className="mind-changes">
-      {yours.map(({ what, folder }) => (
-        <YoursLine key={`${what} ${folder?.id ?? ""}`} what={what} folder={folder} />
+      {yours.map(({ what, folder, said }) => (
+        <YoursLine key={`${what} ${folder?.id ?? ""}`} what={what} folder={folder} inReply={said} />
       ))}
       {unrun.map((call) => (
         <div key={call.id} data-testid="command-changes-unrun" className="mind-changes-head">
@@ -216,20 +219,31 @@ function openYours(what: Yours): void {
 
 /**
  * A request for what only the User changes (#1421): one line saying it is theirs and where it
- * is, with the one button that opens that page when it is a page. Nothing changed.
+ * is, with the one button that opens that page when it is a page; only the button when the reply
+ * says it (`inReply`). Nothing changed.
  */
-function YoursLine({ what, folder }: { what: Yours; folder?: CommandDone["folder"] }) {
+function YoursLine({
+  what,
+  folder,
+  inReply,
+}: {
+  what: Yours;
+  folder?: CommandDone["folder"];
+  inReply: boolean;
+}) {
   const t = useT();
   const { said, open } = yoursWordsOf(what, folder);
   return (
     <div data-testid="command-yours" data-yours={what} className="mind-changes-head">
       <ShieldLineIcon aria-hidden="true" className="mind-changes-icon" />
       <p className="mind-changes-line">
-        <span className="mind-changes-title">{t(said, { folder: folder?.name ?? "" })}</span>
+        {!inReply && (
+          <span className="mind-changes-title">{t(said, { folder: folder?.name ?? "" })}</span>
+        )}
         {open !== null && (
           // The dot goes with its button when the line wraps.
           <span className="whitespace-nowrap">
-            <Dot />
+            {!inReply && <Dot />}
             <button
               type="button"
               data-testid="command-yours-open"

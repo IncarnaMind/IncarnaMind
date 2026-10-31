@@ -1,4 +1,5 @@
-import type { MessageKey } from "./i18n";
+import type { Language } from "../core/language";
+import { type MessageKey, translate } from "./i18n";
 
 /** What a command acts on, then what it does: "mind.new", "document.moveTo". */
 export type CommandId = `${string}.${string}`;
@@ -65,6 +66,41 @@ export const YOURS = [
   "authorship",
 ] as const;
 export type Yours = (typeof YOURS)[number];
+
+const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey | null }>> = {
+  wall: { said: "commands.yours.wall", open: null },
+  keys: { said: "commands.yours.keys", open: "commands.yours.openModels" },
+  privacy: { said: "commands.yours.privacy", open: "commands.yours.openPrivacy" },
+  approvals: { said: "commands.yours.approvals", open: "commands.yours.openPrivacy" },
+  spending: { said: "commands.yours.spending", open: "commands.yours.openGeneral" },
+  permanent: { said: "commands.yours.permanent", open: "commands.yours.openDeleted" },
+  signOff: { said: "commands.yours.signOff", open: null },
+  authorship: { said: "commands.yours.authorship", open: null },
+};
+
+/**
+ * What a refusal of what is the User's alone says, `{folder}` its Folder's name, and its button,
+ * the same on the card and in the reply; none for what is done on each thing itself, where the
+ * line says it is. A Folder's wall names the Folder the request is about and opens its ⋯ menu
+ * (#1934).
+ */
+export const yoursWordsOf = (
+  what: Yours,
+  folder?: { name: string } | null,
+): { said: MessageKey; open: MessageKey | null } =>
+  what === "wall" && folder
+    ? { said: "commands.yours.wall.named", open: "commands.yours.openFolderMenu" }
+    : YOURS_WORDS[what];
+
+/**
+ * A refusal's sentence in `language`: the card's, and the reply's when the model writes none, so
+ * the card leaves it out then and shows only its button (#2252).
+ */
+export const yoursLine = (
+  language: Language,
+  what: Yours,
+  folder?: { name: string } | null,
+): string => translate(language, yoursWordsOf(what, folder).said, { folder: folder?.name ?? "" });
 
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;
