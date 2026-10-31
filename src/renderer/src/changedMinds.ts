@@ -2,7 +2,7 @@
  * The Minds an Answer in the assistant changed or made (#202), from its Tool
  * calls: what its card lists (`MindChangesCard`). Only data.
  */
-import type { ChartProblem, ConversationAnswer, ConversationMessage } from "../../core/api";
+import type { ChartProblem, ConversationAnswer } from "../../core/api";
 
 /**
  * A Mind an Answer changed or made, the requests its changes there belong to,
@@ -64,17 +64,4 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     rows.set(change.mindId, row);
   }
   return [...rows].map(([mindId, row]) => ({ mindId, ...row }));
-}
-
-/** The requests each Answer in the thread made in one Mind: a hold that needs several of them reads them as one. */
-export function answerGroups(messages: readonly ConversationMessage[], mindId: string): string[][] {
-  return messages
-    .flatMap((message) =>
-      message.kind === "answer"
-        ? changedMinds(message)
-            .filter((row) => row.mindId === mindId)
-            .map((row) => [...row.requests])
-        : [],
-    )
-    .filter((group) => group.length > 0);
 }

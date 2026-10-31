@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import { useAskedChanges } from "../../askedChanges";
-import { answerGroups, type ChangedMind, changedMinds } from "../../changedMinds";
+import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
+import { useArrivingAnswers, useAskedChanges } from "../../askedChanges";
+import { type ChangedMind, changedMinds } from "../../changedMinds";
 import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
 import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
@@ -48,14 +49,31 @@ export function MindChangesCard({
 }) {
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
-  const waiting = useWaitingChanges(rows);
   const messages = useConversations((state) => state.messages);
-  const noteMindId = rows.length === 1 ? (rows[0]?.mindId ?? null) : null;
-  const noteGroups = useMemo(
-    () => (noteMindId ? answerGroups(messages, noteMindId) : []),
-    [messages, noteMindId],
+  const arrivingAnswers = useArrivingAnswers();
+  const arrivingByMind = useMemo(() => {
+    const arriving = new Map<string, ArrivingInMind>();
+    for (const row of rows) {
+      arriving.set(row.mindId, arrivingInMind(messages, row.mindId, arrivingAnswers));
+    }
+    return arriving;
+  }, [messages, rows, arrivingAnswers]);
+  const waiting = useWaitingChanges(
+    useMemo(
+      () =>
+        rows.map((row) => ({
+          mindId: row.mindId,
+          requests: row.requests,
+          arriving: arrivingByMind.get(row.mindId),
+        })),
+      [rows, arrivingByMind],
+    ),
   );
-  const noteTotal = useWaitingBesidesApplied(noteMindId, noteGroups);
+  const noteMindId = rows.length === 1 ? (rows[0]?.mindId ?? null) : null;
+  const noteTotal = useWaitingBesidesApplied(
+    noteMindId,
+    noteMindId === null ? undefined : arrivingByMind.get(noteMindId),
+  );
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;

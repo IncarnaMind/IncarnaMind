@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, ConversationMessage, MindChange } from "../../src/core/api";
-import { answerGroups, changedMinds } from "../../src/renderer/src/changedMinds";
+import type { AnswerToolCall, MindChange } from "../../src/core/api";
+import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { translate } from "../../src/shared/i18n";
 
 /*
@@ -295,54 +295,6 @@ describe("The Minds an Answer changed", () => {
       ],
     });
     expect(row).toMatchObject({ tables: 2, unlinkedSources: 3, droppedSources: 1, extraCells: 3 });
-  });
-
-  // protects=each Answer's requests in one Mind stay one group, so a hold that needs several of them is read as one, and another Mind's requests stay apart; fails_when=groups merge across Answers or Minds, or a question adds one; no_claim=how the groups are classified.
-  test("the requests each Answer made in one Mind, kept per Answer", () => {
-    const answer = (...toolCalls: AnswerToolCall[]) =>
-      ({ kind: "answer", id: `a-${++calls}`, toolCalls }) as unknown as ConversationMessage;
-    const question = { kind: "question", id: "q1" } as unknown as ConversationMessage;
-
-    expect(
-      answerGroups(
-        [
-          question,
-          answer(
-            call("edit_mind", {
-              mindId: "a",
-              created: false,
-              request: "r1",
-              proposals: 1,
-              changed: 1,
-            }),
-            call("add_to_mind", {
-              mindId: "a",
-              created: false,
-              request: "r2",
-              proposals: 1,
-              paragraphs: 1,
-            }),
-            call("edit_mind", {
-              mindId: "b",
-              created: false,
-              request: "r3",
-              proposals: 1,
-              changed: 1,
-            }),
-          ),
-          answer(
-            call("edit_mind", {
-              mindId: "a",
-              created: false,
-              request: "r4",
-              proposals: 1,
-              changed: 1,
-            }),
-          ),
-        ],
-        "a",
-      ),
-    ).toEqual([["r1", "r2"], ["r4"]]);
   });
 
   // protects=the card's note on a table's sources uses the glossary's word for a Citation's source, 出处, in Chinese (#961); fails_when=it says 来源; no_claim=how the card lays it out.
