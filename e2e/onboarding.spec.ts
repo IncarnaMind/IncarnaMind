@@ -930,7 +930,13 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await expect(setup.getByTestId("setup-key")).toBeFocused();
   await window.keyboard.insertText("sk-ant-a-key-from-the-company");
   await window.keyboard.press("Enter");
-  // Steps 2 and 3 follow, each one key away: Tab to Use this, Enter, and on to the next step.
+  // A saved model brings the cursor to the composer: the steps left wait as one line above it
+  // (#2310), a Shift+Tab away, and each is one key further.
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  await window.keyboard.press("Shift+Tab");
+  const line = window.getByTestId("assistant-setup-line");
+  await expect(line).toBeFocused();
+  await window.keyboard.press("Enter");
   const transcription = setup.getByTestId("setup-transcription");
   await expect(transcription).toBeFocused();
   await window.keyboard.press("Tab");

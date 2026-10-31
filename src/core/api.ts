@@ -7150,8 +7150,8 @@ export interface UndoAddToNoteResult {
 }
 
 /**
- * A Conversation a note's Blocks came from (#1940): History names that Conversation
- * under the note's title, also while the note is closed.
+ * A Conversation a note's Blocks came from (#1940), kept while the note is closed: the note it
+ * made, and the Conversation, whose own name is its first Question (#2310).
  */
 export interface NoteConversation {
   mindId: string;

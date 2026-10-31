@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
+import { withoutTrailingMarks } from "../src/shared/naming";
 import {
   assistantAnswers,
   createDataFolder,
@@ -12,6 +14,7 @@ import {
   nameMind,
   newMind,
   openMoveAssistant,
+  pointAndClick,
   removeDataFolder,
   setGroupBeside,
   setLanguage,
@@ -475,6 +478,75 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     });
   }
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a chat in History is named by its first Question and opens by click or Enter after a relaunch (${language}) (#2310)`, async () => {
+    const questions =
+      language === "en"
+        ? ["When do spring tides happen?", "Why are neap tides weaker?"]
+        : ["大潮什么时候出现？", "小潮为什么更弱？"];
+    // A name taken from a Question ends on its words, without its mark.
+    const names = questions.map((question) => withoutTrailingMarks(question));
+    let session = await start(1600, { fakeChat: true });
+    let { window } = session;
+    const rowsNow = () => window.getByTestId("assistant-history-row");
+    const history = () => window.getByTestId("assistant-history-popover");
+    await setLanguage(window, language);
+    await useLocalChatModel(window);
+
+    // With no conversation yet, History says so, and has no row to open.
+    await pointAndClick(window, window.getByTestId("assistant-title"));
+    await expect(history()).toBeVisible();
+    await expect(history().getByTestId("assistant-history-empty")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(history()).toBeHidden();
+
+    await window.evaluate(
+      async (asked) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        for (const text of asked) await bridge.askInConversation({ text });
+      },
+      questions as [string, string],
+    );
+    await pointAndClick(window, window.getByTestId("assistant-title"));
+    await expect(rowsNow()).toHaveCount(2);
+    // Each row is named by its first Question, newest first.
+    await expect(rowsNow().first()).toContainText(names[1] as string);
+    await expect(rowsNow().last()).toContainText(names[0] as string);
+    await window.keyboard.press("Escape");
+    await session.app.close();
+
+    // After a relaunch, a click on a row opens that conversation and closes History.
+    session = await launchApp(dataDir, { fakeChat: true });
+    ({ window } = session);
+    await setWindowSize(session.app, window, 1600, 660);
+    await pointAndClick(window, window.getByTestId("assistant-title"));
+    await expect(rowsNow()).toHaveCount(2);
+    await pointAndClick(window, rowsNow().filter({ hasText: names[0] as string }));
+    await expect(history()).toBeHidden();
+    await expect(
+      window.getByTestId("assistant-question").filter({ hasText: questions[0] as string }),
+    ).toHaveCount(1);
+    await expect(
+      window.getByTestId("assistant-question").filter({ hasText: questions[1] as string }),
+    ).toHaveCount(0);
+
+    // Enter on a focused row opens the newer conversation, and the composer takes the cursor.
+    await pointAndClick(window, window.getByTestId("assistant-title"));
+    await expect(
+      history().getByRole("button", { name: translate(language, "assistant.history.close") }),
+    ).toBeFocused();
+    await window.keyboard.press("Tab");
+    await expect(rowsNow().first()).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(history()).toBeHidden();
+    await expect(
+      window.getByTestId("assistant-question").filter({ hasText: questions[1] as string }),
+    ).toHaveCount(1);
+    await expect(window.getByTestId("composer-input")).toBeFocused();
+    await session.app.close();
+  });
 }
 
 test("under 1,000px a side dock sits at the bottom and goes back when wider; groups merge beside it and come back as it folds; its place, sizes and fold survive a closed tab and a restart", async () => {

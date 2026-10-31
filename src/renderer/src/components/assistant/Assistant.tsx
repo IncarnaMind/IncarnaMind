@@ -22,7 +22,7 @@ import { Composer } from "../../editor/Composer";
 import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
-import { useSettingUp } from "../../modelSetup";
+import { useModelSetup, useSettingUp, useSetupStepsWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { GripIcon } from "../icons";
 import {
@@ -41,6 +41,7 @@ import { AssistantMenu } from "./AssistantMenu";
 import { ConversationThread } from "./ConversationThread";
 import { HistoryPopover } from "./HistoryPopover";
 import { useReadMindId } from "./readMind";
+import { SetupLine } from "./SetupLine";
 import { useKeepInView } from "./useKeepInView";
 
 /**
@@ -277,6 +278,9 @@ function AssistantMain({
   const seat = useComposer((state) => state.seat);
   const mind = seat !== null && seat.mindId === readMindId ? seat : null;
   const settingUp = useSettingUp();
+  const stepsWaiting = useSetupStepsWaiting();
+  const stepsOpen = useModelSetup((state) => state.stepsOpen);
+  const setupCardShown = settingUp || (stepsWaiting && stepsOpen);
   const thread = useRef<HTMLDivElement>(null);
   useKeepInView(thread);
   /** Where the conversation was scrolled to, put back when it shows again. */
@@ -300,11 +304,12 @@ function AssistantMain({
       <div
         ref={onComposerSlot}
         data-testid="assistant-composer"
-        data-setup={settingUp || undefined}
+        data-setup={setupCardShown || undefined}
         className="assistant-composer"
       >
+        {stepsWaiting && !stepsOpen && <SetupLine />}
         <TaskTray mindId={mind?.mindId ?? null} />
-        {settingUp ? <ModelSetupCard /> : <Composer mind={mind} />}
+        {setupCardShown ? <ModelSetupCard /> : <Composer mind={mind} />}
       </div>
     </div>
   );

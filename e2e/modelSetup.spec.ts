@@ -21,6 +21,7 @@ import {
   newMind,
   ollamaListing,
   openSettings,
+  openSetupSteps,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
@@ -79,12 +80,16 @@ test("a pasted key is named by its form and works at once: the waiting Question 
 
     await field.fill(ANTHROPIC_KEY);
     await field.press("Enter");
-    await expect(card.getByTestId("setup-ready-title")).toHaveText("Anthropic works", {
-      timeout: 15_000,
-    });
-    // The Question that waited is asked at once, while the two steps stay below its Answer.
+    // The Question that waited is asked at once, and the composer is back: the steps left wait
+    // as a line above it (#2310).
     await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
       timeout: 20_000,
+    });
+    await expect(window.getByTestId("composer-input")).toBeVisible();
+    await expect(card).toHaveCount(0);
+    await openSetupSteps(window);
+    await expect(card.getByTestId("setup-ready-title")).toHaveText("Anthropic works", {
+      timeout: 15_000,
     });
     await expect(card.getByTestId("setup-step-transcription")).toBeVisible();
 
@@ -121,6 +126,63 @@ test("a pasted key is named by its form and works at once: the waiting Question 
     await app.close();
   }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const [width, height] of [
+    [900, 700],
+    [1600, 900],
+  ] as const) {
+    test(`after the first Answer the composer is there, ⌘J takes it and a follow-up is asked, with the steps left a line above it (${language}, ${width} px) (#2310)`, async () => {
+      const { app, window } = await launchApp(dataDir, {
+        fakeChat: true,
+        ollama: "http://127.0.0.1:9",
+      });
+      try {
+        await setWindowSize(app, window, width, height);
+        await acceptPlainTextKeys(window);
+        await setLanguage(window, language);
+        const card = await askFirstQuestion(window);
+        const field = card.getByTestId("setup-key");
+        await field.fill(ANTHROPIC_KEY);
+        await field.press("Enter");
+        await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+          timeout: 20_000,
+        });
+
+        // The setup no longer takes the composer's place: meeting transcription and sorting wait
+        // as one quiet line above it, which is not the composer and is not its card.
+        const composer = window.getByTestId("composer-input");
+        const line = window.getByTestId("assistant-setup-line");
+        await expect(composer).toBeVisible();
+        await expect(card).toHaveCount(0);
+        await expect(line).toBeVisible();
+        await expect(line).toHaveText(translate(language, "setup.steps.line"));
+        await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
+
+        // ⌘J puts the cursor in the composer, from the Mind.
+        await window.getByTestId("mind-editor").click();
+        await window.keyboard.press("ControlOrMeta+j");
+        await expect(composer).toBeFocused();
+
+        // A follow-up is typed and sent, with no setup step ever taken.
+        const followUp = language === "zh-CN" ? "再说得具体一点？" : "Tell me more about that?";
+        await window.keyboard.type(followUp);
+        await window.keyboard.press("Enter");
+        await expect(assistantAnswers(window)).toHaveCount(2, { timeout: 20_000 });
+        await expect(window.getByTestId("assistant-question").last()).toContainText(followUp);
+        await expect(line).toBeVisible();
+        await expect(composer).toBeVisible();
+        // Neither step was used: sorting stays automatic and the audio stays on this computer.
+        expect((await bridge(window).library()).classifier).toEqual({ kind: "automatic" });
+        expect((await bridge(window).settings()).device.transcriptionRoute ?? "local").toBe(
+          "local",
+        );
+      } finally {
+        await app.close();
+      }
+    });
+  }
+}
 
 /** Where the card and its step in hand's buttons are, as the User's eye holds them. */
 interface StepsFrame {
@@ -503,6 +565,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-sends")).toBeVisible({ timeout: 15_000 });
       expect(await separatorFollowsText(window, "setup-ready-sends")).toBe(true);
     } finally {
@@ -539,6 +602,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
       const first = await buttonsInView(window);
@@ -606,6 +670,7 @@ test("a later step's title opens it, a finished step is a line with its choice t
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
+    await openSetupSteps(window);
     await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
     // Only the step in hand shows its details; the later step is its title, as a button.
@@ -693,6 +758,7 @@ for (const [width, height, mustScroll] of [
       await acceptPlainTextKeys(window);
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window);
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
       // The conversation keeps room, whatever the step needs.
@@ -754,6 +820,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window, "qwen3.5:4b");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
       const first = await stepsFrame(window);
       expect(first.step).toBe("setup-step-transcription");
@@ -811,6 +878,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // The model works, but its first read of the services failed: the steps don't open on a
       // list that wasn't read. The card says so in place, with the way out.
+      await openSetupSteps(window);
       const problem = card.getByTestId("setup-services-problem");
       await expect(problem).toContainText(translate(language, "setup.services.failed"), {
         timeout: 15_000,
@@ -869,6 +937,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.press("Enter");
 
       // The problem replaces the key field the focus was in: it takes the focus.
+      await openSetupSteps(window);
       const retry = card.getByTestId("setup-services-problem-retry");
       await expect(retry).toBeVisible({ timeout: 15_000 });
       await expect(retry).toBeFocused();
@@ -943,6 +1012,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const field = card.getByTestId("setup-key");
         await field.fill(ANTHROPIC_KEY);
         await field.press("Enter");
+        await openSetupSteps(window);
         await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
         // The model to save for sorting is the chat default, which step 3 offers as the AI model.
         await saveAnthropicAsDefault(window, modelId);
@@ -1049,6 +1119,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-transcription")).toBeVisible({ timeout: 15_000 });
       await expect(card.getByTestId("meetings-route-consent")).toBeVisible();
 
@@ -1095,6 +1166,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const field = card.getByTestId("setup-key");
         await field.fill(ANTHROPIC_KEY);
         await field.press("Enter");
+        await openSetupSteps(window);
         await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
         const problem = card.getByTestId("setup-sorting-problem");
         const retry = card.getByTestId("setup-sorting-problem-retry");
@@ -1188,6 +1260,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("meetings-route-consent")).toBeVisible({ timeout: 15_000 });
       const channel = "core:listTranscriptionServices";
 
@@ -1273,6 +1346,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
       // Step 3 opens and its read is held. The User opens Document Info, which takes the focus.
@@ -1334,6 +1408,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(1);
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
 
@@ -1382,6 +1457,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(OPENAI_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       const problem = card.getByTestId("setup-services-problem");
       const retry = card.getByTestId("setup-services-problem-retry");
       await expect(problem).toBeVisible({ timeout: 15_000 });
@@ -1575,6 +1651,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
       // Step 3 first: its choice, the AI model that works, is saved and the step folds to a line.
@@ -1623,6 +1700,7 @@ for (const language of ["en", "zh-CN"] as const) {
           await setLanguage(window, language);
           const card = await askFirstQuestion(window);
           await setLocalChatModel(window);
+          await openSetupSteps(window);
           await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
           await saveSortingOnOllama(window, modelId);
           if (chatDefault === "the same") await saveOllamaDefault(window, modelId);
@@ -1690,6 +1768,7 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       const card = await askFirstQuestion(window);
       await setLocalChatModel(window);
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
       await card.getByTestId("setup-transcription").selectOption("soniox");
       await pointAndClick(window, card.getByTestId("setup-transcription-use"));
@@ -1744,7 +1823,8 @@ test("with no key, the ChatGPT plan comes first, the Claude account second, and 
     const [authorize] = await urlsOpened(app);
     expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
     await window.getByTestId("chatgpt-welcome-ok").click();
-    await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+    // The composer is back, and the steps left wait as a line above it (#2310).
+    await expect(window.getByTestId("assistant-setup-line")).toBeVisible({ timeout: 15_000 });
     await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
       timeout: 20_000,
     });
@@ -1914,6 +1994,7 @@ test("each step is skippable: Set up when I record and Skip leave both settings 
     await setLanguage(window, "zh-CN");
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
+    await openSetupSteps(window);
     await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
 
     await expect(card.getByTestId("setup-step-transcription")).toContainText("会议转写");
@@ -2004,6 +2085,7 @@ test("with a Soniox key a cloud route is offered in step 2 and named as the cons
     });
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
+    await openSetupSteps(window);
     await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
     const route = card.getByTestId("setup-transcription");
     await expect(route).toHaveValue("local");
@@ -2047,6 +2129,7 @@ test("Local mode offers only choices on this computer, in step 1 and in the step
     await expect(card.getByTestId("way-local")).toBeVisible();
 
     await setLocalChatModel(window);
+    await openSetupSteps(window);
     await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
     await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
       "On this computer",
@@ -2117,6 +2200,7 @@ test("when the model that worked goes, the card asks for one again", async () =>
     await acceptPlainTextKeys(window);
     const card = await askFirstQuestion(window);
     await setLocalChatModel(window);
+    await openSetupSteps(window);
     await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

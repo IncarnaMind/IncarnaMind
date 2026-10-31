@@ -906,11 +906,12 @@ export async function busyOllama() {
 }
 
 /**
- * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
- * the composer takes the card's place. The Question that waited is asked as step 1 works.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): they wait as one quiet
+ * line above the composer (#2310), opened from there; each is one click, and the composer comes
+ * back when both are done.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const card = window.getByTestId("model-setup");
+  const card = await openSetupSteps(window);
   await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
   const transcription = card.getByTestId("setup-transcription-use");
   if (await transcription.isVisible()) await pointAndClick(window, transcription);
@@ -933,6 +934,22 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
+  return card;
+}
+
+/**
+ * Opens steps 2 and 3, still to do after a model works, from their quiet line above the composer
+ * (#2310). Does nothing when the card is already open; the card takes the composer's slot.
+ */
+export async function openSetupSteps(window: Page): Promise<Locator> {
+  const card = window.getByTestId("model-setup");
+  const line = window.getByTestId("assistant-setup-line");
+  const readyTitle = card.getByTestId("setup-ready-title");
+  // The line waits once a model works or, when the steps were opened already, the card's ready
+  // title. Step 1's card alone means the key is still being checked.
+  await expect(line.or(readyTitle)).toBeVisible({ timeout: 15_000 });
+  if (await line.isVisible()) await pointAndClick(window, line);
+  await expect(card).toBeVisible({ timeout: 15_000 });
   return card;
 }
 

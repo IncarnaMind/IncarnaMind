@@ -17,12 +17,15 @@ export type WaitingQuestion = Omit<AskInConversationInput, "conversationId"> & {
 export const useModelSetup = create<{
   waiting: WaitingQuestion | null;
   wanted: boolean;
-  /** A model works: the card shows the steps that come after it (#1922). */
+  /** A model works: the steps that come after it are still to do (#1922). */
   ready: boolean;
+  /** The steps still to do are open from their line, above the composer (#2310). */
+  stepsOpen: boolean;
 }>(() => ({
   waiting: null,
   wanted: false,
   ready: false,
+  stepsOpen: false,
 }));
 
 const KEPT = "incarnamind.setup.waiting";
@@ -64,8 +67,20 @@ useModelSetup.subscribe((state, before) => {
 /** The setup card with no Question waiting, which the first open's steps card asks for (#1027). */
 export const openModelSetup = (): void => useModelSetup.setState({ wanted: true });
 
+/**
+ * The setup card takes the composer's place only while no model works: the first step is what the
+ * waiting Question needs (#2310). Once one works, the composer and ⌘J are there, and the steps
+ * left wait above it as one quiet line.
+ */
 export const useSettingUp = (): boolean =>
-  useModelSetup((state) => state.waiting !== null || state.wanted);
+  useModelSetup((state) => (state.waiting !== null || state.wanted) && !state.ready);
+
+/** Steps 2 and 3 after a model works: one quiet line above the composer (#2310). */
+export const useSetupStepsWaiting = (): boolean =>
+  useModelSetup((state) => state.ready && state.wanted);
+
+/** Opens the steps left from their line; the card takes the composer's slot until they are done or put off (#2310). */
+export const openSetupSteps = (): void => useModelSetup.setState({ stepsOpen: true });
 
 /** Keeps a Question that couldn't be asked for want of a model, for the setup card to wait on. */
 export const waitForModel = (question: WaitingQuestion): void =>
@@ -74,7 +89,7 @@ export const waitForModel = (question: WaitingQuestion): void =>
 /** "Set up later": the Question's words and quotes go back to the composer they were typed in. */
 export function giveUpWaiting(): void {
   const { waiting } = useModelSetup.getState();
-  useModelSetup.setState({ waiting: null, wanted: false, ready: false });
+  useModelSetup.setState({ waiting: null, wanted: false, ready: false, stepsOpen: false });
   if (waiting) giveBack(waiting);
   useComposer.getState().requestFocus();
 }

@@ -2409,6 +2409,7 @@ export const en = {
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
   "setup.step.skipped": "Skipped",
+  "setup.steps.line": "Set up meeting transcription and sorting",
   "setup.services.failed": "Couldn’t read the transcription services",
   "setup.sorting.failed": "Couldn’t read the models that can sort",
   "read.tryAgain": "Try again",

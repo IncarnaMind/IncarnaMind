@@ -312,21 +312,27 @@ function askWaitingQuestion(): void {
 
 core.on("chatReadiness.changed", (readiness) => {
   if (!readiness.ready) {
-    // The model that worked is gone: the card asks for one again.
+    // The model that worked is gone: the card asks for one again. The steps the User had opened
+    // stay open across a check that comes back ready, so a model read that blinks never shuts
+    // the card under them (#2310).
     useModelSetup.setState({ ready: false });
     return;
   }
-  const { wanted, waiting } = useModelSetup.getState();
+  const { wanted, waiting, ready, stepsOpen } = useModelSetup.getState();
   if (!wanted && !waiting) return;
-  // The card stays for steps 2 and 3, after the Question that waited has been asked from it.
+  // Only the readiness that brings the first working model in moves the cursor, and gives the
+  // composer back: a later one (the key checked again, another model saved) leaves the card the
+  // User has opened where it is (#2310).
+  if (ready) return;
   useModelSetup.setState({ ready: true, wanted: true });
-  // The Question runs as soon as step 1 works; steps 2 and 3 stay below its Answer (#1922).
+  // The cursor goes where the User asks next: the Question that waited is already in the thread.
+  if (!stepsOpen) useComposer.getState().requestFocus();
   askWaitingQuestion();
 });
 
 /** Continue on the setup card: the Question that waited is asked, and the composer takes the card's place. */
 export function continueSetup(): void {
-  useModelSetup.setState({ wanted: false, ready: false });
+  useModelSetup.setState({ wanted: false, ready: false, stepsOpen: false });
   // The setup card goes with the focus in it: the composer, where the User asks next, takes it.
   useComposer.getState().requestFocus();
   askWaitingQuestion();
