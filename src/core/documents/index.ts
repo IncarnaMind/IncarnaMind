@@ -629,6 +629,39 @@ export function createDocuments(options: DocumentsOptions) {
       id,
     ]);
 
+  function insertSnapshot(
+    id: string,
+    name: string,
+    file: SnapshotFile,
+    record: () => void,
+    kind: "web" | "transcript",
+    deletedAt: string | null,
+  ): void {
+    const at = now();
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
+           linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
+           created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?, ?)`,
+        [
+          id,
+          file.contentHash,
+          parseName(name.slice(0, MAX_NAME_LENGTH)),
+          kind,
+          file.size,
+          file.path,
+          relativePath(dataDir, file.path),
+          file.mtimeMs,
+          at,
+          at,
+          deletedAt,
+        ],
+      );
+      record();
+    });
+  }
+
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
 
@@ -2726,33 +2759,26 @@ export function createDocuments(options: DocumentsOptions) {
       record: () => void,
       kind: "web" | "transcript" = "web",
     ): Document {
-      const at = now();
-      db.transaction(() => {
-        db.run(
-          `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
-             linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?)`,
-          [
-            id,
-            file.contentHash,
-            parseName(name.slice(0, MAX_NAME_LENGTH)),
-            kind,
-            file.size,
-            file.path,
-            relativePath(dataDir, file.path),
-            file.mtimeMs,
-            at,
-            at,
-          ],
-        );
-        record();
-      });
+      insertSnapshot(id, name, file, record, kind, null);
       announce(id);
       process(id);
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Adds a Meeting's Transcript made while its note waits in Recently deleted: deleted at the
+     * note's time, so it comes back and is deleted permanently with it, and read once back (#1253).
+     */
+    addDeletedTranscript(
+      id: string,
+      name: string,
+      file: SnapshotFile,
+      record: () => void,
+      deletedAt: string,
+    ): void {
+      insertSnapshot(id, name, file, record, "transcript", deletedAt);
     },
 
     /** Looks at a file again now, as when it is opened: a new version is processed. */

@@ -11,15 +11,17 @@
  */
 import {
   CALCULATED_FIGURE_NODE,
+  type CalculatedFigureAttributes,
   CITATION_NODE,
   type CitationAttributes,
   type CitationCheck,
+  type FigureInput,
   FOOTNOTE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
-import { figureShownText } from "./calculatedFigures";
+import { readCalculatedFigureAttributes } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
 import type { MessageKey, MessageParams } from "./i18n";
 import { holdsPeriods, isPeriod } from "./periods";
@@ -48,8 +50,13 @@ export interface ChartValue {
   unit: FigureUnit | null;
   /** What its scale word multiplies by: 1e6 for "million", 1 with none; null in a chart made before charts kept it. */
   scale: number | null;
-  /** The Citation that was with it, as its node held it; null: it had none. */
+  /** The Citation that was with it, as its node held it; null: it had none, or it is calculated. */
   citation: CitationAttributes | null;
+  /**
+   * The calculated figure it is, as its node held it: its formula and every
+   * Input with its own Citation (#2307). Absent for a value quoted or written.
+   */
+  figure?: CalculatedFigureAttributes;
   from: ChartValueOrigin;
 }
 
@@ -129,8 +136,14 @@ function readValue(value: unknown): ChartValue | null {
         ? value.scale
         : null,
     citation: isRecord(value.citation) ? (value.citation as unknown as CitationAttributes) : null,
+    ...figureOf(value.figure),
     from,
   };
+}
+
+function figureOf(value: unknown): Pick<ChartValue, "figure"> {
+  const figure = value == null ? null : readCalculatedFigureAttributes(value);
+  return figure ? { figure } : {};
 }
 
 /** Anything malformed (from another version, or a sync) is left out rather than guessed. */
@@ -430,6 +443,15 @@ export interface ChartSourcePlace {
   count: number;
 }
 
+/** The Inputs of a chart's calculated values, each counted once however many of its figures use it. */
+export interface ChartInputs {
+  count: number;
+  /** Every one is a cell of a sheet, so the foot can say "12 cells". */
+  cells: boolean;
+  places: ChartSourcePlace[];
+  documents: number;
+}
+
 export interface ChartSources {
   values: number;
   uncited: number;
@@ -439,11 +461,20 @@ export interface ChartSources {
   notDrawn: number;
   /** Cells whose number has no unit where their column's others have one, so aren't drawn (`unitlessRows`). */
   noUnit: number;
+  /** Where the quoted values were quoted from. */
   places: ChartSourcePlace[];
   documents: number;
+  /** Values that are calculated figures (#2307): never counted as quoted, nor as having no Citation. */
+  calculated: number;
+  inputs: ChartInputs;
 }
 
-function placeKey(citation: CitationAttributes): string {
+type Placed = Pick<
+  CitationAttributes,
+  "documentId" | "documentName" | "location" | "pageFrom" | "pageTo"
+>;
+
+function placeKey(citation: Placed): string {
   const document = citation.documentId ?? citation.documentName ?? "";
   const where = citation.location
     ? JSON.stringify(citation.location)
@@ -453,11 +484,88 @@ function placeKey(citation: CitationAttributes): string {
 
 const isFound = (check: CitationCheck | undefined) => check === "found";
 
+/** The Citations a value rests on: its own, or each of its Inputs' when it is calculated (#2307). */
+export function valueCitations(value: ChartValue): CitationAttributes[] {
+  if (!value.figure) return value.citation ? [value.citation] : [];
+  return value.figure.figure.inputs.flatMap((input) => [
+    input.citation,
+    ...(input.unitStatement ? [input.unitStatement.citation] : []),
+  ]);
+}
+
+class Places {
+  private readonly byKey = new Map<string, ChartSourcePlace>();
+  private readonly documentKeys = new Set<string>();
+
+  add(citation: CitationAttributes, count = 1): void {
+    this.documentKeys.add(citation.documentId ?? citation.documentName ?? "");
+    const key = placeKey(citation);
+    const place = this.byKey.get(key);
+    if (!place) this.byKey.set(key, { citation, count });
+    else {
+      place.count += count;
+      if (isFound(place.citation.check) && !isFound(citation.check)) place.citation = citation;
+    }
+  }
+
+  get places(): ChartSourcePlace[] {
+    return [...this.byKey.values()];
+  }
+
+  get documents(): number {
+    return this.documentKeys.size;
+  }
+}
+
+/** One Input, wherever it is used: its cell in a sheet, or its number's place in its quote. */
+function inputKey({ citation, cell, number }: FigureInput): string {
+  const document = citation.documentId || citation.documentName;
+  return cell
+    ? JSON.stringify([document, citation.contentHash, cell.sheet, cell.ref])
+    : JSON.stringify([
+        document,
+        citation.contentHash,
+        placeKey(citation),
+        citation.quote,
+        number.at,
+      ]);
+}
+
+/** Where a chart's values come from, quoted or its calculated values' Inputs, each place once: an export's footnotes. */
+export function everyPlace(sources: Pick<ChartSources, "places" | "inputs">): ChartSourcePlace[] {
+  const merged = new Places();
+  for (const place of [...sources.places, ...sources.inputs.places])
+    merged.add(place.citation, place.count);
+  return merged.places;
+}
+
+/** The Inputs of calculated figures, each once however many of them use it. */
+export function inputsOf(figures: readonly CalculatedFigureAttributes[]): ChartInputs {
+  const places = new Places();
+  const keys = new Set<string>();
+  let cells = true;
+  for (const { figure } of figures) {
+    for (const input of figure.inputs) {
+      const key = inputKey(input);
+      if (keys.has(key)) continue;
+      keys.add(key);
+      if (!input.cell) cells = false;
+      places.add(input.citation);
+    }
+  }
+  return {
+    count: keys.size,
+    cells: keys.size > 0 && cells,
+    places: places.places,
+    documents: places.documents,
+  };
+}
+
 export function chartSources(
   chart: Pick<ChartAttributes, "kind" | "drawn" | "data">,
 ): ChartSources {
-  const places = new Map<string, ChartSourcePlace>();
-  const documents = new Set<string>();
+  const quoted = new Places();
+  const figures: CalculatedFigureAttributes[] = [];
   let values = 0;
   const uncitedCells: ChartSources["uncitedCells"] = [];
   let notDrawn = 0;
@@ -475,19 +583,15 @@ export function chartSources(
       continue;
     }
     values++;
-    const { citation } = value;
-    if (!citation) {
+    if (value.figure) {
+      figures.push(value.figure);
+      continue;
+    }
+    if (!value.citation) {
       uncitedCells.push({ row, series });
       continue;
     }
-    documents.add(citation.documentId ?? citation.documentName ?? "");
-    const key = placeKey(citation);
-    const place = places.get(key);
-    if (!place) places.set(key, { citation, count: 1 });
-    else {
-      place.count++;
-      if (isFound(place.citation.check) && !isFound(citation.check)) place.citation = citation;
-    }
+    quoted.add(value.citation);
   }
   return {
     values,
@@ -495,8 +599,10 @@ export function chartSources(
     uncitedCells,
     notDrawn,
     noUnit,
-    places: [...places.values()],
-    documents: documents.size,
+    places: quoted.places,
+    documents: quoted.documents,
+    calculated: figures.length,
+    inputs: inputsOf(figures),
   };
 }
 
@@ -510,10 +616,8 @@ function figureIn(figures: readonly Figure[]): { figure: Figure; value: number |
   return { figure, value: unsettled || !Number.isFinite(figure.value) ? null : figure.value };
 }
 
-export interface SourceCell {
-  /** Its text, without its Citations' markers or its footnotes' text. */
-  text: string;
-  citation: CitationAttributes | null;
+/** Its text is without its Citations' markers or its footnotes' text. */
+export interface SourceCell extends SourceLine {
   header: boolean;
   /** It spans down or across from another slot: its value is that slot's, its words read again. */
   continued?: boolean;
@@ -796,12 +900,14 @@ export function chartFromTable(
   const valueAt = (cell: SourceCell | null, row: number, column: number): ChartValue | null => {
     if (!cell || cell.continued || cell.text.trim() === "") return null;
     const read = figureIn(figuresIn(cell.text, column));
+    const calculated = figureAt(cell, read?.figure);
     return {
       shown: cell.text.trim(),
       value: read?.value ?? null,
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
-      citation: cell.citation,
+      citation: calculated.figure ? null : cell.citation,
+      ...calculated,
       from: { kind: "cell", row, column },
     };
   };
@@ -850,6 +956,24 @@ export function chartFromTable(
 export interface SourceLine {
   text: string;
   citation: CitationAttributes | null;
+  /** Where each calculated figure in it reads, by UTF-16 offset in `text`, end exclusive. */
+  figures?: readonly FigureSpan[];
+}
+
+export interface FigureSpan {
+  start: number;
+  end: number;
+  figure: CalculatedFigureAttributes;
+}
+
+/**
+ * The calculated figure a number read from a line is (#2307): one whose shown text holds it.
+ * A number written beside a figure is not that figure, and keeps the line's Citation.
+ */
+function figureAt(line: SourceLine, read: Figure | undefined): Pick<ChartValue, "figure"> {
+  if (!read) return {};
+  const span = line.figures?.find((each) => each.start <= read.start && read.end <= each.end);
+  return span ? { figure: span.figure } : {};
 }
 
 const CITATION_KEYS: readonly (keyof CitationAttributes)[] = [
@@ -892,6 +1016,7 @@ const proposed = (node: NodeJSON) =>
 export function sourceLineOf(node: NodeJSON): SourceLine {
   let text = "";
   let citation: CitationAttributes | null = null;
+  const figures: FigureSpan[] = [];
   const visit = (child: NodeJSON) => {
     if (proposed(child)) return;
     if (child.type === CITATION_NODE) {
@@ -907,7 +1032,10 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
     }
     if (child.type === FOOTNOTE_NODE) return;
     if (child.type === CALCULATED_FIGURE_NODE) {
-      text += figureShownText(child.attrs);
+      const figure = readCalculatedFigureAttributes(child.attrs);
+      if (!figure) return;
+      figures.push({ start: text.length, end: text.length + figure.figure.shown.length, figure });
+      text += figure.figure.shown;
       return;
     }
     if (child.type === "text") text += child.text ?? "";
@@ -917,7 +1045,36 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
     for (const each of child.content ?? []) visit(each);
   };
   for (const child of node.content ?? []) visit(child);
-  return { text: text.replace(/\s+/g, " ").trim(), citation };
+  const squeezed = squeezeSpaces(text);
+  return {
+    text: squeezed.text,
+    citation,
+    ...(figures.length > 0 && {
+      figures: figures.map((span) => ({
+        ...span,
+        start: squeezed.at(span.start),
+        end: squeezed.at(span.end),
+      })),
+    }),
+  };
+}
+
+/** Runs of white space made one space, and the ends trimmed; `at` maps an offset in `text` to one in the result. */
+function squeezeSpaces(text: string): { text: string; at(offset: number): number } {
+  const kept: number[] = [];
+  let out = "";
+  for (let index = 0; index < text.length; index++) {
+    kept.push(out.length);
+    const char = text[index] ?? "";
+    if (!/\s/.test(char)) out += char;
+    else if (out !== "" && !out.endsWith(" ")) out += " ";
+  }
+  kept.push(out.length);
+  const trimmed = out.trimEnd();
+  return {
+    text: trimmed,
+    at: (offset) => Math.min(kept[offset] ?? trimmed.length, trimmed.length),
+  };
 }
 
 const span = (value: unknown) =>
@@ -977,6 +1134,7 @@ export function chartFromFigures(
     const { figure } = read;
     const before = line.text.slice(0, figure.start).replace(LABEL_END, "").replace(LABEL_START, "");
     const after = line.text.slice(figure.end).replace(LABEL_START, "").replace(LABEL_END, "");
+    const calculated = figureAt(line, figure);
     rows.push({
       label: (before || after).trim(),
       values: [
@@ -985,7 +1143,8 @@ export function chartFromFigures(
           value: read.value,
           unit: figure.unit,
           scale: figure.scale,
-          citation: line.citation,
+          citation: calculated.figure ? null : line.citation,
+          ...calculated,
           from: { kind: "text", line: index },
         },
       ],
