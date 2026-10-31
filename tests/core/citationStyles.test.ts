@@ -405,6 +405,25 @@ describe("formatting a Mind's Citations", () => {
     ]);
   });
 
+  // protects=two Documents that left the Library are two works even with one name, each keeping its own id for its person's check line (#1933); fails_when=the second is dropped or both entries share one id; no_claim=how the style words an entry with no record.
+  test("two Documents that left the Library with one name are two entries", async () => {
+    const { core } = await setUp();
+    const gone = (id: string) => ({
+      documentId: id,
+      documentName: "Gone",
+      location: null,
+    });
+    const formatted = await core.formatCitations({
+      style: "apa",
+      clusters: [{ works: [gone("gone-a")] }, { works: [gone("gone-b")] }],
+    });
+    expect(formatted.bibliography).toHaveLength(2);
+    expect(formatted.bibliography.map((entry) => entry.workDocumentId).sort()).toEqual([
+      "gone-a",
+      "gone-b",
+    ]);
+  });
+
   test("no Citations: an empty Bibliography", async () => {
     const { core } = await setUp();
     expect(await core.formatCitations({ style: "apa", clusters: [] })).toEqual({

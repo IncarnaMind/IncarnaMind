@@ -77,7 +77,10 @@ function referenceOf(work: CitedWork, document: Document | undefined): Reference
   const name = (document && displayName(document)) || work.documentName || "";
   if (!document) {
     return {
-      item: nameOnlyItem(`name:${name}`, name),
+      item: nameOnlyItem(
+        work.documentId !== null ? `gone:${work.documentId}` : `name:${name}`,
+        name,
+      ),
       documentId: null,
       workDocumentId: work.documentId,
       name,
@@ -251,7 +254,11 @@ export function createCitationStyles(options: CitationStylesOptions) {
       const style = catalogue.resolve(request.style, request.language ?? "en");
       const keyOf = (work: CitedWork) => {
         const document = work.documentId !== null ? options.document(work.documentId) : undefined;
-        if (!document) return `name:${work.documentName ?? ""}`;
+        // A Document that left the Library is still its own work: two with one name are two.
+        if (!document)
+          return work.documentId !== null
+            ? `gone:${work.documentId}`
+            : `name:${work.documentName ?? ""}`;
         // Numbered lists each Document once, by name; a style cites each version of a web page.
         return style.engine !== null && webVersionOf(work, document)
           ? versionKey(document.id, work)

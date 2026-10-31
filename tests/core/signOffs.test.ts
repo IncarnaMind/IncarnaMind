@@ -19,7 +19,7 @@ import {
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { footnotesOf, part, textOf as textOfDocx, unzip } from "../helpers/docx";
+import { footnotesOf, paragraphsOf, part, textOf as textOfDocx, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
@@ -579,7 +579,11 @@ test.each(["en", "zh-CN"] as const)(
       id: "mark-gone",
       target: { kind: "citation", id: "c-gone" },
       at,
-      contentHash: "checked-before-it-changed",
+      contentHash: citationSignOffBasis(sentences.get("c-gone")?.sentence ?? "", {
+        documentId: gone.id,
+        contentHash: gone.contentHash,
+        quote: "The old harbour filled at high water.",
+      }),
       deletedAt: null,
       name: "Ada",
       personId: "person-1",
@@ -588,11 +592,7 @@ test.each(["en", "zh-CN"] as const)(
       id: "mark-live",
       target: { kind: "citation", id: "c-live" },
       at,
-      contentHash: citationSignOffBasis(sentences.get("c-live")?.sentence ?? "", {
-        documentId: live.id,
-        contentHash: live.contentHash,
-        quote: "The new harbour fills at high water.",
-      }),
+      contentHash: "checked-before-it-changed",
       deletedAt: null,
       name: "Ada",
       personId: "person-1",
@@ -611,7 +611,15 @@ test.each(["en", "zh-CN"] as const)(
       const text = `${textOfDocx(part(word, "word/document.xml"))}${Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("")}`;
       expect(count(text, checked), style).toBe(1);
       expect(count(text, changed), style).toBe(1);
-      expect(text, style).toContain(gone.name);
+      // Each line sits in the entry of the source it is for, the gone one checked and the live
+      // one changed, never the other's or outside an entry.
+      const entries = paragraphsOf(part(word, "word/document.xml")).map((each) => each.text);
+      const goneEntry = entries.find((each) => each.includes(checked)) ?? "";
+      const liveEntry = entries.find((each) => each.includes(changed)) ?? "";
+      expect(goneEntry, style).toContain(gone.name);
+      expect(goneEntry, style).not.toContain(live.name);
+      expect(liveEntry, style).toContain(live.name);
+      expect(liveEntry, style).not.toContain(gone.name);
     }
   },
 );

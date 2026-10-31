@@ -448,8 +448,9 @@ for (const [language, width] of [
       await close();
 
       const health = await checkCard(window);
-      await expect(health.getByTestId("health-sign-offs")).toContainText(words.count);
-      await expect(health.getByTestId("health-sign-offs")).toContainText(words.countChanged);
+      await expect(health.getByTestId("health-sign-offs")).toHaveText(
+        `${words.count} · ${words.countChanged}`,
+      );
       await window.keyboard.press("Escape");
     } finally {
       await removeDataFolder(sources);
