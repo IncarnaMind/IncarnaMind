@@ -96,6 +96,33 @@ const tailAt = (window: Page, x: number, y: number) =>
   );
 
 /**
+ * Whether the selection covers the first character after the first Citation. The browser rounds a
+ * drag's end by its own rule, so the drag is checked by what it selects, not by a caret position.
+ */
+const selectionThrough = (window: Page) =>
+  window.evaluate(() => {
+    const wrapper = document.querySelector('[data-testid="citation"]')?.closest(".node-citation");
+    if (!(wrapper instanceof Element)) return false;
+    const walker = document.createTreeWalker(wrapper.parentNode ?? wrapper, NodeFilter.SHOW_TEXT);
+    let node: Text | null = null;
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (wrapper.contains(each) || !(each instanceof Text)) continue;
+      if (wrapper.compareDocumentPosition(each) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        node = each;
+        break;
+      }
+    }
+    if (!node) return false;
+    const text = node.data;
+    let index = 0;
+    while (index < text.length && /\s/.test(text[index] ?? "")) index++;
+    if (index >= text.length) return false;
+    const chosen = getSelection();
+    if (!chosen || chosen.rangeCount === 0) return false;
+    return chosen.getRangeAt(0).isPointInRange(node, index + 1);
+  });
+
+/**
  * A point just past the first character after the first Citation, and that character. Four
  * pixels past the Citation can be before a full-width mark, so a drag ending there selects no
  * text after it (the Chinese fixture follows the Citation with `，`).
@@ -104,8 +131,16 @@ const afterCharacter = (window: Page) =>
   window.evaluate(() => {
     const wrapper = document.querySelector('[data-testid="citation"]')?.closest(".node-citation");
     if (!(wrapper instanceof Element)) return null;
-    const node = wrapper.nextSibling;
-    if (!(node instanceof Text)) return null;
+    const walker = document.createTreeWalker(wrapper.parentNode ?? wrapper, NodeFilter.SHOW_TEXT);
+    let node: Text | null = null;
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (wrapper.contains(each) || !(each instanceof Text)) continue;
+      if (wrapper.compareDocumentPosition(each) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        node = each;
+        break;
+      }
+    }
+    if (!node) return null;
     const text = node.data;
     let index = 0;
     while (index < text.length && /\s/.test(text[index] ?? "")) index++;
@@ -187,11 +222,14 @@ for (const language of ["en", "zh-CN"] as const) {
           const dragged = await selection(window);
           expect(dragged.covers).toBe(true);
           expect(dragged.text.startsWith(word.text)).toBe(true);
-          // The far end is past the character that follows the Citation, which is selected.
-          expect(draggedTail.startsWith(beyond.char)).toBe(true);
-          expect(dragged.text.endsWith(draggedTail)).toBe(true);
+          // The drag ends past the character that follows the Citation, and the selection covers
+          // it. The browser rounds a drag's end by its own rule, so the end is bounded, not exact.
+          expect(
+            await selectionThrough(window),
+            "The character after the Citation is selected.",
+          ).toBe(true);
           expect(dragged.text.length).toBeLessThanOrEqual(
-            word.text.length + 2 + draggedTail.length,
+            word.text.length + 2 + draggedTail.length + 2,
           );
 
           // With no selection to extend (a caret), a Shift-press on the Citation acts on it.
