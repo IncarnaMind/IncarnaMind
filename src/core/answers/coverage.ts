@@ -10,7 +10,6 @@
 import { displayName } from "../../shared/documentNames";
 import type { AnswerCoverage } from "../api";
 import { keywordTerms, keywordText } from "../documents/keywords";
-import { asksAboutEarlier } from "./pointersBack";
 
 export const COVERED_AT_ONCE = 8;
 
@@ -23,19 +22,27 @@ export interface SizedDocument {
 const SUMMARY =
   /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|overview|digest|recap|synops[ie]s)\b|总结|概括|概述|摘要|综述|汇总/i;
 
-/** More ways a call or conversation is summed up ("Sum up", "catch me up", "回顾"), beside `SUMMARY`. */
+/** More ways a call is summed up ("past 5 minutes", "key takeaways", "回顾"), beside `SUMMARY`. */
 const RECAP =
-  /\b(?:sum up|gist|run[- ]?through|walk (?:me )?through|go over|catch (?:me )?up|(?:covered|discussed|said) so far)\b|\bwhat (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about)\b|\bwhere we (?:are|left off|got to)\b|\bwhere (?:did )?we (?:leave|left) off\b|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪|(?:刚才|刚刚).{0,8}(?:讲了什么|说了什么|聊了什么)/i;
+  /\b(?:sum up|gist|run[- ]?through|walk (?:me )?through|go over|catch (?:me )?up|(?:bring|get) me up to speed|fill (?:me )?in|what happened|where (?:are|were) we|tl;?dr|takeaways?|highlights?|key points?|decisions?|(?:covered|discussed|said|agreed|decided) so far)\b|\bwhat (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about|agree|agreed|decide|decided)\b|\bwhere we (?:are|left off|got to)\b|\bwhere (?:did )?we (?:leave|left) off\b|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪|(?:刚才|刚刚).{0,8}(?:讲了什么|说了什么|聊了什么)|(?:到目前为止|到今天为止).{0,8}(?:讲|说|聊)了?什么|错过了?什么/i;
 
 /** What a summary has to be about to be a recap of the call: the call, its span, or what was said. */
 const ABOUT_THE_CALL =
-  /\b(?:call|conversation|meeting|discussion|so far|up to (?:now|here)|last (?:\d+|two|three|four|five|six|seven|eight|nine|ten|few|several) minutes|we(?:'ve| have) (?:covered|discussed|said|talked)|what (?:we|has been|was|did we))\b|通话|会议|对话|讨论|刚才|刚刚|目前|至今|到现在|到目前为止|最近|聊到|说到|讲到/i;
+  /\b(?:(?:call|conversation|meeting|discussion)|so far|up to (?:now|here)|(?:last|past|previous) (?:\d+|two|three|four|five|six|seven|eight|nine|ten|few|several) minutes|we(?:'ve| have) (?:covered|discussed|said|talked|agreed|decided)|what (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about|agree|agreed|decide|decided)|(?:bring|get) me up to speed|fill (?:me )?in|what (?:i missed|did i miss)|what happened|where (?:are|were) we|catch (?:me )?up|tl;?dr|takeaways?|highlights?|key points?|decisions?|what \p{Lu}[\p{L}'-]* said)\b|(?:通话|会议|对话|讨论|到目前为止|目前(?:为止)?的?(?:通话|会议|讨论|情况|进展)|最近(?:\s*\d+\s*分钟|几分钟|的通话|的会议|的讨论)|刚才|刚刚|至今|到现在|聊到|说到|讲到|错过)/iu;
 
-/** Whether a Question asks for a summary or recap of the call ("recap the last 5 minutes", "回顾最近 5 分钟"). */
-export const asksForSummary = (question: string): boolean =>
+/** A Question that refers to the assistant's own earlier words: its answer, reply, suggestions or points. */
+const REFERS_TO_AN_EARLIER_REPLY =
+  /\b(?:your|you)(?:\s+(?:just|already|previously|earlier|previous|last|prior|above|preceding|own))*\s+(?:answers?|repl(?:y|ies)|responses?|suggestions?|questions?|points?|tips?|lists?|recommendations?|advice)\b|\byou(?:'ve|'d|\s+have|\s+had)?(?:\s+(?:just|already|previously|earlier|before))*\s+(?:said|say|told|tell|gave|give|suggested|suggest|listed|list|made|make|wrote|write|mentioned|mention|recommended|recommend|answered|answer|called out)\b|\b(?:the|that|this)\s+(?:answers?|repl(?:y|ies)|responses?|suggestions?|lists?|points?)\s+(?:above|earlier|before|so far)\b|\bcall[ -]help\b|[你您][^。！？!?.\n]{0,8}(?:说|讲|建议|给|列|提|回答|写)|(?:刚才|刚刚|之前|上面|前面|上次|先前)的?(?:建议|回答|回复|答复|提示)/i;
+
+/**
+ * Whether a Question asks for a recap of the live call ("recap the last 5 minutes",
+ * "回顾最近 5 分钟"): summary words and a reference to the call or its span, but not a
+ * Question about the assistant's own earlier words, which keeps the turns it asks about (#1319).
+ */
+export const asksForCallRecap = (question: string): boolean =>
   (SUMMARY.test(question) || RECAP.test(question)) &&
   ABOUT_THE_CALL.test(question) &&
-  !asksAboutEarlier(question);
+  !REFERS_TO_AN_EARLIER_REPLY.test(question);
 const DOCUMENT_WORDS = "(?:documents|docs|papers|files|reports)";
 const ZH_DOCUMENT_WORDS = "(?:文档|论文|文件|报告)";
 const THE_SET = new RegExp(

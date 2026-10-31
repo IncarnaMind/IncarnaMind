@@ -239,7 +239,7 @@ import {
   withoutWrittenIds,
 } from "./contextCitations";
 import {
-  asksForSummary,
+  asksForCallRecap,
   coverageInstructions,
   coverageOf,
   documentsAsked,
@@ -3388,7 +3388,7 @@ export function createAnswers(options: AnswersOptions) {
       mind !== null &&
       help === null &&
       (options.liveMeeting?.(mind.mindId) ?? false) &&
-      asksForSummary(question.text);
+      asksForCallRecap(question.text);
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
     // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.

@@ -376,8 +376,27 @@ for (const language of ["en", "zh-CN"] as const) {
             "Catch me up on what we've said so far",
             "Walk me through what we've discussed",
             "What did we discuss so far?",
+            "Recap the past 5 minutes",
+            "Key takeaways so far?",
+            "What did we agree?",
+            "Any decisions so far?",
+            "What were the key points?",
+            "give me the highlights",
+            "catch me up",
+            "Bring me up to speed",
+            "fill me in on what I missed",
+            "where are we?",
+            "What happened in the call?",
+            "TL;DR",
+            "tldr of the call",
           ]
-        : ["我们聊到哪了？", "刚才都讲了什么？", "把刚才的讨论梳理一下"];
+        : [
+            "我们聊到哪了？",
+            "刚才都讲了什么？",
+            "把刚才的讨论梳理一下",
+            "到目前为止讲了什么",
+            "我错过了什么",
+          ];
     const guideWords = fact.slice(0, -1);
     for (const text of wordings) {
       const first = calls.length;
@@ -444,6 +463,64 @@ for (const language of ["en", "zh-CN"] as const) {
     );
   });
 
+  test(`${language}: explicit follow-ups on the guide help keep that reply`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    const wordings =
+      language === "en"
+        ? [
+            "Recap your previous answer about the call",
+            "Recap what you said earlier about the meeting",
+            "Recap your last reply on the meeting",
+            "Summarize the suggestions you gave during this call",
+            "Can you summarise what you told me so far?",
+            "Summarise the not-covered topics you listed so far",
+            "summarise what you just said about the call",
+            "Recap what you just told me about the call",
+            "summarize your answer about the call",
+            "Summarize the answer above about the call",
+            "Summarise your suggestions so far",
+            "Give me a summary of your suggestions so far",
+            "Recap the questions you suggested so far",
+            "Sum up the points you made so far in this call",
+            "Recap everything you've told me during this meeting",
+            "Summarise the call-help replies so far",
+            "Recap the tips from the call help so far",
+          ]
+        : [
+            "把你刚才说的关于通话的内容总结一下",
+            "总结一下刚才的回答",
+            "总结一下你刚刚说的",
+            "你刚刚关于会议说的那些，总结一下",
+            "总结一下你刚才建议的问题",
+            "把刚才的建议总结一下",
+            "复盘一下你刚才在会议里给的建议",
+            "概括你之前对这次会议的回答",
+            "回顾一下你上面关于会议的回答",
+            "回顾一下你之前给的通话建议",
+            "总结一下到目前为止你给的建议",
+            "总结一下你给我的提问建议，到目前为止",
+            "把你目前为止给的提示梳理一下",
+          ];
+    for (const text of wordings) {
+      const first = calls.length;
+      await answerOf(
+        core,
+        await core.askInConversation({
+          conversationId: helped.conversationId,
+          mindId: meeting.mindId,
+          text,
+        }),
+      );
+      expect(calls.slice(first).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+    }
+  });
+
   test(`${language}: a recap after the call ended keeps the conversation's earlier replies`, async () => {
     const { core, meeting, guide, calls, fact } = await setup(language);
     await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
@@ -463,5 +540,34 @@ for (const language of ["en", "zh-CN"] as const) {
       }),
     );
     expect(calls.slice(first).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+    expect(
+      calls
+        .slice(first)
+        .some((call) => call.prompt.includes(translate(language, "meetings.help.notCovered"))),
+    ).toBe(true);
+  });
+
+  test(`${language}: a recap while the call records again carries only the call`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    await core.resumeMeeting(meeting.id);
+    const first = calls.length;
+    const recap = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text: translate(language, "meeting.ask.recap"),
+      }),
+    );
+    for (const call of calls.slice(first)) {
+      expect(call.prompt).not.toContain(fact.slice(0, -1));
+    }
+    expect(recap.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
   });
 }
