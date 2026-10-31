@@ -22,10 +22,13 @@ describe("What a recap Question asks for", () => {
     "Summarize what we've discussed",
     "What have we covered so far?",
     "Give me a quick run-through of the call",
+    "Catch me up on what we've said so far",
+    "Walk me through what we've discussed",
     "回顾最近 5 分钟",
     "把刚才的讨论梳理一下",
     "我们聊到哪了",
     "刚才说到哪了",
+    "刚才都讲了什么？",
   ])("%s is a recap", (question) => {
     expect(asksForSummary(question)).toBe(true);
   });
@@ -35,6 +38,7 @@ describe("What a recap Question asks for", () => {
     "What did they say about the budget?",
     "Search the contract for the payment terms",
     "Which one should I ask first?",
+    "Where did they say the office is?",
     "报价是多少？",
   ])("%s is no recap", (question) => {
     expect(asksForSummary(question)).toBe(false);

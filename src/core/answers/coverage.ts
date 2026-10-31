@@ -20,7 +20,7 @@ export interface SizedDocument {
 }
 
 const SUMMARY =
-  /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|sum up|overview|digest|recap|synops[ie]s|gist|run[- ]?through|go over|(?:covered|discussed|said) so far)\b|\bwhat (?:we(?:'ve| have)?|has been|was) (?:covered|discussed|said)\b|\bwhere we (?:are|left off|got to)\b|总结|概括|概述|摘要|综述|汇总|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪/i;
+  /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|sum up|overview|digest|recap|synops[ie]s|gist|run[- ]?through|walk (?:me )?through|go over|catch (?:me )?up|(?:covered|discussed|said) so far)\b|\bwhat (?:we(?:'ve| have)?|has been|was) (?:covered|discussed|said)\b|\bwhere we (?:are|left off|got to)\b|\bwhere (?:did )?we (?:leave|left) off\b|总结|概括|概述|摘要|综述|汇总|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪|(?:刚才|刚刚).{0,8}(?:讲了什么|说了什么|聊了什么)/i;
 
 /** Whether a Question asks for a summary or recap of what it is about ("recap the last 5 minutes", "回顾最近 5 分钟"). */
 export const asksForSummary = (question: string): boolean => SUMMARY.test(question);
