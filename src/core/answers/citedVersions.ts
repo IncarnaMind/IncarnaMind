@@ -9,7 +9,7 @@
  * assistant's conversations (ADR-0017).
  */
 import * as Y from "yjs";
-import { readChartData } from "../../shared/charts";
+import { readChartData, valueCitations } from "../../shared/charts";
 import { readClaimCheck, restsOn } from "../../shared/claimChecks";
 import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
 import { perBlock } from "../../shared/memo";
@@ -66,7 +66,7 @@ export function addCitedUnit(
 function chartCitations(chart: Y.XmlElement): CitationFields[] {
   return readChartData(chart.getAttribute("data")).rows.flatMap((row) =>
     row.values.flatMap((value) =>
-      value?.citation ? [value.citation as unknown as CitationFields] : [],
+      value ? valueCitations(value).map((each) => each as unknown as CitationFields) : [],
     ),
   );
 }

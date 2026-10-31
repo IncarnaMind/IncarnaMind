@@ -215,6 +215,7 @@ export function createCopilotAccount(options: {
 
   const account = createOAuthAccount<StoredAccount>({
     secretName: ACCOUNT_SECRET,
+    provider: "GitHub",
     secrets: options.secrets,
     parse: parseStored,
     browser: options.browser,
@@ -259,7 +260,7 @@ export function createCopilotAccount(options: {
   };
 
   const signedIn = async (): Promise<StoredAccount | null> => {
-    const stored = await account.load();
+    const stored = await account.loadOrNull();
     return stored?.tokens && profiles[stored.profile] ? stored : null;
   };
 
@@ -297,7 +298,7 @@ export function createCopilotAccount(options: {
     // Read before awaiting the keychain, so the status describes the moment it was asked for.
     const signingIn = account.signingIn();
     const waiting = deviceCode;
-    const stored = await account.load();
+    const stored = await account.loadOrNull();
     const usable = stored?.tokens && profiles[stored.profile] ? stored : null;
     return {
       account: usable
@@ -317,7 +318,7 @@ export function createCopilotAccount(options: {
     hasSignIn: async () => (await signedIn()) !== null,
     models,
     /** Whether the sign-in's traffic can happen on this device: it has signed in, or is signing in. */
-    used: async () => account.signingIn() || (await account.load()) !== null,
+    used: async () => account.signingIn() || (await account.loadOrNull()) !== null,
 
     /** Starting again cancels a sign-in still waiting. */
     async signIn(input: { profile?: CopilotProfileId } = {}): Promise<CopilotSignInResult> {
