@@ -1956,6 +1956,8 @@ export function createRewriteStream(
   let quotedOut = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
+  /** The selection's paragraphs the text wrote over, each with its new words as a quote is compared. */
+  const writtenOver = new Map<Segment, string>();
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
@@ -1963,6 +1965,7 @@ export function createRewriteStream(
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
     removeUpTo(index);
+    writtenOver.set(segment, quoteChars(paragraph.tokens));
     writeHunks(segment, paragraph.tokens, next, newId, notes);
     place = { element: segment.element, kind: segment.kind, side: "after" };
     at = index + 1;
@@ -2048,7 +2051,8 @@ export function createRewriteStream(
   /**
    * Of the paragraphs left out and kept, those the text says again were moved, and the words it
    * quotes as taken out go: a whole paragraph when the quotes say all of it, else only the words
-   * quoted. A quote that is in none of them exactly once takes nothing out.
+   * quoted. A quote the text's own writing already took out is that writing's; any other that
+   * isn't in one kept paragraph exactly once takes nothing out, and the edit is refused.
    */
   const settleLeftOut = () => {
     const said = [...addedAnew];
@@ -2067,25 +2071,31 @@ export function createRewriteStream(
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
     const stretches = new Map<Segment, { first: number; end: number }[]>();
     for (const quote of quotes) {
+      const holds = (segment: Segment) => read.get(segment)?.chars.includes(quote.chars) === true;
+      // Words a paragraph the text wrote over, or let go, held and no longer holds are the ones
+      // quoted: the same words in a kept paragraph stay (#2180).
+      const dropped = segments.some(
+        (segment) =>
+          !kept.includes(segment) &&
+          !moved.includes(segment) &&
+          holds(segment) &&
+          writtenOver.get(segment)?.includes(quote.chars) !== true,
+      );
+      if (dropped) continue;
+      const holding = kept.filter(holds);
       // A quote that is all of a paragraph is that paragraph, though its words are in others too.
-      const all = kept.filter((segment) => read.get(segment)?.chars === quote.chars);
-      const places =
-        all.length > 0
-          ? all.map((segment) => ({ segment, place: { first: 0, end: quote.chars.length } }))
-          : kept.flatMap((segment) => {
-              const place = placeQuote(read.get(segment) ?? { chars: "", at: [] }, quote.chars);
-              return place ? [{ segment, place }] : [];
-            });
-      const [only] = places;
-      if (places.length === 1 && only) {
-        stretches.set(only.segment, [...(stretches.get(only.segment) ?? []), only.place]);
+      const exact = holding.filter((segment) => read.get(segment)?.chars === quote.chars);
+      const [target] = exact.length === 1 ? exact : holding.length === 1 ? holding : [];
+      const place = !target
+        ? null
+        : exact.length === 1
+          ? { first: 0, end: quote.chars.length }
+          : placeQuote(read.get(target) ?? { chars: "", at: [] }, quote.chars);
+      if (!target || !place) {
+        unplaced.push(quote.text);
         continue;
       }
-      // Words of a paragraph the text writes itself are that paragraph's new text's to keep or drop.
-      const written = segments.some(
-        (segment) => !kept.includes(segment) && read.get(segment)?.chars.includes(quote.chars),
-      );
-      if (!written || places.length > 1) unplaced.push(quote.text);
+      stretches.set(target, [...(stretches.get(target) ?? []), place]);
     }
     const whole: Segment[] = [];
     for (const [segment, places] of stretches) {
