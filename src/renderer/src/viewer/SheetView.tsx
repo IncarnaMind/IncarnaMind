@@ -69,10 +69,13 @@ interface Loaded {
   units: TextUnit[];
 }
 
-const readXlsx = async (bytes: Uint8Array): Promise<Loaded> => {
-  const workbook = await readWorkbook(bytes, undefined, {
-    shortDate: shortDatePattern(navigator.language),
-  });
+const readXlsx = async (bytes: Uint8Array, readHiddenSheets: boolean): Promise<Loaded> => {
+  const workbook = await readWorkbook(
+    bytes,
+    undefined,
+    { shortDate: shortDatePattern(navigator.language) },
+    readHiddenSheets,
+  );
   // The workbook's fonts, loaded before text is measured to fit rows and spill over cells.
   const fonts = new Set(
     (workbook.layout?.styles ?? [])
@@ -99,8 +102,9 @@ const readCsv = (bytes: Uint8Array): Loaded => extractCsv(bytes);
 export function SheetView({ document, target }: { document: Document; target: ViewerTarget }) {
   const { loaded, reload } = useDocumentFile(
     document.id,
-    document.contentHash,
-    document.kind === "csv" ? readCsv : readXlsx,
+    // A workbook read with its hidden sheets looks different at the same content hash (#740).
+    `${document.contentHash}:${document.readHiddenSheets ? "hidden" : "visible"}`,
+    document.kind === "csv" ? readCsv : (bytes) => readXlsx(bytes, document.readHiddenSheets),
   );
   return (
     <FileStates

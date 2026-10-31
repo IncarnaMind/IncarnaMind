@@ -2118,6 +2118,15 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 119,
+    description: "A workbook is read with its hidden sheets when the User asks (#740)",
+    sql: `
+      -- A workbook's hidden and very hidden sheets are left out of its text by default (#740).
+      -- Set, it is read again with them, and every later version of it too.
+      ALTER TABLE documents ADD COLUMN read_hidden_sheets INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 120,
     description:
       "The preset Invoice Tag says what isn't an invoice, unless the User edited it (#2308)",
     sql: `

@@ -45,11 +45,7 @@ import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
-import {
-  askedFor,
-  waitsForUser as heldForUser,
-  requestedRequests,
-} from "../../shared/askedChanges";
+import { appliedAsAsked } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
@@ -2694,23 +2690,13 @@ export function createAnswers(options: AnswersOptions) {
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
-      const appliedInTurn: ChangeStates = (change) => {
-        const asked = new Set(
-          toolCalls.flatMap((call) =>
-            call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
-          ),
-        );
-        return (
-          minds?.read(change.mindId, (blocks) => {
-            const doc = blocks.doc;
-            if (!doc) return null;
-            const requested = requestedRequests(doc, asked);
-            return askedFor(doc, change.request) && !heldForUser(doc, requested)
-              ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null;
-          }) ?? null
-        );
-      };
+      const appliedInTurn: ChangeStates = (change) =>
+        minds?.read(change.mindId, (blocks) => {
+          const doc = blocks.doc;
+          return doc !== null && appliedAsAsked(doc, change, toolCalls)
+            ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+            : null;
+        }) ?? null;
       const claimedTools: TurnCheck = {
         name: "claimed-tool",
         check: (text) => {

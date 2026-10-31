@@ -3,7 +3,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
-import { type Core, type Logger, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
+import {
+  type Core,
+  InvalidInputError,
+  type Logger,
+  MIND_CHECK_UNREAD_FIELD,
+  type UnreadFile,
+} from "../../src/core";
 import { MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
@@ -641,6 +647,136 @@ describe("A workbook read in part", () => {
         },
       },
     ]);
+  });
+
+  test("Read hidden sheets too reads the workbook again with them, and the list says only what is still unread", async () => {
+    const { core, folderId } = await withWorkbook();
+    const budget = (await core.listDocuments()).find((document) => document.name === "Budget 2026");
+    if (!budget) throw new Error("No workbook.");
+    expect(budget.readHiddenSheets).toBe(false);
+
+    const before = await core.readDocumentText(budget.id);
+    expect(before.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(false);
+
+    const queued = await core.readHiddenSheets(budget.id);
+    expect(queued).toMatchObject({ readHiddenSheets: true, status: "queued" });
+    const [read] = await waitForProcessing(core, [budget.id]);
+    expect(read?.status).toBe("ready");
+
+    const after = await core.readDocumentText(budget.id);
+    expect(after.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(true);
+    expect(after.pages.some((unit) => unit.label?.sheet === "Q4 raw")).toBe(true);
+    expect(after.pages.map((unit) => unit.text).join("\n")).toContain("Secret");
+    // The visible sheets keep the Unit numbers a Citation already points at.
+    const visible = (pages: typeof before.pages) =>
+      pages
+        .filter((unit) => unit.label?.sheet === "Visible" || unit.label?.sheet === "Big")
+        .map((unit) => [unit.page, unit.text]);
+    expect(visible(after.pages)).toEqual(visible(before.pages));
+    // A Citation made before the re-read still finds its quote at its Unit numbers.
+    const quoted = before.pages.find(
+      (unit) => unit.label?.sheet === "Big" && unit.text.includes("R7777"),
+    );
+    if (!quoted) throw new Error("No Big sheet Unit.");
+    expect(
+      await core.readableQuote({
+        documentId: budget.id,
+        contentHash: budget.contentHash,
+        pageFrom: quoted.page,
+        pageTo: quoted.page,
+        quote: "R7777",
+      }),
+    ).toBe("R7777");
+
+    const found = (await core.listUnreadFiles(null)).find((file) => file.name === BUDGET);
+    expect(found).toMatchObject({
+      reason: "parts",
+      parts: {
+        hiddenSheets: [],
+        rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
+        sheetsNotRead: ["After"],
+      },
+    });
+
+    // A check made now says the same: the rows past the limit, not the hidden sheets.
+    const { client, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+    const checked = (await unreadOfChecks(client)).find((file) => file.name === BUDGET);
+    expect(checked?.parts).toEqual({
+      hiddenSheets: [],
+      rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
+      sheetsNotRead: ["After"],
+    });
+
+    await expect(core.readHiddenSheets(budget.id)).rejects.toThrow(InvalidInputError);
+
+    // Undo reads it again without them: the visible Units stay, the hidden sheets are left out.
+    await core.readHiddenSheets(budget.id, false);
+    const [undone] = await waitForProcessing(core, [budget.id]);
+    expect(undone?.status).toBe("ready");
+    const restored = await core.readDocumentText(budget.id);
+    expect(restored.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(false);
+    expect(visible(restored.pages)).toEqual(visible(before.pages));
+    expect((await core.listUnreadFiles(null)).find((file) => file.name === BUDGET)).toMatchObject({
+      reason: "parts",
+      parts: {
+        hiddenSheets: ["Q3 raw", "Q4 raw"],
+        rowsCut: [{ sheet: "Big", from: MAX_ROWS }],
+        sheetsNotRead: ["After"],
+      },
+    });
+
+    // Undo, then Redo straight away while the re-read runs: Redo must not be refused by the
+    // last finished read's parts (#740).
+    await core.readHiddenSheets(budget.id);
+    await waitForProcessing(core, [budget.id]);
+    await core.readHiddenSheets(budget.id, false);
+    const redone = await core.readHiddenSheets(budget.id, true);
+    expect(redone.readHiddenSheets).toBe(true);
+    const [completed] = await waitForProcessing(core, [budget.id]);
+    expect(completed?.status).toBe("ready");
+    expect(
+      (await core.readDocumentText(budget.id)).pages.some((unit) => unit.label?.sheet === "Q3 raw"),
+    ).toBe(true);
+  });
+
+  test("the workbook stays read with its hidden sheets when the file changes", async () => {
+    const { core, library } = await withWorkbook();
+    const budget = (await core.listDocuments()).find((document) => document.name === "Budget 2026");
+    if (!budget) throw new Error("No workbook.");
+
+    await core.readHiddenSheets(budget.id);
+    const [read] = await waitForProcessing(core, [budget.id]);
+    if (!read) throw new Error("No workbook read.");
+
+    await writeSourceFile(
+      library,
+      BUDGET,
+      xlsxOf([
+        {
+          name: "Visible",
+          rows: [
+            ["Region", "Sales"],
+            ["North", "10"],
+          ],
+        },
+        { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+      ]),
+    );
+    await core.reconcileDocuments();
+    const updated = await vi.waitFor(
+      async () => {
+        const document = (await core.listDocuments()).find((each) => each.id === budget.id);
+        if (!document || document.contentHash === read.contentHash || document.status !== "ready") {
+          throw new Error("The workbook is not re-read yet.");
+        }
+        return document;
+      },
+      { timeout: 15_000, interval: 50 },
+    );
+    expect(updated.readHiddenSheets).toBe(true);
+    const text = await core.readDocumentText(budget.id);
+    expect(text.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(true);
   });
 
   test("an export counts them, and names them only when the Mind names the files", async () => {
