@@ -167,17 +167,12 @@ test("a first run opens on the credit paper with no model set up: its Citations 
   const assistant = window.getByTestId("assistant");
   await expect(assistant).toBeHidden();
   const ready = step(window, "question").getByTestId("first-open-ready");
-  // The whole Question is the line's name and its tooltip; a narrower line would cut it at a
-  // word's end, and clicking asks it whole.
+  // The whole Question is the line's name: a Question within the limit shows whole and wraps, so
+  // it needs no tooltip; a narrower line cuts nothing (#400). Clicking asks it whole.
   const askLabel = "Ask: “What leverage does the agreement allow?”";
   await expect(ready).toHaveAttribute("aria-label", askLabel);
-  await expect(ready).toHaveAttribute("title", askLabel);
-  const shownAsk = await ready.innerText();
-  if (shownAsk !== askLabel) {
-    expect(shownAsk.endsWith("…"), "cut").toBe(true);
-    expect(askLabel.startsWith(shownAsk.slice(0, -1))).toBe(true);
-    expect(askLabel.slice(shownAsk.length - 1), "a word's end").toMatch(/^\s/u);
-  }
+  expect(await ready.getAttribute("title")).toBeNull();
+  expect(await ready.innerText()).toBe(askLabel);
   await pointAndClick(window, ready);
   await expect(assistant).toBeVisible();
   await expect(assistant.getByTestId("assistant-question")).toContainText(
@@ -600,7 +595,7 @@ test("the first own Question starts a fresh conversation, without the example's 
   // Their own file makes the ready Question theirs; asking it leaves the example's turns behind.
   await window.getByTestId("add-documents-input").setInputFiles([file]);
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await expect(ready).toHaveAttribute("aria-label", /Harbour brief/, { timeout: 30_000 });
   await pointAndClick(window, ready);
   await expect(window.getByTestId("assistant-question")).toHaveCount(1);
   await expect(window.getByTestId("assistant-question")).toContainText(
@@ -628,7 +623,7 @@ test("a Question that can't be asked says why in the card's row, where it was cl
   });
   await window.getByTestId("add-documents-input").setInputFiles([file]);
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveAttribute("title", /Harbour brief/, { timeout: 30_000 });
+  await expect(ready).toHaveAttribute("aria-label", /Harbour brief/, { timeout: 30_000 });
   await pointAndClick(window, ready);
   const card = window.getByTestId("first-open-steps");
   await expect(card.getByTestId("first-open-ready-not-ready")).toBeVisible();
@@ -649,7 +644,7 @@ test("while the ready Question's Answer streams, its button waits and asks once 
   await useLocalChatModel(window);
   await window.getByTestId("add-documents-input").setInputFiles([file]);
   const ready = step(window, "question").getByTestId("first-open-ready");
-  await expect(ready).toHaveAttribute("title", /Harbour times slowly/, { timeout: 30_000 });
+  await expect(ready).toHaveAttribute("aria-label", /Harbour times slowly/, { timeout: 30_000 });
   await pointAndClick(window, ready);
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "streaming");
