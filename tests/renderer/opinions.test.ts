@@ -246,7 +246,7 @@ describe("left-out opinions in the Note", () => {
     const current = note(paragraph("other", text), paragraph("p", `${text} ${text}`));
     const opinions = opinionsIn(current, stored);
     expect(opinions).toHaveLength(1);
-    const expected = opinionLocations(current).find(
+    const expected = opinionLocations(current, new Set(["p"])).find(
       (each) => each.blockId === "p" && each.occurrence === 1,
     );
     expect(opinions[0]?.range).toEqual({ from: expected?.from, to: expected?.to });

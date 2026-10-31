@@ -40,12 +40,13 @@ function sentencesOf(block: ProseMirrorNode): BlockSentence[] {
 const shifted = (places: readonly (number | null)[], by: number) =>
   places.map((place) => (place === null ? null : place + by));
 
-export function opinionLocations(doc: ProseMirrorNode) {
+/** The sentences of the Blocks named, where they are in the document now. */
+export function opinionLocations(doc: ProseMirrorNode, blockIds: ReadonlySet<string>) {
   const sentences: (BlockSentence & { blockId: string })[] = [];
   doc.descendants((block, pos) => {
     if (!block.isTextblock) return true;
     const blockId: unknown = block.attrs[BLOCK_ID_ATTRIBUTE];
-    if (typeof blockId !== "string") return false;
+    if (typeof blockId !== "string" || !blockIds.has(blockId)) return false;
     for (const each of sentencesOf(block)) {
       sentences.push({
         ...each,
@@ -77,8 +78,16 @@ export function opinionsIn(note: ProseMirrorNode, doc: Y.Doc) {
 }
 
 function readOpinions(note: ProseMirrorNode, doc: Y.Doc) {
-  const current = opinionLocations(note);
-  const marks = claimSpans(note).flatMap((claim) => {
+  const stored = readOpinionSentences(doc);
+  const claims = claimSpans(note);
+  // Only the Blocks an opinion can be in are placed: every key would place the whole Note again.
+  const blockIds = new Set([
+    ...stored.map((sentence) => sentence.blockId),
+    ...claims.flatMap((claim) => (claim.check.parts && claim.place ? [claim.place.blockId] : [])),
+  ]);
+  if (blockIds.size === 0) return [];
+  const current = opinionLocations(note, blockIds);
+  const marks = claims.flatMap((claim) => {
     const sentence = current.find((each) => each.from === claim.sentence.from);
     return sentence
       ? [
@@ -91,7 +100,7 @@ function readOpinions(note: ProseMirrorNode, doc: Y.Doc) {
         ]
       : [];
   });
-  return omittedOpinions(current, marks, readOpinionSentences(doc)).flatMap((opinion) => {
+  return omittedOpinions(current, marks, stored).flatMap((opinion) => {
     const from = opinion.starts[opinion.span.start];
     const to = opinion.ends[opinion.span.end - 1];
     return typeof from !== "number" || typeof to !== "number"
