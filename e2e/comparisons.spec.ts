@@ -2808,7 +2808,10 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
 
   await setWindowSize(app, window, 900, 760);
   await pointAndClick(window, table.getByTestId("comparison-expand"));
-  await pointAndClick(window, first);
+  // A wide system font in a narrow expanded cell puts the cell's Citation marker at its middle,
+  // where a pointer crossing to the middle opens the marker's card instead; open the cell from
+  // the cell's own padding, which is the cell's, not the marker's.
+  await first.click({ position: { x: 4, y: 4 } });
   await expect(card).toBeVisible();
   await screenshot(window, "compare-cell-card-expanded-en-900");
   await window.keyboard.press("Escape");
