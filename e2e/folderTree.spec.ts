@@ -380,17 +380,14 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
     await expect(answer.getByTestId("answer-steps-line")).toHaveText("Read “Shortlist”");
 
-    // In Chinese, the same tree.
+    // In Chinese, the same tree: the Mind is listed under Notes, with no Document loose.
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "zh-CN" },
       }),
     );
-    await expect(notInAFolder(window)).toContainText("不在文件夹中");
-    await expect(window.getByTestId("not-in-a-folder-section-heading")).toHaveAttribute(
-      "title",
-      "搜索全部文档",
-    );
+    await expect(notInAFolder(window).getByTestId("notes-title")).toContainText("笔记");
+    await expect(notInAFolder(window).getByTestId("mind-list-item")).toHaveText("Shortlist");
     await screenshot(window, "folder-tree-zh");
   } finally {
     await app.close();

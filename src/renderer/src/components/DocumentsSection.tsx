@@ -11,7 +11,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { useDayOne, useOwnDocuments } from "../ownDocuments";
+import { useDayOne, useLibraryDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -88,7 +88,7 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const ownDocuments = useOwnDocuments();
+  const libraryDocuments = useLibraryDocuments();
   const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
@@ -221,7 +221,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(ownDocuments.length, language)}
+              {formatCount(libraryDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>

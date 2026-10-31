@@ -405,7 +405,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   const status = window.getByTestId("sidebar-status");
   const watched = [
     window.getByTestId("open-library"),
-    window.getByTestId("not-in-a-folder-title"),
+    window.getByTestId("notes-title"),
     window.getByTestId("mind-list-item"),
   ];
   const layout = async () => ({

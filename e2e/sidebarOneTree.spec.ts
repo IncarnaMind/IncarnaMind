@@ -236,26 +236,25 @@ for (const [language, width] of [
       const treeBox = await boxOf(sidebar.getByTestId("sidebar-sections"));
       const libraryBox = await boxOf(sidebar.getByTestId("open-library"));
 
-      // A Mind: it is listed under "Not in a Folder", though there are no Folders yet.
+      // A Mind: it is listed under Notes, apart from the Documents, though there are no Folders yet.
       await makeMind(window, "Shortlist");
       const minds = notInAFolder(window);
-      await expect(minds.getByTestId("not-in-a-folder-title")).toHaveText(t("library.unsorted"));
+      const notes = minds.getByTestId("notes-section");
+      await expect(notes.getByTestId("notes-title")).toContainText(t("sidebar.notes"));
       await expect(minds.getByTestId("mind-list-item")).toHaveText("Shortlist");
+      // The Documents' own heading comes with the first Document, never empty.
+      await expect(minds.getByTestId("not-in-a-folder-title")).toHaveCount(0);
       await expect(empty).toHaveCount(0);
       const treeAfter = await boxOf(sidebar.getByTestId("sidebar-sections"));
       expect(treeAfter.y).toBeCloseTo(treeBox.y, 0);
       const libraryAfter = await boxOf(sidebar.getByTestId("open-library"));
       expect(libraryAfter.y).toBeCloseTo(libraryBox.y, 0);
 
-      // A Folder: the Folders section comes, and the heading stays as it was.
+      // A Folder: the Folders section comes, and the Notes heading stays as it was.
       await makeFolder(window, "Finance");
       const folders = window.getByTestId("folders-section");
       await expect(folders.getByTestId("folders-title")).toHaveText(t("library.groups"));
-      await expect(minds.getByTestId("not-in-a-folder-title")).toHaveText(t("library.unsorted"));
-      await expect(notInAFolderHeading(window)).toHaveAttribute(
-        "title",
-        t("sidebar.notInFolder.hint"),
-      );
+      await expect(notes.getByTestId("notes-title")).toContainText(t("sidebar.notes"));
       // Folders come before Not in a Folder.
       const foldersBox = await folders.boundingBox();
       const mindsBox = await minds.boundingBox();
@@ -267,6 +266,12 @@ for (const [language, width] of [
       await writeFile(join(sources, "Budget.txt"), "Budget for the harbour survey.\n");
       await addFiles(window, [join(sources, "Budget.txt")]);
       await expect(documentRow(window, "Budget")).toHaveAttribute("data-status", "ready");
+      // The Document's heading comes with it, and says what a Mind there searches.
+      await expect(minds.getByTestId("not-in-a-folder-title")).toContainText(t("library.unsorted"));
+      await expect(notInAFolderHeading(window)).toHaveAttribute(
+        "title",
+        t("sidebar.notInFolder.hint"),
+      );
       await tagDocument(window, (await documentIds(window)).Budget ?? "", "Harbour");
       const tags = window.getByTestId("sidebar-tags");
       await expect(tags.getByTestId("tags-toggle")).toContainText(t("tags.title"));
