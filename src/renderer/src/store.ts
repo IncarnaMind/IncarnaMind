@@ -985,10 +985,15 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (offered?.mindId) await startGettingStarted(offered.mindId);
         await get().loadLayout();
         const readAt = new Map<PushedList, number>();
+        // In the store at once: the Documents' events after the reply go on top of it, while the
+        // rest of loading waits; put in later, it would undo them (#1741).
+        const documentsRead = core.listDocuments().then((documents) => {
+          documentUpdates.flush();
+          set({ documents });
+        });
         const [
           minds,
           settings,
-          documents,
           chatReadiness,
           folders,
           embeddingModel,
@@ -1006,7 +1011,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         ] = await Promise.all([
           readList("minds", core.listMinds(), readAt),
           readList("settings", core.getSettings(), readAt),
-          core.listDocuments(),
           readList("chatReadiness", core.getChatReadiness(), readAt),
           readList("folders", core.listFolders(), readAt),
           readList("embeddingModel", core.getEmbeddingModel(), readAt),
@@ -1021,6 +1025,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
+          documentsRead,
         ]);
         const reloaded = windowLoadedBefore();
         // Minds made before this setting existed count as an earlier launch.
@@ -1029,8 +1034,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (!offered?.mindId && launchedBefore && !reloaded) {
           await get().openHome({ first: true });
         }
-        // What the core's events brought before this is in the lists just read.
-        documentUpdates.flush();
         const read = {
           linkedFolders,
           minds,
@@ -1050,7 +1053,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         ) as Partial<Pick<AppState, PushedList>>;
         set({
           ...fresh,
-          documents,
           examples,
           readyQuestion,
           otherExamples: otherExamples.filter(isMade),
