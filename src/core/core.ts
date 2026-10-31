@@ -2829,6 +2829,9 @@ export function createCore(adapters: CoreAdapters): Core {
     from: string | null,
   ): Promise<void> => {
     for (const file of files ?? []) {
+      // A picture named after its content: the file there already holds these bytes, so it is
+      // linked, not copied again as "picture-… 2.png" (#1937).
+      if (await outputs.holds(folder, file.name, file.data)) continue;
       await outputs.save({
         name: file.name,
         data: file.data,

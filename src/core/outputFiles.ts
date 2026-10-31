@@ -416,6 +416,19 @@ export function createOutputFiles(options: OutputFilesOptions) {
     },
 
     /**
+     * Whether the folder already holds a file of this name with exactly these bytes: a picture
+     * named after its content is written once, however often an export links it (#1937).
+     */
+    async holds(folder: string, name: string, bytes: Uint8Array): Promise<boolean> {
+      try {
+        const path = join(await realFolder(folder), fileNameOf(name));
+        return fingerprintOf(new Uint8Array(await readFile(path))) === fingerprintOf(bytes);
+      } catch {
+        return false;
+      }
+    },
+
+    /**
      * Saves a new file: in the Output location (the default the first time),
      * or in `folder`, asking first where the User hasn't answered yet. Throws
      * `FileWriteCancelledError` if the default couldn't take it and they

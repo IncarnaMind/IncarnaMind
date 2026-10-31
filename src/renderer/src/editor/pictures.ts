@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Mapping } from "@tiptap/pm/transform";
 import { PICTURE_NODE } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { files } from "../core";
@@ -66,23 +67,33 @@ export async function insertPictures(
 ): Promise<void> {
   // A Note a newer version wrote is only looked at: no picture goes into the copy either.
   if (!editor.isEditable) return;
-  // Where it goes, read before a large picture takes a while to be prepared: the User may type meanwhile.
+  // Where it goes, read before a large picture takes a while to be prepared: the User may type
+  // meanwhile, so every change until then moves the place it was asked for.
   const position = at === undefined ? editor.state.selection.to : at;
+  const mapping = new Mapping();
+  const follow = ({ transaction }: { transaction: { docChanged: boolean; mapping: Mapping } }) => {
+    if (transaction.docChanged) mapping.appendMapping(transaction.mapping);
+  };
+  editor.on("transaction", follow);
   const kept: { type: string; attrs: Record<string, unknown> }[] = [];
-  for (const file of files) {
-    const prepared = await preparePicture(file, { convert: convertPicture });
-    if ("problem" in prepared) {
-      onProblem?.(
-        prepared.problem === "unreadable" && isHeicPicture(file) ? "heic" : prepared.problem,
-      );
-      continue;
+  try {
+    for (const file of files) {
+      const prepared = await preparePicture(file, { convert: convertPicture });
+      if ("problem" in prepared) {
+        onProblem?.(
+          prepared.problem === "unreadable" && isHeicPicture(file) ? "heic" : prepared.problem,
+        );
+        continue;
+      }
+      const { src, width, height } = prepared.picture;
+      kept.push({ type: PICTURE_NODE, attrs: { src, width, height, alt: "" } });
     }
-    const { src, width, height } = prepared.picture;
-    kept.push({ type: PICTURE_NODE, attrs: { src, width, height, alt: "" } });
+  } finally {
+    editor.off("transaction", follow);
   }
   if (kept.length === 0 || editor.isDestroyed) return;
   const $at = editor.state.doc.resolve(
-    Math.min(Math.max(position, 0), editor.state.doc.content.size),
+    Math.min(Math.max(mapping.map(position), 0), editor.state.doc.content.size),
   );
   // The block the pointer or the cursor is in ends before the picture goes in.
   const from = $at.depth > 0 ? $at.after(1) : $at.pos;
@@ -157,14 +168,21 @@ export const Pictures = Extension.create({
         key: new PluginKey("pictures"),
         props: {
           handlePaste(_view, event) {
-            // Text and an image copied together are rich text first: Word's own paste keeps it.
             const data = event.clipboardData;
-            const rich =
-              data !== null &&
-              (data.getData("text/html") !== "" || data.getData("text/plain") !== "");
-            if (rich) return false;
-            const files = pictureFilesOf(data);
-            if (files.length === 0) return false;
+            const files = data ? pictureFilesOf(data) : [];
+            if (!data || files.length === 0) return false;
+            // Copied with words (Word's text and a picture, a page's paragraph), the words paste
+            // as they are and the picture with them isn't added: say so once. Copied alone
+            // (Chrome's Copy image), the picture pastes as a picture.
+            const words = data
+              .getData("text/html")
+              .replace(/<[^>]*>/g, " ")
+              .replace(/&nbsp;|&#160;/gi, " ")
+              .trim();
+            if (words !== "") {
+              useNotices.getState().confirm("editor.picture.pastedAsText");
+              return false;
+            }
             event.preventDefault();
             void insertPictures(editor, files, { onProblem });
             return true;

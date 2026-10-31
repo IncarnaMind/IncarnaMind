@@ -45,13 +45,25 @@ function partsOf(model: MockLanguageModelV4, call = 0): { type: string; mediaTyp
   );
 }
 
+/** What the model read of a request's user messages, as text. */
+function userTextOf(model: MockLanguageModelV4, call = 0): string {
+  return (model.doStreamCalls[call]?.prompt ?? [])
+    .filter((message) => message.role === "user")
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((part) => ("text" in part ? part.text : "")).join(""),
+    )
+    .join("\n");
+}
+
 const imageParts = (model: MockLanguageModelV4, call = 0) =>
   partsOf(model, call).filter(
     (part) => part.type === "file" && part.mediaType?.startsWith("image/"),
   );
 
 /** A Mind with a Note and one picture; `core` answers with the model given. */
-async function setUpWithPicture(provider: "vision" | "local") {
+async function setUpWithPicture(provider: "vision" | "local", { excluded = false } = {}) {
   const model = streamingModel("A chart of spring tides.");
   const models = scriptedModels(model);
   const core = startCore(await createTempDataFolder(), { createChatModel: models.createChatModel });
@@ -62,7 +74,8 @@ async function setUpWithPicture(provider: "vision" | "local") {
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const mind = await core.createMind({ title: "Tides" });
   const client = await connectToMind(core, mind.id);
-  const chart = picture();
+  const base = picture();
+  const chart = excluded ? { ...base, attrs: { ...base.attrs, includeInContext: false } } : base;
   writeMind(client, [note("Spring tides come twice a month."), chart]);
   await client.settled();
   const id = String(chart.attrs.id);
@@ -129,9 +142,8 @@ describe("A picture's exports", () => {
 
     const saved = await core.saveMindExport(mind.id, { format: "markdown" });
     if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
-    expect(
-      (await readdir(saved.file.folder)).filter((name) => /^picture-[0-9a-f]{12}\.png$/.test(name)),
-    ).toHaveLength(1);
+    const first = (await readdir(saved.file.folder)).sort();
+    expect(first).toEqual([saved.file.name, expect.stringMatching(/^picture-[0-9a-f]{12}\.png$/)]);
 
     // A second picture, and the export written again into the same file: both files are beside it.
     const other = picture("A second chart", OTHER_PIXEL);
@@ -139,9 +151,16 @@ describe("A picture's exports", () => {
     await client.settled();
     await core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path);
     const markdown = await readFile(saved.file.path, "utf8");
-    const linked = [...markdown.matchAll(/picture-[0-9a-f]{12}\.png/g)].map((match) => match[0]);
-    const names = await readdir(saved.file.folder);
-    for (const name of new Set(linked)) expect(names).toContain(name);
+    const linked = [
+      ...new Set(Array.from(markdown.matchAll(/picture-[0-9a-f]{12}\.png/g), (match) => match[0])),
+    ];
+    expect(linked).toHaveLength(2);
+    const second = (await readdir(saved.file.folder)).sort();
+    expect(second).toEqual([saved.file.name, ...linked].sort());
+
+    // Written again with nothing changed: the files there hold the pictures, so none is copied again.
+    await core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path);
+    expect((await readdir(saved.file.folder)).sort()).toEqual(second);
   });
 });
 
@@ -153,14 +172,9 @@ describe("A picture and the model", () => {
     await answerEnded(core, result.answerId);
 
     expect(imageParts(model)).toEqual([]);
-    const userText = (model.doStreamCalls[0]?.prompt ?? [])
-      .filter((message) => message.role === "user")
-      .map((message) =>
-        typeof message.content === "string"
-          ? message.content
-          : message.content.map((part) => ("text" in part ? part.text : "")).join(""),
-      )
-      .join("\n");
+    const userText = userTextOf(model);
+    // The Question was asked, and read the Note's words: the absence above is not an empty request.
+    expect(userText).toContain("Spring tides come twice a month.");
     expect(userText).not.toContain("data:image");
     // The picture's own description is not read either: a model that wasn't asked about it reads words only.
     expect(userText).not.toContain("A chart");
@@ -184,6 +198,18 @@ describe("A picture and the model", () => {
     expect(Buffer.from(part?.data?.data ?? [])).toEqual(PIXEL_BYTES);
   });
 
+  test("a picture in a Block switched out of Question context is not sent, though the User selected it", async () => {
+    const { core, model, mind, id } = await setUpWithPicture("vision", { excluded: true });
+    const result = await askAbout(core, mind.id, { selection: "", blockIds: [id], pictures: [id] });
+    if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+    await answerEnded(core, result.answerId);
+
+    expect(imageParts(model)).toEqual([]);
+    // The Note is read as usual, and this Question was asked: the picture alone was left out.
+    expect(userTextOf(model)).toContain("Spring tides come twice a month.");
+    expect(userTextOf(model)).toContain("What does this show?");
+  });
+
   test("a model that can't read pictures is sent none, though the User selected one", async () => {
     const { core, model, mind, id } = await setUpWithPicture("local");
     const result = await askAbout(core, mind.id, { selection: "", blockIds: [id], pictures: [id] });
@@ -191,14 +217,27 @@ describe("A picture and the model", () => {
     await answerEnded(core, result.answerId);
 
     expect(imageParts(model)).toEqual([]);
+    expect(userTextOf(model)).toContain("Spring tides come twice a month.");
     expect(JSON.stringify(model.doStreamCalls[0]?.prompt ?? [])).not.toContain("data:image");
   });
 
-  test("in Local mode nothing is sent, picture or words", async () => {
+  test("in Local mode nothing is sent; with it off, the same Question sends the picture", async () => {
     const { core, model, mind, id } = await setUpWithPicture("vision");
     await core.setLocalOnly(true);
     const result = await askAbout(core, mind.id, { selection: "", blockIds: [id], pictures: [id] });
     expect(result.asked).toBe(false);
     expect(model.doStreamCalls).toEqual([]);
+
+    // The same Question with Local mode off: the picture goes, so this test would fail if the
+    // picture code sent nothing at all rather than following Local mode.
+    await core.setLocalOnly(false);
+    const again = await askAbout(core, mind.id, {
+      selection: "",
+      blockIds: [id],
+      pictures: [id],
+    });
+    if (!again.asked) throw new Error(`Not asked: ${JSON.stringify(again)}`);
+    await answerEnded(core, again.answerId);
+    expect(imageParts(model)).toHaveLength(1);
   });
 });

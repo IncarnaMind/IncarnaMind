@@ -400,11 +400,14 @@ export function readMind(
     focus && placed.length > 0 && placed.every((each) => each !== undefined && !each.excluded)
       ? focus.selection.trim()
       : "";
-  // Only the pictures the User selected to ask about: their Block ids come with the Question (#1937).
+  // Only the pictures the User selected to ask about, and only in a Block that is in Question context
+  // (a Note switched out of it is read as nothing, its selection too): their Block ids come with the
+  // Question (#1937).
   const pictures = readsPictures
     ? [...new Set(focus?.pictures ?? [])].flatMap((id) => {
         const block = picturesById.get(id);
-        const picture = block ? askedPictureOf(block) : null;
+        if (!block || byId.get(id)?.excluded) return [];
+        const picture = askedPictureOf(block);
         return picture ? [picture] : [];
       })
     : [];

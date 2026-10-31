@@ -619,6 +619,7 @@ export const en = {
   "editor.picture.empty": "This picture is empty.",
   "editor.picture.tooLarge": "This picture is larger than 50 MB. Try a smaller one.",
   "editor.picture.tooManyPixels": "This picture has too many pixels to add. Try a smaller one.",
+  "editor.picture.pastedAsText": "Pasted the text; a picture with it wasn’t added.",
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
@@ -1265,6 +1266,7 @@ export const en = {
   "composer.selection.drop": "Don’t ask about this",
   "composer.picture.chip": "Picture",
   "composer.picture.about": "Asks about this picture",
+  "composer.picture.leftOut": "This picture is left out of Question context",
   "composer.picture.sends": "Asks about this picture, sent to {provider}",
   "composer.picture.onThisComputer": "Asks about this picture, which stays on this computer",
   "composer.picture.unreadableModel":

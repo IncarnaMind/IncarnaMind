@@ -42,7 +42,9 @@ export const Picture = Node.create<PictureOptions>({
   },
 
   parseHTML() {
-    return [{ tag: `img[data-type="${PICTURE_NODE}"]` }];
+    // The Note keeps pictures as data URLs, and only those are its own: a pasted <img> from a
+    // page has an address, and nothing in the Note's data.
+    return [{ tag: `img[data-type="${PICTURE_NODE}"][src^="data:image/"]` }];
   },
 
   renderHTML({ HTMLAttributes }) {

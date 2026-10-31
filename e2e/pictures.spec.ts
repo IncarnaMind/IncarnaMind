@@ -284,6 +284,61 @@ test("a photo of about 20 MB dropped is made small enough to keep", async () => 
   }
 });
 
+test("Chrome's Copy image pastes the picture; words copied with one paste as words, said once", async () => {
+  const { app, window, editor } = await startNote("en", 1280);
+  try {
+    // What Chrome's "Copy image" puts on the clipboard: an <img> in HTML with no words, and the image.
+    await window.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 120;
+      canvas.height = 80;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("No canvas.");
+      context.fillStyle = "#224466";
+      context.fillRect(0, 0, 120, 80);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("No picture.");
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!target) throw new Error("No editor.");
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "image.png", { type: "image/png" }));
+      data.setData("text/html", '<img src="https://images.example/chart.png">');
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
+
+    // Words copied with a picture: the words paste, and one line says the picture with them wasn't added.
+    await window.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 60;
+      canvas.height = 40;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("No canvas.");
+      context.fillStyle = "#884422";
+      context.fillRect(0, 0, 60, 40);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("No picture.");
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!target) throw new Error("No editor.");
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "image.png", { type: "image/png" }));
+      data.setData("text/html", "<p>Spring tides rise twice a day.</p>");
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
+    await expect(editor).toContainText("Spring tides rise twice a day.");
+    await expect(window.getByTestId("copied-line")).toContainText(
+      "Pasted the text; a picture with it wasn’t added.",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("a HEIC pasted is read by the computer's own decoder", async () => {
   test.skip(process.platform !== "darwin", "Only macOS's sips reads a HEIC here.");
   const png = writePicture("photo.png", gradientPng());

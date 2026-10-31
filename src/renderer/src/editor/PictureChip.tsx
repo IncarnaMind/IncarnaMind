@@ -3,24 +3,27 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
 import { useEffect } from "react";
 import type * as Y from "yjs";
-import { PICTURE_NODE } from "../../../core/api";
+import { INCLUDE_IN_CONTEXT_ATTRIBUTE, PICTURE_NODE } from "../../../core/api";
 import { useAnswers } from "../answers";
 import { ImageLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
 import { useModelInUse } from "../modelInUse";
 import { useServiceName } from "../modelNames";
 
-/** Whether the Editor's selection is a picture: the picture is what the Question would ask about. */
-function usePictureSelected(editor: Editor | null): boolean {
+/** The picture the Editor's selection is, and whether its Block is switched out of Question context. */
+function useSelectedPicture(editor: Editor | null): { leftOut: boolean } | null {
   return (
     useEditorState({
       editor,
       selector: ({ editor: current }) => {
-        if (!current || current.isDestroyed) return false;
+        if (!current || current.isDestroyed) return null;
         const { selection } = current.state;
-        return selection instanceof NodeSelection && selection.node.type.name === PICTURE_NODE;
+        if (!(selection instanceof NodeSelection) || selection.node.type.name !== PICTURE_NODE) {
+          return null;
+        }
+        return { leftOut: selection.node.attrs[INCLUDE_IN_CONTEXT_ATTRIBUTE] === false };
       },
-    }) ?? false
+    }) ?? null
   );
 }
 
@@ -33,7 +36,7 @@ function usePictureSelected(editor: Editor | null): boolean {
  */
 export function PictureChip({ editor, doc }: { editor: Editor | null; doc: Y.Doc | null }) {
   const t = useT();
-  const selected = usePictureSelected(editor);
+  const selected = useSelectedPicture(editor);
   const model = useModelInUse(doc);
   const service = useServiceName(model?.providerId ?? null);
   const groups = useAnswers((state) => state.models);
@@ -41,12 +44,13 @@ export function PictureChip({ editor, doc }: { editor: Editor | null; doc: Y.Doc
   useEffect(() => {
     if (selected) useAnswers.getState().loadModels();
   }, [selected]);
-  if (!selected || !model) return null;
-  const group = groups?.find((each) => each.provider.id === model.providerId);
-  const reads = group?.about[model.modelId]?.readsImages;
+  if (!selected) return null;
+  const group = model ? groups?.find((each) => each.provider.id === model.providerId) : undefined;
+  const reads = model ? group?.about[model.modelId]?.readsImages : undefined;
   const onThisComputer = group?.provider.service === null;
-  const words =
-    groups === null
+  const words = selected.leftOut
+    ? t("composer.picture.leftOut")
+    : !model || groups === null
       ? t("composer.picture.about")
       : reads === true
         ? onThisComputer
