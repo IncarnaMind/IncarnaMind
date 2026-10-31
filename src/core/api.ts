@@ -262,8 +262,12 @@ export interface CreateMindInput {
  *   "check-against-document" and `read` on its mark, recording exactly how
  *   much was read. An older version would treat it as a search and check it
  *   again. Older content is version 39 content as it is.
+ * - 40: `currencyClause` on a `claimCheck` mark's `parts` (#2226): the card's
+ *   one line naming the Document clause that says which dollar a bare "$" is,
+ *   which an older editor would strip, losing the line the card shows. Older
+ *   content is version 40 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 39;
+export const CONTENT_SCHEMA_VERSION = 40;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -5794,6 +5798,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
   coverage?: ClaimPartCoverage;
   /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
   readDocuments?: readonly ClaimReadDocument[];
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the part is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string;
 }
 
 export type ClaimPartJudgment = (
@@ -6023,6 +6032,11 @@ export type ClaimCheckResult = ClaimJudgment & {
   figures?: FigureCheckResult[];
   /** Undefined is a missing decomposition; null explicitly means no other assertion. */
   remainder?: ClaimJudgment | null;
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the claim is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string | null;
 };
 
 /**

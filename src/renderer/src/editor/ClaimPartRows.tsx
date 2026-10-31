@@ -353,6 +353,11 @@ function PartRow({
       {part.says && part.verdict === "contradicted" && (
         <p className="claim-card-says">{part.says}</p>
       )}
+      {part.verdict === "supported" && part.currencyClause && (
+        <p data-testid="claim-part-currency-clause" className="citation-card-note">
+          {part.currencyClause}
+        </p>
+      )}
       {part.evidence.map((citation) => (
         <PartCitation
           editor={editor}

@@ -547,7 +547,7 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
  * where the check looked (#1623). Documents IncarnaMind wrote that matched are
  * named, with Count it.
  */
-function ClaimCard({
+export function ClaimCard({
   rootRef,
   claim,
   heading,
@@ -633,6 +633,9 @@ function ClaimCard({
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
   const partRows = claimPartRows(check);
+  // A one-part sentence takes this card, not the parts rows, and its clause is on its one part.
+  const currencyClause =
+    !partRows && state === "supported" ? (check.parts?.[0]?.currencyClause ?? null) : null;
   const unsupportedParts = partRows?.filter((part) => part.verdict === "unsupported") ?? [];
   // A parts card blames a court decision only when it is why every unsupported part is.
   const decisionMissing =
@@ -840,6 +843,11 @@ function ClaimCard({
             {state === "contradicted" && check.says && (
               <p data-testid="claim-says" className="claim-card-says">
                 {check.says}
+              </p>
+            )}
+            {currencyClause && (
+              <p data-testid="claim-currency-clause" className="citation-card-note">
+                {currencyClause}
               </p>
             )}
             {figureSources}

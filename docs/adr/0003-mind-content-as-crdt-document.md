@@ -183,7 +183,6 @@ An absence sentence can be Supported only after the check reads every scoped Doc
 ## Amendment: a table of contents Block (2026-10-30, #1935)
 
 - **Content schema version 38** adds the `tableOfContents` Block to a Note: an atom that draws the Note's headings and jumps to each, in the editor, the exports and Word's own table of contents field. It stores no copy of the headings, so a heading edited above it keeps the list true without rewriting the Block. An older version's editor would drop the node when it saves the Note, so it opens these Notes read-only. Older content is version 38 content as it is.
-- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
 
 ## Amendment: a check reads a chosen Document or Folder whole (2026-10-30, #1554)
 
@@ -197,3 +196,10 @@ A not-found sentence can be checked against the whole text of one Document or Fo
 - **A read never spends more than its budget.** A read of sorted parts that costs about $0.50 or less starts without asking, held to its most or $0.50, whichever is less; any other asks "About $A, up to $B", where $B is twice $A, at least $0.50 and never more than the most it may cost, and is held to $B. The most counts every call at its output limit, far above what a read costs; a read that reaches its budget stops, and Continue asks again. The card's "up to" is always that budget. A sentence whose parts aren't sorted yet always asks, since how many parts it reads isn't known before a model call. The meter refuses, before it is sent, any request of the read (one Run, keyed by `model_requests.run_id`) whose reservation, with what the read's requests settled at and what its open ones reserved, would pass the budget, as it refuses one that would pass the monthly cap; a model with no price, or not billed per token, has none. Once one request is refused the read sends nothing more, and the parts not judged by then are Not checked with the `read-budget` reason. Its `detail` holds the budget, what the read's requests had settled at, one figure on every line it stopped, and for a part whether its read judges the part's absence, as the read's plan had it. The card says "Stopped after $Y; this read may spend up to $X" with Continue, which reads, and prices, only the parts that read stopped before judging, as they were planned: what is left never costs more than the whole. While the read runs, the sentence's card shows only its progress and Stop.
 - **Every read has its plan.** `planDocumentCheck` sizes the read for its sentences, or its one part, and its pick, counting each window once for every part it will check, and the read names that plan. A newer plan in the Note stops a read already running, and a read whose plan is no longer the Note's latest sends nothing, checked again after consent and before each window. Check again and Accept all and check ask through the sentence's card as the first read did.
 - **No table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: the card names the clause that says which dollar (2026-10-31, #2226)
+
+A Supported sentence whose Document states which dollar a bare "$" is shows that line on its card, with the Document and where it stands.
+
+- **Content schema version 40** adds `currencyClause` to a `claimCheck` mark's `parts`: the card's one line, naming the Document, its Location and the clause's own words. An older version's editor would strip the field, losing the line the card shows, so it opens these Notes read-only. Older content is version 40 content as it is.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
