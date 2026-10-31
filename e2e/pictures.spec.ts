@@ -134,6 +134,7 @@ const keptPicture = (editor: Locator) =>
 test("a screenshot pasted becomes a picture; its description is written in place, and ⌘Z takes each back", async () => {
   const { app, window, editor } = await startNote("en", 900);
   try {
+    await shot(window, "pictures-before");
     // ⌘K reaches it too, as every command.
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
