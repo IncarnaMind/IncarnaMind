@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
+import type { Logger } from "./adapters";
 import type {
   FileWriteRequest,
   LinkedFolder,
@@ -77,6 +78,7 @@ export interface OutputFilesOptions {
   linkedFolders(): readonly Pick<LinkedFolder, "id" | "path">[];
   /** Records the fingerprint of a file IncarnaMind wrote, before it is written (see ./documents/ownFiles). */
   recordOwnFile(data: Uint8Array, kind: OwnFileKind, folderId: string | null): void;
+  log: Logger;
 }
 
 /** A question as a save raises it, before it has an id. */
@@ -345,6 +347,16 @@ export function createOutputFiles(options: OutputFilesOptions) {
     return { folder: real, defaulted: false };
   };
 
+  const isDefaultFolder = async (folder: string): Promise<boolean> => {
+    try {
+      return (await realFolder(options.suggested)) === folder;
+    } catch (error) {
+      // The default was never made when the User chose another folder first: that is not a fault.
+      if (!isGone(error)) options.log.warn("output.defaultFolder", { error: String(error) });
+      return false;
+    }
+  };
+
   /**
    * A folder the caller named, links followed: inside the Output location or a Linked folder,
    * or anywhere the User allowed for this file.
@@ -462,12 +474,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
           changed();
         }
         const path = join(folder, used);
-        const inDefaultFolder =
-          defaulted ||
-          (await realFolder(options.suggested).then(
-            (real) => real === folder,
-            () => false,
-          ));
+        const inDefaultFolder = defaulted || (await isDefaultFolder(folder));
         const made = { path, name: used, folder, defaulted, inDefaultFolder };
         saved.set(path, made);
         return made;

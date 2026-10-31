@@ -3680,7 +3680,7 @@ export const zhCN = {
   "skills.settings.actions": "{name}的操作",
   "skills.settings.edit": "编辑",
   "skills.settings.export": "导出为 ZIP",
-  "skills.settings.exported": "已保存 {name}",
+  "skills.settings.exported": "已保存“{name}”到“{folder}”",
   "skills.settings.exportFailed": "无法保存 ZIP：{reason}",
   "skills.settings.exportNotAllowed": "你还没有允许在关联文件夹“{folder}”中新建文件。",
   "skills.settings.exportAllow": "允许",
