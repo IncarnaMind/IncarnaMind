@@ -47,7 +47,9 @@ test("Settings opens the logs folder, whose log says what happened without the U
   const [opened] = await pathsOpened(app);
   expect(await realpath(opened ?? "")).toBe(await realpath(join(dataDir, "logs")));
   const log = await readFile(join(dataDir, "logs", "incarnamind.log"), "utf8");
-  expect(log).toMatch(/ INFO {2}app\.start version=\S+ electron=\S+ os=\S+ osVersion=\S+/);
+  expect(log).toMatch(
+    / INFO {2}app\.start version=\S+ electron=\S+ os=\S+ osVersion=\S+ arch=\S+ packaged=\S+ pid=\d+\n/,
+  );
   expect(log).toMatch(/ INFO {2}document\.status documentId=\S+ kind=markdown status=ready/);
   expect(log).toMatch(/ WARN {2}document\.failed documentId=\S+ kind=pdf reason=unreadable/);
   expect(log).toContain(

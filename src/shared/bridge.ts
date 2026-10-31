@@ -28,6 +28,15 @@ export const SERVED_CHANNEL = "host:served";
  */
 export const FILES_BRIDGE_KEY = "incarnamindFiles";
 
+/**
+ * What ended unexpectedly (`FilesBridge.takeUnexpectedEnd`): the app's last run, with no quit;
+ * the last run, ended by the system with `unsaved` changes it couldn't store; or this window's page.
+ */
+export type UnexpectedEnd =
+  | { kind: "app" }
+  | { kind: "session"; unsaved: number }
+  | { kind: "window" };
+
 export interface FilesBridge {
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
   pathForFile(file: File): string;
@@ -119,6 +128,13 @@ export interface FilesBridge {
    * `ELECTRON_DISABLE_SANDBOX`), the check Analyses make too: the window says so.
    */
   runsWithoutSandbox(): Promise<boolean>;
+  /**
+   * How this window's page or the app's last run ended unexpectedly, said once to the window that
+   * shows it (#2309): to the first window after a run that crashed, was forced to quit, or was ended
+   * by the system before it stored its changes; or to a page loaded again after it crashed. Null
+   * otherwise, and on every later ask.
+   */
+  takeUnexpectedEnd(): Promise<UnexpectedEnd | null>;
   /** Writes an error nothing in the window caught to the log, scrubbed of the User's content. */
   logError(report: RendererErrorReport): void;
   /** Calls `listener` with each command chosen in the application menu. Returns how to stop. */
@@ -223,6 +239,7 @@ export const FILES_CHANNELS = {
   pickFileToVerify: "files:pickFileToVerify",
   showLinkedFolder: "files:showLinkedFolder",
   runsWithoutSandbox: "files:runsWithoutSandbox",
+  takeUnexpectedEnd: "files:takeUnexpectedEnd",
   logError: "files:logError",
   /** From the page: the sidebar is hidden (true) or shown (false), for the View menu's label. */
   sidebarHidden: "app:sidebarHidden",

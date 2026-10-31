@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -240,7 +240,7 @@ describe("Changes storage refuses (#1119)", () => {
   });
 
   // protects=a run that ends without quitting while changes wait (a crash) leaves their count for the next start, said once; a run that quits leaves none, as the quit sheet told the User; fails_when=the next start says nothing of a crash's loss, says it twice, or speaks after a quit; no_claim=what the count file survives.
-  test("a crash leaves the count of changes lost for the next start, once; quitting leaves none", async () => {
+  test("a crash leaves the count of changes lost for the next start, once; quitting leaves 0", async () => {
     const dataDir = await createTempDataFolder();
     const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-temp-"));
     const paths = {
@@ -261,7 +261,53 @@ describe("Changes storage refuses (#1119)", () => {
     expect(await next.takeLostChanges()).toBeNull();
     crashed.close();
     restore();
+    expect(await startCore(dataDir, { paths }).takeLostChanges()).toBe(0);
+  });
+
+  // protects=the next start says nothing was lost only when the last run wrote that down (#2309); fails_when=a count that couldn't be written reads as 0, so a crash's loss is said to be nothing; no_claim=a temporary folder that refuses removing too.
+  test("a run that stored everything leaves 0, and one whose count couldn't be written leaves no answer", async () => {
+    const dataDir = await createTempDataFolder();
+    const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-temp-"));
+    const paths = {
+      dataDir,
+      home: join(dataDir, "home"),
+      documents: join(dataDir, "Documents"),
+      tempDir,
+    };
+    const stored = startCore(dataDir, { paths });
+    const copy = await typingIn(stored);
+    expect(await copy.type(" KEPT")).toBe("stored");
+    expect(await startCore(dataDir, { paths }).takeLostChanges()).toBe(0);
+
+    // The count's file can't be written (here a folder stands in its place, as a full disk would refuse it).
+    const [countFile] = await readdir(tempDir);
+    if (!countFile) throw new Error("The count was never written.");
+    await rm(join(tempDir, countFile));
+    await mkdir(join(tempDir, countFile));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const restore = failWrites(dataDir);
+    await copy.type(" LOST");
+    restore();
+    expect(logged).toHaveBeenCalledWith(
+      "unsaved: the count of changes waiting couldn't be written",
+      expect.anything(),
+    );
     expect(await startCore(dataDir, { paths }).takeLostChanges()).toBeNull();
+  });
+
+  // protects=as Windows ends the session, what waits is stored at once when storage takes it, and what it still refuses is counted for the host to record (#2309); fails_when=the session's end leaves stored changes unsaid as lost or loses count of refused ones; no_claim=Windows's own timing.
+  test("the session's end stores what waits at once, or says how many it still couldn't", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const copy = await typingIn(core);
+    const restore = failWrites(dataDir);
+    await copy.type(" ONE");
+    await copy.type(" TWO");
+    expect(core.sessionEnding()).toBe(2);
+    restore();
+    expect(core.sessionEnding()).toBe(0);
+    expect(await core.unsavedChanges()).toBeNull();
+    expect(await afterRestart(dataDir, copy.mindId)).toBe("<paragraph>BASE ONE TWO</paragraph>");
   });
 
   // protects=quitting while storage still fails quits cleanly, keeps what was stored before, and says in the log which Mind lost how many changes; fails_when=quitting throws, the stored text is damaged, or the loss goes unlogged; no_claim=that the refused change survives, which nothing can store.

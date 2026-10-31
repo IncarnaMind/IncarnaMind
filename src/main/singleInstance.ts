@@ -51,6 +51,14 @@ export class InstanceOwner {
   private onStart: ((start: SecondStart) => boolean) | null = null;
   private readonly requests: string;
 
+  /**
+   * How the run before this one ended, when the User should hear of it (#2309): while in use
+   * without quitting (a crash, a force quit, a power cut), as its `instance-info.json` still says
+   * "ready"; or ended by the system with changes it couldn't store (`sessionEnded`).
+   */
+  readonly lastRunEnd: LastRunEnd | null;
+  private unsavedAtEnd = 0;
+
   constructor(
     private readonly folder: string,
     private readonly lock: InstanceLock,
@@ -58,6 +66,7 @@ export class InstanceOwner {
     readonly previousOwner: boolean,
     private readonly acceptedUpdate?: { record: { id: string }; pendingTarget: string | null },
   ) {
+    this.lastRunEnd = this.lastRunEnded();
     this.requests = join(folder, "instance-requests");
     mkdirSync(this.requests, { recursive: true, mode: 0o700 });
     for (const name of readdirSync(this.requests))
@@ -70,6 +79,23 @@ export class InstanceOwner {
       .unref();
     // File watches can lose an event; a pending start still needs a reply (#2022).
     setInterval(() => this.receive(), 1_000).unref();
+  }
+
+  private lastRunEnded(): LastRunEnd | null {
+    let last: unknown;
+    try {
+      last = readJson(join(this.folder, "instance-info.json"));
+    } catch (error) {
+      this.report("app.lastRunUnreadable", error);
+      return null;
+    }
+    if (!identity(last) || !isRecord(last)) return null;
+    const run = { pid: last.pid, startedAt: last.startedAt };
+    if (last.phase === "ready") return { ...run, kind: "app" };
+    const unsaved = last.unsavedAtEnd;
+    return last.phase === "quitting" && Number.isSafeInteger(unsaved) && Number(unsaved) > 0
+      ? { ...run, kind: "session", unsaved: Number(unsaved) }
+      : null;
   }
 
   get pendingUpdate(): string | null {
@@ -106,6 +132,14 @@ export class InstanceOwner {
     if (prevented) this.receive();
   }
 
+  /** The system ends the session, and the process with it, with `unsaved` changes not stored. */
+  sessionEnded(unsaved: number): void {
+    if (this.phase === "installing") return;
+    this.phase = "quitting";
+    this.unsavedAtEnd = unsaved;
+    this.publishState();
+  }
+
   installing(reopens = true): void {
     this.phase = "installing";
     this.installReopens = reopens;
@@ -118,6 +152,8 @@ export class InstanceOwner {
       phase: this.phase,
       progress: this.progress,
       ...(this.phase === "installing" && { reopens: this.installReopens }),
+      ...(this.phase === "quitting" &&
+        this.unsavedAtEnd > 0 && { unsavedAtEnd: this.unsavedAtEnd }),
     });
   }
 
@@ -167,6 +203,9 @@ export class InstanceOwner {
     }
   }
 }
+
+/** How the run before ended, for the next start to say (`InstanceOwner.lastRunEnd`). */
+export type LastRunEnd = Identity & ({ kind: "app" } | { kind: "session"; unsaved: number });
 
 export type Instance =
   | { kind: "owner"; owner: InstanceOwner }

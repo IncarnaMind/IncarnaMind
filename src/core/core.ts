@@ -406,6 +406,11 @@ export interface Core extends CoreApi, CoreEventSource {
   reconcileDocuments(): Promise<void>;
   /** The computer is about to sleep: a Meeting recording saves what it has and stops capturing. */
   systemSleeping(): void;
+  /**
+   * The system ends the session and the process with it, with no quit (Windows): stores the
+   * changes that wait, at once, and says how many still wait (0 when none), for the host to record.
+   */
+  sessionEnding(): number;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /** Every event the core emits, for the host to forward to the UI. */
@@ -6016,6 +6021,10 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),
     systemSleeping: () => meetings.sleeping(),
+    sessionEnding: () => {
+      content.storeWaiting();
+      return unsaved.summary()?.count ?? 0;
+    },
     systemAwake: () => meetings.awake(),
     on: (event, listener) => events.on(event, listener),
     onAnyEvent: (listener) => events.onAny(listener),

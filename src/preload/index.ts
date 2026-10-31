@@ -127,6 +127,7 @@ const files: FilesBridge = {
   pickFileToVerify: () => invoke(FILES_CHANNELS.pickFileToVerify),
   showLinkedFolder: (linkedFolderId) => invoke(FILES_CHANNELS.showLinkedFolder, linkedFolderId),
   runsWithoutSandbox: () => invoke(FILES_CHANNELS.runsWithoutSandbox),
+  takeUnexpectedEnd: () => invoke(FILES_CHANNELS.takeUnexpectedEnd),
   logError: (report) => send(FILES_CHANNELS.logError, report),
   onMenuCommand: (listener) => {
     const receive = (_event: unknown, command: MenuCommand) => listener(command);
