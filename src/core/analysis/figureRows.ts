@@ -99,7 +99,8 @@ export function rowsText(rows: AnalysisFigureRows["rows"], shown = 6): string {
   const runs = rows
     .slice(0, shown)
     .map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`));
-  const more = rows.length > shown ? ` and ${rows.length - shown} more runs` : "";
+  const left = rows.length - shown;
+  const more = left > 0 ? ` and ${left} more ${left === 1 ? "run" : "runs"}` : "";
   const one = rows.length === 1 && rows[0]?.[0] === rows[0]?.[1];
   return `${one ? "row" : "rows"} ${runs.join(", ")}${more}`;
 }
