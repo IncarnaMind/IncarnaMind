@@ -6185,6 +6185,7 @@ export const zhCN = {
   "look.keywords": "Word 样式 格式 普通",
   "look.fonts.missing.one": "1 种字体未安装，已用最接近的字体显示",
   "look.fonts.missing": "{count} 种字体未安装，已用最接近的字体显示",
+  "look.fonts.separator": "、",
   "wordImport.openOriginal": "打开原文件",
   "wordImport.notAdded": "未能把“{name}”加入资料库，回答无法引用它。",
   "wordImport.addToLibrary": "加入资料库",

@@ -138,10 +138,14 @@ test("a font this computer lacks is drawn with the nearest of its kind, and the 
     new RegExp(`^"${MISSING_FONT}", "Times New Roman", .*\\bCaladea\\b.*serif$`),
   );
   const menu = await openPageMenu(window);
-  await expect(menu.getByTestId("look-fonts")).toHaveText(
+  await expect(menu.getByTestId("look-fonts")).toContainText(
     "1 font isn’t installed: shown with the nearest",
   );
-  await expect(menu.getByTestId("look-fonts")).toHaveAttribute("title", MISSING_FONT);
+  await expect(menu.getByTestId("look-fonts-names")).toHaveText(MISSING_FONT);
+  // The file's look is the item the keyboard reaches; a screen reader reads the fonts line with it.
+  await expect(menu.getByTestId("look-word")).toHaveAccessibleDescription(
+    new RegExp(`^1 font isn’t installed: shown with the nearest\\s*${MISSING_FONT}$`),
+  );
   if (SCREENSHOTS) {
     await motionSettled(window);
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-fonts-menu.png") });
@@ -162,8 +166,12 @@ test("a font this computer lacks is drawn with the nearest of its kind, and the 
 
   await setLanguage(window, "zh-CN");
   const chinese = await openPageMenu(window);
-  await expect(chinese.getByTestId("look-fonts")).toHaveText(
+  await expect(chinese.getByTestId("look-fonts")).toContainText(
     "1 种字体未安装，已用最接近的字体显示",
+  );
+  await expect(chinese.getByTestId("look-fonts-names")).toHaveText(MISSING_FONT);
+  await expect(chinese.getByTestId("look-word")).toHaveAccessibleDescription(
+    new RegExp(`^1 种字体未安装，已用最接近的字体显示\\s*${MISSING_FONT}$`),
   );
   if (SCREENSHOTS) {
     await motionSettled(window);

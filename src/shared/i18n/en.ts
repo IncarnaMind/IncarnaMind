@@ -6506,6 +6506,7 @@ export const en = {
   "look.keywords": "Word style format plain",
   "look.fonts.missing.one": "1 font isn’t installed: shown with the nearest",
   "look.fonts.missing": "{count} fonts aren’t installed: shown with the nearest",
+  "look.fonts.separator": ", ",
   "wordImport.openOriginal": "Open the original",
   "wordImport.notAdded": "“{name}” couldn’t be added to the Library, so Answers can’t cite it.",
   "wordImport.addToLibrary": "Add to Library",

@@ -353,7 +353,7 @@ function DocumentInfo({ document }: { document: Document }) {
                 ? t("look.fonts.missing.one")
                 : t("look.fonts.missing", { count: missing.length })}
             </span>
-            <span className="block text-ink-meta">{missing.join(", ")}</span>
+            <span className="block text-ink-meta">{missing.join(t("look.fonts.separator"))}</span>
           </Row>
         )}
         {chips.length > 0 && (

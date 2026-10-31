@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { CommandId } from "../../../shared/commands";
 import type { MindLook } from "../../../shared/wordLook";
 import { type CommandContext, commands } from "../commands/registry";
@@ -22,6 +23,7 @@ export function LookMenuItems({ mindId, close }: { mindId: string; close(): void
   const t = useT();
   const shown = useWordLooks((state) => state[mindId]);
   useFontLoads();
+  const fontsId = useId();
   if (!shown) return null;
   const ctx: CommandContext = {
     selection: [],
@@ -38,6 +40,8 @@ export function LookMenuItems({ mindId, close }: { mindId: string; close(): void
       type="button"
       role="menuitemradio"
       aria-checked={shown.shown === look}
+      // The fonts line isn't an item: the file's look, which draws them, is described by it.
+      aria-describedby={look === "word" && missing.length > 0 ? fontsId : undefined}
       data-testid={`look-${look}`}
       onClick={() => (shown.shown === look ? close() : run(LOOK_COMMANDS[look]))}
       className={`${menuItemClass} pl-2`}
@@ -55,13 +59,18 @@ export function LookMenuItems({ mindId, close }: { mindId: string; close(): void
       {option("plain", t("look.plain"))}
       {missing.length > 0 && (
         <p
+          id={fontsId}
           data-testid="look-fonts"
-          title={missing.join(", ")}
           className="px-2 py-0.5 text-[12px] leading-5 text-ink-meta"
         >
-          {missing.length === 1
-            ? t("look.fonts.missing.one")
-            : t("look.fonts.missing", { count: missing.length })}
+          <span className="block">
+            {missing.length === 1
+              ? t("look.fonts.missing.one")
+              : t("look.fonts.missing", { count: missing.length })}
+          </span>
+          <span className="block" data-testid="look-fonts-names">
+            {missing.join(t("look.fonts.separator"))}
+          </span>
         </p>
       )}
     </>
