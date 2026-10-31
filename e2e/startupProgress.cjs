@@ -1,5 +1,5 @@
 const { appendFileSync, existsSync, watch } = require("node:fs");
-const { join } = require("node:path");
+const { basename, join } = require("node:path");
 const { app, BrowserWindow, dialog } = require("electron");
 const { createVisibilitySampler } = require("./lifecycleVisibility.cjs");
 
@@ -104,6 +104,29 @@ if (mode === "slow") {
   });
   app.whenReady = () => ready().then(() => continued);
   setTimeout(() => record("delay-elapsed"), 12_000);
+}
+
+if (mode === "held-storage") {
+  const sqlite = require("node:sqlite");
+  const Database = sqlite.DatabaseSync;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  let held = false;
+  // As a slow disk does on a first start (#2104): the main thread stays in the content database's
+  // open until the test releases it.
+  sqlite.DatabaseSync = class extends Database {
+    constructor(file, ...rest) {
+      if (!held && basename(String(file)) === "incarnamind.db") {
+        held = true;
+        const windows = BrowserWindow.getAllWindows();
+        record("storage-held", {
+          visibleWindows: windows.filter((window) => window.isVisible()).length,
+          pages: windows.map((window) => window.webContents.getURL()),
+        });
+        while (!existsSync(join(folder, "release"))) Atomics.wait(pause, 0, 0, 50);
+      }
+      super(file, ...rest);
+    }
+  };
 }
 
 if (mode === "quitting") {
