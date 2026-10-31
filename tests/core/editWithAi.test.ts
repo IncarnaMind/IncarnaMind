@@ -63,10 +63,14 @@ const textOf = (prompt: Prompt, role: "user" | "system") =>
     )
     .join("\n");
 
-/** A model that rewrites each passage with `edit`, streamed a few characters at a time; automatic tagging gets no Tags. */
+/**
+ * A model that rewrites each passage with `edit`, streamed a few characters at a time; automatic
+ * tagging gets no Tags. `finished: "length"`: each reply ends at its output limit, cut off.
+ */
 function editingModel(
   edit: (call: EditCall) => string | Promise<string>,
   calls: EditCall[] = [],
+  { finished = "stop" }: { finished?: "stop" | "length" } = {},
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doGenerate: async () => ({
@@ -84,7 +88,7 @@ function editingModel(
         system: textOf(prompt, "system"),
       };
       calls.push(call);
-      return { stream: streamedReply(await edit(call), abortSignal) };
+      return { stream: streamedReply(await edit(call), abortSignal, { finished }) };
     },
   });
 }
@@ -1731,7 +1735,7 @@ describe("Edit with AI over Blocks of several kinds", () => {
       ],
       leftOut: 0,
     },
-    { table: ["| Tide |", "|---|", "| Spring |", "| Neap |", "| Storm |"], leftOut: 2 },
+    { table: ["| Tide |", "|---|", "| Spring |", "| Neap |", "| Storm |"], leftOut: 3 },
   ])(
     "a table stands in for list items only when it says nearly all their words: $leftOut left out",
     async ({ table, leftOut }) => {
@@ -3563,5 +3567,254 @@ describe("Edit with AI keeps bold and italic (#1897)", () => {
       await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
     ).toEqual({ kind: "unchanged" });
     expect(pendingProposals(client.blocks)).toEqual([]);
+  });
+});
+
+describe("An edit never loses the User's words (#2333)", () => {
+  const plain = (lines: readonly string[]) => lines.map((line) => paragraph(text(line)));
+
+  /** A Note of these Blocks, and a model that answers every edit with `reply`. */
+  async function noteOf(
+    blocks: JSONContent[],
+    reply: (call: EditCall) => string | Promise<string>,
+    options: { finished?: "stop" | "length" } = {},
+  ) {
+    const calls: EditCall[] = [];
+    const set = await setUp(editingModel(reply, calls, options));
+    writeMind(set.client, blocks);
+    await set.client.settled();
+    return { ...set, calls, before: readMind(set.client).toJSON() };
+  }
+
+  /** Accepts the edit as the window does and gives what the Note shows; then Undo, and the Note is exactly `before`. */
+  async function acceptThenUndo(client: MindClient, before: unknown): Promise<string[]> {
+    const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+    await resolveChanges(client, "accept");
+    const accepted = shownWithChanges(client);
+    undo.undo();
+    await client.settled();
+    await resolveChanges(client, "reject");
+    expect(readMind(client).toJSON()).toEqual(before);
+    return accepted;
+  }
+
+  // protects=a <removed> the User typed stays their text when the model writes it back without the backslash the passage showed it with, while the reply's own mark still takes out what it quotes; English and Chinese; fails_when=the typed tags, or the words after or between them, leave the Note; no_claim=how often a real model drops the escape.
+  test.each([
+    {
+      typed: "Write <removed>draft</removed> in the subject line.",
+      from: "Write",
+      to: "Type",
+      gone: "Old line to drop.",
+    },
+    {
+      typed: "Start a cut with <removed> and end it with the closing tag.",
+      from: "Start",
+      to: "Begin",
+      gone: "Old line to drop.",
+    },
+    {
+      typed: "在主题行写<removed>草稿</removed>即可。",
+      from: "即可",
+      to: "就行",
+      gone: "这一行可以删掉。",
+    },
+  ])("a typed mark written back without its escape stays text: $typed", async (each) => {
+    const { core, mind, client, calls, before } = await noteOf(
+      plain([each.typed, each.gone]),
+      ({ passage }) =>
+        [
+          (passage.split("\n\n")[0] ?? "").replaceAll("\\<", "<").replace(each.from, each.to),
+          `<removed>${each.gone}</removed>`,
+        ].join("\n\n"),
+    );
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Fix the wording and drop the last line"),
+    );
+
+    expect(calls[0]?.passage).toContain("\\<removed>");
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(await acceptThenUndo(client, before)).toEqual([each.typed.replace(each.from, each.to)]);
+  });
+
+  // protects=words the User types into a paragraph while the model works stay when the reply takes that paragraph out whole: that change arrives out of date and is never accepted, while a paragraph the same reply takes out that the User didn't touch goes; English and Chinese; fails_when=the typed words go with the paragraph, or the untouched one stays; no_claim=what the window shows for the change out of date.
+  test.each([
+    {
+      lines: [
+        "Rent is due on the first.",
+        "Keys are at the front desk.",
+        "Water is billed quarterly.",
+      ],
+      typed: " Bring the fob.",
+    },
+    { lines: ["房租每月一号交。", "钥匙在前台。", "水费按季度收。"], typed: "记得带门禁卡。" },
+  ])(
+    "words typed meanwhile stay in a paragraph the edit takes out: $typed",
+    async ({ lines, typed }) => {
+      let release = () => {};
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const [rent = "", keys = "", water = ""] = lines;
+      const { core, mind, client, calls } = await noteOf(plain(lines), async () => {
+        await waiting;
+        return [`<removed>${rent}</removed>`, `<removed>${keys}</removed>`, water].join("\n\n");
+      });
+
+      const editing = core.editWithAi(wholeMind(client, mind.id, "Delete the rent and keys lines"));
+      await expect.poll(() => calls.length).toBe(1);
+      const words = (client.blocks.get(1) as Y.XmlElement).get(0) as Y.XmlText;
+      words.insert(words.length, typed);
+      await client.settled();
+      const before = readMind(client).toJSON();
+      release();
+
+      expect(await editing).toMatchObject({ kind: "proposed", outOfDate: 1 });
+      const accepted = await acceptThenUndo(client, before);
+      // The change to the paragraph typed into still waits, out of date: the Note reads with its words.
+      expect(accepted).toEqual([`- ${keys}${typed}`, water]);
+      expect(await exported(core, mind.id)).toContain(`${keys}${typed}`);
+    },
+  );
+
+  // protects=a reply that ends at its output limit changes nothing, for a fixed action and a request in the User's words alike, and fails as cut short, while the same reply ended in full is applied; English and Chinese; fails_when=the paragraphs after the cut are proposed for deletion, or the last one is written over with its cut text; no_claim=which providers report the limit.
+  test.each([
+    {
+      lines: [
+        "Rent is due on the first of each month.",
+        "Keys are at the front desk downstairs.",
+        "Water is billed every quarter by the city.",
+      ],
+      reply: "Rent is due on the first.\n\nKeys are at the fr",
+    },
+    {
+      lines: ["房租在每个月的一号交给房东。", "钥匙放在楼下的前台。", "水费由市里每个季度收一次。"],
+      reply: "房租每月一号交。\n\n钥匙在",
+    },
+  ])("a reply cut off at its limit changes nothing: $reply", async ({ lines, reply }) => {
+    for (const action of ["shorten", "instruction"] as const) {
+      const { core, mind, client } = await noteOf(plain(lines), () => reply, {
+        finished: "length",
+      });
+
+      const result = await core.editWithAi({
+        ...wholeMind(client, mind.id, "Make it shorter"),
+        action,
+      });
+
+      expect(result).toMatchObject({ kind: "failed", error: { kind: "cut-short" } });
+      expect(pendingProposals(client.blocks)).toEqual([]);
+      expect(shownWithChanges(client)).toEqual(lines);
+    }
+    const ended = await noteOf(plain(lines), () => reply);
+    expect(
+      await ended.core.editWithAi(wholeMind(ended.client, ended.mind.id, "Make it shorter")),
+    ).toMatchObject({ kind: "proposed" });
+    expect(shownWithChanges(ended.client)).not.toEqual(lines);
+  });
+
+  const COSTS = {
+    English: {
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      added: "Internet is 40 a month.",
+      changed: "Parking is 120 a month.",
+      translated: [
+        "Le loyer est de 1 200 par mois.",
+        "Le parking coûte 100 par mois.",
+        "L'eau coûte 30 par mois.",
+      ],
+    },
+    Chinese: {
+      lines: ["房租每月1200元。", "停车每月100元。", "物业每月30元。"],
+      added: "网络每月40元。",
+      changed: "停车每月120元。",
+      translated: [
+        "Rent is 1,200 yuan a month.",
+        "Parking is 100 yuan a month.",
+        "Building fees are 30 yuan a month.",
+      ],
+    },
+  };
+
+  // protects=a new line on the pattern of the selection's lines, given alone or after one of them as context, is added, and every line stays, in English and Chinese; Undo takes it back exactly; fails_when=it is written over the first line, the nearest, or the one after the context; no_claim=where a real model puts a new line.
+  test.each([
+    { language: "English" as const, context: false },
+    { language: "English" as const, context: true },
+    { language: "Chinese" as const, context: false },
+    { language: "Chinese" as const, context: true },
+  ])(
+    "a partial reply's new line is added beside lines like it: $language, context $context",
+    async ({ language, context }) => {
+      const { lines, added } = COSTS[language];
+      const reply = context ? [lines[1], added].join("\n\n") : added;
+      const { core, mind, client, before } = await noteOf(plain(lines), () => reply);
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Add a line for internet"));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      const accepted = await acceptThenUndo(client, before);
+      expect(accepted).toHaveLength(4);
+      expect(accepted).toEqual(expect.arrayContaining([...lines, added]));
+    },
+  );
+
+  // protects=a partial reply that rewrites one line of several alike changes that line and no other, and a rewrite of every line (a translation asked in the User's words) still pairs each with the one in its place; English and Chinese; fails_when=the rewrite is added beside its line, or the translation is added under the lines it translates; no_claim=how a real model words either.
+  test.each(["English", "Chinese"] as const)(
+    "a line rewritten changes that line, and a translation of all takes their places: %s",
+    async (language) => {
+      const { lines, changed, translated } = COSTS[language];
+      const one = await noteOf(plain(lines), () => changed);
+      await one.core.editWithAi(wholeMind(one.client, one.mind.id, "Make parking 120"));
+      expect(await acceptThenUndo(one.client, one.before)).toEqual([lines[0], changed, lines[2]]);
+
+      const all = await noteOf(plain(lines), () => translated.join("\n\n"));
+      await all.core.editWithAi(wholeMind(all.client, all.mind.id, "Translate it"));
+      expect(await acceptThenUndo(all.client, all.before)).toEqual(translated);
+    },
+  );
+
+  // protects=a stray line and a new line in a partial reply, after the line it repeats, are added, and the sections after them stay as they were; English and Chinese; fails_when=they take the place of the paragraphs that follow (seen on Claude Haiku 5.5 in #2192's check); no_claim=what a real model writes.
+  test.each([
+    {
+      heading: ["Benefits", "Pay", "Office"],
+      bullets: ["25 days of annual leave.", "Free parking at the north site."],
+      paragraphs: [
+        "The salary is set by grade 7 and paid monthly.",
+        "The office is on the third floor.",
+      ],
+      stray: "Wait, I must write the new bullet. Here it is:",
+      fresh: "Parking at the north site is no longer free.",
+    },
+    {
+      heading: ["福利", "薪酬", "办公室"],
+      bullets: ["每年25天年假。", "北区免费停车。"],
+      paragraphs: ["薪资按7级发放，每月支付。", "办公室在三楼。"],
+      stray: "等等，我得写出新的要点，如下：",
+      fresh: "北区停车不再免费。",
+    },
+  ])("a stray line in a partial reply writes over nothing: $stray", async (each) => {
+    const [benefits = "", pay = "", office = ""] = each.heading;
+    const [salary = "", floor = ""] = each.paragraphs;
+    const bulletList: JSONContent = {
+      type: "bulletList",
+      content: each.bullets.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
+    };
+    const { core, mind, client, before } = await noteOf(
+      [
+        headingOf(benefits),
+        bulletList,
+        headingOf(pay),
+        paragraph(text(salary)),
+        headingOf(office),
+        paragraph(text(floor)),
+      ],
+      () => [`- ${each.bullets[1]}`, each.stray, each.fresh].join("\n\n"),
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Change the parking bullet"));
+
+    const accepted = await acceptThenUndo(client, before);
+    expect(accepted.slice(-4)).toEqual([pay, salary, office, floor]);
+    expect(accepted).toEqual(expect.arrayContaining([...each.bullets, each.stray, each.fresh]));
   });
 });
