@@ -1,4 +1,13 @@
-import { type ReactNode, type ToggleEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type ToggleEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
@@ -6,20 +15,24 @@ import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { commands } from "../commands/registry";
 import { core } from "../core";
+import { Popover } from "../editor/Popover";
 import { useLanguage, useT } from "../i18n";
 import { useKeyRefusals } from "../keyRefusals";
 import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
+import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useOwnDocuments } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
 import { useSettled } from "../settling";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useTaggingAlert } from "../taggingAlert";
-import { useTaggingExplained } from "../taggingExplained";
-import { planLimitLine, taggingProblem } from "../taggingProblem";
+import { pageImagesSent } from "../taggingDestination";
+import { planLimitLine, taggingProblem, taggingProblemService } from "../taggingProblem";
 import { failedTagging, retryTagging } from "../taggingRetry";
+import { taggingSends } from "../taggingSends";
 import { placesText, resumeTagging, stoppedDocumentPlaces, taggingPlaces } from "../taggingStop";
 import { textRecognitionStatus, useTextRecognition } from "../textRecognition";
 import {
@@ -36,10 +49,15 @@ import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
 import { testErrorKey } from "./providers/shared";
 import { rowActionButtonClass } from "./sidebarRows";
 import { useTaggingService } from "./useTaggingService";
+import { useTip } from "./useTip";
 
-/** The status row's button: a small ghost one, inside the 28px row. */
 const statusActionClass =
-  "inline-flex h-6 shrink-0 items-center rounded-md px-2 text-[12px] font-semibold text-ink-secondary hover:bg-rule hover:text-ink focus-visible:outline-offset-0 aria-expanded:bg-rule aria-expanded:text-ink";
+  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0";
+
+const statusActionPillClass =
+  "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
+
+const statusActionPillOpenClass = "bg-rule text-ink";
 
 /** The gap between the "+N" button and the list of the other statuses above it. */
 const GAP_PX = 4;
@@ -82,6 +100,8 @@ interface Status {
   dismissLabel?: string;
   /** It may take two lines, its action said after it, so nothing it names is cut off. */
   wraps?: boolean;
+  /** What is sent, as the row's popover says it: opened on hover, a click or the keyboard. */
+  sends?: string;
   /** A failed model download's Details (./DownloadSources): their toggle in the line, their panel under it. */
   details?: { toggle: ReactNode; panel: ReactNode };
   /** It asks the User's consent, which is never hidden (ADR-0022). */
@@ -106,8 +126,11 @@ interface Status {
  */
 export function SidebarStatus({ problemsOnly = false }: { problemsOnly?: boolean }) {
   const statuses = useStatuses();
+  // The quiet first open draws none of these rows, so their time starts when it ends.
   const shown = useSettled(
-    statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
+    problemsOnly
+      ? []
+      : statuses.filter((status) => !isProblem(status)).map((status) => status.testId),
   );
   // A status the work has left stays its last 500 ms as it was.
   const seen = useRef(new Map<string, Status>());
@@ -154,13 +177,13 @@ const isProblem = (status: Status) =>
 
 function StatusRow({ status, children }: { status: Status; children?: ReactNode }) {
   const t = useT();
-  const { tone, short, figure, full, action, dismiss, details } = status;
+  const { tone, short, figure, full, action, dismiss, details, sends } = status;
   const wraps = status.wraps === true || details !== undefined;
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
       data-testid={status.testId}
-      title={full}
+      title={sends === undefined ? full : undefined}
       className={`flex shrink-0 gap-2 pr-1 pl-2 text-[13px] leading-5 text-ink-meta ${
         wraps ? "min-h-7 items-start py-1" : "h-7 items-center"
       }`}
@@ -200,10 +223,17 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
           {details?.panel}
         </span>
       ) : (
-        <span aria-hidden="true" className="flex min-w-0 flex-1 items-center gap-1">
-          <span data-testid="status-label" className="min-w-0 truncate">
-            {figure ? `${short} ·` : short}
-          </span>
+        <span
+          aria-hidden={sends === undefined ? true : undefined}
+          className="flex min-w-0 flex-1 items-center gap-1"
+        >
+          {sends === undefined ? (
+            <span data-testid="status-label" className="min-w-0 truncate">
+              {figure ? `${short} ·` : short}
+            </span>
+          ) : (
+            <StatusSends short={figure ? `${short} ·` : short} sends={sends} />
+          )}
           {figure && (
             <span data-testid="status-figure" className="shrink-0 tabular-nums">
               {figure}
@@ -211,18 +241,23 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
           )}
         </span>
       )}
-      <span className="sr-only">{full}</span>
+      {sends === undefined && <span className="sr-only">{full}</span>}
       {children}
       {action && !wraps && (
-        <button
-          type="button"
-          data-testid={action.testId}
-          title={action.title}
-          onClick={action.run}
-          className={statusActionClass}
-        >
-          {action.label}
-        </button>
+        <>
+          <span aria-hidden="true" className="-mx-1 shrink-0">
+            ·
+          </span>
+          <button
+            type="button"
+            data-testid={action.testId}
+            title={action.title}
+            onClick={action.run}
+            className={statusActionClass}
+          >
+            <span className={statusActionPillClass}>{action.label}</span>
+          </button>
+        </>
       )}
       {dismiss && (
         <button
@@ -236,6 +271,73 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * The row's short text, which opens what is sent: on hover, a click, or the
+ * keyboard. The tip waits while the pointer is over it, so its sentence can be
+ * read, and a click holds it until Esc or a press elsewhere.
+ */
+function StatusSends({ short, sends }: { short: string; sends: string }) {
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const pinned = useRef(false);
+  const tip = useTip(button, () => pinned.current);
+  const dismiss = () => {
+    pinned.current = false;
+    tip.close();
+  };
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        data-testid="status-label"
+        aria-describedby={id}
+        onFocus={tip.show}
+        onBlur={() => (pinned.current ? dismiss() : tip.blur())}
+        onClick={() => {
+          if (pinned.current) dismiss();
+          else {
+            pinned.current = true;
+            tip.show();
+          }
+        }}
+        onPointerMove={tip.point}
+        onPointerLeave={tip.leave}
+        className="min-w-0 truncate rounded-sm text-left focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        {short}
+      </button>
+      {!tip.shown && (
+        <span id={id} role="tooltip" hidden>
+          {sends}
+        </span>
+      )}
+      {tip.shown &&
+        button.current &&
+        createPortal(
+          <Popover
+            anchor={button.current}
+            role="tooltip"
+            id={id}
+            placement="top-start"
+            onDismiss={dismiss}
+            onPointerMove={tip.point}
+            onPointerLeave={tip.leave}
+          >
+            <div
+              data-testid="status-sends"
+              className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-[12px] leading-5 text-ink shadow-popover"
+            >
+              {sends}
+            </div>
+          </Popover>,
+          // Inside the +N list when the row is there, so opening the tip doesn't light-dismiss it.
+          button.current.closest('[data-testid="status-others"]') ?? document.body,
+        )}
+    </>
   );
 }
 
@@ -273,7 +375,9 @@ function MoreStatuses({ others }: { others: Status[] }) {
         title={label}
         className={statusActionClass}
       >
-        {t("status.more", { count: others.length })}
+        <span className={`${statusActionPillClass} ${open ? statusActionPillOpenClass : ""}`}>
+          {t("status.more", { count: others.length })}
+        </span>
       </button>
       <div
         id={id}
@@ -306,9 +410,21 @@ function useStatuses(): Status[] {
   const skipped = useAppStore((state) => state.skippedFiles);
   const cantRecord = useMeetings((state) => state.cantRecord);
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
+  const savedOutside = useAppStore((state) => state.savedOutside);
+  const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
+  // Organize never works on an example's Documents, so its counts are the User's own alone: an
+  // assignment an earlier version left against an example would otherwise progress for ever (#1942).
+  const ownDocuments = useOwnDocuments();
+  const liveStates = useMemo(() => {
+    const held = new Map((library?.assignments ?? []).map((item) => [item.documentId, item]));
+    return ownDocuments.map((doc) => {
+      const item = held.get(doc.id);
+      return { item, state: organizeStateOf(doc, item) };
+    });
+  }, [ownDocuments, library]);
   const organizing = organizes(library);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();
@@ -380,6 +496,10 @@ function useStatuses(): Status[] {
           }
         }
       }
+      // Before a Document of the User's own carries a Tag, the Tags' own progress isn't shown
+      // (#1942). Everything the User can act on stays: a missing consent, a refused key, a rate
+      // limit, a plan's limit and a failure are problems where they happened, Tag or no Tag.
+      if (!ownsATag(state)) tagging = 0;
       return {
         processing,
         scansReading,
@@ -430,19 +550,17 @@ function useStatuses(): Status[] {
   const sandboxNoticeDismissed = useAppStore(
     (state) => state.settings?.device.sandboxNoticeDismissed === true,
   );
+  // The first Tag a Document of the User's own carries: until then, no model is asked for Tags.
+  const tagsShown = useAppStore((state) => ownsATag(state));
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
-  const organizingNow =
-    organizing &&
-    !!library?.assignments.some(
-      (item) => item.status === "pending" || item.status === "classifying",
-    );
-  const taggingService = useTaggingService(
-    organizingNow ? "classification" : "tagging",
-    taggingWaits || tagging || organizingNow,
-  );
+  const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
+  const taggingService = useTaggingService("tagging", taggingWaits || tagging);
+  const organizingService = useTaggingService("classification", organizingNow);
   const taggingNeedsOk =
-    taggingWaits && taggingService && !taggingService.allowed ? taggingService.service : null;
+    taggingWaits && taggingService.route.where === "cloud" && taggingService.allowed === false
+      ? taggingService.route.service
+      : null;
   const refusedService = useTaggingService(
     organizesNew ? "classification" : "tagging",
     counts.keyRefused > 0,
@@ -452,6 +570,16 @@ function useStatuses(): Status[] {
     counts.organizeWaitsForPlan ? "classification" : "tagging",
     counts.waitingForPlan > 0,
   );
+  const problemReader = useTaggingService(
+    "scan-images",
+    (organizesNew && counts.keyRefused > 0) ||
+      (counts.organizeWaitsForPlan && counts.waitingForPlan > 0),
+  );
+  const refusedTo = organizesNew
+    ? taggingProblemService(refusedService.route, problemReader.route)
+    : refusedService.route.where === "cloud"
+      ? refusedService.route.service
+      : null;
   const places = useAppStore(
     useShallow((state) =>
       tagging || organizingNow ? taggingPlaces(state.documents, state.library) : [],
@@ -459,16 +587,16 @@ function useStatuses(): Status[] {
   );
   const stoppedPlaces = useAppStore(
     useShallow((state) =>
-      stoppedDocumentPlaces(
-        state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
-        state.library,
-      ),
+      ownsATag(state)
+        ? stoppedDocumentPlaces(
+            state.documents.filter((each) => isOwnDocument(each, allExamples(state))),
+            state.library,
+          )
+        : [],
     ),
   );
-  const service = taggingService?.service.name;
-  const running = tagging || organizingNow;
   // A scan without text goes to Organize as pictures of its pages.
-  const scans = useAppStore(
+  const readingScans = useAppStore(
     (state) =>
       organizingNow &&
       state.documents.some(
@@ -481,13 +609,8 @@ function useStatuses(): Status[] {
           ),
       ),
   );
-  const explained = useTaggingExplained();
-  const saysWhatIsSent = running && service !== undefined && explained.says(places);
-  useEffect(() => {
-    if (saysWhatIsSent) useTaggingExplained.getState().shown(places);
-    else if (!running) useTaggingExplained.getState().ended();
-  }, [saysWhatIsSent, running, places]);
-  const whatIsSent = scans ? t("status.sendsScans") : "";
+  const pageReader = useTaggingService("scan-images", readingScans);
+  const pageImages = pageImagesSent(readingScans, pageReader);
   const stop = {
     label: t("tagging.stop"),
     testId: "tagging-stop",
@@ -682,6 +805,22 @@ function useStatuses(): Status[] {
     });
   }
 
+  if (savedOutside.length > 0) {
+    const names = savedOutside.map((each) =>
+      each.folder === "" ? each.name : `${each.name} (${each.folder})`,
+    );
+    statuses.push({
+      testId: "saved-outside",
+      tone: "waiting",
+      short:
+        savedOutside.length === 1
+          ? t("status.savedOutside.one")
+          : t("status.savedOutside.other", { count: savedOutside.length }),
+      full: t("documents.savedOutside", { names: names.join(", ") }),
+      dismiss: dismissSavedOutside,
+    });
+  }
+
   if (sandboxOff && !sandboxNoticeDismissed) {
     statuses.push({
       testId: "no-sandbox",
@@ -731,13 +870,18 @@ function useStatuses(): Status[] {
       action: {
         label: t("answer.error.checkKey"),
         testId: "tagging-key-refused-check",
-        run: () => void useKeyRefusals.getState().checkService(refusedService?.service.id ?? null),
+        run: () => void useKeyRefusals.getState().checkService(refusedTo?.id ?? null),
       },
     });
   }
 
   if (counts.waitingForPlan > 0) {
-    const line = planLimitLine(planService?.service ?? null, counts.planResetsAt, t, language);
+    const planTo = counts.organizeWaitsForPlan
+      ? taggingProblemService(planService.route, problemReader.route)
+      : planService.route.where === "cloud"
+        ? planService.route.service
+        : null;
+    const line = planLimitLine(planTo, counts.planResetsAt, t, language);
     statuses.push({
       testId: "tagging-paused",
       tone: "waiting",
@@ -768,7 +912,7 @@ function useStatuses(): Status[] {
             .catch((error: unknown) => useAppStore.getState().reportError(error)),
       },
     });
-  } else if (taggingWaits) {
+  } else if (tagsShown && taggingWaits) {
     statuses.push({
       testId: "tagging-waiting",
       tone: "waiting",
@@ -868,45 +1012,37 @@ function useStatuses(): Status[] {
   }
 
   if (!capturing && tagging) {
+    const service =
+      taggingService.route.where === "cloud" ? taggingService.route.service.name : null;
     const text = service
-      ? saysWhatIsSent
-        ? counts.tagging === 1
-          ? t("status.taggingSends.one", { service })
-          : t("status.taggingSends.other", { count: counts.tagging, service })
-        : counts.tagging === 1
-          ? t("status.taggingWith.one", { service })
-          : t("status.taggingWith.other", { count: counts.tagging, service })
+      ? counts.tagging === 1
+        ? t("status.taggingWith.one", { service })
+        : t("status.taggingWith.other", { count: counts.tagging, service })
       : counts.tagging === 1
         ? t("status.tagging.one")
         : t("status.tagging.other", { count: counts.tagging });
-    const short = service && saysWhatIsSent ? text + whatIsSent : text;
-    const full =
-      service && saysWhatIsSent
-        ? (counts.tagging === 1
-            ? t("status.taggingSends.full.one", { service })
-            : t("status.taggingSends.full.other", { count: counts.tagging, service })) + whatIsSent
-        : text;
     statuses.push({
       testId: "tagging-status",
       tone: "progress",
-      short,
-      full,
-      wraps: true,
+      short: text,
+      full: text,
+      sends: taggingService.known
+        ? (taggingSends(taggingService.route, t) ?? undefined)
+        : undefined,
       action: stop,
     });
   }
 
   if (organizing && library) {
-    const pending = library.assignments.filter(
-      (item) => item.status === "pending" || item.status === "classifying",
-    ).length;
-    const attention = library.assignments.filter(
-      (item) =>
-        (item.status === "waiting" &&
-          item.error?.kind !== "rate-limit" &&
-          item.error?.kind !== "auth" &&
-          item.error?.kind !== "plan-limit") ||
-        item.status === "failed",
+    const pending = liveStates.filter(({ state }) => state.run === "working").length;
+    const attention = liveStates.filter(
+      ({ item, state }) =>
+        !state.manual &&
+        (state.run === "failed" ||
+          (state.run === "waiting" &&
+            item?.error?.kind !== "rate-limit" &&
+            item?.error?.kind !== "auth" &&
+            item?.error?.kind !== "plan-limit")),
     ).length;
     if (attention)
       statuses.push({
@@ -918,30 +1054,26 @@ function useStatuses(): Status[] {
         action: { label: t("library.review"), run: () => useAppStore.getState().openLibrary() },
       });
     if (pending) {
+      const service =
+        organizingService.route.where === "cloud" ? organizingService.route.service.name : null;
       const text = service
-        ? saysWhatIsSent
-          ? pending === 1
-            ? t("library.progressSends.one", { service })
-            : t("library.progressSends.other", { count: pending, service })
-          : pending === 1
-            ? t("library.progressWith.one", { service })
-            : t("library.progressWith.other", { count: pending, service })
+        ? pending === 1
+          ? t("library.progressWith.one", { service })
+          : t("library.progressWith.other", { count: pending, service })
         : pending === 1
           ? t("library.progress.one")
           : t("library.progress.other", { count: pending });
-      const short = service && saysWhatIsSent ? text + whatIsSent : text;
-      const full =
-        service && saysWhatIsSent
-          ? (pending === 1
-              ? t("library.progressSends.full.one", { service })
-              : t("library.progressSends.full.other", { count: pending, service })) + whatIsSent
-          : text;
       statuses.push({
         testId: "organization-progress",
         tone: "progress",
-        short,
-        full,
-        wraps: true,
+        short: text,
+        full: text,
+        sends: organizingService.known
+          ? (taggingSends(organizingService.route, t, {
+              folders: true,
+              scans: pageImages ? pageReader.route : null,
+            }) ?? undefined)
+          : undefined,
         action: stop,
       });
     }

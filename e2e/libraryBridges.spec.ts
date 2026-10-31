@@ -24,7 +24,7 @@ import {
  * and Folder filters, with counts, narrow the page; the selection's "Ask about
  * these N Documents" scopes the composer's next Question to exactly the
  * Documents chosen, a Folder's "Ask about this Folder" to the Folder, and its
- * "New Mind here" starts a Mind that searches it. Only one test asks, with the
+ * "New note here" starts a Mind that searches it. Only one test asks, with the
  * scripted model. Set INCARNAMIND_SCREENSHOTS to a folder to also save
  * screenshots there.
  */
@@ -269,7 +269,7 @@ test("filters by year, format, status and Folder with counts, and asks about the
   }
 });
 
-test("a Folder's New Mind here starts a Mind that searches the Folder, and the Question asked goes to the assistant, in English and Chinese", async () => {
+test("a Folder's New note here starts a Mind that searches the Folder, and the Question asked goes to the assistant, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await dismissChatSetup(window);
@@ -289,7 +289,7 @@ test("a Folder's New Mind here starts a Mind that searches the Folder, and the Q
     await pointAt(window, head);
     await pointAndClick(window, head.getByTestId("folder-menu"));
     await expect(menu.getByTestId("folder.ask")).toHaveText("就此文件夹提问");
-    await expect(menu.getByTestId("folder.newMind")).toHaveText("在此新建 Mind");
+    await expect(menu.getByTestId("folder.newMind")).toHaveText("在此新建笔记");
     await window.keyboard.press("Escape");
     await pointAndClick(window, library.getByTestId("library-add-filter"));
     await expect(
@@ -321,7 +321,7 @@ test("a Folder's New Mind here starts a Mind that searches the Folder, and the Q
     );
     const answer = assistantAnswers(window).first();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer.getByTestId("answer-steps")).toContainText(`Searched ${FOLDER} ·`);
+    await expect(answer.getByTestId("answer-steps")).toContainText(`Searched “${FOLDER}” ·`);
     await expect(editor.getByTestId("question")).toHaveCount(0);
     await expect(editor.getByTestId("answer")).toHaveCount(0);
   } finally {

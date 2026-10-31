@@ -6,7 +6,12 @@
  * imports Electron (ADR-0004, ADR-0006).
  */
 import type { ChildProcess } from "node:child_process";
-import type { AnalysisJob, AnalysisResult, AnalysisVersions } from "../shared/analysis";
+import type {
+  AnalysisEnd,
+  AnalysisJob,
+  AnalysisResult,
+  AnalysisVersions,
+} from "../shared/analysis";
 import type { DrawnPage, PageCaptureRequest } from "../shared/citedPage";
 import type { PrintDocument } from "../shared/printDocument";
 import type { AgentLauncher } from "./agents";
@@ -28,6 +33,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -168,6 +174,15 @@ export interface FileShell {
   showItemInFolder(path: string): void;
 }
 
+/**
+ * Where Microsoft's ONNX Runtime keeps its usage data on this computer (#2145). The desktop app
+ * looks (src/main/modelRuntimeFolder.ts); nothing ever lists or reads what is in it.
+ */
+export interface ModelRuntimeFolder {
+  /** The folder's path if it is there; null if it isn't, or where the runtime keeps none. */
+  find(): Promise<string | null>;
+}
+
 /** Opened through the OS by the desktop app (src/main/ollamaApp.ts): the core never starts a program itself. */
 export interface OllamaApp {
   /** False where it isn't, and where this computer can't tell. */
@@ -183,6 +198,11 @@ export interface OllamaApp {
  */
 export interface Printer {
   print(document: PrintDocument): Promise<Uint8Array>;
+  /**
+   * Lays the document out as `print` does, then prints it on a printer the User chooses.
+   * Absent (a host that can only make PDFs): printing on a printer is refused.
+   */
+  printToPrinter?(document: PrintDocument): Promise<void>;
 }
 
 /**
@@ -786,6 +806,8 @@ export interface Pictures {
 export interface AnalysisRuntime {
   /** The languages it runs, each with what it runs them with; none when it can't run on this computer. */
   readonly languages: readonly AnalysisVersions[];
+  /** Why no language can run, so its problem keeps the right remedy. */
+  readonly unavailable?: Extract<AnalysisEnd, { kind: "unavailable" }>;
   /**
    * Runs a job in a namespace of its own, with the same seeds and no clock,
    * to its end, its time limit or `signal`, one job at a time. Never rejects:
@@ -820,6 +842,8 @@ export interface CoreAdapters {
    * Absent (tests that don't need it): both are refused.
    */
   shell?: FileShell;
+  /** Absent (tests that aren't about it): there is none to show. */
+  modelRuntimeFolder?: ModelRuntimeFolder;
   /** Absent (tests): it is never installed, so it can't be opened. */
   ollamaApp?: OllamaApp;
   /** How long Open Ollama waits for Ollama to answer, in ms (default 20 s). */
@@ -976,12 +1000,18 @@ export interface CoreAdapters {
    * Defaults to five minutes; tests shorten it.
    */
   connectorSignInTimeoutMs?: number;
+  connectorFetch?: typeof fetch;
   /**
    * Contradiction watch's timings (#112), which tests shorten: how long after
    * a new version of a Document its Folder's Minds are checked (30 seconds),
    * and how long a background check of one claim may take (3 minutes).
    */
   contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
+  /**
+   * How long asking the example's ready Question waits for its Documents to be read before it
+   * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.
+   */
+  exampleReadyWaitMs?: number;
   /**
    * The Connectors directory's entries, in its JSON form, in place of the
    * list that ships with the app; tests point an entry at a local stand-in.
@@ -1052,6 +1082,11 @@ export interface CoreAdapters {
    * Voyage key (an alternative search layer plugs in here). None by default.
    */
   reranker?: Reranker;
+  /**
+   * Which models take the faster Answer paths, instead of the lists beside the catalog
+   * (../providers/catalog/answerPaths). Only tests and the evaluation pass one.
+   */
+  answerPaths?: AnswerPathsOverride;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

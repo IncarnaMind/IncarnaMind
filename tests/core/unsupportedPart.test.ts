@@ -182,6 +182,156 @@ describe("What a reply says its Citations cover and don't", () => {
     });
   });
 
+  test.each([
+    {
+      language: "English",
+      fields: [
+        "Scope: staff, wider",
+        "Topic: found",
+        "Roles: the Tenant must pay / the Tenant may pay, differs",
+        "Covered: the Tenant may pay",
+        "Not covered: all staff must pay",
+      ],
+      calculation: "Calculation: none",
+      covered: "the Tenant may pay",
+      uncovered: "all staff must pay",
+    },
+    {
+      language: "Chinese",
+      fields: [
+        "范围：全体职工，wider",
+        "主题：found",
+        "角色：乙方必须付款 / 乙方可以付款，differs",
+        "已涵盖：乙方可以付款",
+        "未涵盖：全体职工必须付款",
+      ],
+      calculation: "计算：无",
+      covered: "乙方可以付款",
+      uncovered: "全体职工必须付款",
+    },
+  ])(
+    "a trailing calculation after a repeated verdict keeps earlier $language fields",
+    ({ fields, calculation, covered, uncovered }) => {
+      expect(
+        readVerdict(
+          ["Verdict: supported", ...fields, "Verdict: supported", calculation].join("\n"),
+        ),
+      ).toMatchObject({
+        verdict: "supported",
+        scope: "wider",
+        topic: "found",
+        roles: "differs",
+        covered,
+        uncovered,
+        calculations: [],
+      });
+    },
+  );
+
+  test.each([
+    [
+      "English",
+      "Scope: staff, wider\nTopic: found\nRoles: must pay / may pay, differs\nCovered: the Tenant may pay\nNot covered: all staff must pay",
+      "Roles: may pay / may pay, same\nCalculation: none",
+      "the Tenant may pay",
+      "all staff must pay",
+    ],
+    [
+      "Chinese",
+      "范围：全体职工，wider\n主题：found\n角色：必须付款 / 可以付款，differs\n已涵盖：乙方可以付款\n未涵盖：全体职工必须付款",
+      "角色：可以付款 / 可以付款，same\n计算：无",
+      "乙方可以付款",
+      "全体职工必须付款",
+    ],
+  ])(
+    "a repeated verdict replaces only the %s field it repeats",
+    (_language, earlier, tail, covered, uncovered) => {
+      expect(
+        readVerdict(`Verdict: supported\n${earlier}\nVerdict: supported\n${tail}`),
+      ).toMatchObject({
+        scope: "wider",
+        topic: "found",
+        roles: "same",
+        covered,
+        uncovered,
+        calculations: [],
+      });
+    },
+  );
+
+  test.each([
+    [
+      "English",
+      "Scope: staff, wider\nTopic: found\nRoles: differs\nCovered: the Tenant may pay\nNot covered: all staff must pay",
+      "Scope: the Tenant, same\nTopic: not found\nRoles: same\nCovered: a different part\nNot covered: none",
+      "a different part",
+    ],
+    [
+      "Chinese",
+      "范围：全体职工，wider\n主题：found\n角色：differs\n已涵盖：乙方可以付款\n未涵盖：全体职工必须付款",
+      "范围：乙方，same\n主题：not found\n角色：same\n已涵盖：另一部分\n未涵盖：无",
+      "另一部分",
+    ],
+  ])("the latest actual %s field replacement wins", (_language, earlier, replacement, covered) => {
+    expect(
+      readVerdict(
+        `Verdict: unsupported\n${earlier}\n${replacement}\nVerdict: supported\nCalculation: none`,
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      scope: "same",
+      topic: "not found",
+      roles: "same",
+      covered,
+      uncovered: null,
+      calculations: [],
+    });
+  });
+
+  test("a repeated verdict replaces calculation declarations without dropping other fields", () => {
+    expect(
+      readVerdict(
+        "Verdict: supported\nScope: wider\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nCalculation: none",
+      ),
+    ).toMatchObject({ scope: "wider", calculations: [] });
+    expect(
+      readVerdict(
+        "Verdict: supported\nCalculation: 2.0x\nCalculation: 3.0x\nVerdict: supported\nTopic: found",
+      ),
+    ).toMatchObject({ topic: "found", calculations: ["2.0x", "3.0x"] });
+  });
+
+  test.each([
+    ["English reset at the end", "Calculation: 2.0x\nCalculation: none", []],
+    ["Chinese reset at the end", "计算：2.0倍\n计算：无", []],
+    [
+      "English reset in the middle",
+      "Calculation: 2.0x\nCalculation: none\nCalculation: 3.0x\nCalculation: 4.0x",
+      ["3.0x", "4.0x"],
+    ],
+    [
+      "Chinese reset in the middle",
+      "计算：2.0倍\n计算：无\n计算：3.0倍\n计算：4.0倍",
+      ["3.0倍", "4.0倍"],
+    ],
+    ["English without a reset", "Calculation: 2.0x\nCalculation: 3.0x", ["2.0x", "3.0x"]],
+    ["Chinese without a reset", "计算：2.0倍\n计算：3.0倍", ["2.0倍", "3.0倍"]],
+  ])("calculation declarations are sequential: %s", (_name, fields, calculations) => {
+    expect(
+      readVerdict(
+        `Verdict: supported\nScope: wider\nTopic: found\nRoles: differs\nCovered: the stated amount\nNot covered: the wider claim\n${fields}`,
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      scope: "wider",
+      topic: "found",
+      roles: "differs",
+      covered: "the stated amount",
+      uncovered: "the wider claim",
+      calculations,
+    });
+  });
+
   test("a reply's roles are the field's last word, read apart from the explanation", () => {
     expect(
       readVerdict(
@@ -225,15 +375,37 @@ describe("What a judgement of a sentence beside its quote says", () => {
     expect(readJudgement("It depends.")).toBeNull();
   });
 
-  test("a supported reply's explanation is still its line", () => {
-    expect(readVerdict("Verdict: supported\nThe Document says so [^1].")).toEqual({
+  test.each([
+    ["English lines", "Verdict: supported\nThe Document says so [^1].", "The Document says so."],
+    ["Chinese lines", "Verdict: supported\n文档这样写 [^1]。", "文档这样写。"],
+    [
+      "English JSON",
+      '{"verdict":"supported","says":"The Document says so [^1]."}',
+      "The Document says so.",
+    ],
+    ["Chinese JSON", '{"verdict":"supported","says":"文档这样写 [^1]。"}', "文档这样写。"],
+  ])("a supported %s reply preserves its explanation", (_name, reply, says) => {
+    expect(readVerdict(reply)).toEqual({
       verdict: "supported",
-      says: "The Document says so.",
+      says,
       covered: null,
       uncovered: null,
       scope: null,
       topic: null,
       roles: null,
+    });
+  });
+
+  test("a display marker preserves the following metadata line and bare evidence array", () => {
+    expect(
+      readVerdict(
+        "Verdict: supported\nCalculation: none\n[^1]Evidence: [1,2]\nThe Document says so [=1].",
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      says: "The Document says so.",
+      calculations: [],
+      evidence: [1, 2],
     });
   });
 });

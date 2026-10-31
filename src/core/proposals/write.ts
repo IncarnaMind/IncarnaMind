@@ -42,14 +42,18 @@ import {
   targetHash,
   targetText,
 } from "../../shared/proposals";
+import { citationElementId } from "../../shared/signOffs";
 import { createElement, formattingOf, type NodeJSON } from "../answers/blocks";
+import { emphasisOf, escapeEmphasis, type Look, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
   type BlockKind,
+  CHART_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
   type LeftOutPart,
+  MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -107,6 +111,8 @@ interface InlineNode {
   attributes: Attributes;
   /** What it holds, copied where it moves to: a footnote's text. */
   source?: Y.XmlElement;
+  /** For a Citation the new text cites again: the id of the selection's Citation it is (#1933). */
+  cites?: string;
 }
 
 /** The part of one paragraph or heading the selection covers. */
@@ -203,6 +209,7 @@ export interface Selection {
   segments: Segment[];
   /** The Citations in it, in order: marker n is `citations[n - 1]`. */
   citations: Attributes[];
+  citedElements: Y.XmlElement[];
   /** The User's footnotes in it, in order: marker "[^n]" is `footnotes[n - 1]`. */
   footnotes: Y.XmlElement[];
   /** The selected text as the editor reads it: an inline node as U+FFFC, a line per paragraph. */
@@ -236,22 +243,30 @@ export type ReadResult =
 const stringOf = (value: unknown) => (typeof value === "string" ? value : "");
 
 /** The paragraphs and headings of the Mind, in order, at any depth, with whether an Answer being written holds them. */
-export function textBlocks(blocks: Y.XmlFragment): { element: Y.XmlElement; busy: boolean }[] {
+export function textBlocks(
+  blocks: Y.XmlFragment,
+  { charts = false }: { charts?: boolean } = {},
+): { element: Y.XmlElement; busy: boolean }[] {
+  return blocks.toArray().flatMap((child) => textBlocksOf(child, { charts }));
+}
+
+/** `textBlocks` of one of the Mind's top-level Blocks. */
+export function textBlocksOf(
+  block: unknown,
+  { charts = false }: { charts?: boolean } = {},
+): { element: Y.XmlElement; busy: boolean }[] {
   const found: { element: Y.XmlElement; busy: boolean }[] = [];
-  const visit = (parent: Y.XmlFragment | Y.XmlElement, busy: boolean) => {
-    for (const child of parent.toArray()) {
-      if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) continue;
-      if (TEXT_BLOCKS.has(child.nodeName)) {
-        found.push({ element: child, busy });
-        continue;
-      }
-      visit(
-        child,
-        busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming"),
-      );
+  const visit = (child: unknown, busy: boolean) => {
+    if (!(child instanceof Y.XmlElement) || NOT_EDITED.has(child.nodeName)) return;
+    if (TEXT_BLOCKS.has(child.nodeName) || (charts && child.nodeName === CHART_NODE)) {
+      found.push({ element: child, busy });
+      return;
     }
+    const answering =
+      busy || (child.nodeName === "answer" && child.getAttribute("status") === "streaming");
+    for (const each of child.toArray()) visit(each, answering);
   };
-  visit(blocks, false);
+  visit(block, false);
   return found;
 }
 
@@ -314,6 +329,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     return { ok: false, reason: "has-proposals" };
 
   const citations: Attributes[] = [];
+  const citedElements: Y.XmlElement[] = [];
   const footnotes: Y.XmlElement[] = [];
   const segments: Segment[] = [];
   const plain: string[] = [];
@@ -324,7 +340,10 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   const nodeToken = (node: Y.XmlElement, attributes: Attributes, index: number): NodeKey => {
     const name = node.nodeName;
     if (name === CITATION_NODE) {
-      citations.push(attributes);
+      // One written before Citations had ids goes by its element's, which the versions kept before share.
+      const id = attributes[BLOCK_ID_ATTRIBUTE] ?? citationElementId(node);
+      citations.push(id ? { ...attributes, [BLOCK_ID_ATTRIBUTE]: id } : attributes);
+      citedElements.push(node);
       return { key: keyOf.citation(citations.length), shown: `[${citations.length}]` };
     }
     if (name === FOOTNOTE_NODE) {
@@ -360,6 +379,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       .map((token) => token.text ?? token.shown ?? "")
       .join("")
       .trim();
+    const modelText = withEmphasis(tokens).trim();
     const kind = start === 0 ? kindOf(element) : "paragraph";
     segments.push({
       element,
@@ -373,7 +393,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       kind,
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
-    text.push(shownText);
+    text.push(modelText);
     context.push(blockText(element));
     characters += shownText.length;
   }
@@ -385,6 +405,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     selection: {
       segments,
       citations,
+      citedElements,
       footnotes,
       plain: plain.join("\n"),
       text: text
@@ -403,6 +424,97 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       characters,
     },
   };
+}
+
+/** A word's key with its look; spaces have none, since a run's edges are written outside its marks. */
+const lookedKey = (key: string, text: string | undefined, look: Look) =>
+  text === undefined || text.trim() === ""
+    ? key
+    : `${key}${look.bold ? "\u0001b" : ""}${look.italic ? "\u0001i" : ""}${look.strike ? "\u0001s" : ""}`;
+
+const lookOf = (attributes: Attributes | undefined): Look => ({
+  ...(attributes && Object.hasOwn(attributes, "bold") && { bold: true as const }),
+  ...(attributes && Object.hasOwn(attributes, "italic") && { italic: true as const }),
+  ...(attributes && Object.hasOwn(attributes, "strike") && { strike: true as const }),
+});
+
+/**
+ * The tokens as the model reads them: words that are bold, italic or struck
+ * through between `**`, `*` and `~~`, so it can keep them and tell what the
+ * Mind already has (#1897). The spaces at a run's edges stay outside, and a
+ * `\`, `*`, `_` or `~` in the words is escaped so it reads back as itself.
+ */
+function withEmphasis(
+  tokens: readonly { text?: string; shown?: string; attributes?: Attributes }[],
+) {
+  let out = "";
+  let run = "";
+  let runLook: Look = {};
+  const flush = () => {
+    const [, lead = "", body = "", trail = ""] = /^(\s*)([\s\S]*?)(\s*)$/.exec(run) ?? [];
+    let marked = body;
+    if (body !== "") {
+      if (runLook.strike) marked = `~~${marked}~~`;
+      if (runLook.italic) marked = `*${marked}*`;
+      if (runLook.bold) marked = `**${marked}**`;
+    }
+    out += lead + marked + trail;
+    run = "";
+  };
+  for (const token of tokens) {
+    const look = token.text === undefined ? {} : lookOf(token.attributes);
+    if (
+      Boolean(look.bold) !== Boolean(runLook.bold) ||
+      Boolean(look.italic) !== Boolean(runLook.italic) ||
+      Boolean(look.strike) !== Boolean(runLook.strike)
+    ) {
+      flush();
+      runLook = look;
+    }
+    run += token.text === undefined ? (token.shown ?? "") : escapeEmphasis(token.text);
+  }
+  flush();
+  return out;
+}
+
+/** A text Block's words as the Mind holds them without `request`'s changes, or once they are accepted; null for a Block that isn't there in that view. */
+function viewOf(element: Y.XmlElement, request: string, accepted: boolean): string | null {
+  const whole = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+  if (whole?.request === request && whole.kind === (accepted ? "delete" : "insert")) return null;
+  let text = "";
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    for (const run of node.toDelta() as Run[]) {
+      if (typeof run.insert !== "string") continue;
+      const adds = readProposalRef(run.attributes?.[PROPOSAL_INSERT_MARK])?.request === request;
+      const removes = readProposalRef(run.attributes?.[PROPOSAL_DELETE_MARK])?.request === request;
+      if (accepted ? removes : adds) continue;
+      text += run.insert;
+    }
+  }
+  return text;
+}
+
+/**
+ * The text of the Blocks from `from` to `to`, a line to a Block, as the Mind holds it and as it
+ * will read once the changes of `request` are accepted: what an edit really did, not what the
+ * model wrote.
+ */
+export function textAround(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  request: string,
+): { before: string; after: string } {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = all.findIndex(
+    (element) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === from.blockId,
+  );
+  const last = all.findIndex((element) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === to.blockId);
+  const chosen = first < 0 || last < first ? [] : all.slice(first, last + 1);
+  const lines = (accepted: boolean) =>
+    chosen.flatMap((element) => viewOf(element, request, accepted) ?? []).join("\n");
+  return { before: lines(false), after: lines(true) };
 }
 
 /** About this many characters of the words around a selection are shown to the model. */
@@ -516,6 +628,8 @@ interface NewToken {
   text?: string;
   /** The words' own marks (an Answer's), instead of those of the words they replace. */
   marks?: Attributes;
+  /** The bold, italic and strikethrough the model wrote around the words. */
+  look?: Look;
   node?: InlineNode;
 }
 
@@ -641,12 +755,21 @@ function newParagraphs(
       ),
     ),
   );
+  // Written with an id of its own; which one is the selection's Citation is settled once the
+  // changes are written (`settleCitedIds`).
   const citationNode = (n: number): NewToken | null => {
-    const attributes = fresh.get(n) ?? selection.citations[n - 1];
-    if (!attributes) return null;
+    const was = selection.citations[n - 1];
+    const now = fresh.get(n) ?? was;
+    if (!now) return null;
+    const { [BLOCK_ID_ATTRIBUTE]: _, ...attributes } = now;
+    const cites = was?.[BLOCK_ID_ATTRIBUTE];
     return {
       key: `${keyOf.citation(n)}${fresh.has(n) ? "*" : ""}`,
-      node: { name: CITATION_NODE, attributes },
+      node: {
+        name: CITATION_NODE,
+        attributes,
+        ...(typeof cites === "string" && { cites }),
+      },
     };
   };
   const footnoteNode = (n: number): NewToken | null => {
@@ -657,14 +780,28 @@ function newParagraphs(
       node: { name: FOOTNOTE_NODE, attributes: source.getAttributes() as Attributes, source },
     };
   };
-  const tokensOf = (paragraph: string, notes: Notes): NewToken[] => {
+  const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
-    const words = (part: string) => {
-      for (const word of splitWords(part)) tokens.push({ key: keyOf.text(word), text: word });
+    const emphasis = emphasisOf(written);
+    const paragraph = emphasis?.plain ?? withoutEmphasisEscapes(written);
+    // A paragraph with none of its own leaves the words it adds with the marks they sit beside.
+    const looks = emphasis?.looks.some((look) => look.bold || look.italic || look.strike)
+      ? emphasis.looks
+      : null;
+    const words = (part: string, from: number) => {
+      let offset = from;
+      for (const word of splitWords(part)) {
+        tokens.push({
+          key: keyOf.text(word),
+          text: word,
+          ...(looks && { look: looks[offset] ?? {} }),
+        });
+        offset += word.length;
+      }
     };
     let at = 0;
     for (const match of paragraph.matchAll(MARKER)) {
-      words(paragraph.slice(at, match.index));
+      words(paragraph.slice(at, match.index), at);
       at = match.index + match[0].length;
       const [, footnote, citation, formula] = match;
       if (match[0] === "\n") {
@@ -684,10 +821,10 @@ function newParagraphs(
           node: { name: MATH, attributes: { latex: formula } },
         });
       } else {
-        words(match[0]);
+        words(match[0], match.index);
       }
     }
-    words(paragraph.slice(at));
+    words(paragraph.slice(at), at);
     return tokens;
   };
   // A line that starts with a Block's mark starts a paragraph, even after a single line break.
@@ -874,7 +1011,54 @@ function elementOf(node: InlineNode, newId: () => string): Y.XmlElement {
     copy.setAttribute(BLOCK_ID_ATTRIBUTE, newId());
     return copy;
   }
-  return createElement({ type: node.name, attrs: withoutProposalAttribute(node.attributes) });
+  const element = createElement({
+    type: node.name,
+    attrs: withoutProposalAttribute(node.attributes),
+  });
+  if (node.cites) citing.set(element, node.cites);
+  return element;
+}
+
+/** The selection's Citation each Citation a rewrite wrote stands for, by its id (#1933). */
+const citing = new WeakMap<Y.XmlElement, string>();
+
+/** Whether the rewrite takes the element out: it, or a Block it is in, is a change that removes it. */
+function takenOut(element: Y.XmlElement): boolean {
+  if (element._item?.deleted) return true;
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    if (readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete") return true;
+  }
+  return false;
+}
+
+/**
+ * Each of the selection's Citations goes by its id in one place only (#1933): where it was, while
+ * the rewrite keeps it there, else the first Citation the new text writes for it, which moved
+ * it. Every other Citation written for it is a copy, with an id of its own.
+ */
+function settleCitedIds(selection: Selection, blocks: Y.XmlFragment, newId: () => string): void {
+  const written = new Map<string, Y.XmlElement[]>();
+  for (const block of blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    for (const node of block.createTreeWalker(
+      (each) => each instanceof Y.XmlElement && each.nodeName === CITATION_NODE,
+    )) {
+      const cites = node instanceof Y.XmlElement ? citing.get(node) : undefined;
+      if (node instanceof Y.XmlElement && cites)
+        written.set(cites, [...(written.get(cites) ?? []), node]);
+    }
+  }
+  for (const [index, original] of selection.citedElements.entries()) {
+    const id = selection.citations[index]?.[BLOCK_ID_ATTRIBUTE];
+    if (typeof id !== "string") continue;
+    const moved = takenOut(original);
+    for (const [at, copy] of (written.get(id) ?? []).entries()) {
+      const own = copy.getAttribute(BLOCK_ID_ATTRIBUTE);
+      if (moved && at === 0) {
+        if (own !== id) copy.setAttribute(BLOCK_ID_ATTRIBUTE, id);
+      } else if (own === id) copy.setAttribute(BLOCK_ID_ATTRIBUTE, newId());
+    }
+  }
 }
 
 /** An inline node the Proposal adds. */
@@ -890,6 +1074,18 @@ function withoutProposalAttribute(attributes: Attributes): Attributes {
 }
 
 const sameMarks = (a: Attributes, b: Attributes) => JSON.stringify(a) === JSON.stringify(b);
+
+const LOOK_MARKS = ["bold", "italic", "strike"] as const;
+
+/** Words as the model wrote them: bold, italic and strikethrough exactly as it gave them, whatever the words they replace had. */
+function withLook(marks: Attributes, look: Look): Attributes {
+  const own = { ...marks };
+  for (const name of LOOK_MARKS) {
+    if (look[name]) own[name] = {};
+    else delete own[name];
+  }
+  return own;
+}
 
 /**
  * Adds the new tokens at `at` in a Block's text, as the Proposal's words:
@@ -923,7 +1119,7 @@ function insertTokens(
       position += 1;
       continue;
     }
-    const own = token.marks ?? marks;
+    const own = token.look ? withLook(token.marks ?? marks, token.look) : (token.marks ?? marks);
     if (!sameMarks(own, wordMarks)) flush();
     wordMarks = own;
     words += token.text ?? "";
@@ -1220,9 +1416,15 @@ function writeHunks(
   newId: () => string,
   notes: CitationNotes,
 ): void {
+  // Once the reply gives words a look, a word that only changed its look is a change.
+  const looked = tokens.some((token) => token.look);
   const steps = diffSteps(
-    segment.tokens.map((token) => token.key),
-    tokens.map((token) => token.key),
+    segment.tokens.map((token) =>
+      looked ? lookedKey(token.key, token.text, lookOf(token.attributes)) : token.key,
+    ),
+    tokens.map((token) =>
+      looked ? lookedKey(token.key, token.text, token.look ?? {}) : token.key,
+    ),
   );
   let hunks = hunksOf(steps, joinsAcross(segment.tokens));
   if (
@@ -1688,6 +1890,8 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
+    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+    if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
 

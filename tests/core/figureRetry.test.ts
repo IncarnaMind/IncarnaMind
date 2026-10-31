@@ -11,6 +11,7 @@ import {
   type AnswerTools,
   createAiSdkAnswerEngine,
 } from "../../src/core/answers/engine";
+import { endsAtLimit } from "../../src/core/providers/outputLimits";
 import { promptOf, scriptedModel } from "../helpers/models";
 
 const MARGIN = "Gross margin 41.2% 38.9%";
@@ -25,8 +26,11 @@ const FIGURE = {
   ],
 };
 
-/** Asks with a small local model's window; the retry request gets `retry` (none: no JSON). */
-async function ask(retry?: object) {
+/**
+ * Asks with a small local model's window, as the model layer hands it out; the retry request gets
+ * `retry` (none: no JSON; a string: written as it is), cut off at its limit when `cut`.
+ */
+async function ask(retry?: object | string, cut = false) {
   const given: unknown[][] = [];
   const documents: AnswerTools = {
     documentCount: 1,
@@ -57,7 +61,10 @@ async function ask(retry?: object) {
   };
   const model = scriptedModel((call) =>
     call.system.startsWith("You fix the calculated figures")
-      ? { text: retry ? JSON.stringify(retry) : "I can't." }
+      ? {
+          text: typeof retry === "string" ? retry : retry ? JSON.stringify(retry) : "I can't.",
+          cutOff: cut,
+        }
       : {
           text: JSON.stringify({
             answer: "Gross margin rose [=1][^1].",
@@ -73,7 +80,7 @@ async function ask(retry?: object) {
     instructions: () => "Answer from the Passages.",
     messages: [{ role: "user", content: "How did gross margin change?" }],
     question: "How did gross margin change?",
-    model,
+    model: endsAtLimit(model),
     documents,
     tools: [],
     support: "structured-output",
@@ -106,6 +113,33 @@ describe("A local model's figures that couldn't be worked out", { timeout: 30_00
 
   test("stay out when the request gives nothing back", async () => {
     const { events, given } = await ask();
+
+    expect(given).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "figures-retried",
+      retry: { figures: 1, recovered: 0, durationMs: expect.any(Number) },
+    });
+  });
+
+  // protects=a request to fix figures cut at its output limit reads nothing: calculate never gets a cut figure; fails_when=the start of a cut reply, a figure with part of its inputs, is worked out (#2275).
+  test("stay out when the reply was cut at its limit, though it began with a fix", async () => {
+    const fixed = { calculations: [{ ...FIGURE, marker: "[=1]" }] };
+
+    const { events, given } = await ask(fixed, true);
+
+    expect(given).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: "figures-retried",
+      retry: { figures: 1, recovered: 0, durationMs: expect.any(Number) },
+    });
+  });
+
+  // protects=a fix whose JSON doesn't parse whole is never worked out, though the reply stopped normally: calculate never gets a figure with part of its inputs; fails_when=the JSON is repaired into a figure missing an input (#2275).
+  test("stay out when the reply's JSON doesn't parse whole, though it stopped normally", async () => {
+    const whole = JSON.stringify({ calculations: [{ ...FIGURE, marker: "[=1]" }] });
+    const broken = whole.slice(0, whole.indexOf('{"name":"gm2024"'));
+
+    const { events, given } = await ask(broken);
 
     expect(given).toHaveLength(1);
     expect(events).toContainEqual({

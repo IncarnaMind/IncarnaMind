@@ -17,6 +17,7 @@ import { shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
+import { analysisCallText } from "../../analysisCall";
 import {
   type FoldedLine,
   foldedLine,
@@ -32,6 +33,7 @@ import {
 import {
   checkedWords,
   checkingWords,
+  documentReadText,
   documentsReadText,
   foldedWords,
   mindLabel,
@@ -348,6 +350,8 @@ function liveText(
       return checkingWords(t, step.count);
     case "checking-figures":
       return t("answer.phase.checking-figures");
+    case "checking-claims":
+      return t("answer.phase.checking-claims");
   }
 }
 
@@ -368,8 +372,10 @@ function runningText(
   }
   if (call.source === "sources") return t("sources.call.running", { query: field(call, "query") });
   if (call.source === "minds") return mindCallText(t, call, mindOf(call));
+  if (call.source === "analysis") return analysisCallText(t, call);
   if (call.source === "commands") return commandCallText(t, call);
   if (call.source === "asks") return askCallText(t, call);
+  if (call.tool === "read_document") return documentReadText(t, call, true);
   if (call.source === "web") {
     return call.tool === "search_web"
       ? t("web.call.searching", { query: field(call, "query") })
@@ -620,6 +626,12 @@ function StepItem({
           <FailedSearch call={row.call} scope={scope} onRegenerate={onRegenerate} />
         </Step>
       );
+    case "failed-read":
+      return (
+        <Step kind={row.kind} icon={<CloseLineIcon />}>
+          <FailedRead call={row.call} onRegenerate={onRegenerate} />
+        </Step>
+      );
     case "call":
       return (
         <li
@@ -641,6 +653,16 @@ function StepItem({
         >
           <SkillRow name={row.name} use={row.use} reads={row.reads} />
         </li>
+      );
+    case "asked-again":
+      return (
+        <Step kind={row.kind} icon={<SparkLineIcon />}>
+          {row.tools.map((tool) => (
+            <p key={tool} data-testid="answer-asked-again" className="answer-step-title">
+              {t(tool === "search" ? "steps.askedAgain.search" : "steps.askedAgain.calculate")}
+            </p>
+          ))}
+        </Step>
       );
     case "calculated":
       return (
@@ -728,15 +750,24 @@ function ReasoningSummary({ summary }: { summary: string }) {
 /** A search, or several in a row: what was searched for, what was found and used, and its sources. */
 function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>; scope: string }) {
   const t = useT();
-  const queries = row.calls.map((call) => field(call, "query"));
+  const searches = row.calls.filter((call) => call.tool === "search_documents");
+  const reads = row.calls.filter((call) => call.tool === "read_document");
+  const queries = searches.map((call) => field(call, "query"));
+  const current = row.calls.at(-1);
   return (
     <Step kind={row.kind} icon={<SearchIcon />} running={row.running}>
       <p className="answer-step-title">
         {row.running
-          ? t("steps.search.running", { scope, query: queries.at(-1) ?? "" })
-          : queries.length > 1
-            ? t("steps.search.times", { scope, count: queries.length })
-            : t("steps.search", { scope, query: queries[0] ?? "" })}
+          ? current?.tool === "read_document"
+            ? documentReadText(t, current, true)
+            : t("steps.search.running", { scope, query: queries.at(-1) ?? "" })
+          : searches.length === 0 && reads.length > 0
+            ? reads.length > 1
+              ? t("steps.readDocument.times", { count: reads.length })
+              : documentReadText(t, reads[0] as AnswerToolCall)
+            : queries.length > 1
+              ? t("steps.search.times", { scope, count: queries.length })
+              : t("steps.search", { scope, query: queries[0] ?? "" })}
       </p>
       {queries.length > 1 && (
         <ul className="answer-step-queries">
@@ -744,6 +775,15 @@ function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>;
             // biome-ignore lint/suspicious/noArrayIndexKey: the same query may be searched twice.
             <li key={index} className="answer-step-detail">
               {t("search.query", { query })}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(searches.length > 0 || reads.length > 1) && (
+        <ul className="answer-step-queries">
+          {reads.map((call) => (
+            <li key={call.id} className="answer-step-detail">
+              {documentReadText(t, call)}
             </li>
           ))}
         </ul>
@@ -834,7 +874,7 @@ function SourceRow({ source }: { source: StepSource }) {
       data-document-id={source.documentId}
       title={where ? t("citation.where", { document: name, location: where }) : name}
       onClick={() =>
-        openCited(source, {
+        void openCited(source, {
           check: source.check,
           withQuote: quoteSaysSo(source.check),
           label: where,
@@ -846,6 +886,21 @@ function SourceRow({ source }: { source: StepSource }) {
       <span className="answer-step-source-name">{name}</span>
       {where && <span className="answer-step-detail answer-step-source-where">{where}</span>}
     </button>
+  );
+}
+
+/** A Document read that failed: its own words, never a search's settings. */
+function FailedRead({ call, onRegenerate }: { call: AnswerToolCall; onRegenerate(): void }) {
+  const t = useT();
+  return (
+    <ProblemLine
+      testId="answer-step-failed"
+      title={call.error?.message}
+      action={{ label: t("answer.error.retry"), onClick: onRegenerate }}
+      className="answer-step-problem"
+    >
+      {t("steps.failed.readDocument", { document: field(call, "document") })}
+    </ProblemLine>
   );
 }
 

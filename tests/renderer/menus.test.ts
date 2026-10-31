@@ -52,7 +52,7 @@ beforeAll(async () => {
 });
 
 describe("the menus", () => {
-  test("a Mind's is Open, Open in new tab, Outline, Export…, Export AI use statement, Export check record…, History, Check this Mind, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this Mind, Rename, then Delete after a rule", () => {
+  test("a Mind's is Open, Open in new tab, Outline, Duplicate, Export…, its AI use statement and check record, History, Check this note, Tie out figures, Check for contradictions, Style, Make this a Skill, Move to and New Folder with this note, Rename, then Delete after a rule", () => {
     const here = {
       "mind.citationStyle": () => undefined,
       "mind.moveTo": () => undefined,
@@ -63,11 +63,13 @@ describe("the menus", () => {
       "mind.openTab",
       "—",
       "mind.outline",
+      "mind.duplicate",
       "mind.exportMenu",
       "mind.aiUseStatement",
       "mind.checkRecord",
       "mind.history",
       "mind.check",
+      "mind.tieOut",
       "mind.checkContradictions",
       "mind.citationStyle",
       "mind.style",
@@ -86,11 +88,13 @@ describe("the menus", () => {
       "mind.openTab",
       "—",
       "mind.outline",
+      "mind.duplicate",
       "mind.exportMenu",
       "mind.aiUseStatement",
       "mind.checkRecord",
       "mind.history",
       "mind.check",
+      "mind.tieOut",
       "mind.checkContradictions",
       "mind.style",
       "skill.fromMind",
@@ -281,5 +285,16 @@ describe("the menus", () => {
     expect(
       buildMenu("document", mixed).some((e) => e !== "rule" && e.command.id === "test.count"),
     ).toBe(false);
+  });
+
+  test("a comparison column's menu shows the heading's own keys: F2 edits it and Delete removes it", async () => {
+    const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
+    const edit = commands.get("comparison.column.edit");
+    const remove = commands.get("comparison.column.remove");
+    expect(edit?.rowKeys).toBe("F2");
+    expect(remove?.rowKeys).toBe("Delete");
+    expect(edit && menuKeysLabel(edit)).toBe("F2");
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    expect(remove && menuKeysLabel(remove)).toBe(mac ? "⌦" : "Delete");
   });
 });

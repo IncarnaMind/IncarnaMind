@@ -17,15 +17,18 @@
  */
 
 import {
+  InvalidToolInputError,
   jsonSchema,
   type ModelMessage,
   type StopCondition,
   stepCountIs,
   streamText,
+  type ToolCallRepairFunction,
   type ToolSet,
   tool,
 } from "ai";
 import Ajv, { type ValidateFunction } from "ajv";
+import { escapedInStrings } from "../../shared/jsonText";
 import {
   cacheProviderOptions,
   stablePrefixOf,
@@ -38,6 +41,26 @@ import {
   refusesFeature,
 } from "../providers/providerErrors";
 import type { RunEngine, RunEvent, RunMessage, RunRequest, RunTool } from "./engine";
+
+/**
+ * A Tool call whose input holds a raw tab or line break inside a string, as Claude Haiku 5.5
+ * copies a sheet row's tabs into a quote (#1827), is read with them escaped, as JSON's own
+ * escapes are. Input broken any other way is refused as it is.
+ */
+export const repairControlCharacters: ToolCallRepairFunction<ToolSet> = async ({
+  toolCall,
+  error,
+}) => {
+  if (!InvalidToolInputError.isInstance(error)) return null;
+  const escaped = escapedInStrings(toolCall.input);
+  if (escaped === toolCall.input) return null;
+  try {
+    JSON.parse(escaped);
+  } catch {
+    return null;
+  }
+  return { ...toolCall, input: escaped };
+};
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -213,9 +236,20 @@ function toModelMessages(messages: readonly RunMessage[]): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const message of messages) {
     if (message.role === "user") {
+      const pictures = message.pictures ?? [];
       out.push({
         role: "user",
-        content: message.text,
+        content:
+          pictures.length > 0
+            ? [
+                ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+                ...pictures.map((picture) => ({
+                  type: "file" as const,
+                  data: picture.data,
+                  mediaType: picture.mediaType,
+                })),
+              ]
+            : message.text,
         ...(message.stablePrefix && { providerOptions: stablePrefixOptions(message.stablePrefix) }),
       });
     } else if (message.role === "assistant") {
@@ -316,9 +350,6 @@ function fromModelMessages(messages: readonly ModelMessage[]): RunMessage[] {
 const LAST_STEP_NOTE =
   "You can make no more calls, and none can record a Citation now. Write the Answer now from what has been read, without Citation markers, and say plainly what you didn't check. Don't write a call, and don't say what you would do next.";
 
-/** The most the last step may write, its thinking included, unless the model's own most is less. */
-const LAST_STEP_TOKENS = 8_000;
-
 /** What a call on the last step is answered with: it isn't made. */
 const NO_MORE_CALLS =
   "No more calls are allowed: that was the last step. Write the Answer now from what has been read, and say plainly what you didn't check.";
@@ -407,12 +438,16 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
     instructions: request.instructions,
     messages: initial,
     tools,
+    repairToolCall: repairControlCharacters,
     temperature: request.temperature,
     providerOptions: cacheProviderOptions(request.cacheKey),
     stopWhen: [
       // One more than `maxSteps`: a model that calls a Tool on the last step has it refused and
       // gets one more call to write.
       stepCountIs(maxSteps + 1) as StopCondition<ToolSet>,
+      // A step that failed, cut at its output limit too (#2275), ends the Run: the SDK would send a
+      // call whose input was cut back to the model as a Tool error, and go on.
+      ({ steps }) => steps.at(-1)?.finishReason === "error",
       ({ steps }) => {
         const last = steps.at(-1);
         return (
@@ -444,14 +479,25 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       const write = stepNumber >= maxSteps - 1 || noRoom;
       writing = write;
       canCallAgain = stepNumber + 1 < maxSteps - 1;
-      if (!write) return { ...(messages && { messages }) };
+      if (!write)
+        return {
+          ...(messages && { messages }),
+          maxOutputTokens: request.outputTokens.step,
+          // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
+          ...(stepNumber === 0 &&
+            request.firstTool &&
+            request.firstTool in tools &&
+            !request.lastStep?.keepTools && {
+              toolChoice: { type: "tool" as const, toolName: request.firstTool },
+            }),
+        };
       return {
         messages: [
           ...(messages ?? [...initialMessages, ...splice(responseMessages, inserted)]),
           { role: "user" as const, content: LAST_STEP_NOTE },
         ],
         ...((noRoom || !request.lastStep?.keepTools) && { toolChoice: "none" as const }),
-        maxOutputTokens: Math.min(LAST_STEP_TOKENS, request.lastStep?.tokens ?? LAST_STEP_TOKENS),
+        maxOutputTokens: request.outputTokens.last,
       };
     },
     abortSignal: signal,

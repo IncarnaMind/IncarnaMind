@@ -7,7 +7,7 @@ import { InvalidInputError } from "../../src/core/errors";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
-import { createTempDataFolder } from "../helpers/core";
+import { createMemoryKeychain, createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { fakeSeparator, transcribingCore, transcriptOf, until } from "../helpers/transcription";
 
@@ -246,27 +246,100 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
   test("a service's own key lives in the keychain, never in the data folder, and a key it refuses isn't kept", async () => {
     const dataDir = await createTempDataFolder();
     const { core } = await transcribingCore(dataDir);
-    expect(await core.listTranscriptionServices()).toEqual([
+    expect((await core.listTranscriptionServices()).services).toEqual([
       expect.objectContaining({ route: "openai", key: "provider", hasKey: false }),
       expect.objectContaining({ route: "soniox", key: "own", hasKey: false, liveSpeakers: true }),
       expect.objectContaining({ route: "qwen", key: "provider", hasKey: false }),
     ]);
 
     await chooseSoniox(core);
-    expect((await core.listTranscriptionServices())[1]).toMatchObject({ hasKey: true });
+    expect((await core.listTranscriptionServices()).services[1]).toMatchObject({ hasKey: true });
     const leaked = filesUnder(dataDir).filter((file) => file.text.includes(SONIOX_KEY));
     expect(leaked.map((file) => file.path)).toEqual([]);
 
     await core.removeTranscriptionKey("soniox");
-    expect((await core.listTranscriptionServices())[1]).toMatchObject({ hasKey: false });
+    expect((await core.listTranscriptionServices()).services[1]).toMatchObject({ hasKey: false });
     expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+  });
+
+  // protects=the services' revision (#2147): of two answers the higher revision is the newer, whichever was asked first; fails_when=a change doesn't raise it, a failed change does, or a list that a change overtook is stamped with a state older than it holds; no_claim=how the app orders the answers it gets, which e2e/modelSetup.spec.ts covers.
+  describe("the services' revision", () => {
+    test("every committed change raises it and a failed one leaves it", async () => {
+      const dataDir = await createTempDataFolder();
+      const { core } = await transcribingCore(dataDir);
+      const first = await core.listTranscriptionServices();
+      expect((await core.listTranscriptionServices()).revision).toBe(first.revision);
+
+      await expect(core.setTranscriptionKey({ route: "soniox", apiKey: "" })).rejects.toThrow(
+        InvalidInputError,
+      );
+      expect((await core.listTranscriptionServices()).revision).toBe(first.revision);
+
+      const saved = await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+      expect(saved.revision).toBeGreaterThan(first.revision);
+      expect(saved.services[1]).toMatchObject({ hasKey: true });
+      expect((await core.listTranscriptionServices()).revision).toBe(saved.revision);
+
+      const removed = await core.removeTranscriptionKey("soniox");
+      expect(removed.revision).toBeGreaterThan(saved.revision);
+      expect(removed.services[1]).toMatchObject({ hasKey: false });
+
+      const provider = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-test",
+        modelId: "gpt-5.4-mini",
+      });
+      const withOpenAi = await core.listTranscriptionServices();
+      expect(withOpenAi.revision).toBeGreaterThan(removed.revision);
+      expect(withOpenAi.services[0]).toMatchObject({ hasKey: true });
+      await core.deleteChatProvider(provider.id);
+      const without = await core.listTranscriptionServices();
+      expect(without.revision).toBeGreaterThan(withOpenAi.revision);
+      expect(without.services[0]).toMatchObject({ hasKey: false });
+    });
+
+    test("a list that changes overtake while it is read keeps the revision it began at, below theirs", async () => {
+      const dataDir = await createTempDataFolder();
+      const memory = createMemoryKeychain();
+      let hold: Promise<void> | null = null;
+      const { core } = await transcribingCore(dataDir, {
+        keychain: {
+          ...memory,
+          get: async (name) => {
+            const value = await memory.get(name);
+            const waiting = hold;
+            hold = null;
+            await waiting;
+            return value;
+          },
+        },
+      });
+      await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+      const began = (await core.listTranscriptionServices()).revision;
+
+      // The list reads the key, then waits; three changes are committed; the list ends.
+      let release = () => {};
+      hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const racing = core.listTranscriptionServices();
+      await core.removeTranscriptionKey("soniox");
+      await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
+      const last = await core.removeTranscriptionKey("soniox");
+      release();
+      const listed = await racing;
+
+      expect(listed.revision).toBe(began);
+      expect(last.revision).toBeGreaterThan(began);
+      expect(last.services[1]).toMatchObject({ hasKey: false });
+    });
   });
 
   test("OpenAI uses the key of the OpenAI provider in Models", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir);
     await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-5.4-mini" });
-    expect((await core.listTranscriptionServices())[0]).toMatchObject({
+    expect((await core.listTranscriptionServices()).services[0]).toMatchObject({
       route: "openai",
       model: "gpt-live-transcribe",
       hasKey: true,

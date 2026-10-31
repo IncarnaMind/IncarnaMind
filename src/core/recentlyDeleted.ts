@@ -10,6 +10,7 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import {
+  DELETED_KINDS,
   type DeletedItem,
   type DeletedKind,
   type DeletedRef,
@@ -20,6 +21,7 @@ import {
 } from "./api";
 import type { Conversations } from "./conversations";
 import type { createDocuments } from "./documents";
+import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { createLibrary } from "./library";
 import type { createMindContent } from "./mindContent";
@@ -36,13 +38,26 @@ const TABLES: Readonly<Record<DeletedKind, string>> = {
   tag: "tags",
 };
 
-const KINDS: readonly DeletedKind[] = ["mind", "conversation", "document", "folder", "tag"];
+const KINDS: readonly DeletedKind[] = DELETED_KINDS;
 
 /** A name as `mindName` and `conversationName` give it: the title typed, else the one it gave itself. */
 const OWN_NAME = "CASE WHEN title <> '' THEN title ELSE auto_title END";
 
 const earliestRestorable = (now: string) =>
   new Date(Date.parse(now) - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+/**
+ * The Folder a deleted item was in, from the latest live record of a Folder's deletion that took
+ * it out: the item's own row lost that Folder then. The record must not be older than the item's
+ * own deletion; the same moment counts, since deleting several things takes the Documents before
+ * their Folder (#2238).
+ */
+function wasIn(kind: DeletedKind, table: string): string {
+  return `(SELECT f.folder_id FROM deleted_folder_items f
+    WHERE f.item_kind = '${kind}' AND f.item_id = ${table}.id AND f.deleted_at IS NULL
+      AND f.created_at >= ${table}.deleted_at
+    ORDER BY f.rowid DESC LIMIT 1)`;
+}
 
 function parseRefs(input: unknown, what: string): RestoreRef[] {
   if (!Array.isArray(input)) throw new InvalidInputError(`${what} expects a list of { kind, id }.`);
@@ -86,11 +101,14 @@ function purge(
       [at, at, list],
     );
     forgetMindBlocks(db, ids, at);
-    // Its checks' evidence (#96), retained under the Mind (src/core/answers/checks).
+    // Its checks' evidence and figure inputs are retained under the Mind (ADR-0021).
     db.run(
       `UPDATE retained_versions SET deleted_at = ?, updated_at = ?
-       WHERE kind = 'check-result' AND owner_id ${IN} AND deleted_at IS NULL`,
-      [at, at, list],
+       WHERE deleted_at IS NULL AND
+         ((kind IN ('check-result', 'note-figure') AND owner_id ${IN})
+          OR (kind = 'checkpoint' AND owner_id IN
+            (SELECT ? || value FROM json_each(?))))`,
+      [at, at, list, NOTE_FIGURE_CHECKPOINT_PREFIX, list],
     );
   }
   if (kind === "conversation") {
@@ -169,7 +187,10 @@ export function createRecentlyDeleted(options: {
   tags: TagsStore;
   library: ReturnType<typeof createLibrary>;
   mindsChanged(): void;
-  mindsRestored(mindIds: readonly string[]): void;
+  /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
+  mindsRestored(mindIds: readonly string[], reopen: boolean): void;
+  /** Minds gone for good: what the layout kept for their tabs goes. */
+  mindsForgotten(mindIds: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -248,7 +269,9 @@ export function createRecentlyDeleted(options: {
         ...(["mind", "conversation"] as const).flatMap((kind) =>
           db
             .all<{ id: string; name: string; deleted_at: string; group_id: string | null }>(
-              `SELECT id, ${OWN_NAME} AS name, deleted_at, folder_id AS group_id FROM ${TABLES[kind]}
+              `SELECT id, ${OWN_NAME} AS name, deleted_at,
+                 COALESCE(folder_id, ${wasIn(kind, TABLES[kind])}) AS group_id
+               FROM ${TABLES[kind]}
                WHERE deleted_at >= ? AND purged_at IS NULL`,
               [since],
             )
@@ -264,7 +287,8 @@ export function createRecentlyDeleted(options: {
             linked_folder_id: string | null;
           }>(
             // Not those unlinked with their Linked folder, nor those whose file is in the Library again.
-            `SELECT d.id, d.name, d.kind, d.deleted_at, g.group_id, d.linked_folder_id
+            `SELECT d.id, d.name, d.kind, d.deleted_at,
+               COALESCE(g.group_id, ${wasIn("document", "d")}) AS group_id, d.linked_folder_id
              FROM documents d
              LEFT JOIN document_groups g ON g.document_id = d.id AND g.deleted_at IS NULL
              WHERE d.deleted_at >= ? AND d.purged_at IS NULL
@@ -293,7 +317,9 @@ export function createRecentlyDeleted(options: {
     },
 
     /** See `CoreApi.restore`. */
-    restore(input: unknown): void {
+    restore(input: unknown, restoreOptions?: unknown): void {
+      // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
+      const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
       const refs = parseRefs(input, "restore");
       const since = earliestRestorable(now());
       const done = db.transaction(() => {
@@ -372,18 +398,24 @@ export function createRecentlyDeleted(options: {
       });
       for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
-      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds);
+      if (done.mindIds.length > 0) options.mindsRestored(done.mindIds, reopen);
       if (done.conversations) options.conversationsChanged();
       if (done.documents.length > 0) {
         documents.restored(done.documents);
+        // Their assignments are as they were: said again for a client that read the Library while
+        // they waited, and Organize goes on with one it was already working on. Never claimed anew (#1433).
         library.announce(done.documents);
+        library.resume();
       }
       if (done.folders) library.restored();
       if (done.tags) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
     },
 
-    /** Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. */
+    /**
+     * Deletes permanently what has waited `RECENTLY_DELETED_DAYS`; run once at start-up. What the
+     * layout kept for their tabs needs no dropping: it is this session's, and none is kept yet.
+     */
     expire(): void {
       purgeExpired(db, now(), documentText);
     },
@@ -414,7 +446,9 @@ export function createRecentlyDeleted(options: {
         }
       });
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
-      for (const { kind, id } of refs) if (kind === "mind") content.forget(id);
+      const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
+      for (const mindId of minds) content.forget(mindId);
+      if (minds.length > 0) options.mindsForgotten(minds);
     },
   };
 }

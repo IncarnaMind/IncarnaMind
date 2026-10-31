@@ -3,10 +3,17 @@ import type { ConversationAnswer, ConversationQuestion } from "../../../../core/
 import { mindName } from "../../../../shared/naming";
 import { useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, keptText, leftText } from "../../changeFacts";
+import { changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
 import { askInAssistant } from "../../conversations";
 import { useT } from "../../i18n";
-import { resolveAllChanges, showChanges, useWaitingChanges, type Waiting } from "../../mindChanges";
+import {
+  resolveAllChanges,
+  showChanges,
+  showNoteWaiting,
+  useWaitingChanges,
+  useWaitingIn,
+  type Waiting,
+} from "../../mindChanges";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { MindLineIcon, PencilLineIcon } from "../lineIcons";
@@ -22,7 +29,7 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
 }
 
 /**
- * The card under the reply of an Answer that changed Minds (#202, D148):
+ * The card under the reply of an Answer that changed Minds (#202):
  * what its calls did, from their record rather than the reply's words.
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For
@@ -42,6 +49,7 @@ export function MindChangesCard({
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
   const waiting = useWaitingChanges(rows);
+  const noteTotal = useWaitingIn(rows.length === 1 ? (rows[0]?.mindId ?? null) : null);
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;
@@ -64,7 +72,7 @@ export function MindChangesCard({
     );
   }
   const counted = (index: number) => {
-    const count = waiting[index];
+    const count = waiting[index]?.count;
     return typeof count === "number" ? count : 0;
   };
   const total = rows.reduce((sum, _, index) => sum + counted(index), 0);
@@ -72,14 +80,15 @@ export function MindChangesCard({
   const [only] = rows;
   const head =
     rows.length === 1 && only
-      ? factText(t, only, nameOf(only), waiting[0] ?? null)
+      ? factText(t, only, nameOf(only), waiting[0]?.count ?? null)
       : t("mindChanges.minds", { count: rows.length });
-  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0] ?? null) : null;
+  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
+  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, waiting[0]?.count) : null;
 
   return (
     <section
-      aria-label={[head, headLeft, headKept].filter(Boolean).join(" ")}
+      aria-label={[head, headLeft, headInNote, headKept].filter(Boolean).join(" ")}
       data-testid="mind-changes"
       className="mind-changes"
     >
@@ -100,6 +109,17 @@ export function MindChangesCard({
               </span>
             </>
           )}
+          {headInNote && (
+            <>
+              {" "}
+              <span
+                data-testid="mind-changes-in-note"
+                className="mind-changes-count whitespace-nowrap"
+              >
+                {headInNote}
+              </span>
+            </>
+          )}
           {headKept && (
             <>
               {" "}
@@ -108,7 +128,7 @@ export function MindChangesCard({
               </span>
             </>
           )}
-          {first && (
+          {(first || (headInNote && only)) && (
             <>
               <span aria-hidden="true" className="mind-changes-dot">
                 {" · "}
@@ -116,7 +136,7 @@ export function MindChangesCard({
               <button
                 type="button"
                 data-testid="mind-changes-review"
-                onClick={() => showChanges(first)}
+                onClick={() => (first ? showChanges(first) : only && showNoteWaiting(only))}
                 className="mind-changes-review"
               >
                 {t("mindChanges.review")}
@@ -127,7 +147,7 @@ export function MindChangesCard({
       </div>
       {rows.length > 1 &&
         rows.map((row, index) => {
-          const count = waiting[index] ?? null;
+          const count = waiting[index]?.count ?? null;
           const name = nameOf(row);
           // Its name first, so a narrow panel cuts the verb rather than the name; the fact is on hover.
           const label =

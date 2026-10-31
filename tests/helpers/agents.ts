@@ -1,14 +1,13 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Client as ModernClient } from "@modelcontextprotocol/client";
-import { StdioClientTransport as ModernStdioTransport } from "@modelcontextprotocol/client/stdio";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { Client as ModernClient } from "@modelcontextprotocol/client";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { MockLanguageModelV4 } from "ai/test";
 import { build } from "vite";
 import { onTestFinished } from "vitest";
 import type { AgentLaunch, CoreAdapters, Logger } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
+import { legacyAgentClient, modernAgentClient } from "./agentClients";
 import { createTempDataFolder, startCore } from "./core";
 import { scriptedModels } from "./models";
 
@@ -21,7 +20,7 @@ let built: Promise<string> | null = null;
  */
 export function buildAgentShim(): Promise<string> {
   built ??= (async () => {
-    const outDir = join(root, "node_modules/.cache/incarnamind-test-agent-shim");
+    const outDir = join(root, `node_modules/.cache/incarnamind-test-agent-shim-${process.pid}`);
     await build({
       configFile: false,
       root,
@@ -87,33 +86,14 @@ export async function startAgentsCore(
 
 /** An agent on the protocol before 2026-07-28 (with `initialize`), as most clients still are. */
 export async function connectLegacyAgent(launch: AgentLaunch): Promise<Client> {
-  const client = new Client({ name: "test-agent", version: "1.0.0" });
-  await client.connect(
-    new StdioClientTransport({
-      command: launch.command,
-      args: launch.args,
-      env: launch.env,
-      stderr: "pipe",
-    }),
-  );
+  const client = await legacyAgentClient(launch);
   onTestFinished(() => client.close());
   return client;
 }
 
 /** An agent on the current protocol, 2026-07-28 (stateless, `server/discover`), and nothing else. */
 export async function connectModernAgent(launch: AgentLaunch): Promise<ModernClient> {
-  const client = new ModernClient(
-    { name: "test-agent", version: "2.0.0" },
-    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
-  );
-  await client.connect(
-    new ModernStdioTransport({
-      command: launch.command,
-      args: launch.args,
-      env: launch.env,
-      stderr: "pipe",
-    }),
-  );
+  const client = await modernAgentClient(launch);
   onTestFinished(() => client.close());
   return client;
 }

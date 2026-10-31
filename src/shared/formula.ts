@@ -138,7 +138,7 @@ function refuse(kind: FormulaProblemKind, message: string): never {
 }
 
 /** Long and deep enough for any figure; beyond them a formula is an attack on the parser's stack. */
-const MAX_LENGTH = 2000;
+export const FORMULA_MAX_LENGTH = 2000;
 const MAX_DEPTH = 50;
 
 interface Token {
@@ -203,7 +203,7 @@ function lex(formula: string): Token[] {
   return tokens;
 }
 
-type FunctionName = "SUM" | "AVERAGE" | "MIN" | "MAX" | "ABS" | "ROUND" | "RRI" | "SQRT";
+type FunctionName = "SUM" | "AVERAGE" | "MIN" | "MAX" | "ABS" | "SIGN" | "ROUND" | "RRI" | "SQRT";
 
 const FUNCTIONS: ReadonlyMap<
   string,
@@ -216,6 +216,7 @@ const FUNCTIONS: ReadonlyMap<
       ["MIN", 1, 255, "MIN(a, b, …)"],
       ["MAX", 1, 255, "MAX(a, b, …)"],
       ["ABS", 1, 1, "ABS(x)"],
+      ["SIGN", 1, 1, "SIGN(x)"],
       ["ROUND", 2, 2, "ROUND(x, decimals)"],
       ["RRI", 3, 3, "RRI(periods, start, end)"],
       ["SQRT", 1, 1, "SQRT(x)"],
@@ -242,8 +243,11 @@ type Node = { from: number; to: number } & (
  * the number before it by 100. A formula reads the same here as in a sheet.
  */
 function parse(formula: string): Node {
-  if (formula.length > MAX_LENGTH)
-    refuse("syntax", `formula: it's longer than ${MAX_LENGTH} characters; write it in fewer.`);
+  if (formula.length > FORMULA_MAX_LENGTH)
+    refuse(
+      "syntax",
+      `formula: it's longer than ${FORMULA_MAX_LENGTH} characters; write it in fewer.`,
+    );
   const tokens = lex(formula);
   const end: Token = { kind: "end", text: "", at: formula.length };
   let index = 0;
@@ -547,6 +551,9 @@ function phrase(unit: Unit): string {
 /** Excel compares on the 15 significant digits it keeps, so 0.1 + 0.2 = 0.3 holds there and here. */
 const excelDigits = (x: number) => Number(x.toPrecision(15));
 
+/** Whether two numbers are equal as a formula's "=" compares them. */
+export const sameNumber = (x: number, y: number): boolean => excelDigits(x) === excelDigits(y);
+
 /**
  * A number with no unit or scale of its own ("3.5" in "3.5:1") times an amount in a scale is a
  * multiplier: the product is shown as the amount is written. Its own decimals, moved into that
@@ -564,6 +571,8 @@ function productScales(a: Value, b: Value): WrittenScale[] {
 
 /** The powers of ten that scale words stand for: thousand, 万, million, 亿, billion, trillion. */
 const SCALE_STEPS: ReadonlySet<number> = new Set([3, 4, 6, 8, 9, 12]);
+/** The scales Chinese statements are written in: 千, 万, 百万, 亿, 万亿. */
+const CHINESE_SCALES: ReadonlySet<number> = new Set([3, 4, 6, 8, 12]);
 
 /** The power of ten a number written in the formula is ("10000", "1e8", "10^4", "0.001"); null for any other. */
 function powerOfTen(value: Value): number | null {
@@ -690,13 +699,14 @@ function evaluate(
     const base = before?.amount ?? amount;
     scaledBy.set(node, { exponent, amount: base });
     changes.delete(amount.node);
-    if (SCALE_STEPS.has(Math.abs(exponent)))
-      changes.set(node, {
-        text: source(node),
-        amount: source(base.node),
-        exponent,
-        from: base.scales[0] ?? null,
-      });
+    const from = base.scales[0] ?? null;
+    // Or one written Chinese scale onto another, two steps apart: "rev / 100" reads 百万 as 亿.
+    const lands =
+      from?.word != null &&
+      /[\u4e00-\u9fff]/.test(from.word) &&
+      CHINESE_SCALES.has(from.exponent - exponent);
+    if (SCALE_STEPS.has(Math.abs(exponent)) || lands)
+      changes.set(node, { text: source(node), amount: source(base.node), exponent, from });
   };
   /** A division by a quantity: what scaled its dividend or its divisor made a rate per so many. */
   const divided = (node: Node, a: Value, b: Value) => {
@@ -783,8 +793,8 @@ function evaluate(
             if (!unit || pointsAndPercent) mismatch("compare", a, b);
             const [x, y] = [excelDigits(a.n), excelDigits(b.n)];
             const holds = {
-              "=": x === y,
-              "<>": x !== y,
+              "=": sameNumber(a.n, b.n),
+              "<>": !sameNumber(a.n, b.n),
               "<": x < y,
               ">": x > y,
               "<=": x <= y,
@@ -815,6 +825,9 @@ function evaluate(
         }
         const a = arg(0);
         switch (node.name) {
+          case "SIGN":
+            if (a.unit.kind === "yes-no") refuse("units", `SIGN can't take ${describe(a)}.`);
+            return result(node, NUMBER_UNIT, a.n > 0 ? 1 : a.n < 0 ? -1 : 0, [a], []);
           case "ABS":
             if (a.unit.kind === "yes-no") refuse("units", `ABS can't take ${describe(a)}.`);
             return result(node, a.unit, Math.abs(a.n), [a], a.scales);

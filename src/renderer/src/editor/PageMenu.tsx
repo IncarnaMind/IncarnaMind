@@ -28,6 +28,7 @@ import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
+import { LookMenuItems } from "./LookMenu";
 import { MindCounts } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
 
@@ -67,10 +68,15 @@ export function PageMenu({
   const style = useSubmenu();
   const styleValue = useStyleValue(mindId);
   const { file, report } = useWordFile(doc);
-  const origin = verification
-    ? { name: verification.documentName, documentId: verification.documentId, word: false }
-    : file
-      ? { name: file.name, documentId: file.documentId ?? null, word: true }
+  // A Word file verified (#110) is a Mind imported from it: it opens where the caret is.
+  const origin = file
+    ? {
+        name: file.name,
+        documentId: file.documentId ?? verification?.documentId ?? null,
+        word: true,
+      }
+    : verification
+      ? { name: verification.documentName, documentId: verification.documentId, word: false }
       : null;
   const original = useAppStore((state) =>
     origin?.documentId ? state.documents.find((each) => each.id === origin.documentId) : undefined,
@@ -117,6 +123,7 @@ export function PageMenu({
                       <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
                     </button>
                   )}
+                  {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
                   {!readOnly && offersReview(editor) && (
                     <button
                       type="button"

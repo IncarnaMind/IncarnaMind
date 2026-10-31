@@ -632,6 +632,96 @@ test("opened at a page range with a quote, the viewer shows that page with the q
   await app.close();
 });
 
+/**
+ * Holds pdf.js's reading of page text, as a long page or a busy computer holds it: a quote is
+ * found, and a page's text drawn, only once `release` is called.
+ */
+async function holdPageText(window: Page) {
+  await window.evaluate(() => {
+    const post = Worker.prototype.postMessage;
+    const held: (() => void)[] = [];
+    Worker.prototype.postMessage = function (
+      this: Worker,
+      message: unknown,
+      transfer?: Transferable[] | StructuredSerializeOptions,
+    ) {
+      const send = () => Reflect.apply(post, this, [message, transfer]);
+      if ((message as { action?: unknown } | null)?.action === "GetTextContent") held.push(send);
+      else send();
+    };
+    (globalThis as { releasePageText?: () => void }).releasePageText = () => {
+      Worker.prototype.postMessage = post;
+      for (const send of held.splice(0)) send();
+    };
+  });
+  return {
+    release: () =>
+      window.evaluate(() => (globalThis as { releasePageText?: () => void }).releasePageText?.()),
+  };
+}
+
+test("a page the User goes to while the quote is still being found stays in view: the quote is highlighted where it is (#1741)", async () => {
+  const tidesQuote = "Spring tides happen at new moon and at full moon.";
+  const footQuote = "Neap tides happen at the quarter moons.";
+  const tides = join(sources, "Tides.pdf");
+  await writeFile(
+    tides,
+    buildPdf([
+      { lines: ["Tides and the Moon", "The Moon raises two bulges of water on the Earth."] },
+      {
+        lines: ["Spring and neap tides", tidesQuote],
+        placed: [{ text: footQuote, x: 72, y: 60 }],
+      },
+      { lines: ["Tide tables", "Harbours publish the times of high water every year."] },
+      { lines: ["Tidal streams", "The stream turns an hour after high water."] },
+    ]),
+  );
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await addDocuments(window, [tides]);
+  await setWindowSize(app, window, 1440, 800);
+  const viewer = window.getByTestId("viewer");
+  const pageNumber = window.getByTestId("pdf-page-number");
+  const documentId = await documentIdOf(window, "Tides");
+  const highlightOn = (page: number) =>
+    viewer.locator(`[data-page-number="${page}"] [data-quote-highlight]`);
+
+  // Left alone, the view goes on down to the quote at the page's foot once it is found.
+  let text = await holdPageText(window);
+  await openDocumentAt(window, { documentId, pageFrom: 2, pageTo: 2, quote: footQuote });
+  await expect(pageNumber).toHaveValue("2");
+  await text.release();
+  await expect(highlightOn(2)).toHaveText([footQuote]);
+  await expect(highlightOn(2)).toBeInViewport();
+  await expect(pageNumber).toHaveValue("2");
+
+  // The User types a page and presses Enter before the quote is found: the view stays there.
+  text = await holdPageText(window);
+  await openDocumentAt(window, { documentId, pageFrom: 2, pageTo: 2, quote: tidesQuote });
+  await expect(pageNumber).toHaveValue("2");
+  await pageNumber.fill("3");
+  await pageNumber.press("Enter");
+  await expect(pageNumber).toHaveValue("3");
+  await text.release();
+  await expect(highlightOn(2)).toHaveText([tidesQuote]);
+  await expect(highlightOn(2)).not.toBeInViewport();
+  await expect(viewer.locator('[data-page-number="3"]')).toBeInViewport({ ratio: 0.5 });
+  await expect(pageNumber).toHaveValue("3");
+
+  // The User scrolls down before the quote is found: the view stays there too.
+  text = await holdPageText(window);
+  await openDocumentAt(window, { documentId, pageFrom: 2, pageTo: 2, quote: tidesQuote });
+  await expect(pageNumber).toHaveValue("2");
+  await window.getByTestId("pdf-scroller").hover();
+  await window.mouse.wheel(0, 1000);
+  await expect(pageNumber).toHaveValue("3");
+  await text.release();
+  await expect(highlightOn(2)).toHaveText([tidesQuote]);
+  await expect(highlightOn(2)).not.toBeInViewport();
+  await expect(pageNumber).toHaveValue("3");
+  await app.close();
+});
+
 test("a Document deleted while it is open, or already deleted, shows Document removed", async () => {
   const { report } = await writeSources();
   const { app, window } = await launchApp(dataDir);

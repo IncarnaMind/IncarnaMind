@@ -13,7 +13,7 @@
    - **differs**: unsupported, and the card quotes a line that says something different;
    - **absent**: unsupported, and the card says "I didn’t find this in “{scope}”";
    - **not checked**, with why.
-5. The report: per set and model, each sentence's outcomes and how many checks gave its most frequent verdict (partly, differs and absent are one verdict, unsupported), false Supported, absent on a sentence the Documents state, the partly-supported card on a sentence whose topic the Documents don't hold, how many checks gave other verdicts than the check before, and every result that isn't the expected verdict in the check's own words. It goes into `eval/results/<start time>-repeats/` (`report.md`, `report.json`).
+5. The report: per set and model, each sentence's outcomes and how many checks gave its most frequent verdict (partly, differs and absent are one verdict, unsupported), false Supported, absent on a sentence the Documents state, the partly-supported card on a sentence whose topic the Documents don't hold, how many checks gave other verdicts than the check before, every result that isn't the expected verdict in the check's own words, and what a sentence's check cost on average: its requests, its searches, how many checks were asked to search again before saying a sentence isn't found (#1608), the tokens and the requests' time. It goes into `eval/results/<start time>-repeats/` (`report.md`, and `report.json` with each check's requests: the searches, the Passages handed and the replies, `requests.ts`).
 
 The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core, so other sets can use it with their own Documents.
 
@@ -45,9 +45,35 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
 
+## Check against a Document, read whole
+
+`npm run eval:whole-read` checks sentences against invented residential leases of about 40,000 or 120,000 tokens, read whole in ordered windows rather than ranked by search (#1554). English and Chinese clauses sit early, in the middle and late, with paraphrase, near-miss, wrong-figure and absent sentences. The report records every actual verdict, the Citation quote, pages read, requests' seconds and spend, and whether a search would have handed the clause to the model.
+
+Use the same chat variables as above, plus:
+
+- `INCARNAMIND_EVAL_WHOLE_READ_CASES`: only `en-40`, `en-120`, `zh-40` or `zh-120`.
+- `INCARNAMIND_EVAL_WHOLE_READ_SENTENCES`: only these sentence keys, such as `pet,rent,deposit`.
+- `INCARNAMIND_EVAL_WHOLE_READ_SEARCHED=1`: also run the ordinary ranked-search check for comparison.
+- `INCARNAMIND_EVAL_WHOLE_READ_BUDGET`: stop after the check that takes total spend past this many dollars (1).
+
+Setting the variables is consent to send the sentences and the whole lease to the model. The generated PDFs and all other run data stay in temporary folders; the report goes into `eval/results/<start time>-whole-read/`.
+
 **Cost and time:** ten checks of the first four Minds take about 5 minutes and $0.10 on Claude Haiku 5.5, and about 9 minutes and $2.20 on Claude Sonnet 5.5. The two conflict Minds add about 9 minutes and $0.25 on Haiku 5.5, and roughly $4 on Sonnet 5.5 (from the other sets' ratio, not measured), so run them there with fewer checks.
 
-**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: the Chinese negation the claims leave out (#1682), near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).
+**The conflicts:** a change to a verdict's instructions or to a judgement is measured against the conflicts it loses, not only the near misses it fixes. The report gives "Genuine conflicts Contradicted: n of m", and counts a conflict Supported as a false Supported. A sentence the check misses today is marked with its issue (`knownMiss` in `cases.ts`), stays in its set, and is listed with its counts under a heading of its own, "Known misses (#…)", outside every other count; take the mark off once the issue is fixed. Marked today: near misses about another person or role that the check's first verdict calls contradicted (#1718), the figures for a year the Documents don't cover, which should say "I didn’t find this" (#1765), and the Chinese wrong 2026 price, shown as "says something different" about half the time (#1708).
+
+## The request log, on the scripted model
+
+`npm run eval:repeats` also runs `requests.repeats.ts`, which needs no key, no network and no cost: it checks 14 sentences with a figure, one of them Chinese, 20 times on the scripted model, and prints each sentence's requests as the real run's cost line does (#2256). It fails when a judgement or the evidence the scripted model was asked for is not logged against its sentence, or when a sentence has no request at all; the request that names a whole Mind's sentences is no sentence's and isn't counted. The scripted replies leave 5 of the 14 Not checked — a part whose reply they never answer, no Passage for another's evidence, one verdict with no search — so those sentences' counts are the requests such a check still makes, not verdicts.
+
+## The claims request, asked again and again
+
+Check this Mind asks the model once which of a Mind's sentences make claims, and keeps the answer: a sentence it leaves out isn't checked again until it is edited (#1682). `npm run eval:claims` asks that request again and again, each time on a new Mind of the same sentences, so every request is independent (the app never sorts a sentence twice), with a real chat model, and counts what each request made of each sentence. Nothing is checked, so it is cheap.
+
+- **The claim kinds group** (`KIND_SETS` in `cases.ts`, `en-kinds` and `zh-kinds`): a User's notes on each agreement, three or four claims of each kind the agreement states (a negation, a number, a name, a modal, a party) between seven sentences that make no claim (an opinion said as one and one that isn't, a question, advice, thanks, a request and a proposal). The conflict sets are asked too, each sentence of the kind its key says (`claimKindOf`), and `en-long` and `zh-long`, every sentence of a language's sets in one Mind of about 80, as a long Note is asked.
+- **What it counts,** for each set, model and kind: how often a claim isn't named (left out, or undecided when no reply decided it even asked again, which the Mind says it didn't examine) and how often a sentence that makes no claim is named. A sentence with a figure is a claim without asking and isn't shown to the request; the report names those.
+- `INCARNAMIND_EVAL_REPEATS`: independent calls on each Mind (20). `INCARNAMIND_EVAL_REPEATS_SETS`: which sets (`en-conflicts,zh-conflicts,en-kinds,zh-kinds` by default). `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops past this many dollars (2).
+- **Cost and time:** 100 calls on each of the six Minds cost about $0.15 on Claude Haiku 5.5 and take about 4 minutes; 20 calls on each cost about $0.55 on Claude Sonnet 5.5.
 
 ## Scope of a check from a Mind
 
@@ -59,6 +85,92 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-10-30: a sentence with a figure keeps a contradiction whose quote the model never recorded (#2184)
+
+A sentence with a figure is checked figure by figure, and the reply's own verdict on the sentence counts beside its figures. On Claude Haiku 5.5, about one contradicted reply in seven gave no recorded quote: it wrote its record into the reply instead of calling `cite`, most often in a long reply that corrects a first verdict. The figure step then had no quote to judge the contradiction on, and the card showed Unsupported. Now the check asks once for the deciding quote, as it does for a sentence without figures, and judges the contradiction on it. A reply reads as a refusal only when it gives no verdict ("两万元无法核对" is a reason), and the Figures line is never shown as what the Document says.
+
+`npm run eval:repeats`, 20 checks, the 13 sentences with a figure of `en-conflicts` and `zh-conflicts`, each language's as one Mind in that set's Library. Claude Haiku 5.5 through OpenRouter (`anthropic/claude-haiku-5.5`, thinking off), on 2026-10-30. Before is 660aa879e, after 47f1867f8. Both ran without the OpenRouter option that keeps to endpoints supporting every parameter, which makes OpenRouter refuse a forced Tool on Claude (#2248). Counts are Contradicted, Unsupported, Supported and Not checked.
+
+| Sentence | Before | After |
+|---|---|---|
+| The salary is 65,000 per year, paid monthly in arrears. | 19, 1, 0, 0 | 20, 0, 0, 0 |
+| The salary is 61,500 per month. | 17, 3, 0, 0 | 16, 4, 0, 0 |
+| The Company pays the Employee a rent of 950 per month for the flat. | 18, 2, 0, 0 | 20, 0, 0, 0 |
+| At the end of employment the Employee may sell the work laptop to the Company for 450. | 13, 7, 0, 0 | 18, 2, 0, 0 |
+| The Employee is the landlord of the flat at 14 Mill Lane and the Company the tenant. | 18, 2, 0, 0 | 20, 0, 0, 0 |
+| Up to 5 unused holiday days must be carried over into the next year. | 19, 1, 0, 0 | 17, 3, 0, 0 |
+| The Company contributes 4 percent of salary to the pension and the Employee 6 percent. | 12, 8, 0, 0 | 19, 1, 0, 0 |
+| Up to 5 unused days should be carried over into the next year. | 6, 13, 1, 0 | 6, 13, 1, 0 |
+| 乙方月工资为人民币两万元。 | 17, 2, 0, 1 | 20, 0, 0, 0 |
+| 乙方年工资为人民币一万八千元。 | 9, 11, 0, 0 | 16, 4, 0, 0 |
+| 甲方每月向乙方支付租金人民币一千五百元。 | 13, 4, 3, 0 | 13, 2, 5, 0 |
+| 劳动合同终止时，乙方可按人民币三千元将笔记本电脑出售给甲方。 | 13, 7, 0, 0 | 19, 1, 0, 0 |
+| 乙方将明川路14号2室出租给甲方。 | 19, 1, 0, 0 | 20, 0, 0, 0 |
+
+- **Contradicted:** English 122 of 160 before, 136 after; Chinese 71 of 100 before, 88 after. Sentences Contradicted in at least 19 of 20 checks: 3 of 13 before, 7 after.
+- **The reply's last `Verdict:` line against the card:** it said contradicted in 229 checks before and 225 after; the card showed Contradicted in 193 of them before and 224 after. The one left is a contradiction the strict judgement didn't uphold ("must" for "may", judged "neither"). Every other card follows the reply's own last verdict.
+- **Not checked:** 1 before (an empty reply), 0 after. Cards that gave the Figures line as what the Document says: 11 before, 0 after.
+- **False Supported:** 4 before, 6 after, every one a reply whose last verdict said supported with the parties the same: the Chinese rent payer 3 and 5, "should be carried over" 1 and 1.
+- **What stays short of 19 of 20 is the model's own last verdict:** unsupported in 13 checks (the salary "per month" and "年工资" 4 each, the Document's figure for another period taken for a near miss; "should" 3, "must" 1, the English laptop 1), and supported with its Roles line or its figures saying the parties or the duty differ, which the card shows as Unsupported, in 16 ("should" 10, the Chinese rent payer 2, the laptop 1 in each language, "must" 1, the pension shares 1).
+- **Cost:** the quote was asked for in 18 of the 260 checks, each one short request, and its contradiction judged twice. $0.55 at OpenRouter's billing for the after run, $0.57 at the app's own count.
+
+### 2026-10-29: every sentence gets its own decision when the claims are named (#1682)
+
+The claims request asked the model for the numbers of the sentences that make claims, and the app took every number it didn't list for a sentence that makes no claim, for good. Now the model decides each sentence ("claim" or "no", by its number), the sentences a reply says nothing of are asked about once more, in one request for their batch, and one still undecided isn't taken for one that makes no claim: it stays to check, the next Check asks about it again, and the line under the check says how many sentences it didn't examine.
+
+`npm run eval:claims`, `main` at 401f7af2f against this version, on the same day; 100 independent calls a Mind on Claude Haiku 5.5, 20 on Claude Sonnet 5.5. A claim is counted wrong when a call doesn't name it; a sentence that makes no claim, when a call names it.
+
+| Model | Language | Kind | `main` | This version |
+|---|---|---|---|---|
+| Haiku 5.5 | EN | modal | 200 of 2,000 | 200 of 2,000 |
+| Haiku 5.5 | ZH | modal | 168 of 2,200 | 8 of 2,200 |
+| Haiku 5.5 | ZH | party | 57 of 1,800 | 0 of 1,800 |
+| Haiku 5.5 | ZH | other | 1 of 2,400 | 0 of 2,400 |
+| Sonnet 5.5 | EN | modal | 40 of 400 | 36 of 400 |
+
+Every other kind (negation, number, name, party, other, and sentences that make no claim), in both languages and on both models, was 0 before and after. The Chinese negation of the conflict set ("试用期内任何一方都不得解除本合同。") was named in 100 of 100 calls on Haiku 5.5 and 20 of 20 on Sonnet 5.5, before and after, so it is an ordinary member of `zh-conflicts` again.
+
+- **What `main` left out:** "公司可以通知林晓在居家工作日到岗。" in 57 of 100 calls, and "林晓应事先与主管商定居家工作的日子。" in 99 of 100 in its Mind and 69 of 100 in the long one (after: 2 and 6 of 100; 1 and 9 in a second run). In other runs of `main` the same day: "The Director of People reports to the Employee." in 17 of 100 and 7 of 40 calls in the long English Mind, which the reply skipped in a run of numbers ("…30, 31, 33, 34…"), and advice and an opinion named in 25 of 700. No call of this version's wording left a sentence undecided: 0 in 2,400.
+- **Left out by both:** "Tunde should agree his home-working days with his manager in advance." in every call on Haiku 5.5 and in 36 of 40 on Sonnet 5.5, read as the writer's advice, which the request leaves out (#737). Whether the User's "should" is advice is the opinion rule's question, and #2002 shows the opinions a check leaves out.
+- **The request before sentences with figures skipped it** (the commit before #1932, every sentence shown): the list left out "公司可以通知林晓在居家工作日到岗。" in 100 of 100 calls in one version of `zh-kinds` (0 of 100 once two sentences were added before it) and the seven days' notice in 2 of 100; asking for every decision, none of them. There, though, a decision for each left out "Up to 5 unused days should be carried over into the next year." in 59 of 100 calls on Haiku 5.5 (0 with the list). Today that sentence has a figure and isn't asked.
+- **Wordings tried,** Haiku 5.5, 20 to 100 calls a Mind:
+
+| Reply | Claims not named | Sentences that make no claim named |
+|---|---|---|
+| The numbers of the claims (`main`) | as above | 25 of 700 in one run |
+| Two lists, claims and every other sentence | 15 of 480 (duties and permissions put in "other") | 0 |
+| The numbers of the sentences to leave out | 331 of 3,760 | 0 |
+| A decision for each (this version) | as above | 0 |
+| The same, and "when unsure, decide claim" | 0 | Sonnet 5.5: a proposal for a meeting in 35 of 60 calls |
+| The same, and "a sentence that says what someone must, should or may do is a claim" | "should be carried over" 81 of 100, before #1932 | Sonnet 5.5: thanks in 6 of 20 |
+| The same, and "when unsure whether a sentence states something or gives the writer's own view, decide claim" | 0, but the English "should agree" | Haiku 5.5: "总体来看，这份合同还算公平。" in 38 of 100 |
+
+- **The checks, `main` against this version, Haiku 5.5, 10 checks:** `en`, `zh`, `en-control` and `zh-control` gave each sentence the same verdicts but for single checks either way: the near miss about named days Contradicted once after, and a check not checked for a reply with no evidence in 5 checks before and 2 after. Conflicts Contradicted: 230 and 229 of 320 in English, 189 of 300 and 204 of 310 in Chinese, the negation now counted. Sonnet 5.5, 5 checks of the four sets and 2 of the conflict sets: the same verdicts, and 47 and 46 of 64, 45 and 46 of 62. Every sentence of these Minds was named in every check after.
+- **Cost and time:** the reply names every sentence, so it is about three times as long (44 to 173 tokens out before, 136 to 454 after); a call on Haiku 5.5 took 0.9 to 1.3 s before and 1.0 to 2.9 s after, on Sonnet 5.5 1.8 to 2.7 s and 2.5 to 3.3 s. A call costs at most $0.0004 on Haiku 5.5 and $0.008 on Sonnet 5.5, once a check for the sentences not sorted before, ahead of the checks it starts.
+- **Found on the way:** on `main`, conflicts whose sentence holds a figure ("The salary is 61,500 per month.", "乙方月工资为人民币两万元。", the rent, the laptop, the flat) come back not checked or unsupported in most checks, before and after this change.
+- **Spend:** about $21 over this work, Haiku 5.5 and Sonnet 5.5, at the app's own count.
+
+### 2026-10-25: a check searches again before it says a sentence isn't found (#1608)
+
+Before a check says nothing in its scope states a sentence, it asks the model once to search again with other words: the sentence's key terms, a plainer paraphrase, or the Documents' language (`src/core/answers/checks/searchAgain.ts`). The model writes the query. A check that already searched more than once isn't asked, and neither is a reply that says a Passage is about the sentence or names a part one states. When the check finds no Passage about a sentence with no Citation, even after the second search, its card is headed "Not found" (未找到). When it finds one that doesn't back the sentence, the result keeps that (`UnsupportedReason.found`) and the card says "Unsupported", with the check's words. The card, the margin, the health card and the Word comment all decide this by `saysNotFound`. The measurements below were made before the reply's `Topic: found` was taken as a Passage found, which can only mean fewer asks: none was made in them.
+
+**Why a sentence the Documents state came back unsupported.** On `main` at f46093a4c, with every request logged, the deciding clause was among the first search's Passages in every check of these four sets: 160 checks on Claude Haiku 5.5 and 200 on Claude Sonnet 5.5. It was never a search miss. The issue's flip was "Staff…" on Sonnet 5.5, unsupported with no parts so the card said nothing was found. That was the model's first verdict, and since the `Scope` field it gets the partly-supported card in 40 of 40 checks. Where a sentence the agreement states still comes back unsupported, as in `unfiled-20` below, the clause was handed every time: the model reads a sentence that names no party, in a Library of several agreements, as a rule for all of them. The Mind's Search scope (#1623) settles that.
+
+Counts are of checks, `main` and this version, interleaved within three hours on 2026-10-25; another change to the period rule was being measured on `main` in parallel. `main` ran Haiku 5.5 twice.
+
+| | Haiku 5.5 `main` | Haiku 5.5 this version | Sonnet 5.5 `main` | Sonnet 5.5 this version |
+|---|---|---|---|---|
+| Sentences the agreement states, unsupported (of 40), English | 0; 2 | 0 | 0 | 0 |
+| The same, Chinese | 0; 0 | 0 | 0 (1 not checked) | 0 |
+| Pairs of checks in a row that agree, of 9: en, en-control, zh, zh-control | 9, 7, 9, 9; 7, 4, 7, 9 | 9, 6, 9, 7 | 9, 9, 7, 9 | 9, 9, 9, 9 |
+| Checks asked to search again | | 0 of 200 | | 0 of 200 |
+
+- **The pairs that disagree:** a general word Supported in about 1 check in 10 ("Employees…", 员工…; the `Scope` field, #1708), a near miss Contradicted once, "can" for "may" given the partly-supported card by a `Roles` line that says differs, a quote not found once on Haiku 5.5, and on Sonnet 5.5 a reply with no verdict line (#1673). The ask to search again never ran in these checks, so it can't have caused or fixed any of them.
+- **Cost:** none on the common path. On this version a sentence's check took 3.1, 3.1, 2.7 and 2.2 requests on Haiku 5.5 (en, en-control, zh, zh-control), against 3.1, 2.9, 2.7 and 2.3 on `main`. It took 15,300, 17,200, 12,300 and 11,000 tokens in, against 15,300, 16,200, 12,600 and 11,600, and 3.3 to 4.8 s of requests, against 3.4 to 4.1 s. On Sonnet 5.5 it took 4.1, 3.9, 3.4 and 3.0 requests, against 4.1, 4.0, 3.4 and 3.0, and 6.6 to 8.1 s against 7.2 to 8.0 s, and 22,400, 21,800, 15,600 and 16,300 tokens in, against 21,400, 21,800, 16,000 and 16,200. Both models already search twice for a sentence they don't find: the car allowance had two searches or more in all 100 checks of these runs, so an ask would have nothing to add there. When it does run, it is one more request, with the check's own context, before the verdict.
+- **The other sets,** Haiku 5.5, 5 checks, `main` against this version. Conflicts Contradicted: 129 and 125 of 145 in English, 114 and 110 of 140 in Chinese. False Supported: 8 and 6 in English, 3 and 0 in Chinese conflicts, 3 and 1 in the Chinese near misses. Results not as expected: paraphrases 5 and 5 (en), 0 and 1 (zh); near misses 5 and 6 (en), 9 and 6 (zh). No check in any of these sets was asked to search again (0 of 415), so the differences are draws.
+- **Scope cases,** Haiku 5.5, 10 checks: sentences the agreement states that weren't Supported in `unfiled-20` went from 6 of 20 on `main` to 1 of 20 in English, and from 1 of 20 to 2 of 20 in Chinese. Every one was the partly-supported card with the clause in hand. With the agreement as the Mind's scope it was 0 of 20 in both languages. No check was asked to search again (0 of 160).
+- **Spend:** $5.47 at the app's own count: Haiku 5.5 $1.25 (with the scope cases), Sonnet 5.5 $4.22.
 
 ### 2026-10-25: figures of their own period, and dates and lengths that stay conflicts (#1765)
 

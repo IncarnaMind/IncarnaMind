@@ -119,7 +119,7 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
 
     // Checked again against the current version, where the quote isn't.
     const input = { documentId: document.id, quote: SPRING, pageFrom: 2, pageTo: 2 };
-    expect(await core.recheckCitation(input)).toEqual({
+    expect(await core.recheckCitation({ ...input, mindId: null })).toEqual({
       check: "not-found",
       checkReason: "quote-not-on-pages",
       contentHash: sha256(V2),
@@ -128,23 +128,24 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       pageTo: 2,
       location: { kind: "page", from: 2, to: 2 },
     });
-    // In version 3 the quote is back, on page 3: the recheck finds it there.
     await changeFile(core, document.id, document.path, V3);
-    const rechecked = await core.recheckCitation(input);
+    const rechecked = await core.recheckCitation({ ...input, mindId: null });
     expect(rechecked).toEqual({
-      check: "found",
-      checkReason: null,
+      check: "not-found",
+      checkReason: "quote-not-on-pages",
       contentHash: sha256(V3),
       passageId: expect.any(String),
-      pageFrom: 3,
-      pageTo: 3,
-      location: { kind: "page", from: 3, to: 3 },
+      pageFrom: 2,
+      pageTo: 2,
+      location: { kind: "page", from: 2, to: 2 },
     });
     // Written onto the Citation, it no longer says the Document changed.
     expect(
       citationState({ ...citation, ...rechecked }, await core.listDocuments()).changedAfterCited,
     ).toBe(false);
-    await expect(core.recheckCitation({ ...input, documentId: "gone" })).resolves.toMatchObject({
+    await expect(
+      core.recheckCitation({ mindId: null, ...input, documentId: "gone" }),
+    ).resolves.toMatchObject({
       check: "cant-check",
       checkReason: "document-removed",
     });

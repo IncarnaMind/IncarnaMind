@@ -129,6 +129,7 @@ describe("applying gathered assignments to the Library", () => {
         name: "Research",
         description: "",
         countsOwnFiles: false,
+        keepInside: false,
         createdAt: "",
         updatedAt: "",
       },

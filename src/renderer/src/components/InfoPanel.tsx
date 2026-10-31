@@ -1,4 +1,12 @@
-import { type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
 import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
@@ -6,8 +14,9 @@ import { copyText } from "../copied";
 import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
+import { missingFonts, useFontLoads } from "../editor/wordFonts";
 import { providerErrorText } from "../errors";
-import { addedDate, documentSummary, fileDate, showFileLabelKey } from "../fileInfo";
+import { addedDate, documentSummary, fileDate, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
 import { folderCounts, organizeModel, organizeState } from "../libraryPage";
@@ -27,6 +36,7 @@ import { chipsOf } from "../tagEditing";
 import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
 import { TagDot } from "./TagColour";
 import { buttonClass } from "./ui";
+import { useFocusReturn } from "./useFocusReturn";
 import { useTaggingService } from "./useTaggingService";
 
 const WIDTH_PX = 340;
@@ -93,6 +103,7 @@ function Panel() {
       : undefined,
   );
   const panel = useRef<HTMLDivElement>(null);
+  const focus = useFocusReturn();
   const row = rowOf(from);
   useExitToward(panel, () => row ?? from);
 
@@ -100,10 +111,11 @@ function Panel() {
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
+    focus.remember();
     element.showPopover();
     enterFrom(element, row, place(element, row));
     element.focus();
-  }, []);
+  }, [focus]);
 
   // What it was about is gone (deleted, unlinked): nothing left to show.
   const gone = !item && !linked && !group;
@@ -130,8 +142,7 @@ function Panel() {
       onToggle={(event) => {
         if (event.newState !== "closed") return;
         useInfo.getState().close();
-        // Back to what it was opened from, unless the click that closed it went somewhere to focus.
-        if (from?.isConnected && !document.activeElement?.closest("[data-surface]")) from.focus();
+        focus.giveBack(panel.current, from);
       }}
       style={{ width: WIDTH_PX }}
       className={panelClass}
@@ -238,6 +249,27 @@ function Actions({
   );
 }
 
+/** The fonts of the Note a Word file was imported as that this computer lacks. */
+function useMissingFonts(mindId: string | undefined): string[] {
+  const [fonts, setFonts] = useState<readonly string[]>([]);
+  useEffect(() => {
+    setFonts([]);
+    if (!mindId) return;
+    let live = true;
+    core
+      .wordFonts(mindId)
+      .then((each) => {
+        if (live) setFonts(each);
+      })
+      .catch((error: unknown) => useAppStore.getState().reportError(error));
+    return () => {
+      live = false;
+    };
+  }, [mindId]);
+  useFontLoads();
+  return missingFonts(fonts);
+}
+
 function DocumentInfo({ document }: { document: Document }) {
   const t = useT();
   const language = useLanguage();
@@ -249,6 +281,10 @@ function DocumentInfo({ document }: { document: Document }) {
     "scan-images",
     assignment?.error?.wording?.key === "error.library.scanImagesOff",
   );
+  const scanImagesToAllow =
+    scanImages.route.where === "cloud" && scanImages.allowed === false
+      ? scanImages.route.service
+      : null;
   const organizeRow = useRef<HTMLElement>(null);
   const folder = useDocumentFolder(document.id);
   const linkedName = useAppStore((state) => {
@@ -259,8 +295,9 @@ function DocumentInfo({ document }: { document: Document }) {
     document.importedAs ? state.minds.find((each) => each.id === document.importedAs) : undefined,
   );
   const units = useUnitCount(document);
+  const missing = useMissingFonts(importedAs?.id);
   const chips = chipsOf(document.tags, tags);
-  const file = !document.web;
+  const file = userFile(document);
   const fileState = fileStatusLabel(document.fileStatus);
   const scanning =
     document.status === "extracting" && document.scan
@@ -284,7 +321,7 @@ function DocumentInfo({ document }: { document: Document }) {
           </Row>
         ) : (
           <Row label={t("info.where")} testId="info-path">
-            {document.path}
+            {file ? document.path : t("info.inLibrary")}
           </Row>
         )}
         {file && (
@@ -307,6 +344,16 @@ function DocumentInfo({ document }: { document: Document }) {
             >
               {mindName(importedAs) || t("mind.untitled")}
             </button>
+          </Row>
+        )}
+        {missing.length > 0 && (
+          <Row label={t("info.fonts")} testId="info-fonts">
+            <span className="block">
+              {missing.length === 1
+                ? t("look.fonts.missing.one")
+                : t("look.fonts.missing", { count: missing.length })}
+            </span>
+            <span className="block text-ink-meta">{missing.join(t("look.fonts.separator"))}</span>
           </Row>
         )}
         {chips.length > 0 && (
@@ -337,20 +384,20 @@ function DocumentInfo({ document }: { document: Document }) {
           )}
         </Row>
         <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
-          {t(organizeState(assignment))}
+          {t(organizeState(document, assignment))}
           {assignment?.model && (
             <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
           )}
           {assignment?.error && (
             <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
           )}
-          {scanImages && !scanImages.allowed && (
+          {scanImagesToAllow && (
             <button
               type="button"
               data-testid="info-allow-page-images"
               onClick={() =>
                 void core
-                  .allowDataFlow("scan-images", scanImages.service.id)
+                  .allowDataFlow("scan-images", scanImagesToAllow.id)
                   .then(() => organizeRow.current?.focus())
                   .catch((error: unknown) => useAppStore.getState().reportError(error))
               }

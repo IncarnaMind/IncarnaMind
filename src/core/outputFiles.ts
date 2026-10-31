@@ -2,7 +2,7 @@
  * The files IncarnaMind creates (#124): exports now, and later transcripts,
  * saved web pages and what Tasks make. Each goes to the Output location, which
  * each device keeps: Documents › IncarnaMind until the User picks another, the
- * first save taking it without asking (D209); or inside a Linked folder,
+ * first save taking it without asking; or inside a Linked folder,
  * e.g. next to the original it was made from, once the User has allowed that
  * folder (ADR-0010). A new file never replaces anything: it takes the next
  * free name. Folders are checked with symbolic links resolved, so nothing
@@ -14,10 +14,10 @@
  * "fileWrite.requested" and waits; saves waiting for the same answer share it.
  * The Output location asks only when the default can't take files.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, join } from "node:path";
+import { access, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { basename, extname, isAbsolute, join } from "node:path";
 import type {
   FileWriteRequest,
   LinkedFolder,
@@ -33,9 +33,10 @@ import {
   InvalidInputError,
   LinkedFolderWritesDeclinedError,
   NotFoundError,
+  TranslatableError,
 } from "./errors";
 import type { createEventHub } from "./events";
-import { removeStalePartials, safeFileName, writeNewFile } from "./fileNames";
+import { removeStalePartials, replaceFile, safeFileName, writeNewFile } from "./fileNames";
 import type { SettingsStore } from "./settings";
 import type { Database } from "./storage";
 
@@ -53,6 +54,8 @@ export interface NewFile {
    * IncarnaMind saves, such as a Transcript or a web page, which counts.
    */
   ownFile: OwnFileKind | null;
+  /** The Folder of the Note it was written from; null for none (see ./documents/ownFiles). */
+  fromFolder: string | null;
   /**
    * The folder to save it in, if not the Output location: one inside a Linked
    * folder, e.g. next to the original it was made from. Anywhere else is refused,
@@ -73,7 +76,7 @@ export interface OutputFilesOptions {
   /** The live Linked folders. */
   linkedFolders(): readonly Pick<LinkedFolder, "id" | "path">[];
   /** Records the fingerprint of a file IncarnaMind wrote, before it is written (see ./documents/ownFiles). */
-  recordOwnFile(data: Uint8Array, kind: OwnFileKind): void;
+  recordOwnFile(data: Uint8Array, kind: OwnFileKind, folderId: string | null): void;
 }
 
 /** A question as a save raises it, before it has an id. */
@@ -141,11 +144,56 @@ async function usableDefault(
   }
 }
 
+/** A problem with a file IncarnaMind saved, said with its name, never its path (#110). */
+export function fileProblem(name: string, error: unknown): Error {
+  if (error instanceof TranslatableError) return error;
+  const values = { name };
+  if (isGone(error) || codeOf(error) === "ENOTDIR") {
+    return new TranslatableError({ key: "error.export.rewrite.gone", values }, { cause: error });
+  }
+  if (isRefused(error) || codeOf(error) === "EBUSY") {
+    return new TranslatableError({ key: "error.export.rewrite.locked", values }, { cause: error });
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+export const fingerprintOf = (data: Uint8Array): string =>
+  createHash("sha256").update(data).digest("hex");
+
+/** Why a file IncarnaMind saved isn't written again: the User changed it, or made it read-only (#110). */
+export type NotRewritten = { kind: "changed" } | { kind: "read-only" };
+
+async function held(
+  path: string,
+  wrote: string,
+): Promise<{ kind: "held"; bytes: Uint8Array } | NotRewritten> {
+  const bytes = new Uint8Array(await readFile(path));
+  if (fingerprintOf(bytes) !== wrote) return { kind: "changed" };
+  try {
+    await access(path, constants.W_OK);
+  } catch (error) {
+    if (isRefused(error)) return { kind: "read-only" };
+    throw error;
+  }
+  return { kind: "held", bytes };
+}
+
 export function createOutputFiles(options: OutputFilesOptions) {
-  const { db, events, now, settings, suggested } = options;
+  const { db, events, now, settings } = options;
   const pending = new Map<string, Pending>();
   /** Files saved since the core started: the only ones the window may ask to show. */
-  const saved = new Set<string>();
+  const saved = new Map<string, SavedFile>();
+
+  const savedFile = (path: unknown): SavedFile => {
+    const file = typeof path === "string" ? saved.get(path) : undefined;
+    if (!file) {
+      throw new InvalidInputError({
+        key: "error.export.rewrite.notSaved",
+        values: { name: typeof path === "string" ? basename(path) : "" },
+      });
+    }
+    return file;
+  };
 
   const location = (): string | null => {
     const value = settings.readDeviceValue(OUTPUT_LOCATION);
@@ -189,7 +237,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         decidedAt: row.updated_at,
       });
     }
-    return { location: location(), suggested, linkedFolders };
+    return { location: location(), suggested: options.suggested, linkedFolders };
   };
 
   const changed = () => events.emit("outputSettings.changed", current());
@@ -247,7 +295,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
       real = await realFolder(input);
     } catch (error) {
       if (!isGone(error)) throw error;
-      if (input !== suggested) throw new NotFoundError({ key: "error.path.noFolder" });
+      if (input !== options.suggested) throw new NotFoundError({ key: "error.path.noFolder" });
       await mkdir(input, { recursive: true });
       real = await realFolder(input);
     }
@@ -259,13 +307,18 @@ export function createOutputFiles(options: OutputFilesOptions) {
 
   /** Asks where new files go, saying why the default can't take this one; cancels if none is chosen. */
   const askForLocation = async (fileName: string, problem: OutputFolderProblem): Promise<void> => {
-    await ask("output-location", { kind: "output-location", suggested, fileName, problem });
+    await ask("output-location", {
+      kind: "output-location",
+      suggested: options.suggested,
+      fileName,
+      problem,
+    });
     if (location() === null) throw new FileWriteCancelledError();
   };
 
   /**
    * The Output location, made again if it was removed from a folder still
-   * there. None chosen yet, the default, without asking (D209), kept once a
+   * there. None chosen yet, the default, without asking, kept once a
    * file is written there; asking, saying why, if it can't take files.
    */
   const outputFolder = async (
@@ -273,7 +326,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
   ): Promise<{ folder: string; defaulted: boolean }> => {
     let chosen = location();
     if (chosen === null) {
-      const usable = await usableDefault(suggested);
+      const usable = await usableDefault(options.suggested);
       if (usable.ok) return { folder: usable.real, defaulted: true };
       await askForLocation(fileName, usable.reason);
       chosen = location();
@@ -363,6 +416,19 @@ export function createOutputFiles(options: OutputFilesOptions) {
     },
 
     /**
+     * Whether the folder already holds a file of this name with exactly these bytes: a picture
+     * named after its content is written once, however often an export links it (#1937).
+     */
+    async holds(folder: string, name: string, bytes: Uint8Array): Promise<boolean> {
+      try {
+        const path = join(await realFolder(folder), fileNameOf(name));
+        return fingerprintOf(new Uint8Array(await readFile(path))) === fingerprintOf(bytes);
+      } catch {
+        return false;
+      }
+    },
+
+    /**
      * Saves a new file: in the Output location (the default the first time),
      * or in `folder`, asking first where the User hasn't answered yet. Throws
      * `FileWriteCancelledError` if the default couldn't take it and they
@@ -381,7 +447,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         const linked = ownerOf(folder);
         if (linked && !(await allowedIn(linked, name))) continue;
         // Before the file exists, so a Linked folder can't index it as the User's.
-        if (file.ownFile) options.recordOwnFile(file.data, file.ownFile);
+        if (file.ownFile) options.recordOwnFile(file.data, file.ownFile, file.fromFolder);
         let used: string;
         try {
           used = await writeNewFile(folder, name, file.data);
@@ -396,15 +462,69 @@ export function createOutputFiles(options: OutputFilesOptions) {
           changed();
         }
         const path = join(folder, used);
-        saved.add(path);
         const inDefaultFolder =
           defaulted ||
-          (await realFolder(suggested).then(
+          (await realFolder(options.suggested).then(
             (real) => real === folder,
             () => false,
           ));
-        return { path, name: used, folder, defaulted, inDefaultFolder };
+        const made = { path, name: used, folder, defaulted, inDefaultFolder };
+        saved.set(path, made);
+        return made;
       }
+    },
+
+    /**
+     * Writes a file this session saved again, in place (#110), only while it still holds the bytes
+     * of `wrote` and may be written, checked again right before the rename. `ownFile` records the
+     * new bytes as IncarnaMind's, from that Folder's Note. Throws a plain-words problem naming the
+     * file when it is gone or locked.
+     */
+    async rewrite(
+      path: unknown,
+      data: Uint8Array,
+      wrote: string,
+      ownFile: { kind: OwnFileKind; fromFolder: string | null } | null,
+    ): Promise<{ kind: "written"; file: SavedFile; before: Uint8Array } | NotRewritten> {
+      const file = savedFile(path);
+      try {
+        const before = await held(file.path, wrote);
+        if (before.kind !== "held") return before;
+        if (ownFile) options.recordOwnFile(data, ownFile.kind, ownFile.fromFolder);
+        let refused: NotRewritten = { kind: "changed" };
+        const replaced = await replaceFile(file.path, data, async () => {
+          const still = await held(file.path, wrote);
+          if (still.kind !== "held") refused = still;
+          return still.kind === "held";
+        });
+        return replaced
+          ? { kind: "written", file: { ...file, defaulted: false }, before: before.bytes }
+          : refused;
+      } catch (error) {
+        throw fileProblem(file.name, error);
+      }
+    },
+
+    /**
+     * Deletes a file this session saved, only while it still holds the bytes of `wrote` and may be
+     * written (#110); "gone" when it was deleted already.
+     */
+    async remove(
+      path: unknown,
+      wrote: string,
+    ): Promise<{ kind: "removed" } | { kind: "gone" } | NotRewritten> {
+      const file = savedFile(path);
+      try {
+        const now = await held(file.path, wrote);
+        if (now.kind !== "held") return now;
+        await rm(file.path);
+      } catch (error) {
+        if (!isGone(error)) throw fileProblem(file.name, error);
+        saved.delete(file.path);
+        return { kind: "gone" };
+      }
+      saved.delete(file.path);
+      return { kind: "removed" };
     },
 
     /** Whether IncarnaMind saved this file since it started. */

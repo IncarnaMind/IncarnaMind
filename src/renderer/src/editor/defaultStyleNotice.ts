@@ -27,7 +27,9 @@ function defaulted(
     also: {
       label: (t) => t("citationStyle.change"),
       testId: "undo-change-style",
-      run: () =>
+      run: () => {
+        // The line has said its one thing once the picker is open.
+        useUndo.getState().dismiss();
         useCitationStylePicker
           .getState()
           .show(
@@ -35,7 +37,8 @@ function defaulted(
             document.querySelector<HTMLElement>(
               `article[data-mind-id="${CSS.escape(mindId)}"] [data-testid="references-style"]`,
             ),
-          ),
+          );
+      },
     },
   };
 }

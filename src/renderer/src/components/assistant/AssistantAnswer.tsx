@@ -1,10 +1,13 @@
 import { useMemo } from "react";
+import type * as Y from "yjs";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
+import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
+import { repliesOnlyRefusals } from "../../commandFacts";
 import { regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
@@ -16,6 +19,7 @@ import {
 import { AskProblem } from "../../editor/AskProblem";
 import { PlanLimitLine } from "../../editor/PlanLimitLine";
 import { useT } from "../../i18n";
+import { useModelInUse } from "../../modelInUse";
 import { useStoppedByPlanLimit } from "../../planLimits";
 import { useQuestions } from "../../questions";
 import { useScopeEmpty } from "../../scopeDocuments";
@@ -27,12 +31,18 @@ import { AnswerActions } from "./AnswerActions";
 import { AnswerSteps, useStepsScopeOf } from "./AnswerSteps";
 import { AnswerText } from "./AnswerText";
 import { AskedLines } from "./AskCall";
-import { UnbackedClaimLine, WaitingChangesLine } from "./ChangeProblemLines";
+import {
+  UnbackedClaimLine,
+  UncitedReplyLine,
+  UncitedWritesLine,
+  WaitingChangesLine,
+} from "./ChangeProblemLines";
 import { CommandsCard } from "./CommandsCard";
 import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
 import { SelfCheckLines } from "./SelfCheckLines";
 import { StillReadingLine } from "./StillReadingLine";
+import { UnrunToolLines } from "./UnrunToolLines";
 
 /** What adding an Answer needs from the thread around it. */
 export interface AnswerKeeping {
@@ -60,6 +70,7 @@ export function AssistantAnswer({
   sought,
   keeping,
   askedAgain,
+  doc,
 }: {
   answer: ConversationAnswer;
   question: ConversationQuestion | undefined;
@@ -68,12 +79,14 @@ export function AssistantAnswer({
   keeping: AnswerKeeping;
   /** It was asked again with this many Documents an earlier Answer didn't use. */
   askedAgain?: number;
+  /** The Note in focus, whose model the composer's chip shows. */
+  doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { text, citations, figures, status } = answer;
+  const { id, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
-    () => answerBlocks({ text, citations, figures, status }),
-    [text, citations, figures, status],
+    () => answerBlocks({ id, analyses, text, citations, figures, status }),
+    [id, analyses, text, citations, figures, status],
   );
   const writing = useAnswers((state) => state.writing.has(answer.id));
   const streaming = writing || status === "streaming";
@@ -90,6 +103,7 @@ export function AssistantAnswer({
     approvals.length > 0 || consenting || asking,
   );
   const openSettings = useAppStore((state) => state.openSettings);
+  const modelNow = useModelInUse(doc);
   const regenerate = () => void regenerateAnswer(answer.id);
   const written = hasText(blocks);
   const { uncalculated } = figuresOf(answer.toolCalls);
@@ -134,6 +148,7 @@ export function AssistantAnswer({
         <AnswerText
           answerId={answer.id}
           blocks={blocks}
+          figureRuns={figureRunsOfAnswer(answer, blocks)}
           label={t("answer.label")}
           streaming={streaming}
           regenerate={regenerate}
@@ -148,6 +163,9 @@ export function AssistantAnswer({
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
       {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
+      {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (
         <ProblemLine
           role="status"
@@ -175,6 +193,9 @@ export function AssistantAnswer({
           details={answer.errorMessage}
           failedAt={answer.updatedAt}
           onRetry={regenerate}
+          onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
+          modelNow={modelNow}
+          chooseHere
           onOpenSettings={openSettings}
         />
       )}
@@ -206,7 +227,7 @@ export function AssistantAnswer({
       <AnswerActions
         answer={answer}
         streaming={streaming}
-        canKeep={written}
+        canKeep={written && !repliesOnlyRefusals(answer)}
         focusedMindName={keeping.focusedMindName}
         mindEmpty={keeping.mindEmpty}
         onAdd={() => keeping.add(answer)}

@@ -1869,13 +1869,233 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN quotes TEXT;
     `,
   },
+  {
+    version: 106,
+    description: "Remote Connector transport and header names (#1995)",
+    sql: `
+      UPDATE connectors
+      SET config = json_set(config, '$.connection', 'http', '$.headers', json('[]'))
+      WHERE transport = 'http' AND json_valid(config);
+    `,
+  },
+  {
+    version: 107,
+    description: "A workbook says which sheets and rows weren't read (#740)",
+    // JSON, an UnreadParts: hidden and very hidden sheets left out, sheets the reading limit cut
+    // short, and sheets after it. NULL when every part was read, and for every other kind.
+    sql: `
+      ALTER TABLE documents ADD COLUMN unread_parts TEXT;
+    `,
+  },
+  {
+    version: 108,
+    description: "A Meeting can be a voice memo, the User alone (#1568)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN kind TEXT NOT NULL DEFAULT 'meeting'
+        CHECK (kind IN ('meeting', 'memo'));
+    `,
+  },
+  {
+    version: 109,
+    description: "Answers in conversations keep their Analyses, and a Question that asked for one",
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN analyses TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE conversation_messages ADD COLUMN analyse INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 110,
+    description: "Outside-agent connections need new approval for the public alpha",
+    sql: `
+      UPDATE device_settings
+      SET value = 'false', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE key = 'agentsEnabled' AND deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 111,
+    description:
+      "Each Document's name in a keyword index of its own, once for the Document (#2042)",
+    sql: `
+      -- A Document's name, segmented as the Passages are (the core writes the
+      -- words: src/core/documents/keywords.ts), in an index whose document
+      -- frequency counts Documents: a word of a name weighs its Document once,
+      -- not once a Passage. Keyword search scores a Passage by its own words
+      -- and adds its Document's name match separately. The Passages' index is
+      -- rebuilt without the name by processing version 15 (see
+      -- NAME_INDEX_CURRENT_SINCE in src/core/documents/processing.ts).
+      -- One row a Document, deleted and written again when a Document is
+      -- renamed; a derived index, never synced.
+      CREATE VIRTUAL TABLE document_names_fts USING fts5 (
+        document_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `,
+  },
+  {
+    version: 112,
+    description:
+      "A Checkpoint the User named, or one saved when the Note was sent, keeps its name and file",
+    sql: `
+      -- A name the User gave the version (#1933), and the file a Checkpoint saved as the Note
+      -- was exported holds (reason 'export'). A named one is never thinned.
+      ALTER TABLE mind_checkpoints ADD COLUMN name TEXT;
+      ALTER TABLE mind_checkpoints ADD COLUMN detail TEXT;
+    `,
+  },
+  {
+    version: 113,
+    description: "A cited page whose drawing failed waits to be drawn again (#2161)",
+    sql: `
+      -- tries counts a page's failed drawings, so one that keeps failing stops being tried on
+      -- its own (src/core/citedPages.ts). Pages a failed drawing deleted wait again, as their
+      -- version may still be drawn: the newest of a Location, which the unique index allows
+      -- only where none waits or is saved; the start-up clean-up removes those nothing cites.
+      ALTER TABLE cited_pages ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+      UPDATE cited_pages
+      SET deleted_at = NULL, tries = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id IN (
+        SELECT gone.id FROM cited_pages AS gone
+        WHERE gone.deleted_at IS NOT NULL AND gone.image_type IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM cited_pages AS other
+            WHERE other.document_id = gone.document_id
+              AND other.content_hash = gone.content_hash
+              AND other.page_from = gone.page_from
+              AND other.page_to = gone.page_to
+              AND other.area = gone.area
+              AND (other.deleted_at IS NULL
+                OR (other.image_type IS NULL AND other.rowid > gone.rowid))
+          )
+      );
+    `,
+  },
+  {
+    version: 114,
+    description:
+      "A Document's keyword rows keep a version of their own, so a rewrite without a read moves no read version (#2185)",
+    sql: `
+      -- processing_version says which pipeline read a Document's Passages; keywords_version
+      -- says which one built its keyword rows. A rewrite without a read moves the second
+      -- alone (src/core/documents/index.ts), so a Document whose file is missing keeps the
+      -- first and is read again once the file is back (#2185). Rows of a Document read, or
+      -- rewritten, by processing version 15 or later are what this pipeline writes.
+      ALTER TABLE documents ADD COLUMN keywords_version INTEGER NOT NULL DEFAULT 0;
+      UPDATE documents SET keywords_version = processing_version WHERE processing_version >= 15;
+    `,
+  },
+  {
+    version: 115,
+    description: "A Folder can keep its work inside it (#1934)",
+    sql: `
+      -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
+      -- 0 by default. Kept with the Folder so it follows the User to other devices.
+      ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
+      -- A Question's Folder when it was asked, judged against today's walls: '' is asked in no
+      -- Folder, which outside Notes may read; NULL is not recorded, and is read by no Note.
+      -- No Folder was walled before this, so each older Question's Note, or else its
+      -- conversation, still holds the Folder it was asked in.
+      ALTER TABLE conversation_messages ADD COLUMN folder_asked_in TEXT;
+      UPDATE conversation_messages
+      SET folder_asked_in = CASE
+        WHEN asked_from_mind_id IS NULL THEN COALESCE(
+          (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id),
+          ''
+        )
+        ELSE COALESCE(
+          (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
+          ''
+        )
+      END
+      WHERE kind = 'question' AND folder_asked_in IS NULL;
+
+      -- The Folder of the Note a file IncarnaMind wrote came from, judged against today's walls:
+      -- a copy that comes back as a Document stays behind its Note's wall. NULL: no Note, no
+      -- Folder, or written before this was recorded.
+      ALTER TABLE own_files ADD COLUMN folder_id TEXT;
+      -- That Folder, on each Document a version of such a file became; kept when the User edits
+      -- the file, as own_file is. Derived on each device, so updated_at is left alone.
+      ALTER TABLE documents ADD COLUMN own_file_folder_id TEXT;
+      CREATE TRIGGER documents_own_file_folder_added AFTER INSERT ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER documents_own_file_folder_versioned AFTER UPDATE OF content_hash ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER own_files_folder_recorded AFTER INSERT ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+      CREATE TRIGGER own_files_folder_changed AFTER UPDATE OF folder_id ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+    `,
+  },
+  {
+    version: 116,
+    description: "A version's Units keep when that version was made (#2159)",
+    sql: `
+      -- When the version whose text a row holds was made: its file's last change, as the app saw
+      -- it when it read that version. A Citation opens the version it was made from after its
+      -- Document changed, marked with this date (#2159). A current version's date is its file's
+      -- modified time, already kept; a file dated 0 has none the app can use. Older versions know
+      -- none, and read as when their text was kept; a saved page's fetch is read from web_pages.
+      ALTER TABLE document_pages ADD COLUMN version_at TEXT;
+      UPDATE document_pages
+      SET version_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', d.file_mtime_ms / 1000.0, 'unixepoch')
+        FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+      )
+      WHERE version_at IS NULL AND EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+          AND d.file_mtime_ms > 0
+      );
+    `,
+  },
+  {
+    version: 117,
+    description:
+      "A duplicate of an imported Note keeps its Word file, so its checks leave it out (#1935)",
+    sql: `
+      -- The Document the file was imported as, beside document_id, which says which Mind is the
+      -- import: a duplicate sets document_id NULL but keeps this, so its checks leave that file
+      -- out by its Document and every version of it, not only by the bytes it was imported from
+      -- (#1935). Imported files already linked to a Document know the same.
+      ALTER TABLE word_packages ADD COLUMN source_document_id TEXT;
+      UPDATE word_packages SET source_document_id = document_id WHERE document_id IS NOT NULL;
+      CREATE INDEX word_packages_by_source_document ON word_packages (source_document_id)
+        WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
- * isn't recorded as applied runs, in version order, each in its own transaction.
- * A database recording a migration this build doesn't know was written by a
- * newer version of IncarnaMind, and is refused.
+ * isn't recorded as applied runs, in version order, in one transaction. A database
+ * recording a migration this build doesn't know was written by a newer version of
+ * IncarnaMind, and is refused.
  */
 export function migrate(db: Database, list: readonly Migration[] = migrations): void {
   list.forEach((migration, index) => {
@@ -1894,19 +2114,21 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
     throw new DataFromNewerVersionError(Math.max(...unknown));
   }
 
-  for (const migration of list) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+  const pending = list.filter((migration) => !applied.has(migration.version));
+  if (pending.length === 0) return;
+
+  db.transaction(() => {
+    for (const migration of pending) {
       db.exec(migration.sql);
       db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)", [
         migration.version,
         new Date().toISOString(),
       ]);
-      // Kept for tools that read it: the highest migration applied.
-      const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
-      db.exec(`PRAGMA user_version = ${highest ?? 0}`);
-    });
-  }
+    }
+    // Kept for tools that read it: the highest migration applied.
+    const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;
+    db.exec(`PRAGMA user_version = ${highest ?? 0}`);
+  });
 }
 
 /**

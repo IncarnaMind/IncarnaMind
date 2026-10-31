@@ -1,6 +1,4 @@
 import { writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
@@ -10,6 +8,7 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   assistantAnswers,
+  busyOllama,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -131,63 +130,6 @@ const bridge = (window: Page) => ({
 /** The scripted Answer repeats the Question: a long one keeps it streaming for a few seconds. */
 const LONG_QUESTION =
   "What is IncarnaMind, how does it read my Documents, where does it keep them, which models can it use, how does it cite a page, and what happens to my files when I close it?";
-
-/**
- * Ollama, with "fake-model", which the app asks where the model runs before
- * each Question is asked. While held, it answers only once released, as an
- * Ollama busy loading a model does: the Question waits on it, on its way.
- * In the cloud, it says the model runs on ollama.com.
- */
-async function busyOllama() {
-  const waiting: (() => void)[] = [];
-  let holding = false;
-  let cloud = false;
-  let tags = 0;
-  const server: Server = createServer((request, response) => {
-    request.resume();
-    if (request.url !== "/api/tags") {
-      response.writeHead(404);
-      response.end();
-      return;
-    }
-    tags += 1;
-    const listing = {
-      name: "fake-model",
-      model: "fake-model",
-      // What the app learnt of a model is kept by its digest.
-      digest: cloud ? "in-the-cloud" : "on-this-computer",
-      ...(cloud && { remote_host: "https://ollama.com:443" }),
-    };
-    const answer = () => {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ models: [listing] }));
-    };
-    if (holding) waiting.push(answer);
-    else answer();
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    get tags() {
-      return tags;
-    },
-    hold() {
-      holding = true;
-    },
-    release() {
-      holding = false;
-      for (const answer of waiting.splice(0)) answer();
-    },
-    inTheCloud(on: boolean) {
-      cloud = on;
-    },
-    close() {
-      server.closeAllConnections();
-      server.close();
-    },
-  };
-}
 
 test("typing in the composer and pressing Enter shows the Question in the assistant as a bubble, and its Answer streams in under it with checked Citations, the Mind as it was", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -481,7 +423,7 @@ test("sending empties the composer and shows the Question with its Answer on its
     await expect(input).toBeFocused();
     await expect(questions).toHaveCount(1);
     await expect(questions).toContainText(LONG_QUESTION);
-    await expect(onItsWay.getByTestId("answer-writing")).toHaveText("Reading Untitled…");
+    await expect(onItsWay.getByTestId("answer-writing")).toHaveText("Reading “Untitled”…");
     await expect(onItsWay.getByTestId("answer-stop")).toHaveCount(0);
     await expect(stop).toHaveAccessibleName("Stop the Answer");
     await expect(ask).toHaveCount(0);
@@ -707,8 +649,8 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await expect(options).toHaveText([/fake-model/, /other-model/]);
     await expect(options.first()).toHaveAttribute("aria-checked", "true");
     await expect(options.first()).toBeFocused();
-    await expect(menu).not.toContainText("For this Mind’s Questions.");
-    await expect(menu).toContainText("Default for new Minds: fake-model · Change in Settings");
+    await expect(menu).not.toContainText("For this note’s Questions.");
+    await expect(menu).toContainText("Default for new notes: fake-model · Change in Settings");
     // What stays on this computer says so with its icon, in ink-secondary: green is for checks.
     const stays = menu.getByTestId("on-this-computer").first();
     await expect(stays).toHaveCSS("color", "rgb(74, 79, 87)");
@@ -771,7 +713,7 @@ test("the model chip chooses the model for one Mind, which remembers it after a 
     await pointAndClick(window, window.getByTestId("composer-model"));
     const menuZh = window.getByTestId("composer-model-menu");
     await expect(menuZh.getByRole("group", { name: "在本机运行" })).toBeVisible();
-    await expect(menuZh).toContainText("新 Mind 的默认模型：fake-model · 在设置中更改");
+    await expect(menuZh).toContainText("新笔记的默认模型：fake-model · 在设置中更改");
     await screenshot(window, "composer-model-menu-zh");
     await window.keyboard.press("Escape");
     await screenshot(window, "composer-zh");

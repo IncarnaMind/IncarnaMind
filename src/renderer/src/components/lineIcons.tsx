@@ -10,6 +10,7 @@ type IconProps = SVGProps<SVGSVGElement>;
  */
 function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { children: ReactNode }) {
   return (
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative unless the caller supplies an accessible name.
     <svg
       viewBox="0 0 24 24"
       fill="none"
@@ -17,11 +18,27 @@ function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { chil
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
+      aria-hidden={props["aria-label"] || props["aria-labelledby"] ? undefined : true}
+      role={props["aria-label"] || props["aria-labelledby"] ? "img" : undefined}
       {...props}
     >
+      {props["aria-label"] && <title>{props["aria-label"]}</title>}
       {children}
     </svg>
+  );
+}
+
+/**
+ * Insert Page Break, as Word's and Google Docs' buttons draw it: two parts of a
+ * page, open where they meet, and a dashed line across between them.
+ */
+export function PageBreakLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M6 9V4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V9" />
+      <path d="M6 15v4.5A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V15" />
+      <path d="M3 12h2M8 12h2M14 12h2M19 12h2" />
+    </LineIcon>
   );
 }
 
@@ -86,6 +103,15 @@ export function FolderLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
       <path d={FOLDER} />
+    </LineIcon>
+  );
+}
+
+export function LockLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
     </LineIcon>
   );
 }
@@ -171,15 +197,6 @@ export function DocumentLineIcon({ kind, ...props }: IconProps & { kind: Documen
   );
 }
 
-export function TableLineIcon(props: IconProps) {
-  return (
-    <LineIcon {...props}>
-      <rect x="3.5" y="4" width="17" height="16" rx="2" />
-      <path d="M3.5 9.5h17M3.5 14.75h17M9.5 9.5V20" />
-    </LineIcon>
-  );
-}
-
 export function ChevronDownLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>
@@ -215,6 +232,17 @@ export function ExportLineIcon(props: IconProps) {
       <path d="M12 4v11" />
       <path d="m7 10 5 5 5-5" />
       <path d="M5 20h14" />
+    </LineIcon>
+  );
+}
+
+/** Open beside: an arrow up and out of a page. */
+export function OpenBesideLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5" />
+      <path d="M14 4h6v6" />
+      <path d="m20 4-8 8" />
     </LineIcon>
   );
 }
@@ -265,16 +293,6 @@ export function TrashLineIcon(props: IconProps) {
   );
 }
 
-/** Duplicate: one page over another. */
-export function DuplicateLineIcon(props: IconProps) {
-  return (
-    <LineIcon {...props}>
-      <rect x="8" y="8" width="12" height="12" rx="2" />
-      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-    </LineIcon>
-  );
-}
-
 export function PencilLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
@@ -307,6 +325,34 @@ export function KeyLineIcon(props: IconProps) {
     <LineIcon {...props}>
       <circle cx="8" cy="15" r="4.5" />
       <path d="m11.2 11.8 8.8-8.8M16.5 6.5l2.5 2.5M14 9l2 2" />
+    </LineIcon>
+  );
+}
+
+/** What only the User changes (#1421): a shield, as the prototype draws it. */
+export function ShieldLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M12 3 5 6v5.5c0 4.3 2.9 8 7 9.5 4.1-1.5 7-5.2 7-9.5V6l-7-3Z" />
+    </LineIcon>
+  );
+}
+
+export function SortLineIcon(props: IconProps) {
+  return (
+    <LineIcon strokeWidth={2} {...props}>
+      <path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" />
+    </LineIcon>
+  );
+}
+
+/** A picture in a Note: a frame with a mountain and the sun (#1937). */
+export function ImageLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m4 17 4.5-4.5L13 17m3.5-3.5L20 17" />
     </LineIcon>
   );
 }

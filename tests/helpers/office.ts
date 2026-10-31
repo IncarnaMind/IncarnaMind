@@ -50,22 +50,37 @@ export interface PackageOptions {
   corePath?: string;
 }
 
-/** The core properties part, and the package relationships that point to it. */
-const coreEntries = ({ coreXml, corePath = "docProps/core.xml" }: PackageOptions) =>
-  coreXml === undefined
-    ? []
-    : [
-        {
-          name: "_rels/.rels",
-          data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="${corePath}"/></Relationships>`,
-        },
-        { name: corePath, data: coreXml },
-      ];
+/** The package's own `_rels/.rels`, holding these relationships. */
+const packageRelationships = (relationships: readonly string[]) =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships.join("")}</Relationships>`;
+
+/** The core properties part, and its relationship for the package's own `_rels/.rels`. */
+function coreProperties(options: PackageOptions): {
+  part: { name: string; data: string } | null;
+  relationship: string | null;
+} {
+  if (options.coreXml === undefined) return { part: null, relationship: null };
+  const path = options.corePath ?? "docProps/core.xml";
+  return {
+    part: { name: path, data: options.coreXml },
+    relationship: `<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="${path}"/>`,
+  };
+}
+
+/** The core properties part, and (for a package with no other relationships) its own `_rels/.rels`. */
+const coreEntries = (options: PackageOptions) => {
+  const { part, relationship } = coreProperties(options);
+  return part && relationship
+    ? [{ name: "_rels/.rels", data: packageRelationships([relationship]) }, part]
+    : [];
+};
 
 export interface SheetInput {
   name: string;
   /** Rows from 1; numbers are stored as numbers, strings inline. */
   rows: (string | number)[][];
+  /** Excel hides it from the tabs: "hidden", or "veryHidden", which only a developer can show. */
+  state?: "hidden" | "veryHidden";
 }
 
 /** A sheet of an .xlsx written as XML, for the look the sheet preview reads. */
@@ -75,7 +90,7 @@ export interface RawSheet {
   xml: string;
   /** The sheet's relationships, as <Relationship> elements. */
   rels?: string;
-  state?: "hidden";
+  state?: "hidden" | "veryHidden";
 }
 
 /**
@@ -183,7 +198,7 @@ export function xlsxOf(sheets: readonly SheetInput[], options: PackageOptions = 
       data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets
         .map(
           (sheet, index) =>
-            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}"${sheet.state ? ` state="${sheet.state}"` : ""} r:id="rId${index + 1}"/>`,
         )
         .join("")}</sheets></workbook>`,
     },
@@ -247,8 +262,20 @@ export function docxOf(
         `<w:comment w:id="${id}"${author === undefined ? "" : ` w:author="${escapeXml(author)}"`} w:date="2026-10-01T09:00:00Z"><w:p><w:r><w:annotationRef/></w:r><w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p></w:comment>`,
     )
     .join("");
+  const core = coreProperties(options);
   return buildZip([
     { name: "[Content_Types].xml", data: CONTENT_TYPES("") },
+    {
+      name: "_rels/.rels",
+      data: packageRelationships([
+        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>`,
+        ...(core.relationship ? [core.relationship] : []),
+      ]),
+    },
+    {
+      name: "word/_rels/document.xml.rels",
+      data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    },
     {
       name: "word/document.xml",
       data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${body}</w:body></w:document>`,
@@ -265,7 +292,7 @@ export function docxOf(
           },
         ]
       : []),
-    ...coreEntries(options),
+    ...(core.part ? [core.part] : []),
   ]);
 }
 

@@ -27,27 +27,60 @@
  * when nothing matches, the Answer has no Citation at all and one of its
  * sentences shares at least five words with one of the Passages'. What it
  * gives is taken the same way, a Citation taking the marker its sentence has.
- * A marker is enough to ask, so an Answer in another language than its
- * Passages, which shares no words with them, is asked too. Never more than
- * once per Answer, so an Answer saying the Documents don't cover the Question
- * doesn't pay for it. In the Tool loop the ask is one of the end-of-turn
- * checks' (see ./turnChecks): `mayAsk`.
+ * An Answer in another language than its Passages shares no words with them
+ * (#1415: Claude Haiku 5.5's Chinese summary of English Documents stayed
+ * uncited where its English one was asked), so it is asked when it shares
+ * what survives translation instead: a number in Latin digits of two or
+ * more, or a name or term in Latin letters of four or more. Never more than
+ * once per Answer, so an Answer saying the Documents don't cover the
+ * Question, a greeting or a question back doesn't pay for it. In the Tool
+ * loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
-import type { AnswerEngineEvent, AnswerRequest } from "./engine";
+import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
+import { outputTokens } from "../providers/outputLimits";
+import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import {
   answerTableUnits,
   likeness,
   type MarkerRecord,
-  textEdits,
   withMissingMarkers,
   wordsOf,
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryPrompt } from "./prompt";
 import { replyJson } from "./quoteRetry";
 import type { WindowBudget } from "./window";
+
+/** Engine events that change the Answer's text from `from` to `to`: what follows their common start is replaced. */
+export function* textEdits(from: string, to: string): Generator<AnswerEngineEvent> {
+  let common = 0;
+  while (common < from.length && common < to.length && from[common] === to[common]) common++;
+  if (from.length > common) yield { type: "text-retracted", length: from.length - common };
+  if (to.length > common) yield { type: "text-delta", text: to.slice(common) };
+}
+
+/**
+ * Where the engine handles a finished Answer's records: the edits that put in
+ * the markers the model left out of `text` for records the core took (see
+ * `AnswerTools.hasRecord`), and how many it put in. Returns the text with them.
+ */
+export function* missingMarkerEvents(
+  text: string,
+  records: readonly MarkerRecord[],
+  tools: Pick<AnswerTools, "hasRecord">,
+): Generator<AnswerEngineEvent, string> {
+  const { text: placed, placed: markers } = withMissingMarkers(
+    text,
+    records,
+    (marker) => tools.hasRecord?.(marker) ?? false,
+  );
+  if (markers.length === 0) return text;
+  yield* textEdits(text, placed);
+  yield { type: "markers-placed", count: markers.length };
+  return placed;
+}
 
 /** The most Citations added to one Answer. */
 export const MAX_ADDED = 12;
@@ -60,8 +93,6 @@ const MIN_SIMILARITY = 0.6;
 /** The most Passages, and of each one's text, the one request for Citations holds without a window. */
 const MAX_ASKED_PASSAGES = 12;
 const MAX_ASKED_CHARACTERS = 3000;
-/** The request's output cap: a sentence, an id and a quote for each Citation. */
-const ASK_OUTPUT_TOKENS = 1500;
 
 /** Text in quotation marks. */
 const QUOTATION = /["“「『]([^"“”「」『』\n]+)["”」』]/gu;
@@ -258,13 +289,52 @@ function takingMarkers(
   });
 }
 
+const languageOf = (text: string) => detectLanguage(text.slice(0, LANGUAGE_SAMPLE));
+
+function inAnotherLanguage(answer: string, passages: readonly ShownPassage[]): boolean {
+  const ours = languageOf(answer);
+  const theirs = languageOf(passages.map((passage) => passage.text).join("\n"));
+  return ours !== null && theirs !== null && ours !== theirs;
+}
+
 /** Whether a sentence of `answer` shares as many words with a sentence of the Passages as a match needs. */
-function drawsOn(answer: string, passages: readonly ShownPassage[]): boolean {
+function sharesWords(answer: string, passages: readonly ShownPassage[]): boolean {
   const theirs = passages.flatMap((passage) => passageSentences(passage.text).map(wordsOf));
   return answerSentences(answer).some((sentence) => {
     const words = wordsOf(sentence.text);
     return theirs.some((each) => likeness(words, each).shared >= MIN_SHARED_WORDS);
   });
+}
+
+const DIGITS = /\d+(?:[.,]\d+)*/g;
+const LATIN_TERM = /\p{Script=Latin}{4,}/gu;
+
+/** A figure of two or more digits: nearly every Passage has a one-digit one ("Table 2", "Section 3"), so sharing it says nothing. */
+const figuresOf = (text: string): string[] =>
+  [...text.matchAll(DIGITS)]
+    .map((found) => found[0].replace(/,(?=\d{3}(?!\d))/g, ""))
+    .filter((figure) => figure.length > 1);
+
+const figuresAndTerms = (text: string): Set<string> =>
+  new Set([
+    ...figuresOf(text),
+    ...[...text.matchAll(LATIN_TERM)].map((found) => found[0].toLowerCase()),
+  ]);
+
+function sharesFiguresOrTerms(answer: string, passages: readonly ShownPassage[]): boolean {
+  const ours = figuresAndTerms(answer);
+  if (ours.size === 0) return false;
+  return passages.some((passage) =>
+    [...figuresAndTerms(passage.text)].some((each) => ours.has(each)),
+  );
+}
+
+/** Whether an uncited `answer` may draw on the Passages, so asking the model for its Citations is worth a request. */
+export function mayDrawOn(answer: string, passages: readonly ShownPassage[]): boolean {
+  return (
+    (inAnotherLanguage(answer, passages) && sharesFiguresOrTerms(answer, passages)) ||
+    sharesWords(answer, passages)
+  );
 }
 
 /**
@@ -367,7 +437,7 @@ function passagesToAsk(
   }
   let room = budget.roomBeside(
     [CITE_RETRY_INSTRUCTIONS, citeRetryPrompt(answer, [])],
-    ASK_OUTPUT_TOKENS,
+    outputTokens("unmarked-quotes"),
   );
   const asked: ShownPassage[] = [];
   for (const passage of passages) {
@@ -394,7 +464,7 @@ async function askForCitations(
       instructions: CITE_RETRY_INSTRUCTIONS,
       prompt: citeRetryPrompt(answer, passages),
       temperature,
-      maxOutputTokens: ASK_OUTPUT_TOKENS,
+      maxOutputTokens: outputTokens("unmarked-quotes"),
       output: Output.object({ schema: askedSchema, name: "citations" }),
       // One request, never more.
       maxRetries: 0,
@@ -446,7 +516,7 @@ export async function* citeUnmarked(
       markers.length > 0 &&
       !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
   );
-  if (unbacked || (matches.length === 0 && !cited && drawsOn(answer, passages))) {
+  if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
     const toAsk = passagesToAsk(answer, passages, budget);
     if (toAsk.length > 0 && mayAsk()) {
       asked = true;

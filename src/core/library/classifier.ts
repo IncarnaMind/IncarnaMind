@@ -3,6 +3,7 @@ import { supportsLibraryImages } from "../../shared/libraryModels";
 import { approximateTokens } from "../documents/passages";
 import { askJevOrganization, type JevNoulQuestion, JevRequestError } from "../providers/jev";
 import type { ChatLanguageModel } from "../providers/models";
+import { outputTokens } from "../providers/outputLimits";
 import type { DocumentExcerpt, TagDecision, TagDefinition } from "../tags/classify";
 import { documentType, excerptFromPassages } from "../tags/classify";
 import type { DocumentPageImage } from "./pdfImages";
@@ -130,7 +131,7 @@ export function chatGroupClassifier(
             additionalProperties: false,
           }),
         }),
-        maxOutputTokens: 512,
+        maxOutputTokens: outputTokens("organize"),
         maxRetries: 0,
         abortSignal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
       });

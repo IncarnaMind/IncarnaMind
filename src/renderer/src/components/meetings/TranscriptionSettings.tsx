@@ -7,13 +7,14 @@ import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
   ROUTE_LABELS,
+  type ServicesView,
   serviceMeta,
   useTranscriptionServices,
-  useTranscriptionServicesList,
 } from "../../transcriptionServices";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
+import { ReadProblem } from "../ReadProblem";
 import {
   buttonStyle,
   inputClass,
@@ -30,12 +31,24 @@ import { CloudLine } from "./CloudLine";
  * what choosing one sends, so the choice is the consent (ADR-0022); once chosen, where the audio
  * goes and what it costs, or that Local mode holds it back.
  */
-export function TranscriptionRouteLine({ id }: { id?: string }) {
+export function TranscriptionRouteLine({ id, read }: { id?: string; read: ServicesView }) {
   const t = useT();
   const language = useLanguage();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
-  const services = useTranscriptionServicesList();
+  // A list that couldn't be read says nothing of where the audio goes: the saved route stands.
+  if (read.state === "failed") {
+    return (
+      <div id={id} data-read-host>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="meetings-route-problem"
+        />
+      </div>
+    );
+  }
+  const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service) {
     return (
@@ -67,10 +80,21 @@ export function TranscriptionRouteLine({ id }: { id?: string }) {
  * service is chosen, what choosing one sends, so the choice is the consent (ADR-0022); after,
  * where the audio goes. Nothing while no service has a key, as nothing else is offered.
  */
-export function TranscriptionRouteConsent() {
+export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   const t = useT();
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute) ?? "local";
-  const services = useTranscriptionServicesList();
+  if (read.state === "failed") {
+    return (
+      <div data-read-host>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="meetings-route-problem"
+        />
+      </div>
+    );
+  }
+  const services = read.state === "ready" ? read.data : [];
   const service = services.find((each) => each.route === route);
   if (!service && !services.some((each) => each.hasKey)) return null;
   if (!service) {
@@ -90,8 +114,8 @@ export function TranscriptionRouteConsent() {
 }
 
 /** A transcription service's own key (Soniox's): pasted, checked with the service, kept in the keychain. */
-export function TranscriptionKeyRows() {
-  const services = useTranscriptionServicesList();
+export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
+  const services = read.state === "ready" ? read.data : [];
   return (
     <>
       {services

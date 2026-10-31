@@ -1,10 +1,12 @@
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
+  type BrowserContext,
   type ElectronApplication,
   _electron as electron,
   expect,
@@ -23,13 +25,16 @@ import {
   type SaveChatProviderInput,
 } from "../src/core/api";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
 import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { APP_ARGS, KEYCHAIN_ARGS } from "../tests/helpers/home";
+import { launchEnvironment } from "./launchEnvironment";
+import { assertPackagedMain, lifecycleHomeEnv, mainExecutable } from "./lifecycle";
 
 const appDir = resolve(__dirname, "..");
 
@@ -41,12 +46,19 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
+// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// video and window picture, not only a failed one. Playwright's own settings leave an Electron
+// app out, so the launch opts in.
+const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
+
 /**
  * The apps this test launched that are still open, by the data folder each
  * runs on: `removeDataFolder` closes them, keeping a picture of the window if
  * the test failed.
  */
 const openApps = new Map<ElectronApplication, string>();
+// Playwright’s Windows handle is a shell; cache the main PID before it can stop answering (#2022).
+const mainProcessIds = new WeakMap<ElectronApplication, number>();
 
 export interface RunningApp {
   app: ElectronApplication;
@@ -200,16 +212,13 @@ export interface LaunchOptions {
    */
   realEngines?: boolean;
   /**
-   * The first Word export asks whether to mark the text IncarnaMind wrote. Without this, a launch
-   * answers it "Mark it" if nobody has, so a test that exports to Word is not stopped by it;
-   * with it, the app is left asking.
+   * More of the app's environment, by name: a made-up credential, or a switch such as
+   * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
+   * a trace keeps all of it, so never a real key.
    */
-  askToMarkAiText?: boolean;
-  /**
-   * The first Word or PDF export of a Mind with Citations asks where they go. Without this, a
-   * launch answers it "Footnotes" if nobody has; with it, the app is left asking.
-   */
-  askCitationPlace?: boolean;
+  extraEnv?: Record<string, string>;
+  /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
+  trace?: boolean;
 }
 
 /**
@@ -277,140 +286,141 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
-    askToMarkAiText = false,
-    askCitationPlace = false,
+    extraEnv,
+    trace = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[name] = value;
-  }
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.OLLAMA_HOST;
-  if (ollama) env.OLLAMA_HOST = ollama;
-  delete env.INCARNAMIND_TEST_OLLAMA_APP;
-  if (ollamaApp) env.INCARNAMIND_TEST_OLLAMA_APP = ollamaApp;
-  delete env.INCARNAMIND_TEST_LOCAL_SERVERS;
-  if (localServers) env.INCARNAMIND_TEST_LOCAL_SERVERS = JSON.stringify(localServers);
-  delete env.INCARNAMIND_TEST_SENTRY_DSN;
-  delete env.INCARNAMIND_TEST_EXAMPLES;
-  delete env.INCARNAMIND_TEST_POSTHOG_KEY;
-  delete env.INCARNAMIND_TEST_POSTHOG_HOST;
-  delete env.INCARNAMIND_TEST_TESTER_BUILD;
-  delete env.POSTHOG_CAPTURE_MODE;
-  delete env.INCARNAMIND_TEST_REFERENCE_LOOKUP;
-  delete env.INCARNAMIND_TEST_SOURCES;
-  delete env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY;
-  delete env.INCARNAMIND_TEST_CONNECTOR_REGISTRY;
-  delete env.INCARNAMIND_TEST_CHATGPT;
-  delete env.INCARNAMIND_TEST_CLAUDE;
-  delete env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS;
-  delete env.INCARNAMIND_TEST_COPILOT;
-  delete env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS;
-  delete env.INCARNAMIND_TEST_SCANS;
-  delete env.INCARNAMIND_TEST_SCANS_AT_ONCE;
-  delete env.INCARNAMIND_TEST_MODEL_DOWNLOADS;
-  delete env.INCARNAMIND_TEST_WEB;
-  delete env.INCARNAMIND_TEST_LOOK_LIMIT;
-  delete env.INCARNAMIND_TEST_TASKS;
-  delete env.INCARNAMIND_TEST_CONTRADICTION_DELAY_MS;
-  delete env.INCARNAMIND_TEST_SANDBOX_NOTICE;
-  if (sandboxNotice) env.INCARNAMIND_TEST_SANDBOX_NOTICE = "1";
-  if (sandboxNotice === "environment") env.ELECTRON_DISABLE_SANDBOX = "1";
-  // A test never uses the ChatGPT sign-in an agent's shell may point at for checks by hand.
-  delete env.INCARNAMIND_CHATGPT_PROFILE;
-  env.INCARNAMIND_TEST_AUDIO = noAudioEngine ? "none" : "fake";
-  env.INCARNAMIND_TEST_AUDIO_SYSTEM = computerSound;
-  env.INCARNAMIND_TEST_AUDIO_MICROPHONE = microphone;
-  delete env.INCARNAMIND_TEST_GUIDE;
-  if (permissionGuide) env.INCARNAMIND_TEST_GUIDE = permissionGuide;
-  if (examples) env.INCARNAMIND_TEST_EXAMPLES = "1";
-  if (sentryDsn) env.INCARNAMIND_TEST_SENTRY_DSN = sentryDsn;
-  if (usageData) {
-    env.INCARNAMIND_TEST_POSTHOG_KEY = "test-project-key";
-    env.INCARNAMIND_TEST_POSTHOG_HOST = usageData.host;
-    if (usageData.testerBuild) env.INCARNAMIND_TEST_TESTER_BUILD = "1";
-  }
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
-  Object.assign(env, homeEnv(appHome));
-  if (referenceLookup) env.INCARNAMIND_TEST_REFERENCE_LOOKUP = referenceLookup;
-  if (sources) env.INCARNAMIND_TEST_SOURCES = sources;
-  if (connectorDirectory) env.INCARNAMIND_TEST_CONNECTOR_DIRECTORY = connectorDirectory;
-  // Nowhere, unless a test serves one: a search in a test never reaches the real Registry.
-  env.INCARNAMIND_TEST_CONNECTOR_REGISTRY = connectorRegistry ?? "http://127.0.0.1:9";
-  if (chatGpt) env.INCARNAMIND_TEST_CHATGPT = chatGpt;
-  if (claude) env.INCARNAMIND_TEST_CLAUDE = claude;
-  if (claudeSignInMs) env.INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS = String(claudeSignInMs);
-  if (copilot) env.INCARNAMIND_TEST_COPILOT = copilot;
-  if (scans) env.INCARNAMIND_TEST_SCANS = scans;
-  if (scansAtOnce) env.INCARNAMIND_TEST_SCANS_AT_ONCE = String(scansAtOnce);
-  if (modelDownloads) env.INCARNAMIND_TEST_MODEL_DOWNLOADS = JSON.stringify(modelDownloads);
-  if (web) env.INCARNAMIND_TEST_WEB = String(web);
-  if (lookLimit) env.INCARNAMIND_TEST_LOOK_LIMIT = String(lookLimit);
-  if (scriptedTasks) env.INCARNAMIND_TEST_TASKS = "1";
-  if (contradictionWatchDelayMs !== undefined) {
-    env.INCARNAMIND_TEST_CONTRADICTION_DELAY_MS = String(contradictionWatchDelayMs);
-  }
-  env.INCARNAMIND_DATA_DIR = dataDir;
-  env.INCARNAMIND_TEST_HOOKS = "1";
-  if (fakeChat) env.INCARNAMIND_FAKE_CHAT = "1";
-  if (!realEngines) {
-    env.INCARNAMIND_TEST_EMBEDDER = "fake";
-    env.INCARNAMIND_TEST_TRANSCRIBER = "fake";
-  }
-  if (transcriber) env.INCARNAMIND_TEST_TRANSCRIBER_OPTIONS = JSON.stringify(transcriber);
+  const env = launchEnvironment({
+    ...lifecycleHomeEnv(appHome),
+    INCARNAMIND_DATA_DIR: dataDir,
+    INCARNAMIND_TEST_HOOKS: "1",
+    INCARNAMIND_FAKE_CHAT: fakeChat ? "1" : undefined,
+    INCARNAMIND_TEST_EMBEDDER: realEngines ? undefined : "fake",
+    INCARNAMIND_TEST_TRANSCRIBER: realEngines ? undefined : "fake",
+    INCARNAMIND_TEST_TRANSCRIBER_OPTIONS: transcriber && JSON.stringify(transcriber),
+    OLLAMA_HOST: ollama,
+    INCARNAMIND_TEST_OLLAMA_APP: ollamaApp,
+    INCARNAMIND_TEST_LOCAL_SERVERS: localServers && JSON.stringify(localServers),
+    INCARNAMIND_TEST_SANDBOX_NOTICE: sandboxNotice && "1",
+    ELECTRON_DISABLE_SANDBOX: sandboxNotice === "environment" ? "1" : undefined,
+    INCARNAMIND_TEST_AUDIO: noAudioEngine ? "none" : "fake",
+    INCARNAMIND_TEST_AUDIO_SYSTEM: computerSound,
+    INCARNAMIND_TEST_AUDIO_MICROPHONE: microphone,
+    INCARNAMIND_TEST_GUIDE: permissionGuide,
+    INCARNAMIND_TEST_EXAMPLES: examples ? "1" : undefined,
+    INCARNAMIND_TEST_SENTRY_DSN: sentryDsn,
+    INCARNAMIND_TEST_POSTHOG_KEY: usageData && "test-project-key",
+    INCARNAMIND_TEST_POSTHOG_HOST: usageData?.host,
+    INCARNAMIND_TEST_TESTER_BUILD: usageData?.testerBuild ? "1" : undefined,
+    INCARNAMIND_TEST_REFERENCE_LOOKUP: referenceLookup,
+    INCARNAMIND_TEST_SOURCES: sources,
+    INCARNAMIND_TEST_CONNECTOR_DIRECTORY: connectorDirectory,
+    // Nowhere, unless a test serves one: a search in a test never reaches the real Registry.
+    INCARNAMIND_TEST_CONNECTOR_REGISTRY: connectorRegistry ?? "http://127.0.0.1:9",
+    INCARNAMIND_TEST_CHATGPT: chatGpt,
+    INCARNAMIND_TEST_CLAUDE: claude,
+    INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
+    INCARNAMIND_TEST_COPILOT: copilot,
+    INCARNAMIND_TEST_SCANS: scans,
+    INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
+    INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
+    INCARNAMIND_TEST_WEB: web ? String(web) : undefined,
+    INCARNAMIND_TEST_LOOK_LIMIT: lookLimit ? String(lookLimit) : undefined,
+    INCARNAMIND_TEST_TASKS: scriptedTasks ? "1" : undefined,
+    INCARNAMIND_TEST_CONTRADICTION_DELAY_MS:
+      contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
+    ...extraEnv,
+  });
 
+  const packaged = process.env.INCARNAMIND_PACKAGED_APP !== undefined;
   const app = await electron.launch({
+    ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
-      appDir,
+      ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
     ],
     env,
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
+    ...(KEEP_ARTIFACTS && {
+      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+    }),
   });
+  if (KEEP_ARTIFACTS || trace) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
+    mainProcessIds.delete(app);
     if (!home) void rm(appHome, { recursive: true, force: true, maxRetries: 3 });
   });
+  await paintNoFrameInPrintPage(app);
+  mainProcessIds.set(app, await app.evaluate(() => process.pid));
+  await assertPackagedMain(app);
   const window = await app.firstWindow();
   await window.getByTestId("plus-menu").waitFor();
+  await waitUntilLive(app, window);
   if (!keepWindow) {
     await resizeContent(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height, {
       waitForHeight: true,
       message: `the window is ${WINDOW_SIZE.width} × ${WINDOW_SIZE.height}: is the screen too short for it?`,
     });
   }
-  await answerExportQuestions(window, !askToMarkAiText, !askCitationPlace);
   return { app, window };
 }
 
-async function answerExportQuestions(
-  window: Page,
-  markAiText: boolean,
-  citationPlace: boolean,
-): Promise<void> {
-  await window.evaluate(
-    async ([mark, place]) => {
+/**
+ * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
+ * that waits for one settles. Playwright's focus emulation, which it turns on in every page it
+ * attaches to, has Chromium paint a page that isn't shown, and hid a print that never ended (#1455).
+ */
+async function paintNoFrameInPrintPage(app: ElectronApplication): Promise<void> {
+  await app.context().addInitScript(() => {
+    if (!location.pathname.endsWith("/print.html")) return;
+    HTMLImageElement.prototype.decode = () => new Promise<void>(() => undefined);
+    globalThis.requestAnimationFrame = () => 0;
+  });
+}
+
+/**
+ * The app is live: its core answers the page, and the page draws a frame after that. A launch
+ * asks for a size only once it is: a size asked during a first start waits for a frame that
+ * start hasn't drawn yet, and the resize's own wait then reports an app that isn't answering
+ * (#432, #1741). A window that has gone rejects at once, which is the clear error; a slow one
+ * is waited out here, where the app is, rather than inside the size check.
+ */
+async function waitUntilLive(app: ElectronApplication, window: Page): Promise<void> {
+  const answered = window
+    .evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { exportOptions } = (await bridge.getSettings()).user;
-      const docx =
-        mark && exportOptions.docx.markAiText === null
-          ? { ...exportOptions.docx, markAiText: "mark" as const }
-          : exportOptions.docx;
-      const citations =
-        place && exportOptions.citationPlace === undefined
-          ? { citationPlace: "footnotes" as const }
-          : {};
-      if (docx === exportOptions.docx && Object.keys(citations).length === 0) return;
-      await bridge.updateSettings({
-        user: { exportOptions: { ...exportOptions, docx, ...citations } },
-      });
-    },
-    [markAiText, citationPlace],
-  );
+      await bridge.getSettings();
+      await new Promise<void>((drawn) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => drawn())),
+      );
+    })
+    .then(() => "live" as const);
+  // A launch that gave up on the page must not also fail on this answer, when it comes.
+  answered.catch(() => undefined);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((settle) => {
+    timer = setTimeout(() => settle("late"), LIVE_WAIT_MS);
+  });
+  try {
+    if ((await Promise.race([answered, late])) === "late") {
+      throw new Error(`the main process did not answer within ${LIVE_WAIT_MS / 1000} s`);
+    }
+  } catch (error) {
+    const evidence = await keepWhatTheAppWasDoing(app);
+    throw new Error(
+      `The app did not come up: its window stopped before the core answered.${evidence}`,
+      {
+        cause: error,
+      },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -589,9 +599,12 @@ export const notificationsShown = (app: ElectronApplication) =>
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {
-  const exited = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
-  app.process().kill("SIGKILL");
-  await exited;
+  const pid = mainProcessIds.get(app);
+  if (!openApps.has(app) || pid === undefined)
+    throw new Error("The app was not launched by this test or has already closed.");
+  const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
+  process.kill(pid, "SIGKILL");
+  await closed;
 }
 
 /** Chooses an editing command, as the application menu has it now. */
@@ -605,8 +618,15 @@ export const clickEditItem = (
     item.click();
   }, id);
 
+/** The Edit menu's Undo or Redo, as the application menu has it now. */
+export const editItem = (app: ElectronApplication, id: "edit.undo" | "edit.redo") =>
+  app.evaluate(({ Menu }, itemId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    return item ? { label: item.label, enabled: item.enabled } : null;
+  }, id);
+
 /**
- * "New Mind" from the sidebar header's "+" menu, the one place to add: a Mind
+ * "New note" from the sidebar header's "+" menu, the one place to add: a Mind
  * in no Folder. Returns once its first line has the cursor: keys a test
  * presses a millisecond apart can outrun the editor while frames are busy.
  * That line starts as an empty title; unless `title`, Backspace makes
@@ -639,6 +659,12 @@ export async function newMind(
   await expect(first).toHaveJSProperty("tagName", "H1");
   await window.keyboard.press("Backspace");
   await expect(first).toHaveJSProperty("tagName", "P");
+}
+
+/** Makes a Mind with ⌘T and types into it with nothing in between, as a fast typist's hands do (#2000). */
+export async function newMindAndType(window: Page, typed: string): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+t");
+  await window.keyboard.type(typed);
 }
 
 /** Runs a command from ⌘K by its label, as the User types and clicks it. */
@@ -745,6 +771,41 @@ export async function tagDocument(window: Page, documentName: string, tagName: s
   ).toBeAttached();
 }
 
+/**
+ * Makes a Tag and puts it on a Document of the User's own (the first one, or one by name): the
+ * footer names Tags only once one exists (#1942).
+ */
+export async function makeTagOnDocument(
+  window: Page,
+  documentName?: string,
+  tagName = "Files",
+): Promise<void> {
+  // The named Document, not just any: the example's are there before the one just added (#1741).
+  await expect
+    .poll(() =>
+      window.evaluate(
+        async (wanted: string | undefined) =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+          ).filter((each) => !wanted || each.name.startsWith(wanted)).length,
+        documentName,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await window.evaluate(
+    async (wanted: { document?: string; tag: string }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await core.listDocuments();
+      const named = wanted.document;
+      const document = named ? documents.find((each) => each.name.startsWith(named)) : documents[0];
+      if (!document) throw new Error("No Document to tag.");
+      const tag = await core.createTag({ name: wanted.tag, description: "" });
+      await core.addTagToDocuments([document.id], tag.id);
+    },
+    { document: documentName, tag: tagName },
+  );
+}
+
 /** Manage Tags, from ⌘K, in the interface's language. */
 export async function openManageTags(window: Page, language: "en" | "zh-CN" = "en"): Promise<void> {
   const label = translate(language, "tags.menu.manage");
@@ -788,14 +849,113 @@ export async function ollamaListing(models: string[], { delayMs = 0 }: { delayMs
 }
 
 /**
- * Continue on the setup card, once a key or sign-in works and the card says what each job uses:
- * the Question that waited is asked then, and the composer takes the card's place.
+ * Ollama, with "fake-model", which the app asks where the model runs before
+ * each Question is asked. While held, it answers only once released, as an
+ * Ollama busy loading a model does: the Question waits on it, on its way.
+ * In the cloud, it says the model runs on ollama.com.
+ */
+export async function busyOllama() {
+  const waiting: (() => void)[] = [];
+  let holding = false;
+  let cloud = false;
+  let tags = 0;
+  const server: Server = createServer((request, response) => {
+    request.resume();
+    if (request.url !== "/api/tags") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    tags += 1;
+    const listing = {
+      name: "fake-model",
+      model: "fake-model",
+      // What the app learnt of a model is kept by its digest.
+      digest: cloud ? "in-the-cloud" : "on-this-computer",
+      ...(cloud && { remote_host: "https://ollama.com:443" }),
+    };
+    const answer = () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [listing] }));
+    };
+    if (holding) waiting.push(answer);
+    else answer();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    get tags() {
+      return tags;
+    },
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+      for (const answer of waiting.splice(0)) answer();
+    },
+    inTheCloud(on: boolean) {
+      cloud = on;
+    },
+    close() {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+
+/**
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
+ * the composer takes the card's place. The Question that waited is asked as step 1 works.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const next = window.getByTestId("setup-continue");
-  await expect(next).toBeVisible();
-  await pointAndClick(window, next);
-  await expect(window.getByTestId("model-setup")).toBeHidden();
+  const card = window.getByTestId("model-setup");
+  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const transcription = card.getByTestId("setup-transcription-use");
+  if (await transcription.isVisible()) await pointAndClick(window, transcription);
+  const sorting = card.getByTestId("setup-sorting-use");
+  await expect(sorting).toBeVisible();
+  await expect(sorting).toBeEnabled();
+  await pointAndClick(window, sorting);
+  await expect(card).toBeHidden();
+}
+
+/**
+ * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
+ * place (#1922). It waits for the card and gives it back.
+ */
+export async function askFirstQuestion(window: Page): Promise<Locator> {
+  await newMind(window);
+  await window.getByTestId("mind-editor").focus();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("What is in my Documents?");
+  await window.keyboard.press("Enter");
+  const card = window.getByTestId("model-setup");
+  await expect(card).toBeVisible();
+  return card;
+}
+
+/** A key as a real one is shaped, for a stand-in provider: never a real key. */
+export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
+
+/**
+ * Opens the key form where a key's own form names no service we list (#1922): the field says so,
+ * and its way on picks the service.
+ */
+export async function openServiceList(
+  window: Page,
+  card: Locator,
+  key = "sk-unknown",
+): Promise<void> {
+  const field = card.getByTestId("setup-key");
+  await field.fill(key);
+  await field.press("Enter");
+  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
+  const form = card.getByTestId("provider-form");
+  await expect(form).toBeVisible();
+  // The key only reached the list: the form starts as it would from Settings.
+  await form.locator('input[type="password"]').fill("");
 }
 
 /**
@@ -883,13 +1043,17 @@ export async function addProviderPage(settings: Locator, catalogId: string): Pro
   return page;
 }
 
-/** In Settings › Models, opens Advanced while it's folded (#1570). Returns the Tagging section in it. */
+/**
+ * In Settings › Models, opens Advanced (#1570). Returns the Tagging section in it. It may already
+ * be open, as it is once first run has chosen what sorts (#1922).
+ */
 export async function openAdvancedModels(settings: Locator): Promise<Locator> {
   const advanced = settings.getByTestId("models-advanced");
   const toggle = advanced.getByTestId("models-advanced-toggle");
   await expect(toggle).toBeVisible();
-  await expect(advanced).not.toHaveAttribute("open");
-  await toggle.click();
+  if (!(await advanced.evaluate((element) => element.hasAttribute("open")))) {
+    await toggle.click();
+  }
   await expect(advanced).toHaveAttribute("open", "");
   const tagging = advanced.getByTestId("tagging-settings");
   await expect(tagging).toBeVisible();
@@ -912,8 +1076,7 @@ export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const start = window.getByTestId("meeting-start");
   await expect(start).toBeVisible();
   return start;
@@ -924,8 +1087,7 @@ export async function recordMeetingNow(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
-  await window.getByTestId("plus-more").click();
-  await window.getByRole("menuitem", { name: "Record a meeting" }).click();
+  await window.getByTestId("plus-record-meeting").click();
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");
   return bar;
@@ -1233,8 +1395,7 @@ export async function previewLink(
   if (button) await button.click();
   else {
     await window.getByTestId("plus-menu").click();
-    await window.getByTestId("plus-more").click();
-    await window.getByTestId("plus-link-folder").click();
+    await window.getByTestId("plus-add-documents").click();
   }
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog).toBeVisible();
@@ -1329,6 +1490,18 @@ export async function openDocumentAt(window: Page, location: DocumentLocation): 
 }
 
 /**
+ * Opens the Block menu Shift+F10 opens for this Block, without moving the caret, through the
+ * test hook: a spec can hold the caret in one list while the command names another Block.
+ */
+export async function openBlockMenuFor(window: Page, blockId: string): Promise<void> {
+  await window.evaluate((id) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
+    hooks.openBlockMenu(id);
+  }, blockId);
+}
+
+/**
  * The next Skill import in Settings gets this path instead of the system's
  * open dialog, which a test can't drive, through the test hook.
  */
@@ -1343,6 +1516,9 @@ export async function interceptSkillPicker(window: Page, path: string): Promise<
 /** Not in a Folder lists its first five Documents, then "Show N more Documents". */
 const FIRST_LISTED = 5;
 
+/** How long the core may take to read a Document: expect's 5 s runs out on a loaded runner (#1741). */
+const DOCUMENT_READY_WAIT_MS = 30_000;
+
 /**
  * Adds files through the sidebar's file picker and waits until each is
  * processed and ready. Each shows Not in a Folder (its first five, if more).
@@ -1353,7 +1529,9 @@ export async function addDocuments(window: Page, paths: string[]): Promise<void>
   const listed = Math.min(paths.length, FIRST_LISTED);
   await expect(items).toHaveCount(listed);
   for (let index = 0; index < listed; index++) {
-    await expect(items.nth(index)).toHaveAttribute("data-status", "ready");
+    await expect(items.nth(index)).toHaveAttribute("data-status", "ready", {
+      timeout: DOCUMENT_READY_WAIT_MS,
+    });
   }
   if (paths.length > listed) await expectReadyDocuments(window, paths.length);
 }
@@ -1373,13 +1551,52 @@ export async function setWindowSize(
   await resizeContent(app, window, width, height);
 }
 
+/** Sizes the window until the Note's own pane — its page, beside a viewer in a split — is `width` wide. */
+export async function sizeNote(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const page = window.locator(".mind-tab-page");
+  // A split needs the window's two groups apart, which ends under 1,000px.
+  let windowWidth = Math.max(width + 700, 1100);
+  for (let tries = 0; tries < 8; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await page.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 3) return;
+    windowWidth = Math.max(1000, windowWidth + Math.round(width - have));
+  }
+}
+
+/** Sizes the window until the Mind's column is `width` wide: the sidebar and the assistant take the rest. */
+export async function sizeMind(
+  app: ElectronApplication,
+  window: Page,
+  width: number,
+): Promise<void> {
+  const column = window.locator(".mind-column");
+  // Past 1,000px the sidebar stops taking room, so a window under it can't make a column this narrow.
+  let windowWidth = Math.max(width + 600, 1000);
+  for (let tries = 0; tries < 4; tries++) {
+    await setWindowSize(app, window, windowWidth, 900);
+    const have = (await column.boundingBox())?.width ?? 0;
+    if (Math.abs(have - width) <= 1) return;
+    windowWidth += Math.round(width - have);
+  }
+  await expect
+    .poll(async () => Math.abs(((await column.boundingBox())?.width ?? 0) - width))
+    .toBeLessThanOrEqual(1);
+}
+
 const SIZE_WAIT_MS = 30_000;
 const REPORT_WAIT_MS = 2_000;
+/** How long the core may take to answer the page at a launch, on a loaded runner (#1741). */
+const LIVE_WAIT_MS = 30_000;
 
-async function within<T>(answer: Promise<T>, otherwise: T): Promise<T> {
+async function within<T>(answer: Promise<T>, otherwise: T, ms = REPORT_WAIT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<T>((settle) => {
-    timer = setTimeout(() => settle(otherwise), REPORT_WAIT_MS);
+    timer = setTimeout(() => settle(otherwise), ms);
   });
   try {
     return await Promise.race([answer, late]);
@@ -1405,14 +1622,25 @@ async function resizeContent(
   height: number,
   { message, waitForHeight = false }: { message?: string; waitForHeight?: boolean } = {},
 ): Promise<void> {
-  const browserWindow = await app.browserWindow(window);
-  await browserWindow.evaluate((win, asked) => win.setContentSize(asked.width, asked.height), {
-    width,
-    height,
-  });
+  let browserWindow: Awaited<ReturnType<ElectronApplication["browserWindow"]>> | null = null;
   const look = () =>
     window.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight }));
+  // One budget for the whole size, so a step that stops answering can't hold the test past it
+  // and the report below still says what happened (#1741).
+  const deadline = Date.now() + SIZE_WAIT_MS;
+  const left = () => Math.max(1, deadline - Date.now());
   try {
+    browserWindow = await within(app.browserWindow(window), null, left());
+    if (browserWindow === null) throw new Error("the main process did not answer for its window");
+    const sized = browserWindow;
+    await within(
+      sized.evaluate((win, asked) => win.setContentSize(asked.width, asked.height), {
+        width,
+        height,
+      }),
+      undefined,
+      left(),
+    );
     await expect
       .poll(
         async () => {
@@ -1421,16 +1649,19 @@ async function resizeContent(
         },
         // A loaded runner can take far longer than expect's 5 s to draw the frame the size waits
         // for (#432); this still ends early enough in the test's 60 s to report what it saw.
-        { message, timeout: SIZE_WAIT_MS },
+        { message, timeout: left() },
       )
       .toEqual([width, height]);
   } catch (error) {
     // A window that has stopped answering must not take the report down with it.
+    const evidence = await keepWhatTheAppWasDoing(app);
     const [content, page, drawing] = await Promise.all([
-      within(
-        browserWindow.evaluate((win) => win.getContentSize().join(" × ")),
-        "unknown (the app's main process isn't answering)",
-      ),
+      browserWindow === null
+        ? "unknown (the app's main process didn't answer for its window)"
+        : within(
+            browserWindow.evaluate((win) => win.getContentSize().join(" × ")),
+            "unknown (the app's main process isn't answering)",
+          ),
       within(
         look().then((size) => `${size.width} × ${size.height}`),
         "unknown (the page isn't answering)",
@@ -1443,7 +1674,7 @@ async function resizeContent(
       ),
     ]);
     throw new Error(
-      `${message ?? "The window did not reach its size"}: asked ${width} × ${height}; the window's content is ${content}; the page is ${page}, ${drawing}.`,
+      `${message ?? "The window did not reach its size"}: asked ${width} × ${height}; the window's content is ${content}; the page is ${page}, ${drawing}.${evidence}`,
       { cause: error },
     );
   }
@@ -1451,6 +1682,86 @@ async function resizeContent(
     () =>
       new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(() => drawn(null)))),
   );
+}
+
+/**
+ * Keeps what the main process was doing when it stopped answering: a native stack sample, since
+ * a main thread blocked in a dialog can't answer for itself, and the end of its log. Both are
+ * kept with the failed test's attachments, and the log's last lines also go into the error, which
+ * CI shows without opening a file. A launch that passes pays none of it (#1741).
+ */
+async function keepWhatTheAppWasDoing(app: ElectronApplication): Promise<string> {
+  const info = test.info();
+  const pid = mainProcessIds.get(app);
+  let sampled = false;
+  // The failure being reported can already have used most of the test's time: the sample may
+  // take no more than what is left, or the report itself would never be made.
+  const budget = info.timeout - info.duration - 1_000;
+  if (pid !== undefined && budget > 0) {
+    const path = info.outputPath("main-process-sample.txt");
+    sampled = sampleMainProcess(pid, path, budget);
+    if (sampled) {
+      await info
+        .attach("main-process-sample", { path, contentType: "text/plain" })
+        .catch(() => undefined);
+    }
+  }
+  const log = lastLogLines(openApps.get(app));
+  return [
+    log === "" ? "" : `\nThe app's log ends with:\n${log}`,
+    sampled ? "\nThe main process's stack sample is attached as main-process-sample." : "",
+  ].join("");
+}
+
+function sampleMainProcess(pid: number, path: string, budgetMs: number): boolean {
+  const deadline = Date.now() + budgetMs;
+  const left = (cap: number) => Math.min(cap, deadline - Date.now());
+  if (process.platform === "darwin") {
+    const timeout = left(10_000);
+    if (timeout <= 0) return false;
+    const sampled = spawnSync("sample", [`${pid}`, "1", "-file", path], { timeout });
+    return sampled.status === 0 && existsSync(path);
+  }
+  if (process.platform !== "linux") return false;
+  for (const [command, args] of [
+    ["eu-stack", ["-p", `${pid}`]],
+    ["gdb", ["-batch", "-ex", "thread apply all bt", "-p", `${pid}`]],
+  ] as const) {
+    const timeout = left(12_000);
+    if (timeout <= 0) break;
+    const stack = spawnSync(command, args, { encoding: "utf8", timeout });
+    if (stack.status !== 0 || stack.stdout === "") continue;
+    try {
+      writeFileSync(path, stack.stdout);
+      return true;
+    } catch {
+      // The stack couldn't be kept: the log tail still reports the failure.
+    }
+  }
+  return false;
+}
+
+function lastLogLines(dataDir: string | undefined, lines = 12): string {
+  if (dataDir === undefined) return "";
+  try {
+    return readFileSync(join(dataDir, "logs", LOG_FILE), "utf8")
+      .trimEnd()
+      .split("\n")
+      .slice(-lines)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
+function uncaughtLogLines(dataDir: string): string[] {
+  try {
+    return readFileSync(join(dataDir, "logs", LOG_FILE), "utf8")
+      .split("\n")
+      .filter((line) => line.includes("main.uncaught"));
+  } catch {
+    return [];
+  }
 }
 
 /** What the page copies goes to `copied` instead of the machine's clipboard. */
@@ -1849,10 +2160,37 @@ export async function pointAndClick(
     modifiers?: readonly ("ControlOrMeta" | "Shift")[];
   } = {},
 ): Promise<void> {
+  // A scroll into view can settle a frame or two later (a tab strip rests on whole tabs, which
+  // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
   // A list that redraws as the click begins swaps the element for an equal one: look again.
+  let scrolled = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
-    await target.scrollIntoViewIfNeeded();
+    if (!scrolled) {
+      await target.scrollIntoViewIfNeeded();
+      scrolled = true;
+    }
+    const held = await target.evaluate(async (element) => {
+      const at = element.getBoundingClientRect();
+      const off = at.right <= 0 || at.bottom <= 0 || at.left >= innerWidth || at.top >= innerHeight;
+      if (off) return "off";
+      const read = () => {
+        const at = element.getBoundingClientRect();
+        return `${Math.round(at.left)} ${Math.round(at.top)} ${Math.round(at.width)} ${Math.round(at.height)}`;
+      };
+      const first = read();
+      for (let frame = 0; frame < 3; frame++) {
+        await new Promise((next) => requestAnimationFrame(next));
+        if (read() !== first) return false;
+      }
+      return true;
+    });
+    if (held === "off") {
+      // Drawn again somewhere out of the window: the next look brings it back.
+      scrolled = false;
+      throw new Error("The element is out of the window.");
+    }
+    if (!held) throw new Error("The element is still moving.");
     box = await target.boundingBox();
     if (!box) throw new Error("The element isn't visible.");
   }).toPass();
@@ -1888,7 +2226,7 @@ export async function checkCard(window: Page, scope: Page | Locator = window): P
       }).toPass();
     } else {
       const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      const command = chinese ? "句子和引用" : "Sentences and Citations";
+      const command = chinese ? "说法和引用" : "Claims and Citations";
       await window.keyboard.press("ControlOrMeta+k");
       await expect(window.getByTestId("palette-search")).toBeFocused();
       await window.keyboard.type(command);
@@ -2082,6 +2420,37 @@ export async function focusSettled(window: Page, editor: Locator): Promise<void>
   await window.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 }
 
+/**
+ * Arms a check that the Mind made next shows with its text already focused: when an editor
+ * that wasn't there appears, it reads where the focus is. `newEditorShownFocused` reads what
+ * it saw.
+ */
+export async function watchNewEditorFocus(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const state: { focused: boolean | null } = { focused: null };
+    (window as unknown as { newEditorFocus?: typeof state }).newEditorFocus = state;
+    const known = new WeakSet<Element>(document.querySelectorAll('[data-testid="mind-editor"]'));
+    const observer = new MutationObserver(() => {
+      const fresh = [...document.querySelectorAll('[data-testid="mind-editor"]')].find(
+        (each) => !known.has(each),
+      );
+      if (!fresh) return;
+      observer.disconnect();
+      state.focused = fresh.contains(document.activeElement);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+/** Whether the new Mind's text had the focus as its editor first showed; null until it has shown. */
+export function newEditorShownFocused(window: Page): Promise<boolean | null> {
+  return window.evaluate(
+    () =>
+      (window as unknown as { newEditorFocus?: { focused: boolean | null } }).newEditorFocus
+        ?.focused ?? null,
+  );
+}
+
 /** The words of the sentences the User keeps as their own view, in the Mind's order. */
 export const keptWords = (editor: Locator) =>
   editor.evaluate((dom) => {
@@ -2112,6 +2481,13 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   const menu = window.locator('[data-testid="page-actions"]:visible');
   await expect(menu).toBeVisible();
   return menu;
+}
+
+/** Look › The Word file's look or Plain note, in a Word Note's ⋯ menu beside Style. */
+export async function chooseLook(window: Page, look: "word" | "plain"): Promise<void> {
+  const menu = await openPageMenu(window);
+  await pointAndClick(window, menu.getByTestId(`look-${look}`));
+  await expect(menu).toBeHidden();
 }
 
 /** "Show word count while writing", in the page's ⋯ menu: the count is hidden until then. */
@@ -2385,9 +2761,37 @@ export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");
 
 /**
+ * The assistant's own word that the next Answer in a conversation has stopped streaming: the
+ * core's `answer.finished` (done or stopped) or `answer.failed`, with the Answer's id, for one
+ * that wasn't there before (`known`), not one in a Mind (#1741). A rendered status can lag the
+ * stream on a loaded runner, so a spec waits for this, and names the Answer by the id it gives.
+ */
+const answerEnded = (window: Page, known: readonly string[]) =>
+  window.evaluate(
+    (before) =>
+      new Promise<{ answerId: string; status: string }>((ended) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const stops: (() => void)[] = [];
+        const end = (answerId: string, status: string) => {
+          for (const stop of stops) stop();
+          ended({ answerId, status });
+        };
+        stops.push(
+          bridge.on("answer.finished", ({ answerId, mindId, status }) => {
+            if (mindId === null && !before.includes(answerId)) end(answerId, status);
+          }),
+          bridge.on("answer.failed", ({ answerId, mindId }) => {
+            if (mindId === null && !before.includes(answerId)) end(answerId, "failed");
+          }),
+        );
+      }),
+    known,
+  );
+
+/**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
- * assistant's conversation (#201); resolves with its Answer there once it is
- * written (the scripted model's, with `fakeChat`). The scripted model streams a word every
+ * assistant's conversation (#201); resolves with its Answer there once the assistant says its
+ * stream ended and the page shows it done. The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2397,16 +2801,32 @@ export async function askInAssistant(
   { timeout = 45_000 }: { timeout?: number } = {},
 ): Promise<Locator> {
   const answers = assistantAnswers(window);
-  const before = await answers.count();
+  const before = await answers.evaluateAll((all) =>
+    all.map((element) => element.getAttribute("data-answer-id") ?? ""),
+  );
+  const ended = answerEnded(window, before).catch(() => ({ answerId: "", status: "closed" }));
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(question);
   await window.keyboard.press("Enter");
   const questions = window.getByTestId("assistant").getByTestId("assistant-question");
   await expect(questions.last()).toContainText(question);
-  await expect(answers).toHaveCount(before + 1);
+  await expect(answers).toHaveCount(before.length + 1);
   const answer = answers.last();
-  await expect(answer).toHaveAttribute("data-status", "done", { timeout });
+  // The assistant's own word that the stream ended, not the page's, which can lag it on a
+  // loaded runner (#1741), and the Answer that word names, by its id: a re-render, another
+  // Answer or a placeholder can't stand in for it.
+  const end = await ended;
+  const endedHere = end.answerId
+    ? window
+        .getByTestId("assistant")
+        .locator(`[data-testid="assistant-answer"][data-answer-id="${end.answerId}"]`)
+    : answer;
+  await expect(endedHere).toHaveAttribute(
+    "data-status",
+    end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
   return answer;
 }
 
@@ -2597,6 +3017,43 @@ export async function stubClipboard(window: Page) {
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
 
+const traced = new WeakSet<BrowserContext>();
+
+/** Whether the app this window is in keeps a trace, which holds the arguments of every call. */
+export const isTraced = (window: Page): boolean => traced.has(window.context());
+
+/** Where the trace of the app on `dataDir` is kept, once it has closed. */
+export const tracePath = (dataDir: string): string =>
+  test.info().outputPath(`trace-${basename(dataDir)}.zip`);
+
+/**
+ * Makes closing the app, by the test or by `removeDataFolder`, first keep its window as it is
+ * and its trace with the test's results; the video is finished by the close itself.
+ */
+async function keepOnClose(app: ElectronApplication, dataDir: string): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true });
+  traced.add(app.context());
+  const close = app.close.bind(app);
+  let kept = false;
+  app.close = async () => {
+    if (!kept) {
+      kept = true;
+      const info = test.info();
+      const window = app.windows()[0];
+      if (window) {
+        const path = info.outputPath(`app-window-${basename(dataDir)}.png`);
+        const shot = await window.screenshot({ path }).catch(() => undefined);
+        if (shot) await info.attach("app-window", { path, contentType: "image/png" });
+      }
+      await app
+        .context()
+        .tracing.stop({ path: tracePath(dataDir) })
+        .catch((error: unknown) => console.warn(`The app's trace was not kept: ${error}`));
+    }
+    return close();
+  };
+}
+
 /** Closes an app, and kills it if it hasn't quit in 10 s, so one stuck app can't hold up the worker. */
 async function closeOrKill(app: ElectronApplication): Promise<void> {
   const quit = app.close().catch(() => undefined);
@@ -2604,8 +3061,11 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
   const stuck = new Promise<"stuck">((resolve) => {
     timer = setTimeout(() => resolve("stuck"), 10_000);
   });
-  if ((await Promise.race([quit, stuck])) === "stuck") app.process().kill("SIGKILL");
-  clearTimeout(timer);
+  try {
+    if ((await Promise.race([quit, stuck])) === "stuck") await forceQuit(app);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -2613,26 +3073,36 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
  * the test failed, a screenshot of that app's window as the test left it is
  * kept first, as app-window.png with the test's results, which CI uploads
  * (Playwright's own screenshots and traces leave an Electron app's window out).
+ * A test whose app logged an uncaught main-process error fails here.
  */
 export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
-    openApps.delete(app);
     const window = app.windows()[0];
-    if (info.status !== info.expectedStatus && window) {
+    if (!KEEP_ARTIFACTS && info.status !== info.expectedStatus && window) {
       const path = info.outputPath("app-window.png");
       const shot = await window.screenshot({ path }).catch(() => undefined);
       if (shot) await info.attach("app-window", { path, contentType: "image/png" });
     }
     await closeOrKill(app);
+    openApps.delete(app);
   }
   // The app's log goes with a failed test's traces: what happened on CI's machine is gone after.
   const log = join(dataDir, "logs", "incarnamind.log");
-  if (info.status !== info.expectedStatus && existsSync(log)) {
-    await info.attach("app-log", { path: log, contentType: "text/plain" });
+  const uncaught: string[] = [];
+  if (existsSync(log)) {
+    if (info.status !== info.expectedStatus) {
+      await info.attach("app-log", { path: log, contentType: "text/plain" });
+    }
+    // A test-driven app logs an uncaught main-process error and goes on (#1741), so the test
+    // that saw one fails here: an error in product code must not pass every spec silently.
+    uncaught.push(...uncaughtLogLines(dataDir));
   }
   await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
+  if (uncaught.length > 0) {
+    throw new Error(`The app's main process threw an uncaught error:\n${uncaught.join("\n")}`);
+  }
 }
 
 /** The core's bridge in the page, for a test to set things up or read them: `(await coreOf(window)).evaluate(...)`. */
@@ -2681,18 +3151,23 @@ export async function menuCommands(menu: Locator): Promise<string[]> {
   await expect(menu).toBeVisible();
   // Its items draw a moment after the popover shows.
   await expect(menu.getByRole("menuitem").first()).toBeVisible();
+  // A toggle's item (menuitemcheckbox) is an item as any other; a rule is "—".
   return menu.evaluate((element) =>
     Array.from(element.children).map((child) =>
-      child.getAttribute("role") === "menuitem" ? (child.getAttribute("data-testid") ?? "") : "—",
+      child.getAttribute("role")?.startsWith("menuitem")
+        ? (child.getAttribute("data-testid") ?? "")
+        : "—",
     ),
   );
 }
 
-/** Clicks the empty foot of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
+/** Clicks the empty top padding of the sidebar's tree, so the focus isn't in text and ⌘Z goes to the app's changes. */
 export async function leaveText(window: Page): Promise<void> {
   const box = await window.getByTestId("sidebar-tree").boundingBox();
   if (!box) throw new Error("The sidebar isn't showing.");
-  await window.mouse.move(box.x + box.width / 2, box.y + box.height - 8, { steps: 8 });
+  // The top padding: the foot moves as the footer's lines come and go, and a click meant to
+  // leave the text must never land on a row or the undo line.
+  await window.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 8 });
   await window.mouse.down();
   await window.mouse.up();
 }
@@ -2738,16 +3213,20 @@ export async function fontsDrawing(window: Page, selector: string) {
   }
 }
 
+/** What the local decision server says when it refuses a Document: the reason a row shows. */
+export const DECISION_FAILURE = "The model stopped answering";
+
 /**
  * A local decision server like Ollama's `/v1/systemone` (no model): a Folder chosen by what the
  * Document says (`folderFor`: Finance for an invoice, Reports otherwise), Invoice in the review
  * band for an invoice, Report likely for a report, nothing else. `requests` counts what it was asked;
- * `delayMs` holds each answer back, for a test that does something else while Organize works.
+ * `delayMs` holds each answer back, for a test that does something else while Organize works;
+ * `failFor` refuses those Documents, as a model that stops answering does.
  */
 export async function decisionServer(
   folderFor: (text: string) => string = (text) =>
     text.includes("invoice") ? "Finance" : "Reports",
-  { delayMs = 0 }: { delayMs?: number } = {},
+  { delayMs = 0, failFor }: { delayMs?: number; failFor?: (text: string) => boolean } = {},
 ): Promise<{ server: Server; readonly requests: number }> {
   let requests = 0;
   const server = createServer(async (request, response) => {
@@ -2762,6 +3241,11 @@ export async function decisionServer(
     requests++;
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     const text = JSON.stringify(body.state).toLowerCase();
+    if (failFor?.(text)) {
+      response.statusCode = 400;
+      response.end(JSON.stringify({ detail: DECISION_FAILURE }));
+      return;
+    }
     const answers = Object.fromEntries(
       Object.entries(
         body.questions as Record<
@@ -2798,4 +3282,161 @@ export async function decisionServer(
       return requests;
     },
   };
+}
+
+/**
+ * What the one way in says on this machine: macOS takes files and a folder in
+ * one sheet; Windows and Linux offer files, so the words say files (#1942).
+ */
+export const addFilesLabel = (language: "en" | "zh-CN") =>
+  process.platform === "darwin"
+    ? language === "en"
+      ? "Add files or a folder…"
+      : "添加文件或文件夹…"
+    : language === "en"
+      ? "Add files…"
+      : "添加文件…";
+
+/** Its label's message key, for the menus and ⌘K that show it. */
+export const addFilesLabelKey =
+  process.platform === "darwin" ? "documents.add.filesOrFolder" : "startGuide.documents.addFiles";
+
+/** Records keydown → next paint for each key typed, and Event Timing entries. */
+export async function installKeyLatency(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const w = window as unknown as {
+      __keys?: number[];
+      __events?: { name: string; duration: number }[];
+    };
+    if (w.__keys) return;
+    w.__keys = [];
+    w.__events = [];
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        const t0 = event.timeStamp;
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => w.__keys?.push(performance.now() - t0);
+          channel.port2.postMessage(0);
+        });
+      },
+      true,
+    );
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          w.__events?.push({ name: entry.name, duration: entry.duration });
+        }
+      }).observe({
+        type: "event",
+        durationThreshold: 16,
+        buffered: false,
+      } as PerformanceObserverInit);
+    } catch {
+      // Event Timing isn't supported
+    }
+  });
+}
+
+/**
+ * The keys timed since the last take, and clears them. With `keys`, waits until that many have
+ * been timed: each is timed once its frame is drawn, after the key itself.
+ */
+export async function takeKeyLatency(window: Page, { keys: typed }: { keys?: number } = {}) {
+  if (typed !== undefined)
+    await expect
+      .poll(() => window.evaluate(() => (window as unknown as { __keys: number[] }).__keys.length))
+      .toBeGreaterThanOrEqual(typed);
+  return window.evaluate(() => {
+    const w = window as unknown as {
+      __keys: number[];
+      __events: { name: string; duration: number }[];
+    };
+    const keys = [...w.__keys].sort((a, b) => a - b);
+    const events = w.__events.filter((e) => /key|input/.test(e.name));
+    w.__keys = [];
+    w.__events = [];
+    const q = (p: number) => keys[Math.min(keys.length - 1, Math.floor(p * keys.length))] ?? 0;
+    const round = (v: number) => Math.round(v * 10) / 10;
+    return {
+      keys: keys.length,
+      median: round(q(0.5)),
+      p95: round(q(0.95)),
+      max: round(keys.at(-1) ?? 0),
+      over50: keys.filter((k) => k > 50).length,
+      eventTimingOver16: events.length,
+      eventTimingMax: round(Math.max(0, ...events.map((e) => e.duration))),
+      // Event Timing (to the presented frame) for keydown only; keys it didn't report took < 16ms.
+      presented: (() => {
+        const downs = events.filter((e) => e.name === "keydown").map((e) => e.duration);
+        const all = [
+          ...downs,
+          ...Array.from({ length: Math.max(0, keys.length - downs.length) }, () => 8),
+        ].sort((a, b) => a - b);
+        const at = (p: number) => all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0;
+        return {
+          keydownsOver16: downs.length,
+          median: at(0.5),
+          p95: at(0.95),
+          max: Math.max(0, ...downs),
+        };
+      })(),
+    };
+  });
+}
+
+/**
+ * How long the Mind takes to open in place until `count` elements match `selector` in its own
+ * pane, never the one it replaces, and a frame after.
+ */
+export async function msToOpen(window: Page, mindId: string, done: string, count: number) {
+  return window.evaluate(
+    async ({ id, selector, wanted }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const inPane = `article[data-mind-id="${CSS.escape(id)}"] ${selector}`;
+      const start = performance.now();
+      await core.changeLayout("main", {
+        type: "open",
+        item: { kind: "mind", mindId: id },
+        where: { in: "place" },
+      });
+      for (;;) {
+        if (document.querySelectorAll(inPane).length >= wanted) break;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      return Math.round(performance.now() - start);
+    },
+    { id: mindId, selector: done, wanted: count },
+  );
+}
+
+/** The largest .docx of the committed Word corpus (eval/word). */
+export function largestCorpusFile(): string {
+  const root = join(__dirname, "../eval/word");
+  let largest = { path: "", size: 0 };
+  const visit = (folder: string) => {
+    for (const name of readdirSync(folder)) {
+      const path = join(folder, name);
+      const stat = statSync(path);
+      if (stat.isDirectory()) visit(path);
+      else if (name.endsWith(".docx") && stat.size > largest.size)
+        largest = { path, size: stat.size };
+    }
+  };
+  visit(root);
+  return largest.path;
+}
+
+/** ⌘J over what is selected, saying what to change: in the selection menu's field, or in the composer where the menu can't open (all of the Mind). */
+export async function askToChange(window: Page, instruction: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect
+    .poll(() => window.evaluate(() => document.activeElement?.getAttribute("data-testid")))
+    .toMatch(/^(selection-edit-field|composer-input)$/);
+  await window.keyboard.type(instruction);
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("edit-pending")).toHaveCount(0);
+  await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
 }

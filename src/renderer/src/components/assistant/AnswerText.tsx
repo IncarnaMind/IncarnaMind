@@ -1,9 +1,13 @@
 import "katex/dist/katex.min.css";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import * as Y from "yjs";
+import type { RetainedFigureAnalysis } from "../../../../core/api";
 import type { NodeJSON } from "../../../../shared/blockJson";
+import { installFigureRuns, readFigureRunClosure } from "../../../../shared/figureRuns";
 import { lendAnswerEditor } from "../../answerEditors";
 import { AnswerTableSlots } from "../../editor/answerTables";
+import { CalculatedFigureView } from "../../editor/CalculatedFigureView";
 import { CitationView } from "../../editor/CitationView";
 import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
@@ -49,6 +53,7 @@ const editorPropsFor = (label: string) => ({
 export function AnswerText({
   answerId,
   blocks,
+  figureRuns = [],
   label,
   streaming,
   regenerate,
@@ -56,6 +61,7 @@ export function AnswerText({
 }: {
   answerId: string;
   blocks: readonly NodeJSON[];
+  figureRuns?: readonly RetainedFigureAnalysis[];
   label: string;
   streaming: boolean;
   /** Writes the Answer again. */
@@ -64,6 +70,18 @@ export function AnswerText({
 }) {
   const t = useT();
   const shown = useRef(JSON.stringify(blocks));
+  const receipts = useRef(figureRuns);
+  receipts.current = figureRuns;
+  // The Analyses its figures came from, where their cards read them as a Note's cards read its own.
+  const [runs] = useState(() => new Y.Doc());
+  useEffect(() => {
+    try {
+      installFigureRuns(runs, figureRuns);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [runs, figureRuns]);
+  useEffect(() => () => runs.destroy(), [runs]);
   const editor = useEditor(
     {
       editable: false,
@@ -71,10 +89,20 @@ export function AnswerText({
       content: docOf(blocks),
       editorProps: editorPropsFor(label),
       extensions: [
-        ...noteExtensions({ citationView, checklistLabel }),
+        // A calculated figure shows its marker and card here as in a Note (#2307).
+        ...noteExtensions({
+          citationView,
+          checklistLabel,
+          calculatedFigureView: ReactNodeViewRenderer(
+            (props) => <CalculatedFigureView {...props} doc={runs} />,
+            { as: "span" },
+          ),
+        }),
         CitationGlue,
         CitationNumbers,
-        CopyCitations,
+        CopyCitations.configure({
+          figureRuns: (selected) => readFigureRunClosure(selected, receipts.current),
+        }),
         AnswerTableSlots,
       ],
     },

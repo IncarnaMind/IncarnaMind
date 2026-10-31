@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
 import { useEffect, useState } from "react";
 import type * as Y from "yjs";
 import {
@@ -51,6 +52,11 @@ function reportLines(
     report.tables > 0 && t("wordImport.count.tables", { count: report.tables }),
     report.images > 0 && t("wordImport.count.images", { count: report.images }),
     report.links > 0 && t("wordImport.count.links", { count: report.links }),
+    (report.footnotes ?? 0) > 0 &&
+      t("wordImport.count.footnotes", { count: report.footnotes ?? 0 }),
+    (report.endnotes ?? 0) > 0 && t("wordImport.count.endnotes", { count: report.endnotes ?? 0 }),
+    (report.pageBreaks ?? 0) > 0 &&
+      t("wordImport.count.pageBreaks", { count: report.pageBreaks ?? 0 }),
   ].filter((item): item is string => typeof item === "string");
   const kept = Object.entries(report.kept)
     .filter((entry): entry is [WordAtomKind, number] => (entry[1] ?? 0) > 0)
@@ -121,10 +127,13 @@ export function openOriginalAtCaret(originalId: string, editor: Editor | null, d
 
 /** The paragraph's or table's place in the Word file, of the Block the caret is in, as the import recorded it. */
 function caretWordPlace(editor: Editor | null, doc: Y.Doc): string | null {
-  if (!editor) return null;
-  const { $from } = editor.state.selection;
-  for (let depth = $from.depth; depth > 0; depth--) {
-    const id: unknown = $from.node(depth).attrs[BLOCK_ID_ATTRIBUTE];
+  return editor ? wordPlaceAt(doc, editor.state.selection.$from) : null;
+}
+
+/** The paragraph's or table's place in the Word file, of the Block at a position, as the import recorded it. */
+export function wordPlaceAt(doc: Y.Doc, at: ResolvedPos): string | null {
+  for (let depth = at.depth; depth > 0; depth--) {
+    const id: unknown = at.node(depth).attrs[BLOCK_ID_ATTRIBUTE];
     const place = typeof id === "string" ? wordSourceOf(doc, id)?.n : undefined;
     if (place && /^w:(p|tbl)#\d+$/.test(place)) return place;
   }

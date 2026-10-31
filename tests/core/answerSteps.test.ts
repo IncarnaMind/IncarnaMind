@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core, CoreEvents } from "../../src/core";
-import { citingModel } from "../helpers/citations";
+import { citingModel, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { scriptedModel, scriptedModels } from "../helpers/models";
@@ -83,7 +83,11 @@ describe("The model's reasoning", { timeout: 30_000 }, () => {
     expect(Date.parse(answer.steps?.finishedAt ?? "")).toBeGreaterThanOrEqual(
       Date.parse(answer.steps?.sentAt ?? ""),
     );
-    expect(answer.steps?.phases.map((each) => each.phase)).toEqual(["writing"]);
+    expect(answer.steps?.phases.map((each) => each.phase)).toEqual([
+      "writing",
+      "checking-claims",
+      "writing",
+    ]);
     core.close();
 
     const later = startCore(dataDir, adapters);
@@ -147,6 +151,8 @@ describe("A search's steps", { timeout: 60_000 }, () => {
       "writing",
       "searching",
       "writing",
+      "checking-claims",
+      "writing",
     ]);
     const times = answer.steps?.phases.map((each) => Date.parse(each.at)) ?? [];
     expect([...times].sort((a, b) => a - b)).toEqual(times);
@@ -187,6 +193,325 @@ describe("A search's steps", { timeout: 60_000 }, () => {
       status: "failed",
       error: { kind: "auth", message: expect.stringContaining("Invalid API key") },
     });
+    core.close();
+  });
+});
+
+describe("A Document read", { timeout: 60_000 }, () => {
+  test("after a search miss ends with the figure on the read page cited", async () => {
+    const model = scriptedModel((call) => {
+      if (!call.tools.includes("read_document")) return { text: "read_document was not offered." };
+      const reads = call.results.filter((result) => result.tool === "read_document");
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+      }
+      if (reads.length === 0) {
+        return {
+          calls: [{ tool: "read_document", input: { document: "Filing", pages: "2" } }],
+        };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(reads.at(-1)?.text ?? "");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passages[0]?.id,
+                    pageFrom: 2,
+                    pageTo: 2,
+                    quote: "Comparable sales declined 6.2%.",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return { text: "Comparable sales declined 6.2% [^1]." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+
+    expect(answer.text).toBe("Comparable sales declined 6.2% [^1].");
+    expect(answer.citations[0]).toMatchObject({ pageFrom: 2, pageTo: 2, check: "found" });
+    const read = answer.toolCalls.find((call) => call.tool === "read_document");
+    expect(read).toMatchObject({ status: "done", input: { document: "Filing", pages: "2" } });
+    expect(read?.passages).toContain(answer.citations[0]?.passageId);
+    core.close();
+  });
+
+  test("reads the Document's opening when no pages are given", async () => {
+    const model = scriptedModel((call) => {
+      const reads = call.results.filter((result) => result.tool === "read_document");
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] };
+      }
+      if (reads.length === 0) {
+        return { calls: [{ tool: "read_document", input: { document: "Filing" } }] };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(reads.at(-1)?.text ?? "");
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passages[0]?.id,
+                    pageFrom: 1,
+                    pageTo: 1,
+                    quote: "Domestic comparable sales declined 5.1%.",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return { text: "Domestic comparable sales declined 5.1% [^1]." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the domestic comparable-sales change?");
+
+    expect(answer.text).toBe("Domestic comparable sales declined 5.1% [^1].");
+    expect(answer.citations[0]).toMatchObject({ pageFrom: 1, pageTo: 1, check: "found" });
+    core.close();
+  });
+
+  test("reads around a Passage the model was already shown", async () => {
+    const model = scriptedModel((call) => {
+      const reads = call.results.filter((result) => result.tool === "read_document");
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query: "Segment results" } }] };
+      }
+      if (reads.length === 0) {
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const passages = shownPassages(searched?.text ?? "");
+        return {
+          calls: [
+            {
+              tool: "read_document",
+              input: { document: "Filing", passage: passages[0]?.id, after: 1 },
+            },
+          ],
+        };
+      }
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passages = shownPassages(reads.at(-1)?.text ?? "");
+        const consolidated = passages.find((passage) =>
+          passage.text.includes("Comparable sales declined 6.2%."),
+        );
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: consolidated?.id,
+                    pageFrom: 2,
+                    pageTo: 2,
+                    quote: "Comparable sales declined 6.2%.",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return { text: "Comparable sales declined 6.2% [^1]." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+
+    expect(answer.text).toBe("Comparable sales declined 6.2% [^1].");
+    expect(answer.citations[0]).toMatchObject({ pageFrom: 2, pageTo: 2, check: "found" });
+    core.close();
+  });
+
+  test("stops at three reads in one Answer", async () => {
+    const model = scriptedModel((call) => {
+      const reads = call.results.filter((result) => result.tool === "read_document");
+      if (reads.length < 4) {
+        return {
+          calls: [
+            {
+              tool: "read_document",
+              input: { document: "Filing", pages: String(reads.length + 1) },
+            },
+          ],
+        };
+      }
+      return { text: "Done reading." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf(
+      Array.from({ length: 4 }, (_, index) => ({ lines: [`Page ${index + 1}`] })),
+    );
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "Read this filing.");
+
+    const reads = answer.toolCalls.filter((call) => call.tool === "read_document");
+    expect(reads).toHaveLength(4);
+    expect(reads.slice(0, 3).map((call) => call.resultCount)).toEqual([1, 1, 1]);
+    expect(reads[3]?.resultCount).toBe(0);
+    const last = model.doStreamCalls.at(-1);
+    const text = JSON.stringify(last?.prompt);
+    expect(text).toContain("3-read limit");
+    core.close();
+  });
+
+  test("a page-range read overlaps one-page Passages and records its capped range", async () => {
+    let readText = "";
+    const model = scriptedModel((call) => {
+      if (call.results.length === 0) {
+        return { calls: [{ tool: "read_document", input: { document: "Filing", pages: "1-40" } }] };
+      }
+      readText = call.results.find((result) => result.tool === "read_document")?.text ?? "";
+      return { text: "Read the first three pages." };
+    });
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf(
+      Array.from({ length: 4 }, (_, index) => ({
+        lines: [
+          `Page ${index + 1}`,
+          ...Array.from(
+            { length: 40 },
+            (_, line) =>
+              `note${line} ${Array.from({ length: 15 }, (_, word) => `word${word}`).join(" ")}`,
+          ),
+        ],
+      })),
+    );
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "Read the filing's first pages.");
+
+    const read = answer.toolCalls.find((call) => call.tool === "read_document");
+    expect(read).toMatchObject({
+      status: "done",
+      input: { document: "Filing", pages: "1–3" },
+    });
+    expect(read?.resultCount).toBeGreaterThan(3);
+    expect(readText).toContain("Only the first 3 requested pages are shown.");
+    expect(readText).toContain('pages="1"');
+    expect(readText).toContain('pages="2"');
+    expect(readText).toContain('pages="3"');
+    expect(readText).not.toContain('pages="4"');
+    core.close();
+  });
+
+  test("a search miss without a read says I didn't find and has no Citation", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "search_documents", input: { query: "no matching words" } }] }
+        : { text: "I didn't find the consolidated comparable-sales change in “Filing”." },
+    );
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf([
+      { lines: ["Segment results", "Domestic comparable sales declined 5.1%."] },
+      { lines: ["Consolidated results", "Comparable sales declined 6.2%."] },
+    ]);
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    const { answer } = await ask(core, "What was the consolidated comparable-sales change?");
+
+    expect(answer.text).toBe("I didn't find the consolidated comparable-sales change in “Filing”.");
+    expect(answer.citations).toEqual([]);
+    expect(answer.toolCalls.filter((call) => call.tool === "read_document")).toEqual([]);
+    core.close();
+  });
+
+  test("refuses a page number outside the safe integer range", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? {
+            calls: [
+              {
+                tool: "read_document",
+                input: { document: "Filing", pages: "9".repeat(400) },
+              },
+            ],
+          }
+        : { text: "I couldn't read that page." },
+    );
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Filing.pdf", buildPdf([{ lines: ["Page 1"] }])),
+    ]);
+
+    const { answer } = await ask(core, "Read an invalid page.");
+
+    expect(answer.text).toBe("I couldn't read that page.");
+    expect(answer.toolCalls).toContainEqual(
+      expect.objectContaining({ tool: "read_document", status: "done", resultCount: 0 }),
+    );
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      "Pages must be one page or a range",
+    );
+    core.close();
+  });
+
+  test("tells the model which pages a search covered", async () => {
+    const model = scriptedModel((call) =>
+      call.results.length === 0
+        ? { calls: [{ tool: "search_documents", input: { query: "Consolidated results" } }] }
+        : { text: "Read the result." },
+    );
+    const { core } = await setUp(model, "ollama");
+    const sources = await createSourceFolder();
+    const filing = buildPdf(
+      Array.from({ length: 30 }, (_, index) => ({
+        lines: [
+          `Page ${index + 1}`,
+          index === 7 ? "Consolidated results" : "Segment note",
+          ...Array.from(
+            { length: 40 },
+            (_, line) =>
+              `note${line} ${Array.from({ length: 15 }, (_, word) => `word${word}`).join(" ")}`,
+          ),
+        ],
+      })),
+    );
+    await addAndProcess(core, [await writeSourceFile(sources, "Filing.pdf", filing)]);
+
+    await ask(core, "What is in this filing?");
+
+    const prompt = JSON.stringify(model.doStreamCalls[1]?.prompt);
+    expect(prompt).toMatch(/pages [0-9, –]+ of 30/);
     core.close();
   });
 });

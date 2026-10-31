@@ -13,22 +13,25 @@ import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentFailureReason, DocumentKind } from "../api";
+import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
 import {
   type FileMetadata,
   type FileReference,
   readReference,
   webPageReference,
 } from "../referenceRecords/read";
-import { stripBoilerplate } from "./boilerplate";
+import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
 import { creationDate, pdfDate, w3cDate } from "./creationDate";
+import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
 import { officeProperties } from "./formats/coreProperties";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
+import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
+import { unreadMessage } from "./unreadMessage";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -49,9 +52,17 @@ import { documentTitle } from "./title";
  * are read from their pictures; see `SCAN_CURRENT_SINCE`). 10: #756 (a saved
  * web page's pictures are read, their text in its section; see
  * `PICTURES_CURRENT_SINCE`). 11: #901 (a PDF's pages keep the name they
- * print, from its page labels or its headers and footers).
+ * print, from its page labels or its headers and footers). 12: #1819 (a
+ * scanned page's quarter-turn is normalized before it is read). 13: #740 (a
+ * workbook records the hidden sheets and rows past the limit it left out).
+ * 14: #1818 (PDF form fields are included in the pages' text). 15:
+ * #2042 (a Document's name is in a keyword index of its own, not in each
+ * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
+ * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
+ * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
+ * deposition layouts keep their printed page and line anchors).
  */
-export const PROCESSING_VERSION = 11;
+export const PROCESSING_VERSION = 18;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -63,15 +74,25 @@ export const PROCESSING_VERSION = 11;
  * only PDFs' scanned pages, which `SCAN_CURRENT_SINCE` reads again; version
  * 10 only web pages with saved pictures, which `PICTURES_CURRENT_SINCE` reads;
  * version 11 only PDFs', whose pages gain their printed names and whose
- * Passages come out as they were.
+ * Passages come out as they were; version 12 only PDFs' scanned pages, whose
+ * orientation `SCAN_CURRENT_SINCE` reads again; version 13 only workbooks',
+ * which record the hidden sheets and rows past the limit they left out, their
+ * Units as they were; version 14 only PDFs', whose pages include form fields.
+ * Version 15 changed no Passage or Unit, only the keyword index (see
+ * `NAME_INDEX_CURRENT_SINCE`). Version 16 only PDFs', whose wrapped CJK lines
+ * are joined while other text and embeddings stay as they are. Version 17 only
+ * PDFs', whose breaks the page ended itself (a heading's, say) stay. Version 18
+ * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
+ * gains printed page and line anchors and keeps its "Page N" lines, which
+ * cleanup took for running headers; other PDFs' pages come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 11,
+  pdf: 18,
   text: 5,
   markdown: 5,
   docx: 7,
   pptx: 5,
-  xlsx: 8,
+  xlsx: 13,
   csv: 5,
   web: 7,
   transcript: 7,
@@ -83,23 +104,40 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
  * version would build: since version 6, the index reads traditional
  * characters as simplified ones (see ./keywords). Such a Document processed
  * by an older version, and current for its kind, is processed again at
- * startup. One without Han characters has nothing to fold: its version is
- * set to this one without its file being read, so its text is looked
- * through only once.
+ * startup. One without Han characters has nothing to fold and is never
+ * queued by this rule: its version stays where its last read put it (see
+ * `record` in ./index), and each start looks through its name and text once
+ * to find out.
  */
 export const HAN_CURRENT_SINCE = 6;
 
 /**
+ * The oldest version whose keyword index holds a Document's name as this
+ * version does: since version 15, a Passage's row holds its own words alone,
+ * and the name is indexed once for the Document, in an index whose document
+ * frequency counts Documents (#2042). Before, the name was text in every
+ * Passage's row, so a long Document whose name held a word of a search
+ * counted as if all its Passages said it: the word's document frequency grew
+ * with the Document's length, and its IDF, and every match on it, fell. The
+ * name's row also gives a query that names a Document its Passages, as a
+ * score added to theirs (see `keywordSearch` in ./search). The Passages and
+ * their vectors are unchanged, so a Document processed by an older version
+ * is processed again at startup and keeps both (see `record` in ./index).
+ */
+export const NAME_INDEX_CURRENT_SINCE = 15;
+
+/**
  * For a PDF with a page that has little or no text (a scan, maybe), or a
  * page read from its picture, the oldest version that reads such pages as
- * this one would: since version 9 they are read from their pictures (#397).
+ * this one would: since version 9 they are read from their pictures (#397),
+ * and since version 12 a quarter-turned page is normalized first (#1819).
  * Such a PDF processed by an older version is processed again at startup;
  * its pages of text come out as they were. When how pages are read changes
  * (`TextRecognitionModelDefinition.reader`), bump this with the processing
  * version: the pages read before are read again, except those a Citation
  * quotes, which are kept as they were read (see `ScanJob.keep`).
  */
-export const SCAN_CURRENT_SINCE = 9;
+export const SCAN_CURRENT_SINCE = 12;
 
 /**
  * For a web page saved with its pictures, the oldest version that reads
@@ -160,14 +198,28 @@ export interface MetadataJob {
   firstUnit: string | null;
 }
 
-export type WorkerJob = ProcessingJob | MetadataJob;
+/**
+ * A job that rebuilds the keyword rows of a Document's stored Passages, with no
+ * file read: an upgrade from the version before this one repairs the index, and
+ * the words are segmented here rather than on the core's thread (#2042).
+ */
+export interface KeywordsJob {
+  task: "keywords";
+  documentId: string;
+  /** The version indexed: nothing is written if the Document has another by then. */
+  contentHash: string;
+  /** The live Passages, in reading order, with the text the words are made from. */
+  passages: { seq: number; text: string }[];
+}
+
+export type WorkerJob = ProcessingJob | MetadataJob | KeywordsJob;
 
 /** A Passage as the worker hands it over. */
 export interface ProcessedPassage extends BuiltPassage {
   /**
    * The Passage's words for the keyword index (see ./keywords), worked out here
    * so the core's thread doesn't have to. The Document's name isn't included:
-   * the core adds it, so a rename only redoes that part.
+   * the core indexes it once for the Document, so a rename redoes only that.
    */
   keywords: string;
 }
@@ -183,10 +235,12 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** Scanned pages that couldn't be read, and why; null when every one was. */
-      unread: { pages: number[]; message: string } | null;
+      /** PDF pages with unread content, and why; null when all could be read. */
+      unread: { pages: number[]; message: string; forms?: true } | null;
+      /** What of it wasn't read when the rest was (#740); null when all was. */
+      parts: UnreadParts | null;
     }
-  | { outcome: "no-text"; pageCount: number | null }
+  | { outcome: "no-text"; pageCount: number | null; parts: UnreadParts | null }
   | { outcome: "failed"; reason: DocumentFailureReason; message: string };
 
 /** The file couldn't be read: it is gone (`gone`), or can't be read now. */
@@ -237,7 +291,14 @@ export type MetadataResult =
   | FileUnreadable
   | Crashed;
 
-export type WorkerResult = ProcessingResult | MetadataResult;
+/** Each of a Document's Passages, and the words its keyword row holds (#2042). */
+export interface KeywordsResult {
+  outcome: "keywords";
+  documentId: string;
+  passages: { seq: number; keywords: string }[];
+}
+
+export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 
 /**
  * How a job reads scanned pages: the text recognition model, which the core
@@ -284,13 +345,20 @@ export type WorkerResponse =
   | { id: number; request: number; page: number; file: Uint8Array }
   | { id: number; log: { event: string; fields: LogFields } };
 
-/** Runs a job of either kind. Never throws. */
+/** Runs a job of any kind. Never throws. */
 /** `password`: what opens the job's PDF when it is locked (#763), never kept with the job. */
 export function runJob(
   job: WorkerJob,
   channel: ReadingChannel | null = null,
   password?: string,
 ): Promise<WorkerResult> {
+  if (job.task === "keywords") {
+    return Promise.resolve({
+      outcome: "keywords",
+      documentId: job.documentId,
+      passages: job.passages.map(({ seq, text }) => ({ seq, keywords: keywordText(text) })),
+    } satisfies KeywordsResult);
+  }
   return job.task === "process" ? processFile(job, channel, password) : readMetadata(job, password);
 }
 
@@ -502,8 +570,25 @@ async function processBytes(
   try {
     const extracted = await extractText(kind, bytes, reading, password, readPicture);
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    const pages = kind === "pdf" ? stripBoilerplate(extracted.units) : extracted.units;
-    const { pageCount, unread } = extracted;
+    // The running headers go while a page's lines are the ones extraction joined as they
+    // always were; the wider join comes after, where it reaches the model.
+    const starts: number[] = [];
+    const stripped =
+      kind === "pdf"
+        ? stripBoilerplate(addDepositionAnchors(extracted.units), BOILERPLATE_PARAMETERS, starts)
+        : extracted.units;
+    // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
+    // layout, as a transcript's numbered lines are, and joining two of them would merge a
+    // table's rows or a deposition's lines (and move their anchors).
+    const pages =
+      kind === "pdf"
+        ? stripped.map((unit, index) => {
+            if (unit.label?.scan || hasPrintedLines(unit)) return unit;
+            const kept = unit.page === null ? undefined : extracted.keptBreaks?.get(unit.page);
+            return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
+          })
+        : stripped;
+    const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
       keywords: keywordText(passage.text),
@@ -511,11 +596,18 @@ async function processBytes(
     if (passages.length === 0) {
       // A scan none of whose pages could be read: it has text to find, once they can be.
       const processed: Processed = unread
-        ? { outcome: "failed", reason: "pages-unread", message: unreadMessage(unread) }
-        : { outcome: "no-text", pageCount };
+        ? {
+            outcome: "failed",
+            reason: unread.forms ? "forms-unread" : "pages-unread",
+            message: unreadMessage(unread),
+          }
+        : { outcome: "no-text", pageCount, parts };
       return { processed, firstPages };
     }
-    return { processed: { outcome: "ready", pageCount, passages, pages, unread }, firstPages };
+    return {
+      processed: { outcome: "ready", pageCount, passages, pages, unread, parts },
+      firstPages,
+    };
   } catch (error) {
     const processed: Processed =
       error instanceof ExtractionError
@@ -527,6 +619,11 @@ async function processBytes(
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The technical detail of scanned pages that couldn't be read, in English, for logs and tooltips. */
-export const unreadMessage = (unread: { pages: number[]; message: string }) =>
-  `Scanned ${unread.pages.length === 1 ? "page" : "pages"} ${unread.pages.join(", ")} couldn't be read${unread.message ? `: ${unread.message}` : "."}`;
+/** The page's kept newlines after the text before them was cut off: the ones cut away are gone. */
+function moved(
+  kept: ReadonlySet<number> | undefined,
+  cut: number,
+): ReadonlySet<number> | undefined {
+  if (kept === undefined || cut === 0) return kept;
+  return new Set([...kept].map((at) => at - cut).filter((at) => at >= 0));
+}

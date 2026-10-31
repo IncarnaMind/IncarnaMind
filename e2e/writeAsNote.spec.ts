@@ -44,13 +44,14 @@ const WORDS = {
     question: "When do spring tides happen?",
     write: "Write as a note",
     plain: "Add to note",
-    choose: "Choose a Mind to add it to",
+    choose: "Choose a note to add it to",
     named: (note: string) => `Add to “${note}”`,
     added: (note: string) => `Added to “${note}”`,
     kept: "Kept the Block you edited",
     placeholder: "Ask, or say ‘write a note on…’",
     chat: "This note’s chat",
     startGuide: "Start in three steps",
+    answerGuide: "The Answer appears on the right; add it to your note with one click.",
     connectApp: "Connect an app…",
   },
   "zh-CN": {
@@ -58,13 +59,14 @@ const WORDS = {
     question: "大潮 tides 什么时候出现？",
     write: "写成笔记",
     plain: "添加到笔记",
-    choose: "选择要添加到的 Mind",
+    choose: "选择要添加到的笔记",
     named: (note: string) => `添加到“${note}”`,
     added: (note: string) => `已添加到“${note}”`,
     kept: "保留了 1 个你编辑过的块",
     placeholder: "提问，或说“写一篇关于……的笔记”",
     chat: "这篇笔记的对话",
     startGuide: "三步开始",
+    answerGuide: "回答会出现在右侧，一键加入笔记。",
     connectApp: "连接应用…",
   },
 } as const;
@@ -357,6 +359,7 @@ for (const language of LANGUAGES) {
       const emptyId = await frontMind(window).getAttribute("data-mind-id");
       await expect(guide).toBeVisible();
       await expect(guide).toContainText(w.startGuide);
+      await expect(guide).toContainText(w.answerGuide);
       await expect(guide).toContainText(w.connectApp);
       await pointAndClick(
         window,

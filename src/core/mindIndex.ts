@@ -13,6 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { perBlock } from "../shared/memo";
 import { cutAtWord, cutTitle } from "../shared/naming";
 import { BLOCK_ID_ATTRIBUTE, type MindTextMatch } from "./api";
 import { keywordText } from "./documents/keywords";
@@ -84,6 +85,9 @@ export function lineUnderName(lines: readonly LeadingLine[], name: string): stri
   return named ? second?.text : first.text;
 }
 
+/** A Block's words, read again only once a change touches it: a long Note is read after each burst of typing. */
+const textOfBlock = perBlock(blockText);
+
 function readTopLevel(blocks: Y.XmlFragment): ReadBlock[] {
   const read: ReadBlock[] = [];
   const seen = new Set<string>();
@@ -93,7 +97,7 @@ function readTopLevel(blocks: Y.XmlFragment): ReadBlock[] {
     // The editor gives a Block its id just after making it: it is read once it has one.
     if (typeof id !== "string" || id === "" || seen.has(id)) return;
     seen.add(id);
-    read.push({ blockId: id, kind: child.nodeName, position, text: blockText(child) });
+    read.push({ blockId: id, kind: child.nodeName, position, text: textOfBlock(child) });
   });
   return read;
 }

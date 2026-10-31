@@ -9,8 +9,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { startsWith } from "../matcher";
 import { type Box, enterFrom, exitToward } from "../motion";
 import { isSlidingTo, type Point } from "./submenuSlide";
+import { useFocusReturn } from "./useFocusReturn";
 
 const GAP_PX = 4;
 const EDGE_PX = 8;
@@ -20,12 +22,22 @@ const BAND_PX = 44;
 const MIN_BESIDE_ROW_PX = 120;
 /** Menu items of every kind: plain, radio and checkbox. */
 const ITEMS = '[role^="menuitem"]';
+/** Letters typed this close together jump to a name; a pause starts a new one. */
+export const TYPE_AHEAD_MS = 600;
 
 /** A row crossed on the way to an open submenu takes over once the pointer has rested on it this long. */
 const SLIDE_REST_MS = 300;
 
 const itemsOf = (menu: HTMLElement | null) =>
   Array.from(menu?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
+
+/** Everything Tab reaches in the menu, in reading order: its items and any field it holds. */
+const tabbablesOf = (menu: HTMLElement | null) =>
+  Array.from(
+    menu?.querySelectorAll<HTMLElement>(
+      `${ITEMS}, input:not([disabled]), select:not([disabled]), textarea:not([disabled])`,
+    ) ?? [],
+  ).filter((each) => each.checkVisibility());
 
 /** Where a menu opened with a right-click or a key was asked for, if it was. */
 function pointOf(button: HTMLElement | null): { x: number; y: number; above: number } | null {
@@ -155,6 +167,60 @@ function itemForKey(key: string, all: readonly HTMLElement[]): HTMLElement | und
   }
 }
 
+/**
+ * The item whose name starts with the letters typed so far, as in every list on the computer.
+ *
+ * A new name is looked for from the row after the one in focus and round, so pressing a letter
+ * again on its own moves to the next name starting with it; letters typed within a pause add to
+ * the name being typed and look again from the first row. A Space within that pause is part of
+ * the name when a name goes on with it ("untitled s" reaches "Untitled something"), and presses
+ * the row in focus otherwise. A field the menu holds keeps its own keys.
+ *
+ * Only letters that reached a name are kept: any other key that moves the focus ends the name
+ * (see `onKeyDown`), and letters no name takes end it too, so a Space after either presses the
+ * row in focus.
+ */
+function typedTo(
+  event: KeyboardEvent,
+  menu: HTMLElement | null,
+  typed: { current: { text: string; at: number } },
+): HTMLElement | undefined {
+  const target = event.target;
+  const key = event.key;
+  if (
+    key.length !== 1 ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.nativeEvent.isComposing ||
+    (target instanceof Element &&
+      target.closest('input, textarea, select, [contenteditable="true"]'))
+  ) {
+    return undefined;
+  }
+  const now = performance.now();
+  const last = typed.current.text;
+  const fresh = now - typed.current.at <= TYPE_AHEAD_MS;
+  // A Space of its own is the row's own key; within a name it is a letter.
+  if (key === " " && !fresh) return undefined;
+  const repeating = fresh && last.length === 1 && key === last;
+  const extending = fresh && last !== "" && !repeating;
+  const text = extending ? last + key : key;
+  typed.current = { text, at: now };
+  const items = itemsOf(menu);
+  const focused = items.indexOf(document.activeElement as HTMLElement);
+  const from = extending ? 0 : focused + 1;
+  const around = [...items.slice(from), ...items.slice(0, from)];
+  // The app's one way to jump to a name by its first letters, as the sidebar's tree does: a
+  // Chinese name by its pinyin or initials too.
+  const item = around.find((each) => startsWith(text, (each.textContent ?? "").trim()));
+  // Letters no name takes end the name, so the Space after them presses the row in focus.
+  if (item === undefined) typed.current = { text: "", at: 0 };
+  // The first letters of a name are never a stray key: the menu keeps them for the next one.
+  if (item !== undefined) event.preventDefault();
+  return item;
+}
+
 function openSubmenus(menu: HTMLElement | null): { trigger: HTMLElement; submenu: HTMLElement }[] {
   return Array.from(
     menu?.querySelectorAll<HTMLButtonElement>('[aria-haspopup="menu"]') ?? [],
@@ -239,15 +305,20 @@ export function openMenuFromRightClick(
  * menu of actions with a switch among them, rather than a choice of options.
  * `align: "end"` lines its right edge up with the button's, for a button at
  * the right of what it sits in.
+ * `whenFocusGone` is the last place to send the focus Esc wanted back: for a
+ * menu whose button went while it was open, such as a chip no Task shows once
+ * the last one stops.
  */
 export function usePopoverMenu({
   around,
   focus = "checked",
   align = "start",
+  whenFocusGone,
 }: {
   around?: (button: HTMLElement) => HTMLElement | null;
   focus?: "checked" | "first";
   align?: "start" | "end";
+  whenFocusGone?: () => void;
 } = {}) {
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
@@ -262,6 +333,10 @@ export function usePopoverMenu({
   const entered = useRef(false);
   const apex = useRef<Point | null>(null);
   const crossing = useRef<{ row: Element; timer: number } | null>(null);
+  /** Where the User was when the menu opened, to give the focus back to. */
+  const focusReturn = useFocusReturn();
+  /** Esc asked for the focus back: it is given once the popover has closed (see `onToggle`). */
+  const returnWanted = useRef(false);
 
   const stopCrossing = () => {
     if (crossing.current) window.clearTimeout(crossing.current.timer);
@@ -312,6 +387,36 @@ export function usePopoverMenu({
     crossing.current = null;
   }, [open]);
 
+  // Esc closes it even with nothing in it to take the focus, as a menu that says it has nothing
+  // to show: the browser's own close request only reaches a popover the focus is in. It runs
+  // before the page's own handlers, so a menu over the composer takes the key and the composer
+  // keeps what it was doing (a plan being asked again); a key an IME is composing never closes it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      // A dialog over the menu is what Esc closes first.
+      if (document.querySelector("dialog:modal") !== null) return;
+      const element = menu.current;
+      if (!element?.matches(":popover-open")) return;
+      // In the menu or in one of its submenus, its own keys answer: a submenu closes first.
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (element.contains(target) ||
+          openSubmenus(element).some(({ submenu }) => submenu.contains(target)))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      returnWanted.current = true;
+      element.hidePopover();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+
   // Items that come after it opened, such as models still being listed then: placed again for
   // the menu's new size, and the checked one focused, as it would have been had it been there.
   useEffect(() => {
@@ -326,20 +431,36 @@ export function usePopoverMenu({
     return () => observer.disconnect();
   }, [open, first, align]);
 
+  /** The letters typed since the last pause, to jump to an item by its name. */
+  const typed = useRef({ text: "", at: 0 });
+
   const onKeyDown = (event: KeyboardEvent) => {
     touched.current = true;
     if (event.key === "Escape") {
       // Handled here, so the Document viewer's Esc doesn't close it too.
       event.preventDefault();
+      returnWanted.current = true;
       menu.current?.hidePopover();
-      button.current?.focus();
+      return;
+    }
+    if (event.key === "Tab") {
+      // A menu closes only when Tab leaves it: from its last item, or its first with Shift. So the
+      // field a menu holds stays reachable, and Esc then belongs to the card or page behind it.
+      const tabbables = tabbablesOf(menu.current);
+      const leaving = event.shiftKey
+        ? document.activeElement === tabbables[0]
+        : document.activeElement === tabbables.at(-1);
+      if (leaving) menu.current?.hidePopover();
       return;
     }
     const next = itemForKey(event.key, itemsOf(menu.current));
-    if (!next) return;
+    // The focus left the row the letters reached, so the name ends: a Space now presses the row.
+    if (next !== undefined) typed.current = { text: "", at: 0 };
+    const item = next ?? typedTo(event, menu.current, typed);
+    if (!item) return;
     event.preventDefault();
-    next.focus();
-    closeSubmenusBut(menu.current, next);
+    item.focus();
+    closeSubmenusBut(menu.current, item);
   };
 
   return {
@@ -361,15 +482,29 @@ export function usePopoverMenu({
         if (event.newState === "closed" && menu.current)
           exitToward(menu.current, sourceOf(button.current));
         // Untouched from the moment it opens, not from a render after: keys can come first.
-        if (event.newState === "open") touched.current = false;
+        if (event.newState === "open") {
+          touched.current = false;
+          returnWanted.current = false;
+          typed.current = { text: "", at: 0 };
+          focusReturn.remember();
+        }
         setOpen(event.newState === "open");
       },
       // Now it shows, where it was placed: it can take the focus, unless the User has moved it
       // already (the event can come after their first keys), or something in it has it: the
       // browser focuses an item as it shows (`autofocusFirst`), and by this event, a frame
-      // later, the focus may have moved on to the menu's field.
+      // later, the focus may have moved on to the menu's field. Closed after Esc, the focus goes
+      // back now, not during the key: a focus the browser's own close work runs over takes no text.
       onToggle: (event: ToggleEvent<HTMLDivElement>) => {
-        if (event.newState !== "open" || touched.current) return;
+        if (event.newState === "closed") {
+          if (!returnWanted.current) return;
+          returnWanted.current = false;
+          // A caller that already gave the focus a place after the close (a row's menu back to
+          // its row) keeps it; only a focus on the page or still in the popover is returned.
+          if (!focusReturn.giveBack(menu.current, button.current)) whenFocusGone?.();
+          return;
+        }
+        if (touched.current) return;
         if (menu.current?.contains(document.activeElement)) return;
         focusFirst(menu.current, first);
       },

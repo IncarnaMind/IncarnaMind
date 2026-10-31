@@ -1,3 +1,4 @@
+import { showOutputLocationSetting } from "../outputFiles";
 import { offeredSettingsPages, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
 import type { Command } from "./registry";
@@ -17,7 +18,19 @@ export const settingsPageCommands: readonly Command[] = [
       }),
     ),
   {
+    // Where a Linked folder's row sends the User when it couldn't read what it may write. Named
+    // for the switches it opens, since "location" would answer a search for Local mode first.
+    id: "settings.outputLocation",
+    label: "outputLocation.linked.title",
+    purpose: "outputLocation.title",
+    keywords: ["settings.title", "outputLocation.title"],
+    group: "open",
+    reversible: true,
+    run: () => showOutputLocationSetting(),
+  },
+  {
     id: "settings.localMode",
+    assistant: { never: "privacy" },
     label: "embeddingProviders.localOnly.label",
     keywords: ["settings.title", "command.settings.localMode.keywords"],
     group: "open",
@@ -26,6 +39,7 @@ export const settingsPageCommands: readonly Command[] = [
   },
   {
     id: "settings.addProvider",
+    assistant: { never: "keys" },
     label: "command.settings.addProvider",
     keywords: ["settings.title", "settings.pages.models"],
     group: "open",

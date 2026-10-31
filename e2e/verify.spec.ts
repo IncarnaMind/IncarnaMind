@@ -1,16 +1,20 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { textOf, unzip } from "../tests/helpers/docx";
 import { buildPdf } from "../tests/helpers/pdf";
+import { commented, paragraph, run, tracked, wordFile } from "../tests/helpers/word";
 import {
   addDocuments,
   checkCard,
   createDataFolder,
   dismissChatSetup,
+  exportFromMenu,
   frontMindName,
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  openExportOptions,
   openPageMenu,
   pointAndClick,
   removeDataFolder,
@@ -18,11 +22,12 @@ import {
   setWindowSize,
   slideSelect,
   useLocalChatModel,
+  useOutputLocation,
 } from "./app";
 
 /*
- * Verify (#97): "Verify a document…" in the + menu takes a PDF someone else
- * wrote. It opens beside the Mind made of its text, whose claims are found;
+ * Verify (#97): "Check someone else’s file…" in the + menu takes a PDF someone else
+ * wrote, or a Word file (#110). It opens beside the Mind made of its text, whose claims are found;
  * the check badge's card checks them, and each gets a mark in the margin.
  * The scripted model (src/main/fakeChat/) takes every sentence but
  * thanks for a claim, finds one supported when it shares three words with a
@@ -81,7 +86,25 @@ async function readyToVerify({ app, window }: Awaited<ReturnType<typeof launch>>
   await interceptOpenDialog(app, join(sources, "Harbour report.pdf"));
 }
 
-/** "Verify a document…" from the + menu. */
+/** The report as a Word file someone else sent: Priya's insertion in one sentence, Dana's comment on a claim. */
+function wordReport(): Buffer {
+  const dana = commented(7, "Dana Kim", "Please confirm the source.", run(UNSUPPORTED));
+  return wordFile({
+    body: [
+      paragraph("Harbour report", { style: "Heading1" }),
+      paragraph(SUPPORTED),
+      paragraph(CONTRADICTED),
+      paragraph(
+        `${run("The harbour opens at dawn")}${tracked("ins", 3, "Priya Nair", " and closes at dusk")}${run(".")}`,
+      ),
+      paragraph(dana.inline),
+      paragraph(THANKS),
+    ].join(""),
+    comments: dana.comment,
+  });
+}
+
+/** "Check someone else’s file…" from the + menu. */
 async function verifyFromPlusMenu(window: Page, label: string) {
   await pointAndClick(window, window.getByTestId("plus-menu"));
   await pointAndClick(window, window.getByTestId("plus-more"));
@@ -99,7 +122,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
 
   await expect(frontMindName(window)).toHaveText("Checking: Harbour report");
   // The question opens the badge's card by itself.
@@ -117,7 +140,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(check).toHaveText("Check 4 claims");
   await expect(ask).toContainText("Check it against your Documents?");
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Sentences and Citations: 4 claims not checked yet",
+    "Claims and Citations: 4 claims not checked yet",
   );
   // A model on this computer costs nothing: no estimate.
   await expect(ask.getByTestId("verify-estimate")).toHaveCount(0);
@@ -143,7 +166,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(1);
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
-  await expect(notChecked).toHaveAccessibleName("Sentence check: Not checked");
+  // A claim not checked yet has no mark on the page: its card opens from the row and from the shortcut.
+  await expect(notChecked).toBeHidden();
   await screenshot(window, "verify-results-en");
 
   // Where its text came from is in the page's ⋯ menu.
@@ -152,8 +176,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await window.keyboard.press("Escape");
   await expect(pageMenu).toBeHidden();
 
-  // The claim the model failed on says why, with Check again.
-  await pointAndClick(window, notChecked);
+  // The claim the model failed on says why, with Check again, opened from its row's sentence.
+  await pointAndClick(window, (await checkCard(window)).getByTestId("verify-notChecked"));
+  await expect(editor).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+Shift+KeyK");
   const claimCard = window.getByTestId("claim-card");
   await expect(claimCard.getByTestId("claim-reason")).toHaveText("The model declined to check it.");
   await window.keyboard.press("Escape");
@@ -210,6 +236,120 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect.poll(caretIn).toContain("should decline to check");
 });
 
+test("Verify a Word file: its Note opens beside the file with their change waiting, its claims are checked, and the export puts each problem in the file as a Word comment", async () => {
+  const report = join(sources, "Harbour report.docx");
+  await writeFile(report, wordReport());
+  const output = join(sources, "Exports");
+  await mkdir(output);
+  const running = await launch();
+  const { app, window } = running;
+  await useLocalChatModel(window);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await useOutputLocation(window, output);
+  await interceptOpenDialog(app, report);
+  await setWindowSize(app, window, 1440, 900);
+
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
+
+  await expect(frontMindName(window)).toHaveText("Checking: Harbour report");
+  const ask = window.getByTestId("check-card").getByTestId("verify-ask");
+  await expect(ask).toBeVisible();
+  const card = await checkCard(window);
+  // The sentence their change is in waits for the reviewing pane: three claims, not four.
+  await expect(ask.getByTestId("verify-check")).toHaveText("Check 3 claims");
+  await expect(window.getByTestId("their-changes-count")).toHaveText("1 change from Priya Nair");
+  // The Word file is open beside the Note.
+  const viewer = window.getByTestId("viewer");
+  await expect(viewer).toBeVisible();
+  await expect(
+    window
+      .getByTestId("document-list-item")
+      .filter({ hasText: "Harbour report" })
+      .getByTestId("document-not-cited"),
+  ).toHaveText("Not cited");
+  await screenshot(window, "verify-word-start-en");
+
+  await pointAndClick(window, ask.getByTestId("verify-check"));
+  const done = card.getByTestId("verify-done");
+  await expect(done).toContainText("Checked 3 claims · 2 need a look");
+  await expect(marks(window)).toHaveCount(3);
+  await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
+  await screenshot(window, "verify-word-results-en");
+
+  // Each row goes to its claim.
+  const editor = window.getByTestId("mind-editor");
+  const caretIn = () =>
+    editor.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest("p")?.textContent);
+  await pointAndClick(window, done.getByTestId("verify-contradicted"));
+  await expect.poll(caretIn).toContain(CONTRADICTED);
+
+  const pageMenu = await openPageMenu(window);
+  await expect(pageMenu.getByTestId("page-from")).toHaveText("From Harbour report.docx");
+  await window.keyboard.press("Escape");
+  await expect(pageMenu).toBeHidden();
+
+  // The file goes back to someone else: no check comments unless asked, and the line says so.
+  const result = window.getByTestId("export-result");
+  await exportFromMenu(window, "docx");
+  const part = result.getByTestId("export-comments");
+  await expect(part).toHaveText("Check comments off");
+  await expect(result.getByTestId("export-done")).toContainText(/Check comments off\s*·\s*Change$/);
+  await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
+  const saved = async () => {
+    const [name] = await readdir(output);
+    const files = unzip(await readFile(join(output, name ?? "")));
+    return {
+      comments: textOf(files.get("word/comments.xml")?.toString("utf8") ?? ""),
+      document: files.get("word/document.xml")?.toString("utf8") ?? "",
+    };
+  };
+  const plain = await saved();
+  expect(plain.comments).toBe("Please confirm the source.");
+  expect(plain.document).toContain('w:author="Priya Nair"');
+  await setLanguage(window, "zh-CN");
+  await expect(part).toHaveText("未添加核对批注");
+  await setLanguage(window, "en");
+  await screenshot(window, "verify-word-saved-off-en");
+
+  // Change offers the comments with what they give away; picked, the same file is written again.
+  await pointAndClick(window, result.getByTestId("export-change"));
+  await expect(result.getByTestId("export-comments-question")).toHaveText(
+    "Comment on what needs a look? Comments quote your Documents and name them.",
+  );
+  await expect(result.getByTestId("export-comments-add")).toHaveAccessibleDescription(
+    /Comments quote your Documents and name them/,
+  );
+  await pointAndClick(window, result.getByTestId("export-comments-add"));
+  await expect(part).toHaveText("2 check comments");
+  await expect(window.getByTestId("undo-message")).toHaveText(
+    "Added 2 check comments to “Harbour report.docx”",
+  );
+  expect(await readdir(output)).toEqual(["Harbour report.docx"]);
+  const commented = await saved();
+  expect(commented.comments).toContain("Please confirm the source.");
+  expect(commented.comments).toMatch(/Contradicted: .*Tides, p\. 2\)/);
+  await screenshot(window, "verify-word-saved-on-en");
+
+  // Undo puts the file back as it was, and the line says the comments are off again.
+  await pointAndClick(window, window.getByTestId("undo-action"));
+  await expect(part).toHaveText("Check comments off");
+  expect(await readdir(output)).toEqual(["Harbour report.docx"]);
+  expect((await saved()).comments).toBe("Please confirm the source.");
+
+  // Export options: this Note's switch, off; turned on, its hint says what the comments give away.
+  await openExportOptions(window);
+  const sheet = window.getByTestId("export-dialog");
+  const comments = sheet.getByTestId("export-comment-failed-checks");
+  await expect(comments).not.toBeChecked();
+  await expect(sheet).not.toContainText("Comments quote your Documents and name them");
+  await comments.click();
+  await expect(sheet).toContainText("Comments quote your Documents and name them");
+  await screenshot(window, "verify-word-options-en");
+  await window.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await app.close();
+});
+
 /** The report of #690: 18 claims the Stations PDF supports, 2 it contradicts, and 4 the model won't check. */
 const STATIONS = [
   "Alder",
@@ -264,7 +404,7 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await setWindowSize(app, window, 1440, 900);
 
   await interceptOpenDialog(app, join(sources, "Station report.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
   const card = window.locator('[data-testid="check-card"]:visible');
   await expect(card.getByTestId("verify-ask")).toBeVisible();
   await pointAndClick(window, card.getByTestId("verify-check"));
@@ -281,7 +421,7 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await setLanguage(window, "en");
 
   await interceptOpenDialog(app, join(sources, "Refusals.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
   await expect(frontMindName(window)).toHaveText("Checking: Refusals");
   // The question opens the card by itself once the claims are found.
   await expect(card.getByTestId("verify-ask")).toBeVisible();
@@ -300,7 +440,7 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
 
-  await verifyFromPlusMenu(window, "核对文档…");
+  await verifyFromPlusMenu(window, "核对别人的文件…");
 
   await expect(window.getByTestId("check-card").getByTestId("verify-ask")).toBeVisible();
   const card = await checkCard(window);
@@ -338,7 +478,10 @@ for (const [language, width] of [
     await setWindowSize(app, window, width, 820);
     await addDocuments(window, [join(sources, "Fleet ledger.md")]);
     await interceptOpenDialog(app, STATEMENT);
-    await verifyFromPlusMenu(window, language === "en" ? "Verify a document…" : "核对文档…");
+    await verifyFromPlusMenu(
+      window,
+      language === "en" ? "Check someone else’s file…" : "核对别人的文件…",
+    );
 
     const editor = window.getByTestId("mind-editor");
     const tables = editor.locator("table");
@@ -379,7 +522,7 @@ test("Empty states: nothing to check against, then no claims found", async () =>
   await readyToVerify(running, false);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
   const card = window.getByTestId("check-card");
   // The PDF is the only Document, and it is never its own evidence.
   await expect(card.getByTestId("verify-empty")).toHaveText(
@@ -394,7 +537,7 @@ test("Empty states: nothing to check against, then no claims found", async () =>
   const tides = window.getByTestId("document-list-item").filter({ hasText: "Tides" });
   await expect(tides).toHaveAttribute("data-status", "ready");
   await interceptOpenDialog(app, join(sources, "Thanks.pdf"));
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
   // The first Mind's tab stays open behind it.
   await expect(frontMindName(window)).toHaveText("Checking: Thanks");
   // Nothing to check: the card opens by itself to say so.
@@ -409,7 +552,7 @@ test("a provider failure while finding the claims is worded like an Answer's, wi
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
 
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
 
   const failure = window.getByTestId("answer-error");
   await expect(failure).toHaveAttribute("data-error-kind", "model");
@@ -425,7 +568,7 @@ test("a check that fails says why in the interface language, and again in the ot
   await useLocalChatModel(window);
   await readyToVerify(running);
   await setWindowSize(app, window, 1440, 900);
-  await verifyFromPlusMenu(window, "Verify a document…");
+  await verifyFromPlusMenu(window, "Check someone else’s file…");
   const card = window.getByTestId("check-card");
   await expect(card.getByTestId("verify-ask")).toBeVisible();
 
@@ -442,10 +585,10 @@ test("a check that fails says why in the interface language, and again in the ot
   });
   await pointAndClick(window, card.getByTestId("verify-check"));
   const problem = window.getByTestId("verify-problem");
-  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await expect(problem).toContainText("Couldn’t check: This note doesn’t verify a document.");
   await setLanguage(window, "zh-CN");
-  await expect(problem).toContainText("无法核对：这个 Mind 没有在核对文档。");
+  await expect(problem).toContainText("无法核对：这篇笔记没有在核对文档。");
   await setLanguage(window, "en");
-  await expect(problem).toContainText("Couldn’t check: This Mind doesn’t verify a document.");
+  await expect(problem).toContainText("Couldn’t check: This note doesn’t verify a document.");
   await app.close();
 });

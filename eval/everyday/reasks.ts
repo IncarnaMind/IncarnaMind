@@ -15,6 +15,8 @@ export interface Asks {
   again: number;
   /** The one request for the Answer's Citations. */
   citations: number;
+  /** The replies a check asked again about, which the User never read: to read by hand. */
+  replies?: string[];
 }
 
 export interface ReaskWatch {
@@ -43,7 +45,11 @@ export function watchReasks(): ReaskWatch {
     specificationVersion: "v4",
     wrapStream: async ({ doStream, params }) => {
       const last = params.prompt.at(-1);
-      if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) asks.again++;
+      if (last?.role === "user" && textOf(last).includes(ASKED_AGAIN)) {
+        asks.again++;
+        const before = params.prompt.at(-2);
+        if (before?.role === "assistant") asks.replies = [...(asks.replies ?? []), textOf(before)];
+      }
       if (
         params.prompt.some(
           (message) => message.role === "system" && message.content === CITE_RETRY_INSTRUCTIONS,

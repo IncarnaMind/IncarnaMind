@@ -462,14 +462,35 @@ describe("the source pack: after the file is gone, and without the page", () => 
     expect(printed).toEqual([]);
   });
 
+  test("a pack the printer couldn't lay out saves nothing, and says the PDF wasn't laid out", async () => {
+    const { core, mind, client, tides, sources } = await setUp({
+      printer: {
+        print: async () => {
+          throw new Error("The PDF took too long to lay out.");
+        },
+      },
+    });
+    writeMind(client, [paragraph(text("Spring tides"), citation(tides, 2))]);
+    await client.settled();
+    await core.setOutputLocation(sources);
+
+    await expect(core.saveMindExport(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      name: "PdfLayoutError",
+      message: "Couldn’t lay out the PDF.",
+      wording: { key: "error.pdf.notLaidOut" },
+      cause: new Error("The PDF took too long to lay out."),
+    });
+    expect(readdirSync(sources).filter((name) => name.endsWith(".pdf"))).toEqual([]);
+  });
+
   test("a pack is refused where nothing can print a PDF", async () => {
     const { core, mind, client, tides } = await setUp();
     writeMind(client, [paragraph(text("Tides"), citation(tides, 2))]);
     await client.settled();
 
-    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toThrow(
-      "This copy of IncarnaMind can't make PDFs.",
-    );
+    await expect(core.exportMind(mind.id, { format: "source-pack" })).rejects.toMatchObject({
+      wording: { key: "error.checkRecord.noPdf" },
+    });
   });
 });
 
@@ -548,7 +569,7 @@ describe("the source pack: Chinese, a huge Mind, and the file", () => {
     const [printedPack] = printed;
     const { cover, rows, sheets } = pack(printedPack?.body ?? "");
     expect(printedPack).toMatchObject({ language: "zh-CN", title: "Tides - 引用页面合集" });
-    expect(cover).toContain("此 Mind 引用的页面。引文已高亮，编号与 Mind 中的引用一致。");
+    expect(cover).toContain("此笔记引用的页面。引文已高亮，编号与笔记中的引用一致。");
     expect(cover).toContain("<th>引用</th><th>文档和位置</th><th>页码</th>");
     expect(rows.map((row) => row.source)).toEqual(["潮汐，§ 潮汐"]);
     expect(sheets[0]?.marks).toEqual([mark(1, 0, 12)]);

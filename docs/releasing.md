@@ -14,15 +14,19 @@ npm run dist         # the installers for the current system; never published
 1. Set the version, commit it and tag it: `npm version 1.2.3`. This updates `package.json` and `package-lock.json`, commits, and creates the tag `v1.2.3`.
 2. Push the commit and the tag: `git push && git push origin v1.2.3`.
 3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
-   - for macOS, a dmg and a zip, each for Apple silicon and Intel;
+   - for macOS, a dmg and a zip for Apple silicon. Macs with an Intel processor aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
    - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
    - the `latest*.yml` files that auto-update reads.
 
-   On macOS, before its upload, the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`, #1239). If that check fails, the macOS files aren't uploaded, but the Windows and Linux legs still upload theirs. Never publish a draft without its macOS files: a failed transcription check most likely means transcription is broken on the other platforms too.
+   Before its upload, each build also loads every engine module in its app, the way the app runs them (`e2e/packaged/engines.packaged.ts`, #1239): the speech engine, OCR, embeddings, the reranker, ONNX Runtime, the OS sandbox and Python. A module that doesn't load fails that build, which names the module and uploads nothing. On macOS the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`). A check that fails on one system leaves the other systems' uploads as they are. Never publish a draft without the files of all three: an engine that fails on one system is most likely broken on the others too.
 4. Review the draft, edit its notes (ending with the code signing policy line, see below), try the installers, and click **Publish release**. Installed apps only see an update once its release is published.
 
-After the first release is published, follow the comments in `README.md` and `README.zh-CN.md`: remove the "not released yet" notes, and add the release badge.
+   Every release's notes start with this line, right under the pre-release line, since an Intel Mac with an earlier build is sent to the release's page by its update dialog (#2199):
+
+   > **The Mac app needs Apple silicon (M1 or later).** The build for Macs with an Intel processor couldn't search your Documents or read scanned pages, 0.1.0-alpha.5 included, so it's no longer made. On an Intel Mac, your Notes and Documents stay where they are.
+
+After the first release is published, follow the comment in `README.md` (and the one its Chinese counterpart mirrors): add the release badge.
 
 ## macOS signing and notarization
 
@@ -95,7 +99,7 @@ The terms the project keeps are in the [code signing policy](code-signing-policy
 
 ## Crash reports
 
-Users can opt in to crash reports in **Settings → Privacy**; they go to Sentry, scrubbed of file paths, Document text, Mind content, Questions and Answers (`src/main/crashScrubber.ts`). Only a build made with a Sentry DSN offers them: set `MAIN_VITE_SENTRY_DSN` when building (electron-vite reads it from the environment or a `.env.local` file). The release workflow passes the `SENTRY_DSN` repository secret; without it, releases don't offer crash reports. Never commit a DSN.
+Users can opt in to crash reports in **Settings → Privacy**; they go to Sentry, scrubbed of file paths, Document text, Note content, Questions and Answers (`src/main/crashScrubber.ts`). Only a build made with a Sentry DSN offers them: set `MAIN_VITE_SENTRY_DSN` when building (electron-vite reads it from the environment or a `.env.local` file). The release workflow passes the `SENTRY_DSN` repository secret; without it, releases don't offer crash reports. Never commit a DSN.
 
 ## Usage data
 

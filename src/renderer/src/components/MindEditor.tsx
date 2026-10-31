@@ -1,19 +1,23 @@
+import { fingerprintOfMind } from "../../../shared/mindState";
+import { OpinionMenu } from "../editor/OpinionMenu";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
-import { checkSentences } from "../checks";
+import { checkSentences, useChecks } from "../checks";
 import {
   citationForm,
   useCitationFormattingFor,
@@ -33,19 +37,21 @@ import { AppliedEditLine } from "../editor/appliedEditLine";
 import { BlockHandle } from "../editor/BlockHandle";
 import { BlockCommands } from "../editor/blockCommands";
 import { BlockOrigins } from "../editor/blockOrigins";
+import { CalculatedFigureView } from "../editor/CalculatedFigureView";
 import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { comparisonCellView } from "../editor/ComparisonCellView";
+import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
 import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
-import { ClaimChecks, setClaimContext } from "../editor/claimChecks";
+import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
-import { comparisonCellView, comparisonRowView } from "../editor/comparisonViews";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -62,8 +68,9 @@ import { FindBar } from "../editor/FindBar";
 import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
 import { type FootnoteLabel, footnoteView } from "../editor/FootnoteView";
+import { FigureEvidence } from "../editor/figureEvidence";
 import { FindInMind } from "../editor/findInMind";
-import { FootnoteKeys } from "../editor/footnoteSchema";
+import { FootnoteKeys, focusNow } from "../editor/footnoteSchema";
 import { HeldSelection } from "../editor/heldSelection";
 import { LinkBubble } from "../editor/LinkBubble";
 import { ListKeys } from "../editor/listKeys";
@@ -76,13 +83,17 @@ import {
   ComposerDockContext,
   MindIdContext,
   PageSlotsContext,
+  SignOffsContext,
 } from "../editor/mindContext";
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
+import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
+import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
+import { Pictures } from "../editor/pictures";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
 import { QuestionView } from "../editor/QuestionView";
@@ -94,9 +105,12 @@ import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
+import { ShiftClickSelection } from "../editor/shiftClickSelection";
+import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
+import { TableOfContentsView } from "../editor/TableOfContentsView";
 import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
@@ -112,6 +126,7 @@ import { useWordLookStyle } from "../editor/wordLookStyle";
 import { WordPaste } from "../editor/wordPaste";
 import { setWritingPlace, WritingPlace } from "../editor/writingPlace";
 import { requestEdit, startEditing, TRANSLATE_LANGUAGES, useEdits } from "../editWithAi";
+import { useFigureSchedule } from "../figures";
 import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
@@ -122,6 +137,7 @@ import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
@@ -146,17 +162,21 @@ const ASK = "\uE000";
  * look at: the editor's binding deletes what its schema doesn't know from the
  * copy, and nothing is ever sent from it.
  */
-function useMindDocument(mindId: string): OpenedCopy | null {
+function useMindDocument(mindId: string, whenUnavailable: () => void): OpenedCopy | null {
   const [opened, setOpened] = useState<OpenedCopy | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
   useEffect(() => {
-    const close = openMindCopy(mindId, setOpened, reportError);
+    const close = openMindCopy(mindId, setOpened, (error) => {
+      // A copy that can't open means no editor will come to take a new Mind's keys.
+      whenUnavailable();
+      reportError(error);
+    });
     return () => {
       close();
       setOpened(null);
     };
-  }, [mindId, reportError]);
+  }, [mindId, reportError, whenUnavailable]);
 
   return opened;
 }
@@ -182,7 +202,19 @@ function rememberMindExplained(): void {
 
 /** The open Mind's Blocks, edited with Tiptap and saved through the core as they change. */
 export function MindEditor({ mindId }: { mindId: string }) {
-  const opened = useMindDocument(mindId);
+  const opened = useMindDocument(mindId, forgetNewMindKeys);
+  // A copy to look at only has no editor either: the keys held for it go back where they were.
+  useEffect(() => {
+    if (opened && !opened.doc) forgetNewMindKeys();
+  }, [opened]);
+  // Its tab closed, or another shown, before its editor was drawn: no editor comes to take the
+  // keys, and the Minds the User left must not stay uneditable.
+  useEffect(
+    () => () => {
+      if (useAppStore.getState().bodyToFocus === mindId) forgetNewMindKeys();
+    },
+    [mindId],
+  );
   if (!opened) return null;
   if (!opened.doc) return <MindNotice kind="update" />;
   return (
@@ -220,7 +252,7 @@ const citationView = ReactNodeViewRenderer(CitationView, {
  * cards), so the editor doesn't select or type over it; a press on its edge
  * still selects it as a Block, and ⌘Z / ⌘⇧Z reach the editor's undo from it.
  */
-const chartView = ReactNodeViewRenderer(ChartView, {
+const chartEvents: Parameters<typeof ReactNodeViewRenderer>[1] = {
   stopEvent: ({ event }) => {
     const target = event.target;
     if (!(target instanceof Element) || !target.closest("[data-chart-ui]")) return false;
@@ -233,6 +265,18 @@ const chartView = ReactNodeViewRenderer(ChartView, {
       !(target instanceof HTMLInputElement);
     return !undo;
   },
+};
+
+/**
+ * A picture pasted into the Note (#1937): it takes its own pointer over the
+ * alt text's line, so the editor doesn't type into it; the picture itself is
+ * the editor's to select and drag like any Block.
+ */
+const pictureView = ReactNodeViewRenderer(PictureView, {
+  stopEvent: ({ event }) => {
+    const target = event.target;
+    return target instanceof Element && target.closest("[data-picture-alt]") !== null;
+  },
 });
 
 /**
@@ -240,21 +284,22 @@ const chartView = ReactNodeViewRenderer(ChartView, {
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
  */
+const comparisonStopEvent = ({ event }: { event: Event }) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
+  if (event.type.startsWith("drag") || event.type === "drop") return false;
+  const undo =
+    event instanceof KeyboardEvent &&
+    (event.metaKey || event.ctrlKey) &&
+    /^[zy]$/i.test(event.key) &&
+    !(target instanceof HTMLInputElement);
+  return !undo;
+};
+
 const comparisonViews = {
-  table: ReactNodeViewRenderer(ComparisonTableView, {
-    stopEvent: ({ event }) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest("[data-comparison-ui]")) return false;
-      if (event.type.startsWith("drag") || event.type === "drop") return false;
-      const undo =
-        event instanceof KeyboardEvent &&
-        (event.metaKey || event.ctrlKey) &&
-        /^[zy]$/i.test(event.key) &&
-        !(target instanceof HTMLInputElement);
-      return !undo;
-    },
-  }),
-  row: comparisonRowView,
+  table: ReactNodeViewRenderer(ComparisonTableView, { stopEvent: comparisonStopEvent }),
+  // A row's head takes its own pointer and keys: its menu, Open, Delete and its drag.
+  row: ReactNodeViewRenderer(ComparisonRowView, { stopEvent: comparisonStopEvent }),
   cell: comparisonCellView,
 };
 
@@ -296,13 +341,18 @@ function MindEditorView({
   const cursorPlaced = useRef(false);
   const placeholder = useRef({ body: "", title: "" });
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
-  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet.
-  const isMeeting = useMeetingOf(mindId) !== undefined;
+  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet; a
+  // voice memo's, for its note.
+  const meetingKind = useMeetingOf(mindId)?.kind;
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
-    if (place === "empty" && isMeeting) {
-      return { before: t("meetings.hint.agenda"), ask: "", after: "" };
+    if (place === "empty" && meetingKind) {
+      return {
+        before: t(meetingKind === "memo" ? "memos.hint" : "meetings.hint.agenda"),
+        ask: "",
+        after: "",
+      };
     }
     const key =
       place === "empty"
@@ -319,10 +369,14 @@ function MindEditorView({
   const emptyFormula = t("editor.math.empty");
   /** How a footnote's marker is named, in the interface's language as it is now. */
   const footnoteLabel = useRef<FootnoteLabel>(() => "");
-  footnoteLabel.current = (number, text) =>
-    text
-      ? t("editor.footnote.labelWithText", { number, text })
-      : t("editor.footnote.label", { number });
+  footnoteLabel.current = (number, text, endnote) =>
+    endnote
+      ? text
+        ? t("editor.endnote.labelWithText", { number, text })
+        : t("editor.endnote.label", { number })
+      : text
+        ? t("editor.footnote.labelWithText", { number, text })
+        : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
@@ -344,18 +398,32 @@ function MindEditorView({
           questionView: ReactNodeViewRenderer(QuestionView),
           answerView: ReactNodeViewRenderer(AnswerView),
           citationView,
+          calculatedFigureView: ReactNodeViewRenderer(
+            (props) => <CalculatedFigureView {...props} doc={doc} />,
+            { as: "span" },
+          ),
           footnoteView: footnoteView(() => footnoteLabel.current),
           documentChipView: ReactNodeViewRenderer(DocumentChipView, { as: "span" }),
           comparisonViews,
-          chartView,
+          chartView: ReactNodeViewRenderer(
+            (props) => <ChartView {...props} doc={doc} />,
+            chartEvents,
+          ),
           wordAtomView,
           wordBlockView,
+          pageBreakView,
+          tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
+          pictureView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
         CitationNumbers.configure({ form: () => formRef.current }),
+        // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
+        Pictures,
         CitationClusters,
         ClaimChecks,
-        CopyCitations,
+        CopyCitations.configure({
+          figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
+        }),
         FootnoteKeys,
         DocumentChipKeys,
         ListKeys,
@@ -369,6 +437,7 @@ function MindEditorView({
             ),
         }),
         Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+        FigureEvidence.configure({ doc }),
         // Notes added from an Answer, with their links back to it (#201).
         BlockOrigins.configure({ doc }),
         Placeholder.configure({
@@ -409,6 +478,7 @@ function MindEditorView({
         BlockCommands,
         FindInMind,
         HeldSelection,
+        ShiftClickSelection,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({
@@ -457,9 +527,41 @@ function MindEditorView({
     [documents],
   );
   const scope = useMindScope(doc);
+  const schedule = useFigureSchedule(mindId, doc);
+  // The same array while a change leaves the rows as they were, so what is read from them is too.
+  const rows = useMemo(
+    () => (schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null),
+    [schedule, doc],
+  );
+  const signOffRecords = useSignOffs(doc);
+  const signOffs = useMemo(() => ({ records: signOffRecords, rows }), [signOffRecords, rows]);
+  const figureContexts = useMemo(
+    () => (rows ? new Map(rows.map((row) => [row.id, row.context ?? ""])) : null),
+    [rows],
+  );
+  const figurePlaces = useMemo(
+    () =>
+      rows
+        ? figurePlacesOf(
+            rows.flatMap(({ locator, place }) =>
+              locator.kind === "text" && place.table
+                ? [
+                    {
+                      blockId: locator.from.blockId,
+                      from: locator.from.offset,
+                      to: locator.to.offset,
+                    },
+                  ]
+                : [],
+            ),
+          )
+        : null,
+    [rows],
+  );
   useEffect(() => {
-    if (!editor.isDestroyed) setClaimContext(editor.view, { versions, folderId, scope });
-  }, [editor, versions, folderId, scope]);
+    if (!editor.isDestroyed)
+      setClaimContext(editor.view, { versions, folderId, scope, figureContexts, figurePlaces });
+  }, [editor, versions, folderId, scope, figureContexts, figurePlaces]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.
@@ -468,7 +570,7 @@ function MindEditorView({
   const form = citationForm(style, useMindFormatting(mindId));
   formRef.current = form;
   useDefaultStyleNotice({ mindId, doc, style, chosen: styleChoice.chosen, readOnly });
-  useCitationFormattingFor(editor, style, mindId, textLanguage);
+  useCitationFormattingFor(editor, style, mindId, textLanguage, doc);
   useEffect(() => {
     if (!editor.isDestroyed) setCitationForm(editor.view, form);
   }, [editor, form]);
@@ -530,11 +632,24 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    const run = (action: "improve" | "shorten" | "explain") => (current: typeof editor) =>
-      void requestEdit(current, mindId, doc, action);
+    const run =
+      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
+        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
     return [
-      { id: "improve", label: "editor.ai.improve", icon: "✎", available, run: run("improve") },
-      { id: "shorten", label: "editor.ai.shorten", icon: "≡", available, run: run("shorten") },
+      {
+        id: "improve",
+        label: "editor.ai.improve",
+        icon: "✎",
+        available,
+        run: run("improve", "menu"),
+      },
+      {
+        id: "shorten",
+        label: "editor.ai.shorten",
+        icon: "≡",
+        available,
+        run: run("shorten", "menu"),
+      },
       {
         id: "translate",
         label: "editor.ai.translate",
@@ -543,11 +658,23 @@ function MindEditorView({
         choices: TRANSLATE_LANGUAGES.map((language) => ({
           id: language.id,
           label: language.name,
-          run: (current) => void requestEdit(current, mindId, doc, "translate", language.prompt),
+          run: (current) =>
+            void requestEdit(current, mindId, doc, "translate", language.prompt, undefined, "menu"),
         })),
         run: () => undefined,
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
+      {
+        id: "check-anyway",
+        label: "claim.checkAnyway",
+        icon: <CheckLineIcon className="size-3.5" />,
+        available: (current) =>
+          !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
+        run: (current) => {
+          const opinion = opinionAt(current, doc);
+          if (opinion) checkOpinion(current, mindId, doc, opinion, place);
+        },
+      },
       {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
@@ -566,7 +693,7 @@ function MindEditorView({
         run: (current) => void markSelectionAsMine(current),
       },
     ];
-  }, [mindId, doc, hasDocuments]);
+  }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
   const editField = useMemo(
@@ -592,17 +719,20 @@ function MindEditorView({
   );
 
   // When the language changes: relabel. Setting the props also redraws the placeholder,
-  // and the footnotes' markers and checklist boxes are named anew.
+  // and the footnotes' markers, checklist boxes and breaks are named anew.
   useEffect(() => {
     editor.setOptions({ editorProps: editorPropsFor(label, emptyFormula) });
-    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+    if (editor.isDestroyed) return;
+    redrawFootnotes(editor.view);
+    relabelBreaks(editor.view.dom);
   }, [editor, label, emptyFormula]);
 
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone
   // from it only to the assistant the composer is in (its Answers, its menus, its header);
   // anywhere else, Answers go at the end of the Mind. A dialog that asks something on the way
-  // (consent to send, say) gives the focus back: it doesn't count.
-  useEffect(() => {
+  // (consent to send, say) gives the focus back: it doesn't count. A layout effect, so it is
+  // listening before a Mind made with ⌘T takes the focus before its first frame (#2000).
+  useLayoutEffect(() => {
     const assistant = dock?.closest("[data-assistant]") ?? dock;
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
@@ -643,10 +773,24 @@ function MindEditorView({
     });
   }, [editor, mindId]);
 
-  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  // A Mind made with ⌘T: the keys typed while it was being drawn go in first, and its text has the
+  // focus before the first frame shows it, so a fast typist loses nothing and sees no unfocused page (#2000).
   const bodyHere = useAppStore((state) => state.bodyToFocus === mindId);
-  useEffect(() => {
+  const tookTypedKeys = useRef(false);
+  useLayoutEffect(() => {
     if (!bodyHere || editor.isDestroyed) return;
+    const typed = takeNewMindKeys();
+    if (typed === null) return;
+    tookTypedKeys.current = true;
+    editor.commands.focus("end");
+    if (typed) editor.view.dispatch(editor.state.tr.insertText(typed));
+    focusNow(editor);
+    useAppStore.getState().bodyFocused();
+  }, [bodyHere, editor]);
+
+  // A Mind just made: its text has the cursor, under its title when it starts with one (#908).
+  useEffect(() => {
+    if (!bodyHere || editor.isDestroyed || tookTypedKeys.current) return;
     editor.commands.focus("end");
     useAppStore.getState().bodyFocused();
   }, [bodyHere, editor]);
@@ -726,103 +870,110 @@ function MindEditorView({
 
   return (
     <MindIdContext.Provider value={mindId}>
-      {slots.top &&
-        createPortal(
-          <>
-            <WordImportProgress doc={doc} />
-            <OriginalNotAdded mindId={mindId} />
-          </>,
-          slots.top,
-        )}
-      {slots.menu &&
-        createPortal(
-          <>
-            {reviewing && slots.reviewShown !== "beside" && (
-              <ReviewFold editor={editor} mindId={mindId} />
-            )}
-            <PageMenu
+      <SignOffsContext.Provider value={signOffs}>
+        {slots.top &&
+          createPortal(
+            <>
+              <WordImportProgress doc={doc} />
+              <OriginalNotAdded mindId={mindId} />
+            </>,
+            slots.top,
+          )}
+        {slots.menu &&
+          createPortal(
+            <>
+              {reviewing && slots.reviewShown !== "beside" && (
+                <ReviewFold editor={editor} mindId={mindId} />
+              )}
+              <PageMenu
+                editor={editor}
+                doc={doc}
+                mindId={mindId}
+                verification={verification}
+                readOnly={readOnly}
+              />
+            </>,
+            slots.menu,
+          )}
+        {slots.review &&
+          reviewing &&
+          (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
+          createPortal(
+            <ReviewPane editor={editor} mindId={mindId} over={slots.reviewShown === "over"} />,
+            slots.review,
+          )}
+        {/* The quiet first open shows the example's text alone (#856). */}
+        {slots.count &&
+          countShown &&
+          !(firstOpen && isExample) &&
+          createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
+        {slots.badge &&
+          createPortal(
+            <CheckBadge
               editor={editor}
               doc={doc}
               mindId={mindId}
               verification={verification}
+              quiet={firstOpen && isExample}
+              figures={schedule?.counts.total ?? 0}
+            />,
+            slots.badge,
+          )}
+        {readOnly && <MindNotice kind="read-only" />}
+        <div
+          ref={frame}
+          className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
+        >
+          {wordLook && <style>{wordLook.css}</style>}
+          {wordLook && <WordTableFades frame={frame} />}
+          {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
+          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+            <EditorContent editor={editor} />
+          </OpinionMenu>
+          {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
+          <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
+          {!readOnly && <TableMenu editor={editor} />}
+          {!readOnly && <ListMenu editor={editor} />}
+          <FootnoteArea editor={editor} citationView={citationView} />
+          {(style !== "numbered" || styleChoice.bibliography) && (
+            <ReferencesBlock
+              mindId={mindId}
+              editor={editor}
               readOnly={readOnly}
+              byDefault={styleChoice.chosen === null && style !== "numbered"}
             />
-          </>,
-          slots.menu,
+          )}
+          {!readOnly &&
+            styleChoice.chosen === null &&
+            style === "numbered" &&
+            !styleChoice.promptDismissed && (
+              <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
+            )}
+        </div>
+        {guide && <StartGuide mindId={mindId} />}
+        {sheetSlot &&
+          comparing &&
+          !readOnly &&
+          createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
+        {!readOnly && <BlockHandle editor={editor} />}
+        {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && <LinkBubble editor={editor} />}
+        {findShown && (
+          <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />
         )}
-      {slots.review &&
-        reviewing &&
-        (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
-        createPortal(
-          <ReviewPane editor={editor} mindId={mindId} over={slots.reviewShown === "over"} />,
-          slots.review,
+        {outlineShown && (
+          <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
         )}
-      {/* The quiet first open shows the example's text alone (#856). */}
-      {slots.count &&
-        countShown &&
-        !(firstOpen && isExample) &&
-        createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
-      {slots.badge &&
-        createPortal(
-          <CheckBadge
+        <FootnotePopover editor={editor} citationView={citationView} />
+        {editingMath !== null && (
+          <MathEditor
+            key={editingMath}
             editor={editor}
-            doc={doc}
-            mindId={mindId}
-            verification={verification}
-            quiet={firstOpen && isExample}
-          />,
-          slots.badge,
-        )}
-      {readOnly && <MindNotice kind="read-only" />}
-      <div
-        ref={frame}
-        className={`mind-editor-frame ${guide ? "mind-editor-frame--guide" : ""} ${wordLook?.className ?? ""}`}
-      >
-        {wordLook && <style>{wordLook.css}</style>}
-        {wordLook && <WordTableFades frame={frame} />}
-        {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-        <EditorContent editor={editor} />
-        {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
-        <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
-        {!readOnly && <TableMenu editor={editor} />}
-        {!readOnly && <ListMenu editor={editor} />}
-        <FootnoteArea editor={editor} citationView={citationView} />
-        {(style !== "numbered" || styleChoice.bibliography) && (
-          <ReferencesBlock
-            mindId={mindId}
-            editor={editor}
-            readOnly={readOnly}
-            byDefault={styleChoice.chosen === null && style !== "numbered"}
+            pos={editingMath}
+            onClose={() => setEditingMath(null)}
           />
         )}
-        {!readOnly &&
-          styleChoice.chosen === null &&
-          style === "numbered" &&
-          !styleChoice.promptDismissed && (
-            <CitationStylePrompt mindId={mindId} editor={editor} doc={doc} />
-          )}
-      </div>
-      {guide && <StartGuide />}
-      {sheetSlot &&
-        comparing &&
-        !readOnly &&
-        createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-      {!readOnly && <BlockHandle editor={editor} />}
-      {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
-      {!readOnly && <LinkBubble editor={editor} />}
-      {findShown && <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />}
-      {outlineShown && (
-        <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
-      )}
-      <FootnotePopover editor={editor} citationView={citationView} />
-      {editingMath !== null && (
-        <MathEditor
-          key={editingMath}
-          editor={editor}
-          pos={editingMath}
-          onClose={() => setEditingMath(null)}
-        />
-      )}
+      </SignOffsContext.Provider>
     </MindIdContext.Provider>
   );
 }

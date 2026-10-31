@@ -30,23 +30,23 @@ const trips = (name: string, claims: ClaimedChange[] = []): TurnCheck => ({
 
 describe("The list of end-of-turn checks", () => {
   // protects=checks run in order and the first to trip asks; a check that asked already, or has none left to ask with, only flags; fails_when=a later check asks first, a check asks twice, or the asks pass the total; no_claim=none beyond protects.
-  test("the first check to trip asks, each asks once, and the total is MAX_NUDGES", () => {
+  test("the first check to trip asks, each asks once, and the total is MAX_NUDGES", async () => {
     const checks = [trips("first", ["added"]), trips("second", ["made"]), trips("third")];
     const nudges = createNudges(10, () => 0);
 
-    expect(settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from first." });
-    expect(settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from second." });
+    expect(await settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from first." });
+    expect(await settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from second." });
     expect(MAX_NUDGES).toBe(2);
     // The total is spent: the third doesn't ask, and every check flags what it found.
-    const last = settleReply(checks, "reply", nudges);
+    const last = await settleReply(checks, "reply", nudges);
     expect(last).toEqual({ claims: ["added", "made"] });
   });
 
   // protects=a check that finds nothing asks nothing and flags nothing; fails_when=a quiet reply is asked about; no_claim=none beyond protects.
-  test("a reply no check trips on is settled with no claims", () => {
+  test("a reply no check trips on is settled with no claims", async () => {
     const quiet: TurnCheck = { name: "quiet", check: () => null };
     expect(
-      settleReply(
+      await settleReply(
         [quiet],
         "reply",
         createNudges(10, () => 0),
@@ -55,10 +55,10 @@ describe("The list of end-of-turn checks", () => {
   });
 
   // protects=no ask goes past the step budget: with no step left, a check flags and doesn't ask; fails_when=a check asks at the step budget; no_claim=none beyond protects.
-  test("with no step left, a check flags instead of asking", () => {
+  test("with no step left, a check flags instead of asking", async () => {
     const check = trips("claims", ["changed"]);
     expect(
-      settleReply(
+      await settleReply(
         [check],
         "reply",
         createNudges(3, () => 3),
@@ -67,7 +67,7 @@ describe("The list of end-of-turn checks", () => {
       claims: ["changed"],
     });
     expect(
-      settleReply(
+      await settleReply(
         [check],
         "reply",
         createNudges(3, () => 2),
@@ -87,7 +87,12 @@ const documents: AnswerTools = {
   cite: () => "Recorded.",
 };
 
-async function answer(model: ReturnType<typeof scriptedModel>, checks: TurnCheck[], maxSteps = 10) {
+async function answer(
+  model: ReturnType<typeof scriptedModel>,
+  checks: TurnCheck[],
+  maxSteps = 10,
+  refusalSuffix?: () => string | null,
+) {
   const events: AnswerEngineEvent[] = [];
   for await (const event of createAiSdkAnswerEngine({ maxSteps }).generate({
     instructions: () => "Answer.",
@@ -98,6 +103,7 @@ async function answer(model: ReturnType<typeof scriptedModel>, checks: TurnCheck
     tools: [],
     support: "tools",
     turnChecks: checks,
+    ...(refusalSuffix && { refusalSuffix }),
     signal: new AbortController().signal,
   })) {
     events.push(event);
@@ -145,6 +151,36 @@ describe("An Answer whose reply trips two checks", () => {
     expect(shown).toBe("First reply.");
     expect(events).toContainEqual({ type: "claims-unbacked", claims: ["added"] });
     expect(events.at(-1)).toEqual({ type: "finished" });
+  });
+
+  test("a failed retry keeps the reply before and adds the wall line", async () => {
+    const model = scriptedModel((call: ModelCall) =>
+      call.index === 0 ? { text: "First reply." } : { error: { status: 500, message: "down" } },
+    );
+
+    const events = await answer(model, [trips("a", ["added"])], 10, () => "Inside only.");
+
+    let shown = "";
+    for (const event of events) {
+      if (event.type === "text-delta") shown += event.text;
+      else if (event.type === "text-retracted") shown = shown.slice(0, -event.length);
+    }
+    expect(shown).toBe("First reply.\n\nInside only.");
+  });
+
+  test("a blank retry keeps the reply before and adds the wall line", async () => {
+    const model = scriptedModel((call: ModelCall) =>
+      call.index === 0 ? { text: "First reply." } : { text: "" },
+    );
+
+    const events = await answer(model, [trips("a", ["added"])], 10, () => "Inside only.");
+
+    let shown = "";
+    for (const event of events) {
+      if (event.type === "text-delta") shown += event.text;
+      else if (event.type === "text-retracted") shown = shown.slice(0, -event.length);
+    }
+    expect(shown).toBe("First reply.\n\nInside only.");
   });
 });
 

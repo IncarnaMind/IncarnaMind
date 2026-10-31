@@ -199,6 +199,60 @@ function docxParts(exported: MindExport) {
 }
 
 describe("exporting a Mind", () => {
+  test("a table of contents is Word's own field, with cached entries and bookmarks, and Word updates it on opening (#1935)", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [
+      { type: "tableOfContents" },
+      heading(1, "Spring tides"),
+      paragraph(text("Spring tides happen at new moon.")),
+      heading(2, "Neap tides"),
+      paragraph(text("Neap tides come at the quarter moons.")),
+    ]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+
+    expect(document).toContain("TOC \\o");
+    expect(document).toContain('<w:fldChar w:fldCharType="begin"');
+    expect(document).toContain('<w:fldChar w:fldCharType="separate"/>');
+    expect(document).toContain('<w:fldChar w:fldCharType="end"/>');
+    expect(document).toContain("Contents");
+    // The cached entries, each a link to its heading's bookmark.
+    expect(document).toContain("Spring tides");
+    expect(document).toContain("Neap tides");
+    expect(document).toContain('w:anchor="_Toc90000001"');
+    expect(document).toContain('w:anchor="_Toc90000002"');
+    expect(document).toContain('<w:bookmarkStart w:id="0" w:name="_Toc90000001"/>');
+    expect(document).toContain('<w:bookmarkStart w:id="1" w:name="_Toc90000002"/>');
+    expect(part(files, "word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+
+    // The other exports draw it from the same headings.
+    const markdown = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "markdown" })).data,
+    );
+    expect(markdown).toContain("**Contents**");
+    expect(markdown).toContain("- Spring tides");
+    expect(markdown).toContain("  - Neap tides");
+    const html = new TextDecoder().decode(
+      (await core.exportMind(mind.id, { format: "html" })).data,
+    );
+    expect(html).toContain('class="toc"');
+    expect(html).toContain("Spring tides");
+    expect(html).toContain("Neap tides");
+  });
+
+  test("a Note without a table of contents writes no field, and Word is asked to update nothing", async () => {
+    const { core, mind, client } = await setUp();
+    writeMind(client, [heading(1, "Spring tides"), paragraph(text("At new moon."))]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+
+    expect(document).not.toContain("TOC \\o");
+    expect(document).not.toContain("w:bookmarkStart");
+    expect(part(files, "word/settings.xml")).not.toContain("w:updateFields");
+  });
+
   test("Markdown preserves checked, unchecked and empty checklist items, nested beside ordinary lists", async () => {
     const { core, mind, client } = await setUp();
     const task = (checked: boolean, ...content: JSONContent[]): JSONContent => ({
@@ -389,8 +443,15 @@ describe("exporting a Mind", () => {
       numbered: true,
       unverifiedCitations: 2,
       questions: 1,
+      hiddenColumns: 0,
       fromWord: false,
       theirChanges: 0,
+      unreadFiles: 0,
+      unreadFileNames: false,
+      citationPlace: "footnotes",
+      markAiText: false,
+      othersFile: false,
+      othersComments: false,
     });
   });
 
@@ -686,7 +747,7 @@ describe("exporting a Mind", () => {
     expect(exported).toMatchObject({ fileName: "A Note.md", citations: 0, questions: 1 });
   });
 
-  describe("the file is named as the app shows the Mind", () => {
+  describe("the file is named after the note (#1945)", () => {
     const nameOf = async (title: string, blocks: JSONContent[], format: "markdown" | "docx") => {
       const { core, mind, client } = await setUp(title);
       writeMind(client, blocks);
@@ -711,16 +772,16 @@ describe("exporting a Mind", () => {
       expect(await nameOf("", [], "markdown")).toBe("Untitled.md");
     });
 
-    test("the first line is cleaned for a file name and cut", async () => {
+    test("the first line is cleaned for a file name, and cut only where a file name can't hold it", async () => {
       expect(await nameOf("", [note("Tides: spring/neap?")], "docx")).toBe(
         "Tides spring neap.docx",
       );
       const long = await nameOf("", [note("tide ".repeat(40))], "markdown");
-      expect(long.length).toBeLessThanOrEqual(64);
-      expect(long.endsWith(" tide.md")).toBe(true);
+      expect(long.length).toBeLessThanOrEqual(122);
+      expect(long.endsWith("tide.md")).toBe(true);
     });
 
-    test("a long first line ends at a clause, never on 'plus' or half a sentence (#769)", async () => {
+    test("a whole sentence names the file as it reads, without the mark it ends on", async () => {
       expect(
         await nameOf(
           "",
@@ -731,7 +792,9 @@ describe("exporting a Mind", () => {
           ],
           "docx",
         ),
-      ).toBe("The employee gets 27 days of paid holiday per year.docx");
+      ).toBe(
+        "The employee gets 27 days of paid holiday per year, plus bank holidays and the notice period after probation.docx",
+      );
       expect(
         await nameOf(
           "",
@@ -743,7 +806,7 @@ describe("exporting a Mind", () => {
           "docx",
         ),
       ).toBe(
-        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约.docx",
+        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约，需要承担相应的赔偿责任并支付违约金.docx",
       );
     });
 
@@ -754,7 +817,7 @@ describe("exporting a Mind", () => {
       expect(name.length).toBeLessThanOrEqual(123);
     });
 
-    test("a Mind of Notes added from an Answer is named by their first line, never by the instruction that gave them (#1174)", async () => {
+    test("a heading an Answer wrote names the file, not the instruction that gave it (#1174, #1945)", async () => {
       const { core, mind } = await setUp("");
       await core.addToNote({
         mindId: mind.id,
@@ -823,14 +886,21 @@ describe("exporting a Mind", () => {
     });
     await client.settled();
 
-    const markdown = decode(await core.exportMind(mind.id, { format: "markdown" }));
+    const exported = await core.exportMind(mind.id, { format: "markdown" });
+    const markdown = decode(exported);
+    // The picture is a file beside the .md, named after its bytes, that the text links (#1937).
+    const [picture] = exported.files ?? [];
+    expect(picture?.name).toMatch(/^picture-[0-9a-f]{12}\.png$/);
+    expect(Buffer.from(picture?.data ?? [])).toEqual(
+      Buffer.from(PIXEL.split(",")[1] as string, "base64"),
+    );
     expect(markdown).toBe(
       [
         "| Tide | Height |",
         "| --- | --- |",
         "| Spring | 4 m \\| high |",
         "",
-        `![A chart](${PIXEL})`,
+        `![A chart](${picture?.name})`,
         "",
       ].join("\n"),
     );
@@ -852,6 +922,36 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<a:blip r:embed="rIdImage1"/>');
     // One pixel at 96 dpi.
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
+  });
+
+  test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {
+    const { core, mind, client } = await setUp("");
+    const webp = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: `data:image/webp;base64,${webp}`,
+              alt: "A tide chart",
+              width: 40,
+              height: 20,
+            },
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+    expect(files.get("word/media/image1.webp")).toEqual(Buffer.from(webp, "base64"));
+    expect(part(files, "[Content_Types].xml")).toContain(
+      '<Default Extension="webp" ContentType="image/webp"/>',
+    );
+    expect(document).toContain('<wp:extent cx="381000" cy="190500"/>');
+    expect(textOf(document)).not.toContain("A tide chart");
   });
 
   test("a table made in the editor, Citations in its cells: a GitHub table with footnotes, and a Word table with its alignment, merged cells and real footnotes", async () => {

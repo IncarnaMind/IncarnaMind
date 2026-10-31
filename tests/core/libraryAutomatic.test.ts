@@ -13,6 +13,7 @@ const groups = [
     name: "Research",
     description: "Scientific papers",
     countsOwnFiles: false,
+    keepInside: false,
     createdAt: "",
     updatedAt: "",
   },

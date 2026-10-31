@@ -2,6 +2,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tiptap/react";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type * as Y from "yjs";
 import { BLOCK_ID_ATTRIBUTE, type CitationCheck } from "../../../core/api";
 import { chartLegend } from "../../../shared/chartLayout";
 import {
@@ -14,12 +15,16 @@ import {
   chartPoints,
   chartSources,
   drawnSeries,
+  inputsOf,
   kindFits,
   listedRows,
   MAX_CHART_VALUES,
   seriesName as nameOfSeries,
   readChart,
+  switchMixesUnits,
+  unitGroups,
   unitlessRows,
+  valueCitations,
 } from "../../../shared/charts";
 import {
   badgeMessage,
@@ -38,7 +43,9 @@ import { ChartFoot } from "./ChartFoot";
 import { ChartKindMenu } from "./ChartKindMenu";
 import { ChartPlot, type PointEvents, type PointRef, samePoint } from "./ChartPlot";
 import { ChartPointCard } from "./ChartPointCard";
+import { ChartValueFigure } from "./ChartValueFigure";
 import { ChartValues } from "./ChartValues";
+import { calculatedFrom } from "./chartCalculated";
 import { chartCardPlace } from "./chartCardPlace";
 import {
   changeChart,
@@ -159,7 +166,13 @@ function checksOf(states: readonly (CitationState | null)[]): {
 }
 
 /** A chart in a Mind (#436), as on the design canvas's Chart boards. */
-export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewProps) {
+export function ChartView({
+  node,
+  editor,
+  getPos,
+  deleteNode,
+  doc,
+}: ReactNodeViewProps & { doc: Y.Doc | null }) {
   const t = useT();
   const language = useLanguage();
   const chart = useMemo(() => readChart(node.attrs), [node.attrs]);
@@ -183,14 +196,35 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
 
   const stateOf = useCallback(
     (value: ChartValue | null | undefined): CitationState | null =>
-      value?.citation ? citationState(value.citation, documents, kept) : null,
+      value?.citation && !value.figure ? citationState(value.citation, documents, kept) : null,
     [documents, kept],
   );
+  /** A calculated value's mark is its Inputs' worst check, said as calculated, never one Input's (#2307). */
+  const markOf = (value: ChartValue): { check: CitationCheck | null; label: string } => {
+    if (value.figure) {
+      const states = valueCitations(value).map((each) => citationState(each, documents, kept));
+      return {
+        check: checksOf(states).check,
+        label: calculatedFrom(inputsOf([value.figure]), documents, t),
+      };
+    }
+    const state = stateOf(value);
+    if (!value.citation || !state) return { check: null, label: t("chart.point.noCitation") };
+    const badge = badgeMessage(state, withShownName(value.citation, documents), t);
+    return { check: state.check, label: t(badge.key, badge.params) };
+  };
   const seriesName = useCallback((index: number) => nameOfSeries(chart, index, t), [chart, t]);
   const labelHeading = chart.data.labelHeading;
   const listed = listedRows(chart.data);
   const drawn = drawnSeries(chart);
   const points = chartPoints(chart);
+  // One chart per unit (#1392), the ones with something in them; kept between hovers.
+  const panels = useMemo(() => {
+    const drawnPoints = chartPoints(chart);
+    return unitGroups(chart).filter((group) =>
+      group.series.some((series) => drawnPoints.some((point) => point.series === series)),
+    );
+  }, [chart]);
   const sources = chartSources(chart);
   /** The value with no Citation the foot's button last found, which of how many, and of which. */
   const [found, setFound] = useState<{
@@ -201,7 +235,11 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
   } | null>(null);
   const findButton = useRef<HTMLButtonElement>(null);
   const checks = checksOf(
-    chartCells(chart).flatMap(({ value }) => (value.value === null ? [] : [stateOf(value)])),
+    chartCells(chart).flatMap(({ value }) =>
+      value.value === null
+        ? []
+        : valueCitations(value).map((each) => citationState(each, documents, kept)),
+    ),
   );
 
   const change = (
@@ -326,6 +364,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
       : value.shown;
   };
   const sourceText = (value: ChartValue | null | undefined) => {
+    if (value?.figure) return markOf(value).label;
     const state = stateOf(value);
     if (!value?.citation || !state) return t("chart.point.noCitation");
     const citation = withShownName(value.citation, documents);
@@ -340,7 +379,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
     const documentId = state.documentId ?? value.citation.documentId;
     if (!documentId) return;
     const location = citationLocation(value.citation);
-    openCited(
+    void openCited(
       { ...value.citation, documentId },
       {
         check: state.check,
@@ -371,12 +410,6 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
 
   const objectMenu = useObjectMenu({ kind: "chart", id: blockId });
   const title = chart.title ? t("chart.label", { title: chart.title }) : t("chart.label.untitled");
-  const kindName = t(`chart.kindName.${chart.kind}`);
-  const plotLabel = t("chart.plot.label", {
-    kind: kindName,
-    title: chart.title || kindName,
-    count: points.length,
-  });
   const legend = !asTable ? chartLegend(chart, seriesName) : [];
   const shownCard = card ? listed[card.point.row]?.values[card.point.series] : null;
   const shownState = stateOf(shownCard);
@@ -459,6 +492,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             fits={(kind) => kindFits(kind, chart.data)}
             onKind={setKind}
             onSwitch={canSwitch(chart) ? switchRowsAndColumns : null}
+            switchWhy={switchMixesUnits(chart) ? t("chart.switch.mixedUnits") : null}
             onSeries={(series) => {
               dismiss();
               change({ drawn: toggledSeries(chart, series) });
@@ -498,13 +532,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             labelHeading={labelHeading}
             active={card?.point ?? null}
             events={events}
-            checkOf={(value) => {
-              const state = stateOf(value);
-              if (!value.citation || !state)
-                return { check: null, label: t("chart.point.noCitation") };
-              const badge = badgeMessage(state, withShownName(value.citation, documents), t);
-              return { check: state.check, label: t(badge.key, badge.params) };
-            }}
+            checkOf={markOf}
           />
         ) : (
           <ChartPlot
@@ -513,7 +541,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
             seriesName={seriesName}
             active={card?.point ?? null}
             events={events}
-            label={plotLabel}
+            groups={panels.length > 1 ? panels : undefined}
           />
         )}
       </div>
@@ -580,6 +608,11 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
               }
               citation={shownCard.citation && withShownName(shownCard.citation, documents)}
               state={shownState}
+              figure={
+                shownCard.figure ? (
+                  <ChartValueFigure attributes={shownCard.figure} editor={editor} doc={doc} />
+                ) : null
+              }
               onOpen={() => {
                 openValue(card.point);
                 dismiss();

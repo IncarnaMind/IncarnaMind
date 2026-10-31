@@ -53,13 +53,13 @@ function whyNot(problem: MindProblem | undefined): string {
         ? "your own waiting changes sit beside the User's text there"
         : `${counted(problem.count, "change")} the assistant can't revise waited there for the User`;
     case "no-mind":
-      return "no Mind was open and none was named";
+      return "no Note was open and none was named";
     case "not-found":
-      return `no Mind is called ${quoted(problem.name)}`;
+      return `no Note is called ${quoted(problem.name)}`;
     case "several":
-      return `several Minds are called ${quoted(problem.name)}`;
+      return `several Notes are called ${quoted(problem.name)}`;
     case "not-picked":
-      return `other Minds have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
+      return `other Notes have titles close to ${quoted(problem.name)}, and the User didn't pick which one was meant`;
     case "no-heading":
       return `it has no heading ${quoted(problem.heading)}`;
     case "no-place":
@@ -83,9 +83,9 @@ function whyNot(problem: MindProblem | undefined): string {
     case "no-table":
       return "its table couldn't be made";
     case "new-mind":
-      return "the User asked for a new Mind: make it with create_mind";
+      return "the User asked for a new Note: make it with create_mind";
     case "uncited":
-      return "its sources were written as text, or as markers with no Citation recorded";
+      return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":
@@ -112,7 +112,7 @@ function mindOf(call: AnswerToolCall, names: MindNames): string {
   const problem = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
   const name = (id && names(id)) || field(call, "mind") || field(call, "title");
-  return name ? quoted(name) : "the Mind the User was in";
+  return name ? quoted(name) : "the Note the User was in";
 }
 
 /** What the User did with `total` Proposals, in words; "" when nothing says they did anything. */
@@ -137,7 +137,7 @@ function decisions(total: number, accepted: number, rejected: number): string {
 function fateOf(proposals: number, state: ChangeState | null): string {
   if (!state) return "waiting for the User";
   if (state.gone) return GONE;
-  if (state.applied) return "applied in the Mind at once, with Undo";
+  if (state.applied) return "applied in the Note at once, with Undo";
   const { waiting, accepted, rejected } = state;
   if (waiting >= proposals) return "waiting for the User";
   const did =
@@ -166,8 +166,8 @@ function mindLine(call: AnswerToolCall, names: MindNames, states?: ChangeStates)
       return `read_mind ${mind}: read it`;
     case "create_mind":
       return change && change.proposals > 0
-        ? `create_mind: made the Mind ${mind} and ${proposed}`
-        : `create_mind: made the Mind ${mind}, empty`;
+        ? `create_mind: made the Note ${mind} and ${proposed}`
+        : `create_mind: made the Note ${mind}, empty`;
     case "add_to_mind":
       return `add_to_mind ${mind}: proposed ${counted(change?.proposals ?? 0, "new Block")}, ${fate}${change ? detailsOf(change) : ""}`;
     default:
@@ -188,6 +188,16 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
       if (call.tool === "calculate") {
         return `calculate: ${counted(call.resultCount ?? 0, "figure")} worked out`;
       }
+      if (call.tool === "read_document") {
+        const place = field(call, "pages")
+          ? `pages ${field(call, "pages")}`
+          : field(call, "passage")
+            ? `around ${field(call, "passage")}`
+            : "opening";
+        return done
+          ? `read_document ${quoted(field(call, "document"))} ${place}: ${counted(call.resultCount ?? 0, "Passage")}`
+          : `read_document ${quoted(field(call, "document"))} ${place}: failed`;
+      }
       return done
         ? `${call.tool} ${quoted(field(call, "query"))}: ${counted(call.resultCount ?? 0, "Passage")}`
         : `${call.tool} ${quoted(field(call, "query"))}: failed`;
@@ -206,6 +216,11 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
         return `run_skill_script ${field(call, "script")}: ${done ? "ran" : call.approval === "denied" ? "the User denied it" : "didn't run"}`;
       }
       return `${call.tool} ${quoted(field(call, "name") || field(call, "skill"))}: ${done ? "done" : "failed"}`;
+    case "analysis": {
+      const ran = call.analysis;
+      if (!ran) return `run_analysis ${quoted(field(call, "title"))}: didn't run`;
+      return `run_analysis ${quoted(ran.title)} (Analysis ${ran.number}, over ${ran.documents.map(quoted).join(", ") || "quoted numbers"}): ${ran.end === "done" ? "done" : ran.end}`;
+    }
     case "connector":
       if (call.signInRequired) return null;
       return `${call.tool} (the Connector ${quoted(call.connector?.name ?? "")}): ${
@@ -254,29 +269,26 @@ function commandLine(call: AnswerToolCall): string {
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
-    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(call, done)}`
+    ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
   return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
-function markingOf(call: AnswerToolCall, done: CommandDone): string {
+function markingOf(done: CommandDone): string {
   const { marking } = done;
   if (!marking) return "";
   const leaves =
     marking.choice === "mark"
       ? "the text IncarnaMind wrote is marked with comments"
       : "the text IncarnaMind wrote is left unmarked";
-  const chose = call.asked?.answer?.skipped === false ? call.asked.answer.chosen.map(quoted) : [];
   switch (marking.how) {
-    case "kept":
-      return chose.length > 0
-        ? `; ${leaves}: the User was asked in the tray and answered ${chose.join(" and ")}, a choice now saved for every Word export`
-        : `; ${leaves}: the User's request named it, a choice now saved for every Word export`;
     case "this-file":
       return `; ${leaves}, as the User's request named it for this file, their saved choice unchanged`;
     case "earlier":
-      return `; ${leaves}, following the choice the User saved earlier for Word exports`;
+      return `; ${leaves}, following the choice saved for Word exports`;
+    case "default":
+      return `; ${leaves}, using the default for Word exports; that choice is now saved`;
   }
 }
 
@@ -291,7 +303,7 @@ export function toolRecordLines(
   });
 }
 
-const GONE = "but the Mind is no longer there";
+const GONE = "but the Note is no longer there";
 const WITH_ITS_ANSWER =
   "What the Tools of your Answer above really did, as IncarnaMind recorded it:";
 const WITHOUT_ITS_ANSWER =

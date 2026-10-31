@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
 import { parseCsv } from "../tests/helpers/csv";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -50,6 +51,7 @@ const TEXTS = {
     secondPdf: "Check record – Tides 2.pdf",
     columns: ["Kind", "Sentence", "Result"],
     supported: "Supported",
+    notFound: "Not found",
     unsupported: "Unsupported",
     sentence: "Sentence",
     model: "Model",
@@ -66,6 +68,7 @@ const TEXTS = {
     secondPdf: "核对记录 – Tides 2.pdf",
     columns: ["类型", "句子", "核对结果"],
     supported: "有依据",
+    notFound: "未找到",
     unsupported: "无依据",
     sentence: "句子",
     model: "模型",
@@ -141,9 +144,14 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(at).toBeGreaterThan(0);
     const [header = [], ...items] = rows.slice(at);
     const column = (name: string) => header.indexOf(name);
-    expect(items.map((each) => [each[1], each[2]])).toEqual([
-      [SENTENCES[0], text.supported],
-      [SENTENCES[1], text.unsupported],
+    expect(items.map((each) => [each[0], each[1], each[2]])).toEqual([
+      [text.sentence, SENTENCES[0], text.supported],
+      [text.sentence, SENTENCES[1], text.notFound],
+      [
+        translate(language, "checkRecord.kind.citation"),
+        SENTENCES[0],
+        translate(language, "aiStatement.citations.found"),
+      ],
     ]);
     // The supported sentence names the Document version it rests on: the file's own fingerprint.
     const sha = createHash("sha256").update(TIDES).digest("hex");
@@ -152,6 +160,16 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(items[0]?.[column(text.service)]).toBe(text.thisComputer);
     expect(items[0]?.[column(text.checked)]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
     expect(items[1]?.[column("SHA-256")]).toBe("");
+    const receipt = items[2];
+    expect(receipt?.[column("SHA-256")]).toBe(sha);
+    expect(receipt?.[column(translate(language, "checkRecord.column.document"))]).toBe("Tides");
+    expect(receipt?.[column(translate(language, "checkRecord.column.quote"))]).toBe(
+      "Spring tides happen at new moon and at full moon.",
+    );
+    expect(receipt?.[column(text.model)]).toBe("IncarnaMind");
+    expect(receipt?.[column(text.service)]).toBe(text.thisComputer);
+    expect(receipt?.[column(text.checked)]).toBe("");
+    expect(receipt?.[column(translate(language, "checkRecord.column.person"))]).toBe("");
 
     // From ⌘K, found by "csv" (or 核对记录): the same one command, under the next free name.
     await window.keyboard.press("ControlOrMeta+k");

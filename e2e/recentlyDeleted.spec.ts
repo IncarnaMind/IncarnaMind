@@ -83,7 +83,12 @@ const deletedNames = (window: Page) =>
 const undoLine = (window: Page) => window.getByTestId("undo-line");
 const noQuestion = (window: Page) => expect(window.locator("dialog[open]")).toHaveCount(0);
 const rows = (window: Page) => window.getByTestId("deleted-item");
-const row = (window: Page, name: string) => rows(window).filter({ hasText: name });
+const exactText = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+// By its own name: where it was can be another row's name (#2238).
+const row = (window: Page, name: string) =>
+  rows(window).filter({
+    has: window.getByTestId("deleted-name").filter({ hasText: exactText(name) }),
+  });
 
 /** Recently deleted, at the foot of the Library page: its section, opened if it was folded. */
 async function openDeleted(window: Page): Promise<Locator> {
@@ -227,12 +232,8 @@ test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in 
     "Vendor",
     "Shortlist",
   ]);
-  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText(
-    "Not in a Folder",
-  );
-  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText(
-    "Not in a Folder",
-  );
+  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText("Finance");
+  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText("Finance");
   await expect(row(window, "Vendor").getByTestId("deleted-was-in")).toHaveText("Tags");
   await expect(row(window, "Finance").getByTestId("deleted-was-in")).toHaveText("Library");
   await expect(rows(window).getByTestId("deleted-left")).toHaveText(Array(4).fill("30 days"));
@@ -254,6 +255,9 @@ test("deleting a Mind, a Document, a Folder and a Tag asks nothing and lands in 
   await undoLine(window).getByTestId("undo-action").click();
   await expect.poll(() => deletedNames(window)).toHaveLength(4);
   await expect(rows(window)).toHaveCount(4);
+  // Deleted again at the time each was, so where it was is still the Folder (#2238).
+  await expect(row(window, "Invoice 4471").getByTestId("deleted-was-in")).toHaveText("Finance");
+  await expect(row(window, "Shortlist").getByTestId("deleted-was-in")).toHaveText("Finance");
 
   // One row's own button restores it alone, in its Folder.
   await row(window, "Finance").getByTestId("deleted-restore").click();
@@ -358,6 +362,52 @@ test("one an older build deleted, its copy already gone, comes back as a Documen
   ).toHaveAttribute("data-file-status", "missing");
 });
 
+test("a Document restored from Recently deleted comes back with no Organize mark, in English and Chinese (#1433)", async () => {
+  test.setTimeout(120_000);
+  const file = join(sources, "Harbour notes.txt");
+  await writeFile(file, "Notes about the harbour and its tides.\n");
+  const { window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await addDocuments(window, [file]);
+  // The Folder comes after the Document, so Organize had nothing to file it into then.
+  await read(window, async (core) => {
+    const [document] = await core.listDocuments();
+    if (!document) throw new Error("The Document was not added.");
+    await core.createLibraryGroup({ name: "Finance", description: "" });
+    await core.deleteDocument(document.id);
+  });
+  await openDeleted(window);
+  await row(window, "Harbour notes").getByTestId("deleted-restore").click();
+  await expect(undoLine(window).getByTestId("undo-message")).toHaveText("Restored “Harbour notes”");
+
+  // The Library read again, as a restart or another change reads it, so the row shows the assignment the core holds.
+  await window.reload();
+  await pointAndClick(window, window.getByTestId("open-library"));
+  const library = window.getByTestId("library");
+  const item = library
+    .getByTestId("library-document")
+    .filter({ has: window.getByRole("button", { name: "Harbour notes", exact: true }) });
+  const organizeOf = async () => {
+    await item.locator("[data-row-main]").focus();
+    await window.keyboard.press("ControlOrMeta+i");
+    const info = window.getByTestId("info-panel");
+    await expect(info).toBeVisible();
+    return info.getByTestId("info-organize");
+  };
+  const english = await organizeOf();
+  await expect(english).toContainText("Not organized yet");
+  await expect(english).not.toContainText("Needs attention");
+  await window.keyboard.press("Escape");
+
+  await read(window, (core) => core.updateSettings({ user: { language: "zh-CN" } }));
+  const chinese = await organizeOf();
+  await expect(chinese).toContainText("尚未整理");
+  await expect(chinese).not.toContainText("需要处理");
+  await window.keyboard.press("Escape");
+
+  expect(await read(window, async (core) => (await core.getLibrary()).assignments)).toEqual([]);
+});
+
 test("emptying Recently deleted with many items asks once, counting what is lost", async () => {
   test.setTimeout(120_000);
   const { window } = await launchApp(dataDir);
@@ -373,7 +423,7 @@ test("emptying Recently deleted with many items asks once, counting what is lost
   await window.getByTestId("deleted-empty").click();
   const dialog = window.getByTestId("delete-permanently-dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Empty Recently deleted?");
-  await expect(dialog).toContainText("The notes in 12 Minds are gone.");
+  await expect(dialog).toContainText("Your text in 12 notes is gone.");
   await dialog.getByTestId("confirm-delete-permanently").click();
   await nothingDeleted(window);
   expect(await deletedNames(window)).toEqual([]);

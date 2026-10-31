@@ -4,8 +4,9 @@ import { core } from "../../core";
 import { joinMeta } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { ROUTE_LABELS, useTranscriptionServicesList } from "../../transcriptionServices";
+import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { CloudLineIcon, ComputerLineIcon } from "../lineIcons";
+import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { CloudLine } from "./CloudLine";
 
@@ -28,7 +29,8 @@ export function TranscriptionRouteChoice() {
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const openSettings = useAppStore((state) => state.openSettings);
-  const services = useTranscriptionServicesList().filter((service) => service.hasKey);
+  const read = useTranscriptionServicesRead();
+  const services = (read.state === "ready" ? read.data : []).filter((service) => service.hasKey);
   const [open, setOpen] = useState(false);
   const [chosenBefore] = useState(route);
   const [keepsUp, setKeepsUp] = useState<boolean | null>(null);
@@ -50,6 +52,17 @@ export function TranscriptionRouteChoice() {
     );
   }, []);
 
+  if (read.state === "failed") {
+    return (
+      <div ref={root} data-read-host>
+        <ReadProblem
+          words={t("setup.services.failed")}
+          read={read}
+          testId="meeting-route-problem"
+        />
+      </div>
+    );
+  }
   const chosen = services.find((service) => service.route === route);
   if (chosen && !localMode) {
     return (

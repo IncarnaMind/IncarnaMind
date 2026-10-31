@@ -6,6 +6,7 @@ import { citationSource, withShownName } from "../../../shared/citations";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ChartCheck } from "./ChartCheck";
+import { calculatedFrom } from "./chartCalculated";
 
 export function ChartFoot({
   legend,
@@ -32,7 +33,7 @@ export function ChartFoot({
   findRef: RefObject<HTMLButtonElement | null>;
 }) {
   const t = useT();
-  const cited = sources.values - sources.uncited;
+  const cited = sources.values - sources.uncited - sources.calculated;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -42,7 +43,7 @@ export function ChartFoot({
   const plural = (count: number) => (count === 1 ? "one" : "other");
 
   let said: string | null = null;
-  if (sources.values > 0 && cited === 0) {
+  if (sources.values > 0 && cited === 0 && sources.calculated === 0) {
     said = t(`chart.source.none.${plural(sources.values)}`, { count: sources.values });
   } else if (cited > 0 && sources.places.length === 1 && source?.where) {
     said = t(`chart.source.place.${plural(cited)}`, {
@@ -55,8 +56,14 @@ export function ChartFoot({
   } else if (cited > 0) {
     said = t("chart.source.documents", { count: cited, documents: sources.documents });
   }
+  // Calculated values are counted apart from quoted ones, never as "each quoted" (#2307).
+  const calculated =
+    sources.calculated > 0
+      ? calculatedFrom(sources.inputs, documents, t, sources.calculated)
+      : null;
+  if (calculated) said = said ? `${said} · ${calculated}` : calculated;
   const more: ReactNode[] = [
-    cited > 0 && sources.uncited > 0 ? (
+    cited + sources.calculated > 0 && sources.uncited > 0 ? (
       // A way to find them, not a warning: quiet, as the rest of the line.
       <button
         key="uncited"

@@ -238,7 +238,7 @@ test("an Answer stopped by the monthly cap says so in place, and Change cap open
     const error = answer.getByTestId("answer-error");
     await expect(error).toHaveAttribute("data-error-kind", "cost-cap");
     const line = error.getByRole("alert");
-    await expect(line).toContainText("Monthly cap reached");
+    await expect(line).toContainText("Could pass your monthly cap");
     await expect(line.getByRole("button")).toHaveText("Change cap");
     await shot(window, "cap-problem-wide-en");
     await setWindowSize(app, window, NARROW.width, NARROW.height);
@@ -255,7 +255,7 @@ test("an Answer stopped by the monthly cap says so in place, and Change cap open
 
     // The same in Chinese.
     await bridge(window).language("zh-CN");
-    await expect(line).toContainText("已达到每月花费上限");
+    await expect(line).toContainText("可能超出你设置的每月上限");
     await expect(line.getByRole("button")).toHaveText("更改上限");
     await shot(window, "cap-problem-narrow-zh");
     await setWindowSize(app, window, WIDE.width, WIDE.height);

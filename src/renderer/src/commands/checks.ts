@@ -3,6 +3,7 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
+  requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
@@ -10,18 +11,24 @@ import {
 } from "../checks";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
+import { useFindSources } from "../findSources";
 import { startMindCheck } from "../mindCheck";
 import {
+  applyDocumentWording,
   applyFigure,
   contradictedAt,
   cutSentence,
   cutUnsupported,
+  documentWordingAt,
   figureAt,
+  findSourcesAt,
   fixesFree,
   keepAsView,
   notFoundAt,
   searchAllDocuments,
   searchedLess,
+  sentenceOf,
   uncoveredOf,
   unsupportedAt,
 } from "../unsupportedFixes";
@@ -98,7 +105,32 @@ function withCuttable() {
   return at && verificationOf(at.doc) === null ? at : null;
 }
 
+function withOpinion() {
+  const note = noteHandle.current;
+  if (!note || note.editor.isDestroyed || !fixesFree(note.mindId)) return null;
+  const opinion = opinionAt(note.editor, note.doc);
+  return opinion ? { ...note, opinion } : null;
+}
+
 export const checkCommands: readonly Command[] = [
+  {
+    id: "check.anyway",
+    label: "claim.checkAnyway",
+    group: "main",
+    reversible: true,
+    when: (ctx) =>
+      ctx.here?.["check.anyway"] !== undefined ||
+      (ctx.focus?.kind !== "check" && withOpinion() !== null),
+    run(ctx) {
+      const here = ctx.here?.["check.anyway"];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withOpinion();
+      if (at) checkOpinion(at.editor, at.mindId, at.doc, at.opinion, at.place);
+    },
+  },
   {
     id: "check.showCard",
     label: "claim.showCard",
@@ -106,13 +138,62 @@ export const checkCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+Shift+K" },
     // It changes nothing: it shows what a check found, for a keyboard User to act on.
     reversible: true,
-    when: () => withClaimAtCaret() !== null,
+    when: () => withClaimAtCaret() !== null || withOpinion() !== null,
     run() {
       const at = withClaimAtCaret();
       if (at) showClaimCard(at);
+      else {
+        const left = withOpinion();
+        if (!left) return;
+        setCheckCardOpen(left.place, false);
+        setOpenClaim(left.place, left.opinion.id);
+        setClaimFocus(left.place, left.opinion.id);
+      }
+    },
+  },
+  {
+    id: "check.useDocumentWording",
+    label: "claim.useDocumentWording",
+    group: "main",
+    reversible: true,
+    when: (ctx) => {
+      if (ctx.here?.["check.useDocumentWording"]) return true;
+      const note = noteHandle.current;
+      return (
+        ctx.focus?.kind !== "check" &&
+        note !== null &&
+        !note.editor.isDestroyed &&
+        fixesFree(note.mindId) &&
+        documentWordingAt(note.editor) !== null
+      );
+    },
+    run(ctx) {
+      const here = ctx.here?.["check.useDocumentWording"];
+      if (here) {
+        here();
+        return;
+      }
+      const note = noteHandle.current;
+      if (!note || note.editor.isDestroyed) return;
+      const at = documentWordingAt(note.editor);
+      if (at) applyDocumentWording(note.editor, at.claim, at.part);
     },
   },
   checkAgainstDocuments,
+  {
+    id: "check.againstDocument",
+    label: "claim.checkAgainstDocument",
+    keywords: ["claim.checkAgainstDocument.keywords"],
+    group: "main",
+    reversible: true,
+    when: () => withCuttable() !== null,
+    run() {
+      const at = withCuttable();
+      if (!at) return;
+      showClaimCard(at);
+      requestDocumentPicker(at.claim.check.id);
+    },
+  },
   {
     id: "check.addedDocuments",
     label: "checks.added.command",
@@ -155,6 +236,25 @@ export const checkCommands: readonly Command[] = [
     },
   },
   {
+    id: "check.findSources",
+    label: "claim.findSourcesFor",
+    menuLabel: "claim.findSources.menu",
+    group: "main",
+    // It opens Find sources for the sentence's words; it changes no words.
+    reversible: true,
+    when: (ctx) =>
+      ctx.here?.["check.findSources"] !== undefined || withClaim(findSourcesAt) !== null,
+    run(ctx) {
+      const here = ctx.here?.["check.findSources"];
+      if (here) {
+        here();
+        return;
+      }
+      const at = withClaim(findSourcesAt);
+      if (at) useFindSources.getState().show({ query: sentenceOf(at.editor, at.claim) });
+    },
+  },
+  {
     id: "check.cutSentence",
     label: "claim.cutSentence",
     keywords: ["claim.cutSentence.keywords"],
@@ -186,7 +286,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withClaim(figureAt) !== null,
     run() {
       const at = withClaim(figureAt);
-      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim, () => showClaimCard(at));
     },
   },
 ];

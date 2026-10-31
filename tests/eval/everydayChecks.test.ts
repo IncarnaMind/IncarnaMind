@@ -16,7 +16,7 @@ import {
   rewrittenLater,
   takenOut,
 } from "../../eval/everyday/checks";
-import { judgeClaims, verdictIn } from "../../eval/everyday/judge";
+import { judgeClaims, judgeDocumentAbsence, verdictIn } from "../../eval/everyday/judge";
 import { languageRates, rowRates } from "../../eval/everyday/rates";
 import { ASKED_AGAIN } from "../../eval/everyday/reasks";
 import type { AnswerToolCall } from "../../src/core";
@@ -463,7 +463,7 @@ describe("Standing on its own, and the example unasked", () => {
     expect(givenToMindsOf([call("add_to_mind", { answer: true })], null)).toEqual([]);
   });
 
-  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app rewrote after the guard is counted apart, not as lost; fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
+  // protects=through the real guard, what each Mind tool's content loses is only pointer paragraphs, as the evaluation reads them in English and Chinese (同上, 参考上文 included), and a sentence the model or the app changed after the guard is counted apart, not as lost, with words only taken out told from reworded (#1397); fails_when=a correct removal reads as lost, or a later rewrite fails the guard; no_claim=none beyond protects.
   test("what a call gave to write into a Mind, through the guard", () => {
     for (const pointer of [
       "See my earlier answer.",
@@ -479,7 +479,9 @@ describe("Standing on its own, and the example unasked", () => {
       writtenInMinds: ["Key results. All of them."],
     });
     expect(requestFailures(rewritten).map((failure) => failure.kind)).not.toContain("content-lost");
-    expect(rewrittenLater(rewritten)).toEqual([{ given: "Highlights are below[^8]:", now: null }]);
+    expect(rewrittenLater(rewritten)).toEqual([
+      { given: "Highlights are below[^8]:", now: null, cut: false },
+    ]);
     const cut = outcome({
       expected: { write: true, cite: false, coverAll: false },
       givenToMinds: [
@@ -492,6 +494,57 @@ describe("Standing on its own, and the example unasked", () => {
       {
         given: "It fuses mobility and POIs, which geography can miss [^2].",
         now: "It fuses mobility and POIs.",
+        cut: true,
+      },
+    ]);
+    const reworded = outcome({
+      expected: { write: true, cite: false, coverAll: false },
+      givenToMinds: [
+        {
+          content: "Crime forecasting: best results across all crime categories[^8].",
+          landed: true,
+        },
+        { content: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。", landed: true },
+        {
+          content: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+          landed: true,
+        },
+        { content: "It wins in each city (e.g. Chicago) and on every task[^3].", landed: true },
+        { content: "The data clearly supports this, but not every claim[^4].", landed: true },
+      ],
+      writtenInMinds: [
+        "Crime forecasting: best results in all cases.",
+        "大潮出现在新月和满月时。",
+        "It wins across every category.",
+        "It wins in each city.",
+        "The data clearly supports this?",
+      ],
+    });
+    expect(rewrittenLater(reworded)).toEqual([
+      {
+        given: "Crime forecasting: best results across all crime categories[^8].",
+        now: "Crime forecasting: best results in all cases.",
+        cut: false,
+      },
+      {
+        given: "大潮出现在新月和满月时，并且每年都会淹没港口[^1]。",
+        now: "大潮出现在新月和满月时。",
+        cut: true,
+      },
+      {
+        given: "It wins across every category (e.g., Theft, Assault) and every metric[^7].",
+        now: "It wins across every category.",
+        cut: true,
+      },
+      {
+        given: "It wins in each city (e.g. Chicago) and on every task[^3].",
+        now: "It wins in each city.",
+        cut: true,
+      },
+      {
+        given: "The data clearly supports this, but not every claim[^4].",
+        now: "The data clearly supports this?",
+        cut: false,
       },
     ]);
   });
@@ -818,5 +871,270 @@ describe("The judge of claims", () => {
         '{"unbacked": ["Here is a shorter version:"]}\n\nWait, that is no claim.\n\n{"unbacked": []}',
       ),
     ).toEqual({ unbacked: [] });
+  });
+});
+
+describe("The Document absence judge", () => {
+  test("sees the plain metric and actual request, and takes its last JSON verdict", async () => {
+    let asked = { system: "", prompt: "" };
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: ({ system, prompt }) => {
+        asked = { system, prompt };
+        return {
+          text: '{"absence":["The release has no recast revenue."]}\nCorrection: the request was answered.\n{"absence":[]}',
+        };
+      },
+    });
+    const verdict = await judgeDocumentAbsence(
+      model,
+      "The release has no recast revenue.",
+      "recast second-quarter revenue",
+      "What was the recast second-quarter revenue?",
+    );
+    expect(asked.system).toContain("The requested metric is recast second-quarter revenue.");
+    expect(asked.system).not.toContain("recast|重述|revenue");
+    expect(asked.prompt).toContain("What was the recast second-quarter revenue?");
+    expect(verdict).toEqual([]);
+  });
+
+  test("rejects a malformed absence list instead of reading it as no absence", async () => {
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ text: '{"absence":[1]}' }),
+    });
+    await expect(
+      judgeDocumentAbsence(model, "The metric is missing.", "metric", "What is the metric?"),
+    ).rejects.toThrow("The absence judge's reply couldn't be read.");
+  });
+});
+
+describe("The filing guards", () => {
+  const filingOutcome = (
+    text: string,
+    citations = [
+      {
+        ...citation("tutorial", 1),
+        documentName: "Harbour Hotels 2026 annual release",
+        quote: "Operating profitability reached 38.2%",
+      },
+    ],
+    toolCalls: AnswerToolCall[] = [],
+    absenceSentences: readonly string[] = [],
+  ) =>
+    requestFailures(
+      outcome({
+        absenceSentences,
+        expected: {
+          write: false,
+          cite: true,
+          coverAll: false,
+          answerWith: /38\.2%/,
+          answerEvidence: {
+            document: /Harbour Hotels 2026 annual release/,
+            quote: /Operating profitability reached 38\.2%/,
+          },
+          noDocumentAbsence: /margin|利润率/,
+        },
+        answer: { text, citations, toolCalls, steps: null },
+        citedInMinds: [],
+      }),
+    );
+
+  const READ: AnswerToolCall = {
+    id: "read-1",
+    tool: "read_document",
+    source: "documents",
+    input: { document: "10-Q", pages: "1-3" },
+    status: "done",
+    resultCount: 3,
+  };
+  const absent = (text: string) => filingOutcome(text, undefined, undefined, [text]);
+
+  test("requires the expected figure and rejects a whole-Document absence claim in English and Chinese", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].").map((failure) => failure.kind),
+    ).toEqual([]);
+    expect(
+      absent("The release doesn't state the operating margin.").map((failure) => failure.kind),
+    ).toEqual(["missing-answer-text", "document-absence"]);
+    expect(absent("报告未披露 38.2% 的营业利润率。").map((failure) => failure.kind)).toEqual([
+      "document-absence",
+    ]);
+  });
+
+  test("rejects other absence wordings even with the expected figure and Citation", () => {
+    expect(
+      absent("The release lacks an operating margin. Operating margin was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("The operating margin is missing from the release. It was 38.2% [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("业绩公告缺少经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("公告未包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+  });
+
+  test("does not read excluding an item as a missing Document", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
+  test("uses judged absence sentences, not a without-shaped phrase", () => {
+    const absence = (text: string) => absent(text).map((failure) => failure.kind);
+    expect(
+      filingOutcome("Operating margin was 38.2% without other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      absence(
+        "The release is without operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release was published without specifying the operating margin. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      absence(
+        "The release is without the operating margin information. Operating margin was 38.2% [^1].",
+      ),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% without including other income [^1].").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome("经营利润率为 38.2%（不含其他收入）[^1]。").map((failure) => failure.kind),
+    ).toEqual([]);
+    expect(absence("公告未披露经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+    expect(absence("公告没有具体说明经营利润率。经营利润率为 38.2% [^1]。")).toEqual([
+      "document-absence",
+    ]);
+  });
+
+  test("rejects absence after the verb and a Citation to another Document", () => {
+    expect(
+      filingOutcome(
+        "The release contains no operating margin. Operating margin was 38.2% [^1].",
+        undefined,
+        undefined,
+        ["The release contains no operating margin."],
+      ).map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      absent("报告不包含经营利润率。经营利润率为 38.2% [^1]。").map((failure) => failure.kind),
+    ).toEqual(["document-absence"]);
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1].", [
+        { ...citation("other", 1), documentName: "Another filing", quote: "Operating margin" },
+      ]).map((failure) => failure.kind),
+    ).toEqual(["wrong-answer-citation"]);
+  });
+
+  test("allows a search-miss statement without treating it as a whole-Document absence", () => {
+    expect(
+      filingOutcome("I didn't find the operating margin in the release.").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual(["missing-answer-text"]);
+  });
+
+  test("allows an unrelated caveat beside the cited answer", () => {
+    expect(
+      filingOutcome("Operating margin was 38.2% [^1]. 文档本身没有说明换算关系。").map(
+        (failure) => failure.kind,
+      ),
+    ).toEqual([]);
+    expect(
+      filingOutcome(
+        "Operating margin was 38.2% [^1]。这是按同店口径的变化幅度，文件未说明与哪一期比较。",
+      ).map((failure) => failure.kind),
+    ).toEqual([]);
+  });
+
+  test("a true absence accepts a search miss but not an invented figure or a Document-level claim", () => {
+    const missing = (
+      text: string,
+      citations: ReturnType<typeof citation>[] = [],
+      toolCalls: AnswerToolCall[] = [],
+      absenceSentences: readonly string[] = [],
+    ) =>
+      requestFailures(
+        outcome({
+          absenceSentences,
+          expected: {
+            write: false,
+            cite: false,
+            coverAll: false,
+            searchMiss: true,
+            noDocumentAbsence: /cash conversion|现金转换周期/,
+          },
+          answer: { text, citations, toolCalls, steps: null },
+          citedInMinds: [],
+        }),
+      ).map((failure) => failure.kind);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q.")).toEqual([]);
+    expect(
+      missing(
+        "The 10-Q doesn't state the cash conversion cycle.",
+        [],
+        [],
+        ["The 10-Q doesn't state the cash conversion cycle."],
+      ),
+    ).toEqual(["no-search-miss", "document-absence"]);
+    expect(missing("The cash conversion cycle was 42 days.")).toEqual([
+      "no-search-miss",
+      "invented-answer",
+    ]);
+    expect(missing("I didn't find the cash conversion cycle in the 10-Q. It was 42 days.")).toEqual(
+      ["invented-answer"],
+    );
+    expect(
+      missing("I didn't find the cash conversion cycle. The closest is a 6.2% sales decline[^1].", [
+        citation("northmart", 1),
+      ]),
+    ).toEqual([]);
+    expect(
+      missing(
+        "I didn't find the cash conversion cycle. I searched the Q2 2026 10-Q and nothing matched.",
+      ),
+    ).toEqual([]);
+    expect(
+      missing(
+        "The 10-Q lacks a cash conversion cycle.",
+        [],
+        [READ],
+        ["The 10-Q lacks a cash conversion cycle."],
+      ),
+    ).toEqual([]);
+    expect(missing("季报缺少现金转换周期。", [], [READ], ["季报缺少现金转换周期。"])).toEqual([]);
+    expect(
+      missing(
+        "The cash conversion cycle is missing from the 10-Q.",
+        [],
+        [READ],
+        ["The cash conversion cycle is missing from the 10-Q."],
+      ),
+    ).toEqual([]);
+    expect(
+      missing("季报中的现金转换周期是缺失的。", [], [READ], ["季报中的现金转换周期是缺失的。"]),
+    ).toEqual([]);
   });
 });

@@ -33,9 +33,24 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
-import { type ChartAttributes, chartSources, chosenSeries, readChart } from "../shared/charts";
+import { originOf } from "../shared/blockOrigins";
+import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
+import {
+  type ChartAttributes,
+  chartSources,
+  chosenSeries,
+  everyPlace,
+  readChart,
+} from "../shared/charts";
 import { type RecheckReason, readClaimCheck } from "../shared/claimChecks";
-import { cellProblemMessage, comparisonCellOf, comparisonQuestionsOf } from "../shared/comparisons";
+import {
+  cellProblemMessage,
+  comparisonCellOf,
+  comparisonNameOf,
+  comparisonQuestionsOf,
+  visibleComparisonQuestions,
+} from "../shared/comparisons";
+import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
@@ -53,11 +68,17 @@ import {
   readProposalRef,
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
+import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
+  BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
+  type CalculatedFigure,
+  type CalculatedFigureAttributes,
   CHART_NODE,
   CITATION_NODE,
+  type Citation,
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
@@ -67,16 +88,22 @@ import {
   DOCUMENT_CHIP_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
+  PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
+  PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
   QUESTION_BLOCK,
+  type RecordCiteResult,
+  type SignOffNow,
+  type SignOffTarget,
   type StyledRun,
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
+  TABLE_OF_CONTENTS_NODE,
   TEXT_COLOR_MARK,
   TEXT_FONT_MARK,
   TEXT_SIZE_MARK,
@@ -113,6 +140,11 @@ export interface Footnote {
   link?: string;
   /** Its check failed, which a Word file can say in a comment (#107). */
   failed?: FailedCheck;
+  /**
+   * People's own checks of it (#1933), each a line under its source: "Checked by Ada · 28 Oct
+   * 2026", or "… before it changed" for one made before its text, quote or version did.
+   */
+  checked?: readonly string[];
 }
 
 /** How a Citation's check failed (#107). */
@@ -124,12 +156,31 @@ export interface FailedCheck {
   verdict: string | null;
 }
 
-/** A sentence whose check isn't good, with what a Word file's comment on it says. */
-export type FailedSentence = { id: string } & (
+export interface RecordCiteComment {
+  raw: string;
+  outcome: RecordCiteResult["outcome"];
+  source: string | null;
+  passage: string | null;
+  covered: string | null;
+  uncovered: string | null;
+  candidates: string[];
+  nearby: { source: string; passage: string } | null;
+}
+
+/** A sentence whose check has a Word comment, with what the comment says. */
+export type FailedSentence = {
+  id: string;
+  recordCites?: RecordCiteComment[];
+  /** A verified document's table row checked as one claim: its comment covers the whole row. */
+  row?: true;
+} & (
+  | { check: "record-cites" }
   | {
       check: "contradicted";
       says: string | null;
       worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
+      /** The Passage that says otherwise, and its Document and Location, as its card shows them. */
+      quoted: { quote: string; source: string } | null;
     }
   | {
       check: "unsupported";
@@ -139,6 +190,10 @@ export type FailedSentence = { id: string } & (
       covers: { covered: string; uncovered: string; quote: string; source: string } | null;
       /** What the sentence's own Citations support and don't, as its card says. */
       citations: { count: number; covered: string; uncovered: string } | null;
+      /** Nothing in its scope was about it, as its card says (`saysNotFound`): "Not found". */
+      notFound: boolean;
+      /** Why it is unsupported, in the check's words; null when it gave none. */
+      reason: string | null;
     }
   | { check: "own-workings" }
   | { check: "needs-recheck"; why: RecheckReason }
@@ -168,6 +223,20 @@ export interface Pendings {
 export interface Image {
   src: string;
   alt: string;
+  /** The size the Note shows it at, in pixels: an imported Word picture's, as Word drew it. */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * A Citation a calculated figure is worked out from (`labelledCitations`), with the input's label
+ * or the range's name. A writer makes its footnote with `ReadOptions.footnote` only when it
+ * writes it: Question context gives an id to each Citation it reads, and shows none of these.
+ */
+export interface FigureSource {
+  label: string;
+  citation: Citation;
+  work: CitedWork;
 }
 
 export type Inline = (
@@ -181,7 +250,20 @@ export type Inline = (
     }
   | { kind: "math"; latex: string }
   | { kind: "break" }
+  /** A page break (#746): where the text after it starts a new page, in a writer with pages. */
+  | { kind: "pageBreak" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
+  /**
+   * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
+   * show; `analysis` is the title of the saved Analysis it came from (#447). Its sources are null
+   * when that Analysis isn't saved in the Note.
+   */
+  | {
+      kind: "figure";
+      figure: CalculatedFigure;
+      sources: FigureSource[] | null;
+      analysis: string | null;
+    }
   /**
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
@@ -201,6 +283,8 @@ export type Inline = (
       of?: string;
       /** The footnotes of its Citations whose check failed. */
       failed?: Footnote[];
+      /** As a note: its Citations' people's checks (`Footnote.checked`). */
+      checked?: readonly string[];
     }
 ) &
   Pendings;
@@ -209,6 +293,8 @@ export type Inline = (
 export interface BibliographyItem {
   label: StyledRun[] | null;
   runs: StyledRun[];
+  /** People's own checks of the source's Citations, a line each (`Footnote.checked`). */
+  checked?: readonly string[];
 }
 
 export interface TableCell {
@@ -248,13 +334,19 @@ export type Block = (
     }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
-  | { kind: "table"; rows: TableCell[][] }
+  /**
+   * A plain table, or a comparison table: `widths` gives each column's share
+   * of the width in a writer that lays columns out unevenly, the Document
+   * column first, as the User sized the columns on the page.
+   */
+  | { kind: "table"; rows: TableCell[][]; widths?: number[] }
   | { kind: "image"; image: Image }
   /**
    * A chart (#436): what it draws, for a picture of it; its values as a table,
    * the heading row first, without their Citations; and the places they were
-   * quoted from, one Citation each, side by side, numbered with the Mind's
-   * other footnotes. An export that draws its picture adds it as `picture`.
+   * quoted from, and its calculated values' Inputs were (#2307), one Citation
+   * each, side by side, numbered with the Mind's other footnotes. An export
+   * that draws its picture adds it as `picture`.
    */
   | {
       kind: "chart";
@@ -262,9 +354,12 @@ export type Block = (
       table: TableCell[][];
       sources: Inline[];
       uncited: number;
+      calculated: number;
       picture?: Image;
     }
   | { kind: "question"; content: Inline[] }
+  /** A table of contents (#1935): built from the Note's headings by whatever draws it. */
+  | { kind: "toc" }
   /** The Bibliography a citation style adds at the end of an export (./exports/citations). */
   | { kind: "bibliography"; heading: string; items: BibliographyItem[]; hangingIndent: boolean }
 ) &
@@ -293,6 +388,14 @@ export interface ReadOptions {
   comparisonText?(key: MessageKey, params?: MessageParams): string;
   /** Whether a Document was deleted: its comparison table row says its source was removed. */
   documentRemoved?(documentId: string): boolean;
+  /**
+   * Whether a comparison table's hidden columns are read. An export leaves
+   * them out, as the file is for someone who shouldn't see them; every other
+   * reader keeps them, as hiding is display only.
+   */
+  leaveOutHiddenColumns?: boolean;
+  /** People's marks on a comparison table's cell, as each shows now (#1933). Absent: none are read. */
+  cellSignOffs?(target: SignOffTarget, cell: Y.XmlElement): SignOffNow[];
   /**
    * Read for a Word file's review (#107, see `reviewReading`): what changes still
    * waiting add is read too, and each part of one is marked (`Pendings`), and
@@ -404,10 +507,17 @@ export function readBlock(element: Y.XmlElement, options: ReadOptions): Block[] 
   return change ? withChange(readBlockElement(element, options), change) : [];
 }
 
+const hasTextChild = (children: readonly unknown[]): boolean =>
+  children.some(
+    (child) =>
+      child instanceof Y.XmlText ||
+      (child instanceof Y.XmlElement && child.nodeName === CALCULATED_FIGURE_NODE),
+  );
+
 /** The first stretch of text in an element: a list's first item, not all its items run together. */
 function firstText(element: Y.XmlElement): string {
   const children = element.toArray();
-  if (children.some((child) => child instanceof Y.XmlText)) return plainText(element);
+  if (hasTextChild(children)) return plainText(element);
   for (const child of children) {
     if (!(child instanceof Y.XmlElement)) continue;
     const text = firstText(child);
@@ -435,6 +545,71 @@ export function firstLineOf(blocks: Y.XmlFragment): string {
     if (written !== "") return written;
   }
   return "";
+}
+
+/**
+ * What a Mind's export file is called (#1945): the words of its first Block that has any, as it
+ * reads, and the Question that made them when an Answer wrote them — a sentence from an Answer
+ * says less about the note than the Question did. A heading is a title, so it names the file
+ * itself. Neither is cut here: a file name is cut only where a file name can't hold it.
+ */
+export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: string } {
+  for (const block of blocks.toArray()) {
+    if (
+      !(block instanceof Y.XmlElement) ||
+      block.nodeName === ANSWER_BLOCK ||
+      block.nodeName === COMPARISON_TABLE_NODE
+    ) {
+      continue;
+    }
+    const line = firstText(block).trim();
+    if (line === "") continue;
+    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const doc = blocks.doc;
+    const question =
+      block.nodeName === "heading" || typeof id !== "string" || doc === null
+        ? ""
+        : (originOf(doc, id)?.question.trim() ?? "");
+    return { line, question };
+  }
+  return { line: "", question: "" };
+}
+
+export interface HeadingEntry {
+  block: Extract<Block, { kind: "heading" }>;
+  level: number;
+  text: string;
+}
+
+/** Every heading of the Blocks, in the order a writer meets them (a table of contents, #1935). */
+export function headingEntries(blocks: readonly Block[]): HeadingEntry[] {
+  const entries: HeadingEntry[] = [];
+  const visit = (block: Block) => {
+    switch (block.kind) {
+      case "heading": {
+        const text = block.content
+          .flatMap((inline) => (inline.kind === "text" ? [inline.text] : []))
+          .join("")
+          .trim();
+        if (text !== "") entries.push({ block, level: block.level, text });
+        break;
+      }
+      case "list":
+        for (const item of block.items) for (const child of item) visit(child);
+        break;
+      case "quote":
+        for (const child of block.content) visit(child);
+        break;
+      case "table":
+        for (const row of block.rows)
+          for (const cell of row) for (const child of cell.content) visit(child);
+        break;
+      default:
+        break;
+    }
+  };
+  for (const block of blocks) visit(block);
+  return entries;
 }
 
 /** How many Question Blocks the Mind has. */
@@ -510,8 +685,10 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   "inlineMath",
   "hardBreak",
   "image",
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  PAGE_BREAK_NODE,
   WORD_ATOM_NODE,
   DOCUMENT_CHIP_NODE,
 ]);
@@ -580,11 +757,23 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "quote", content: readChildren(element.toArray(), options) }];
     case "horizontalRule":
       return [{ kind: "rule" }];
+    case TABLE_OF_CONTENTS_NODE:
+      return [{ kind: "toc" }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
-    case COMPARISON_TABLE_NODE:
-      return [{ kind: "table", rows: readComparison(element, options) }];
+    case COMPARISON_TABLE_NODE: {
+      const comparison = readComparison(element, options);
+      return [
+        {
+          kind: "table",
+          rows: comparison.rows,
+          ...(comparison.widths && { widths: comparison.widths }),
+        },
+      ];
+    }
     case "image":
+      return [{ kind: "image", image: readImage(element) }];
+    case PICTURE_NODE:
       return [{ kind: "image", image: readImage(element) }];
     case CHART_NODE:
       return [readChartBlock(element, options)];
@@ -636,19 +825,39 @@ function readTable(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
         content: readChildren(cell.toArray(), options),
       });
     }
+    spreadRowCheck(cells.flatMap((cell) => textOfBlocks(cell.content)));
     if (cells.length > 0) rows.push(cells);
   }
   return rows;
 }
 
+type TextInline = Extract<Inline, { kind: "text" }>;
+
+function textOfBlocks(blocks: readonly Block[]): TextInline[] {
+  return blocks.flatMap((block) =>
+    block.kind === "paragraph" || block.kind === "heading"
+      ? block.content.filter((inline): inline is TextInline => inline.kind === "text")
+      : [],
+  );
+}
+
+/** A row checked as one claim: its other cells' words carry its check too, as the row's text. */
+function spreadRowCheck(row: TextInline[]): void {
+  const check = row.find((each) => each.sentenceCheck?.row)?.sentenceCheck;
+  if (!check) return;
+  for (const each of row) each.sentenceCheck ??= check;
+}
+
 /** A comparison table's cell as read: its Answer, or what it says in the Answer's place. */
-export type ComparisonCellReading =
-  | { kind: "answer"; content: Block[] }
+export type ComparisonCellReading = (
+  | { kind: "answer"; content: Block[]; failure?: string }
   | { kind: "words"; text: string }
-  | { kind: "empty" };
+  | { kind: "empty" }
+) & { edited?: boolean; signOffs?: SignOffNow[] };
 
 /** A comparison table as read (#98): its Questions, then a row per Document, a cell per Question. */
 export interface ComparisonReading {
+  /** The columns read, in their order: an export leaves out the hidden ones. */
   questions: ComparisonQuestion[];
   rows: {
     documentId: string;
@@ -660,7 +869,9 @@ export interface ComparisonReading {
 
 export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): ComparisonReading {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
-  const questions = comparisonQuestionsOf(table.getAttributes());
+  const columns = comparisonQuestionsOf(table.getAttributes());
+  const questions = options.leaveOutHiddenColumns ? visibleComparisonQuestions(columns) : columns;
+  const tableId = stringAttribute(table, "id");
   const rows: ComparisonReading["rows"] = [];
   for (const row of table.toArray()) {
     if (!(row instanceof Y.XmlElement) || row.nodeName !== COMPARISON_ROW_NODE) continue;
@@ -678,24 +889,48 @@ export function readComparisonTable(table: Y.XmlElement, options: ReadOptions): 
         const element = cells.get(question.id);
         if (!element) return { kind: "empty" };
         const state = comparisonCellOf(element.getAttributes());
-        if (state.status === "done") {
-          return { kind: "answer", content: readChildren(element.toArray(), options) };
+        const signOffs =
+          options.cellSignOffs?.(comparisonCellTarget(tableId, documentId, question.id), element) ??
+          [];
+        const marks = {
+          ...(state.edited && { edited: true }),
+          ...(signOffs.length > 0 && { signOffs }),
+        };
+        if (
+          state.status === "done" ||
+          (state.status === "failed" && plainText(element).trim() !== "")
+        ) {
+          const problem = state.problem ? cellProblemMessage(state.problem, state.message) : null;
+          return {
+            kind: "answer",
+            content: readChildren(element.toArray(), options),
+            ...marks,
+            ...(state.status === "failed" &&
+              problem && { failure: say(problem.key, problem.params) }),
+          };
         }
-        if (!state.problem) return { kind: "words", text: "…" };
+        if (!state.problem) return { kind: "words", text: "…", ...marks };
         const { key, params } = cellProblemMessage(state.problem, state.message);
-        return { kind: "words", text: say(key, params) };
+        return { kind: "words", text: say(key, params), ...marks };
       }),
     });
   }
   return { questions, rows };
 }
 
+/** How wide a comparison table's Document column and its default columns weigh in a file. */
+const COMPARISON_DOCUMENT_WEIGHT = 150;
+const COMPARISON_COLUMN_WEIGHT = 240;
+
 /**
  * A comparison table as a table: a heading row ("Document", then its
  * Questions), then a row per Document, its name first, each cell its Answer,
- * or what it says in the Answer's place.
+ * or what it says in the Answer's place, and the widths it shows on the page.
  */
-function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][] {
+function readComparison(
+  table: Y.XmlElement,
+  options: ReadOptions,
+): { rows: TableCell[][]; widths: number[] | undefined } {
   const say = options.comparisonText ?? ((key, params) => translate("en", key, params));
   const cell = (content: Block[], header = false): TableCell => ({
     header,
@@ -708,18 +943,33 @@ function readComparison(table: Y.XmlElement, options: ReadOptions): TableCell[][
     { kind: "paragraph", content: [{ kind: "text", text, marks: NO_MARKS }] },
   ];
   const { questions, rows } = readComparisonTable(table, options);
-  return [
-    [
-      cell(words(say("comparison.document")), true),
-      ...questions.map((question) => cell(words(question.text), true)),
+  const widths = questions.some((question) => question.width !== undefined)
+    ? [
+        COMPARISON_DOCUMENT_WEIGHT,
+        ...questions.map((question) => question.width ?? COMPARISON_COLUMN_WEIGHT),
+      ]
+    : undefined;
+  return {
+    widths,
+    rows: [
+      [
+        cell(words(say("comparison.document")), true),
+        ...questions.map((question) => cell(words(comparisonNameOf(question)), true)),
+      ],
+      ...rows.map((row) => [
+        cell(words(row.name)),
+        ...row.cells.map((each) =>
+          cell(
+            each.kind === "answer"
+              ? [...each.content, ...(each.failure ? words(each.failure) : [])]
+              : each.kind === "words"
+                ? words(each.text)
+                : [],
+          ),
+        ),
+      ]),
     ],
-    ...rows.map((row) => [
-      cell(words(row.name)),
-      ...row.cells.map((each) =>
-        cell(each.kind === "answer" ? each.content : each.kind === "words" ? words(each.text) : []),
-      ),
-    ]),
-  ];
+  };
 }
 
 /**
@@ -793,8 +1043,9 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
       ...drawn.map((series) => cell(row.values[series]?.shown ?? "", false, "right")),
     ]),
   ];
-  const { places, uncited } = chartSources(chart);
-  const sources: Inline[] = places.map(({ citation }) => {
+  const counted = chartSources(chart);
+  const { uncited, calculated } = counted;
+  const sources: Inline[] = everyPlace(counted).map(({ citation }) => {
     const attributes = citation as unknown as Record<string, unknown>;
     return {
       kind: "citation",
@@ -802,11 +1053,22 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
       work: citedWork(attributes),
     };
   });
-  return { kind: "chart", chart, table, sources, uncited };
+  return { kind: "chart", chart, table, sources, uncited, calculated };
 }
 
 function readImage(element: Y.XmlElement): Image {
-  return { src: stringAttribute(element, "src"), alt: stringAttribute(element, "alt") };
+  const size = (name: string) => {
+    const value: unknown = element.getAttribute(name);
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+  };
+  const width = size("width");
+  const height = size("height");
+  return {
+    src: stringAttribute(element, "src"),
+    alt: stringAttribute(element, "alt"),
+    ...(width !== undefined && { width }),
+    ...(height !== undefined && { height }),
+  };
 }
 
 export const NO_MARKS: Marks = {
@@ -907,11 +1169,19 @@ function readInlineElement(
 ): void {
   const add = (inline: Inline) => content.push({ ...inline, ...change });
   switch (child.nodeName) {
+    case CALCULATED_FIGURE_NODE: {
+      const attributes = readCalculatedFigureAttributes(child.getAttributes());
+      if (attributes) add(readFigure(attributes, child.doc));
+      break;
+    }
     case "inlineMath":
       add({ kind: "math", latex: stringAttribute(child, "latex") });
       break;
     case "hardBreak":
       add({ kind: "break" });
+      break;
+    case PAGE_BREAK_NODE:
+      if (!inFootnote) add({ kind: "pageBreak" });
       break;
     case "image":
       add({ kind: "image", image: readImage(child) });
@@ -963,6 +1233,28 @@ function readInlineElement(
   }
 }
 
+function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
+  const { figure } = attributes;
+  let sources: CalculatedSources;
+  try {
+    sources = calculatedSources(attributes, doc);
+  } catch {
+    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
+    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+    return { kind: "figure", figure, sources: null, analysis: null };
+  }
+  return {
+    kind: "figure",
+    figure,
+    sources: labelledCitations(sources).map(({ label, citation }) => ({
+      label,
+      citation,
+      work: citedWork({ ...citation }),
+    })),
+    analysis: sources.analysis?.title ?? null,
+  };
+}
+
 /** What a citation style needs of a Citation: its Document, its Location and the version quoted. */
 function citedWork(attributes: Record<string, unknown>): CitedWork {
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
@@ -999,7 +1291,7 @@ export function blockText(element: Y.XmlElement): string {
   const visit = (node: Y.XmlElement) => {
     if (proposedOnly(node)) return;
     const children = node.toArray();
-    if (!children.some((child) => child instanceof Y.XmlText)) {
+    if (!hasTextChild(children)) {
       for (const child of children) if (child instanceof Y.XmlElement) visit(child);
       return;
     }
@@ -1042,6 +1334,7 @@ export function plainText(element: Y.XmlElement | Y.XmlText, footnotes = false):
       .join("");
   }
   if (!footnotes && element.nodeName === FOOTNOTE_NODE) return "";
+  if (element.nodeName === CALCULATED_FIGURE_NODE) return figureShownText(element.getAttributes());
   if (element.nodeName === WORD_ATOM_NODE || element.nodeName === WORD_BLOCK_NODE) {
     return wordAtomText(readWordAtom(element.getAttributes() as Record<string, unknown>));
   }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { TRANSCRIPTION_ROUTES, type TranscriptionRoute } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { ROUTE_LABELS, useTranscriptionServicesList } from "../../transcriptionServices";
+import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
 
 /**
  * Where meeting audio is transcribed, one setting wherever it is shown (Settings › Models,
@@ -16,6 +16,10 @@ export function TranscriptionRouteSelect({
   className,
   labelledBy,
   focusOnShow,
+  localOnly = false,
+  testId = "meetings-route",
+  saveOnChange = true,
+  read,
   onChosen,
   onBlur,
   onEscape,
@@ -26,7 +30,15 @@ export function TranscriptionRouteSelect({
   labelledBy?: string;
   /** It takes the focus when it shows (Change was just pressed). */
   focusOnShow?: boolean;
-  onChosen?(): void;
+  /** "Keep everything on this computer" is on: nothing in the cloud is offered (#1922). */
+  localOnly?: boolean;
+  /** Where it is the setup card's step, its own name. */
+  testId?: string;
+  /** The setup card's step saves when its Use this is pressed, so its choice is its consent there. */
+  saveOnChange?: boolean;
+  /** The view's read of the services, which says a failure; the select reads none of its own. */
+  read: ServicesView;
+  onChosen?(chosen: TranscriptionRoute): void;
   onBlur?(): void;
   onEscape?(): void;
 }) {
@@ -40,12 +52,14 @@ export function TranscriptionRouteSelect({
   useEffect(() => {
     if (focusOnShow) field.current?.focus();
   }, [focusOnShow]);
-  const services = useTranscriptionServicesList();
+  const services = read.state === "ready" ? read.data : [];
+  // Local mode offers only this computer, whatever was chosen before it came on.
+  const shown = localOnly ? "local" : value;
   const offered = TRANSCRIPTION_ROUTES.filter(
     (each) =>
       each === "local" ||
-      each === value ||
-      services.some((service) => service.route === each && service.hasKey),
+      (!localOnly &&
+        (each === value || services.some((service) => service.route === each && service.hasKey))),
   );
   return (
     <select
@@ -53,8 +67,8 @@ export function TranscriptionRouteSelect({
       id={id}
       aria-describedby={`${id}-tip`}
       aria-labelledby={labelledBy}
-      data-testid="meetings-route"
-      value={value ?? ""}
+      data-testid={testId}
+      value={shown ?? "local"}
       onBlur={onBlur}
       onKeyDown={(event) => {
         if (event.key === "Escape" && onEscape) {
@@ -67,16 +81,11 @@ export function TranscriptionRouteSelect({
         const chosen = TRANSCRIPTION_ROUTES.find((each) => each === event.target.value);
         if (!chosen) return;
         setValue(chosen);
-        void updateSettings({ device: { transcriptionRoute: chosen } });
-        onChosen?.();
+        if (saveOnChange) void updateSettings({ device: { transcriptionRoute: chosen } });
+        onChosen?.(chosen);
       }}
       className={className}
     >
-      {value === null && (
-        <option value="" hidden>
-          {t(ROUTE_LABELS.local)}
-        </option>
-      )}
       {offered.map((each) => (
         <option key={each} value={each}>
           {t(ROUTE_LABELS[each])}

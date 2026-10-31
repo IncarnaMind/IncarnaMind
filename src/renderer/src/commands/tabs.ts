@@ -4,6 +4,8 @@ import {
   cycleTabs,
   focusGroup,
   moveToGroup,
+  moveWithinGroup,
+  neighbourInRun,
   showTabByNumber,
   splitToTheRight,
   tabByNumber,
@@ -49,8 +51,8 @@ const groupOnTheRight = (target: Target | null) =>
 
 /** Runs `act` on the command's tab, if it has one. */
 const onTarget =
-  (act: (target: Target) => void | Promise<void>) =>
-  (ctx: CommandContext): void | Promise<void> => {
+  (act: (target: Target) => ReturnType<Command["run"]>) =>
+  (ctx: CommandContext): ReturnType<Command["run"]> => {
     const target = targetOf(ctx);
     if (target) return act(target);
   };
@@ -87,7 +89,7 @@ const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
   }),
 );
 
-export const tabCommands: readonly Command[] = [
+const tabList: readonly Command[] = [
   {
     ...fromMenu("tab.close"),
     menuLabel: "tabs.menu.close",
@@ -157,6 +159,31 @@ export const tabCommands: readonly Command[] = [
     run: onTarget(async ({ tab }) => {
       await store().changeLayout({ type: "pin", tabId: tab.id, pinned: !tab.pinned });
     }),
+  },
+  {
+    id: "tab.moveEarlier",
+    label: "command.tab.moveEarlier",
+    // Chrome's and VS Code's key for moving a tab or editor left among its neighbours.
+    shortcut: { keys: "Ctrl+Shift+PageUp" },
+    group: "move",
+    reversible: true,
+    when: (ctx) => {
+      const target = targetOf(ctx);
+      return target !== null && neighbourInRun(target.group.tabs, target.tab, -1) !== null;
+    },
+    run: onTarget(({ tab }) => moveWithinGroup(tab.id, -1)),
+  },
+  {
+    id: "tab.moveLater",
+    label: "command.tab.moveLater",
+    shortcut: { keys: "Ctrl+Shift+PageDown" },
+    group: "move",
+    reversible: true,
+    when: (ctx) => {
+      const target = targetOf(ctx);
+      return target !== null && neighbourInRun(target.group.tabs, target.tab, 1) !== null;
+    },
+    run: onTarget(({ tab }) => moveWithinGroup(tab.id, 1)),
   },
   {
     id: "tab.moveLeft",
@@ -240,3 +267,10 @@ export const tabCommands: readonly Command[] = [
     },
   },
 ];
+
+// Tabs are how the User arranges the window: the assistant opens things, but never moves, renames,
+// pins or closes tabs (#1421).
+export const tabCommands: readonly Command[] = tabList.map((command) => ({
+  ...command,
+  assistant: false,
+}));

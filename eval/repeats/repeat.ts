@@ -10,7 +10,7 @@ import * as Y from "yjs";
 import type { ChatModelChoice, ClaimCheckAttributes, Core, SearchScope } from "../../src/core";
 import { MIND_CONTENT_FIELD } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { coveredPart } from "../../src/shared/claimChecks";
+import { coveredPart, saysNotFound } from "../../src/shared/claimChecks";
 import { setMindScope } from "../../src/shared/mindScope";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, readMind, writeMind } from "../../tests/helpers/minds";
@@ -18,7 +18,8 @@ import { note, readMind, writeMind } from "../../tests/helpers/minds";
 /**
  * How a sentence's check shows on its card: "partly" names what the Documents
  * support with a quote, "differs" quotes a line that says something
- * different, "absent" says where the check looked and didn't find it.
+ * different, "absent" says where the check looked and didn't find it, and
+ * "unsupported" is the card headed Unsupported with nothing to quote.
  */
 export type Outcome =
   | "supported"
@@ -26,6 +27,7 @@ export type Outcome =
   | "partly"
   | "differs"
   | "absent"
+  | "unsupported"
   | "not-checked"
   | "no-mark";
 
@@ -47,11 +49,13 @@ export function outcomeOf(check: ClaimCheckAttributes | undefined): Outcome {
   if (check.state === "supported" || check.state === "contradicted") return check.state;
   if (check.state !== "unsupported") return "not-checked";
   if (check.evidence) return "differs";
-  return coveredPart(check.unsupported) ? "partly" : "absent";
+  if (coveredPart(check.unsupported)) return "partly";
+  // The eval's sentences carry no Citations, and saysNotFound decides the Not found card for the app.
+  return saysNotFound({ state: "unsupported" }, check, 0) ? "absent" : "unsupported";
 }
 
 /** One read of the Mind's marks, from the core's own copy of it. */
-async function marksOf(core: Core, mindId: string) {
+export async function marksOf(core: Core, mindId: string) {
   const { state } = await core.openMind(mindId);
   const doc = new Y.Doc();
   Y.applyUpdate(doc, state);

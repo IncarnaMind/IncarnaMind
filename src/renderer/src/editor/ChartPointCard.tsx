@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { badgeMessage, type CitationState, citationSource } from "../../../shared/citations";
 import { useT } from "../i18n";
+import { ChangedSourceNotice } from "./ChangedSourceNotice";
 import { ChartCheck } from "./ChartCheck";
 
 export function ChartPointCard({
@@ -12,6 +14,7 @@ export function ChartPointCard({
   cut,
   citation,
   state,
+  figure,
   onOpen,
 }: {
   title: string;
@@ -24,31 +27,51 @@ export function ChartPointCard({
   cut: string | null;
   citation: CitationAttributes | null;
   state: CitationState | null;
+  /** A calculated value's figure card, in place of its value and Citation (#2307). */
+  figure: ReactNode | null;
   onOpen(): void;
 }) {
   const t = useT();
   const source = citation ? citationSource(citation, t) : null;
   const badge = citation && state ? badgeMessage(state, citation, t) : null;
   const canOpen = state !== null && state.documentId !== null;
-  return (
-    <div className="chart-card" data-testid="chart-card-body">
-      <p className="chart-card-title">
-        <span>{title}</span>
-        {position && (
-          <span className="chart-card-position" data-testid="chart-card-position">
-            {position}
-          </span>
-        )}
-      </p>
-      <p className="chart-card-value" data-testid="chart-card-value">
-        {value}
-      </p>
+  const heading = (
+    <p className="chart-card-title">
+      <span>{title}</span>
+      {position && (
+        <span className="chart-card-position" data-testid="chart-card-position">
+          {position}
+        </span>
+      )}
+    </p>
+  );
+  const notes = (
+    <>
       {detail && <p className="chart-card-detail">{detail}</p>}
       {notDrawn && (
         <p className="chart-card-detail">
           {t(notDrawn === "unit" ? "chart.point.noUnit" : "chart.point.notDrawn")}
         </p>
       )}
+    </>
+  );
+  if (figure) {
+    return (
+      <div className="chart-card chart-card--calculated" data-testid="chart-card-body">
+        {heading}
+        {notes}
+        {figure}
+        {cut && <p className="chart-card-cut">{cut}</p>}
+      </div>
+    );
+  }
+  return (
+    <div className="chart-card" data-testid="chart-card-body">
+      {heading}
+      <p className="chart-card-value" data-testid="chart-card-value">
+        {value}
+      </p>
+      {notes}
       <div className="chart-card-source" data-testid="chart-card-source">
         {citation && state && badge ? (
           <>
@@ -76,6 +99,7 @@ export function ChartPointCard({
           </>
         )}
       </div>
+      {citation && <ChangedSourceNotice attributes={citation} />}
       {cut && <p className="chart-card-cut">{cut}</p>}
     </div>
   );

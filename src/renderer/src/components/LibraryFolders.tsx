@@ -8,13 +8,15 @@ import { useFolderContents } from "../folderContents";
 import { folderTarget, useDraggedOutOfFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { formatCount } from "../linkedFolders";
+import { DAY_ONE_DOCUMENTS } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
 import { documentFields, mindFields } from "../sortFields";
-import { allExamples, useAppStore } from "../store";
+import { allExamples, exampleMindIds, isOwnDocument, useAppStore } from "../store";
 import { foldKeys, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { ExamplesMenu } from "./ExamplesMenu";
@@ -23,6 +25,7 @@ import {
   ChevronDownLineIcon,
   ChevronRightLineIcon,
   FolderLineIcon,
+  LockLineIcon,
   PlusLineIcon,
 } from "./lineIcons";
 import { MindRow } from "./MindRow";
@@ -44,6 +47,7 @@ const NOT_IN_A_FOLDER = "not-in-a-folder";
 
 const NO_DOCUMENTS: readonly Document[] = [];
 const NO_MINDS: readonly Mind[] = [];
+const NO_DOCUMENT_IDS: ReadonlySet<string> = new Set();
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
 
@@ -119,10 +123,12 @@ export const useFolds = create<Folds>()((set, get) => {
  * The sidebar's Folders and Not in a Folder (DESIGN.md, "One tree"): each
  * Folder lists its Minds, then its Documents (the first few, then "Show N
  * more Documents"), and opens and closes in place: the main area stays as it
- * is. After the Folders, "Not in a Folder" holds every Mind and Document in
- * none; a Mind there searches every Document, which its heading says on
- * hover. Each section shows only with something in it, but Not in a Folder
- * also shows while something is dragged out of a Folder, to take the drop.
+ * is. Until the User has a Folder, their loose Notes and Documents are two
+ * lists, Notes and Documents, each counting its rows, as on day one (#2290).
+ * Once one exists, Not in a Folder holds them together, Notes first, and says
+ * on hover what a Mind there searches. Each section shows only with something
+ * in it, but Not in a Folder also shows while something is dragged out of a
+ * Folder, to take the drop.
  * Minds and Documents drag onto a Folder, or onto Not in a Folder's heading
  * to leave theirs (see `folderTarget`); a Folder renames in place
  * (double-click or F2, as in Finder) and has its menu (⋯ or a right-click).
@@ -157,6 +163,17 @@ export function LibraryFolders({
   const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
     hideExamples,
   });
+  const assignments = useAppStore((state) => state.library?.assignments);
+  const suggestedByFolder = useMemo(() => {
+    const byFolder = new Map<string, Set<string>>();
+    for (const item of assignments ?? []) {
+      if (!item.suggested || item.groupId === null) continue;
+      const ids = byFolder.get(item.groupId) ?? new Set<string>();
+      ids.add(item.documentId);
+      byFolder.set(item.groupId, ids);
+    }
+    return byFolder;
+  }, [assignments]);
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
@@ -192,6 +209,7 @@ export function LibraryFolders({
                 folder={folder}
                 minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
                 documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
+                suggested={suggestedByFolder.get(folder.id) ?? NO_DOCUMENT_IDS}
                 renderDocument={renderDocument}
               />
             ))}
@@ -204,6 +222,8 @@ export function LibraryFolders({
           documents={looseDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
+          draggingOut={draggingOut}
+          hasFolders={orderedGroups.length > 0}
         />
       )}
     </div>
@@ -287,11 +307,14 @@ function FolderGroup({
   folder,
   minds,
   documents,
+  suggested,
   renderDocument,
 }: {
   folder: LibraryGroup;
   minds: readonly Mind[];
   documents: readonly Document[];
+  /** The Documents this Folder only suggests, of those it lists. */
+  suggested: ReadonlySet<string>;
   renderDocument(document: Document, depth: number): ReactNode;
 }) {
   const expanded = useFolds((state) => state.open.has(folder.id));
@@ -329,10 +352,15 @@ function FolderGroup({
     return first ? nameNewFolder(folder.id, name) : renameFolder(folder.id, name);
   });
   const t = useT();
+  const language = useLanguage();
   const objectMenu = useObjectMenu(object);
   const treeItem = useTreeItem({ depth: 0, expanded, selected: lit });
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
+  const suggestedCount = useMemo(
+    () => documents.reduce((count, doc) => count + (suggested.has(doc.id) ? 1 : 0), 0),
+    [documents, suggested],
+  );
 
   return (
     <li
@@ -388,11 +416,26 @@ function FolderGroup({
             <span data-testid="row-text" className="min-w-0 flex-1 truncate">
               {folder.name}
             </span>
+            {folder.keepInside === true && (
+              <span
+                data-testid="folder-wall"
+                role="img"
+                aria-label={t("folder.wall.title")}
+                title={t("folder.wall.title")}
+                className="flex shrink-0"
+              >
+                <LockLineIcon className="size-3.5 text-ink-meta" />
+              </span>
+            )}
             <span
               data-testid="browse-count"
-              className="text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+              className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
             >
               {minds.length + documents.length}
+              {suggestedCount > 0 &&
+                ` · ${t("sidebar.folder.suggested", {
+                  count: formatCount(suggestedCount, language),
+                })}`}
             </span>
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>
@@ -427,11 +470,15 @@ function NotInAFolder({
   documents,
   renderDocument,
   quiet,
+  draggingOut,
+  hasFolders,
 }: {
   minds: readonly Mind[];
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet: boolean;
+  draggingOut: boolean;
+  hasFolders: boolean;
 }) {
   const t = useT();
   const drop = useDropTarget("sidebar-folder:none", folderTarget(null));
@@ -443,26 +490,114 @@ function NotInAFolder({
       minds.every((mind) => examples.some((each) => each.mindId === mind.id))
     );
   });
-  const title = examplesOnly ? t("sidebar.examples") : t("library.unsorted");
+  const ownCount = useAppStore(
+    (state) => documents.filter((each) => isOwnDocument(each, allExamples(state))).length,
+  );
+  // In the tree's keys, as the rows are: one Tab stop, and ↑ ↓ reach it (#1942).
+  const offerItem = useTreeItem({ depth: 0 });
+  /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
+  const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
+  // Until the User has a Folder, their loose Notes and Documents are two lists, Notes and
+  // Documents, each counting its rows, whether or not the first open's card is dismissed; once
+  // one exists, Not in a Folder holds them together, Notes first (#2290). An example Mind not
+  // folded to its one row keeps its own Examples heading, never a Note of the User's.
+  const apart = !examplesOnly && !hasFolders;
+  const exampleIds = useAppStore((state) => exampleMindIds(state).join(" "));
+  const ownMinds = useMemo(() => {
+    if (!apart) return minds;
+    const examples = new Set(exampleIds.split(" ").filter(Boolean));
+    return minds.filter((mind) => !examples.has(mind.id));
+  }, [apart, minds, exampleIds]);
+  const exampleMinds = useMemo(() => {
+    if (!apart) return NO_MINDS;
+    const examples = new Set(exampleIds.split(" ").filter(Boolean));
+    return minds.filter((mind) => examples.has(mind.id));
+  }, [apart, minds, exampleIds]);
+  const title = examplesOnly
+    ? t("sidebar.examples")
+    : hasFolders
+      ? t("library.unsorted")
+      : t("sidebar.documents");
+  const showSection =
+    examplesOnly ||
+    (hasFolders ? minds.length + documents.length > 0 : documents.length > 0 || offerFolder) ||
+    draggingOut;
   return (
     <div data-testid="not-in-a-folder" data-count={documents.length} data-minds={minds.length}>
-      <SidebarSection
-        testId="not-in-a-folder-section"
-        title={title}
-        headingTestId="not-in-a-folder-title"
-        tooltip={examplesOnly ? undefined : t("sidebar.notInFolder.hint")}
-        actions={examplesOnly ? <ExamplesMenu /> : undefined}
-        drop={drop}
-      >
-        <Contents
-          listKey={NOT_IN_A_FOLDER}
-          scope="sidebar"
-          depth={0}
-          minds={minds}
-          documents={documents}
-          renderDocument={renderDocument}
-        />
-      </SidebarSection>
+      {apart && ownMinds.length > 0 && (
+        <SidebarSection
+          testId="notes-section"
+          title={t("sidebar.notes")}
+          headingTestId="notes-title"
+          count={ownMinds.length}
+        >
+          <Contents
+            listKey="notes"
+            scope="sidebar"
+            depth={0}
+            minds={ownMinds}
+            documents={NO_DOCUMENTS}
+            renderDocument={renderDocument}
+          />
+        </SidebarSection>
+      )}
+      {showSection && (
+        <SidebarSection
+          testId="not-in-a-folder-section"
+          title={title}
+          headingTestId="not-in-a-folder-title"
+          count={apart && documents.length > 0 ? documents.length : undefined}
+          tooltip={!examplesOnly && hasFolders ? t("sidebar.notInFolder.hint") : undefined}
+          actions={examplesOnly ? <ExamplesMenu /> : undefined}
+          drop={drop}
+        >
+          <Contents
+            listKey={NOT_IN_A_FOLDER}
+            scope="sidebar"
+            depth={0}
+            minds={apart ? NO_MINDS : minds}
+            documents={documents}
+            renderDocument={renderDocument}
+          />
+          {offerFolder && (
+            <ul role="none">
+              <li role="none" className="flex h-7 items-center">
+                <button
+                  type="button"
+                  {...offerItem}
+                  data-testid="offer-folder"
+                  title={t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") })}
+                  onClick={() =>
+                    void commands.run("folder.new").catch(useAppStore.getState().reportError)
+                  }
+                  style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
+                  className="flex min-w-0 items-center gap-2 rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+                >
+                  <PlusLineIcon className="size-3.5 shrink-0" />
+                  <span className="truncate">{t("menu.newFolder")}</span>
+                </button>
+              </li>
+            </ul>
+          )}
+        </SidebarSection>
+      )}
+      {apart && exampleMinds.length > 0 && (
+        <SidebarSection
+          testId="examples-section"
+          title={t("sidebar.examples")}
+          headingTestId="examples-title"
+          actions={<ExamplesMenu />}
+        >
+          <Contents
+            listKey="examples"
+            scope="sidebar"
+            depth={0}
+            minds={exampleMinds}
+            documents={NO_DOCUMENTS}
+            renderDocument={renderDocument}
+          />
+        </SidebarSection>
+      )}
     </div>
   );
 }

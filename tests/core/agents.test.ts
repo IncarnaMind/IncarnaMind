@@ -254,7 +254,7 @@ describe("outside agents", () => {
       arguments: { documentId: budget.id },
     });
     expect(fromStart.isError).toBe(true);
-    expect(resultText(fromStart)).toMatch(/No such Passage, Document, Mind or Citation/);
+    expect(resultText(fromStart)).toMatch(/No such passage, Document, note or Citation/);
 
     const listed = structured<{ folders: { id: string; name: string }[] }>(
       await agent.callTool({ name: "list_minds", arguments: {} }),
@@ -267,6 +267,66 @@ describe("outside agents", () => {
     const nothing = await unscoped.callTool({ name: "search", arguments: { query: "tides" } });
     expect(nothing.isError).toBe(true);
     expect(resultText(nothing)).toMatch(/can’t read any Documents yet/);
+  });
+
+  it("approves a walled Folder alone, but never beside another Folder", async () => {
+    const { core, launch, coast, finance, budget, pairing } = await pairedToCoast();
+    await core.updateLibraryGroup(coast.id, {
+      name: coast.name,
+      description: coast.description,
+      keepInside: true,
+    });
+    await expect(
+      core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] }),
+    ).rejects.toThrow(
+      "Coast keeps its work inside it, so it can’t share an agent with other Folders",
+    );
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await expect(
+      core.updateAgent(pairing.id, { folderIds: [coast.id, finance.id] }),
+    ).rejects.toThrow("“Coast”只在本文件夹内工作，不能和其他文件夹共用一个智能体");
+    await core.updateSettings({ user: { language: "en" } });
+    const own = await core.createMind({ title: "Coast note", folderId: coast.id });
+    const other = await core.createMind({ title: "Finance note", folderId: finance.id });
+    const agent = await connectLegacyAgent(launch);
+
+    const listed = structured<{ folders: { id: string; minds: { id: string }[] }[] }>(
+      await agent.callTool({ name: "list_minds", arguments: {} }),
+    );
+    expect(listed.folders.map((folder) => folder.id)).toEqual([coast.id]);
+    expect(listed.folders[0]?.minds.map((mind) => mind.id)).toEqual([own.id]);
+
+    const found = structured<SearchOut>(
+      await agent.callTool({ name: "search", arguments: { query: "harbour budget" } }),
+    );
+    expect(found.passages.map((passage) => passage.documentId)).not.toContain(budget.id);
+    const outside = await agent.callTool({ name: "read_mind", arguments: { mindId: other.id } });
+    expect(outside.isError).toBe(true);
+    expect(resultText(outside)).toMatch(/No such passage, Document, note or Citation/);
+  });
+
+  it("refuses an explicitly named Folder that a wall removed from an existing pairing", async () => {
+    const { core } = await startAgentsCore(replyingModel());
+    const { coast, finance } = await withLibrary(core);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id, finance.id],
+    });
+    await core.updateLibraryGroup(coast.id, {
+      name: coast.name,
+      description: coast.description,
+      keepInside: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    const outside = await agent.callTool({
+      name: "search",
+      arguments: { query: "harbour", folderIds: [coast.id] },
+    });
+
+    expect(outside.isError).toBe(true);
+    expect(resultText(outside)).toMatch(/keeps its work inside it/);
   });
 
   it("are refused at once after unpairing, and their connection closes", async () => {

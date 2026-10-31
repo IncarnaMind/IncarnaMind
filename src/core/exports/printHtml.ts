@@ -13,7 +13,15 @@
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
-import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
+import {
+  type Block,
+  type Footnote,
+  type HeadingEntry,
+  headingEntries,
+  type Inline,
+  type Marks,
+  tableLayout,
+} from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
@@ -23,6 +31,8 @@ export type PrintLabels = ExportLabels;
 export interface PrintHtml {
   body: string;
   notes: string[];
+  /** The notes printed with the page, the User's own and changes' included: what the Saved line says (#2193). */
+  footnotes: number;
 }
 
 export interface CitationWriter {
@@ -50,6 +60,9 @@ export const safeLink: LinkTest = (href): href is string =>
 export const webLink: LinkTest = (href): href is string =>
   typeof href === "string" && /^https?:/i.test(href);
 
+/** Where a page break was: the print page starts a new page there, and so does a browser printing it. */
+const PAGE_BREAK = '<div class="page-break"></div>';
+
 export function renderPrintHtml(
   blocks: readonly Block[],
   labels: PrintLabels,
@@ -69,8 +82,23 @@ export function renderPrintHtml(
     linkNotes,
     citations,
     isLink,
+    headingEntries(blocks),
   );
-  return { body: writer.blocks(blocks), notes };
+  const body = writer.blocks(blocks);
+  return { body, notes, footnotes: notes.length };
+}
+
+/** A table of contents as the page draws it: its heading, then the Note's headings indented. */
+function tocHtml(entries: readonly HeadingEntry[], labels: PrintLabels): string {
+  if (entries.length === 0) return "";
+  const lowest = Math.min(...entries.map((entry) => entry.level));
+  const items = entries
+    .map(
+      (entry) =>
+        `<li class="toc-entry toc-level-${entry.level}" style="padding-left:${(entry.level - lowest) * 16}px">${escapeHtml(entry.text)}</li>`,
+    )
+    .join("");
+  return `<nav class="toc"><p class="toc-title">${escapeHtml(labels.contents)}</p><ul>${items}</ul></nav>`;
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
@@ -93,6 +121,9 @@ function runsHtml(runs: readonly StyledRun[], isLink: LinkTest): string {
 /** The words of an unverified Citation's marker, after its source. */
 const unverifiedHtml = (labels: PrintLabels) =>
   ` <span class="unverified">${escapeHtml(labels.unverified)}</span>`;
+
+export const checkedHtml = (lines: readonly string[] | undefined): string =>
+  (lines ?? []).map((line) => `<br><span class="checked-by">${escapeHtml(line)}</span>`).join("");
 
 /** A Citation's source, as its footnote says it; a web page's address is a link. */
 export function sourceHtml(
@@ -166,10 +197,25 @@ class PrintWriter {
     private readonly linkNotes: boolean,
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
+    private readonly headings: readonly HeadingEntry[] = [],
   ) {}
 
   blocks(blocks: readonly Block[]): string {
     return blocks.map((block) => this.block(block)).join("");
+  }
+
+  /**
+   * A paragraph's text, split where it has a page break (#746): the parts
+   * apart, each in `wrap`, with a break between them that starts a new page.
+   */
+  private pages(content: readonly Inline[], wrap: (html: string) => string): string {
+    if (!content.some((item) => item.kind === "pageBreak")) return wrap(this.inline(content));
+    const parts: Inline[][] = [[]];
+    for (const item of content) {
+      if (item.kind === "pageBreak") parts.push([]);
+      else parts.at(-1)?.push(item);
+    }
+    return parts.map((part) => (part.length > 0 ? wrap(this.inline(part)) : "")).join(PAGE_BREAK);
   }
 
   private marker(note: string, adjacent = false): string {
@@ -184,10 +230,16 @@ class PrintWriter {
   private block(block: Block): string {
     switch (block.kind) {
       case "paragraph":
-        return `<p${formatStyle(block.format)}>${this.inline(changedContent(block))}</p>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<p${formatStyle(block.format)}>${html}</p>`,
+        );
       case "heading": {
         const level = Math.min(block.level + 1, 6);
-        return `<h${level}${formatStyle(block.format)}>${this.inline(changedContent(block))}</h${level}>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<h${level}${formatStyle(block.format)}>${html}</h${level}>`,
+        );
       }
       case "question":
         return `<p class="question"><span class="question-label">${escapeHtml(this.labels.question)}</span> ${this.inline(changedContent(block))}</p>`;
@@ -213,13 +265,15 @@ class PrintWriter {
       }
       case "chart":
         return this.chart(block);
+      case "toc":
+        return tocHtml(this.headings, this.labels);
       case "bibliography": {
         const entries = block.items
           .map((item) => {
             const label = item.label
               ? `<span class="label">${runsHtml(item.label, this.isLink)}</span> `
               : "";
-            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}</p>`;
+            return `<p class="entry">${label}${runsHtml(item.runs, this.isLink)}${checkedHtml(item.checked)}</p>`;
           })
           .join("");
         const hanging = block.hangingIndent ? " hanging" : "";
@@ -242,6 +296,7 @@ class PrintWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources);
     if (cited) sources.push(escapeHtml(labels.chartSources) + cited);
+    if (block.calculated > 0) sources.push(escapeHtml(labels.chartCalculated(block.calculated)));
     if (block.uncited > 0) sources.push(escapeHtml(labels.chartUncited(block.uncited)));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null) sources.push(escapeHtml(labels.chartCut(rows.length, cutFrom)));
@@ -319,6 +374,9 @@ class PrintWriter {
         case "math":
           html += mathHtml(item.latex, false);
           break;
+        case "figure":
+          html += escapeHtml(item.figure.shown);
+          break;
         case "image":
           html += imageHtml(item.image.src, item.image.alt);
           break;
@@ -332,7 +390,8 @@ class PrintWriter {
             html += this.citations.marker(item.footnote, number);
           } else {
             html += this.marker(
-              sourceHtml(item.footnote, this.labels, this.isLink),
+              sourceHtml(item.footnote, this.labels, this.isLink) +
+                checkedHtml(item.footnote.checked),
               state.lastWasNote,
             );
             lastWasNote = true;
@@ -345,7 +404,10 @@ class PrintWriter {
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {
-            html += this.marker(runsHtml(item.runs, this.isLink) + marker, state.lastWasNote);
+            html += this.marker(
+              runsHtml(item.runs, this.isLink) + marker + checkedHtml(item.checked),
+              state.lastWasNote,
+            );
             lastWasNote = true;
           } else html += runsHtml(item.runs, this.isLink) + marker;
           break;

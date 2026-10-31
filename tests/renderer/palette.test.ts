@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { ConversationMatch, Mind } from "../../src/core/api";
 import type { FindableKind, FoundObject } from "../../src/renderer/src/finding";
 import type { ObjectKind, ObjectRef } from "../../src/renderer/src/objects";
@@ -64,7 +64,7 @@ function findingsOf(groups: [FindableKind, FoundObject[]][]): Palette.Findings {
 const found = findingsOf([
   [
     kindOf("mind", "minds", "palette.group.minds"),
-    minds.map((each) => object("mind", each.id, each.title, "Mind")),
+    minds.map((each) => object("mind", each.id, each.title, "Note")),
   ],
   [
     kindOf("conversation", "conversations", "palette.group.conversations"),
@@ -137,6 +137,55 @@ describe("⌘K's names", () => {
   });
 });
 
+describe("an open card's own actions in ⌘K", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // protects=⌘K reaches Checked by me on a calculated figure's card and a Citation's card while it shows, ticked as it is, from the actions the card offers (#1933), in English and Chinese; fails_when=⌘K lists no Checked by me for an open card; no_claim=the card's own button.
+  test.each(["en", "zh-CN"] as const)("are listed, ticked as they are (%s)", async (language) => {
+    const { figureHandle } = await import("../../src/renderer/src/editor/figureHandle");
+    const { citationHandle } = await import("../../src/renderer/src/commands/handles");
+    // ⌘K opened with the focus nowhere in the page: what it acts on is the card that shows.
+    vi.stubGlobal("Element", class {});
+    vi.stubGlobal("HTMLElement", class {});
+    const run = () => undefined;
+    const keys = () =>
+      palette
+        .actionGroup(
+          palette.readQuery(translate(language, "signOff.action")).words,
+          palette.contextAt(null),
+          language,
+          found.names,
+        )
+        .flatMap((group) => group.items.map((item) => item.key));
+    figureHandle.current = {
+      id: "figure",
+      editable: () => true,
+      open: run,
+      copyFormula: run,
+      convertToText: run,
+      remove: run,
+      here: () => ({ "figure.signOff": run }),
+    };
+    try {
+      expect(keys()).toContain("command:figure.signOff");
+    } finally {
+      figureHandle.current = null;
+    }
+    citationHandle.current = {
+      open: run,
+      choices: () => ({ update: null, keepOld: null }),
+      here: () => ({ "citation.signOffRemove": run }),
+    };
+    try {
+      expect(keys()).toContain("command:citation.signOffRemove");
+    } finally {
+      citationHandle.current = null;
+    }
+  });
+});
+
 describe("⌘K's actions", () => {
   const actions = (query: string, language: "en" | "zh-CN" = "en") =>
     shown(
@@ -150,7 +199,7 @@ describe("⌘K's actions", () => {
 
   test("are the registry's, found by their name or keywords in English or in Chinese", () => {
     expect(actions("settings models")).toEqual([["actions", ["Settings: Models"]]]);
-    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
     expect(actions("设置 模型")).toEqual([["actions", ["Settings: Models"]]]);
     expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
     expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
@@ -169,10 +218,10 @@ describe("⌘K's actions", () => {
         ?.items.find((item) => item.key === key);
 
     expect(itemOf("command:verify.document", "en")).toMatchObject({
-      purpose: "Check the claims in a PDF someone else wrote",
+      purpose: "Check the claims in a file someone else wrote",
     });
     expect(itemOf("command:verify.document", "zh-CN")).toMatchObject({
-      purpose: "核对别人写的 PDF 里的说法",
+      purpose: "核对别人所写文件中的说法",
     });
     const [list] = palette.actionGroup(
       [],
@@ -186,11 +235,11 @@ describe("⌘K's actions", () => {
   });
 
   test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
-    expect(actions("ew mind")).toEqual([]);
+    expect(actions("ew note")).toEqual([]);
     expect(actions("theme")).toEqual([]);
-    expect(actions("new mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
     // A typo of a word's start still finds the action.
-    expect(actions("neww mind")).toEqual([["actions", ["New Mind"]]]);
+    expect(actions("neww note")).toEqual([["actions", ["New note"]]]);
   });
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {
@@ -255,7 +304,7 @@ describe("⌘K's actions", () => {
     for (const keys of [mind, document, folder]) {
       expect(keys.length).toBeLessThanOrEqual(6);
       expect(keys).toContain("command:library.open");
-      // New Mind first, Open the Library last.
+      // New note first, Open the Library last.
       expect(keys.indexOf("command:mind.new")).toBeLessThan(keys.indexOf("command:library.open"));
       expect(keys.at(-1)).toBe("command:library.open");
     }
@@ -277,7 +326,7 @@ describe("⌘K's actions", () => {
     );
   });
 
-  test("a Mind in front lists Export… after Check and before New Mind, as the prototype does", () => {
+  test("a Mind in front lists Export… after Check and before New note, as the prototype does", () => {
     const mind = list([], { kind: "mind", id: "m-contract" });
     expect(mind.indexOf("command:mind.exportMenu")).toBeGreaterThanOrEqual(0);
     expect(mind.indexOf("command:mind.exportMenu")).toBeLessThan(mind.indexOf("command:mind.new"));
@@ -312,7 +361,10 @@ describe("⌘K's actions", () => {
   test("the interface language is named for the other one, in either language, and found by its words", () => {
     expect(actions("interface language")).toEqual([["actions", ["Interface language: 中文"]]]);
     expect(actions("界面语言", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
-    expect(actions("yuyan", "zh-CN")).toEqual([["actions", ["界面语言：English"]]]);
+    // One letter from 语音 (yuyin), "Record a voice memo" follows, below the exact match.
+    expect(actions("yuyan", "zh-CN")).toEqual([
+      ["actions", ["界面语言：English", "录一段语音备忘"]],
+    ]);
     expect(actions("language")).toEqual([["actions", ["Interface language: 中文"]]]);
   });
 

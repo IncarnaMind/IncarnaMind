@@ -57,6 +57,10 @@ describe("What a check for contradictions found, in parts of a line", () => {
         t("en"),
         "en",
       ),
-    ).toEqual(["1 of 12 cited claims contradicted", "7 not checked", "Monthly cap reached"]);
+    ).toEqual([
+      "1 of 12 cited claims contradicted",
+      "7 not checked",
+      "Could pass your monthly cap",
+    ]);
   });
 });

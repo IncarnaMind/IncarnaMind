@@ -39,6 +39,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
+import { estimateTokens } from "../answers/context";
 import { createWindowBudget } from "../answers/window";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -75,6 +76,7 @@ import {
 } from "../proposals/ownWaiting";
 import {
   createRewriteStream,
+  layout,
   proposeAfter,
   proposeRewrite,
   type ReadResult,
@@ -84,8 +86,10 @@ import {
   type Selection,
   someNotes,
   takeBackForRegenerate,
+  textBlocks,
 } from "../proposals/write";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { inFlow } from "../timing/flows";
@@ -323,6 +327,8 @@ export interface ProposeInput {
   written(request: string, count: number): void;
   /** What the User's words asked for, which its request records; null: neither. A revision records it only when its text was asked for too. */
   requested: RequestedChange | null;
+  /** Requests started by this Answer, whose own changes a later call in the same turn may revise. */
+  ownRequests?: ReadonlySet<string>;
 }
 
 export interface Proposed {
@@ -366,17 +372,30 @@ function editCall(
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
-    ...(ask.action === "cut-unsupported" && { quotes: selection.quotes }),
+    ...((ask.action === "cut-unsupported" || ask.action === "follow-citation") && {
+      quotes: selection.quotes,
+    }),
   });
+  const { window } = prepared;
+  const budget = window ? createWindowBudget(window) : null;
   // The reply is about as long as the passage; a translation into Chinese can count more.
-  let maxOutputTokens = Math.min(16_000, Math.max(1_024, Math.ceil(selection.characters * 1.5)));
-  if (prepared.window) {
-    const budget = createWindowBudget(prepared.window);
-    const expected = explain ? 512 : Math.ceil(budget.tokens(selection.text) * 1.5) + 64;
-    if (expected > prepared.window.outputTokens) return null;
+  const passage = budget ? budget.tokens(selection.text) : estimateTokens(selection.text);
+  const expected = explain ? 512 : Math.ceil(passage * 1.5) + 64;
+  // A rewrite that can't fit would come back cut short: it isn't sent (#2275).
+  if (expected > Math.min(outputTokens("edit"), window?.outputTokens ?? Number.POSITIVE_INFINITY))
+    return null;
+  if (budget && window) {
     if (budget.roomBeside([instructions, prompt], expected) < 0) return null;
-    maxOutputTokens = prepared.window.outputTokens;
+    return {
+      instructions,
+      prompt,
+      maxOutputTokens: Math.min(outputTokens("edit"), window.outputTokens),
+    };
   }
+  const maxOutputTokens = Math.min(
+    outputTokens("edit"),
+    Math.max(1_024, Math.ceil(selection.characters * 1.5)),
+  );
   return { instructions, prompt, maxOutputTokens };
 }
 
@@ -828,7 +847,16 @@ export function createEdits(options: EditsOptions) {
     try {
       const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
       fork.transact(() => acceptOwnIn(blocks, own));
-      const read = readSelection(blocks, input.from, input.to);
+      const end = textBlocks(blocks).find(
+        ({ element }) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === input.to.blockId,
+      );
+      const to = end
+        ? {
+            blockId: input.to.blockId,
+            offset: layout(end.element).reduce((sum, child) => sum + child.size, 0),
+          }
+        : input.to;
+      const read = readSelection(blocks, input.from, to);
       const bounds = boundsOf(blocks, own);
       if (!read.ok || !bounds) return nothing({ kind: "changed" });
       const { selection } = read;
@@ -857,6 +885,7 @@ export function createEdits(options: EditsOptions) {
         return rewritten;
       });
       if (written.unmadeTable) return nothing({ kind: "no-table", text: reply });
+      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const top = topLevelBlocks(blocks);
       const revised = top
@@ -867,11 +896,12 @@ export function createEdits(options: EditsOptions) {
         providerId: input.prepared.provider.id,
         modelId: input.prepared.modelId,
         createdAt: options.now().toISOString(),
+        instruction: input.instruction,
       };
       input.beforeWriting();
       const blockIds = content.edit(input.mindId, (mind) => {
         const asked = input.requested !== null && ownAsked(mind, own);
-        const ids = replaceOwn(mind, own, revised, request);
+        const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
         if (ids && mind.doc) {
           recordProposalRequest(mind.doc, request, {
             ...made,
@@ -952,7 +982,9 @@ export function createEdits(options: EditsOptions) {
       const read = readForEdit(input.mindId, input.from, input.to);
       if (!read.ok) {
         if (read.reason !== "has-proposals") return nothing({ kind: "changed" });
-        const waiting = content.read(input.mindId, (mind) => waitingIn(mind, input.from, input.to));
+        const waiting = content.read(input.mindId, (mind) =>
+          waitingIn(mind, input.from, input.to, input.ownRequests),
+        );
         return waiting.kind === "own"
           ? await revise(input, waiting)
           : nothing({ kind: "has-proposals" });

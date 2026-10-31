@@ -27,10 +27,13 @@ import {
   FOOTNOTE_NODE,
   type FormattedCitations,
   IMAGE_NODE,
+  PAGE_BREAK_NODE,
+  TABLE_OF_CONTENTS_NODE,
+  WORD_ATOM_NODE,
   type WordExportLoss,
   type WordExportReport,
 } from "../../api";
-import { nodesByPlace, readWordDocument } from "../../documents/formats/docxImport";
+import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, relationshipsOf, reviewOf } from "../../documents/formats/docxPackage";
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
@@ -42,10 +45,10 @@ import {
   readBlock,
   readInlineNodes,
 } from "../../mindText";
-import { DocxWriter } from "../docx";
+import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { Review, type ReviewChoices } from "../wordReview";
-import { AtomPlan } from "./atoms";
+import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
 import { DocumentPatch } from "./document";
 import {
@@ -56,8 +59,9 @@ import {
   isFurniture,
   mindJson,
 } from "./mind";
-import { WordPackageWriter, WordPartError } from "./package";
-import { currentTokens, type Token } from "./paragraph";
+import { notesSplices } from "./notes";
+import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package";
+import { currentTokens, sourceOf as keptSourceOf, type Token } from "./paragraph";
 import {
   DocumentComments,
   DocumentFootnotes,
@@ -66,6 +70,7 @@ import {
   PatchTarget,
   reserveIds,
 } from "./parts";
+import { applySplices } from "./text";
 
 export interface WordPatchInput {
   /** The package kept when the Mind was imported. */
@@ -93,6 +98,10 @@ export interface WordPatchResult {
   data: Uint8Array;
   report: WordExportReport;
   commented: FailedSentence[];
+  /** The comments on what needs a look the file holds (`Review.checkComments`). */
+  checkComments: number;
+  /** The footnotes the finished document refers to, the ones the file already had included (#2193). */
+  footnotes: number;
 }
 
 /** The text width a section leaves, in twips, for new tables and pictures: US Letter's with 1 inch margins if it doesn't say. */
@@ -115,7 +124,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await writer.text(pkg.part);
 
   const doc = input.blocks.doc;
-  if (!doc || !wordFileOf(doc)) throw new Error("This Mind wasn't imported from a Word file.");
+  if (!doc || !wordFileOf(doc)) throw new Error("This Note wasn't imported from a Word file.");
   const reading = input.readOptions.review;
   const yOf = new Map<NodeJSON, Y.XmlElement>();
   const current = input.blocks
@@ -176,8 +185,19 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     current,
     baseKey,
     currentKey,
-    base.places,
+    {
+      text: base.text,
+      places: base.places,
+      noteXml: (kind, id) => {
+        const part = base.notes[kind];
+        return part ? noteXmlIn(part, kind, id) : undefined;
+      },
+    },
     input.review.trackAs !== null,
+    (node) => {
+      const kept = keptSourceOf(node);
+      return kept !== null && sourceOf(node)?.n === kept;
+    },
   );
 
   // The parts new content goes into.
@@ -199,18 +219,72 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await reserveIds(writer, target.ids, bookmarks);
   target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
-  const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
+  // The headings the file now holds, an added table of contents' entries. Each gets a bookmark
+  // in its paragraph, with a name that can't take one the file already has; the field's links
+  // name those bookmarks, and Word is asked to update the field as it opens.
+  const headingOf = (node: NodeJSON) => {
+    if (node.type !== "heading") return null;
+    const text = (node.content ?? [])
+      .flatMap((each) => (each.type === "text" ? [each.text ?? ""] : []))
+      .join("")
+      .trim();
+    if (text === "") return null;
+    const level = Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6);
+    return { level, text };
+  };
+  const hasContents = (nodes: readonly NodeJSON[]): boolean =>
+    nodes.some(
+      (node) =>
+        node.type === TABLE_OF_CONTENTS_NODE ||
+        (Array.isArray(node.content) && hasContents(node.content)),
+    );
+  let nextToc = 90000001;
+  const contents: ContentsEntry[] = [];
+  const bookmarksOf = new Map<string, { id: number; name: string }>();
+  for (const node of hasContents(current) ? current : []) {
+    const heading = headingOf(node);
+    if (!heading) continue;
+    let name = "";
+    do name = `_Toc${nextToc++}`;
+    while (bookmarks.has(name));
+    bookmarks.add(name);
+    const bookmark = { id: target.ids.take("annotation"), name };
+    const id = node.attrs?.id;
+    if (typeof id === "string") bookmarksOf.set(id, bookmark);
+    contents.push({ ...heading, name });
+  }
+  const docxWriter = new DocxWriter(
+    input.labels,
+    textWidthOf(base.root),
+    target,
+    review,
+    [],
+    contents,
+  );
+  const bookmarkOf = (node: NodeJSON) => {
+    const id = node.attrs?.id;
+    return typeof id === "string" ? (bookmarksOf.get(id) ?? null) : null;
+  };
 
   // What is written new, read as the native export reads it, then its Citations styled together.
   const options = input.readOptions;
   const specialOf = (node: NodeJSON) => {
     const element = yOf.get(node);
+    const kind = node.type === WORD_ATOM_NODE ? node.attrs?.kind : null;
     const special =
       node.type === CITATION_NODE ||
       node.type === FOOTNOTE_NODE ||
+      node.type === PAGE_BREAK_NODE ||
       node.type === "inlineMath" ||
-      (node.type === IMAGE_NODE && !node.attrs?.source);
-    return element && special ? readInlineNodes([element], options) : [];
+      node.type === IMAGE_NODE ||
+      kind === "footnote" ||
+      kind === "endnote";
+    if (!element || !special) return [];
+    const read = readInlineNodes([element], options);
+    // A note kept as is with no text the Note knows is still a note: its mark is never left out.
+    return read.length > 0 || node.type !== WORD_ATOM_NODE
+      ? read
+      : [{ kind: "footnote" as const, content: [] }];
   };
   const textOf = (node: NodeJSON) => {
     const element = yOf.get(node);
@@ -239,8 +313,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
         order.push(each);
       } else if (counterpart.kind === "table" && counterpart.key !== null) {
         for (const row of counterpart.node.content ?? []) {
-          for (const cell of row.content ?? [])
-            visit(counterpartsOf(cell.content ?? [], currentKey, reading));
+          const cells = (row.content ?? []).flatMap((cell) =>
+            counterpartsOf(cell.content ?? [], currentKey, reading),
+          );
+          visit(cells);
+          spreadRowSentence(cells.flatMap((each) => tokens.get(each.node) ?? []));
         }
       } else if (counterpart.kind === "other" || counterpart.kind === "table") {
         const element = yOf.get(counterpart.node);
@@ -259,6 +336,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     sources: input.sources,
     format: input.formatCitations,
     unverified: input.labels.unverified,
+    figures: { footnote: options.footnote, labels: input.labels },
   });
   for (const each of order) if (each.blocks) each.blocks = await input.withPictures(each.blocks);
 
@@ -288,6 +366,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       return element ? readBlock(element, options) : [];
     },
     writer: docxWriter,
+    bookmarkOf,
     target,
     styles,
     relationships: await relationshipsOf(pkg.zip, pkg.part),
@@ -308,10 +387,47 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     );
   }
   if (text !== base.text) writer.set(pkg.part, text);
+
+  const endnotes = base.notes.endnote;
+  const endnoteLinks = endnotes ? await writer.relationshipsOf(endnotes.name) : null;
+  const notes = notesSplices({
+    base,
+    current,
+    plan,
+    edited: (footnote) => {
+      const id = footnote.attrs?.id;
+      const source = typeof id === "string" ? wordSourceOf(doc, id) : null;
+      const element = yOf.get(footnote);
+      return !source || !element || wordFingerprint(element) !== source.f;
+    },
+    // A note kept as is can't be a note inside a note: its text goes in.
+    tokensOf: (content) =>
+      currentTokens(
+        content,
+        (node) => (node.type === WORD_ATOM_NODE ? [] : specialOf(node)),
+        (node) => (node.type === WORD_ATOM_NODE ? copiedText(node) : textOf(node)),
+        reading,
+      ),
+    special: (inline) => docxWriter.inlineXml([inline], { note: true }),
+    link: (kind, href) =>
+      kind === "footnote" || !endnoteLinks
+        ? target.link(href, true)
+        : endnoteLinks.add(RELATIONSHIP_TYPES.hyperlink, href, true),
+    linkStyle: styles.find("character", "Hyperlink"),
+    addLinkStyle: () => styles.id("hyperlink"),
+    ids: target.ids,
+    review,
+    reading,
+  });
+  if (base.notes.footnote) footnotes.edit(base.notes.footnote.text, notes.footnote);
+  if (endnotes && notes.endnote.length > 0) {
+    writer.set(endnotes.name, applySplices(endnotes.text, notes.endnote));
+  }
   footnotes.add(docxWriter.footnotes);
   await footnotes.flush();
   await comments.flush(review.comments);
   await target.flush();
+  if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 
   const report: WordExportReport = {
     notKept: [...plan.losses, ...patch.losses],
@@ -325,7 +441,81 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   ) {
     report.notKept.push(signatureLoss);
   }
-  return { data, report, commented: review.commentedSentences() };
+  return {
+    data,
+    report,
+    commented: review.commentedSentences(),
+    checkComments: review.checkComments(),
+    footnotes: docxWriter.footnoteCount,
+  };
+}
+
+/** A row checked as one claim: every token of its cells carries its check, so its comment covers the row. */
+function spreadRowSentence(row: Token[]): void {
+  const sentence = row.find((each) => each.sentence?.row)?.sentence;
+  if (!sentence) return;
+  for (const each of row) each.sentence ??= sentence;
+}
+
+const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/**
+ * The settings that come after `w:updateFields` in WordprocessingML's order (CT_Settings), where
+ * Word reads it: the field request goes before them, never at the end of the part.
+ */
+const SETTINGS_AFTER_UPDATE_FIELDS = [
+  "hdrShapeDefaults",
+  "footnotePr",
+  "endnotePr",
+  "compat",
+  "docVars",
+  "rsids",
+  "mathPr",
+  "attachedSchema",
+  "themeFontLang",
+  "clrSchemeMapping",
+  "doNotIncludeSubdocsInStats",
+  "doNotAutoCompressPictures",
+  "forceUpgrade",
+  "captions",
+  "readModeInkLockDown",
+  "smartTagType",
+  "schemaLibrary",
+  "shapeDefaults",
+  "doNotEmbedSmartTags",
+  "decimalSymbol",
+  "listSeparator",
+] as const;
+
+/** Asks Word to update the fields, so a table of contents' cached result is rebuilt as it opens. */
+async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): Promise<void> {
+  const settings = await writer.part("word/settings.xml");
+  if (settings) {
+    // An older export may have put the request at the end: it is removed and written where it
+    // belongs, before the first setting the schema places after it.
+    const without = settings.text
+      .replace(/<w:updateFields\b[^>]*\/>/, "")
+      .replace(/<w:updateFields\b[^>]*>.*?<\/w:updateFields>/, "");
+    const before = new RegExp(`<(?:w|m):(?:${SETTINGS_AFTER_UPDATE_FIELDS.join("|")})\\b`);
+    const text = before.test(without)
+      ? without.replace(before, '<w:updateFields w:val="true"/>$&')
+      : without.replace(/<\/w:settings>/, '<w:updateFields w:val="true"/></w:settings>');
+    if (text !== settings.text) writer.set("word/settings.xml", text);
+    return;
+  }
+  writer.add(
+    "word/settings.xml",
+    `${XML_DECLARATION}<w:settings xmlns:w="${WORD_NS}"><w:updateFields w:val="true"/></w:settings>`,
+  );
+  const relationships = await writer.relationshipsOf(mainPart);
+  relationships.add(`${REL_NS}/settings`, "settings.xml");
+  relationships.flush();
+  await writer.addContentType(
+    "word/settings.xml",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+  );
 }
 
 const signatureLoss: WordExportLoss = {

@@ -11,7 +11,14 @@ import { CURRENT_SINCE, PROCESSING_VERSION } from "../../src/core/documents/proc
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
-import { createSourceFolder, sha256, waitForProcessing } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  sha256,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
+import { xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 
 const NOTES =
@@ -75,7 +82,7 @@ async function beforeUnits(): Promise<{
           key === "pdf" ? 2n : null,
           paths[key],
           info.mtimeMs,
-          BigInt(key === "pdf" ? CURRENT_SINCE.pdf : 4),
+          BigInt(key === "pdf" ? PROCESSING_VERSION : 4),
           AT,
           AT,
         ],
@@ -189,9 +196,9 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
       { id: "d3", processing_version: PROCESSING_VERSION },
     ]);
 
-    // A Citation of a whole file, from before Units, is still checked: now in its section.
     expect(
       await core.recheckCitation({
+        mindId: null,
         documentId: IDS.notes,
         quote: "Spring tides came at full moon.",
         pageFrom: null,
@@ -199,10 +206,94 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
       }),
     ).toMatchObject({
       check: "found",
-      pageFrom: 2,
-      pageTo: 2,
-      location: { kind: "section", heading: "Results" },
+      pageFrom: null,
+      pageTo: null,
+      location: null,
     });
     core.close();
+  });
+});
+
+describe("a workbook stamped by an older pipeline", () => {
+  test("is read again once for its hidden sheets, a no-text one too; a PDF is not read", async () => {
+    const sources = await createSourceFolder();
+    const dataDir = await createTempDataFolder();
+    const first = startCore(dataDir);
+    const [book, blank, pdf, notes] = (await addAndProcess(first, [
+      await writeSourceFile(
+        sources,
+        "Budget.xlsx",
+        xlsxOf([
+          { name: "Visible", rows: [["Region"]] },
+          { name: "Q3 raw", state: "hidden", rows: [["Secret"]] },
+        ]),
+      ),
+      await writeSourceFile(
+        sources,
+        "Hidden.xlsx",
+        xlsxOf([{ name: "Q3 raw", state: "hidden", rows: [["Secret"]] }]),
+      ),
+      await writeSourceFile(sources, "Tides.pdf", buildPdf([{ lines: ["Spring tides."] }])),
+      await writeSourceFile(sources, "Notes.md", "# Notes\n\nSpring tides.\n"),
+    ])) as [Document, Document, Document, Document];
+    expect(blank.status).toBe("no-text");
+    first.close();
+
+    // Workbooks are stamped 12, before #1924; the PDF and the Markdown are current and not
+    // read again.
+    expect(12).toBeLessThan(PROCESSING_VERSION);
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        "UPDATE documents SET processing_version = CASE WHEN kind = 'xlsx' THEN 12 ELSE ? END, unread_parts = NULL",
+        [BigInt(PROCESSING_VERSION)],
+      );
+    } finally {
+      db.close();
+    }
+
+    const second = startCore(dataDir);
+    const waiting = Object.fromEntries(
+      (await second.listDocuments()).map((document) => [document.id, document.status]),
+    );
+    // Only the workbooks are read again; a PDF or Markdown read would be queued too.
+    expect(waiting).toEqual({
+      [book.id]: "queued",
+      [blank.id]: "queued",
+      [pdf.id]: "ready",
+      [notes.id]: "ready",
+    });
+    await waitForProcessing(second, [book.id, blank.id]);
+    // Both workbooks said what they left out, so both were read again.
+    for (const id of [book.id, blank.id]) {
+      const [row] = queryDatabase<{ unread_parts: string | null }>(
+        dataDir,
+        "SELECT unread_parts FROM documents WHERE id = ?",
+        [id],
+      );
+      expect(row?.unread_parts).toContain("Q3 raw");
+    }
+    // All say this pipeline's version now, so a later start reads none of them again.
+    expect(
+      queryDatabase<{ processing_version: number }>(
+        dataDir,
+        "SELECT processing_version FROM documents ORDER BY name",
+      ).map((row) => row.processing_version),
+    ).toEqual([PROCESSING_VERSION, PROCESSING_VERSION, PROCESSING_VERSION, PROCESSING_VERSION]);
+    expect(
+      queryDatabase<{ status: string }>(dataDir, "SELECT status FROM documents")
+        .map((row) => row.status)
+        .sort(),
+    ).toEqual(["no-text", "ready", "ready", "ready"]);
+    second.close();
+
+    // Read once: at the next start nothing is queued for reading again.
+    const third = startCore(dataDir);
+    const statuses = queryDatabase<{ status: string }>(dataDir, "SELECT status FROM documents").map(
+      (row) => row.status,
+    );
+    expect(statuses).not.toContain("queued");
+    expect(statuses).not.toContain("extracting");
+    third.close();
   });
 });

@@ -5,6 +5,7 @@ import { tagTarget } from "../folderDrag";
 import { useT } from "../i18n";
 import { isShown } from "../layoutSlice";
 import { documentsByTag } from "../libraryFilters";
+import { useOwnDocuments } from "../ownDocuments";
 import { useAppStore } from "../store";
 import { editTag } from "../tagChanges";
 import { useTreeItem } from "../treeKeys";
@@ -31,7 +32,7 @@ import { TagDot } from "./TagColour";
 export function SidebarTags() {
   const t = useT();
   const tags = useAppStore((state) => state.tags);
-  const documents = useAppStore((state) => state.documents);
+  const documents = useOwnDocuments();
   const byTag = useMemo(() => documentsByTag(documents), [documents]);
   const folded = useFolds((state) => state.tagsFolded);
   const used = tags.filter((tag) => byTag.has(tag.id));

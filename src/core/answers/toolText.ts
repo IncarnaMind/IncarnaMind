@@ -1,13 +1,14 @@
 /**
  * Text a model writes where it should have called a Tool: a `<cite>` block of
- * records, a `<tool_call>` of JSON, as tags or escaped ("&lt;cite&gt;"). The
- * Answer never shows it. The records of a `<cite>` block go back to be
- * recorded as `cite` would have, so the Citations they name are not lost;
- * any other block just goes, and the sentences it was for read as uncited.
+ * records, a `<tool_call>` of JSON, as tags or escaped ("&lt;cite&gt;"), or the
+ * call itself (`cite([…])`). The Answer never shows it. The records of a
+ * `cite` block go back to be recorded as `cite` would have, so the Citations
+ * they name are not lost; any other block just goes, and the sentences it was
+ * for read as uncited.
  *
- * A block is only what is shaped like a call: a tag of a Tool, then JSON. The
- * same tag around words ("the <cite> element"), or inside code or maths, is
- * the text's own.
+ * A block is only what is shaped like a call: a Tool's tag, or its name and a
+ * bracket, then JSON. The same words without JSON ("the <cite> element",
+ * "cite (2024)"), or inside code or maths, are the text's own.
  */
 import { shownRanges } from "../../shared/answerBlocks";
 
@@ -35,14 +36,19 @@ const JSON_START = '(?:\\[\\s*[{\\]]|\\{\\s*(?:"|&quot;|\\}))';
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const alternatives = (names: readonly string[]) => names.map(escapeRegExp).join("|");
 
-const closedPattern = (names: readonly string[]) =>
+/**
+ * Where a block starts: a Tool's tag (group 1), its name and an opening bracket (group 2), or,
+ * at the start of a line, its name and a colon ("cite: [...]", group 3).
+ */
+const openerPattern = (names: readonly string[], json: string) =>
   new RegExp(
-    `${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}\\s*(${JSON_START}[\\s\\S]*?)\\s*${OPEN}/\\1\\s*${CLOSE}`,
+    `(?:${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}|(?<![\\w-])(${alternatives(names)})\\(|(?<![^\\n])[ \\t]*(${alternatives(names)})[ \\t]*:)\\s*(?=${json})`,
     "gi",
   );
 
-const openingPattern = (names: readonly string[]) =>
-  new RegExp(`${OPEN}(${alternatives(names)})${ATTRIBUTES}${CLOSE}\\s*(?=${JSON_START})`, "gi");
+/** What closes a block: the closing bracket right after its JSON, or the tag's closing tag. */
+const closerPattern = (tag: string, call: boolean) =>
+  call ? /^\s*\)/ : new RegExp(`\\s*${OPEN}/${escapeRegExp(tag)}\\s*${CLOSE}`, "i");
 
 interface Block {
   from: number;
@@ -54,35 +60,37 @@ interface Block {
 }
 
 /**
- * The blocks that show: a tag, JSON, and a closing tag. A block never closed
- * is its tag and the JSON after it, or, when that is cut off, the rest of its
- * paragraph: the words after it are the Answer's.
+ * The blocks that show: an opener, JSON, and its closer. A block whose JSON
+ * is cut off is the rest of its paragraph: the words after it are the Answer's.
  */
 function blocksIn(text: string, names: readonly string[]): Block[] {
-  const closed = [...text.matchAll(closedPattern(names))].map((each) => ({
-    from: each.index,
-    to: each.index + each[0].length,
-    tag: (each[1] ?? "").toLowerCase(),
-    content: each[2] ?? "",
-    escaped: each[0].startsWith("&"),
-  }));
-  const cutOff = [...text.matchAll(openingPattern(names))]
-    .filter((each) => !closed.some((block) => each.index >= block.from && each.index < block.to))
-    .map((each) => {
-      const start = each.index + each[0].length;
-      const paragraph = text.indexOf("\n\n", start);
-      const to = jsonEnd(text, start) ?? (paragraph === -1 ? text.length : paragraph);
-      return {
-        from: each.index,
-        to,
-        tag: (each[1] ?? "").toLowerCase(),
-        content: text.slice(start, to),
-        escaped: each[0].startsWith("&"),
-      };
-    });
   const apart: Block[] = [];
-  for (const block of [...closed, ...cutOff].sort((a, b) => a.from - b.from)) {
-    if (block.from >= (apart.at(-1)?.to ?? 0)) apart.push(block);
+  for (const each of text.matchAll(openerPattern(names, JSON_START))) {
+    if (each.index < (apart.at(-1)?.to ?? 0)) continue;
+    const call = each[1] === undefined;
+    const tag = (each[1] ?? each[2] ?? each[3] ?? "").toLowerCase();
+    const start = each.index + each[0].length;
+    const json = jsonEnd(text, start);
+    const paragraph = text.indexOf("\n\n", start);
+    // A tag's block runs to its closing tag; a call's to the bracket right after its JSON, and
+    // a name with a colon's to the end of its JSON.
+    const closer =
+      each[3] !== undefined || (call && json === undefined)
+        ? null
+        : call && json !== undefined
+          ? closerPattern(tag, true).exec(text.slice(json))
+          : closerPattern(tag, false).exec(text.slice(start));
+    const end =
+      !call && closer
+        ? start + closer.index
+        : (json ?? (paragraph === -1 ? text.length : paragraph));
+    apart.push({
+      from: each.index,
+      to: end + (closer?.[0].length ?? 0),
+      tag,
+      content: text.slice(start, end),
+      escaped: each[0].startsWith("&"),
+    });
   }
   const shown = shownRanges(
     text,
@@ -165,21 +173,16 @@ export function takeToolText(
 
 /**
  * Where the Answer's text is held back while it streams, so tool-call text
- * never shows even for a moment: from the first opening tag that has JSON
- * after it or nothing yet, or from an opening tag still being typed.
+ * never shows even for a moment: from the first opener that has JSON after it
+ * or nothing yet, or from an opener still being typed.
  */
 export function heldBackFrom(text: string, names: readonly string[] = TOOL_TEXT_TAGS): number {
   const inFence = (at: number) =>
     (text.slice(0, at).match(/^ {0,3}(?:```|~~~)/gm)?.length ?? 0) % 2 === 1;
   const opened = [
-    ...text.matchAll(
-      new RegExp(
-        `${OPEN}(?:${alternatives(names)})${ATTRIBUTES}${CLOSE}\\s*(?=$|\\[\\s*(?:[{\\]]|$)|\\{\\s*(?:"|&quot;|\\}|$))`,
-        "gi",
-      ),
-    ),
+    ...text.matchAll(openerPattern(names, '$|\\[\\s*(?:[{\\]]|$)|\\{\\s*(?:"|&quot;|\\}|$)')),
   ].find((each) => !inFence(each.index))?.index;
-  const typing = /(?:<|&(?:l(?:t;?)?)?)([a-z_]*)$/i.exec(text);
+  const typing = /(?:<|&(?:l(?:t;?)?)?|(?<![\w-]))([a-z_]*)$/i.exec(text);
   const partial =
     typing &&
     names.some((name) => name.startsWith((typing[1] ?? "").toLowerCase())) &&

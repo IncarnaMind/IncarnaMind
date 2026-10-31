@@ -236,7 +236,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await newMind(window);
 
   // A Mind: Open, Open in new tab; Export… (one item, which opens the Export button's menu),
-  // the AI use statement and check record; Move to…, New Folder with this Mind; Rename; then
+  // the AI use statement and check record; Move to…, New Folder with this note; Rename; then
   // Delete after a rule.
   const mind = window.getByTestId("mind-row").first();
   const mindMenu = await sameFromBothWays(
@@ -251,11 +251,13 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.openTab",
     "—",
     "mind.outline",
+    "mind.duplicate",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.citationStyle",
     "mind.style",
@@ -264,6 +266,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind.moveTo",
     "folder.newWith",
     "—",
+    "mind.tidy",
     "mind.rename",
     "—",
     "mind.delete",
@@ -326,6 +329,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "folder.new",
     "folder.organize",
     "folder.editDescription",
+    "folder.keepInside",
     "folder.sort",
     "—",
     "folder.rename",
@@ -376,17 +380,19 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   const tabMenu = tab.getByTestId("tab-actions");
   const byRightClick = await menuCommands(tabMenu);
   // Its Mind's items first, then the tab's own, and Delete last.
-  expect(byRightClick.slice(0, 10)).toEqual([
+  const tabOwn = byRightClick.indexOf("tab.split");
+  expect(byRightClick.slice(0, tabOwn)).toEqual([
     "mind.outline",
+    "mind.duplicate",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
     "mind.history",
     "mind.check",
+    "mind.tieOut",
     "mind.checkContradictions",
     "mind.style",
     "—",
-    "tab.split",
   ]);
   expect(byRightClick.slice(-2)).toEqual(["—", "mind.delete"]);
   expect(byRightClick.indexOf("tab.rename")).toBeLessThan(byRightClick.indexOf("tab.close"));
@@ -415,12 +421,18 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   expect(await menuCommands(answerMenu)).toEqual(answerByRightClick);
   await window.keyboard.press("Escape");
 
-  // A Citation: Open, then Remove; its card's ⋯ opens the same.
+  // A Citation: Open, Checked by me (a toggle, #1933), then Remove; its card's ⋯ opens the same.
   await window.getByTestId("mind-list-item").filter({ hasText: "Cited notes" }).click();
   const citation = window.getByTestId("mind-editor").getByTestId("citation");
   const citationMenu = citation.getByTestId("citation-actions");
   await rightClick(window, citation.getByTestId("citation-chip"));
-  expect(await menuCommands(citationMenu)).toEqual(["citation.open", "—", "citation.remove"]);
+  expect(await menuCommands(citationMenu)).toEqual([
+    "citation.open",
+    "—",
+    "citation.signOff",
+    "—",
+    "citation.remove",
+  ]);
   await screenshot(window, "menu-citation");
   await window.keyboard.press("Escape");
   await citation.getByTestId("citation-chip").hover();
@@ -429,6 +441,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await card.getByTestId("citation-menu").click();
   expect(await menuCommands(card.getByTestId("citation-actions"))).toEqual([
     "citation.open",
+    "—",
+    "citation.signOff",
     "—",
     "citation.remove",
   ]);
@@ -470,8 +484,12 @@ test("the context-menu key and Shift+F10 open the focused row's menu; arrows mov
   // Export options… opens the sheet.
   await row.focus();
   await window.keyboard.press("Shift+F10");
-  for (let step = 0; step < 3; step++) await window.keyboard.press("ArrowDown");
-  await expect(menu.getByTestId("mind.exportMenu")).toBeFocused();
+  const target = menu.getByTestId("mind.exportMenu");
+  for (let step = 0; step < 20; step++) {
+    if (await target.evaluate((item) => item === document.activeElement)) break;
+    await window.keyboard.press("ArrowDown");
+  }
+  await expect(target).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("export-menu")).toBeVisible();
   await expect(menu).toBeHidden();
@@ -506,17 +524,20 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "打开",
     "在新标签页中打开",
     /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
+    "创建副本",
     "导出…",
     "导出 AI 使用声明",
     "导出核对记录…",
     "历史版本",
-    "核对此 Mind",
-    "检查矛盾",
+    "核对",
+    "核对数字",
+    "核对矛盾",
     "引用格式…",
     "样式…",
     "做成技能",
     /^移动到…(⇧⌘M|Ctrl\+Shift\+M)$/,
-    /^新建文件夹并放入此 Mind(⌃⌘N)?$/,
+    /^新建文件夹并放入此笔记(⌃⌘N)?$/,
+    "整理中文排版",
     /^重命名F2$/,
     "删除",
   ]);
@@ -926,7 +947,8 @@ for (const language of ["en", "zh-CN"] as const) {
             : /^向右拆分(⌥⌘\\|Ctrl\+Alt\+\\)$/,
         );
       }
-      expect(ids.length, name).toBeLessThanOrEqual(17);
+      // Duplicate and Tidy Chinese text join this menu with the Note basics (#1935).
+      expect(ids.length, name).toBeLessThanOrEqual(19);
       // It fits: no scrollbar, and inside the window.
       const fits = await menu.evaluate((element) => ({
         scrolls: element.scrollHeight > element.clientHeight + 1,
@@ -946,7 +968,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const exportMenu = window.getByTestId("export-menu");
       await expect(exportMenu, name).toBeVisible();
       await expect(menu, name).toBeHidden();
-      await expect(exportMenu.getByRole("menuitem"), name).toHaveCount(5);
+      // Word, the line that starts Check under it (D266), PDF, More formats, Citation style, Export options.
+      await expect(exportMenu.getByRole("menuitem"), name).toHaveCount(6);
       await window.keyboard.press("Escape");
       await expect(exportMenu, name).toBeHidden();
     }

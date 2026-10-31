@@ -1,17 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core";
-import {
-  claimsIn,
-  holdBack,
-  shownUpTo,
-  unbackedClaims,
-} from "../../src/core/answers/claimedChanges";
-
-/**
- * The narrow net under the change log: a reply's plainest reports of a change
- * to a Mind, in English and Chinese, against what its Tool calls did, Mind
- * by Mind. It misses a vague sentence rather than flag an honest one.
- */
+import { unbackedClaims } from "../../src/core/answers/claimedChanges";
+import { scriptedModel } from "../helpers/models";
 
 const MINDS = [
   { id: "q3", name: "Q3 review" },
@@ -19,8 +9,7 @@ const MINDS = [
   { id: "tides", name: "Tide notes" },
   { id: "papers", name: "Paper summaries" },
 ];
-const NAMES = MINDS.map((mind) => mind.name);
-const kinds = (reply: string) => claimsIn(reply, NAMES).map((claim) => claim.kind);
+const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
 const mindCall = (tool: string, change: Partial<MindChange> | null): AnswerToolCall => ({
   id: `${tool}-1`,
@@ -34,193 +23,199 @@ const mindCall = (tool: string, change: Partial<MindChange> | null): AnswerToolC
   }),
 });
 
-describe("What a reply claims it changed", () => {
-  // protects=the plainest reports of a change to a Mind read as claims; fails_when=one reads as none; no_claim=every wording a model may use.
+function judge(verdict: unknown) {
+  return scriptedModel(() => ({ text: "" }), {
+    generate: () => ({ text: typeof verdict === "string" ? verdict : JSON.stringify(verdict) }),
+  });
+}
+
+async function check(
+  model: ReturnType<typeof judge>,
+  reply: string,
+  calls: AnswerToolCall[] = [],
+  focused: string | null = null,
+) {
+  return unbackedClaims(reply, calls, MINDS, focused, {
+    model,
+    names,
+    signal: new AbortController().signal,
+  });
+}
+
+describe("The quick model's verdict", () => {
   test.each([
-    ["I made a new Mind, “Tide notes”, with a summary of both papers.", ["made"]],
-    ["I created “Tide notes”.", ["made"]],
-    ["Summary page created in “Tide notes”.", ["made"]],
-    ["I added a longer summary section to “Q3 review”.", ["added"]],
-    ["Added a risks section below the introduction in “Q3 review”.", ["added"]],
-    ["Shortened the summary in “Q3 review” from 320 to 150 words.", ["changed"]],
-    ["I made the summary longer.", ["changed"]],
-    ["The summary is now twice as long.", ["changed"]],
-    ["The summary is longer now.", ["changed"]],
-    ["The new page replaces the earlier version.", ["removed"]],
-    ["I replaced the page's old summary with the cited one.", ["removed"]],
-    ["I added the summary to “Q3 review” earlier.", ["added"]],
-    ["Your notes are ready.", ["added"]],
-    ["The summary in “Paper summaries” has been updated with Citations.", ["changed"]],
-    ["Sure, I've written the handout into your notes.", ["added"]],
-    ["我已在“周报”中添加了风险部分。", ["added"]],
-    ["好的，已添加到“周报”。", ["added"]],
-    ["总结已扩写到原来的两倍。", ["changed"]],
-    ["页面已创建。", ["made"]],
-    ["我把“周报”里的风险部分删掉了。", ["removed"]],
-    ["我在笔记里新增了一个风险部分。", ["added"]],
-    ["我已生成一份新的笔记。", ["made"]],
-    ["我把总结加长了。", ["changed"]],
-    ["我把四份文档的摘要都写长了一些", ["changed"]],
-    ["我完善了“周报”的结论。", ["changed"]],
-    // Kimi K2.6's, in the 2026-10-21 runs.
-    ["已经把教程的主要观点整理后加进了你的笔记。", ["added"]],
-    ["我已经把风险部分放进了“周报”。", ["added"]],
-    ["总结现在更长了。", ["changed"]],
-  ])("%s", (reply, expected) => {
-    expect(kinds(reply)).toEqual(expected);
+    "Done — the summary is now on the page.",
+    "Your summary is in “Q3 review” now.",
+    "Here it is in a new Mind, “Library summary”.",
+    "I've renamed the page to “Q3 summary”.",
+    "总结已经放在页面里了。",
+    "好了，第二段现在更清楚了。",
+    "已在新的 Mind 中整理好总结。",
+  ])("an unmade claim is returned unbacked: %s", async (reply) => {
+    const result = await check(
+      judge({ claims: [{ sentence: reply, kind: "changed", about: "mind", backed: false }] }),
+      reply,
+    );
+
+    expect(result.claims).toEqual(["changed"]);
+    expect(result.usage?.inputTokens).toBe(5);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  // protects=honest replies are never read as claims: answers about the Documents (their own changes, versions and drafts), refusals, changes still waiting, earlier claims reported, Citations and words about the reply; fails_when=any one is flagged, which holds the stream back and costs a retry; no_claim=every honest sentence.
-  test.each([
-    "No, the summary I wrote in “Paper summaries” has no Citations yet.",
-    "The changes I proposed in “Q3 review” are still waiting for you.",
-    "The draft was revised twice before publication.",
-    "Revised estimates appear on page 12.",
-    "This version replaces the 2017 standard.",
-    "The quarter was good, and sales were strong.",
-    "The authors added a new layer and proposed a method in “Attention Is All You Need”.",
-    "Proposed in 2017, the Transformer replaced recurrence.",
-    "I couldn't change “Q3 review”: 12 changes are waiting there.",
-    "Nothing was changed in “Q3 review”: 12 changes are waiting in it.",
-    "I made a mistake: my first proposal went into the wrong note.",
-    "I've written a summary below.",
-    "I made no changes.",
-    "I've added 11 citations to the page.",
-    "As I wrote before, the paper is a tutorial.",
-    'The earlier reply was wrong to say I added a risks section to "Q3 review".',
-    'The earlier claim that I added a risks section to "Q3 review" was wrong.',
-    "Expanded two-paper summary (longer draft)\n1) Overview",
-    "Any proposed changes are waiting for you to accept or reject.",
-    "The paper updated its results in the second version.",
-    "The tutorial was updated in 2016 and again in 2019.",
-    "Section 3 was rewritten to cover neap tides.",
-    "The model was trained on 40 datasets and later fine-tuned.",
-    "GraphST replaces the encoder with a graph network.",
-    "The second edition added a chapter on tides.",
-    "Table 4 has been updated with the corrected figures.",
-    "The authors removed two outliers before fitting.",
-    "The page count of the report grew from 40 to 52.",
-    "Their summary is now twice as long as the original abstract.",
-    "The notes were written by the authors.",
-    "The page you mentioned was added in the 2019 edition.",
-    "A new page was added to the report in 2020.",
-    "The handout was made for the 2019 workshop.",
-    "I think the authors changed their method.",
-    "I'd add a risks section if you want.",
-    "I can add this to your notes.",
-    "Should I make the summary shorter?",
-    "I made the comparison in my reply below.",
-    "I wrote nothing into your notes.",
-    "I haven't written anything to “Q3 review” yet.",
-    "I updated my understanding: the paper uses 12 datasets.",
-    "I revised my estimate after reading Table 3.",
-    "I changed nothing.",
-    "The Mind “Q3 review” holds the summary you accepted.",
-    "You accepted the changes in “Q3 review” earlier.",
-    "Your page already has a risks section.",
-    "The summary page lists three risks.",
-    "Replaced by the 2023 rules, the old standard no longer applies.",
-    "Updated figures are in Table 2.",
-    "Added value grew 3% in the quarter.",
-    "Fixed costs rose to £2bn.",
-    "Moved to Chapter 4, the proof is shorter.",
-    "The authors have been revising the model since 2019.",
-    "The dataset has been updated twice.",
-    "作者已经修改了模型。",
-    "我没有修改任何内容。",
-    "下面是我写好的总结。",
-    "之前说我已在“周报”中添加了风险部分，这是错的。",
-    "修订都在等你确认。",
-    "我建议在笔记中添加风险部分。",
-    "这篇论文在2019年更新过。",
-    "论文已经修改了三次。",
-    "摘要已更新为第二版。",
-    "我可以把它加到你的笔记里。",
-    "第二段的修改还在等你确认。",
-    "我已经读了这两篇论文。",
-    "已核对 12 处引用。",
-    "作者删除了两个异常值。",
-    "表 4 已经更新。",
-    "我已经更新了我对这篇论文的理解。",
-  ])("%s", (reply) => {
-    expect(kinds(reply)).toEqual([]);
+  test("a verdict's straight quotes match the reply's curly quotes", async () => {
+    const reply = "I've renamed the page to “Q3 summary”.";
+    const sentence = 'I\'ve renamed the page to "Q3 summary".';
+    const result = await check(
+      judge({ claims: [{ sentence, kind: "changed", about: "mind", backed: false }] }),
+      reply,
+    );
+    expect(result.claims).toEqual(["changed"]);
   });
-});
 
-describe("Claims against what the calls did", () => {
-  // protects=a claimed change needs a call that made it; fails_when=a made-up change passes, or a real one is flagged; no_claim=whether the change was good.
-  test("a claimed change needs a call that made it", () => {
+  test.each([
+    "The page was created on 3 March 2021 to track the project.",
+    "The new page replaces the version published in 2019.",
+    "第二版中，已经修改了摘要部分的实验结论。",
+    "这份总结已经完成于2023年。",
+    "The authors updated the report in 2024.",
+  ])("a Document description is not a change claim: %s", async (reply) => {
+    const result = await check(judge({ claims: [] }), reply);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("the record, not the old wording patterns, decides", async () => {
     const reply = "I added a risks section to “Q3 review”.";
-    expect(unbackedClaims(reply, [], MINDS)).toEqual(["added"]);
-    expect(unbackedClaims(reply, [mindCall("add_to_mind", {})], MINDS)).toEqual([]);
-    expect(unbackedClaims(reply, [mindCall("add_to_mind", null)], MINDS)).toEqual(["added"]);
-  });
+    const backed = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
+    });
+    const unbacked = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+    });
 
-  // protects=a claim that names a Mind holds only by a change in that Mind; fails_when=a change elsewhere backs it; no_claim=none beyond protects.
-  test("a claim naming a Mind needs a change in that Mind", () => {
-    const elsewhere = [mindCall("add_to_mind", { mindId: "tides" })];
-    expect(unbackedClaims("I added a risks section to “Q3 review”.", elsewhere, MINDS)).toEqual([
+    expect((await check(backed, reply, [mindCall("add_to_mind", {})])).claims).toEqual([]);
+    expect((await check(unbacked, reply, [mindCall("add_to_mind", null)])).claims).toEqual([
       "added",
     ]);
-    expect(unbackedClaims("I added a risks section to “Tide notes”.", elsewhere, MINDS)).toEqual(
-      [],
-    );
   });
 
-  // protects=a claim about the User's own notes, named by no name ("your notes", "这篇笔记"), holds only by a change in the Mind they are in, as after a piece was sent to a new Mind (#1109); fails_when=a new Mind's text backs "added it to your notes"; no_claim=none beyond protects.
-  test("a claim about the User's notes needs a change in the Mind they are in", () => {
-    const madeElsewhere = [mindCall("create_mind", { mindId: "tides", created: true })];
-    const inTheirs = [mindCall("add_to_mind", { mindId: "q3" })];
-    for (const reply of ["I added it to your notes.", "我已把摘要写进你的笔记里。"]) {
-      expect(unbackedClaims(reply, madeElsewhere, MINDS, "q3"), reply).not.toEqual([]);
-      expect(unbackedClaims(reply, inTheirs, MINDS, "q3"), reply).toEqual([]);
-    }
+  test("a claim about the focused Mind is checked with its name", async () => {
+    const reply = "我已把摘要写进你的笔记里。";
+    const model = judge({ claims: [] });
+    await check(model, reply, [mindCall("add_to_mind", {})], "q3");
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain('\\"id\\": \\"q3\\"');
+    expect(prompt).toContain('\\"name\\": \\"Q3 review\\"');
   });
 
-  // protects=a made Mind needs a call that made one; "replaced" needs text changed, not only added; a claim about an earlier Answer gets no pass; fails_when=any of these passes; no_claim=none beyond protects.
-  test("made, replaced and earlier", () => {
-    const added = [mindCall("add_to_mind", {})];
-    expect(unbackedClaims("I made a new note, “Plan”.", added)).toEqual(["made"]);
-    expect(
-      unbackedClaims("I made a new note, “Plan”.", [mindCall("create_mind", { created: true })]),
-    ).toEqual([]);
-    expect(unbackedClaims("I replaced the page's old summary.", added)).toEqual(["removed"]);
-    expect(
-      unbackedClaims("I replaced the page's old summary.", [
-        mindCall("edit_mind", { revised: true }),
-      ]),
-    ).toEqual([]);
-    expect(unbackedClaims("I added the summary to “Q3 review” earlier.", [], MINDS)).toEqual([
-      "added",
-    ]);
+  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its input, affected items or renamed target; why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
+  test("run_command records carry the command, input and affected Mind items", async () => {
+    const model = judge({ claims: [] });
+    const calls: AnswerToolCall[] = [
+      {
+        id: "rename",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.rename", ids: ["q3"], name: "Q3 summary" },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.rename",
+          run: "r1",
+          items: [{ kind: "mind", id: "q3", name: "Q3 review", renamed: "Q3 summary" }],
+        },
+      },
+      {
+        id: "delete",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "mind.delete", ids: ["weekly"] },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "mind.delete",
+          run: "r2",
+          items: [{ kind: "mind", id: "weekly", name: "周报" }],
+        },
+      },
+    ];
+
+    await check(model, "I renamed and deleted the pages.", calls);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain("mind.rename");
+    expect(prompt).toContain("mind.delete");
+    expect(prompt).toContain("Q3 summary");
+    expect(prompt).toContain("周报");
+    expect(prompt).toContain('\\"ids\\"');
+  });
+
+  test.each(["typo", undefined])(
+    "a verdict with an invalid change kind finds nothing: %s",
+    async (kind) => {
+      const result = await check(
+        judge({ claims: [{ sentence: "An honest Answer.", kind, backed: false }] }),
+        "An honest Answer.",
+      );
+      expect(result.claims).toEqual([]);
+    },
+  );
+
+  test("a blank reply costs no judge call", async () => {
+    const model = judge({ claims: [] });
+    expect((await check(model, "  ")).claims).toEqual([]);
+    expect(model.doGenerateCalls).toHaveLength(0);
+  });
+
+  test("a failed check finds nothing rather than flagging an honest reply", async () => {
+    const model = scriptedModel(() => ({ text: "" }), {
+      generate: () => ({ error: { status: 503, message: "offline" } }),
+    });
+    expect((await check(model, "An honest Answer.")).claims).toEqual([]);
+  });
+
+  test("an unreadable verdict finds nothing", async () => {
+    expect((await check(judge("not JSON"), "An honest Answer.")).claims).toEqual([]);
   });
 });
 
-describe("A reply as it streams", () => {
-  const shown = (text: string) => text.slice(0, shownUpTo(text, ["Q3 review"]));
+describe("What the judge says the sentence is about (#2194)", () => {
+  const english = "I've sorted out what the Volunteer Handbook says.";
+  const chinese = "我整理了手册的要点。";
 
-  // protects=a reply streams as it comes but for the sentence that may claim a change, held until it is checked, and its last word, which may become one; fails_when=a claim shows before it is checked, or text that can't be one waits; no_claim=none beyond protects.
-  test("shows all but what may claim a change", () => {
-    expect(shown("A Mind is ")).toBe("A Mind is ");
-    expect(shown("A Mind is a note")).toBe("A Mind is a ");
-    expect(shown("The tides are late. I've added a risks section to “Q3 review”. More")).toBe(
-      "The tides are late. ",
-    );
-    expect(shown("The tides are late. I've ad")).toBe("The tides are late. ");
-    expect(shown("The tides are late. Short")).toBe("The tides are late. ");
-    expect(shown("The summary is now twice")).toBe("");
-    expect(shown("总结说潮汐很晚。总结已扩")).toBe("总结说潮汐很晚。");
-    expect(shown("潮汐很晚")).toBe("潮汐很晚");
+  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
+    "about %s finds nothing",
+    async (about) => {
+      for (const reply of [english, chinese]) {
+        const result = await check(
+          judge({ claims: [{ sentence: reply, kind: "added", about, backed: false }] }),
+          reply,
+        );
+        expect(result.claims).toEqual([]);
+      }
+    },
+  );
+
+  // protects=a claim the judge calls a change to a Mind flags, backed false; fails_when=the line goes missing for a real claim; no_claim=none beyond protects.
+  test("about mind flags", async () => {
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }] }),
+        reply,
+      );
+      expect(result.claims).toEqual(["added"]);
+    }
   });
 
-  // protects=read as it grows, the reply shows what it would read whole at each step, and a reply taken back is read afresh; fails_when=a step shows more or less than a whole read, or a held claim keeps an honest retry back; no_claim=how long a reply takes to read.
-  test("as it grows, as if read whole, and afresh once taken back", () => {
-    const hold = holdBack(() => ["Q3 review"]);
-    const reply = "The tides are late. I've added a risks section to “Q3 review”. More";
-    for (let end = 1; end <= reply.length; end++) {
-      expect(hold(reply.slice(0, end))).toBe(shownUpTo(reply.slice(0, end), ["Q3 review"]));
+  // protects=a provider that ignores the schema, and a judge that omits or invents about, cannot silently drop a real claim: no about, and an unknown one, flag as they did before the field, in English and Chinese; fails_when=a claim is lost because the field is missing or unknown; no_claim=how a provider ignores the schema.
+  test.each(["omitted", "unknown"] as const)("about %s flags", async (how) => {
+    for (const reply of [english, chinese]) {
+      const claim =
+        how === "omitted"
+          ? { sentence: reply, kind: "added", backed: false }
+          : { sentence: reply, kind: "added", about: "Mind", backed: false };
+      const result = await check(judge({ claims: [claim] }), reply);
+      expect(result.claims).toEqual(["added"]);
     }
-    expect(hold("")).toBe(0);
-    expect(hold("No section was added. ")).toBe("No section was added. ".length);
   });
 });

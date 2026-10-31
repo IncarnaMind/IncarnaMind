@@ -39,8 +39,10 @@ import type { AnalysisJob } from "../shared/analysis";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
+import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
 import { createPageLook } from "./pageLook";
 import { createElectronPictures } from "./pictures";
@@ -152,7 +154,7 @@ const loginShellProcesses = createLoginShellProcesses({
  * In a packaged Linux app, sandbox-runtime's seccomp helper outside app.asar
  * (electron-builder.yml unpacks it), where bubblewrap can run it.
  */
-function seccompHelper(): string | undefined {
+export function seccompHelper(): string | undefined {
   if (process.platform !== "linux" || !app.isPackaged) return undefined;
   const runtime = join("node_modules", "@anthropic-ai", "sandbox-runtime");
   return join(
@@ -355,13 +357,7 @@ function pythonFolder(): string {
     : join(app.getAppPath(), "resources", "python");
 }
 
-/**
- * The analysis sandbox. A test build also gives it to the smoke tests as
- * `globalThis.incarnamindAnalysis`, which runs a job through the core's
- * record of it, stopped after `stopAfterMs` when given: no part of the app
- * runs Analyses yet.
- */
-function analysisRuntime(log: Logger): AnalysisRuntime {
+export function analysisRuntime(log: Logger): AnalysisRuntime {
   const runtime = createElectronAnalysisRuntime({
     log,
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
@@ -389,15 +385,6 @@ function analysisRuntime(log: Logger): AnalysisRuntime {
  * their agents' settings would land in the real one.
  */
 export const homeFolder = (): string => homedir();
-
-/**
- * The User's Documents folder, where the first save offers to put the Output
- * location. A test build uses one in its data folder, so the smoke tests never
- * write into the User's.
- */
-function documentsFolder(dataDir: string): string {
-  return import.meta.env.MODE === "test" ? join(dataDir, "Documents") : app.getPath("documents");
-}
 
 /**
  * Where crash reports go: the Sentry DSN this copy was built with
@@ -778,7 +765,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     }),
     log,
     audioCapture: audioCapture(log),
-    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL }),
+    capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
     analysisRuntime: analysisRuntime(log),
     paths: {
       dataDir,
@@ -786,7 +773,11 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
       examples: examplesFolder(),
       citationStyles: citationStylesFolder(),
       home: homeFolder(),
-      documents: documentsFolder(dataDir),
+      get documents() {
+        return import.meta.env.MODE === "test"
+          ? join(dataDir, "Documents")
+          : documentsFolder(() => app.getPath("documents"), homeFolder(), log);
+      },
     },
     systemLanguages: () => app.getPreferredSystemLanguages(),
     systemRegion: () => app.getLocaleCountryCode(),
@@ -801,6 +792,11 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
     keychain: createSafeStorageKeychain(dataDir),
     browser: systemBrowser,
     shell: fileShell,
+    modelRuntimeFolder: createModelRuntimeFolder({
+      platform: process.platform,
+      home: homeFolder(),
+      env: process.env,
+    }),
     ollamaApp: ollamaApp(),
     ...(scriptedOllama && { ollamaModels: scriptedOllama }),
     ...(scriptedServers && { localServers: scriptedServers }),

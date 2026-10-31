@@ -24,7 +24,7 @@ const LABELS: Readonly<Record<Choice, MessageKey>> = {
 };
 
 /** A file name the file systems take: a Mind's title without what they refuse. */
-const fileNameOf = (title: string) => title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Mind";
+const fileNameOf = (title: string) => title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Note";
 
 /** Saves the Mind as a .docx where the User chooses; false when they didn't choose. */
 export async function saveMindCopy(

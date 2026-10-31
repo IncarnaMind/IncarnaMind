@@ -3,6 +3,7 @@ import {
   appliedFact,
   type ChangeCounts,
   changeFact,
+  inNoteText,
   keptText,
   leftText,
 } from "../../src/renderer/src/changeFacts";
@@ -131,5 +132,40 @@ describe("Why a chart asked for wasn't drawn (#1091)", () => {
     };
     expect(keptText(t("en"), kept)).toBe(english);
     expect(keptText(t("zh-CN"), kept)).toBe(chinese);
+  });
+});
+
+describe("The card's second fact: what waits in the Note (#1897)", () => {
+  // protects=the card adds the Note's own count only when other changes wait there too, counting this request's own, in English and Chinese; fails_when=it shows when only this request's changes wait, or when nothing waits, or leaves out the request's own; no_claim=where it is drawn.
+  test.each([
+    {
+      total: 10,
+      own: 0,
+      english: "· 10 changes waiting in this note",
+      chinese: "· 本笔记有 10 处修订待处理",
+    },
+    {
+      total: 11,
+      own: 1,
+      english: "· 11 changes waiting in this note",
+      chinese: "· 本笔记有 11 处修订待处理",
+    },
+    {
+      total: 1,
+      own: 0,
+      english: "· 1 change waiting in this note",
+      chinese: "· 本笔记有 1 处修订待处理",
+    },
+  ])("$total waiting, $own of them this request's", ({ total, own, english, chinese }) => {
+    expect(inNoteText(t("en"), total, own)).toBe(english);
+    expect(inNoteText(t("zh-CN"), total, own)).toBe(chinese);
+  });
+
+  test("nothing more is said when only this request's changes wait, when none wait, or while the count is unknown", () => {
+    expect(inNoteText(t("en"), 3, 3)).toBeNull();
+    expect(inNoteText(t("en"), 0, 0)).toBeNull();
+    expect(inNoteText(t("en"), null, 0)).toBeNull();
+    expect(inNoteText(t("en"), "gone", 0)).toBeNull();
+    expect(inNoteText(t("zh-CN"), 2, 2)).toBeNull();
   });
 });

@@ -1,14 +1,17 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
 import { displayName, sourceOf } from "../../../shared/documentNames";
+import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
+import { addFilesLabel } from "../addFilesAction";
 import { useDocumentPlace } from "../documentPlaces";
-import { documentStatusText, isProcessing } from "../documentStatus";
+import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
 import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { useDayOne, useLibraryDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -26,13 +29,15 @@ import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys
 import { useRename } from "../useRename";
 import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
-import { ExampleRow } from "./ExampleRow";
+import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
 import { LibraryFolders } from "./LibraryFolders";
 import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
+import { MindRow } from "./MindRow";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
+import { ProblemLine } from "./ProblemLine";
 import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
 import { SidebarSearch } from "./SidebarSearch";
@@ -83,7 +88,8 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const documentCount = useAppStore((state) => state.documents.length);
+  const libraryDocuments = useLibraryDocuments();
+  const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
@@ -97,6 +103,9 @@ export function DocumentsSection() {
       ? id
       : null;
   });
+  const exampleMind = useAppStore((state) =>
+    exampleMindId === null ? null : (state.minds.find((each) => each.id === exampleMindId) ?? null),
+  );
   const exampleFolders = useAppStore((state) =>
     allExamples(state)
       .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
@@ -108,18 +117,23 @@ export function DocumentsSection() {
     [foldExamples, exampleFolders],
   );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
-  const documents = useAppStore((state) => state.documents);
-  const shownDocuments = useMemo(
-    () =>
-      folded.size === 0
-        ? documents
-        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
-    [documents, folded],
-  );
-  const hasLinkedFolders = useAppStore((state) =>
-    state.linkedFolders.some((each) => !folded.has(each.id)),
-  );
+  // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
+  // Documents (#1942); once the fold's Mind is deleted, its row opens the Source locations view on
+  // that folder, the examples' Documents included (#1944).
+  const hasLinkedFolders = useAppStore((state) => {
+    const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
+    const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
+    const onlyExamples = shown.length > 0 && shown.every((each) => exampleIds.has(each.id));
+    return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
+  });
   const addDocuments = useAppStore((state) => state.addDocuments);
+  const treeIsEmpty = useAppStore(
+    (state) =>
+      state.documents.length === 0 &&
+      state.minds.length === 0 &&
+      (state.library?.groups.length ?? 0) === 0 &&
+      state.linkedFolders.length === 0,
+  );
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
@@ -180,7 +194,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && (
+      {!quiet && !dayOne && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"
@@ -200,7 +214,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(documentCount, language)}
+              {formatCount(libraryDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>
@@ -221,20 +235,52 @@ export function DocumentsSection() {
           </div>
         </div>
       )}
-      <div ref={tree} data-testid="sidebar-sections" {...treeKeys}>
+      {/* flow-root keeps a section's top margin inside the tree, and the empty line shows only
+          while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
+      <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : shownDocuments}
+          documents={quiet ? NO_DOCUMENTS : libraryDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
         />
-        {!quiet && hasLinkedFolders && (
-          <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows hideExamples={foldExamples} />
+        {!quiet && treeIsEmpty && (
+          <ProblemLine
+            role="status"
+            testId="documents-empty"
+            className="px-2 pt-2 pb-1"
+            action={{
+              label: t(addFilesLabel()),
+              testId: "documents-empty-add-files",
+              onClick: () => void useAppStore.getState().pickDocumentsOrFolder(),
+            }}
+            also={{
+              label: t("startGuide.documents.linkFolder"),
+              testId: "documents-empty-link-folder",
+              onClick: () => void useAppStore.getState().addLinkedFolder(),
+            }}
+          >
+            {t("library.none")}
+          </ProblemLine>
+        )}
+        {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
+            being read, where the rest of the Library waits for the first Document (#763). */}
+        {hasLinkedFolders && (
+          <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
+            <LinkedFolderRows hideExamples={exampleMindId !== null} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}
-        {foldExamples && exampleMindId && <ExampleRow mindId={exampleMindId} />}
+        {foldExamples && exampleMind && (
+          <SidebarSection
+            testId="example-section"
+            title={t("sidebar.examples")}
+            headingTestId="example-title"
+            actions={<ExamplesMenu />}
+          >
+            <MindRow mind={exampleMind} depth={0} />
+          </SidebarSection>
+        )}
       </div>
       <LinkFolderDialog />
       <TagNamesTip />

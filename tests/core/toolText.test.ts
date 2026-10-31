@@ -59,6 +59,20 @@ describe("A cite record written as text", { timeout: 30_000 }, () => {
     expect(requestsForCitations(model)).toBe(0);
   });
 
+  // protects=a cite call written out as a function call, as Claude Haiku 5.5 wrote it, is never shown and its record becomes the Citation; fails_when=the call shows, or Citations are placed inside it; no_claim=how often a model writes it.
+  test.each([
+    ["English", ENGLISH],
+    ["Chinese", CHINESE],
+  ])("%s: written as a call, it becomes a Citation", async (_language, each) => {
+    const model = writingModel((passage) => `${each.sentence}\n\ncite(${record(passage)})`);
+    const { core } = await setUpWithDocuments(model, [TEA]);
+
+    const answer = await askAssistant(core, { text: each.question });
+
+    expect(answer.text).toBe(each.sentence);
+    expect(answer.citations.map(({ quote, check }) => [quote, check])).toEqual([[FIRST, "found"]]);
+  });
+
   // protects=the escaped form, with its quotes escaped too, is read the same; fails_when=the escaped block shows or is not recovered; no_claim=none beyond protects.
   test.each([
     ["English", ENGLISH],
@@ -257,6 +271,50 @@ describe("Which text is tool-call text", () => {
     );
   });
 
+  // protects=a Tool's call written out, name, bracket, JSON, bracket, is a block as a tag is, its records come back, and one cut off goes to the end of its paragraph; fails_when=the call shows or a record is lost; no_claim=none beyond protects.
+  test("a call written out is a block too", () => {
+    const written =
+      'Calventis 大模型（large 配置）在德英翻译上的 BLEU 分数是 34.6[^1]。\n\n同一份表格中，Calventis base 配置的德英分数是 31.8[^3]。\n\ncite([{"marker": 1, "passage": "P2", "location": "p. 8", "quote": "Calventis, large 34.6 37.9 Low"}, {"marker": 2, "passage": "P2", "location": "p. 8", "quote": "That is three points above the strongest baseline"}, {"marker": 3, "passage": "P2", "location": "p. 8", "quote": "Calventis, base 31.8 35.2 Low"}])';
+    const { text, records } = takeToolText(written);
+    expect(text).toBe(
+      "Calventis 大模型（large 配置）在德英翻译上的 BLEU 分数是 34.6[^1]。\n\n同一份表格中，Calventis base 配置的德英分数是 31.8[^3]。",
+    );
+    expect(records.map((each) => (each as { marker: number }).marker)).toEqual([1, 2, 3]);
+    expect(toolTextIn(written)).toHaveLength(1);
+    expect(takeToolText('So it is calculate({"figures": [{"marker": 1}]}) true.').text).toBe(
+      "So it is true.",
+    );
+    expect(takeToolText('A.\n\ncite([{"marker": 1, "pas\n\nMore.').text).toBe("A.\n\nMore.");
+    for (const kept of ["Papers cite (2024) work.", "We cite([1]) here.", "Call recite([{}])."]) {
+      expect(takeToolText(kept).text).toBe(kept);
+    }
+  });
+
+  // protects=a Tool's name and a colon at a line's start, then JSON, is a block as a call is, and its records come back; fails_when=the record is lost and the figure it backs goes Not checked, or prose with a colon loses words; no_claim=none beyond protects.
+  test("a name and a colon at a line's start, then JSON, is a block too", () => {
+    const written = [
+      "Verdict: supported",
+      "The Document states net debt of £5,704m [^1].",
+      "",
+      'cite: [{"marker":1,"passage":"P1","location":"§ Results","quote":"Net debt was £5,704m."}]',
+      "",
+      'Figures: {"items":[],"remainder":null}',
+    ].join("\n");
+    const { text, records } = takeToolText(written);
+    expect(text).toBe(
+      'Verdict: supported\nThe Document states net debt of £5,704m [^1].\n\nFigures: {"items":[],"remainder":null}',
+    );
+    expect(records).toEqual([
+      { marker: 1, passage: "P1", location: "§ Results", quote: "Net debt was £5,704m." },
+    ]);
+    for (const kept of [
+      "They cite: [1] and more.",
+      "We cite: no record here.",
+      'Note: {"a": 1} stays.',
+    ])
+      expect(takeToolText(kept).text).toBe(kept);
+  });
+
   // protects=two blocks side by side on a line leave the line and paragraph breaks after them; fails_when=the next line is joined to the sentence; no_claim=none beyond protects.
   test("blocks side by side keep the breaks after them", () => {
     expect(takeToolText('S.<cite>[{"a":1}]</cite><cite>[{"a":2}]</cite>\n- item').text).toBe(
@@ -292,6 +350,9 @@ describe("Which text is tool-call text", () => {
     expect(heldBackFrom("Hello <ci")).toBe(6);
     expect(heldBackFrom("Hello &lt;ci")).toBe(6);
     expect(heldBackFrom("Hello <tool_c")).toBe(6);
+    expect(heldBackFrom('Hello cite([{"mar')).toBe(6);
+    expect(heldBackFrom("Hello cite(")).toBe(6);
+    expect(heldBackFrom("Hello cit")).toBe(6);
     expect(heldBackFrom("Hello <cite>Title")).toBe("Hello <cite>Title".length);
     expect(heldBackFrom("a < b and <div")).toBe("a < b and <div".length);
     expect(heldBackFrom("Hello")).toBe(5);

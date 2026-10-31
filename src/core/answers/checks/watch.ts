@@ -17,7 +17,9 @@
  *   what it found and cost in the Mind (src/shared/contradictionWatch.ts).
  */
 import { randomUUID } from "node:crypto";
+import type * as Y from "yjs";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
+import { beginFigureCheck } from "../../../shared/figureChecks";
 import { mindModelOf } from "../../../shared/mindModel";
 import { comparableSentence, isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -25,6 +27,7 @@ import type { Logger } from "../../adapters";
 import type {
   ChatModelChoice,
   CheckContradictionsResult,
+  CheckFigure,
   CheckSentencesResult,
   ClaimCheckAttributes,
   ClaimCheckResult,
@@ -36,19 +39,24 @@ import type {
   RecordAiUseInput,
   RunStop,
   TextPlace,
+  TextStretch,
+  WatchStop,
 } from "../../api";
 import type { BackgroundQueue } from "../../backgroundQueue";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { RecordCitePlace } from "../../recordCites/referents";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
+import { claimsAtOnce } from "./runChecks";
 import {
   everySentence,
   keptAsView,
   markedSentences,
   markSentence,
+  noteTextOf,
   type SelectedSentence,
   selectedSentences,
   unmarkSentence,
@@ -59,9 +67,6 @@ const ACTION = "contradiction-watch";
 
 /** A Document whose text is read: a new version of it can be searched. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
-
-/** Claims a cloud model checks at once on demand; in the background, and on this computer, one. */
-const CLOUD_CLAIMS_AT_ONCE = 3;
 
 /** How long after a new version arrives its Folder's Minds are checked: more versions may follow. */
 export const AFTER_NEW_VERSION_MS = 30_000;
@@ -112,6 +117,9 @@ export interface WatchOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText?: string,
   ): ClaimCheckAttributes;
   retainEvidence(mindId: string): void;
   recordAiUse(inputs: RecordAiUseInput[]): void;
@@ -130,9 +138,14 @@ export interface WatchOptions {
 /** A cited sentence to check: where it is, and the Documents it may be checked against. */
 interface Claim {
   blockId: string;
+  place: RecordCitePlace;
   text: string;
+  /** The sentence as the Note holds it, its Citations included: what its record cites read. */
+  noteText: string;
   context: string;
   scope: EvidenceScope;
+  figures?: CheckFigure[];
+  projection?: ClaimCheckRequest["projection"];
 }
 
 type Plan =
@@ -146,16 +159,16 @@ const citedIdsOf = (sentence: SelectedSentence) => [
 export function createContradictionWatch(options: WatchOptions) {
   const { content } = options;
 
-  /** What a check of the Mind's cited sentences (or those `from`..`to` touches) would check. */
-  function plan(mindId: string, range?: { from: TextPlace; to: TextPlace }): Plan {
+  /** What a check of the Mind's cited sentences (or those `stretches` touch) would check. */
+  function plan(mindId: string, stretches?: readonly TextStretch[]): Plan {
     const folderId = options.mindFolder(mindId);
     const read = content.read(mindId, (blocks) => {
-      if (!range) {
+      if (!stretches) {
         const marks = markedSentences(blocks);
         const sentences = everySentence(blocks).filter((each) => !keptAsView(marks, each));
         return { ok: true as const, sentences };
       }
-      return selectedSentences(blocks, [range]);
+      return selectedSentences(blocks, stretches);
     });
     if (!read.ok) return { kind: read.reason };
     const cited = read.sentences.filter(
@@ -173,9 +186,13 @@ export function createContradictionWatch(options: WatchOptions) {
       return [
         {
           blockId: sentence.blockId,
+          place: { blockId: sentence.blockId, from: sentence.from },
           text: sentence.text,
+          noteText: noteTextOf(sentence),
           context: sentence.context,
           scope,
+          ...(sentence.figures?.length && { figures: sentence.figures }),
+          ...(sentence.projection && { projection: sentence.projection }),
         },
       ];
     });
@@ -212,7 +229,9 @@ export function createContradictionWatch(options: WatchOptions) {
             to > sentence.from,
         );
         if (marked)
-          updateCheck(blocks, marked.check.id, (check) => options.withResult(check, result, at));
+          updateCheck(blocks, marked.check.id, (check) =>
+            options.withResult(check, result, at, blocks, mindId, claim.text),
+          );
         return Boolean(marked);
       }
       if (result.verdict !== "contradicted") {
@@ -240,11 +259,15 @@ export function createContradictionWatch(options: WatchOptions) {
         excluded: [],
         checkedAt: at,
       };
+      // Each figure keeps its own result, as the one Check gives it.
+      const pending = sentence.figures?.length
+        ? beginFigureCheck(null, check, sentence.figures, null, sentence.projection)
+        : check;
       markSentence(
         sentence.element,
         sentence.from,
         sentence.to,
-        options.withResult(check, result, at),
+        options.withResult(pending, result, at, blocks, mindId, claim.text),
       );
       return true;
     });
@@ -266,12 +289,17 @@ export function createContradictionWatch(options: WatchOptions) {
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
-        currentTask.run(runId, async () => {
+        currentTask.run({ id: runId }, async () => {
           const result = await options.claimCheck({
-            claim: comparableSentence(claim.text),
+            claim: claim.projection?.text ?? comparableSentence(claim.text),
+            ...(claim.projection && { projection: claim.projection }),
+            recordClaim: claim.noteText,
             context: claim.context,
             scope: claim.scope,
+            ...(claim.figures && { figures: claim.figures }),
             model: prepared,
+            mindId,
+            place: claim.place,
             cacheKey: mindId,
             signal,
           });
@@ -280,7 +308,7 @@ export function createContradictionWatch(options: WatchOptions) {
           return result;
         }),
       {
-        concurrency: prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1,
+        concurrency: claimsAtOnce(prepared),
         signal,
         onOutcome(claim, outcome) {
           if (outcome.status !== "done" || signal.aborted) return;
@@ -310,12 +338,48 @@ export function createContradictionWatch(options: WatchOptions) {
 
   /** Each live Document's version as last seen: a different one read is a new version. */
   let versions: Map<string, string> | null = null;
-  /** Minds waiting to be checked after a new version, with the Document that started it. */
-  const waiting = new Map<string, { timer: ReturnType<typeof setTimeout>; documentName: string }>();
+  /** Minds waiting to be watched after a change in their Folder, with the Document that started it. */
+  const waiting = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; documentName: string | null }
+  >();
   let closed = false;
 
+  /**
+   * The Folder's contents changed: these of its Notes are watched again a
+   * moment later, in the background queue. A Note already waiting is watched
+   * once, for the change that came last.
+   */
+  function contentsChanged(
+    minds: readonly { mindId: string; documentName: string | null }[],
+  ): void {
+    if (closed) return;
+    for (const { mindId, documentName } of minds) {
+      const queued = waiting.get(mindId);
+      if (queued) clearTimeout(queued.timer);
+      const timer = setTimeout(() => {
+        waiting.delete(mindId);
+        checkInBackground(mindId, documentName).catch((error: unknown) => {
+          options.log.error("contradictions.backgroundFailed", { error: nameOf(error) });
+        });
+      }, options.delayMs);
+      // A check waiting doesn't keep IncarnaMind from quitting.
+      timer.unref();
+      waiting.set(mindId, { timer, documentName });
+    }
+  }
+
+  /** The Folder's contents changed: each Note in it is watched again, a moment later. */
+  function watchFolder(folderId: string, documentName: string | null): void {
+    contentsChanged(
+      options
+        .minds()
+        .flatMap((mind) => (mind.folderId === folderId ? [{ mindId: mind.id, documentName }] : [])),
+    );
+  }
+
   /** Queues each claim of the Mind as a background job, and records the run once all are done. */
-  async function checkInBackground(mindId: string, documentName: string): Promise<void> {
+  async function checkInBackground(mindId: string, documentName: string | null): Promise<void> {
     if (closed) return;
     const ready = plan(mindId);
     if (ready.kind !== "ready") return;
@@ -327,8 +391,7 @@ export function createContradictionWatch(options: WatchOptions) {
     let checked = 0;
     let contradicted = 0;
     let stop: RunStop | null = null;
-    const finish = () => {
-      if (--left > 0) return;
+    const record = (end: WatchStop | null) => {
       try {
         options.requireMind(mindId);
         content.editSettings(mindId, (settings) =>
@@ -339,13 +402,17 @@ export function createContradictionWatch(options: WatchOptions) {
             checked,
             contradicted,
             cost: options.runCost(runId),
-            stop,
+            stop: end,
             smallModel: judgesUnreliably(prepared),
           }),
         );
       } catch (error) {
         options.log.error("contradictions.recordFailed", { error: nameOf(error) });
       }
+    };
+    const finish = () => {
+      if (--left > 0) return;
+      record(stop);
     };
     for (const claim of ready.claims) {
       options.background.add({
@@ -360,12 +427,17 @@ export function createContradictionWatch(options: WatchOptions) {
             const givenUp = new Promise<null>((resolve) =>
               ended.addEventListener("abort", () => resolve(null), { once: true }),
             );
-            const checking = currentTask.run(runId, () =>
+            const checking = currentTask.run({ id: runId }, () =>
               options.claimCheck({
-                claim: comparableSentence(claim.text),
+                claim: claim.projection?.text ?? comparableSentence(claim.text),
+                ...(claim.projection && { projection: claim.projection }),
+                ...(claim.figures && { figures: claim.figures }),
+                recordClaim: claim.noteText,
                 context: claim.context,
                 scope: claim.scope,
                 model: prepared,
+                mindId,
+                place: claim.place,
                 cacheKey: mindId,
                 signal: ended,
               }),
@@ -394,7 +466,10 @@ export function createContradictionWatch(options: WatchOptions) {
               write(mindId, request, ready.folderId, claim, result, prepared);
             }
           } finally {
-            if (!call.signal.aborted) finish();
+            // A run that gives way or closes ends without finishing: its record says so, so a
+            // scoped Check never stands on it (#1941).
+            if (call.signal.aborted || closed) record(stop ?? { reason: "cancelled" });
+            else finish();
           }
         },
       });
@@ -424,6 +499,21 @@ export function createContradictionWatch(options: WatchOptions) {
       const tracked = options.track(requestId, mindId);
       try {
         const outcome = await check(mindId, requestId, ready, model.prepared, tracked.signal);
+        // A full watch, so the next Check knows every cited sentence has been watched, and how
+        // this one ended (#1941). No Document started it: the card shows no "changed" line. One
+        // the User stopped says so: it can never stand for a watched Note.
+        content.editSettings(mindId, (settings) =>
+          writeContradictionWatch(settings, {
+            at: options.now().toISOString(),
+            documentName: null,
+            claims: outcome.claims,
+            checked: outcome.checked,
+            contradicted: outcome.contradicted,
+            cost: outcome.cost,
+            stop: tracked.signal.aborted ? { reason: "cancelled" } : outcome.stop,
+            smallModel: outcome.smallModel,
+          }),
+        );
         if (tracked.signal.aborted) return { kind: "cancelled" };
         return { kind: "checked", ...outcome };
       } finally {
@@ -438,11 +528,12 @@ export function createContradictionWatch(options: WatchOptions) {
         mindId: string;
         from: TextPlace;
         to: TextPlace;
+        more?: readonly TextStretch[];
         model: ChatModelChoice | null;
       },
       signal: AbortSignal,
     ): Promise<CheckSentencesResult> {
-      const ready = plan(input.mindId, input);
+      const ready = plan(input.mindId, [{ from: input.from, to: input.to }, ...(input.more ?? [])]);
       if (ready.kind !== "ready") return ready;
       const model = await options.prepare(input.model ?? options.defaultModel());
       if (!model.ok) return model.result;
@@ -457,38 +548,41 @@ export function createContradictionWatch(options: WatchOptions) {
     },
 
     /**
-     * Hears each Document's status: a new version read, of a Document in a
-     * Folder, has that Folder's Minds checked a moment later, in the background.
+     * Hears each Document's status: a Document added to a Folder, or a new
+     * version of one there, has that Folder's Minds watched a moment later, in
+     * the background. A Document leaving a Folder, by deletion or by a move,
+     * cannot add a contradiction, so it starts nothing.
      */
     documentChanged(document: Document): void {
       if (closed) return;
       versions ??= new Map(options.documentVersions());
       if (!READ.includes(document.status)) return;
       const before = versions.get(document.id);
+      // One this watch has never seen was added while IncarnaMind runs: wait until it can be
+      // searched, so the run reads it. A version that changes is read already.
+      if (before === undefined && document.status !== "ready") return;
       versions.set(document.id, document.contentHash);
-      if (before === undefined || before === document.contentHash) return;
-      const folders = new Map<string, boolean>();
-      const inFolder = (folderId: string) => {
-        const known = folders.get(folderId);
-        if (known !== undefined) return known;
-        const found = options.folderDocuments(folderId).includes(document.id);
-        folders.set(folderId, found);
-        return found;
-      };
-      for (const mind of options.minds()) {
-        if (mind.folderId === null || !inFolder(mind.folderId)) continue;
-        const queued = waiting.get(mind.id);
-        if (queued) clearTimeout(queued.timer);
-        const timer = setTimeout(() => {
-          waiting.delete(mind.id);
-          checkInBackground(mind.id, document.name).catch((error: unknown) => {
-            options.log.error("contradictions.backgroundFailed", { error: nameOf(error) });
-          });
-        }, options.delayMs);
-        // A check waiting doesn't keep IncarnaMind from quitting.
-        timer.unref();
-        waiting.set(mind.id, { timer, documentName: document.name });
+      if (before === document.contentHash) return;
+      // An added Document changed nothing, so the run names none.
+      const documentName = before === undefined ? null : document.name;
+      const folders = new Set(
+        options.minds().flatMap((mind) => (mind.folderId === null ? [] : [mind.folderId])),
+      );
+      for (const folderId of folders) {
+        if (options.folderDocuments(folderId).includes(document.id)) {
+          watchFolder(folderId, documentName);
+        }
       }
+    },
+
+    /** A Note joined a Folder: the same watch a Document's new version starts, for that Note. */
+    mindJoinedFolder(mindId: string): void {
+      contentsChanged([{ mindId, documentName: null }]);
+    },
+
+    /** Documents joined a Folder: its Notes are watched again, as for any change in it. */
+    folderContentsChanged(folderId: string): void {
+      watchFolder(folderId, null);
     },
 
     /** Seeds the versions known now, so the first change after start-up counts. */

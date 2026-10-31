@@ -32,13 +32,15 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { organizeStateOf } from "../organizeOutcome";
+import { ownsATag, useLibraryDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { documentFields, folderFields } from "../sortFields";
 import { useAppStore } from "../store";
-import { waitingIds } from "../suggestionReview";
+import { hasNotSorted, waitingIds } from "../suggestionReview";
 import { reviewIds, toReviewOf } from "../toReview";
 import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
@@ -59,6 +61,7 @@ import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
+const NO_DOCUMENTS: readonly Document[] = [];
 
 const inReviewList = (target: EventTarget) =>
   target instanceof Element && target.closest("[data-review]") !== null;
@@ -84,7 +87,7 @@ const SOURCE_REQUEST = /^source:(.+)$/;
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
-  const documents = useAppStore((state) => state.documents);
+  const libraryDocuments = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
@@ -94,6 +97,11 @@ export function LibraryPane() {
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // A source's view lists that source's Documents even when they are the examples': the examples
+  // leave the Library once the User has a Document of their own, but their Linked folder's row
+  // stays the way back to them (#1944).
+  const everyDocument = useAppStore((state) => state.documents);
+  const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLDivElement>(null);
@@ -113,16 +121,19 @@ export function LibraryPane() {
     () => sorted(groups, sidebarSort, folderFields, language),
     [groups, sidebarSort, language],
   );
+  // Tags are named only once a Document of the User's own carries one (#1942), then they are a filter.
+  const tagsShown = useAppStore(ownsATag);
+  const sourceFacetOf = useMemo(() => sourceFacet(linkedFolders), [linkedFolders]);
   const facets = useMemo<LibraryFacet<Document>[]>(
     () => [
-      tagFacet(tags),
+      ...(tagsShown ? [tagFacet(tags)] : []),
       formatFacet,
       yearFacet,
       statusFacet,
       folderFacet(folders, folderOf),
-      sourceFacet(linkedFolders),
+      sourceFacetOf,
     ],
-    [tags, folders, folderOf, linkedFolders],
+    [tags, tagsShown, folders, folderOf, sourceFacetOf],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),
@@ -153,6 +164,18 @@ export function LibraryPane() {
     () => sorted(filtered, chosenSort, documentFields(t), language),
     [filtered, chosenSort, t, language],
   );
+  // A source's view counts that source's Documents before the search and the other filters, so
+  // its header holds while they narrow the rows; the page otherwise counts the Library's own, as
+  // the sidebar does (#1944).
+  const sourceCount = useMemo(
+    () =>
+      facetFilter.source?.length
+        ? filterLibrary<Document>(documents, [sourceFacetOf], { source: facetFilter.source }).shown
+            .length
+        : 0,
+    [documents, sourceFacetOf, facetFilter.source],
+  );
+  const headerCount = facetFilter.source?.length ? sourceCount : libraryDocuments.length;
   const narrowing = words.length > 0 || isFiltering(selection);
   const sections = useMemo(
     () => sectionsOf(folders, ordered, folderOf, narrowing),
@@ -160,18 +183,56 @@ export function LibraryPane() {
   );
   const folded = useLibraryFolds((state) => state.folded);
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
+  const states = useMemo(() => {
+    const held = new Map((snapshot?.assignments ?? []).map((item) => [item.documentId, item]));
+    return new Map(documents.map((doc) => [doc.id, organizeStateOf(doc, held.get(doc.id))]));
+  }, [documents, snapshot?.assignments]);
+  const unsortedIds = useMemo(
+    () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
+    [states],
+  );
+  const notSortedOf = useCallback(
+    (documentId: string) => {
+      if (!unsortedIds.has(documentId)) return null;
+      const said = assignments.get(documentId)?.error;
+      const text = said ? providerErrorText(said, t) : "";
+      return text || t("library.notSorted.noReason");
+    },
+    [unsortedIds, assignments, t],
+  );
+  const sortFailedOf = useCallback(
+    (documentId: string) => {
+      const state = states.get(documentId);
+      if (!state?.suggested || state.run !== "failed") return null;
+      const said = assignments.get(documentId)?.error;
+      const text = said ? providerErrorText(said, t) : "";
+      return text || t("library.notSorted.noReason");
+    },
+    [states, assignments, t],
+  );
+  const notSorted = useMemo(
+    () =>
+      unsortedIds.size === 0 ? NO_DOCUMENTS : ordered.filter((doc) => unsortedIds.has(doc.id)),
+    [ordered, unsortedIds],
+  );
+  const notSortedCount = unsortedIds.size;
+  const allSorted = useMemo(
+    () => documents.length > 0 && documents.every((doc) => states.get(doc.id)?.place === "sorted"),
+    [documents, states],
+  );
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
     [ordered, folders, snapshot?.assignments],
   );
-  const reviewing = !narrowing && review.count > 0;
+  const reviewing = !narrowing && (review.count > 0 || notSorted.length > 0);
   useEffect(() => {
     useLibraryFolds.getState().setReviewShown(reviewing);
     return () => useLibraryFolds.getState().setReviewShown(false);
   }, [reviewing]);
   const reviewList = useMemo(
-    () => (reviewing && reviewOpen ? reviewIds(review) : []),
-    [review, reviewing, reviewOpen],
+    () =>
+      reviewing && reviewOpen ? [...reviewIds(review), ...notSorted.map((doc) => doc.id)] : [],
+    [review, reviewing, reviewOpen, notSorted],
   );
   const shownIds = useMemo(
     () =>
@@ -202,19 +263,11 @@ export function LibraryPane() {
 
   const suggestedOf = useCallback(
     (documentId: string) => {
-      const item = assignments.get(documentId);
-      if (!item?.suggested || item.groupId === null) return null;
-      return groups.find((group) => group.id === item.groupId)?.name ?? null;
+      if (!states.get(documentId)?.suggested) return null;
+      const folderId = assignments.get(documentId)?.groupId;
+      return groups.find((group) => group.id === folderId)?.name ?? null;
     },
-    [assignments, groups],
-  );
-  const notSortedOf = useCallback(
-    (documentId: string) => {
-      const item = assignments.get(documentId);
-      if (item?.status !== "failed") return null;
-      return item.error ? providerErrorText(item.error, t) : "";
-    },
-    [assignments, t],
+    [states, assignments, groups],
   );
   const problem = useMemo(() => problemOf(documents), [documents]);
   // Files in the Linked folders that aren't Documents because their format isn't read yet (#740).
@@ -226,7 +279,7 @@ export function LibraryPane() {
       setSearch("");
       setFacetFilter({});
       useAppStore.getState().setTagFilter([]);
-      if (waitingIds().length > 0) useLibraryFolds.getState().showReview();
+      if (waitingIds().length > 0 || hasNotSorted()) useLibraryFolds.getState().showReview();
       useAppStore.setState({ libraryFilter: "all" });
       return;
     }
@@ -297,7 +350,10 @@ export function LibraryPane() {
       <div ref={page} className="group/page @container/page min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
           <LibraryHeader
-            count={documents.length}
+            count={headerCount}
+            notSorted={notSortedCount}
+            sorted={allSorted}
+            onReview={() => useAppStore.getState().openLibrary("review")}
             search={search}
             onSearch={setSearch}
             onEnter={askAbout}
@@ -391,7 +447,15 @@ export function LibraryPane() {
                   }
                 }}
               >
-                {reviewing && <ToReview review={review} suggestedIn={suggestedOf} />}
+                {reviewing && (
+                  <ToReview
+                    review={review}
+                    notSorted={notSorted}
+                    suggestedIn={suggestedOf}
+                    notSortedOf={notSortedOf}
+                    sortFailedOf={sortFailedOf}
+                  />
+                )}
                 {sections.map((section) => (
                   <LibrarySection
                     key={section.key}
@@ -400,6 +464,7 @@ export function LibraryPane() {
                     matches={matches}
                     suggestedOf={suggestedOf}
                     notSortedOf={notSortedOf}
+                    sortFailedOf={sortFailedOf}
                   />
                 ))}
               </div>

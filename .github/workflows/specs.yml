@@ -1,0 +1,139 @@
+name: Run named specs
+
+# The smoke specs a change touched, on a clean GitHub-hosted machine, so they need not run on your
+# computer: Actions › Run named specs › Run workflow, or `node scripts/run-specs.mjs`
+# (docs/agents/testing.md). By hand only and apart from ci.yml, so a run never blocks or replaces a
+# required check.
+on:
+  workflow_dispatch:
+    inputs:
+      specs:
+        description: 'Spec files, separated by spaces: each e2e/<name>.spec.ts or e2e/<name>.spec.ts:<line>'
+        required: true
+        type: string
+      os:
+        description: Machine to run on
+        type: choice
+        options: [linux, macos, windows]
+        default: linux
+      repeat:
+        description: Times to run each test, 1 to 10
+        type: number
+        default: 1
+      grep:
+        description: Only the tests whose title matches this regular expression (optional)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # onnxruntime-node's install script downloads its CUDA libraries on Linux x64. The app runs
+  # the embedding model on the CPU, so skip them.
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+concurrency:
+  # One run per branch and machine: a new dispatch replaces the one still going. macOS runners
+  # are few, and the Nightly shares them.
+  group: specs-${{ github.ref }}-${{ inputs.os }}
+  cancel-in-progress: true
+
+jobs:
+  specs:
+    name: Specs on ${{ inputs.os }}
+    runs-on: ${{ fromJSON('{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}')[inputs.os] }}
+    timeout-minutes: 45
+    # The inputs reach the steps only as environment variables, never inside a script's text.
+    env:
+      SPECS: ${{ inputs.specs }}
+      REPEAT: ${{ inputs.repeat }}
+      GREP: ${{ inputs.grep }}
+      PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
+      INCARNAMIND_KEEP_ARTIFACTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      # The same check the helper makes before it dispatches: the specs must exist under e2e/, and
+      # nothing else is let near a shell.
+      - name: Check the inputs
+        shell: bash
+        run: node scripts/run-specs.mjs --check
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Downloads from GitHub's releases fail now and then (a 500), so a failed download is tried
+      # again here rather than failing every spec.
+      - name: Make sure Electron is installed
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep 20
+          done
+          exit 1
+      # Playwright records the app's video with its own ffmpeg, which the Electron install doesn't
+      # bring: without it the app's first window never opens.
+      - name: Install the recorder's ffmpeg
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install ffmpeg && exit 0
+            sleep 20
+          done
+          exit 1
+      # As in ci.yml: Chromium's sandbox starts on the runner only with its helper root's and setuid.
+      - name: Let Electron's sandbox start
+        if: runner.os == 'Linux'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - name: Install the Noto CJK fonts
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/apt-install
+        with:
+          package: fonts-noto-cjk
+      - name: Install ffmpeg for the feel check's videos
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.github/actions/apt-install
+        with:
+          package: ffmpeg
+      # On Linux the app needs a display: two virtual ones, one for each of the two workers, as in
+      # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
+      - name: Run the specs
+        shell: bash
+        run: |
+          args=(--repeat-each "$REPEAT" --add-reporter json)
+          if [ -n "$GREP" ]; then args+=("--grep=$GREP"); fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+            for number in 98 99; do
+              Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+              for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
+              test -S "/tmp/.X11-unix/X$number"
+            done
+            export DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99
+            args+=(--workers=2)
+          fi
+          npm run test:smoke -- $SPECS "${args[@]}"
+      # Every test's trace, video and window picture, passed or failed (e2e/app.ts).
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: specs-${{ inputs.os }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+      # What the helper reads to say which specs passed, without downloading the videos.
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: specs-report-${{ inputs.os }}-${{ github.run_id }}
+          path: test-results/report.json
+          retention-days: 7
+          if-no-files-found: ignore

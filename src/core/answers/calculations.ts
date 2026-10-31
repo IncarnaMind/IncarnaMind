@@ -28,10 +28,13 @@
  * a sum that subtracts it is recorded all the same, with a line telling the
  * model it adds (#978).
  */
+import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import {
   type Figure,
   type FigureContext,
+  type FigureFacts,
   figureContextOf,
+  figureContextOfFacts,
   figureLanguageTag,
   type Reading,
   readFigures,
@@ -46,6 +49,7 @@ import {
   formulaText,
   type ScaleChange,
   type ShowAs,
+  sameNumber,
   scaleChanges,
   scaleWordOf,
   scaleWords,
@@ -59,11 +63,25 @@ import {
   joinUnits,
   quoteInUnits,
 } from "../../shared/locations";
+import { memoized } from "../../shared/memo";
+import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { anchorsOf, cellNumber } from "../../shared/units";
-import type { CalculatedFigure, Citation, FigureInput, FigureShowOptions } from "../api";
+import type {
+  CalculatedFigure,
+  Citation,
+  FigureInput,
+  FigureShowOptions,
+  InputNumber,
+} from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
-import type { AnswerDocuments, Quoted, QuoteInput } from "./citations";
+import {
+  type AnswerDocuments,
+  type Matching,
+  type Quoted,
+  type QuoteInput,
+  quotePlaceProblem,
+} from "./citations";
 import type { CiteOptions } from "./engine";
 
 /** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
@@ -80,7 +98,8 @@ function scaleChangeProblem(change: ScaleChange, language: Language): string {
 
 /** The most figures one call records, and inputs one figure has. */
 export const MAX_FIGURES_PER_CALL = 20;
-export const MAX_INPUTS_PER_FIGURE = 30;
+export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
+
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
 const MAX_CALLS_PER_ANSWER = 5;
 
@@ -94,6 +113,8 @@ export function answerLanguage(question: string): Language {
   return detectLanguage(question) === "Chinese" ? "zh-CN" : "en";
 }
 
+const LANGUAGE_SAMPLE = 20_000;
+
 /**
  * How a Document version writes its numbers (its language, separators and
  * "¥"), from all of its Units' text: what an input's number is read with, and
@@ -101,7 +122,39 @@ export function answerLanguage(question: string): Language {
  */
 export function documentFigureContext(units: readonly { text: string }[]): FigureContext {
   const all = units.map((unit) => unit.text).join("\n");
-  return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, 20_000))));
+  return figureContextOf(all, figureLanguageTag(detectLanguage(all.slice(0, LANGUAGE_SAMPLE))));
+}
+
+/** The language a Note's numbers are read in, told again only once its opening words change. */
+const noteLanguage = memoized(
+  4,
+  (head: string) => head,
+  (head: string) => figureLanguageTag(detectLanguage(head)),
+);
+
+/** What a Note's paragraphs, by Block, tell of how it writes its numbers. */
+export interface NoteParagraphs {
+  words: readonly string[];
+  facts(language: string | null): readonly FigureFacts[];
+}
+
+/**
+ * `documentFigureContext` of a Note's paragraphs, added up from each Block's: the whole Note is
+ * read for its separators and language on every change to it (#746).
+ */
+export function partsFigureContext(blocks: readonly NoteParagraphs[]): FigureContext {
+  const head: string[] = [];
+  let length = 0;
+  for (const words of blocks.flatMap((block) => block.words)) {
+    if (length > LANGUAGE_SAMPLE) break;
+    head.push(words);
+    length += words.length + 1;
+  }
+  const language = noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+  return figureContextOfFacts(
+    blocks.flatMap((block) => block.facts(language)),
+    language,
+  );
 }
 
 /** What reading a quote's figures needs of it: the quote, and the Units it cites. */
@@ -119,7 +172,82 @@ export function quotedLines(quoted: QuotedText): string {
   return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
 }
 
+const beforeOnLine = (text: string, at: number) =>
+  text.slice(text.lastIndexOf("\n", at - 1) + 1, at);
+
+/** The most places of one quote looked at: more can't be told apart, and keep a line's start reading. */
+const MOST_PLACES = 50;
+
+function passageOn(page: string, passage: string, matching: Matching): TextRange | null {
+  const found = passage === "" ? null : findQuote(page, passage, matching);
+  const first = found?.[0];
+  const last = found?.at(-1);
+  return first && last ? { start: first.start, end: last.end } : null;
+}
+
+function placesOn(
+  page: string,
+  quote: string,
+  own: TextRange | null,
+  matching: Matching,
+): TextRange[] {
+  const from = own?.start ?? 0;
+  const text = page.slice(from, own?.end ?? page.length);
+  const places: TextRange[] = [];
+  for (let at = 0; at < text.length && places.length < MOST_PLACES; ) {
+    const found = findQuote(text.slice(at), quote, matching);
+    const first = found?.[0];
+    const last = found?.at(-1);
+    if (!first || !last) break;
+    places.push({ start: from + at + first.start, end: from + at + last.end });
+    at += Math.max(last.end, 1);
+  }
+  return places;
+}
+
+/**
+ * Where `quote` starts in `page`, and whether every place it is there starts after other text on its line:
+ * the Passage's own places when its text is on the page, else the page's. `at` is -1 when it isn't there.
+ */
+export function quoteOnPage(
+  page: string,
+  quote: string,
+  passage: string,
+  matching: Matching = {},
+): { at: number; midLine: boolean } {
+  const places = placesOn(page, quote, passageOn(page, passage, matching), matching);
+  const [first] = places;
+  if (!first) return { at: page.indexOf(quote), midLine: false };
+  return {
+    at: first.start,
+    midLine:
+      places.length < MOST_PLACES &&
+      places.every((place) => beforeOnLine(page, place.start).trim() !== ""),
+  };
+}
+
 const writtenNumber = (reading: Reading) => reading.value / reading.scale;
+
+/**
+ * The unit cell of the row a quoted number is in ("收入	100	万元"), which states that row's unit;
+ * null when its own row has none, or more than one. Another row's unit is never its own.
+ */
+function rowUnitCell(quote: string, at: number, context: FigureContext): string | null {
+  const end = quote.indexOf("\n", at);
+  const row = quote.slice(quote.lastIndexOf("\n", at - 1) + 1, end === -1 ? undefined : end);
+  if (!row.includes("\t")) return null;
+  const units = new Set(
+    row
+      .split("\t")
+      .map((cell) => cell.trim())
+      .filter((cell) => {
+        if (!cell || /\d/.test(cell)) return false;
+        const [only, ...more] = readStatedUnits(cell, context, true);
+        return only?.chars === cell && more.length === 0;
+      }),
+  );
+  return units.size === 1 ? ([...units][0] ?? null) : null;
+}
 
 /**
  * A quote's figure as `lines` read it, when they give it a unit or scale of its own: a sheet's
@@ -246,6 +374,16 @@ function givenFigure(value: unknown): GivenFigure {
 
 /** Text as numbers are compared: full-width as half-width, no spaces. */
 const squeezed = (value: string) => value.normalize("NFKC").replace(/\s+/g, "");
+
+/**
+ * Whether `named` is a figure's own digits written plainly, without its separators, sign, scale
+ * or currency: "5704" for "£5,704m", as a model names a number it read.
+ */
+function writtenAs(figure: Figure, named: string): boolean {
+  const plain = named.normalize("NFKC").trim();
+  if (!/^\d+(?:\.\d+)?$/.test(plain)) return false;
+  return sameNumber(Math.abs(figure.value) / figure.scale, Number(plain));
+}
 
 /** Whether `named` is in a figure's characters, not as part of a longer number. */
 function namedIn(chars: string, named: string): boolean {
@@ -433,8 +571,22 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       : `[^${record}]'s quote isn't word for word where it cites; fix it with cite, or give passage, location and quote.`;
   }
 
+  /** Whether an input's quote, recorded with cite or given inline, is where the check can't read it. */
+  function onUnreadPage(given: GivenInput): boolean {
+    const quoted =
+      given.citation !== null
+        ? quotes.recorded(given.citation)
+        : given.record
+          ? quotes.quote(given.record)
+          : null;
+    return quoted !== null && !("problem" in quoted) && quoted.check().check === "cant-check";
+  }
+
   /** The quote an input reads from; or why it can't. */
-  function quoteOf(given: GivenInput): { quoted: Quoted; source: number | QuoteInput } | string {
+  function quoteOf(
+    given: GivenInput,
+    options: CiteOptions,
+  ): { quoted: Quoted; source: number | QuoteInput } | string {
     if (given.citation !== null) {
       const quoted = quotes.recorded(given.citation);
       if (!quoted)
@@ -443,8 +595,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     }
     if (!given.record)
       return "give citation (the marker of a record you gave cite), or passage, location and quote.";
-    // Read as structured output's records are, wherever it is in its Passage: only the number matters here.
-    const quoted = quotes.quote(given.record, { structured: true });
+    const quoted = quotes.quote(given.record, options);
     if ("problem" in quoted) return quoted.problem;
     return unreadable(quoted, null) ?? { quoted, source: given.record };
   }
@@ -501,50 +652,72 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return all.slice(Math.max(1, own.length));
   }
 
-  function lineBefore(quoted: Quoted, figure: Figure): string {
+  function onPage(quoted: Quoted): { text: string; at: number; midLine: boolean } {
     const { quote } = quoted.citation;
-    const page = quoted.units.map((unit) => unit.text).join("\n");
-    const at = page.indexOf(quote);
-    const text = at < 0 ? quote : page;
-    const figureAt = (at < 0 ? 0 : at) + figure.start;
-    return text.slice(text.lastIndexOf("\n", figureAt - 1) + 1, figureAt);
+    const { text } = joinUnits(quoted.units);
+    const { at, midLine } = quoteOnPage(text, quote, quoted.passageText, quoted.matching);
+    return at < 0 ? { text: quote, at: 0, midLine } : { text, at, midLine };
+  }
+
+  function lineBefore(quoted: Quoted, figure: Figure): string {
+    const { text, at } = onPage(quoted);
+    return beforeOnLine(text, at + figure.start);
   }
 
   /** Reads one input; or says why it can't be read. */
-  function readInput(given: GivenInput): ReadInput | string {
+  function readInput(
+    given: GivenInput,
+    options: CiteOptions = {},
+    original?: Pick<InputNumber, "at" | "chars">,
+  ): ReadInput | string {
     if (!given.name) return "give the input a name the formula uses, such as rev2024.";
-    const source = quoteOf(given);
+    const source = quoteOf(given, options);
     if (typeof source === "string") return source;
     const { quoted } = source;
     const quote = quoted.citation.quote;
     let context = contextOf(quoted.citation);
 
     let unit: Quoted | null = null;
+    let unitProblem: string | null = null;
     if (given.unitQuote) {
       const line = quotes.quote(
         { passage: quoted.passage, quote: given.unitQuote },
         { structured: true },
       );
       if ("problem" in line || line.check().check !== "found")
-        return `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
-      const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
-      context = { ...context, yen };
-      unit = line;
+        unitProblem = `the unitQuote isn't word for word in ${quoted.passage}; copy the line that states the unit exactly, from the same Passage.`;
+      else {
+        const yen = figureContextOf(line.citation.quote, context.language).yen ?? context.yen;
+        context = { ...context, yen };
+        unit = line;
+      }
     }
 
-    const figures = readFigures(quote, context);
+    const page = onPage(quoted);
+    // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
+    // A sheet row's cells are numbers whatever they look like: "Gross profit	1922" holds no year.
+    const cells = quoted.units.some((unit) => unit.kind === "rows");
+    const quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+    const contextProblem = quotePlaceProblem(quote, quoted.units, quoted.matching);
+    if (contextProblem) return contextProblem;
+    const figures = readFigures(quote, quoteContext);
     const has =
       figures.length === 0
         ? "it has no number"
         : `it has ${figures.map((each) => each.chars).join(", ")}`;
     let figure: Figure | undefined;
-    if (given.position !== null) {
+    if (original) {
+      figure = figures.find((each) => each.start === original.at && each.chars === original.chars);
+      if (!figure) return "the number is no longer at its recorded place in the quote.";
+    } else if (given.position !== null) {
       figure = figures[given.position - 1];
       if (!figure) return `the quote has no number at position ${given.position}; ${has}.`;
     } else if (given.number !== null) {
       const named = given.number;
       const exact = figures.filter((each) => squeezed(each.chars) === squeezed(named));
-      const found = exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
+      const inChars =
+        exact.length > 0 ? exact : figures.filter((each) => namedIn(each.chars, named));
+      const found = inChars.length > 0 ? inChars : figures.filter((each) => writtenAs(each, named));
       if (found.length === 0) return `the quote has no number "${named}"; ${has}.`;
       if (found.length > 1)
         return `"${named}" is in the quote ${found.length} times; give its position (${either(found.map((each) => figures.indexOf(each) + 1))}).`;
@@ -562,7 +735,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return `"${figure.chars}" could be ${either(codes)} here; quote the line that names its currency as unitQuote.`;
     }
 
-    const cell = cellOf(quoted, figure, context);
+    const cell = cellOf(quoted, figure, quoteContext);
     const base: Reading = figure;
     let reading: Reading = base;
     let chosen: number | null = null;
@@ -601,15 +774,28 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     let candidate: Stated | null = null;
     const ownUnit =
       figure.scaleWord !== null || (base.unit.kind !== "plain" && base.unit.kind !== "currency");
+    // A heading's "(£)" changes no value but gives bare digits their currency, as a unitQuote's would.
+    const changes = (each: Reading) =>
+      each.value !== base.value || each.unit.kind !== base.unit.kind;
+    // A row's unit cell in the quote itself ("收入	100	120	万元") states the unit of each number in
+    // it, so the quote needs no unit line, and one that names its heading cell ("单位") is no matter.
+    const inRow = ownUnit ? null : rowUnitCell(quote, figure.start, context);
+    const ofRow = inRow
+      ? statedReading(quote, figure.start, quoteContext, inRow).find(changes)
+      : undefined;
+    // A number that writes its own scale or unit ("4,979.6百万元") needs no unit line, so one
+    // taken from another Passage doesn't stop it being read.
+    if (unitProblem && !ownUnit && !ofRow) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
-    if (unit) {
+    if (ofRow) stated = { quoted, stated: ofRow };
+    else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       if (!row && readStatedUnits(unit.citation.quote, context, true).length === 0)
         return `the unitQuote "${unit.citation.quote}" states no unit or scale; give the line that does, such as "单位：万元" or "in millions".`;
       const readings = row
         ? [row]
-        : statedReading(quote, figure.start, context, unit.citation.quote);
+        : statedReading(quote, figure.start, quoteContext, unit.citation.quote);
       const scales = new Set(readings.filter((each) => each.scale !== 1).map((each) => each.scale));
       if (scales.size > 1)
         return `the unitQuote "${unit.citation.quote}" states more than one scale; give the one line that applies.`;
@@ -624,10 +810,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const lines = quotedLines(quoted);
       const row = onLine(lines);
       if (row) found.push({ statement: lines, reading: row });
+      const same = (a: Reading, b: Reading) =>
+        a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
       for (const statement of readStatedUnits(page, context)) {
-        for (const each of statedReading(quote, figure.start, context, statement.chars)) {
-          if (each.value === base.value) continue;
-          if (!found.some((other) => other.reading.value === each.value))
+        for (const each of statedReading(quote, figure.start, quoteContext, statement.chars)) {
+          if (!changes(each)) continue;
+          if (!found.some((other) => same(other.reading, each)))
             found.push({ statement: statement.chars, reading: each });
         }
       }
@@ -688,6 +876,47 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     };
   }
 
+  function inputRecord(read: ReadInput, number: FormulaInput & { reading: Reading }): FigureInput {
+    return {
+      name: read.given.name,
+      label: read.given.label,
+      citation: read.quoted.citation,
+      number: {
+        chars: read.figure.chars,
+        at: read.figure.start,
+        value: number.value,
+        scale: number.scale,
+        scaleWord: number.scaleWord,
+        unit: number.unit,
+        decimals: number.decimals,
+        approximate: number.approximate,
+        reading: read.chosen,
+      },
+      cell: read.cell,
+      unitStatement: read.unit
+        ? {
+            citation: read.unit.quoted.citation,
+            scale: read.unit.stated.scale,
+            scaleWord: read.unit.stated.scaleWord,
+            currency: read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
+          }
+        : null,
+    };
+  }
+
+  function checkedNumber(read: ReadInput): FigureInput {
+    const input = inputRecord(read, numberOf(read, read.unit?.stated ?? null));
+    const unit = input.unitStatement;
+    return {
+      ...input,
+      citation: { ...input.citation, ...read.quoted.check() },
+      unitStatement:
+        unit && read.unit
+          ? { ...unit, citation: { ...unit.citation, ...read.unit.quoted.check() } }
+          : unit,
+    };
+  }
+
   const sameValue = (a: FormulaResult["value"], b: FormulaResult["value"]) =>
     typeof a === "number" && typeof b === "number"
       ? Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b))
@@ -697,6 +926,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   function work(
     given: GivenFigure,
     marker: number,
+    options: CiteOptions,
   ): { recorded: Recorded } | { problems: string[] } {
     const lead = `[=${marker}]`;
     if (given.inputs.length === 0)
@@ -715,7 +945,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const reads: ReadInput[] = [];
     const problems: string[] = [];
     for (const input of given.inputs) {
-      const read = readInput(input);
+      const read = readInput(input, options);
       if (typeof read === "string") problems.push(`${lead} ${input.name || "input"}: ${read}`);
       else reads.push(read);
     }
@@ -780,35 +1010,9 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const figure: CalculatedFigure = {
       label: given.label,
       formula: given.formula,
-      inputs: reads.map((read, index): FigureInput => {
-        const number = inputs[index] as FormulaInput & { reading: Reading };
-        return {
-          name: read.given.name,
-          label: read.given.label,
-          citation: read.quoted.citation,
-          number: {
-            chars: read.figure.chars,
-            at: read.figure.start,
-            value: number.value,
-            scale: number.scale,
-            scaleWord: number.scaleWord,
-            unit: number.unit,
-            decimals: number.decimals,
-            approximate: number.approximate,
-            reading: read.chosen,
-          },
-          cell: read.cell,
-          unitStatement: read.unit
-            ? {
-                citation: read.unit.quoted.citation,
-                scale: read.unit.stated.scale,
-                scaleWord: read.unit.stated.scaleWord,
-                currency:
-                  read.unit.stated.unit.kind === "currency" ? read.unit.stated.unit.code : null,
-              }
-            : null,
-        };
-      }),
+      inputs: reads.map((read, index) =>
+        inputRecord(read, inputs[index] as FormulaInput & { reading: Reading }),
+      ),
       value: result.value,
       unit: result.unit,
       approximate: result.approximate,
@@ -859,7 +1063,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         problems.push("A figure needs a marker number (1, 2, …) that is in the Answer as [=n].");
         continue;
       }
-      const outcome = work(given, marker);
+      if (recorded.get(marker)?.figure.analysis !== undefined) {
+        problems.push(
+          `[=${marker}] belongs to an Analysis. Keep that marker for its result; choose a new marker for this calculation.`,
+        );
+        continue;
+      }
+      const outcome = work(given, marker, { structured });
       if ("problems" in outcome) {
         problems.push(...outcome.problems);
         if (structured)
@@ -906,6 +1116,69 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
   return {
     calculate,
+
+    /**
+     * A number in a quote, read as an input of `calculate` is, for an
+     * Analysis (#447): checked now, as the Analysis runs on it now. A number
+     * with no unit of its own where its page states one needs that line as
+     * `unitQuote`: alone, its scale always matters.
+     */
+    number(raw: unknown): { input: FigureInput } | { problem: string; pageUnread?: true } {
+      const given = givenInput(raw);
+      const read = readInput(given);
+      if (typeof read === "string")
+        return { problem: read, ...(onUnreadPage(given) && { pageUnread: true as const }) };
+      if (read.candidate && !read.unit) {
+        return {
+          problem: `${read.figure.chars} has no unit, and ${read.where} says "${read.candidate.statement}"; give that line as unitQuote.`,
+        };
+      }
+      return { input: checkedNumber(read) };
+    },
+
+    /** Reads the saved UTF-16 span again; it is never an ordinal among a quote's numbers. */
+    recheck(input: FigureInput): { input: FigureInput } | { problem: string } {
+      const location = citationLocation(input.citation);
+      const read = readInput(
+        givenInput({
+          name: input.name,
+          label: input.label,
+          passage: input.citation.passageId,
+          quote: input.citation.quote,
+          ...(location && { location: englishLocation(location) }),
+          unitQuote: input.unitStatement?.citation.quote,
+          reading: input.number.reading,
+          ...(input.number.unit.kind === "rate" && {
+            rate: `${input.number.unit.of} per ${input.number.unit.per}`,
+          }),
+        }),
+        {},
+        input.number,
+      );
+      if (typeof read === "string") return { problem: read };
+      const current = checkedNumber(read);
+      if (
+        current.citation.documentId !== input.citation.documentId ||
+        current.citation.contentHash !== input.citation.contentHash ||
+        JSON.stringify(current.number) !== JSON.stringify(input.number) ||
+        JSON.stringify(current.cell) !== JSON.stringify(input.cell) ||
+        current.unitStatement?.citation.contentHash !== input.unitStatement?.citation.contentHash ||
+        current.unitStatement?.scale !== input.unitStatement?.scale ||
+        current.unitStatement?.currency !== input.unitStatement?.currency
+      )
+        return {
+          problem: "the input or its Document has changed since this figure was calculated.",
+        };
+      return { input: current };
+    },
+
+    /** Records a figure an Analysis gave (#447) under the next marker no figure has: that marker. */
+    record(figure: CalculatedFigure): number {
+      const marker = Math.max(0, ...recorded.keys()) + 1;
+      recorded.set(marker, { figure, note: "", signAsked: false, quotes: [] });
+      options.onRecord?.(marker, figure);
+      return marker;
+    },
 
     /** The figures given in structured output that couldn't be worked out, by marker. */
     problems(): FigureProblem[] {

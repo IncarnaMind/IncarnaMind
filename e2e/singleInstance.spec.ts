@@ -1,15 +1,35 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
-import { APP_ARGS, homeEnv, KEYCHAIN_ARGS } from "../tests/helpers/home";
-import { coreOf, createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
+import { isRecord } from "../src/core/errors";
+import { MAPPED_WAL_RETRY_MS } from "../src/core/storage/node-sqlite";
+import { heldByAnotherCopy } from "../src/main/instanceLock";
+import {
+  coreOf,
+  createDataFolder,
+  dismissChatSetup,
+  forceQuit,
+  launchApp,
+  removeDataFolder,
+} from "./app";
+import {
+  copiesWith,
+  freePort,
+  inCopyWindow,
+  killCopies,
+  lifecycleHomeEnv,
+  prepareLifecycleApps,
+  startLifecycleCopy,
+  windowsOf,
+} from "./lifecycle";
+import { startAnotherCopy } from "./secondCopy";
 
 /*
  * One copy of the app to a data folder (#1352): a second start brings the first window forward and
@@ -44,12 +64,7 @@ test("a second start on the same data folder shows the first window and quits; a
   await core.evaluate(async (api) => api.createMind({ title: "Kept" }));
 
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
-  const { execPath, argv, env } = await app.evaluate(() => ({
-    execPath: process.execPath,
-    argv: process.argv.slice(1),
-    env: { ...process.env } as Record<string, string>,
-  }));
-  const again = spawn(execPath, argv, { env, stdio: "ignore" });
+  const again = await startAnotherCopy(app);
   const [code] = await exited(again);
   expect(code).toBe(0);
 
@@ -82,14 +97,355 @@ test("a copy that was killed outright leaves the data folder free for the next s
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await (await coreOf(window)).evaluate(async (api) => api.createMind({ title: "Kept" }));
-  const gone = once(app.process(), "exit");
-  app.process().kill("SIGKILL");
-  await gone;
+  await forceQuit(app);
 
   const next = await launchApp(dataDir);
   const minds = await (await coreOf(next.window)).evaluate(async (api) => api.listMinds());
   expect(minds.map((each) => each.title)).toEqual(["Kept"]);
   await next.app.close();
+});
+
+test("a Windows crash restart while an owned helper maps WAL shared memory says it couldn't start within its retry, and opens the saved text once the helper lets go (#2067)", async () => {
+  test.skip(
+    process.platform !== "win32" || !process.env.INCARNAMIND_PACKAGED_APP,
+    "A genuine Windows packaged app is needed for the Windows file-mapping behavior.",
+  );
+  // A cold runner takes about a minute to start the first copy and the PowerShell mapping helper.
+  test.setTimeout(180_000);
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  const sharedMemory = join(dataDir, "incarnamind.db-shm");
+  const boxes = join(home, "mapped-shm-boxes.jsonl");
+  const instanceTrace = join(home, "mapped-shm-events.jsonl");
+  const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+  const first = await launchApp(dataDir, { home });
+  let firstClosed = false;
+  first.app.once("close", () => {
+    firstClosed = true;
+  });
+  let mapper: ChildProcessWithoutNullStreams | undefined;
+  let mapperClosed: Promise<void> | undefined;
+  let successorPid: number | undefined;
+  let successorError: string | undefined;
+  let mapping: { pid: number; length: number; capacity: number } | undefined;
+  let firstMain:
+    | { pid: number; versions: NodeJS.ProcessVersions; packaged: boolean; dataDir: string }
+    | undefined;
+  const mapperOutput: string[] = [];
+  const mapperErrors: string[] = [];
+  const title = "Saved through a mapped WAL";
+  const text = "This Note was saved before the crash.";
+  try {
+    firstMain = await first.app.evaluate(({ app }) => ({
+      pid: process.pid,
+      versions: process.versions,
+      packaged: app.isPackaged,
+      dataDir: app.getPath("userData"),
+    }));
+    expect(firstMain.packaged).toBe(true);
+    expect(resolve(firstMain.dataDir).toLowerCase()).toBe(resolve(dataDir).toLowerCase());
+    await dismissChatSetup(first.window);
+    const noteId = await (await coreOf(first.window)).evaluate(async (api, title) => {
+      const mind = await api.createMind({ title });
+      await api.changeLayout("main", {
+        type: "open",
+        item: { kind: "mind", mindId: mind.id },
+        where: { in: "place" },
+      });
+      return mind.id;
+    }, title);
+    const editor = first.window.getByTestId("mind-editor");
+    await editor.fill(text);
+    await expect(editor).toHaveText(text);
+    expect(await (await coreOf(first.window)).evaluate((api) => api.saveChangesAgain())).toBeNull();
+    expect((await stat(sharedMemory)).size).toBeGreaterThan(0);
+
+    const mapperEnv: Record<string, string> = lifecycleHomeEnv(home);
+    for (const [name, value] of Object.entries(process.env)) {
+      if (
+        value !== undefined &&
+        ["PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP"].includes(
+          name.toUpperCase(),
+        )
+      )
+        mapperEnv[name] = value;
+    }
+    mapperEnv.INCARNAMIND_TEST_MAPPED_SHM = sharedMemory;
+    // No SQLite DMS lock: the extra mapping alone must not prevent crash recovery (#2022).
+    const script = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$file = $env:INCARNAMIND_TEST_MAPPED_SHM
+$stream = $null
+$mapped = $null
+$view = $null
+try {
+  $share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+  $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, $share)
+  $mapped = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($stream, [System.Management.Automation.Language.NullString]::Value, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite, [System.IO.HandleInheritability]::None, $true)
+  $view = $mapped.CreateViewAccessor([long]0, [long]0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
+  $null = $view.ReadByte(0)
+  [Console]::Out.WriteLine((@{ event = 'mapped'; pid = $PID; file = $file; length = $stream.Length; capacity = $view.Capacity } | ConvertTo-Json -Compress))
+  [Console]::Out.Flush()
+  if ([Console]::In.ReadLine() -ne 'release') { throw 'The mapping owner closed without releasing it.' }
+} finally {
+  if ($view) { $view.Dispose() }
+  if ($mapped) { $mapped.Dispose() }
+  if ($stream) { $stream.Dispose() }
+}
+`;
+    mapper = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      env: mapperEnv,
+      windowsHide: true,
+      stdio: "pipe",
+    });
+    const child = mapper;
+    mapperClosed = new Promise((done) => child.once("close", () => done()));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (data: string) => mapperErrors.push(data));
+    child.stdin.on("error", (error) => {
+      console.error("The owned WAL mapping helper could not receive its release", error);
+    });
+    const lines = createInterface({ input: child.stdout });
+    const mappingReady = new Promise<{ pid: number; length: number; capacity: number }>(
+      (done, fail) => {
+        let ready = false;
+        child.once("error", fail);
+        child.once("close", (code, signal) => {
+          if (!ready)
+            fail(
+              new Error(
+                `The shared-memory mapper ended before mapping: ${code}/${signal}. ${mapperErrors.join("")}`,
+              ),
+            );
+        });
+        lines.on("line", (line) => {
+          mapperOutput.push(line);
+          if (ready) return;
+          try {
+            const value: unknown = JSON.parse(line.replace(/^\uFEFF/, ""));
+            if (
+              !isRecord(value) ||
+              value.event !== "mapped" ||
+              value.file !== sharedMemory ||
+              typeof value.pid !== "number" ||
+              value.pid !== child.pid ||
+              typeof value.length !== "number" ||
+              value.length <= 0 ||
+              typeof value.capacity !== "number" ||
+              value.capacity < value.length
+            )
+              throw new Error("The shared-memory mapper did not confirm its owned mapping.");
+            ready = true;
+            done({ pid: value.pid, length: value.length, capacity: value.capacity });
+          } catch (error) {
+            fail(error);
+          }
+        });
+      },
+    );
+    const mapped = await mappingReady;
+    mapping = mapped;
+
+    expect(mapped.pid).not.toBe(firstMain.pid);
+    await forceQuit(first.app);
+    expect(
+      heldByAnotherCopy(dataDir, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+    expect(mapper.exitCode).toBeNull();
+    expect(mapper.signalCode).toBeNull();
+    process.kill(mapped.pid, 0);
+    // The released runtime's SQLite can't reopen WAL shared memory another process maps (#2067).
+    const successor = startCopy(
+      home,
+      [tag, "-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
+      {
+        INCARNAMIND_TEST_ERROR_BOXES: boxes,
+        INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
+      },
+    );
+    successorPid = successor.pid;
+    successor.once("error", (error) => {
+      successorError = String(error);
+    });
+    if (successorPid === undefined) throw new Error("The replacement app has no process id.");
+    await exited(successor);
+    expect(successorError).toBeUndefined();
+    expect(successor.signalCode).toBeNull();
+    const traced = (await readFile(instanceTrace, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line): unknown => JSON.parse(line))
+      .filter(isRecord)
+      .filter((event) => event.pid === successorPid);
+    const at = (name: string) => {
+      const event = traced.find((each) => each.event === name);
+      if (typeof event?.monotonic !== "string")
+        throw new Error(`The replacement app never traced ${name}.`);
+      return BigInt(event.monotonic);
+    };
+    const givenUpMs = Number((at("before-quit") - at("sqlite-open")) / 1_000_000n);
+    expect(givenUpMs).toBeLessThan(MAPPED_WAL_RETRY_MS + 1_000);
+    expect(
+      traced.filter(
+        (event) =>
+          event.event === "window-visibility" &&
+          typeof event.visibleWindows === "number" &&
+          event.visibleWindows > 0,
+      ),
+    ).toEqual([]);
+    const shown = (await readFile(boxes, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(shown).toEqual([
+      {
+        title: "IncarnaMind couldn’t start",
+        content:
+          "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error",
+        ready: true,
+      },
+    ]);
+    const walOpen = (await logOf(dataDir))
+      .split("\n")
+      .filter((line) => line.includes(" storage.walOpen."));
+    expect(walOpen.length).toBeGreaterThan(1);
+    for (const [index, line] of walOpen.slice(0, -1).entries())
+      expect(line).toMatch(
+        new RegExp(
+          `WARN +storage\\.walOpen\\.failed attempt=${index + 1} elapsedMs=\\d+ errcode=1546$`,
+        ),
+      );
+    expect(walOpen.at(-1)).toMatch(
+      new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
+    );
+    expect(copiesWith(tag)).toEqual([]);
+    expect(
+      heldByAnotherCopy(dataDir, (what, error) => {
+        throw new Error(what, { cause: error });
+      }),
+    ).toBe(false);
+    expect(mapper.exitCode).toBeNull();
+    process.kill(mapped.pid, 0);
+
+    mapper.stdin.end("release\n");
+    await mapperClosed;
+    expect(mapper.exitCode).toBe(0);
+    const next = await launchApp(dataDir, { home });
+    try {
+      const core = await coreOf(next.window);
+      expect(
+        await core.evaluate(
+          async (api, id) => (await api.listMinds()).find((mind) => mind.id === id),
+          noteId,
+        ),
+      ).toMatchObject({ id: noteId, title });
+      await core.evaluate(
+        (api, id) =>
+          api.changeLayout("main", {
+            type: "open",
+            item: { kind: "mind", mindId: id },
+            where: { in: "place" },
+          }),
+        noteId,
+      );
+      await expect(next.window.getByTestId("mind-editor")).toHaveText(text);
+    } finally {
+      await next.app.close();
+    }
+  } finally {
+    try {
+      const path = test.info().outputPath("mapped-shm-restart.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          firstMain,
+          successorPid,
+          successorError,
+          mapping,
+          mapperOutput,
+          mapperErrors,
+          mapperExit: mapper && { code: mapper.exitCode, signal: mapper.signalCode },
+          boxes: existsSync(boxes) ? await readFile(boxes, "utf8") : "",
+          instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
+          log: await logOf(dataDir),
+        }),
+      );
+      await test.info().attach("mapped-shm-restart", {
+        path,
+        contentType: "application/json",
+      });
+    } finally {
+      if (mapper && mapperClosed) {
+        if (mapper.exitCode === null && mapper.signalCode === null) {
+          if (mapping) mapper.stdin.end("release\n");
+          else mapper.kill("SIGKILL");
+        }
+        await mapperClosed;
+      }
+      await expect.poll(() => killCopies(tag), { timeout: 30_000 }).toEqual([]);
+      if (!firstClosed) await forceQuit(first.app);
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
+      if (mapping) expect(mapper?.exitCode).toBe(0);
+    }
+  }
+});
+
+test("a forced quit ends the real main even when the launcher is a different process", async () => {
+  const { app } = await launchApp(dataDir);
+  const launcher = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+    stdio: ["pipe", "ignore", "ignore"],
+  });
+  const processOf = app.process;
+  let closed = false;
+  app.once("close", () => {
+    closed = true;
+  });
+  app.process = () => launcher;
+  try {
+    await forceQuit(app);
+    expect(closed).toBe(true);
+    expect(launcher.exitCode).toBeNull();
+    expect(launcher.signalCode).toBeNull();
+  } finally {
+    app.process = processOf;
+    if (launcher.exitCode === null && launcher.signalCode === null) {
+      const gone = once(launcher, "exit");
+      launcher.kill("SIGKILL");
+      await gone;
+    }
+    if (!closed) await app.close();
+  }
+});
+
+test("a live data owner receives the next start even after the native forwarding files disappear", async () => {
+  test.skip(process.platform === "win32", "POSIX singleton files");
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await (await coreOf(window)).evaluate(async (api) =>
+      api.createMind({ title: "Kept without native files" }),
+    );
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+    for (const name of ["SingletonLock", "SingletonSocket", "SingletonCookie"])
+      await rm(join(dataDir, name), { force: true });
+    const next = await startAnotherCopy(app);
+    expect((await exited(next))[0]).toBe(0);
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((each) => each.isVisible()),
+        ),
+      )
+      .toEqual([true]);
+    expect(await logOf(dataDir)).toContain("app.secondLaunch");
+    expect(await (await coreOf(window)).evaluate((api) => api.listMinds())).toMatchObject([
+      { title: "Kept without native files" },
+    ]);
+  } finally {
+    await app.close();
+  }
 });
 
 // protects=lock files left as text are emptied at start, so the folder's lock works again, and a second start quits; fails_when=the text stays in them (the lock is off for good); no_claim=the race over such files, which the unit test covers.
@@ -99,12 +455,7 @@ test("lock files that aren't databases are emptied, and the folder is locked all
   await writeFile(join(dataDir, "instance.owner"), text);
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const { execPath, argv, env } = await app.evaluate(() => ({
-    execPath: process.execPath,
-    argv: process.argv.slice(1),
-    env: { ...process.env } as Record<string, string>,
-  }));
-  const again = spawn(execPath, argv, { env, stdio: "ignore" });
+  const again = await startAnotherCopy(app);
   const [code] = await exited(again);
   expect(code).toBe(0);
   expect(app.windows()).toHaveLength(1);
@@ -114,33 +465,8 @@ test("lock files that aren't databases are emptied, and the folder is locked all
   await app.close();
 });
 
-/** Starts a copy on `dataDir` outside Playwright, with what `launchApp` gives one; `args` go before the app's folder. */
-function startCopy(
-  home: string,
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): ChildProcess {
-  const env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).flatMap(([name, value]) => (value ? [[name, value]] : [])),
-    ),
-    ...homeEnv(home),
-    INCARNAMIND_DATA_DIR: dataDir,
-    INCARNAMIND_TEST_HOOKS: "1",
-    INCARNAMIND_TEST_EMBEDDER: "fake",
-    INCARNAMIND_TEST_TRANSCRIBER: "fake",
-    INCARNAMIND_TEST_AUDIO: "fake",
-    INCARNAMIND_TEST_CONNECTOR_REGISTRY: "http://127.0.0.1:9",
-    ...extraEnv,
-  };
-  delete (env as Record<string, string | undefined>).ELECTRON_RUN_AS_NODE;
-  const electronPath = require("electron") as unknown as string;
-  return spawn(
-    electronPath,
-    [...KEYCHAIN_ARGS, "--no-sandbox", ...args, resolve(__dirname, ".."), ...APP_ARGS],
-    { env, stdio: "ignore" },
-  );
-}
+const startCopy = (home: string, args: string[], extraEnv: Record<string, string> = {}) =>
+  startLifecycleCopy(dataDir, home, args, extraEnv);
 
 // protects=a data folder another copy keeps busy starts nothing and says so, in a box the User
 // sees on Linux too (#1493); fails_when=the box is asked for before `ready`, when Linux only
@@ -183,29 +509,6 @@ test("a data folder kept busy by a stuck copy starts nothing, and says so once t
     await rm(home, { recursive: true, force: true, maxRetries: 3 });
   }
 });
-
-const freePort = () =>
-  new Promise<number>((done, fail) => {
-    const server = createServer();
-    server.once("error", fail);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address() as { port: number };
-      server.close(() => done(port));
-    });
-  });
-
-/** How many windows the copy on this DevTools port has, 0 while it isn't listening yet. */
-async function windowsOf(port: number): Promise<number> {
-  try {
-    const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as {
-      type: string;
-      url: string;
-    }[];
-    return targets.filter((each) => each.type === "page" && each.url.startsWith("file://")).length;
-  } catch {
-    return 0;
-  }
-}
 
 // protects=a double-click on the app's icon leaves one window; fails_when=a second start, arriving
 // while the first is still starting, makes a window of its own before the first makes its.
@@ -252,53 +555,41 @@ for (const gap of [0, 20, 40, 60, 80]) {
 }
 
 /**
- * The copies started with this switch, and those they started again: main processes only, or
- * with `relaunching` the helpers waiting to start one too.
- */
-function copiesWith(tag: string, relaunching = false): number[] {
-  const listing = execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], {
-    encoding: "utf8",
-  });
-  return listing.split("\n").flatMap((line) => {
-    const [, pid, args = ""] = line.trim().match(/^(\d+)\s+(.*)$/) ?? [];
-    const main = !args.includes("--type=") || (relaunching && args.includes("--type=relauncher"));
-    return pid && args.includes(tag) && main ? [Number(pid)] : [];
-  });
-}
-
-const killAll = (pids: number[]) => {
-  for (const pid of pids) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-  }
-};
-
-/**
  * Starts a copy, then `starts` more that ask for the data folder while it quits
  * (`startDuringQuit.cjs`), and waits until one copy is left, with one window. A start after that
  * must come to that window and quit.
  */
-async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: number) {
+async function startWhileQuitting(
+  how: "quit" | "quit-twice" | "crash" | "after-release",
+  starts: number,
+  { stallAgain = false, language = "en-US", crashTrial = 0 } = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
   const boxes = join(home, "error-boxes.jsonl");
   const mark = join(home, "quit-started");
+  const attempts = join(home, "startup-attempts.jsonl");
+  const instanceTrace = join(home, "instance-events.jsonl");
   const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
   const ports: number[] = [];
+  const late = how === "after-release";
   const start = async (extraEnv: Record<string, string> = {}) => {
     const port = await freePort();
     ports.push(port);
-    return startCopy(
+    const copy = startCopy(
       home,
       [
         tag,
         `--remote-debugging-port=${port}`,
         ...["-r", join(__dirname, "errorBoxes.cjs"), "-r", join(__dirname, "startDuringQuit.cjs")],
       ],
-      { INCARNAMIND_TEST_ERROR_BOXES: boxes, ...extraEnv },
+      {
+        INCARNAMIND_TEST_ERROR_BOXES: boxes,
+        INCARNAMIND_TEST_ERROR_LANGUAGE: language,
+        INCARNAMIND_TEST_INSTANCE_TRACE: instanceTrace,
+        ...extraEnv,
+      },
     );
+    return copy;
   };
   const left = async () => ({
     copies: copiesWith(tag).length,
@@ -307,28 +598,103 @@ async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: 
   try {
     await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
     await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    if (late) {
+      await inCopyWindow(ports[0], async (window) => {
+        await (await coreOf(window)).evaluate((api) =>
+          api.createMind({ title: "Kept during quit" }),
+        );
+      });
+    }
     for (let index = 0; index < starts; index += 1) {
-      await start({ INCARNAMIND_TEST_QUIT_MARK: mark });
+      await start({
+        INCARNAMIND_TEST_QUIT_MARK: mark,
+        ...(late && { INCARNAMIND_TEST_QUIT_AFTER_RELEASE: "1" }),
+        ...(stallAgain && { INCARNAMIND_TEST_STALL_STARTUP: attempts }),
+      });
+    }
+    if (stallAgain) {
+      await expect.poll(left, { timeout: 20_000 }).toEqual({ copies: 0, windows: 0 });
+      const tried = (await readFile(attempts, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { pid: number; args: string[] });
+      expect(tried).toHaveLength(2);
+      expect(tried[0]?.args).not.toContain("--started-again-after-stall");
+      expect(tried[1]?.args).toContain("--started-again-after-stall");
+      expect(tried[0]?.pid).not.toBe(tried[1]?.pid);
+      const shown = (await readFile(boxes, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(shown).toEqual([
+        {
+          title: language === "zh-CN" ? "IncarnaMind 无法启动" : "IncarnaMind couldn’t start",
+          content:
+            language === "zh-CN"
+              ? "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。"
+              : "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+          ready: true,
+        },
+      ]);
+      return;
     }
     await expect
-      .poll(left, { timeout: 90_000, message: "one copy is left, with a window" })
+      .poll(left, { timeout: late ? 20_000 : 90_000, message: "one copy is left, with a window" })
       .toEqual({ copies: 1, windows: 1 });
 
+    if (late) {
+      const winner = (await Promise.all(ports.map(windowsOf))).indexOf(1);
+      await inCopyWindow(ports[winner], async (window) => {
+        const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
+        expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+      });
+    }
+    const beforeFinalStart = (await logOf(dataDir)).length;
     const [code] = await exited(await start());
     expect(code).toBe(0);
+    await expect
+      .poll(async () => (await logOf(dataDir)).slice(beforeFinalStart))
+      .toContain("app.secondLaunch");
     await expect.poll(left, { timeout: 30_000 }).toEqual({ copies: 1, windows: 1 });
     expect(existsSync(boxes)).toBe(false);
   } finally {
-    await expect
-      .poll(
-        () => {
-          killAll(copiesWith(tag, true));
-          return copiesWith(tag, true);
-        },
-        { timeout: 30_000 },
-      )
-      .toEqual([]);
-    await rm(home, { recursive: true, force: true, maxRetries: 3 });
+    try {
+      const details = JSON.stringify({
+        how,
+        crashTrial,
+        state: await left(),
+        pids: copiesWith(tag),
+        dataFolderHeld: heldByAnotherCopy(dataDir, (what, error) => {
+          throw new Error(what, { cause: error });
+        }),
+        log: await logOf(dataDir).catch((error: unknown) => `Log unavailable: ${String(error)}`),
+        events: existsSync(`${mark}.events`) ? await readFile(`${mark}.events`, "utf8") : "",
+        attempts: existsSync(attempts) ? await readFile(attempts, "utf8") : "",
+        instanceTrace: existsSync(instanceTrace) ? await readFile(instanceTrace, "utf8") : "",
+      });
+      const detailsFile = test
+        .info()
+        .outputPath(
+          crashTrial
+            ? `instance-events-crash-${crashTrial}-${randomUUID()}.json`
+            : "instance-events.json",
+        );
+      await writeFile(detailsFile, details);
+      await test.info().attach(`quit-${how}`, {
+        path: detailsFile,
+        contentType: "application/json",
+      });
+    } finally {
+      await expect
+        .poll(
+          () => {
+            return killCopies(tag);
+          },
+          { timeout: 30_000 },
+        )
+        .toEqual([]);
+      await rm(home, { recursive: true, force: true, maxRetries: 3 });
+    }
   }
 }
 
@@ -336,17 +702,232 @@ async function startWhileQuitting(how: "quit" | "quit-twice" | "crash", starts: 
 // fails_when=that start sits with no window and holds the data folder, so every later start
 // quits, or it hands over to the quitting copy and nothing opens.
 test("starts while the app quits, crashes or quits twice each end with one window", async () => {
-  test.skip(process.platform === "win32", "lists the copies with ps");
   test.setTimeout(600_000);
   for (const how of ["quit", "quit", "quit-twice", "crash"] as const) {
     await test.step(how, () => startWhileQuitting(how, 1));
   }
 });
 
+test("five ordinary Windows crash starts keep one usable owner", async () => {
+  test.skip(
+    process.platform !== "win32",
+    "The mapped-SHM runtime defect is Windows-specific (#2067).",
+  );
+  test.setTimeout(600_000);
+  const trials: Record<string, unknown>[] = [];
+  try {
+    for (let trial = 1; trial <= 5; trial++) {
+      const row: Record<string, unknown> = { trial, outcome: "started" };
+      trials.push(row);
+      try {
+        await test.step(`crash ${trial}`, () =>
+          startWhileQuitting("crash", 1, { crashTrial: trial }));
+        row.outcome = "completed";
+      } catch (error) {
+        row.outcome = "failed";
+        row.error = String(error);
+        throw error;
+      }
+    }
+  } finally {
+    const report = test.info().outputPath("ordinary-crash-trials.json");
+    await writeFile(report, JSON.stringify(trials, null, 2));
+    await test
+      .info()
+      .attach("ordinary-crash-trials", { path: report, contentType: "application/json" });
+  }
+});
+
 // protects=a double-click storm during a quit leaves one copy with one window (#1448);
 // fails_when=one of the five starts is left with no window, or none of them opens.
 test("five starts in a row while the app quits leave one window", async () => {
-  test.skip(process.platform === "win32", "lists the copies with ps");
   test.setTimeout(300_000);
   await startWhileQuitting("quit", 5);
 });
+
+// protects=a start after the data lock is released but before Electron exits recovers a usable window (#1448); fails_when=the pre-lock snapshot misses the quitting copy and no recovery is armed.
+test("a start during the old owner's exit waits for its data gate and opens the existing data", async () => {
+  await startWhileQuitting("after-release", 1);
+  const next = await launchApp(dataDir);
+  try {
+    const minds = await (await coreOf(next.window)).evaluate((api) => api.listMinds());
+    expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+  } finally {
+    await next.app.close();
+  }
+});
+
+for (const language of ["en-US", "zh-CN"]) {
+  test(`a real startup retry that also stalls shows a plain problem and frees the data folder (${language})`, async () => {
+    test.skip(process.platform !== "darwin", "the native ready stall is specific to macOS");
+    await startWhileQuitting("after-release", 1, { stallAgain: true, language });
+    const next = await launchApp(dataDir);
+    try {
+      const minds = await (await coreOf(next.window)).evaluate((api) => api.listMinds());
+      expect(minds.map((mind) => mind.title)).toEqual(["Kept during quit"]);
+    } finally {
+      await next.app.close();
+    }
+  });
+}
+
+for (const { language, succeeds, quitDelay } of [
+  { language: "en", succeeds: true, quitDelay: 0 },
+  { language: "en", succeeds: true, quitDelay: 6_000 },
+] as const) {
+  test(`an update ${succeeds ? "succeeds" : "fails after a second start"}, closes its owned core and reopens (${language}, quit delay ${quitDelay} ms)`, async () => {
+    test.setTimeout(120_000);
+    const home = await mkdtemp(join(tmpdir(), "incarnamind-update-"));
+    const apps = await prepareLifecycleApps(home);
+    const events = join(home, "events.jsonl");
+    const tag = `--incarnamind-smoke-copy=${randomUUID()}`;
+    const port = await freePort();
+    const nextPort = await freePort();
+    const startsEarly = succeeds && (process.platform === "linux" || quitDelay > 0);
+    const windowPort = succeeds ? nextPort : port;
+    const start = (first: boolean, debugPort: number) => {
+      const copy = startCopy(
+        home,
+        [tag, `--remote-debugging-port=${debugPort}`, "-r", join(__dirname, "updateFailure.cjs")],
+        {
+          INCARNAMIND_TEST_HOOKS: "0",
+          INCARNAMIND_TEST_UPDATE_FOLDER: home,
+          INCARNAMIND_TEST_UPDATE_APP: resolve(__dirname, ".."),
+          INCARNAMIND_TEST_UPDATE_NEXT_PORT: String(nextPort),
+          INCARNAMIND_TEST_UPDATE_SUCCEEDS: succeeds ? "1" : "0",
+          INCARNAMIND_TEST_UPDATE_QUIT_DELAY: String(quitDelay),
+          INCARNAMIND_TEST_UPDATE_FIRST: first ? "1" : "0",
+          APPIMAGE: process.platform === "linux" ? require("electron") : "",
+          ...apps.env,
+        },
+      );
+      return copy;
+    };
+    const entries = async () =>
+      (await readFile(events, "utf8"))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              kind: string;
+              pid: number;
+              native: boolean;
+              dataHeld?: boolean;
+              visibleWindows?: number;
+              ready?: boolean;
+              first?: boolean;
+              args?: string[];
+              options?: { args?: string[]; message?: string; detail?: string; buttons?: string[] };
+            },
+        );
+    try {
+      const old = start(true, port);
+      await expect.poll(() => windowsOf(port), { timeout: 60_000 }).toBe(1);
+      await inCopyWindow(port, async (window) => {
+        await (await coreOf(window)).evaluate(async (api, value) => {
+          await api.updateSettings({ user: { language: value } });
+          await api.createMind({ title: "Kept after failed update" });
+        }, language);
+      });
+      const gone = exited(old);
+      await writeFile(join(home, "begin"), "");
+      await expect.poll(() => existsSync(join(home, "installing"))).toBe(true);
+      if (!succeeds) {
+        const second = start(false, await freePort());
+        expect((await exited(second))[0]).toBe(0);
+        await writeFile(join(home, "fail"), "");
+      }
+      expect((await gone)[0]).toBe(0);
+      await expect
+        .poll(
+          async () => ({
+            copies: copiesWith(tag).length,
+            windows: await windowsOf(windowPort),
+          }),
+          { timeout: 30_000 },
+        )
+        .toEqual({ copies: 1, windows: 1 });
+      const recorded = await entries();
+      const busy = recorded.filter((it) => it.kind === "startup-problem");
+      expect(busy).toEqual(
+        !succeeds ? [expect.objectContaining({ dataHeld: true, ready: true })] : [],
+      );
+      const install = recorded.find((it) => it.kind === "install");
+      expect(install).toMatchObject({
+        dataHeld: true,
+        native: process.platform !== "linux" && quitDelay === 0,
+      });
+      if (quitDelay > 0)
+        expect(recorded.find((it) => it.kind === "quit-delayed")).toMatchObject({ dataHeld: true });
+      expect(recorded.filter((it) => it.kind === "problem")).toEqual(
+        succeeds
+          ? []
+          : [
+              expect.objectContaining({
+                pid: old.pid,
+                dataHeld: true,
+                visibleWindows: 0,
+                options: expect.objectContaining({
+                  message: language === "en" ? "The update couldn’t be installed" : "未能安装更新",
+                  detail:
+                    language === "en"
+                      ? "IncarnaMind will reopen when you close this message. You can install the update later."
+                      : "关闭此提示后，IncarnaMind 会重新打开。之后可以再安装更新。",
+                  buttons: [language === "en" ? "Reopen IncarnaMind" : "重新打开 IncarnaMind"],
+                }),
+              }),
+            ],
+      );
+      expect(recorded.filter((it) => it.kind === "relaunch")).toEqual(
+        startsEarly
+          ? []
+          : [
+              expect.objectContaining({
+                pid: old.pid,
+                dataHeld: true,
+                options: expect.objectContaining({
+                  args: succeeds
+                    ? expect.not.arrayContaining(["--started-again-after-stall"])
+                    : expect.arrayContaining(["--started-again-after-stall"]),
+                }),
+              }),
+            ],
+      );
+      const fresh = recorded.filter(
+        (it) =>
+          it.kind === "start" &&
+          it.pid !== old.pid &&
+          (succeeds || it.args?.includes("--started-again-after-stall")),
+      );
+      expect(fresh).toHaveLength(1);
+      expect(fresh[0]?.pid).not.toBe(old.pid);
+      await inCopyWindow(windowPort, async (window) => {
+        const minds = await (await coreOf(window)).evaluate((api) => api.listMinds());
+        expect(minds.map((mind) => mind.title)).toEqual(["Kept after failed update"]);
+      });
+      expect((await exited(start(false, await freePort())))[0]).toBe(0);
+      expect(await windowsOf(windowPort)).toBe(1);
+    } finally {
+      try {
+        await test.info().attach(`update-failure-${language}`, {
+          body: JSON.stringify({
+            events: existsSync(events) ? await entries() : [],
+            log: await logOf(dataDir).catch((error: unknown) => String(error)),
+          }),
+          contentType: "application/json",
+        });
+      } finally {
+        await expect
+          .poll(
+            () => {
+              return killCopies(tag);
+            },
+            { timeout: 30_000 },
+          )
+          .toEqual([]);
+        await rm(home, { recursive: true, force: true, maxRetries: 3 });
+      }
+    }
+  });
+}

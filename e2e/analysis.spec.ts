@@ -12,8 +12,8 @@ import { createDataFolder, launchApp, removeDataFolder } from "./app";
 
 /*
  * Analyses run in Python, in the hidden window's sandbox (ADR-0023), through the core's record of
- * each run. No part of the app runs them yet (#447 does), so a test build hands the runtime to the
- * smoke tests. The escape attempts are the spike's (#444): every one must fail, and a local server
+ * each run. A test build exposes the same runtime to these isolation probes.
+ * The escape attempts are the spike's (#444): every one must fail, and a local server
  * standing in for the network must hear nothing.
  */
 
@@ -346,10 +346,10 @@ test("what a job's page could keep is cleared after it: the next job's IndexedDB
 });
 
 test("with Chromium's sandbox off for the app, no job runs: each ends as unavailable, for the sandbox", async () => {
-  process.env.ELECTRON_DISABLE_SANDBOX = "1";
-  const launched = launchApp(dataDir, { sandboxed: true });
-  delete process.env.ELECTRON_DISABLE_SANDBOX;
-  const { app } = await launched;
+  const { app } = await launchApp(dataDir, {
+    sandboxed: true,
+    extraEnv: { ELECTRON_DISABLE_SANDBOX: "1" },
+  });
 
   const ran = await run(app, python('result("sum", 40 + 2)'));
 

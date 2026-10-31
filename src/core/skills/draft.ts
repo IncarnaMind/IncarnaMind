@@ -22,13 +22,12 @@ import type {
 import { ChatNotReadyError, ConsentDeclinedError, InvalidInputError, isRecord } from "../errors";
 import { parseMindId } from "../minds";
 import type { PreparedChatModel } from "../providers/chat";
+import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import { MAX_DESCRIPTION_LENGTH, oneLine } from "./write";
 
 /** The most of the Mind sent, in characters: the end of it, where the latest work is. */
 const MAX_MIND_CHARACTERS = 40_000;
-/** What a draft may take to write, in tokens: a name, a sentence and up to eight steps. */
-const DRAFT_TOKENS = 900;
 /** A request that takes longer than this (a local model loading a long text) fails. */
 const REQUEST_TIMEOUT_MS = 180_000;
 /** What a name falls back to when the model gave none in the format's characters. */
@@ -45,7 +44,7 @@ export const DRAFT_INSTRUCTIONS = [
   "1. the first step, in the language the notes are written in",
   "2. the next, and so on, three to eight steps in all, in the same language as the notes",
   "",
-  "Each step is one short instruction that starts with a verb and could be followed on a different Mind. If the work cited their Documents, one step says to cite each finding. Don't copy names, numbers or quotes from the notes unless the task is about them. No preamble, no Markdown headings, no code fence.",
+  "Each step is one short instruction that starts with a verb and could be followed on a different Note. If the work cited their Documents, one step says to cite each finding. Don't copy names, numbers or quotes from the notes unless the task is about them. No preamble, no Markdown headings, no code fence.",
 ].join("\n");
 
 const prompt = (mind: string) => ["<mind>", mind, "</mind>"].join("\n");
@@ -150,10 +149,10 @@ export function createSkillDrafts(options: SkillDraftsOptions) {
     if (signal.aborted) return { kind: "cancelled" };
 
     let mind = text.length > MAX_MIND_CHARACTERS ? text.slice(-MAX_MIND_CHARACTERS) : text;
-    let maxOutputTokens = DRAFT_TOKENS;
+    let maxOutputTokens = outputTokens("skill-draft");
     if (prepared.window) {
       const budget = createWindowBudget(prepared.window);
-      const room = budget.roomBeside([DRAFT_INSTRUCTIONS, prompt("")], DRAFT_TOKENS);
+      const room = budget.roomBeside([DRAFT_INSTRUCTIONS, prompt("")], outputTokens("skill-draft"));
       if (room <= 0) {
         return {
           kind: "failed",
@@ -164,7 +163,7 @@ export function createSkillDrafts(options: SkillDraftsOptions) {
         };
       }
       mind = lastThatFits(text, budget.tokens, room);
-      maxOutputTokens = Math.min(DRAFT_TOKENS, prepared.window.outputTokens);
+      maxOutputTokens = Math.min(outputTokens("skill-draft"), prepared.window.outputTokens);
     }
 
     let reply: string;
@@ -219,5 +218,3 @@ export function createSkillDrafts(options: SkillDraftsOptions) {
     },
   };
 }
-
-export type SkillDrafts = ReturnType<typeof createSkillDrafts>;
