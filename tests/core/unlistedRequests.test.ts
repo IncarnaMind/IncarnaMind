@@ -286,7 +286,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
         mindId: panel.mind.id,
       });
       if (!first.asked) throw new Error("The Question wasn't asked.");
-      await answerEnded(panel.core, first.answerId);
+      expect((await answerEnded(panel.core, first.answerId)).event).toBe("finished");
 
       const retried = scriptedModel((call: ModelCall): ScriptedReply => {
         const passage =
@@ -313,7 +313,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
         mindId: fixing.mind.id,
       });
       if (!turn.asked) throw new Error("The Question wasn't asked.");
-      await answerEnded(fixing.core, turn.answerId);
+      expect((await answerEnded(fixing.core, turn.answerId)).event).toBe("finished");
 
       // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
       const kinds = ["made", "added", "changed", "removed"] as const;
@@ -336,7 +336,10 @@ describe("A model no list names, or one in a flow no list admits it to", {
         mindId: asking.mind.id,
       });
       if (!claimed.asked) throw new Error("The Question wasn't asked.");
-      await answerEnded(asking.core, claimed.answerId);
+      expect((await answerEnded(asking.core, claimed.answerId)).event).toBe("finished");
+      const read = await asking.core.getConversation(claimed.conversation.id);
+      const reply = read.messages.find((message) => message.id === claimed.answerId);
+      expect(reply?.kind === "answer" && reply.text).toBe(asked.denied);
 
       for (const each of [model, retried, reasked])
         expect(oldWordsIn(everyRequest(each))).toEqual([]);
