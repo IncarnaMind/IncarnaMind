@@ -23,7 +23,6 @@ const SUMMARY =
   /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|overview|digest|recap|synops[ie]s)\b|总结|概括|概述|摘要|综述|汇总/i;
 
 /** More ways a call is summed up ("past 5 minutes", "key takeaways", "回顾"), beside `SUMMARY`. */
-/** More ways a call is summed up ("past 5 minutes", "key takeaways", "回顾"), beside `SUMMARY`. */
 const RECAP =
   /\b(?:sum up|gist|run[- ]?through|walk (?:me )?through|go over|catch (?:me )?up|(?:bring|get) me up to speed|fill (?:me )?in|what happened|where (?:are|were) we|tl;?dr|takeaways?|highlights?|key points?|decisions?|(?:covered|discussed|said|agreed|decided) so far)\b|\bwhat (?:we(?:'ve| have)?|did we|has been|was) (?:cover(?:ed)?|discuss(?:ed)?|say|said|talk(?:ed)? about|agree|agreed|decide|decided)\b|\bwhere we (?:are|left off|got to)\b|\bwhere (?:did )?we (?:leave|left) off\b|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪|(?:刚才|刚刚).{0,8}(?:讲了什么|说了什么|聊了什么)|(?:到目前为止|到今天为止|目前为止|到现在).{0,8}(?:讲|说|聊)了?(?:什么|哪些|些什么)|错过了?什么|要点|重点/i;
 
