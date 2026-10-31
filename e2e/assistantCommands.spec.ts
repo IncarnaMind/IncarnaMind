@@ -7,6 +7,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -388,6 +389,11 @@ test("open a Document beside this one splits to the right and says so in one lin
   await expect(window.getByTestId("tab-group").first()).toContainText("Deal notes");
   await screenshot(window, "commands-open-beside-en");
   const checked = await askInAssistant(window, "Check this Note");
+  // A claim the model must name is a question before a run billed per token: the reply waits for it, and says Done only after the Check runs.
+  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
+  await expect(ask).toBeVisible();
+  await expect(checked.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(checked.getByTestId("command-changes-title")).toHaveText("Done: Check");
   await app.close();
 });
@@ -425,7 +431,11 @@ test("Check this Note runs the check as ⌘K does, and the reply says Done", asy
   await setUp(app, window);
 
   const answer = await askInAssistant(window, "Check this Note");
-
+  // The Check asks before it runs: the reply must not say Done until the User answers.
+  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
+  await expect(ask).toBeVisible();
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
+  await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(answer.getByTestId("command-changes-title")).toHaveText("Done: Check");
   await expect(answer.getByTestId("command-changes-undo")).toHaveCount(0);
   await app.close();
@@ -439,10 +449,14 @@ test("Local mode is the User's: nothing changes, and one button opens Privacy", 
 
   const answer = await askInAssistant(window, "Turn on Local mode");
 
+  const said =
+    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.";
+  // Said once, in the reply: the card under it keeps only its button, and nothing to keep in a note.
+  await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
+  await expect(answer.getByText(said)).toHaveCount(1);
   const line = answer.getByTestId("command-yours");
-  await expect(line).toContainText(
-    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › Privacy.",
-  );
+  await expect(line).not.toContainText(said);
+  await expect(answer.getByTestId("answer-write-note")).toHaveCount(0);
   await expect(answer.getByTestId("approval-card")).toHaveCount(0);
   await screenshot(window, "commands-yours-en");
   await pointAndClick(window, line.getByTestId("command-yours-open"));
@@ -464,10 +478,13 @@ test("in Chinese, Local mode's line and its button are in Chinese, and fit a nar
 
   const answer = await askInAssistant(window, "打开本地模式");
 
+  const said =
+    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。";
+  await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
+  await expect(answer.getByText(said)).toHaveCount(1);
   const line = answer.getByTestId("command-yours");
-  await expect(line).toContainText(
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › 隐私”里。",
-  );
+  await expect(line).not.toContainText(said);
+  await expect(answer.getByTestId("answer-write-note")).toHaveCount(0);
   await expect(line.getByTestId("command-yours-open")).toHaveText("打开隐私设置");
   const [box, width] = await Promise.all([
     line.boundingBox(),

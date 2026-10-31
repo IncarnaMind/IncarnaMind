@@ -2051,6 +2051,44 @@ export const migrations: readonly Migration[] = [
       END;
     `,
   },
+  {
+    version: 116,
+    description: "A version's Units keep when that version was made (#2159)",
+    sql: `
+      -- When the version whose text a row holds was made: its file's last change, as the app saw
+      -- it when it read that version. A Citation opens the version it was made from after its
+      -- Document changed, marked with this date (#2159). A current version's date is its file's
+      -- modified time, already kept; a file dated 0 has none the app can use. Older versions know
+      -- none, and read as when their text was kept; a saved page's fetch is read from web_pages.
+      ALTER TABLE document_pages ADD COLUMN version_at TEXT;
+      UPDATE document_pages
+      SET version_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', d.file_mtime_ms / 1000.0, 'unixepoch')
+        FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+      )
+      WHERE version_at IS NULL AND EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+          AND d.file_mtime_ms > 0
+      );
+    `,
+  },
+  {
+    version: 117,
+    description:
+      "A duplicate of an imported Note keeps its Word file, so its checks leave it out (#1935)",
+    sql: `
+      -- The Document the file was imported as, beside document_id, which says which Mind is the
+      -- import: a duplicate sets document_id NULL but keeps this, so its checks leave that file
+      -- out by its Document and every version of it, not only by the bytes it was imported from
+      -- (#1935). Imported files already linked to a Document know the same.
+      ALTER TABLE word_packages ADD COLUMN source_document_id TEXT;
+      UPDATE word_packages SET source_document_id = document_id WHERE document_id IS NOT NULL;
+      CREATE INDEX word_packages_by_source_document ON word_packages (source_document_id)
+        WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

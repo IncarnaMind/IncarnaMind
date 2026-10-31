@@ -597,8 +597,17 @@ export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const skill = skillFollowed(prompt);
   if (!tools.includes("search_documents")) return { text: fakeAnswer(question, skill) };
   if (INTO_A_REPORT.test(question)) return reportReply(prompt, question);
+  if (tools.includes("read_document") && /read (?:the )?(?:results )?page/i.test(question)) {
+    const pages = /page (\d+)/i.exec(question)?.[1];
+    const document = /“([^”]+)”/.exec(question)?.[1];
+    if (pages && document && toolResults(prompt, "read_document").length === 0) {
+      return { tool: "read_document", input: { document, pages } };
+    }
+  }
   const given = passagesIn(lastUserText(prompt)).length > 0 && WITHOUT_SEARCHING.test(question);
-  const searches = given ? [lastUserText(prompt)] : toolResults(prompt, "search_documents");
+  const searches = given
+    ? [lastUserText(prompt)]
+    : [...toolResults(prompt, "search_documents"), ...toolResults(prompt, "read_document")];
   if (searches.length === 0) {
     const minutes = minutesNamed(prompt, question);
     return {

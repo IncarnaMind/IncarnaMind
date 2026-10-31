@@ -343,6 +343,77 @@ describe("Research", { timeout: 30_000 }, () => {
     expect((await changesIn(core, task.mindId ?? "")).ids).toHaveLength(1);
   });
 
+  /** A finished Task's save step run again after a quit, its earlier Folder `walled` then or not. */
+  async function resumeSaveAfterQuit(walled: boolean) {
+    const s = await setUp(researcher([]));
+    const task = await started(s.core, startInput(s.mind.id, s.folder.id));
+    const done = await waitForTask(s.core, task.id, (each) => each.finishedAt !== null);
+    expect(done.status).toBe("done");
+    const earlier = (await s.core.getLibrary()).groups.find(
+      (each) => each.name === cutTitle(PLAN.title),
+    );
+    if (!earlier) throw new Error("The save step made no Folder.");
+    if (walled) {
+      await s.core.updateLibraryGroup(earlier.id, {
+        name: earlier.name,
+        description: "",
+        keepInside: true,
+      });
+    }
+    s.core.close();
+    // As if IncarnaMind had been quit after the save step started, before it was settled.
+    const db = openDatabase(join(s.dataDir, DATABASE_FILE));
+    db.run(
+      "UPDATE run_steps SET status = 'started', result = NULL WHERE run_id = ? AND key = 'save'",
+      [task.id],
+    );
+    db.run("UPDATE runs SET status = 'running', finished_at = NULL WHERE id = ?", [task.id]);
+    db.close();
+    const { model } = webSearchingModel(researcher([]), FOUND);
+    const reopened = startCore(s.dataDir, {
+      createChatModel: () => model,
+      keychain: s.keychain,
+      ...s.web.adapters,
+    });
+    const again = await waitForTask(reopened, task.id, (each) => each.finishedAt !== null);
+    expect(again.status).toBe("done");
+    const folders = (await reopened.getLibrary()).groups.filter((each) =>
+      each.name.startsWith(cutTitle(PLAN.title)),
+    );
+    const pages = (await reopened.listDocuments()).filter((each) => each.kind === "web");
+    const { assignments } = await reopened.getLibrary();
+    const filedIn = [
+      ...new Set(
+        assignments
+          .filter((each) => pages.some((page) => page.id === each.documentId))
+          .map((each) => each.groupId),
+      ),
+    ];
+    reopened.close();
+    return {
+      folders: folders.length,
+      earlier: earlier.id,
+      filedIn,
+      filedWalled: folders.find((each) => each.id === filedIn[0])?.keepInside ?? null,
+    };
+  }
+
+  test("a resumed save reuses its earlier Folder while no wall is in the way", async () => {
+    const again = await resumeSaveAfterQuit(false);
+
+    expect(again.folders).toBe(1);
+    expect(again.filedIn).toEqual([again.earlier]);
+  });
+
+  test("a resumed save files outside an earlier Folder that gained a wall", async () => {
+    const again = await resumeSaveAfterQuit(true);
+
+    expect(again.folders).toBe(2);
+    expect(again.filedIn).toHaveLength(1);
+    expect(again.filedIn).not.toEqual([again.earlier]);
+    expect(again.filedWalled).toBe(false);
+  });
+
   test("a Mind the Task made keeps the Folder the User gave it while it waited", async () => {
     let mine = "";
     const { core, folder } = await setUp(researcher([]), {

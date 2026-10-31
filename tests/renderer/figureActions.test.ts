@@ -29,6 +29,7 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { checkWithParts, partWithResult } from "../../src/shared/claimParts";
 import { emptyFigureFinding } from "../../src/shared/figureChecks";
 import { installFigureRuns } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
@@ -89,6 +90,7 @@ function setup(
     { type: "paragraph", attrs: { id: "p" }, content: [{ type: "text", text: words }] },
   ],
   checked = true,
+  partOwned = false,
 ) {
   const document = new DOMParser().parseFromString(
     "<html><head></head><body></body></html>",
@@ -124,7 +126,65 @@ function setup(
       ...emptyFigureFinding(figure),
       state: index === 0 ? ("contradicted" as const) : ("supported" as const),
     }));
-    markSentence(paragraph, 0, words.length, { ...basis(), figures, remainder: basis() });
+    const previous = { ...basis(), figures, remainder: basis() };
+    const split = words.indexOf("but");
+    markSentence(
+      paragraph,
+      0,
+      words.length,
+      partOwned
+        ? checkWithParts(basis(), [
+            partWithResult(
+              { kind: "fact", span: { start: 0, end: split } },
+              {
+                verdict: "contradicted",
+                evidence: citation,
+                says: null,
+                unsupported: null,
+                calculation: null,
+                citedCaseUnchecked: false,
+                citedCaseFound: false,
+                versions: [],
+                excluded: [],
+                figures: figures.map((figure) => ({
+                  ...figure,
+                  source: citation,
+                  result: {
+                    verdict: figure.state === "contradicted" ? "contradicted" : "supported",
+                    evidence: citation,
+                    says: null,
+                    unsupported: null,
+                    calculation: null,
+                    citedCaseUnchecked: false,
+                    citedCaseFound: false,
+                    versions: [],
+                    excluded: [],
+                  },
+                })),
+                remainder: null,
+              },
+            ),
+            partWithResult(
+              { kind: "fact", span: { start: split, end: words.length } },
+              {
+                verdict: "unsupported",
+                evidence: null,
+                says: null,
+                unsupported: {
+                  reason: "The uncertainty is not established.",
+                  covered: null,
+                  uncovered: null,
+                },
+                calculation: null,
+                citedCaseUnchecked: false,
+                citedCaseFound: false,
+                versions: [],
+                excluded: [],
+              },
+            ),
+          ])
+        : previous,
+    );
   }
   const editor = new Editor({
     element: globalThis.document.createElement("div"),
@@ -167,6 +227,23 @@ test("selected personal-view choice keeps sibling evidence and adverse prose, wi
   expect(kept?.figures?.[0]?.kept).toBe(true);
   expect(kept?.figures?.[1]).toEqual(before?.figures?.[1]);
   expect(kept?.remainder).toEqual(before?.remainder);
+  editor.commands.undo();
+  expect(markedSentences(blocks)[0]?.check).toEqual(before);
+});
+
+test("Keep updates the canonical literal owner and leaves its sibling and adverse fact unchanged", () => {
+  const { blocks, editor, read, edit } = setup(undefined, true, true);
+  const before = markedSentences(blocks)[0]?.check;
+  const schedule = read();
+  const first = schedule.rows[0];
+  if (!first) throw new Error("No fixture figure");
+  edit((note) => keepFigureViews(note, schedule, [first.id]));
+  const after = markedSentences(blocks)[0]?.check;
+  expect(after?.parts?.[0]?.figures?.[0]?.result.kept).toBe(true);
+  expect(after?.parts?.[0]?.figures?.[1]).toEqual(before?.parts?.[0]?.figures?.[1]);
+  expect(after?.parts?.[1]).toEqual(before?.parts?.[1]);
+  expect(after?.state).toBe("unsupported");
+  expect(after?.remainder?.state).toBe("unsupported");
   editor.commands.undo();
   expect(markedSentences(blocks)[0]?.check).toEqual(before);
 });

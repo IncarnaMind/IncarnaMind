@@ -22,6 +22,8 @@ import {
   type Block,
   type FailedSentence,
   type Footnote,
+  type HeadingEntry,
+  headingEntries,
   type Image,
   type Inline,
   type Marks,
@@ -133,17 +135,49 @@ const BOX = { open: "\u2610", done: "\u2612" } as const;
 const EMU_PER_TWIP = 635;
 const EMU_PER_PIXEL = 9525;
 
+/** The headings a table of contents names: every one, when the Blocks hold such a Block. */
+export function tableOfContentsHeadings(blocks: readonly Block[]): HeadingEntry[] {
+  const headings = headingEntries(blocks);
+  return headings.length > 0 && containsTableOfContents(blocks) ? headings : [];
+}
+
+/** An entry in a table of contents whose anchor the caller has already named. */
+export interface ContentsEntry {
+  level: number;
+  text: string;
+  name: string;
+}
+
+/** Whether the Blocks hold a table of contents, at the top or in a quote, list or table. */
+function containsTableOfContents(blocks: readonly Block[]): boolean {
+  return blocks.some((block) => {
+    switch (block.kind) {
+      case "toc":
+        return true;
+      case "list":
+        return block.items.some(containsTableOfContents);
+      case "quote":
+        return containsTableOfContents(block.content);
+      case "table":
+        return block.rows.some((row) => row.some((cell) => containsTableOfContents(cell.content)));
+      default:
+        return false;
+    }
+  });
+}
+
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[]; footnotes: number } {
+): { data: Uint8Array; commented: FailedSentence[]; checkComments: number; footnotes: number } {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
     ? new Review(options.review, target.ids, options.labels, () => NEW_DOCUMENT_STYLES.comment)
     : null;
   review?.mark(piecesOf(blocks));
-  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review);
+  const headings = tableOfContentsHeadings(blocks);
+  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review, headings);
   const body = writer.body(blocks);
 
   const document = writer.finish(
@@ -167,7 +201,13 @@ export function renderDocx(
 
   const data = writeZip(
     [
-      { name: "[Content_Types].xml", data: contentTypes(comments.length > 0) },
+      {
+        name: "[Content_Types].xml",
+        data: contentTypes(
+          comments.length > 0,
+          target.media.map((file) => file.name.slice(file.name.lastIndexOf(".") + 1)),
+        ),
+      },
       {
         name: "_rels/.rels",
         data: relationshipsXml([
@@ -182,7 +222,7 @@ export function renderDocx(
         name: "word/styles.xml",
         data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
-      { name: "word/settings.xml", data: SETTINGS },
+      { name: "word/settings.xml", data: settings(headings.length > 0) },
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),
@@ -202,6 +242,7 @@ export function renderDocx(
   return {
     data,
     commented: review?.commentedSentences() ?? [],
+    checkComments: review?.checkComments() ?? 0,
     footnotes: writer.footnoteCount,
   };
 }
@@ -376,14 +417,29 @@ export class DocxWriter {
     return this.footnoteTotal;
   }
 
+  /** Each heading's anchor, for a table of contents: a bookmark Word's field can link to. */
+  private readonly anchors = new WeakMap<object, { id: number; name: string }>();
+  /** A table of contents whose entries and anchors the caller already chose (a Word file's own). */
+  private readonly preparedContents: readonly ContentsEntry[];
+
   constructor(
     private readonly labels: ExportLabels,
     private readonly textWidth: number,
     private readonly target: DocxTarget,
     /** Changes still waiting, as tracked changes, and comments (#107); none: neither. */
     private readonly review: Review | null = null,
+    /** The Note's headings, when it has a table of contents; none: headings carry no bookmark. */
+    private readonly headings: readonly HeadingEntry[] = [],
+    preparedContents: readonly ContentsEntry[] = [],
   ) {
+    this.preparedContents = preparedContents;
     this.styles = target.styles;
+    headings.forEach((entry, at) => {
+      this.anchors.set(entry.block, {
+        id: target.ids.take("annotation"),
+        name: `_Toc${String(90000001 + at)}`,
+      });
+    });
   }
 
   /** XML written for content that changes still waiting add or remove: their tracked changes. */
@@ -417,7 +473,7 @@ export class DocxWriter {
   }
 
   /** Inline content in a paragraph of the text: runs, and a footnote's reference for each Citation. */
-  inlineXml(content: readonly Inline[]): string {
+  inlineXml(content: readonly Inline[], { note = false } = {}): string {
     return this.inline(content, {
       indent: 0,
       style: null,
@@ -425,6 +481,7 @@ export class DocxWriter {
       bold: false,
       width: this.textWidth,
       align: null,
+      ...(note && { note: true }),
     });
   }
 
@@ -447,7 +504,9 @@ export class DocxWriter {
           { style: context.style, indent, align: context.align, format: block.format },
           this.inline(block.content, context),
         );
-      case "heading":
+      case "heading": {
+        const anchor = this.anchors.get(block);
+        const text = this.inline(block.content, context);
         return paragraph(
           {
             style: this.styles.heading(block.level),
@@ -455,8 +514,11 @@ export class DocxWriter {
             align: context.align,
             format: block.format,
           },
-          this.inline(block.content, context),
+          anchor
+            ? `<w:bookmarkStart w:id="${anchor.id}" w:name="${anchor.name}"/>${text}<w:bookmarkEnd w:id="${anchor.id}"/>`
+            : text,
         );
+      }
       case "question":
         return paragraph(
           { style: this.styles.question, indent },
@@ -501,9 +563,51 @@ export class DocxWriter {
         return paragraph({ style: context.style, indent }, this.image(block.image, context));
       case "chart":
         return this.chart(block, context);
+      case "toc":
+        return this.contents();
       case "bibliography":
         return this.bibliography(block);
     }
+  }
+
+  /**
+   * Word's own table of contents (#1935): a TOC field whose cached entries are the Note's
+   * headings, each linking to its bookmark, so Word opens with it shown and updates it on a
+   * refresh. The package asks Word to update the fields on opening.
+   */
+  private contents(): string {
+    const entries = this.preparedContents.length
+      ? this.preparedContents.map((entry) => ({
+          indent: Math.max(0, entry.level - 1) * INDENT,
+          link: `<w:hyperlink w:anchor="${entry.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
+        }))
+      : this.headings.flatMap((entry) => {
+          const anchor = this.anchors.get(entry.block);
+          if (!anchor) return [];
+          return [
+            {
+              indent: Math.max(0, entry.level - 1) * INDENT,
+              link: `<w:hyperlink w:anchor="${anchor.name}" w:history="1">${run(entry.text)}</w:hyperlink>`,
+            },
+          ];
+        });
+    if (entries.length === 0) return "";
+    // As Word writes it: the field begins in the first entry's paragraph and ends in the last's.
+    const begin =
+      '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>' +
+      '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u </w:instrText></w:r>' +
+      '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+    const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
+    return (
+      paragraph({}, run(this.labels.contents, { bold: true })) +
+      entries
+        .map((entry, at) => {
+          const open = at === 0 ? begin : "";
+          const close = at === entries.length - 1 ? end : "";
+          return paragraph({ indent: entry.indent }, open + entry.link + close);
+        })
+        .join("")
+    );
   }
 
   /** With no picture (a host that can't draw one), the table of its values instead. */
@@ -516,6 +620,9 @@ export class DocxWriter {
     let sources = "";
     const cited = this.inline(block.sources, context);
     if (cited) sources += run(labels.chartSources) + cited;
+    if (block.calculated > 0) {
+      sources += run(`${sources ? " " : ""}${labels.chartCalculated(block.calculated)}`);
+    }
     if (block.uncited > 0) {
       sources += run(`${sources ? " " : ""}${labels.chartUncited(block.uncited)}`);
     }
@@ -853,6 +960,9 @@ export class DocxWriter {
         case "break":
           xml += "<w:r><w:br/></w:r>";
           break;
+        case "pageBreak":
+          if (!context.note) xml += '<w:r><w:br w:type="page"/></w:r>';
+          break;
         case "figure":
           xml += run(item.figure.shown, { bold: context.bold });
           break;
@@ -993,10 +1103,16 @@ export class DocxWriter {
     if (!decoded) return run(image.alt || image.src);
     const { id, name } = this.target.picture(decoded);
 
-    // Its size in pixels, shrunk to fit the width available.
+    // The size the Note shows it at, else its pixels', shrunk to fit the width available.
     const maxWidth = Math.max(context.width - context.indent, INDENT) * EMU_PER_TWIP;
-    let cx = decoded.width * EMU_PER_PIXEL;
-    let cy = decoded.height * EMU_PER_PIXEL;
+    const width =
+      image.width ??
+      (image.height ? (decoded.width * image.height) / decoded.height : decoded.width);
+    const height =
+      image.height ??
+      (image.width ? (decoded.height * image.width) / decoded.width : decoded.height);
+    let cx = Math.round(width * EMU_PER_PIXEL);
+    let cy = Math.round(height * EMU_PER_PIXEL);
     if (cx > maxWidth) {
       cy = Math.round((cy * maxWidth) / cx);
       cx = maxWidth;
@@ -1122,15 +1238,24 @@ function formatOf(marks: Marks, context: Context, styles: DocxStyles, style?: st
 
 export interface DecodedImage {
   data: Uint8Array;
-  extension: "png" | "jpeg" | "gif";
+  extension: "png" | "jpeg" | "gif" | "webp" | "bmp";
   /** In pixels. */
   width: number;
   height: number;
 }
 
+/** What each picture's part is, in a package's content types. */
+export const PICTURE_TYPES: Readonly<Record<DecodedImage["extension"], string>> = {
+  png: "image/png",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
 /**
- * A PNG, JPEG or GIF given as a data: URL, with its size. Images elsewhere
- * (on the web) aren't fetched: the export never goes online.
+ * A PNG, JPEG, GIF, WebP or BMP given as a data: URL, with its size. Images
+ * elsewhere (on the web) aren't fetched: the export never goes online.
  */
 export function decodeImage(src: string): DecodedImage | null {
   const match = /^data:image\/[\w.+-]+;base64,([\s\S]*)$/i.exec(src);
@@ -1165,19 +1290,65 @@ function imageSize(data: Buffer): Omit<DecodedImage, "data"> | null {
       offset += 2 + data.readUInt16BE(offset + 2);
     }
   }
+  if (data.length >= 30 && data.toString("latin1", 0, 4) === "RIFF") {
+    if (data.toString("latin1", 8, 12) !== "WEBP") return null;
+    const chunk = data.toString("latin1", 12, 16);
+    if (chunk === "VP8 ") {
+      const width = data.readUInt16LE(26) & 0x3fff;
+      return { extension: "webp", width, height: data.readUInt16LE(28) & 0x3fff };
+    }
+    if (chunk === "VP8L") {
+      const bits = data.readUInt32LE(21);
+      return {
+        extension: "webp",
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+      };
+    }
+    if (chunk === "VP8X") {
+      return {
+        extension: "webp",
+        width: data.readUIntLE(24, 3) + 1,
+        height: data.readUIntLE(27, 3) + 1,
+      };
+    }
+    return null;
+  }
+  if (data.length >= 26 && data.toString("latin1", 0, 2) === "BM") {
+    // A header of 12 bytes is OS/2's, with 16-bit sizes; a height below 0 is drawn top down.
+    if (data.readUInt32LE(14) === 12) {
+      return { extension: "bmp", width: data.readUInt16LE(18), height: data.readUInt16LE(20) };
+    }
+    return {
+      extension: "bmp",
+      width: data.readInt32LE(18),
+      height: Math.abs(data.readInt32LE(22)),
+    };
+  }
   return null;
 }
 
 // ---------------------------------------------------------------------------
 // The package's other parts
 
-function contentTypes(comments: boolean): string {
+/** Pictures every export lists, used or not, as it always has. */
+const LISTED_PICTURES: ReadonlySet<string> = new Set(["png", "jpeg", "gif"]);
+
+function contentTypes(comments: boolean, pictures: readonly string[]): string {
+  const more = [...new Set(pictures)].filter(
+    (extension): extension is DecodedImage["extension"] =>
+      !LISTED_PICTURES.has(extension) && extension in PICTURE_TYPES,
+  );
   const types = [
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`,
     `<Default Extension="png" ContentType="image/png"/>`,
     `<Default Extension="jpeg" ContentType="image/jpeg"/>`,
     `<Default Extension="gif" ContentType="image/gif"/>`,
+    ...more.map(
+      (extension) =>
+        `<Default Extension="${extension}" ContentType="${PICTURE_TYPES[extension]}"/>`,
+    ),
     `<Override PartName="/word/document.xml" ContentType="${MAIN_CONTENT_TYPE}.document.main+xml"/>`,
     `<Override PartName="/word/styles.xml" ContentType="${MAIN_CONTENT_TYPE}.styles+xml"/>`,
     `<Override PartName="/word/settings.xml" ContentType="${MAIN_CONTENT_TYPE}.settings+xml"/>`,
@@ -1209,9 +1380,11 @@ function coreProperties({ title, created }: DocxOptions): string {
   );
 }
 
-const SETTINGS =
+/** The package's settings; a table of contents asks Word to update the fields as it opens. */
+const settings = (updateFields: boolean) =>
   `${XML_DECLARATION}<w:settings xmlns:w="${NS.w}">` +
   '<w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/>' +
+  (updateFields ? '<w:updateFields w:val="true"/>' : "") +
   '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>' +
   '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>' +
   "</w:settings>";

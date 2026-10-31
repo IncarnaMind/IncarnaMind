@@ -136,6 +136,60 @@ describe("functions", () => {
     expect(worked("SQRT(v4)", values).value).toBe(4);
   });
 
+  test.each([
+    [12, 1],
+    [0, 0],
+    [-0, 0],
+    [-12, -1],
+  ])("SIGN(%s) is a dimensionless %s", (value, expected) => {
+    const result = worked("SIGN(x)", [{ ...a, name: "x", value }]);
+    expect(result).toMatchObject({ version: 1, value: expected, unit: { kind: "plain" } });
+    expect(Object.is(result.value, -0)).toBe(false);
+  });
+
+  test.each(["$25", "-£25", "0 users", "-12%", "2.5倍"])(
+    "SIGN accepts numeric units: %s",
+    (quote) => {
+      const x = input("x", quote);
+      expect(worked("SIGN(x)", [x])).toMatchObject({
+        value: Math.sign(x.value) || 0,
+        unit: { kind: "plain" },
+      });
+    },
+  );
+
+  test("SIGN preserves input, Boolean and arithmetic errors", () => {
+    expect(problem("SIGN(missing)", []).kind).toBe("name");
+    expect(problem("SIGN()", [a]).kind).toBe("function");
+    expect(problem("SIGN(a,b)", [a, b]).kind).toBe("function");
+    expect(problem("SIGN(a>b)", [a, b]).message).toBe("SIGN can't take yes or no (a>b).");
+    expect(problem('SIGN("text")', [a]).kind).toBe("syntax");
+    expect(problem("SIGN(a/0)", [a]).kind).toBe("zero");
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(problem("SIGN(a)", [{ ...a, value }]).kind).toBe("input");
+    }
+    expect(problem("SIGN(usd-gbp)", [input("usd", "$12"), input("gbp", "£3")]).kind).toBe("units");
+  });
+
+  test.each([
+    [100, 110, 120, 130, 3],
+    [100, 110, 110, 130, 2],
+    [100, 110, 105, 130, 2],
+    [100, 100, 100, 100, 0],
+  ])(
+    "SIGN counts positive annual changes with checked currency inputs: %j",
+    (a, b, c, d, count) => {
+      const annual = [a, b, c, d].map((value, index) => input(`r${2022 + index}`, `£${value}`));
+      const formula =
+        "SUM(MAX(SIGN(r2023-r2022),0),MAX(SIGN(r2024-r2023),0),MAX(SIGN(r2025-r2024),0))";
+      expect(worked(formula, annual)).toMatchObject({
+        version: 1,
+        value: count,
+        unit: { kind: "plain" },
+      });
+    },
+  );
+
   test("ROUND rounds half away from zero on Excel's digits, not the double's", () => {
     const round = (quote: string, decimals: string) =>
       worked("ROUND(x, d)", [input("x", quote), input("d", decimals)]).value;
@@ -581,7 +635,7 @@ describe("problems", () => {
       ok: false,
       kind: "function",
       message:
-        "VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, ROUND, RRI, SQRT.",
+        "VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT.",
     });
   });
 

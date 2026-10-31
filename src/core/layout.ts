@@ -140,6 +140,11 @@ function parsePlace(value: unknown): DocumentPlace {
     place.quote = value.quote;
   }
   if (value.citation !== undefined) place.citation = parseCitation(value.citation);
+  if (value.currentVersion !== undefined) {
+    if (value.currentVersion !== true)
+      throw new InvalidInputError("A place shows the current version or not.");
+    place.currentVersion = true;
+  }
   if (value.wordPlace !== undefined) {
     if (typeof value.wordPlace !== "string" || !WORD_PLACE.test(value.wordPlace)) {
       throw new InvalidInputError({ key: "error.layout.wordPlace" });

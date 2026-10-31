@@ -229,6 +229,8 @@ function plainBlockMarkdown(block: Block, naming: Naming): string {
     case "image":
     // Only an export writes a Bibliography; a Mind's own Blocks never hold one.
     case "bibliography":
+    // A table of contents is for the page, not for a Question.
+    case "toc":
       return "";
   }
 }
@@ -295,7 +297,8 @@ function chartMarkdown(block: Extract<Block, { kind: "chart" }>, naming: Naming)
           ? citationSource(value.citation as unknown as Record<string, unknown>, naming)
           : null;
         return cell([
-          ...words(value.shown),
+          // As a calculated figure in the text reads (#2307).
+          ...words(value.figure ? `${value.shown} (calculated)` : value.shown),
           ...(source?.source
             ? ([
                 { kind: "text", text: " ", marks },
@@ -377,6 +380,7 @@ function inlineText(inline: Inline): string {
     case "cite":
       return inline.runs.map((run) => run.text).join("");
     case "image":
+    case "pageBreak":
       return "";
   }
 }

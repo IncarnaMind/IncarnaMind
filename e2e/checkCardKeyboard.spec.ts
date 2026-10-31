@@ -372,8 +372,8 @@ for (const language of ["en", "zh-CN"] as const) {
         heading: "claim.state.notFound",
         sentence: words.nothing,
         starts: words.nothing.slice(0, 20),
-        first: "claim-cut-sentence" as const,
-        label: "claim.cutSentence" as MessageKey,
+        first: "claim-check-document" as const,
+        label: "claim.checkAgainstDocument" as MessageKey,
       },
     ] as const;
 
@@ -430,7 +430,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Shift+Tab");
       await expect(actions.last()).toBeFocused();
 
-      if (state.first === "claim-cut-sentence") {
+      if (state.first === "claim-check-document") {
         // The last action is the card's ⋯. Enter opens its menu; Tab leaves it, closing it, so the
         // focus is back on an action and Esc closes the card, never a menu no longer holding the focus.
         await window.keyboard.press("Enter");

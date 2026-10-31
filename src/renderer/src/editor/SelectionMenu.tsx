@@ -13,8 +13,9 @@ import {
   useState,
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
-import { shortcutLabel } from "../commands/keymap";
+import { keysHere, shortcutLabel } from "../commands/keymap";
 import { ChevronIcon } from "../components/icons";
+import { PageBreakLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
 import { isComposing } from "./composing";
 import { EditField, EditWorking } from "./EditField";
@@ -24,6 +25,7 @@ import { footnotePlace, insertFootnote } from "./footnoteSchema";
 import { FORMAT_OPEN, setLineSpacing } from "./formatCommands";
 import { caretAnchor, LinkField } from "./LinkField";
 import { Popover } from "./Popover";
+import { canInsertPageBreak, insertPageBreak, PAGE_BREAK_KEYS } from "./pageBreakSchema";
 import {
   applyLink,
   asOwnUndoStep,
@@ -254,6 +256,7 @@ export function SelectionMenu({
       oneLine: inOneTextblock(current) && canTurnInto(current),
       // A footnote goes after the selection, in text: not in a Question or code.
       footnote: footnotePlace(current.state) !== null,
+      pageBreak: canInsertPageBreak(current.state),
       ai: actions.current
         .filter((action) => action.available?.(current) ?? true)
         .map((action) => action.id),
@@ -627,7 +630,7 @@ export function SelectionMenu({
               role="menuitem"
               aria-disabled={!state.footnote}
               data-testid="format-footnote"
-              title={`${t("editor.format.footnote")} (${shortcutLabel("footnote.insert")})`}
+              title={t("editor.format.footnote")}
               aria-label={t("editor.format.footnote")}
               onMouseDown={keepSelection}
               onClick={() => {
@@ -639,6 +642,21 @@ export function SelectionMenu({
               <span aria-hidden="true" className="format-footnote">
                 a<sup>1</sup>
               </span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-disabled={!state.pageBreak}
+              data-testid="format-page-break"
+              title={`${t("editor.pageBreak.insert")} (${keysHere(PAGE_BREAK_KEYS)})`}
+              aria-label={t("editor.pageBreak.insert")}
+              onMouseDown={keepSelection}
+              onClick={() => {
+                if (state.pageBreak) act(() => insertPageBreak(editor));
+              }}
+              className="selection-format"
+            >
+              <PageBreakLineIcon className="size-4" />
             </button>
             {MARKS.slice(5).map((each) => (
               <FormatButton

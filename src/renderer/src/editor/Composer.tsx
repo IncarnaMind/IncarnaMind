@@ -50,7 +50,7 @@ import {
 import { core } from "../core";
 import { type Dragged, type Dropped, useDropTarget } from "../dragDrop";
 import { editFromComposer, stopEditing, useEdits } from "../editWithAi";
-import { errorMessage } from "../errors";
+import { describeError, errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
@@ -82,6 +82,7 @@ import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from ".
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
+import { PictureChip } from "./PictureChip";
 import { SkillChip } from "./QuestionView";
 import { QuoteChip } from "./QuoteChip";
 import { ScopeChips } from "./ScopeChips";
@@ -163,7 +164,7 @@ export function Composer({
   const folderHolds = useFolderHoldsDocuments(folderId);
   const conversationId = useOpenConversation()?.id ?? null;
   const wallId = useTurnWall({ mindId: source?.mindId ?? mindId, conversationId });
-  const walled = wallId !== null;
+  const walled = typeof wallId === "string";
   const before = useScopeBefore(scopeDoc);
   const folderName = useAppStore(
     (state) => state.library?.groups.find((each) => each.id === folderId)?.name ?? null,
@@ -178,7 +179,10 @@ export function Composer({
           count: leftOutCount,
         });
   // What the chips show: what the core will search (#1359). Asking sends `composerScope`.
-  const scope = scopeWithin(wallId, mindSearchScope(scopeDraft.scope, folderId, folderHolds));
+  const scope = scopeWithin(
+    wallId ?? null,
+    mindSearchScope(scopeDraft.scope, folderId, folderHolds),
+  );
   // The Mind in focus changes under the one composer: what was typed with no Mind goes with the
   // User into the Mind that opens, whose draft is empty, and the quotes waiting with it go
   // whatever that draft holds; the rest of its state starts over.
@@ -222,9 +226,9 @@ export function Composer({
   /** How many lines the text takes, for Expand. */
   const [lines, setLines] = useState(1);
   const [expanded, setExpanded] = useState(false);
-  /** The pasted text being read (View), and whether one couldn't be saved. */
+  /** The pasted text being read (View), and why one couldn't be saved. */
   const [viewing, setViewing] = useState<Paste | null>(null);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveProblem, setSaveProblem] = useState<string | null>(null);
   const pasteLabel = usePasteLabel();
   const [picking, setPicking] = useState<Picking | null>(null);
   const [option, setOption] = useState(-1);
@@ -270,7 +274,7 @@ export function Composer({
   };
   /** Keeps the scope the User chose; the Mind's own follows it to another Folder. */
   const withinWall = (next: SearchScope) => {
-    if (wallId !== null) return folderScope(wallId);
+    if (typeof wallId === "string") return folderScope(wallId);
     return chosenScope(
       scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
       folderId,
@@ -491,8 +495,9 @@ export function Composer({
     const pasted = event.clipboardData.getData("text/plain");
     if (!isLongPaste(pasted)) return;
     event.preventDefault();
-    setSaveFailed(false);
-    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted }] });
+    setSaveProblem(null);
+    const place = { mindId: source?.mindId ?? mindId, conversationId };
+    update({ pastes: [...draft.pastes, { id: crypto.randomUUID(), text: pasted, place }] });
   };
 
   const withoutPaste = (paste: Paste) => draft.pastes.filter((each) => each.id !== paste.id);
@@ -506,29 +511,41 @@ export function Composer({
     element?.focus();
   };
 
-  /** Keeps the paste as a Document and adds it to the Search scope, so Answers can cite it. */
+  /**
+   * Keeps the paste as a Document, filed where it was pasted, and adds it to the Search scope while
+   * the composer is still there, so Answers can cite it.
+   */
   const savePaste = async (paste: Paste) => {
-    setSaveFailed(false);
+    setSaveProblem(null);
     const first = paste.text.split("\n").find((line) => line.trim() !== "") ?? "";
     try {
       const saved = await core.saveTextAsDocument({
         name: first.trim().slice(0, 60) || t("composer.paste.name"),
         text: paste.text,
-        mindId: source?.mindId ?? mindId,
-        conversationId,
+        ...paste.place,
       });
       const composer = useComposer.getState();
       const now = composer.draft(key);
+      const pastes = now.pastes.filter((each) => each.id !== paste.id);
+      // A Note decides the place when one is open; with none, the conversation does.
+      const here =
+        paste.place.mindId === (source?.mindId ?? mindId) &&
+        (paste.place.mindId !== null || paste.place.conversationId === conversationId);
       const nowScope = mindSearchScope(composer.draft(scopeKey).scope, folderId, folderHolds);
       const ids = scopeIds(nowScope, "document");
-      update({
-        pastes: now.pastes.filter((each) => each.id !== paste.id),
-        scope: ids.includes(saved.id)
-          ? composer.draft(scopeKey).scope
-          : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
-      });
-    } catch {
-      setSaveFailed(true);
+      if (!here) update({ pastes });
+      else
+        update({
+          pastes,
+          scope: ids.includes(saved.id)
+            ? composer.draft(scopeKey).scope
+            : chosenScope({ ...nowScope, documentIds: [...ids, saved.id] }, folderId),
+        });
+    } catch (error) {
+      // The core words why it refused, as for a deleted conversation; a disk error gets the general line.
+      const { wording } = describeError(error);
+      if (!wording) console.error("A pasted text couldn't be saved as a Document.", error);
+      setSaveProblem(wording ? t(wording.key, wording.values) : t("composer.paste.saveFailed"));
     }
     field.current?.focus();
   };
@@ -804,13 +821,13 @@ export function Composer({
           {tellProblem}
         </ProblemLine>
       )}
-      {saveFailed && (
+      {saveProblem && (
         <ProblemLine
           testId="composer-paste-save-failed"
           className="composer-problem"
-          action={{ label: t("composer.paste.close"), onClick: () => setSaveFailed(false) }}
+          action={{ label: t("composer.paste.close"), onClick: () => setSaveProblem(null) }}
         >
-          {t("composer.paste.saveFailed")}
+          {saveProblem}
         </ProblemLine>
       )}
       {viewing && (
@@ -876,6 +893,7 @@ export function Composer({
             }}
           />
         )}
+        <PictureChip editor={mind?.editor ?? null} doc={mind?.doc ?? null} />
         <AskedQuoteChips
           quotes={draft.quotes ?? []}
           onRemove={(quote) => {
@@ -1006,7 +1024,18 @@ export function Composer({
             onChosen={() => field.current?.focus()}
             opensOnRequest
           />
-          {hasSearchScope(scope) ? (
+          {wallId === undefined ? (
+            // Holds the chip's room while the core works out the wall, so nothing moves when it
+            // comes; it shows no scope (#2243).
+            <span
+              data-testid="composer-scope-waiting"
+              aria-hidden="true"
+              className="composer-chip composer-scope-waiting"
+            >
+              <SearchIcon className="composer-chip-icon" />
+              <span className="truncate">{allLabel}</span>
+            </span>
+          ) : hasSearchScope(scope) ? (
             <ScopeChips
               scope={scope}
               ownFolderId={folderId}

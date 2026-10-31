@@ -15,7 +15,7 @@ import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
+import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
@@ -43,6 +43,7 @@ import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
 import {
   citationHandle,
+  citedVersionInUse,
   findHandle,
   homeNextHandle,
   readMindHandle,
@@ -54,6 +55,7 @@ import { linkCommands } from "./links";
 import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
 import { newFolderCommands } from "./newFolder";
+import { noteBasicsCommands } from "./noteBasics";
 import {
   answerCommands,
   citationCommands,
@@ -65,8 +67,10 @@ import {
   tagCommands,
 } from "./objects";
 import { pageCommands } from "./page";
+import { pageBreakCommands } from "./pageBreaks";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
+import { pictureCommands } from "./pictures";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
@@ -254,6 +258,14 @@ const appCommands: readonly Command[] = [
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
   },
+  {
+    id: "viewer.openCurrentVersion",
+    label: "command.viewer.openCurrentVersion",
+    group: "open",
+    reversible: true,
+    when: () => citedVersionInUse(useAppStore.getState().layout) !== null,
+    run: () => citedVersionInUse(useAppStore.getState().layout)?.openCurrent(),
+  },
   // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
   ...(["update", "keepOld"] as const).map(
     (choice): Command => ({
@@ -341,7 +353,7 @@ const appCommands: readonly Command[] = [
     },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheck(mindId);
+      if (mindId) return checkFromAssistant(mindId);
     },
   },
   {
@@ -353,7 +365,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startMindCheck(mindId, "all");
+      if (mindId) return checkFromAssistant(mindId, true);
     },
   },
   {
@@ -501,6 +513,18 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "mind.replace",
+    label: "editor.replace.label",
+    shortcut: { keys: "CmdOrCtrl+Alt+F" },
+    group: "main",
+    reversible: true,
+    when: () => mindInFront() !== null,
+    run: () => {
+      const mindId = mindInFront();
+      if (mindId) useMindTools.getState().showFind(mindId, { replace: true });
+    },
+  },
+  {
     id: "mind.findNext",
     label: "command.mind.findNext",
     shortcut: { keys: "CmdOrCtrl+G" },
@@ -519,6 +543,9 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...noteBasicsCommands,
+  ...pageBreakCommands,
+  ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

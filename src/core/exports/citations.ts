@@ -224,9 +224,9 @@ export async function styleCitations(
       heading: style.heading,
       items: formatted.bibliography.map((entry) => {
         const checked =
-          formatted.form === "note" || !entry.documentId
+          formatted.form === "note" || !entry.workDocumentId
             ? undefined
-            : checkedOf.get(entry.documentId);
+            : checkedOf.get(entry.workDocumentId);
         return {
           label: entry.label,
           runs: entry.runs,

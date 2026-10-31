@@ -1,13 +1,21 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
+import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
+  addDocuments,
+  addToNote,
+  askInAssistant,
   checkCard,
   createDataFolder,
+  dismissChatSetup,
   launchApp,
   leaveFirstOpen,
   motionSettled,
+  newMind,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -16,10 +24,11 @@ import {
 } from "./app";
 
 /*
- * The User's own "Checked by me" (#1933): a Citation's card and menu mark it as checked by
- * the User, with their name and the time, apart from the app's check; Undo takes it back; an
- * edit to its sentence keeps the mark as changed, with the toggle unticked until ticked again;
- * the badge's card counts the User's checks on a line of their own.
+ * The User's own "Checked by me" (#1933): a Citation's card and menu, a calculated figure's
+ * card and the figure schedule mark an item as checked by the User, with the time, apart from
+ * the app's check; Undo takes it back; an edit to its sentence keeps the mark as changed, with
+ * the toggle unticked until ticked again; the badge's card counts the User's checks on a line
+ * of their own.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -179,7 +188,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const cited = await chips.count();
 
       // Deleted as a person does: the word before it double-clicked, a Shift-click just after it,
-      // and Backspace. The counts cover the text as it is.
+      // and Backspace. The Shift-click sometimes doesn't extend the selection across the Citation
+      // (#2279, a known flake under #1741); the counts cover the text.
       await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
       const box = await chip.boundingBox();
       if (!box) throw new Error("The Citation isn't on screen.");
@@ -289,6 +299,161 @@ for (const language of ["en", "zh-CN"] as const) {
         t("signOff.count.mine", { count: 3 }),
       );
     } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const [language, width] of [
+  ["en", 1600],
+  ["zh-CN", 900],
+] as const) {
+  test(`a calculated figure's card marks it checked by the User, Undo takes it back, and an edit keeps one changed beside one still checked (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const words = WORDS[language];
+    const sources = await createDataFolder();
+    await writeFile(
+      join(sources, "Acme annual report 2025.pdf"),
+      buildPdf([{ lines: ["Revenue was 1,482.6 in 2025, compared with 1,231.0 in 2024."] }]),
+    );
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, width, 900);
+      await dismissChatSetup(window);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+      });
+      await addDocuments(window, [join(sources, "Acme annual report 2025.pdf")]);
+      await setLanguage(window, language);
+      await newMind(window);
+      const question =
+        language === "en"
+          ? "How much did revenue grow, and what share of 2025 was 2024?"
+          : "收入增长了多少，2024年占比多少？";
+      // Two Answers, so each sentence holds figures of its own: an edit to one leaves a
+      // still-checked figure beside the changed one.
+      for (let copy = 0; copy < 2; copy++)
+        await addToNote(window, await askInAssistant(window, question));
+      const markers = editor(window).getByTestId("calculated-figure-marker");
+      await expect(markers).toHaveCount(4, { timeout: 30_000 });
+      const card = window.locator(".calculated-figure-card");
+      const line = card.getByTestId("sign-off-line");
+      const toggle = card.getByTestId("sign-off-toggle");
+      const openAt = async (index: number) => {
+        await markers.nth(index).focus();
+        await window.keyboard.press("Enter");
+        await expect(card).toBeVisible();
+      };
+      const close = async () => {
+        await window.keyboard.press("Escape");
+        await expect(card).toBeHidden();
+      };
+      const mark = async (index: number) => {
+        await openAt(index);
+        await pointAndClick(window, toggle);
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await expect(line).toHaveText(words.mine);
+        await close();
+      };
+
+      await openAt(0);
+      await expect(toggle).toHaveText(words.action);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await expect(line).toHaveCount(0);
+      await pointAndClick(window, toggle);
+      await expect(toggle).toHaveAttribute("aria-pressed", "true");
+      await expect(line).toHaveText(words.mine);
+      await screenshot(window, `sign-off-figure-card-checked-${language}`);
+      await close();
+
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await openAt(0);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await expect(line).toHaveCount(0);
+      await close();
+
+      // From the figure's right-click menu, in the shared order: a toggle that shows ticked.
+      await pointAndClick(window, markers.nth(0), { button: "right" });
+      const menuToggle = window.getByRole("menuitemcheckbox", { name: words.action });
+      await expect(menuToggle).toHaveAttribute("aria-checked", "false");
+      await pointAndClick(window, menuToggle);
+      await pointAndClick(window, markers.nth(0), { button: "right" });
+      await expect(window.getByRole("menuitemcheckbox", { name: words.action })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await window.keyboard.press("Escape");
+
+      // ⌘K reaches it too, ticked, and choosing it takes the mark off.
+      await openAt(0);
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(words.action);
+      const item = window
+        .getByTestId("palette")
+        .locator('[data-key="command:figure.signOffRemove"]');
+      await expect(item.getByTestId("palette-checked")).toBeVisible();
+      await pointAndClick(window, item);
+      await openAt(0);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await expect(line).toHaveCount(0);
+      await close();
+
+      // The first figure of each sentence is checked; the edit below is the first sentence's.
+      await mark(0);
+      await mark(2);
+
+      // A caret in the sentence's words, away from its figures and Citations, which a click on
+      // their marker or chip would take into the node and typing would replace.
+      const point = await editor(window)
+        .locator(":scope > p")
+        .first()
+        .evaluate(
+          (paragraph, target) => {
+            const walker = paragraph.ownerDocument.createTreeWalker(
+              paragraph,
+              NodeFilter.SHOW_TEXT,
+            );
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const text = node as Text;
+              const at = text.data.indexOf(target);
+              if (at < 0) continue;
+              const range = paragraph.ownerDocument.createRange();
+              range.setStart(text, at + 1);
+              range.collapse(true);
+              const rect = range.getBoundingClientRect();
+              return { x: rect.left, y: rect.top + rect.height / 2 };
+            }
+            return null;
+          },
+          language === "en" ? "earlier" : "上年",
+        );
+      if (!point) throw new Error("The figure's sentence isn't on screen.");
+      await window.mouse.click(point.x, point.y);
+      await window.keyboard.type(language === "en" ? "own " : "上下");
+
+      await openAt(0);
+      await expect(line).toHaveText(words.changed);
+      await expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await screenshot(window, `sign-off-figure-card-changed-${language}`);
+      await close();
+      await openAt(2);
+      await expect(line).toHaveText(words.mine);
+      await close();
+
+      const health = await checkCard(window);
+      await expect(health.getByTestId("health-sign-offs")).toHaveText(
+        `${words.count} · ${words.countChanged}`,
+      );
+      await window.keyboard.press("Escape");
+    } finally {
+      await removeDataFolder(sources);
       await app.close();
     }
   });

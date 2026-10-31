@@ -133,7 +133,7 @@ function positiveInteger(env: Env, name: string, fallback: number): number {
 
 export function chatSettings(
   env: Env,
-  role: "CHAT" | "JUDGE" | "HARNESS_CHECK" = "CHAT",
+  role: "CHAT" | "JUDGE" | "SECOND_JUDGE" | "HARNESS_CHECK" = "CHAT",
 ): ChatSettings | null {
   const kind = value(env, `${role}_KIND`);
   const modelId = value(env, `${role}_MODEL`);

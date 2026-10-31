@@ -20,13 +20,14 @@ import {
   withMarking,
 } from "../../shared/exportOptions";
 import type { MessageKey } from "../../shared/i18n";
-import { core } from "./core";
-import { errorMessage } from "./errors";
+import { core, files } from "./core";
+import { describeError, errorMessage } from "./errors";
+import { rewrittenLine } from "./exportChecks";
 import { ownMindsOf } from "./home";
 import { translateNow } from "./i18n";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
-import { useUndo } from "./undo";
+import { UndoRefused, useUndo } from "./undo";
 
 /** Each format's name, as the options sheet, the menus and ⌘K say it. */
 export const FORMAT_LABELS: Readonly<Record<ExportFormat, MessageKey>> = {
@@ -71,6 +72,8 @@ export interface ExportChanging {
   format: "docx" | "pdf";
   mark: boolean;
   places: CitedCount | null;
+  /** Someone else's Word file: whether it gets check comments (#110). */
+  comments: boolean;
 }
 
 /**
@@ -97,7 +100,11 @@ export type ExportResult = { tableId?: string } & (
       unverified: number;
       /** The comparison-table columns the file leaves out, for the line to say. */
       hiddenColumns: number;
-      /** The sentences whose check isn't good: how many, and whether they went in as comments. */
+      /** Made by Verify from someone else's file: its comments have their own choice (#110). */
+      othersFile: boolean;
+      /** Written again beside this file, which the User had changed (#110); null otherwise. */
+      changedFile: string | null;
+      /** The sentences whose check isn’t good, whether they went in as comments, and the check comments in the file. */
       checks: SentenceChecksExported;
       /** The changes waiting that went into a Word file as tracked changes. */
       tracked: number;
@@ -126,6 +133,8 @@ export type ExportResult = { tableId?: string } & (
   /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
   | { mindId: string; state: "review"; format: ExportFormat; word: WordExportReport }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
+  /** A PDF that couldn't be laid out: nothing was saved, and the Output location is fine. */
+  | { mindId: string; state: "not-laid-out"; format: ExportKind }
   /** A source pack of a Mind with no Citations: nothing to make, and nothing went wrong. */
   | { mindId: string; state: "empty"; format: ExportFormat }
   | {
@@ -206,7 +215,8 @@ export function changeExportChoices(mindId: string): void {
       ? { citations: result.citations, documents: result.citedDocuments }
       : null;
   if (!mark && places === null) return;
-  useExports.setState({ result: { ...result, changing: { format, mark, places } } });
+  const comments = format === "docx" && result.othersFile;
+  useExports.setState({ result: { ...result, changing: { format, mark, places, comments } } });
 }
 
 /** Closes Change without a choice: the Saved line as it was. */
@@ -240,6 +250,86 @@ export async function answerMarkAiText(
   );
 }
 
+/** A refusal Undo can try again once the file is back or free; any other never can (#110). */
+const RETRIED_UNDO: readonly MessageKey[] = [
+  "error.export.rewrite.gone",
+  "error.export.rewrite.locked",
+];
+
+/**
+ * Picks in Change whether this Note's file, from someone else, gets check comments (#110): the
+ * choice is this Note's alone, and the same file is written again, so no second copy sits
+ * beside it that could be sent instead. Undo puts both the choice and the file back, by the step
+ * the core gave this Change, and Redo writes it again as a new one.
+ */
+export async function answerCheckComments(mindId: string, answer: boolean): Promise<void> {
+  const { result } = useExports.getState();
+  if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
+  if (result.checks.commented === answer) return;
+  const previous: ExportResult = { ...result, changing: undefined };
+  // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
+  const write = async () => {
+    const saved = await core.rewriteMindExport(
+      mindId,
+      optionsFor("docx", exportPreferences()),
+      result.path,
+      answer,
+    );
+    useExports.setState({
+      result:
+        saved.status === "review"
+          ? { mindId, state: "review", format: "docx", word: saved.word }
+          : savedResult(mindId, "docx", saved),
+    });
+    return saved.status === "saved" ? saved : null;
+  };
+  try {
+    const first = await write();
+    if (!first) return;
+    let written = first;
+    useUndo.getState().push({
+      said: (t) =>
+        rewrittenLine(
+          t,
+          answer,
+          written.sentenceChecks.comments,
+          written.file.name,
+          written.changedFile ?? null,
+        ),
+      ...(first.changedFile && {
+        also: {
+          label: (t) => t("export.open"),
+          testId: "undo-open-copy",
+          run: () =>
+            void files.openSavedFile(written.file.path).catch((error: unknown) => {
+              useAppStore.getState().reportError(error);
+            }),
+        },
+      }),
+      undo: async () => {
+        try {
+          await core.restoreMindExport(written.file.path, written.step);
+        } catch (error) {
+          const { wording } = describeError(error);
+          if (!wording || !RETRIED_UNDO.includes(wording.key)) throw error;
+          throw new UndoRefused((t) => t(wording.key, wording.values), {
+            label: (t) => t("undo.tryAgain"),
+            run: async () => undefined,
+          });
+        }
+        if (useExports.getState().result?.mindId === mindId) {
+          useExports.setState({ result: { ...previous, at: Date.now() } });
+        }
+      },
+      redo: async () => {
+        written = (await write()) ?? written;
+      },
+    });
+  } catch (failure) {
+    useAppStore.getState().reportError(failure);
+  }
+}
+
 /** Picks where Citations go in Change: keeps it, exports this file again with it, and offers Undo (#1945). */
 export async function answerCitationPlace(
   mindId: string,
@@ -259,12 +349,20 @@ export async function answerCitationPlace(
   );
 }
 
+/** What a failed export says: a PDF that couldn't be laid out is tried again, anything else says why. */
+function failedResult(mindId: string, format: ExportKind, failure: unknown): ExportResult {
+  return describeError(failure).wording?.key === "error.pdf.notLaidOut"
+    ? { mindId, state: "not-laid-out", format }
+    : { mindId, state: "failed", format, message: errorMessage(failure, translateNow) };
+}
+
 const NO_CHECKS: SentenceChecksExported = {
   contradicted: 0,
   notFound: 0,
   unsupported: 0,
   needsRecheck: 0,
   commented: false,
+  comments: 0,
 };
 
 function savedResult(
@@ -296,6 +394,8 @@ function savedResult(
       at: Date.now(),
       unverified: "unverifiedCitations" in saved ? saved.unverifiedCitations : 0,
       hiddenColumns: "hiddenColumns" in saved ? saved.hiddenColumns : 0,
+      othersFile: "othersFile" in saved && saved.othersFile,
+      changedFile: ("changedFile" in saved && saved.changedFile) || null,
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],
@@ -373,12 +473,7 @@ export async function exportMind(
       store.updateGettingStarted({ exported: true });
     }
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: chosen,
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, chosen, failure));
   }
 }
 
@@ -395,12 +490,7 @@ export async function exportCheckRecord(
     }
     settle(savedResult(mindId, "check-record", await core.saveCheckRecord(mindId)));
   } catch (failure) {
-    settle({
-      mindId,
-      state: "failed",
-      format: "check-record",
-      message: errorMessage(failure, translateNow),
-    });
+    settle(failedResult(mindId, "check-record", failure));
   }
 }
 

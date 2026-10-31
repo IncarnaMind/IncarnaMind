@@ -1,11 +1,12 @@
 /**
  * What a model request costs, from its price (../providers/catalog): the
  * cached input at its own rate, Anthropic's cache writes above the input
- * price, and off-peak hours at their cut price.
+ * price, a long prompt at its tier's prices, and off-peak hours at their cut
+ * price.
  */
-import type { Currency } from "../api";
+import type { ChatProviderKind, Currency } from "../api";
 import { CNY_PER_USD } from "../providers/catalog/billing";
-import type { Price } from "../providers/catalog/types";
+import type { Price, PriceTier } from "../providers/catalog/types";
 import type { TokenUsage } from "../runs/engine";
 
 /** The one assumption behind every estimate of what Answers cost: about three calls, a search then the writing. */
@@ -32,9 +33,40 @@ export function rateAt(price: Price, at: Date): number {
 }
 
 /**
- * What a request that counted `usage` costs at `at`, in the price's currency.
- * Cache writes cost more only where the provider bills them so (`cacheWrites`,
- * Anthropic); OpenAI reports them too, at the input price.
+ * How many tokens a provider may count for each one `promptTokensOf` counts.
+ * Claude Haiku 5.5 counted 1.09 to 1.16 times as many on #2126's recorded
+ * whole read, so Anthropic's 1.45 is a deliberate margin; a provider not
+ * measured gets a wider one.
+ */
+const COUNTED_PER_TOKEN: Partial<Record<ChatProviderKind, number>> = { anthropic: 1.45 };
+
+/** The margin an estimate of a prompt's tokens takes for its provider's own count to fit. */
+export const promptTokenRatio = (kind: ChatProviderKind): number => COUNTED_PER_TOKEN[kind] ?? 1.5;
+
+/**
+ * The prices one request pays whose prompt holds `promptTokens`, its cache
+ * reads and writes counted: the highest tier it is over, else the base prices.
+ */
+export function priceFor({ tiers, ...base }: Price, promptTokens: number): Price {
+  let tier: PriceTier | undefined;
+  for (const each of tiers ?? []) {
+    if (promptTokens > each.above && (!tier || each.above > tier.above)) tier = each;
+  }
+  if (!tier) return base;
+  const { cacheRead: _cacheRead, ...rest } = base;
+  return {
+    ...rest,
+    input: tier.input,
+    output: tier.output,
+    ...(tier.cacheRead !== undefined && { cacheRead: tier.cacheRead }),
+  };
+}
+
+/**
+ * What a request that counted `usage` costs at `at`, in the price's currency,
+ * at the prices of its prompt's length (`priceFor`). Cache writes cost more
+ * only where the provider bills them so (`cacheWrites`, Anthropic); OpenAI
+ * reports them too, at the input price.
  */
 export function costOf(
   usage: TokenUsage,
@@ -43,28 +75,39 @@ export function costOf(
   { cacheWrites = false }: { cacheWrites?: boolean } = {},
 ): number {
   const input = usage.inputTokens ?? 0;
+  const paid = priceFor(price, input);
   const cached = Math.min(usage.cachedInputTokens ?? 0, input);
   const written = cacheWrites ? Math.min(usage.cacheWriteTokens ?? 0, input - cached) : 0;
   const millionths =
-    (input - cached - written) * price.input +
-    cached * (price.cacheRead ?? price.input) +
-    written * price.input * CACHE_WRITE_FACTOR +
-    (usage.outputTokens ?? 0) * price.output;
-  return (millionths / 1_000_000) * rateAt(price, at);
+    (input - cached - written) * paid.input +
+    cached * (paid.cacheRead ?? paid.input) +
+    written * paid.input * CACHE_WRITE_FACTOR +
+    (usage.outputTokens ?? 0) * paid.output;
+  return (millionths / 1_000_000) * rateAt(paid, at);
 }
 
 /**
  * The most a request may cost: all of its prompt at the input price (written
  * to the cache, where its provider does), and all of its output limit.
+ * `promptTokens` is the estimate, with what the prompt may grow by while the
+ * request runs (the pages a search reads); its tier is picked from that times
+ * the provider's `promptTokenRatio`, so a prompt its provider counts higher
+ * is not reserved below its tier.
  */
 export function reservationOf(
-  request: { promptTokens: number; outputTokens: number; cacheWrites: boolean },
+  request: {
+    promptTokens: number;
+    outputTokens: number;
+    cacheWrites: boolean;
+    kind: ChatProviderKind;
+  },
   price: Price,
   at: Date,
 ): number {
-  const input = request.cacheWrites ? price.input * CACHE_WRITE_FACTOR : price.input;
-  const millionths = request.promptTokens * input + request.outputTokens * price.output;
-  return (millionths / 1_000_000) * rateAt(price, at);
+  const paid = priceFor(price, request.promptTokens * promptTokenRatio(request.kind));
+  const input = request.cacheWrites ? paid.input * CACHE_WRITE_FACTOR : paid.input;
+  const millionths = request.promptTokens * input + request.outputTokens * paid.output;
+  return (millionths / 1_000_000) * rateAt(paid, at);
 }
 
 /** An amount in another currency, at the fixed rate. */

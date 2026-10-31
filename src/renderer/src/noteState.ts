@@ -6,6 +6,7 @@
  * `noteHealth`, the one count (#1909). A sentence kept as the User's view counts as handled
  * and is named in the card.
  */
+
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
@@ -27,6 +28,7 @@ import { checkUnreadOf } from "../../shared/unreadFiles";
 import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks";
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
+import { opinionSentenceRanges } from "./editor/opinionLocations";
 
 export type NoteStateKind = "not-checked" | "needs-look" | "checked";
 
@@ -209,6 +211,7 @@ export function readNoteState({
     claims,
     kept,
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
+    omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
   });
   const requests = new Set(

@@ -51,6 +51,7 @@ import type {
   DocumentStatus,
   DocumentText,
   DocumentTextMatch,
+  DocumentVersionText,
   KeptCitationText,
   OwnFile,
   PassageSearchResult,
@@ -116,6 +117,7 @@ import {
   livePassage,
   passagesBetween,
   passagesBySeq,
+  passagesCovering,
   passagesInWindow,
   textSearch,
   type WindowedPassage,
@@ -210,6 +212,16 @@ const toUnitText = (row: UnitRow): PageText => ({
   anchors: parseJson<Anchor[]>(row.anchors),
 });
 
+/**
+ * When a version was made: its file's last change as the app saw it, else
+ * when it was read (a file whose modified time the app doesn't know, such as
+ * one that returned after going missing).
+ */
+const versionMomentOf = (row: Pick<DocumentRow, "file_mtime_ms">, readAt: string): string =>
+  row.file_mtime_ms === null || row.file_mtime_ms === 0
+    ? readAt
+    : new Date(row.file_mtime_ms).toISOString();
+
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
@@ -240,6 +252,10 @@ function parseId(id: unknown): string {
     throw new InvalidInputError("A Document id is required.");
   return id;
 }
+
+/** A Unit's number, from 1. */
+const isUnit = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1;
 
 function parseName(name: unknown): string {
   if (typeof name !== "string") throw new InvalidInputError("A Document's name must be text.");
@@ -724,14 +740,15 @@ export function createDocuments(options: DocumentsOptions) {
   function keepScannedPage(documentId: string, contentHash: string, unit: TextUnit): void {
     db.transaction(() => {
       // A job stopped meanwhile read it all the same: the next one keeps it.
-      if (!find(documentId)) return;
+      const row = find(documentId);
+      if (!row) return;
       const at = now();
       db.run(
         `UPDATE document_pages SET deleted_at = ?, updated_at = ?
          WHERE document_id = ? AND content_hash = ? AND page = ? AND deleted_at IS NULL`,
         [at, at, documentId, contentHash, BigInt(unit.page)],
       );
-      insertPages(documentId, contentHash, [unit]);
+      insertPages(documentId, contentHash, [unit], versionMomentOf(row, at));
     });
   }
 
@@ -810,15 +827,20 @@ export function createDocuments(options: DocumentsOptions) {
   /**
    * Stores the text of a version's Units (pages, slides, sections, rows,
    * lines), with their labels and anchors, for the Citation check and the
-   * viewer. Run in a transaction.
+   * viewer, and when that version was made. Run in a transaction.
    */
-  function insertPages(documentId: string, contentHash: string, pages: readonly PageText[]): void {
+  function insertPages(
+    documentId: string,
+    contentHash: string,
+    pages: readonly PageText[],
+    versionAt: string,
+  ): void {
     const at = now();
     for (const { page, text, kind, label, anchors } of pages) {
       db.run(
         `INSERT INTO document_pages (id, document_id, content_hash, page, kind, label, anchors,
-           text, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           text, created_at, updated_at, version_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           documentId,
@@ -830,6 +852,7 @@ export function createDocuments(options: DocumentsOptions) {
           text,
           at,
           at,
+          versionAt,
         ],
       );
     }
@@ -1137,7 +1160,7 @@ export function createDocuments(options: DocumentsOptions) {
         if (!unchanged) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
-        insertPages(job.documentId, result.contentHash, result.pages);
+        insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -1539,6 +1562,52 @@ export function createDocuments(options: DocumentsOptions) {
         [documentId, contentHash, ...params],
       )
       .map(toUnitText);
+  }
+
+  /**
+   * How many Units each of these Documents' current versions has, from the stored rows: no text
+   * is read. A Document with none is left out.
+   */
+  function unitCounts(documentIds: readonly string[]): Map<string, number> {
+    if (documentIds.length === 0) return new Map();
+    return new Map(
+      db
+        .all<{ id: string; units: bigint | number }>(
+          `SELECT dp.document_id AS id, count(DISTINCT dp.page) AS units FROM document_pages dp
+           JOIN documents d ON d.id = dp.document_id AND d.content_hash = dp.content_hash
+           WHERE dp.document_id IN (${documentIds.map(() => "?").join(", ")})
+             AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+           GROUP BY dp.document_id`,
+          [...documentIds],
+        )
+        .map((row) => [row.id, Number(row.units)]),
+    );
+  }
+
+  /**
+   * The Documents whose text or printed page names may hold a Bates number, from the keyword
+   * index and the page labels: one lookup for the Library, not one for each Document. The cite's
+   * own pages still decide.
+   */
+  function batesHolders(prefix: string, identifier: string): Set<string> {
+    const phrases = [" ", "", "_"].map(
+      (between) => `"${keywordText(`${prefix}${between}${identifier}`).replaceAll('"', '""')}"`,
+    );
+    const inText = db.all<{ id: string }>(
+      `SELECT DISTINCT p.document_id AS id FROM passages_fts
+       JOIN passages p ON p.seq = passages_fts.rowid
+       JOIN documents d ON d.id = p.document_id
+       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+      [phrases.join(" OR ")],
+    );
+    const inLabels = db.all<{ id: string }>(
+      `SELECT DISTINCT dp.document_id AS id FROM document_pages dp
+       JOIN documents d ON d.id = dp.document_id
+       WHERE dp.content_hash = d.content_hash AND dp.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND dp.label LIKE ?`,
+      [`%${identifier}%`],
+    );
+    return new Set([...inText, ...inLabels].map((row) => row.id));
   }
 
   /**
@@ -2287,17 +2356,17 @@ export function createDocuments(options: DocumentsOptions) {
     searchableNames(
       documentIds: readonly string[] | undefined,
       limit: number,
-    ): { total: number; names: string[]; webPage: boolean } {
+    ): { total: number; names: string[]; webPages: string[] } {
       const { where, params } = searchable(documentIds);
-      const rows = db.all<{ name: string; title: string | null; kind: string }>(
-        `SELECT d.name, d.title, d.kind FROM documents d WHERE ${where}
+      const rows = db.all<{ id: string; name: string; title: string | null; kind: string }>(
+        `SELECT d.id, d.name, d.title, d.kind FROM documents d WHERE ${where}
          ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?`,
         [...params, BigInt(limit)],
       );
       return {
         total: searchableCount(documentIds),
         names: rows.map((row) => withTitle(row.name, row.title)),
-        webPage: rows.some((row) => row.kind === "web"),
+        webPages: rows.filter((row) => row.kind === "web").map((row) => row.id),
       };
     },
 
@@ -2391,6 +2460,7 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     pageTexts,
+    unitCounts,
 
     keptCitationTexts,
 
@@ -2433,16 +2503,9 @@ export function createDocuments(options: DocumentsOptions) {
       documentId: string,
       from: number | null,
       to: number | null,
-    ): { id: string; text: string }[] {
-      const range = from === null || to === null ? "" : "AND p.page_from <= ? AND p.page_to >= ?";
-      const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
-      return db.all<{ id: string; text: string }>(
-        `SELECT p.id, p.text FROM passages p JOIN documents d ON d.id = p.document_id
-         WHERE p.document_id = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
-           AND p.content_hash = d.content_hash ${range}
-         ORDER BY p.position`,
-        [documentId, ...params],
-      );
+      overlapping = false,
+    ): (WindowedPassage & { id: string })[] {
+      return passagesCovering(db, documentId, from, to, overlapping);
     },
 
     /**
@@ -2483,6 +2546,52 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         fileStatus: row.file_status as DocumentFileStatus,
         pages: pages.map(toUnitText).map((unit) => ({
+          page: unit.page ?? 1,
+          text: unit.text,
+          kind: unit.kind ?? "page",
+          label: unit.label ?? null,
+        })),
+      };
+    },
+
+    /**
+     * The text kept of one version of a live Document, its Units `pageFrom`
+     * to `pageTo`, and when that version was made (see
+     * `CoreApi.readVersionText`). Null when that version's text isn't kept.
+     */
+    readVersionText(input: unknown): DocumentVersionText | null {
+      if (!isRecord(input)) throw new InvalidInputError("A version's text needs an object.");
+      const row = find(parseId(input.documentId));
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      const { contentHash, pageFrom, pageTo } = input;
+      if (typeof contentHash !== "string" || contentHash === "") {
+        throw new InvalidInputError("A version's text needs its content hash.");
+      }
+      const whole = pageFrom === null && pageTo === null;
+      if (!whole && !(isUnit(pageFrom) && isUnit(pageTo) && pageFrom <= pageTo)) {
+        throw new InvalidInputError(
+          "A version's Units are a first and a last Unit number, from 1, or both null.",
+        );
+      }
+      const units = pageTexts(row.id, contentHash, whole ? null : pageFrom, whole ? null : pageTo);
+      if (units.length === 0) return null;
+      // A saved page's own fetch is its version's date; any other Document's is its file's.
+      const moment = db.get<{ version_at: string | null; fetched_at: string | null }>(
+        `SELECT MIN(COALESCE(dp.version_at, dp.created_at)) AS version_at,
+           (SELECT w.fetched_at FROM web_pages w
+            WHERE w.document_id = dp.document_id AND w.content_hash = dp.content_hash
+              AND w.deleted_at IS NULL ORDER BY w.fetched_at LIMIT 1) AS fetched_at
+         FROM document_pages dp
+         WHERE dp.document_id = ? AND dp.content_hash = ? AND dp.deleted_at IS NULL`,
+        [row.id, contentHash],
+      );
+      const versionAt = moment?.fetched_at ?? moment?.version_at;
+      if (!versionAt) return null;
+      return {
+        documentId: row.id,
+        contentHash,
+        versionAt,
+        pages: units.map((unit) => ({
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
@@ -2775,16 +2884,16 @@ export function createDocuments(options: DocumentsOptions) {
     /**
      * Removes Documents from the index, all in one step, or none when one isn't found. No file
      * is touched: a copy the old layout made in the data folder goes once its Document is
-     * deleted permanently (`dropPurged`).
+     * deleted permanently (`dropPurged`). `at`: when Undo of a Restore deletes it again.
      */
-    delete(idsInput: unknown): string[] {
+    delete(idsInput: unknown, at: string = now()): string[] {
       const ids = [...new Set((Array.isArray(idsInput) ? idsInput : [idsInput]).map(parseId))];
       const rows = ids.map((id) => {
         const row = find(id);
         if (!row) throw new NotFoundError({ key: "error.document.notFound" });
         return row;
       });
-      removeFromIndex(ids, now());
+      removeFromIndex(ids, at);
       // Once a Linked folder, not once a Document: 1,700 Documents took 90 s one by one (#1349).
       for (const linkedFolderId of new Set(rows.map((row) => row.linked_folder_id))) {
         library.documentsChanged(linkedFolderId);
@@ -3019,6 +3128,8 @@ export function createDocuments(options: DocumentsOptions) {
         similar.length > 0 ? keywordOnlyPassages(db, lists[0] ?? [], model.id) : undefined;
       return passagesBySeq(db, fuseRankings(lists, limit, keywordOnly));
     },
+
+    batesHolders,
 
     /** See `CoreApi.searchDocumentText`. */
     searchText(query: unknown, options?: unknown): DocumentTextMatch[] {

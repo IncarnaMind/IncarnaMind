@@ -425,6 +425,116 @@ describe("Citing Word, PowerPoint and Excel Documents in an Answer", { timeout: 
   const byDocument = (passages: ShownPassage[], name: string) =>
     passages.find((passage) => passage.document === name)?.id ?? "none";
 
+  test.each([
+    {
+      name: "English parent and child",
+      outer: "Record: sold-north",
+      inner: "sold-north",
+      quote: "The north shop sold 120 items in June 2025.",
+      lead: "",
+      before: "",
+    },
+    {
+      name: "Chinese parent and child",
+      outer: "记录：sold-north",
+      inner: "sold-north",
+      quote: "北店在2025年6月售出120件商品。",
+      lead: "",
+      before: "",
+    },
+    {
+      name: "parent with its own text",
+      outer: "Sales",
+      inner: "North",
+      quote: "The north shop sold 120 items in June 2025.",
+      lead: "The south shop sold 80 items in June 2025.\n\n",
+      before: "",
+    },
+    {
+      name: "repeated leaf under different parent paths",
+      outer: "Second record",
+      inner: "Details",
+      quote: "The north shop sold 120 items in June 2025.",
+      lead: "",
+      before: "# First record\n\n## Details\n\nThe south shop sold 80 items.\n\n",
+    },
+  ])("a Passage across distinct sections labels each Unit: $name", async (input) => {
+    let shown: ShownPassage[] = [];
+    const model = citingModel({
+      query: input.quote,
+      records: (passages) => {
+        shown = passages;
+        const passage = byDocument(passages, "Sales");
+        return [
+          { marker: 1, passage, location: `§ ${input.outer}`, quote: input.quote },
+          {
+            marker: 2,
+            passage,
+            location: `§ ${input.outer} ${input.inner}`,
+            quote: input.quote,
+          },
+          { marker: 3, passage, quote: input.quote },
+        ];
+      },
+      answer: "Outer section [^1]. Exact section [^2]. Exact quote [^3].",
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      {
+        name: "Sales.md",
+        contents: `${input.before}# ${input.outer}\n\n${input.lead}## ${input.inner}\n\n${input.quote}\n`,
+      },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, input.quote);
+
+    const citations = citationsIn(client, answerId);
+    expect(citations.map((citation) => citation.check)).toEqual(["found", "found", "found"]);
+    expect(citations[0]).toMatchObject({
+      pageFrom: citations[1]?.pageFrom,
+      pageTo: citations[1]?.pageTo,
+      location: { kind: "section", heading: input.inner },
+      quote: input.quote,
+    });
+    expect(citations[1]).toMatchObject({
+      location: { kind: "section", heading: input.inner },
+      quote: input.quote,
+    });
+    expect(citations[2]).toMatchObject({
+      pageFrom: citations[1]?.pageFrom,
+      pageTo: citations[1]?.pageTo,
+      location: { kind: "section", heading: input.inner },
+    });
+    const passage = shown.find((each) => each.document === "Sales");
+    expect(passage?.location).toBeNull();
+    const first = input.before ? "First record" : input.outer;
+    expect(passage?.text).toMatch(new RegExp(`^\\[§ ${first}\\] # ${first}`));
+    expect(passage?.text).toContain(`[§ ${input.inner}] ## ${input.inner}`);
+  });
+
+  test("a Passage in one section keeps its section label", async () => {
+    let shown: ShownPassage[] = [];
+    const quote = "The north shop sold 120 items in June 2025.";
+    const model = citingModel({
+      query: quote,
+      records: (passages) => {
+        shown = passages;
+        const passage = passages.find((each) => each.document === "Sales");
+        return [{ marker: 1, passage: passage?.id, location: passage?.location, quote }];
+      },
+      answer: "The north shop sold 120 items [^1].",
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: "Sales.md", contents: `# Sales\n\n${quote}\n` },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, quote);
+    expect(shown.find((each) => each.document === "Sales")).toMatchObject({
+      location: "§ Sales",
+      text: `# Sales\n\n${quote}`,
+    });
+    expect(citationsIn(client, answerId)).toMatchObject([
+      { check: "found", location: { kind: "section", heading: "Sales" } },
+    ]);
+  });
+
   test("the model sees where each Passage is, cites a Location, and each Citation stores its label", async () => {
     let shown: ShownPassage[] = [];
     const model = citingModel({

@@ -1,16 +1,21 @@
 /** A model reads "54,000" in a UK contract as pounds and calls "£54,000" supported (#1332), so a program decides. */
 import {
+  bareDollar,
+  bareDollarStatement,
   currenciesOf,
   currenciesOfSign,
+  currencyNamingLine,
   type Figure,
   type FigureContext,
   type FigureUnit,
+  isDollar,
   measureOf,
   namedCurrencies,
   type Reading,
   readFigures,
   readingsOf,
   readStatedUnits,
+  unsaidDollars,
   writesMeasure,
 } from "../../../shared/figures";
 import { documentFigureContext } from "../calculations";
@@ -26,6 +31,10 @@ export type UnitNotStated =
     | { kind: "unit"; figure: string; amount: string }
     /** The same written number at another scale, with no stated unit or scale to settle it. */
     | { kind: "scale"; figure: string; amount: string }
+    /** A named dollar where the Document gives a bare "$" and never says which (#2226). */
+    | { kind: "which dollar"; amount: string }
+    /** Another currency for a "¥" in Chinese text, where it means 人民币 (#2226). */
+    | { kind: "yuan sign"; amount: string }
   ) & { matches: readonly { text: CheckedText; start: number }[] };
 
 /** A Citation's text, read only when it is needed. */
@@ -65,6 +74,153 @@ interface Read {
   figures: Figure[];
   named: Set<string> | null;
   inDocument: Set<string> | null;
+  which: Set<string> | null;
+  whichInDocument: Set<string> | null;
+  language: string | null;
+}
+
+const namedInCited = (each: Read) =>
+  (each.named ??= namedCurrencies(each.cited, each.context, each.figures));
+
+const namedInDocument = (each: Read) =>
+  (each.inDocument ??= namedCurrencies(each.text.document(), each.context, null));
+
+const named = (each: Read, code: string) =>
+  namedInCited(each).has(code) || namedInDocument(each).has(code);
+
+function namesWhich(each: Read, code: string): boolean {
+  each.which ??= namedCurrencies(each.cited, each.context, each.figures, true);
+  if (each.which.has(code)) return true;
+  each.whichInDocument ??= namedCurrencies(each.text.document(), each.context, null, true);
+  return each.whichInDocument.has(code);
+}
+
+const onNamedDollar = (each: Read, code: string) =>
+  each.figures.some((other) =>
+    readingsOf(other).some(
+      (reading) =>
+        reading.unit.kind === "currency" &&
+        reading.unit.code === code &&
+        unsaidDollars(other, reading, each.cited, each.context) === null,
+    ),
+  );
+
+/**
+ * What a cited plain number says of `figure`'s currencies, `codes`: "agrees" where its cited text
+ * or Document names one, and "which dollar" where they write a dollar only by a bare "$" or
+ * "dollars" and `figure` names which. A plain number takes a dollar only where its Document says
+ * which (#2226).
+ */
+function plainSays(
+  figure: Figure,
+  each: Read,
+  codes: ReadonlySet<string>,
+): "agrees" | "which dollar" | null {
+  const bare = bareDollar(figure);
+  const says = (code: string) =>
+    !isDollar(code) || bare || namesWhich(each, code) || onNamedDollar(each, code);
+  if ([...codes].some((code) => named(each, code) && says(code))) return "agrees";
+  if (bare || ![...codes].some(isDollar)) return null;
+  const said = [...namedInCited(each), ...namedInDocument(each)];
+  return said.some((code) => !says(code)) ? "which dollar" : null;
+}
+
+/** A Citation's Document, and the quote its card shows (#2226). */
+export interface DollarClauseSource {
+  text: CheckedText;
+  quote: string;
+}
+
+/** A line of a cited Document's own that says which dollar a sentence names (#2226). */
+export interface DollarClause {
+  text: CheckedText;
+  /** The line, as its Document writes it. */
+  line: string;
+}
+
+// "All amounts are in US dollars.", "Currency: AUD", "单位：人民币", "所有金额均以美元计。"
+const DOCUMENT_WIDE =
+  /(?:\b(?:amounts?|figures?|sums?|values?|prices?)\s+(?:are|is)\s+(?:in|stated|expressed|shown|denominated|payable)\b|\b(?:all|every|any)\s+(?:amounts?|figures?|sums?|values?|prices?)\b|\b(?:amounts?|figures?|sums?|values?|prices?)\s+in\b|\bcurrenc(?:y|ies)\b|(?:单位|币种)\s*[:：]|(?:所有|全部|各项)?金额|(?:所有|全部|各项)?价款)/i;
+// "“$” means Australian dollars.", "本合同中“$”指澳元。"
+const DEFINED =
+  /\b(?:means|is defined as|shall mean|refers to|denotes)\b|["”]\s*(?:指|是指|系指|定义为|指的是)/i;
+const subjectSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+// Joining words and measures too general to name what a clause is about: "The rent is paid each year." speaks of the rent, not the year.
+const SUBJECT_STOPWORDS = new Set(
+  [
+    "the and for are was were is in on at by with of to from as per a an this that these those its their his her our your all any each every such no not or if then than be been being has have had do does did will would shall should may might must can could year years month months day days period periods amount amounts total totals sum sums figure figures value values price prices currency currencies money rate rates document documents stated shown expressed paid payable payment payments made under same other which who what when",
+    "每年 每月 每日 金额 总额 合计 总计 单位 币种 合同 本文 所有 全部 支付 付款 约定 规定 相关 以上 以下 其他 以及 根据 按照 进行 可以 应当",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/** The words of `text` a clause shares when it speaks of the same subject, currency names and joining words left out. */
+function subjectWords(text: string, context: FigureContext): Set<string> {
+  const words = new Set<string>();
+  for (const { segment, isWordLike } of subjectSegmenter.segment(text.normalize("NFKC"))) {
+    if (!isWordLike) continue;
+    const word = segment.toLowerCase();
+    if (word.length < 2 || SUBJECT_STOPWORDS.has(word) || /\p{N}/u.test(word)) continue;
+    if (namedCurrencies(word, context, null).size > 0) continue;
+    words.add(word);
+  }
+  return words;
+}
+
+/** Whether `line` states the Document's own currency, rather than another payment's. */
+const documentWide = (line: string, context: FigureContext): boolean =>
+  readStatedUnits(line, context).some(({ unit }) => unit.kind === "currency") ||
+  DOCUMENT_WIDE.test(line) ||
+  DEFINED.test(line);
+
+/**
+ * The line of a cited Document that says which dollar a bare "$" or "dollars" in `claim` is, in
+ * words, a code, a heading, a unit line or a definition, when the quote its card shows doesn't
+ * name that dollar itself (#2226). Null when the quote says it, or no Document does.
+ */
+export function dollarClause(
+  claim: string,
+  sources: readonly DollarClauseSource[],
+): DollarClause | null {
+  const own = documentFigureContext([{ text: claim }]);
+  const pairs = readFigures(claim, own).flatMap((figure) =>
+    [...new Set([...currenciesOf(figure), ...currenciesOfSign(figure)])]
+      .filter(isDollar)
+      .map((code) => ({ code, value: figure.value })),
+  );
+  if (pairs.length === 0) return null;
+  for (const { text, quote } of sources) {
+    const document = text.document();
+    const context = documentFigureContext([{ text: quote || document.slice(0, 20_000) }]);
+    const onQuote = readFigures(quote, context);
+    const named = namedCurrencies(quote, context, onQuote, true);
+    const beside = onQuote.filter((figure) => !bareDollar(figure));
+    // The quote settles a dollar only for its own figure: another figure's "US$5,000" says nothing of a bare "$54,000".
+    const wanted = new Set(
+      pairs
+        .filter(
+          ({ code, value }) =>
+            !named.has(code) &&
+            !beside.some(
+              (figure) => sameValue(figure.value, value) && currenciesOf(figure).includes(code),
+            ),
+        )
+        .map(({ code }) => code),
+    );
+    if (wanted.size === 0) continue;
+    const mine = subjectWords(claim, context);
+    const line = currencyNamingLine(
+      document,
+      context,
+      wanted,
+      (each) =>
+        documentWide(each, context) ||
+        [...subjectWords(each, context)].some((word) => mine.has(word)),
+    );
+    if (line !== null) return { text, line };
+  }
+  return null;
 }
 
 function matchesOf(found: readonly { text: CheckedText | null; start: number }[]) {
@@ -116,35 +272,60 @@ function givenOtherwise(
         ),
     );
   type Valued = ReturnType<typeof valued>;
-  const given = (found: Valued): UnitNotStated | null => {
+  const given = (found: Valued, kind: "unit" | "which dollar" | "yuan sign" = "unit") => {
     const [first] = found;
     if (!first) return null;
-    return {
-      kind: "unit",
-      figure: figure.chars,
-      amount: givenAs(first.number, first.reading),
-      matches: matchesOf(
-        found.map(({ each, number }) => ({ text: each.text, start: number.start })),
-      ),
-    };
+    // A bare "$" heading's reading is in no named dollar: "54,000 ($)", never "54,000 (USD)".
+    const unsaid = kind === "which dollar" && first.number.currency === null;
+    const amount = unsaid
+      ? `${first.number.chars} ($${first.reading.scaleWord ?? ""})`
+      : givenAs(first.number, first.reading);
+    const matches = matchesOf(
+      found.map(({ each, number }) => ({ text: each.text, start: number.start })),
+    );
+    const problem: UnitNotStated =
+      kind === "unit" ? { kind, figure: figure.chars, amount, matches } : { kind, amount, matches };
+    return problem;
   };
   const equal = valued(figure.value);
   if (figure.unit.kind === "currency") {
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
-    const named = (each: Read, code: string) => {
-      each.named ??= namedCurrencies(each.cited, each.context, each.figures);
-      if (each.named.has(code)) return true;
-      each.inDocument ??= namedCurrencies(each.text.document(), each.context, null);
-      return each.inDocument.has(code);
-    };
-    const inCurrency = equal.filter(({ reading }) => reading.unit.kind === "currency");
-    const agrees = equal.some(({ each, number, reading }) =>
-      reading.unit.kind === "currency"
-        ? codes.has(reading.unit.code) ||
-          currenciesOfSign(number).some((code) => codes.has(code) && named(each, code))
-        : reading.unit.kind === "plain" && [...codes].some((code) => named(each, code)),
+    const judged = equal.map((found) => {
+      const { each, number, reading } = found;
+      if (reading.unit.kind === "plain")
+        return { found, as: plainSays(figure, each, codes) === "agrees" ? "agrees" : "plain" };
+      if (reading.unit.kind !== "currency") return { found, as: "other" };
+      const dollars = unsaidDollars(number, reading, each.cited, each.context);
+      if (dollars) {
+        const said = dollars.filter((code) => namesWhich(each, code));
+        if (said.length > 0)
+          return { found, as: said.some((code) => codes.has(code)) ? "agrees" : "differs" };
+        if (bareDollar(figure)) return { found, as: "agrees" };
+        return { found, as: dollars.some((code) => codes.has(code)) ? "which dollar" : "differs" };
+      }
+      // "¥" is 人民币 in a Chinese Document and the yen in a Japanese one, whatever one line reads as.
+      const yen = codes.has("JPY");
+      if (
+        currenciesOfSign(number).includes("JPY") &&
+        yen !== codes.has("CNY") &&
+        !namesWhich(each, yen ? "JPY" : "CNY")
+      ) {
+        each.language ??= documentFigureContext([{ text: each.text.document() }]).language ?? "";
+        if (each.language.startsWith("ja")) return { found, as: yen ? "agrees" : "differs" };
+        if (each.language.startsWith("zh")) return { found, as: yen ? "yuan sign" : "agrees" };
+      }
+      if (codes.has(reading.unit.code)) return { found, as: "agrees" };
+      if (currenciesOfSign(number).some((code) => codes.has(code) && named(each, code)))
+        return { found, as: "agrees" };
+      return { found, as: "differs" };
+    });
+    if (judged.some(({ as }) => as === "agrees")) return null;
+    const of = (as: string) => judged.filter((each) => each.as === as).map(({ found }) => found);
+    return (
+      given(of("yuan sign"), "yuan sign") ??
+      given(of("which dollar"), "which dollar") ??
+      given(of("differs"))
     );
-    return agrees ? null : given(inCurrency);
   }
   const measure = measureOf(figure.unit);
   if (measure === null) return null;
@@ -195,6 +376,9 @@ export function unitNotStated(
       figures: readFigures(cited, context),
       named: null,
       inDocument: null,
+      which: null,
+      whichInDocument: null,
+      language: null,
     };
   });
   const [first] = read;
@@ -245,17 +429,24 @@ export function unitNotStated(
             statement.scale === figure.scale &&
             (figure.unit.kind !== "currency" ||
               (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
+              // "Results ($m)" states a dollar figure's scale, and leaves which dollar to the currency rule.
+              (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
               same.some(({ unit }) => unit.kind === "currency")),
         ),
       );
-      if (!stated) {
-        return {
-          kind: "scale",
-          figure: figure.chars,
-          amount: sameWritten[0]?.chars ?? figure.chars,
-          matches: matchesOf(sameWritten),
-        };
-      }
+      const amount = sameWritten[0]?.chars ?? figure.chars;
+      if (!stated)
+        return { kind: "scale", figure: figure.chars, amount, matches: matchesOf(sameWritten) };
+      // "Results ($m)" over a cited "Revenue 54" gives the scale and a dollar, not which one.
+      const code = figure.unit.kind === "currency" ? figure.unit.code : null;
+      if (
+        code !== null &&
+        isDollar(code) &&
+        !bareDollar(figure) &&
+        !same.some(({ unit }) => unit.kind === "currency") &&
+        !read.some((each) => namesWhich(each, code))
+      )
+        return { kind: "which dollar", amount, matches: matchesOf(sameWritten) };
     }
     const decided = worked.some(({ start, end }) => start < figure.end && figure.start < end);
     const otherwise = decided ? null : givenOtherwise(figure, read, bound);
@@ -276,23 +467,12 @@ export function unitNotStated(
     if (same.some(({ unit }) => unit.kind !== "plain")) continue;
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
     if (codes.size === 0) continue;
-    const names = (each: Set<string>) => [...codes].some((code) => each.has(code));
-    const inCited = read.some((each) => {
-      each.named ??= namedCurrencies(each.cited, each.context, each.figures);
-      return names(each.named);
-    });
-    if (inCited) continue;
-    const inDocument = read.some((each) => {
-      each.inDocument ??= namedCurrencies(each.text.document(), each.context, null);
-      return names(each.inDocument);
-    });
-    if (inDocument) continue;
-    return {
-      kind: "currency",
-      currency: figure.currency ?? [...codes][0] ?? "",
-      amount: same[0]?.chars ?? figure.chars,
-      matches: matchesOf(same),
-    };
+    if (read.some((each) => plainSays(figure, each, codes) === "agrees")) continue;
+    const amount = same[0]?.chars ?? figure.chars;
+    const matches = matchesOf(same);
+    if (read.some((each) => plainSays(figure, each, codes) === "which dollar"))
+      return { kind: "which dollar", amount, matches };
+    return { kind: "currency", currency: figure.currency ?? [...codes][0] ?? "", amount, matches };
   }
   return null;
 }

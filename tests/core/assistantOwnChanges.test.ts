@@ -947,6 +947,7 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
 describe("A reply that claims a change no call made", { timeout: 30_000 }, () => {
   const CLAIM = "I've added a risks section to “Q3 review”.";
   const ASKED_AGAIN = "but no Tool did that";
+  const HONEST = "I haven't changed “Q3 review” yet: say if you'd like a risks section.";
 
   // protects=a reply claiming a change no call made is asked for once more with the record, and the honest second reply is what the User reads, unflagged; fails_when=the claim stands, or the model isn't asked again; no_claim=that a real model corrects itself.
   test("is asked for once more, and the honest reply stands", async () => {
@@ -955,7 +956,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
       (call): ScriptedReply => {
         if (!call.prompt.includes(ASKED_AGAIN)) return { text: CLAIM };
         note = asked(call);
-        return { text: "I haven't changed “Q3 review” yet: say if you'd like a risks section." };
+        return { text: HONEST };
       },
       { generate: (call) => claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]) },
     );
@@ -967,11 +968,38 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(note).toContain("<tool-record>");
     expect(note).toContain("- No Tool was called.");
     expect(note).toContain("Your reply says you added text to a Note, but no Tool did that.");
-    expect(answer.text).toBe(
-      "I haven't changed “Q3 review” yet: say if you'd like a risks section.",
-    );
+    expect(answer.text).toBe(HONEST);
     expect(answer.steps?.unbackedClaims).toBeUndefined();
     expect(pendingProposals(client.blocks)).toEqual([]);
+  });
+
+  // protects=the judge the core asks is sent the instructions that decide what counts and what it calls a Note, and the honest second reply is what the User reads; fails_when=the core stops sending one of those rules, or the claim stands; no_claim=how a real model judges.
+  test("the judge is sent the instructions, through the core", async () => {
+    let instructions = "";
+    const model = scriptedModel(
+      (call): ScriptedReply =>
+        call.prompt.includes(ASKED_AGAIN) ? { text: HONEST } : { text: CLAIM },
+      {
+        generate: (call) => {
+          if (call.prompt.includes("<tool-record>")) instructions = call.system;
+          return claimCheckReply(call, [{ sentence: CLAIM, kind: "added" }]);
+        },
+      },
+    );
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
+
+    expect(instructions).toContain("For every claim, about says what the sentence is about");
+    expect(instructions).toContain("Only a claim about a mind counts.");
+    expect(instructions).toContain("The record's Tool names and fields say mind for a Note.");
+    expect(instructions).not.toContain("A Note is called a Mind in the record.");
+    expect(instructions).toContain(
+      "A revision of text the assistant wrote into a Mind earlier is a change",
+    );
+    expect(instructions).not.toContain("A revision of the assistant's own text is a change");
+    expect(answer.text).toBe(HONEST);
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
   });
 
   // protects=asked again, the model may make the change it claimed, and then nothing is flagged; fails_when=the change isn't made, or the reply is still flagged; no_claim=none beyond protects.
@@ -1058,7 +1086,7 @@ describe("A turn that ends after a refused Tool with no reply", { timeout: 30_00
       if (call.results.length === 0) {
         return { calls: [{ tool: "read_mind", input: { mind: name } }] };
       }
-      if (call.prompt.includes("Your reply is empty")) nudge = asked(call);
+      if (call.prompt.includes("Your reply is empty")) nudge = call.prompt;
       return { text: "" };
     });
     const { core, mind, client } = await setUp(model);

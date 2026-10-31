@@ -7,6 +7,7 @@
  * changes, as one Undo.
  */
 import type { WindowCommandEnd, WindowCommandRequest } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../shared/commands";
 import { type MessageKey, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -18,6 +19,7 @@ import {
   labelOf,
   offered,
 } from "./commands/registry";
+import { describeError } from "./errors";
 import { translateNow } from "./i18n";
 import type { Translate } from "./objects";
 import { objectInFront } from "./palette";
@@ -83,12 +85,24 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor({ targets, mindId }: WindowCommandRequest): CommandContext {
+function contextFor(
+  command: Command,
+  { targets, mindId, wall }: WindowCommandRequest,
+): CommandContext {
+  // An accept files what it names in the Folders the core checked: it acts on those alone.
+  const checkedIn: Pick<CommandContext, "checked" | "checkedWall"> = targets.some(
+    (each) => each.into !== undefined,
+  )
+    ? { checked: targets, checkedWall: wall }
+    : {};
+  if (!command.appliesTo) {
+    return { ...inFront(mindId), checked: targets, checkedWall: wall };
+  }
   const [one] = targets;
   if (!one) return inFront(mindId);
   return targets.length === 1
-    ? { selection: [], focus: one, surface: "palette" }
-    : { selection: targets, focus: null, surface: "palette" };
+    ? { selection: [], focus: one, surface: "palette", ...checkedIn }
+    : { selection: targets, focus: null, surface: "palette", ...checkedIn };
 }
 
 /** How a command the assistant asked for ended: why it didn't, or the change it made, for the Undo. */
@@ -134,7 +148,7 @@ export function startForAssistant(request: WindowCommandRequest): {
       wording: null,
     });
   }
-  const ctx = contextFor(request);
+  const ctx = contextFor(command, request);
   const label = labelOf(command, ctx, english);
   let tried: ReturnType<typeof commands.start>;
   try {
@@ -164,10 +178,22 @@ export function startForAssistant(request: WindowCommandRequest): {
     started: true,
     ended: tried.change.then(
       (change) => ({ result: { ran: true, changed: change !== undefined }, change }),
-      (error: unknown) => ({
-        result: { ran: false, why: messageOf(error), wording: null },
-        change: undefined,
-      }),
+      // The core's own words, as for a suggestion that moved since it was checked (#2243).
+      (error: unknown) => {
+        const { message, wording: described } = describeError(error);
+        // A Check refused because another window checks the Note says so by its name, never Done.
+        const said = (error instanceof TranslatableError ? error.wording : null) ?? described;
+        const named = said ? NAMED_REASONS[said.key] : undefined;
+        const note = noteOf(ctx);
+        return {
+          result: {
+            ran: false,
+            why: message,
+            wording: named && note !== null ? { key: named, values: { name: note } } : said,
+          },
+          change: undefined,
+        };
+      },
     ),
   };
 }

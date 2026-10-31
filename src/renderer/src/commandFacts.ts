@@ -9,7 +9,14 @@ import type {
   CommandsFound,
   ConversationAnswer,
 } from "../../core/api";
-import { type CommandId, isCommandId, type Yours } from "../../shared/commands";
+import { LANGUAGES } from "../../core/language";
+import {
+  type CommandId,
+  isCommandId,
+  type Yours,
+  yoursLine,
+  yoursWordsOf,
+} from "../../shared/commands";
 import { isMessageKey, type MessageKey, type MessageParams } from "../../shared/i18n";
 import { commands, labelOf } from "./commands/registry";
 import { folderName } from "./linkedFolders";
@@ -57,60 +64,111 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "deleted.restore": "commands.running.restore",
 };
 
-/**
- * Where each of what only the User changes is, and the button that opens it; none for what is
- * done on each thing itself, where the line says it is.
- */
-/**
- * What a refusal of what is the User's alone says, and its button: a Folder's wall names the Folder
- * the request is about and opens its ⋯ menu (#1934).
- */
-export const yoursWordsOf = (
-  what: Yours,
-  folder: CommandDone["folder"],
-): { said: MessageKey; open: MessageKey | null } =>
-  what === "wall" && folder
-    ? { said: "commands.yours.wall.named", open: "commands.yours.openFolderMenu" }
-    : YOURS_WORDS[what];
+/** What an Answer asked for that is the User's alone, each once, in the order asked. */
+export function refusalsOf(
+  answer: Pick<ConversationAnswer, "toolCalls">,
+): { what: Yours; folder: CommandDone["folder"] }[] {
+  return [
+    ...new Map(
+      answer.toolCalls.flatMap((call) => {
+        const done = call.command;
+        return done?.yours
+          ? [[`${done.yours} ${done.folder?.id ?? ""}`, { what: done.yours, folder: done.folder }]]
+          : [];
+      }),
+    ).values(),
+  ];
+}
 
-export const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; open: MessageKey | null }>> = {
-  wall: { said: "commands.yours.wall", open: null },
-  keys: { said: "commands.yours.keys", open: "commands.yours.openModels" },
-  privacy: { said: "commands.yours.privacy", open: "commands.yours.openPrivacy" },
-  approvals: { said: "commands.yours.approvals", open: "commands.yours.openPrivacy" },
-  spending: { said: "commands.yours.spending", open: "commands.yours.openGeneral" },
-  permanent: { said: "commands.yours.permanent", open: "commands.yours.openDeleted" },
-  signOff: { said: "commands.yours.signOff", open: null },
-  authorship: { said: "commands.yours.authorship", open: null },
-};
+/**
+ * Whether the reply already says this refusal's sentence, in either language, as the core writes
+ * it when the model says nothing (#2252): the card then shows only its button.
+ */
+export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
+  LANGUAGES.some((language) => text.includes(yoursLine(language, what, folder)));
+
+/** Whether the reply is only its refusals' sentences: nothing in it to keep in a note. */
+export function repliesOnlyRefusals(
+  answer: Pick<ConversationAnswer, "text" | "toolCalls">,
+): boolean {
+  const lines = refusalsOf(answer).flatMap(({ what, folder }) =>
+    LANGUAGES.map((language) => yoursLine(language, what, folder)),
+  );
+  if (lines.length === 0) return false;
+  return lines.reduce((rest, line) => rest.split(line).join(""), answer.text).trim() === "";
+}
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
 const WHOLE_LINES = new Set<MessageKey>([
+  "commands.denied",
   "commands.window.unanswered",
   "commands.window.closed",
   "commands.window.unfinished",
   "commands.window.alreadyChecking",
+  "mindCheck.nothingToCheck",
+  "run.stopped.cancelled",
+  "checks.problem.no-claims",
+  "checks.problem.no-documents.all",
+  "checks.problem.local-mode",
 ]);
 
+type Gap = (before: string, after: string) => string;
+
 /**
- * What an Answer read that the User didn't write, on the approval of a command it asks about: one
- * Document by its name, more by their number, and this meeting's Transcript. It never says which
- * of them asked for the command.
+ * What an Answer read that the User didn't write, on the approval of a command it asks about, in
+ * the order the card names them: Documents, web pages by host, pages whose title alone was seen
+ * (never the title they write, #2240), web search's results, Connectors, a script's output, the
+ * Transcript, and other text for anything the rest cannot name. Other text alone is the bare
+ * sentence, with no list. Null when nothing is left to show.
  */
-export function readTextLine(t: Translate, read: ApprovalReadText): string {
-  const [only] = read.documents;
-  const documents =
-    read.documents.length === 1 && only !== undefined
-      ? t("commands.ask.readText.document", { name: only })
+export function readTextLine(t: Translate, read: ApprovalReadText, gap: Gap): string | null {
+  const [document] = read.documents;
+  const [page] = read.webPages;
+  const [pageTitle] = read.webPageTitles;
+  const [connector] = read.connectors;
+  const parts = [
+    ...(read.documents.length === 1 && document !== undefined
+      ? [t("commands.ask.readText.document", { name: document })]
       : read.documents.length > 1
-        ? t("commands.ask.readText.documents", { count: read.documents.length })
-        : null;
-  const transcript = read.transcript ? t("commands.ask.readText.transcript") : null;
-  const what =
-    documents && transcript
-      ? t("commands.ask.readText.both", { documents, transcript })
-      : (documents ?? transcript ?? "");
-  return t("commands.ask.readText", { what });
+        ? [t("commands.ask.readText.documents", { count: read.documents.length })]
+        : []),
+    ...(read.webPages.length === 1 && page !== undefined
+      ? [t("commands.ask.readText.webPage", { host: page })]
+      : read.webPages.length > 1
+        ? [t("commands.ask.readText.webPages", { count: read.webPages.length })]
+        : []),
+    ...(read.webPageTitles.length === 1 && pageTitle !== undefined
+      ? [t("commands.ask.readText.webPageTitle", { host: pageTitle })]
+      : read.webPageTitles.length > 1
+        ? [t("commands.ask.readText.webPageTitles", { count: read.webPageTitles.length })]
+        : []),
+    ...(read.webSearchResults ? [t("commands.ask.readText.webSearch")] : []),
+    ...(read.connectors.length === 1 && connector !== undefined
+      ? [t("commands.ask.readText.connector", { connector })]
+      : read.connectors.length > 1
+        ? [t("commands.ask.readText.connectors", { count: read.connectors.length })]
+        : []),
+    ...(read.scriptOutput ? [t("commands.ask.readText.script")] : []),
+    ...(read.transcript ? [t("commands.ask.readText.transcript")] : []),
+  ];
+  if (read.otherText) {
+    if (parts.length === 0) return t("commands.ask.readText.only");
+    parts.push(t("commands.ask.readText.other"));
+  }
+  return parts.length === 0 ? null : t("commands.ask.readText", { what: joined(t, gap, parts) });
+}
+
+/** The kinds as one list: "A, B and C"; in Chinese "A、B和C". */
+function joined(t: Translate, gap: Gap, parts: readonly string[]): string {
+  const [first = "", ...rest] = parts;
+  if (rest.length === 0) return first;
+  const comma = t("commands.ask.readText.comma");
+  const and = t("commands.ask.readText.and");
+  const before = [first, ...rest.slice(0, -1)].reduce(
+    (text, part) => text + comma + gap(comma, part) + part,
+  );
+  const last = rest.at(-1) ?? "";
+  return `${before}${gap(before, and)}${and}${gap(and, last)}${last}`;
 }
 
 /** A setting's name as Settings shows it, by the name the assistant's command gives it. */

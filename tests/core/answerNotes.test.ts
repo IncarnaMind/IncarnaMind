@@ -1,6 +1,7 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { SaveChatProviderInput } from "../../src/core";
+import { outputTokens } from "../../src/core/providers/outputLimits";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -131,7 +132,7 @@ describe("A model that writes its notes instead of an Answer (#1344)", { timeout
     expect(last?.prompt).toContain("say plainly what you didn't check");
     for (const earlier of calls.slice(0, -1)) {
       expect(earlier.prompt).not.toContain(NO_MORE);
-      expect(earlier.options.maxOutputTokens).toBeUndefined();
+      expect(earlier.options.maxOutputTokens).toBe(outputTokens("answer-step"));
     }
   });
 
@@ -166,7 +167,7 @@ describe("A model that writes its notes instead of an Answer (#1344)", { timeout
     expect(last?.options.maxOutputTokens).toBe(8_000);
   });
 
-  // protects=a model that writes 4,096 tokens at most (GPT-4 Turbo) is asked for no more than that on the last step, not the 8,000 of the engine's cap; fails_when=the cap is the engine's whatever the model (#1344).
+  // protects=a model that writes 4,096 tokens at most (GPT-4 Turbo) is asked for no more than that on any step, not the table's limit; fails_when=the cap is the table's whatever the model (#1344, #2275).
   test("a model with less output than the cap is asked for no more than it writes", async () => {
     const calls: ModelCall[] = [];
     const model = searchingTo(calls, () => ({ text: "I read some of the Documents." }));
@@ -177,7 +178,7 @@ describe("A model that writes its notes instead of an Answer (#1344)", { timeout
 
     await askAssistant(core, { text: QUESTION });
 
-    expect(calls.at(-1)?.options.maxOutputTokens).toBe(4_096);
+    expect(calls.map((call) => call.options.maxOutputTokens)).toEqual(calls.map(() => 4_096));
   });
 
   // protects=a model that calls a Tool on the last step has the call refused with a result that says so, and writes on the one more call it gets; fails_when=the call is made, or the Answer fails (#1344).

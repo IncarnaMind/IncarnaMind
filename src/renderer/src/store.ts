@@ -148,6 +148,8 @@ export interface AppState extends LayoutSlice {
   skippedFiles: string[];
   /** Names of the files the last add found in IncarnaMind already, shown until dismissed. */
   alreadyAdded: string[];
+  /** Pages the User saved that did not go into the Folder they chose, with that Folder, until dismissed. */
+  savedOutside: { id: string; name: string; folder: string }[];
   /** The built-in embedding model and its download. Set once loaded, then follows the core's event. */
   embeddingModel: EmbeddingModelStatus | null;
   /** The embedding model search uses, local mode and any rebuild. Set once loaded, then follows the core's event. */
@@ -315,6 +317,11 @@ export interface AppState extends LayoutSlice {
   showTabNotice(notice: TabNotice): void;
   /** Renames a Mind, with Undo. */
   renameMind(id: string, title: string): Promise<void>;
+  /**
+   * Copies a Mind, with its Citations and their checks, names the copy "{name} (copy)" and opens
+   * it. Undo sends the copy to Recently deleted; the Mind it came from is untouched.
+   */
+  duplicateMind(id: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
   /** Shows a failure that happened outside a store action, e.g. while saving an edit. */
   reportError(error: unknown): void;
@@ -373,6 +380,7 @@ export interface AppState extends LayoutSlice {
   retryDocument(id: string): Promise<void>;
   dismissSkippedFiles(): void;
   dismissAlreadyAdded(): void;
+  dismissSavedOutside(): void;
   /** Downloads the embedding model again after a failure. */
   downloadEmbeddingModel(): Promise<void>;
   /** Downloads the built-in reranking model again after a failure. */
@@ -901,6 +909,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     keptCitationTexts: [],
     skippedFiles: [],
     alreadyAdded: [],
+    savedOutside: [],
     embeddingModel: null,
     embedding: null,
     rerank: null,
@@ -976,10 +985,15 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (offered?.mindId) await startGettingStarted(offered.mindId);
         await get().loadLayout();
         const readAt = new Map<PushedList, number>();
+        // In the store at once: the Documents' events after the reply go on top of it, while the
+        // rest of loading waits; put in later, it would undo them (#1741).
+        const documentsRead = core.listDocuments().then((documents) => {
+          documentUpdates.flush();
+          set({ documents });
+        });
         const [
           minds,
           settings,
-          documents,
           chatReadiness,
           folders,
           embeddingModel,
@@ -997,7 +1011,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         ] = await Promise.all([
           readList("minds", core.listMinds(), readAt),
           readList("settings", core.getSettings(), readAt),
-          core.listDocuments(),
           readList("chatReadiness", core.getChatReadiness(), readAt),
           readList("folders", core.listFolders(), readAt),
           readList("embeddingModel", core.getEmbeddingModel(), readAt),
@@ -1012,6 +1025,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
+          documentsRead,
         ]);
         const reloaded = windowLoadedBefore();
         // Minds made before this setting existed count as an earlier launch.
@@ -1020,8 +1034,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (!offered?.mindId && launchedBefore && !reloaded) {
           await get().openHome({ first: true });
         }
-        // What the core's events brought before this is in the lists just read.
-        documentUpdates.flush();
         const read = {
           linkedFolders,
           minds,
@@ -1041,7 +1053,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         ) as Partial<Pick<AppState, PushedList>>;
         set({
           ...fresh,
-          documents,
           examples,
           readyQuestion,
           otherExamples: otherExamples.filter(isMade),
@@ -1427,6 +1438,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (before !== undefined) offerRename(mind, before);
       }),
 
+    duplicateMind: async (id) => {
+      const source = get().minds.find((mind) => mind.id === id);
+      await attempt(async () => {
+        const copy = await core.duplicateMind(id);
+        if (!(await get().showNewMind(copy))) return;
+        push({
+          said: (t) =>
+            t("mind.duplicated", { name: (source && mindName(source)) || t("mind.untitled") }),
+          name: (t) => t("undo.name.duplicate"),
+          undo: () => core.deleteMind(copy.id),
+        });
+      });
+    },
+
     deleteMind: (id) =>
       attempt(async () => {
         const mind = get().minds.find((each) => each.id === id);
@@ -1630,6 +1655,10 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     dismissAlreadyAdded() {
       set({ alreadyAdded: [] });
+    },
+
+    dismissSavedOutside() {
+      set({ savedOutside: [] });
     },
 
     downloadEmbeddingModel: () =>

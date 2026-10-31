@@ -442,6 +442,51 @@ describe("a long paste saved as a Document from a Note's composer", () => {
     const { assignments } = await s.core.getLibrary();
     expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();
   });
+
+  /** The paste pasted into the General Note and saved with its Folder keeping its work as `keepInside` has it then. */
+  async function pasteAfterFolderGainsWall(keepInside: boolean) {
+    const s = await setUp({});
+    // The paste waits in the composer: nothing is saved until Save, and the Folder's wall is switched meanwhile.
+    await s.core.updateLibraryGroup(s.folderX.id, {
+      name: "General",
+      description: "",
+      keepInside,
+    });
+    const saved = await s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: OFFER,
+      mindId: s.noteX.id,
+      conversationId: null,
+    });
+    const { assignments } = await s.core.getLibrary();
+    const filed = assignments.find((each) => each.documentId === saved.id)?.groupId ?? null;
+    return {
+      filed: filed === s.folderX.id ? "General" : (filed ?? "no Folder"),
+    };
+  }
+
+  test("a Folder that gains a wall between the paste and the Save files the paste by the wall at Save", async () => {
+    expect(await pasteAfterFolderGainsWall(true)).toEqual({ filed: "General" });
+  });
+
+  test("control: the same paste with no wall switched is filed in no Folder", async () => {
+    expect(await pasteAfterFolderGainsWall(false)).toEqual({ filed: "no Folder" });
+  });
+
+  test("a paste whose Note is deleted while it is written is saved and filed nowhere", async () => {
+    const s = await setUp();
+    // The Note is deleted after the paste's own wall was read, while its text is written.
+    const saving = s.core.saveTextAsDocument({
+      name: "Pasted offer",
+      text: OFFER,
+      mindId: s.noteA.id,
+      conversationId: null,
+    });
+    await s.core.deleteMind(s.noteA.id);
+    const saved = await saving;
+    const { assignments } = await s.core.getLibrary();
+    expect(assignments.find((each) => each.documentId === saved.id)?.groupId ?? null).toBeNull();
+  });
 });
 
 describe("earlier turns are judged by the wall, not by this turn's Search scope", () => {
@@ -496,5 +541,46 @@ describe("earlier turns are judged by the wall, not by this turn's Search scope"
     });
     expect(s.calls.length).toBeGreaterThan(from);
     expect(carried(s.calls, from)).toBe(false);
+  });
+});
+
+describe("a long paste saved after its Note or conversation was deleted", () => {
+  const OFFER = "The notice of the settlement offer zeta: 4 million omega.";
+  const said = (key: Parameters<typeof translate>[1]) => ({
+    message: translate("en", key),
+    wording: { key },
+  });
+
+  test("in a walled conversation deleted meanwhile, nothing is saved and it says why", async () => {
+    const s = await setUp();
+    const first = await askAssistant(s.core, { text: "What is the notice?", mindId: s.noteA.id });
+    const place = { mindId: null, conversationId: first.conversationId };
+    const before = (await s.core.listDocuments()).length;
+    await s.core.deleteConversation(first.conversationId);
+
+    await expect(
+      s.core.saveTextAsDocument({ name: "Pasted", text: OFFER, ...place }),
+    ).rejects.toMatchObject(said("error.paste.conversationGone"));
+    await expect(s.core.wallOfTurn(place)).rejects.toThrow();
+    expect(await s.core.listDocuments()).toHaveLength(before);
+    expect(translate("zh-CN", "error.paste.conversationGone")).toBe(
+      "粘贴的文本未保存：这个对话已删除。",
+    );
+  });
+
+  test("in a walled Note deleted meanwhile, nothing is saved, not even outside the wall", async () => {
+    const s = await setUp();
+    const before = (await s.core.listDocuments()).length;
+    await s.core.deleteMind(s.noteA.id);
+
+    await expect(
+      s.core.saveTextAsDocument({
+        name: "Pasted",
+        text: OFFER,
+        mindId: s.noteA.id,
+        conversationId: null,
+      }),
+    ).rejects.toMatchObject(said("error.paste.noteGone"));
+    expect(await s.core.listDocuments()).toHaveLength(before);
   });
 });

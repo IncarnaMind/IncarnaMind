@@ -4,8 +4,10 @@
  */
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import { CutShortError, endsAtLimit } from "../../src/core/providers/outputLimits";
 import { searchWeb } from "../../src/core/providers/webSearch";
 import { asksForWeb } from "../../src/core/tools/web/intent";
+import { translate } from "../../src/shared/i18n";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;
@@ -15,14 +17,18 @@ const USAGE = {
   outputTokens: { total: 60, text: 60, reasoning: undefined },
 };
 
-/** A model whose one reply streams `parts`, then finishes. */
-function replying(parts: StreamPart[]) {
+/** A model whose one reply streams `parts`, then finishes; `cut`: at its output limit. */
+function replying(parts: StreamPart[], cut = false) {
   return new MockLanguageModelV4({
     doStream: async () => {
       const queue: StreamPart[] = [
         { type: "stream-start", warnings: [] },
         ...parts,
-        { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+        {
+          type: "finish",
+          finishReason: { unified: cut ? "length" : "stop", raw: undefined },
+          usage: USAGE,
+        },
       ];
       return {
         stream: new ReadableStream<StreamPart>({
@@ -133,6 +139,32 @@ describe("The provider's web search", () => {
     await expect(
       searchWeb(replying([]), "deepseek", "news", AbortSignal.timeout(5_000)),
     ).rejects.toThrow("deepseek has no web search of its own.");
+  });
+
+  // protects=a reply cut at its limit before the search came back fails in words, not as a search that found nothing, while one cut after it keeps the pages it found; fails_when=a cut before the search returns no pages and no problem (#2275).
+  test("cut at its limit, it keeps the pages found before the cut, and fails when there were none", async () => {
+    const results = [{ url: "https://news.example/0", title: "Story 0", pageAge: "today" }];
+    const after = replying(
+      [
+        searchCall,
+        { type: "tool-result", toolCallId: "ws_1", toolName: "web_search", result: results },
+      ],
+      true,
+    );
+
+    expect(
+      await searchWeb(endsAtLimit(after), "anthropic", "news", AbortSignal.timeout(5_000)),
+    ).toEqual([{ url: "https://news.example/0", title: "Story 0", age: "today" }]);
+    await expect(
+      searchWeb(endsAtLimit(replying([], true)), "anthropic", "news", AbortSignal.timeout(5_000)),
+    ).rejects.toBeInstanceOf(CutShortError);
+    // A search that fails says so on its card.
+    expect(translate("en", "web.call.searchFailed", { query: "news" })).toBe(
+      "Couldn’t search the web for “news”",
+    );
+    expect(translate("zh-CN", "web.call.searchFailed", { query: "news" })).toBe(
+      "无法联网搜索“news”",
+    );
   });
 });
 

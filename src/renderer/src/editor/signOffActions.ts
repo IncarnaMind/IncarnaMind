@@ -12,6 +12,7 @@ import {
   type SignOffNow,
   type SignOffTarget,
 } from "../../../core/api";
+import { partCitations } from "../../../shared/claimParts";
 import { fingerprintOfMind } from "../../../shared/mindState";
 import {
   addSignOff,
@@ -36,6 +37,7 @@ import type { WordsInLine } from "../lineNames";
 import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { sentenceAround } from "./citationSentence";
+import { claimSpans } from "./claimChecks";
 import { asOneStep, offerEditorUndo, undoStackOf } from "./editorUndo";
 import { SignOffsContext } from "./mindContext";
 import { mindEditor } from "./openEditors";
@@ -122,6 +124,15 @@ export function useDocumentVersions(): ReadonlyMap<string, string> {
   return useMemo(() => new Map(documents.map((each) => [each.id, each.contentHash])), [documents]);
 }
 
+export function partCitationOwner(doc: ProseMirrorNode, id: string) {
+  for (const claim of claimSpans(doc))
+    for (const part of claim.check.parts ?? [])
+      for (const citation of partCitations(part))
+        if ("id" in citation && citation.id === id)
+          return { citation, sentence: claim.sentence.text };
+  return null;
+}
+
 const citationBasisAt = (doc: ProseMirrorNode, pos: number, attributes: CitationAttributes) =>
   citationSignOffBasis(sentenceAround(doc, pos)?.text ?? "", attributes);
 
@@ -129,19 +140,22 @@ const citationBasisAt = (doc: ProseMirrorNode, pos: number, attributes: Citation
 export function citationSignOff(
   records: readonly SignOffRecord[],
   doc: ProseMirrorNode,
-  pos: number,
+  pos: number | string,
   attributes: CitationAttributes,
   versions: ReadonlyMap<string, string>,
   personId: string | null,
 ): SignOffNow | null {
-  if (typeof attributes.id !== "string") return null;
-  const record = signOffOn(records, { kind: "citation", id: attributes.id }, personId);
-  return record
-    ? signOffNow(
-        signOffShown(record, citationBasisAt(doc, pos, attributes), [attributes], versions),
-        personId,
-      )
-    : null;
+  const owner = typeof pos === "string" ? partCitationOwner(doc, pos) : null;
+  if (typeof pos === "string" && !owner) return null;
+  const cited = owner?.citation ?? attributes;
+  if (typeof cited.id !== "string") return null;
+  const basis = owner
+    ? citationSignOffBasis(owner.sentence, cited)
+    : typeof pos === "number"
+      ? citationBasisAt(doc, pos, cited)
+      : "";
+  const record = signOffOn(records, { kind: "citation", id: cited.id }, personId);
+  return record ? signOffNow(signOffShown(record, basis, [cited], versions), personId) : null;
 }
 
 /**
@@ -171,13 +185,25 @@ export function signOffCounts(
     if (now.state === "checked") checked++;
     else changed++;
   };
+  const seen = new Set<string>();
   if (records.some((record) => record.target.kind === "citation"))
     doc.descendants((node, pos) => {
-      if (node.type.name === CITATION_NODE)
-        count(
-          citationSignOff(records, doc, pos, node.attrs as CitationAttributes, versions, personId),
-        );
+      if (node.type.name !== CITATION_NODE) return;
+      const attributes = node.attrs as CitationAttributes;
+      if (typeof attributes.id === "string") {
+        if (seen.has(attributes.id)) return;
+        seen.add(attributes.id);
+      }
+      count(citationSignOff(records, doc, pos, attributes, versions, personId));
     });
+  for (const claim of claimSpans(doc))
+    for (const part of claim.check.parts ?? [])
+      for (const citation of partCitations(part)) {
+        if (!("id" in citation) || typeof citation.id !== "string" || seen.has(citation.id))
+          continue;
+        seen.add(citation.id);
+        count(citationSignOff(records, doc, citation.id, citation, versions, personId));
+      }
   for (const row of rows ?? []) count(row.signOff);
   return { checked, changed };
 }
@@ -274,11 +300,14 @@ function elementIdOf(editor: Editor, node: ProseMirrorNode): string | null {
   return null;
 }
 
-export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signer): void {
+export function toggleCitationSignOff(editor: Editor, pos: number | string, signer: Signer): void {
+  if (!editor.isEditable) return;
   const doc = noteDocOf(editor);
-  const node = editor.state.doc.nodeAt(pos);
-  if (!doc || node?.type.name !== CITATION_NODE) return;
-  const attributes = node.attrs as CitationAttributes;
+  if (!doc) return;
+  const owner = typeof pos === "string" ? partCitationOwner(editor.state.doc, pos) : null;
+  const node = typeof pos === "number" ? editor.state.doc.nodeAt(pos) : null;
+  if (!owner && node?.type.name !== CITATION_NODE) return;
+  const attributes = owner?.citation ?? (node?.attrs as CitationAttributes);
   const now = citationSignOff(
     signOffsOf(doc),
     editor.state.doc,
@@ -288,16 +317,22 @@ export function toggleCitationSignOff(editor: Editor, pos: number, signer: Signe
     signer.personId,
   );
   const id =
-    typeof attributes.id === "string"
-      ? attributes.id
-      : (elementIdOf(editor, node) ?? crypto.randomUUID());
+    typeof pos === "string"
+      ? pos
+      : typeof attributes.id === "string"
+        ? attributes.id
+        : ((node && elementIdOf(editor, node)) ?? crypto.randomUUID());
   const target: SignOffTarget = { kind: "citation", id };
   const off = checkedByMe(now);
-  const basis = citationBasisAt(editor.state.doc, pos, attributes);
+  const basis = owner
+    ? citationSignOffBasis(owner.sentence, attributes)
+    : typeof pos === "number"
+      ? citationBasisAt(editor.state.doc, pos, attributes)
+      : "";
   inEditor(
     editor,
     (note) => {
-      if (attributes.id !== id)
+      if (typeof pos === "number" && attributes.id !== id)
         editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...attributes, id }));
       removeSignOff(note, target, new Date().toISOString(), signer.personId);
       if (!off) addSignOff(note, markBy(target, basis, [attributes], signer));

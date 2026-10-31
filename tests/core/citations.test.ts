@@ -223,7 +223,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
 
     const system = promptOf(model)[0]?.text ?? "";
     expect(system).toMatch(/Cite every claim you draw from a Passage/);
-    expect(system).toMatch(/If the Documents don't cover the Question, say so/);
+    expect(system).toMatch(/If the Documents don't cover the Question, say "I didn't find/);
     expect(system).toMatch(/\[\^1\]/);
     expect(system).toMatch(
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
@@ -233,7 +233,7 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       "Revision worksheets need every item row and its revision, no bare values.",
     );
     // Short: it is sent with every Question.
-    expect(system.length).toBeLessThan(5000);
+    expect(system.length).toBeLessThan(5100);
   });
 
   // protects=what the model is sent tells it a cited sentence says only what its quote supports, with an inference in a sentence of its own; fails_when=the rule is left out of the answering prompt or loses its examples in either language; no_claim=whether a model follows it (eval/everyday).
@@ -1201,5 +1201,15 @@ describe("Searching across languages without Tools", { timeout: 30_000 }, () => 
       passageCount: 0,
     };
     expect(mergeSearches([none, none])).toBe(none);
+  });
+
+  test("merged searches keep which Passage each is, so a whole read counts what it was given", () => {
+    const shown = (id: string) =>
+      `<passage id="${id}" document="Tides" pages="1">\nText ${id}\n</passage>`;
+    const merged = mergeSearches([
+      { text: [shown("P1"), shown("P2")].join("\n\n"), passageCount: 2, passageIds: ["a", "b"] },
+      { text: [shown("P2"), shown("P3")].join("\n\n"), passageCount: 2, passageIds: ["b", "c"] },
+    ]);
+    expect(merged.passageIds).toEqual(["a", "b", "c"]);
   });
 });

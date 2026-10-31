@@ -72,14 +72,16 @@ test("a Contradicted sentence goes into a Word file as a comment and the line sa
   const result = window.getByTestId("export-result");
   await exportFromMenu(window, "docx");
   const comments = result.getByTestId("export-comments");
-  await expect(comments).toContainText("1 Contradicted, as comments");
+  await expect(comments).toHaveText("1 check comment");
+  // The last part before Change.
+  await expect(result.getByTestId("export-done")).toContainText(/1 check comment\s*·\s*Change$/);
   await expect(result.getByTestId("export-tracked")).toHaveCount(0);
   await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
   const word = unzip(await readFile(join(out, "Memo.docx")));
   expect(part(word, "word/comments.xml")).toContain("Contradicted: ");
 
   await setLanguage(window, "zh-CN");
-  await expect(comments).toContainText("1 处与文档矛盾，已作为批注");
+  await expect(comments).toHaveText("1 条核对批注");
   await setLanguage(window, "en");
 
   // A narrow window: the line and its parts stay inside the Mind, its buttons whole.
@@ -104,7 +106,7 @@ test("a Contradicted sentence goes into a Word file as a comment and the line sa
   await expect(unmarked).toHaveText("有 1 句与文档矛盾，导出时没有标记 · 改为导出 Word");
   await setLanguage(window, "en");
   await pointAndClick(window, result.getByTestId("export-unmarked-word"));
-  await expect(result.getByTestId("export-comments")).toContainText("1 Contradicted, as comments");
+  await expect(result.getByTestId("export-comments")).toHaveText("1 check comment");
   await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
 
   // Word with the option off: the same warning, and its fix opens the options.

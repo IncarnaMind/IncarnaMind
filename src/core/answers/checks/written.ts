@@ -33,24 +33,35 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { beginFigureCheck } from "../../../shared/figureChecks";
+import {
+  type InlineTextPiece,
+  type InlineTextProjection,
+  inlineSpan,
+  projectInlineText,
+  sliceInlineText,
+} from "../../../shared/inlineText";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type CitedQuote,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckResult,
+  type ClaimPartPlan,
   type EditAction,
   type RecordAiUseInput,
   type RunStop,
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
-import { RunItemError, runItems } from "../../runs/stop";
+import type { RecordCitePlace } from "../../recordCites/referents";
+import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import {
@@ -59,6 +70,7 @@ import {
   recordJudged,
   runFailureOf,
 } from "./claimCheck";
+import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
@@ -82,6 +94,7 @@ export interface WrittenCheckOptions {
     at: string,
     blocks: Y.XmlFragment,
     mindId: string,
+    sourceText?: string,
   ): ClaimCheckAttributes;
   /** Reads the Mind's content, where what the assistant wrote already is. */
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
@@ -142,9 +155,11 @@ interface Sentence {
   path: number[];
   from: number;
   to: number;
-  /** As checks read it: an inline node as U+FFFC, a line break as "\n". */
   text: string;
   context: string;
+  rawText: string;
+  rawContext: string;
+  projection: InlineTextProjection;
   cited: CitedQuote[];
   /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
   inCell: boolean;
@@ -167,6 +182,22 @@ function inlineLayout(content: readonly NodeJSON[]): { node: NodeJSON; start: nu
   });
 }
 
+function projectedContent(content: readonly NodeJSON[]) {
+  const pieces = inlineLayout(content).map(({ node, start }): InlineTextPiece => {
+    const place = {
+      from: start,
+      to: start + (node.type === "text" ? (node.text ?? "").length : 1),
+    };
+    if (node.type === "text") return { kind: "text", text: node.text ?? "", ...place };
+    if (node.type === CITATION_NODE) return { kind: "citation", ...place };
+    if (node.type === "hardBreak") return { kind: "break", ...place };
+    const figure =
+      node.type === CALCULATED_FIGURE_NODE ? readCalculatedFigureEvidence(node.attrs ?? {}) : null;
+    return { kind: "atom", ...place, ...(figure && { shown: figure.figure.shown }) };
+  });
+  return { pieces, projection: projectInlineText(pieces) };
+}
+
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
@@ -179,16 +210,35 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         visit(content, here, inCell || node.type === "tableCell" || node.type === "tableHeader");
         return;
       }
-      const context = paragraphText(content);
+      const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
-      for (const span of sentenceSpans(context)) {
-        const text = context.slice(span.from, span.to);
+      const { pieces, projection: whole } = projectedContent(content);
+      for (const span of sentenceSpans(rawContext)) {
+        let from = span.from;
+        let to = span.to;
+        while (pieces.some((piece) => piece.kind === "citation" && piece.from === from)) from++;
+        while (pieces.some((piece) => piece.kind === "citation" && piece.to === to)) to--;
+        const mapped = inlineSpan(whole, from, to);
+        const projection = mapped && sliceInlineText(whole, mapped.start, mapped.end);
+        if (!projection) continue;
+        const text = projection.text;
         const cited = layout.flatMap(({ node: inline, start }) => {
           if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
           return citedQuoteOf(inline.attrs ?? {}) ?? [];
         });
         if (cited.length === 0 && !isClaim(text)) continue;
-        found.push({ path: here, from: span.from, to: span.to, text, context, cited, inCell });
+        found.push({
+          path: here,
+          from: span.from,
+          to: span.to,
+          text,
+          context: whole.text,
+          rawText: rawContext.slice(span.from, span.to),
+          rawContext,
+          projection,
+          cited,
+          inCell,
+        });
       }
     });
   };
@@ -402,13 +452,16 @@ function cutNodes(
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
-interface Landing {
-  sentence: Sentence;
-  /** The cut, in place of the sentence's own words; null: they stay. */
-  nodes: NodeJSON[] | null;
-  /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
-  mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
-}
+type Landing =
+  | {
+      sentence: Sentence;
+      /** The cut, in place of the sentence's own words; null: they stay. */
+      nodes: NodeJSON[] | null;
+      /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
+      mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+    }
+  /** A sentence with no fact: no mark, and its opinion is left out as Check this Note leaves it. */
+  | { sentence: Sentence; opinion: readonly ClaimPartPlan[] };
 
 const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
   nodes.map((node) =>
@@ -510,10 +563,10 @@ function placeOf(
   const text = paragraphText(inlineOf(element));
   const spans = sentenceSpans(text);
   const same = spans
-    .filter((span) => text.slice(span.from, span.to) === sentence.text)
+    .filter((span) => text.slice(span.from, span.to) === sentence.rawText)
     .sort((a, b) => Math.abs(a.from - sentence.from) - Math.abs(b.from - sentence.from))[0];
   if (same) return { ...same, same: true };
-  const written = sentenceSpans(sentence.context);
+  const written = sentenceSpans(sentence.rawContext);
   const index = written.findIndex((span) => span.from === sentence.from);
   const now = spans.length === written.length ? spans[index] : undefined;
   return now ? { ...now, same: false } : null;
@@ -524,6 +577,13 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || !place) return;
+  if ("opinion" in landing) {
+    const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (!place.same || typeof blockId !== "string" || landing.opinion.length === 0) return;
+    const now = sentenceOf(element, blockId, place, figuresByBlock(blocks));
+    recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
+    return;
+  }
   const mark = landing.mark(blocks);
   if (place.same && landing.nodes) {
     syncContent(
@@ -547,8 +607,20 @@ function readAsChecked(
   const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || typeof blockId !== "string" || !place?.same)
-    return { claim: sentence.text, context: sentence.context };
+    return { claim: sentence.text, context: sentence.context, projection: sentence.projection };
   return checkText(sentenceOf(element, blockId, place, figures));
+}
+
+/** Where the sentence is in the Note, for what its record cites' `Id.` and `supra` refer to. */
+function notePlace(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  sentence: Sentence,
+): RecordCitePlace | undefined {
+  const element = paragraphIn(blocks, ids, sentence.path);
+  const blockId = element?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const place = element ? placeOf(element, sentence) : null;
+  return typeof blockId === "string" && place?.same ? { blockId, from: place.from } : undefined;
 }
 
 const notChecked = (
@@ -566,6 +638,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     uncovered: string,
     prepared: PreparedChatModel,
     scope: CheckScope,
+    limit: Slots,
     signal: AbortSignal,
   ): Promise<NodeJSON[] | null> {
     const content = paragraphAt(blocks, sentence.path)?.content ?? [];
@@ -595,13 +668,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const quote = node ? citedQuoteOf(node.attrs ?? {}) : null;
       return quote ? [quote] : [];
     });
-    const claim = kept.replace(MARKER, INLINE_NODE);
+    const { projection } = projectedContent(nodes);
+    const claim = projection.text;
     const checked = await checkWithin(
-      { ...sentence, text: claim, cited },
-      { claim, context: sentence.context },
+      { ...sentence, text: claim, cited, projection },
+      { claim, context: sentence.context, projection },
       mindId,
       scope,
       prepared,
+      limit,
       signal,
     );
     recordJudged(options.recordAiUse, mindId, prepared, checked, options.now().toISOString());
@@ -611,10 +686,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
     sentence: Sentence,
-    read: ReturnType<typeof checkText>,
+    read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
+    limit: Slots,
     signal: AbortSignal,
   ): Promise<ClaimCheckResult> {
     const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
@@ -629,7 +705,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
         model: prepared,
+        mindId,
+        recordClaim: sentence.rawText,
         cacheKey: mindId,
+        opinionsLeftOut: true,
+        slots: limit,
         signal: ended,
       }),
       givenUp,
@@ -662,17 +742,22 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const reads = options.read(mindId, (note) => {
       const figures = figuresByBlock(note);
       return new Map(
-        sending.map((sentence) => [sentence, readAsChecked(note, input.ids, sentence, figures)]),
+        sending.map((sentence) => {
+          const place = notePlace(note, input.ids, sentence);
+          const read = readAsChecked(note, input.ids, sentence, figures);
+          return [sentence, place ? { ...read, place } : read];
+        }),
       );
     });
     input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
+    const limit = slots(claimsAtOnce(prepared));
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence) => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, signal);
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
@@ -681,7 +766,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             ? result.unsupported.uncovered
             : null;
         const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, signal)
+          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
           : null;
         return { result, uncovered, nodes };
       },
@@ -713,7 +798,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       detail: null,
       providerId: prepared.provider.id,
       modelId: prepared.modelId,
-      text: sentence.text,
+      text: reads.get(sentence)?.claim ?? sentence.text,
       evidence: null,
       says: null,
       unsupported: null,
@@ -728,7 +813,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const begun = (sentence: Sentence): ClaimCheckAttributes => {
       const figures = reads.get(sentence)?.figures;
       return figures?.length
-        ? beginFigureCheck(null, markOf(sentence), figures, null)
+        ? beginFigureCheck(null, markOf(sentence), figures, null, reads.get(sentence)?.projection)
         : markOf(sentence);
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
@@ -766,6 +851,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       const { result, uncovered, nodes } = outcome.value;
+      if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
+        landings.push({
+          sentence,
+          opinion: result.parts.map(({ span, kind }) => ({ span, kind })),
+        });
+        return;
+      }
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, prepared, result, at);
       if (result.verdict === "not-checked") {
@@ -774,7 +866,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       }
       done.checked++;
       const mark = (note: Y.XmlFragment) =>
-        options.withResult(begun(sentence), result, at, note, mindId);
+        options.withResult(begun(sentence), result, at, note, mindId, reads.get(sentence)?.claim);
       if (result.verdict === "supported") {
         landings.push({ sentence, nodes: null, mark });
         return;

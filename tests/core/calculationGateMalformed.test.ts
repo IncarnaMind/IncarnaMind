@@ -277,7 +277,8 @@ describe.each(LANGUAGES)("a rejected calculation input ($language)", (example) =
       ],
     };
     const { result, calls, feedback } = await fixture(example, [unrelated]);
-    expect(feedback[0]?.text).toMatch(/^Recorded/);
+    expect(feedback[0]?.text).toContain('stated "100"');
+    expect(feedback[0]?.text).not.toMatch(/^Recorded/);
     expect(calls).toHaveLength(4);
     expect(result.verdict).toBe("not-checked");
   });

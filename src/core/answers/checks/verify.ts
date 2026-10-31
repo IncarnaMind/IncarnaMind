@@ -5,12 +5,14 @@
  * 1. `verifyDocument` adds the PDF to the Library, or finds it there, waits
  *    until its text is read, and makes a Mind of it: its paragraphs, and its
  *    tables as tables (#1368), with each Block's page and each table row's,
- *    all of it third-party text (#78). The Mind's settings say which
+ *    all of it third-party text (#78). A Word file (#110) is imported as a
+ *    Mind instead, kept to export back into with the results as comments,
+ *    and added to the Library as its original. The Mind's settings say which
  *    Document it verifies (src/shared/verification.ts).
  * 2. `findClaims` has the model name its sentences that make claims (./claims)
  *    and records them there.
  * 3. `verifyClaims` checks each claim as Check against Documents does, with
- *    the claim-check function, against the Mind's Folder, the PDF, its earlier
+ *    the claim-check function, against the Mind's Folder, the file, its earlier
  *    versions and its copies left out (#80), in Runs third-party from their
  *    start. Each claim's mark shows its result as it comes; the monthly cap or
  *    a plan's limit stops the run, and the claims after it say so (#83). What
@@ -20,10 +22,12 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
+  isVerifiedBlock,
   readVerification,
   type Verification,
   writeVerification,
@@ -33,7 +37,9 @@ import {
   type ChatModelChoice,
   type CheckSentencesResult,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type ClaimCheckResult,
+  type ClaimPartPlan,
   type Document,
   type DocumentStatus,
   type DocumentText,
@@ -46,6 +52,7 @@ import {
   type UnreadFile,
   type VerifyClaimsResult,
   type VerifyDocumentResult,
+  type WordRefusalReason,
 } from "../../api";
 import type { PagePart } from "../../documents/extract";
 import { parseModel } from "../../edits";
@@ -56,12 +63,22 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { createElement } from "../blocks";
 import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
-import { runChecks } from "./runChecks";
-import { everySentence, markSentence, type SelectedSentence } from "./sentences";
+import { recordOpinions } from "./opinions";
+import { pendingParts, runChecks } from "./runChecks";
+import {
+  checkText,
+  everySentence,
+  markedSentences,
+  markSentence,
+  type SelectedSentence,
+} from "./sentences";
 import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
+
+/** A file Word import takes, or refuses with its reason (an older .doc, macros). */
+const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
 
 /** The model to verify with, or why there is none (as `checkSentences` says it). */
 type Prepared =
@@ -87,6 +104,28 @@ export interface VerifyOptions {
   readTables(documentId: string): Promise<ReadonlyMap<number, PagePart[]>>;
   readScanned(documentId: string): ScannedText;
   createMind(title: string, folderId: string | null): Mind;
+  /** Why a Word file can't be imported as a Mind; null when it can. */
+  wordRefusal(path: string): Promise<WordRefusalReason | null>;
+  /**
+   * Imports someone else's Word file as a Mind named for its Document, the file's original in
+   * the Library (#720): the Mind once its first Blocks are in it.
+   */
+  importWord(input: {
+    path: string;
+    folderId: string | null;
+    documentId: string;
+    name: string;
+  }): Promise<{ ok: true; mind: Mind } | { ok: false; refusal: WordRefusalReason }>;
+  /**
+   * Whether the Mind holds every Block of the Word file it was imported from, once its import
+   * has stopped; true for a Mind not imported from Word.
+   */
+  wordWritten(mindId: string): Promise<boolean>;
+  /**
+   * Takes back for good a Mind whose Word import didn't write every Block, so no Note is left
+   * half made: but not one a quit stopped, which goes on at the next start, or one deleted.
+   */
+  discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -95,6 +134,10 @@ export interface VerifyOptions {
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
     at: string,
+    blocks: Y.XmlFragment,
+    mindId: string,
+    sourceText?: string,
+    priorParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
@@ -142,10 +185,10 @@ function parseRequest(input: unknown) {
   };
 }
 
-function claimOf(sentence: SelectedSentence): { claim: string; context: string } | undefined {
+function claimOf(sentence: SelectedSentence): ReturnType<typeof checkText> | undefined {
   const row = tableClaim(sentence);
   if (row === "not-a-claim") return undefined;
-  return row ?? { claim: sentence.text, context: sentence.context };
+  return row ?? checkText(sentence);
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -200,27 +243,39 @@ export function createVerify(options: VerifyOptions) {
     }
   }
 
+  function sortingInput(mindId: string, verification: Verification) {
+    const sentences = content.read(mindId, (blocks) =>
+      everySentence(blocks).flatMap((sentence) => {
+        if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
+        const said = claimOf(sentence)?.claim;
+        return said !== undefined && isClaim(said) ? [{ ...sentence, said }] : [];
+      }),
+    );
+    return {
+      sentences,
+      snapshot: JSON.stringify(
+        sentences.map(({ blockId, occurrence, text, said }) => [blockId, occurrence, text, said]),
+      ),
+    };
+  }
+
   async function findClaims(
     mindId: string,
     model: ChatModelChoice | null,
     signal: AbortSignal,
   ): Promise<FindClaimsResult> {
     const verification = verificationOf(mindId);
+    // Claims found in part of the file would leave the rest unchecked for good.
+    if (!(await options.wordWritten(mindId))) {
+      throw new InvalidInputError({ key: "error.verify.notAllRead" });
+    }
     const { empty } = options.evidenceScope(mindId, false, verification);
     if (empty) return empty;
     const ready = await options.prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
-    const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks).flatMap((sentence) => {
-        if (!(sentence.blockId in verification.pages)) return [];
-        const said = claimOf(sentence)?.claim;
-        return said !== undefined && isClaim(said)
-          ? [{ blockId: sentence.blockId, text: sentence.text, said }]
-          : [];
-      }),
-    );
+    const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
       ready.prepared,
       sentences.map((each) => each.said),
@@ -228,16 +283,48 @@ export function createVerify(options: VerifyOptions) {
       signal,
     );
     if (found.kind !== "found") return found;
-    // A sentence no reply decided is checked: left out, it would never be (#1682).
-    const claims = sentences
-      .filter((_, index) => found.claims.has(index) || found.undecided.has(index))
-      .map(({ blockId, text }) => ({ blockId, text }));
+    const sorted = (sentence: (typeof sentences)[number], index: number) => {
+      const plans = found.parts.get(index);
+      return plans === undefined || sentence.said !== sentence.text
+        ? plans
+        : withFigureFacts(sentence.said, plans, sentence.figures ?? [], sentence.projection);
+    };
+    const claims = sentences.flatMap((sentence, index) => {
+      const plans = sorted(sentence, index);
+      if (!found.undecided.has(index) && !plans?.some((part) => part.kind === "fact")) return [];
+      const parts =
+        sentence.said !== sentence.text
+          ? [{ kind: "fact" as const, span: { start: 0, end: sentence.text.length } }]
+          : plans === undefined
+            ? undefined
+            : [...plans];
+      return [
+        {
+          blockId: sentence.blockId,
+          text: sentence.text,
+          occurrence: sentence.occurrence,
+          ...(parts && { parts }),
+        },
+      ];
+    });
     content.edit(mindId, (blocks) => {
       const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
       const now = settings && readVerification(settings);
-      if (settings && now) writeVerification(settings, { ...now, claims });
+      if (settings && now) writeVerification(settings, { ...now, claims, sortedText: snapshot });
+      recordOpinions(
+        blocks,
+        sentences.flatMap((sentence, index) => {
+          const parts = sorted(sentence, index);
+          return sentence.said === sentence.text &&
+            parts !== undefined &&
+            !found.undecided.has(index)
+            ? [{ ...sentence, parts }]
+            : [];
+        }),
+      );
     });
-    return { kind: "found", claims: claims.length };
+    options.retainEvidence(mindId);
+    return { kind: "found", claims: verificationOf(mindId).claims?.length ?? 0 };
   }
 
   async function verifyClaims(
@@ -245,13 +332,21 @@ export function createVerify(options: VerifyOptions) {
     signal: AbortSignal,
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
-    const verification = verificationOf(mindId);
+    let verification = verificationOf(mindId);
+    if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
+      const found = await findClaims(mindId, input.model, signal);
+      if (found.kind !== "found") return found;
+      verification = verificationOf(mindId);
+    }
+    if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
+      return { kind: "cancelled" };
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
     const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
     if (empty) return empty;
     const ready = await options.prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
-    if (signal.aborted) return { kind: "cancelled" };
+    if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
+      return { kind: "cancelled" };
 
     const startedAt = options.now().toISOString();
     const claims = verification.claims;
@@ -260,9 +355,18 @@ export function createVerify(options: VerifyOptions) {
       const sentences = everySentence(blocks);
       const marked = claims.flatMap((claim) => {
         const sentence = sentences.find(
-          (each) => each.blockId === claim.blockId && each.text === claim.text,
+          (each) =>
+            each.blockId === claim.blockId &&
+            each.text === claim.text &&
+            each.occurrence === (claim.occurrence ?? 0),
         );
         if (!sentence) return [];
+        const owners = markedSentences(blocks).filter(
+          (mark) =>
+            mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
+        );
+        const previous = owners.find((mark) => mark.check.text === sentence.text)?.check.parts;
+        const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
         const marked: ClaimCheckAttributes = {
           id: randomUUID(),
           request: requestId,
@@ -283,17 +387,50 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(claim.parts && { parts: pendingParts(claim.parts, previous) }),
         };
-        // Each figure gets its own result, as the one Check gives it.
-        const figures = sentence.figures?.length ? sentence.figures : undefined;
+        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const contextualRow = said.claim !== sentence.text;
+        const row =
+          sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;
+        const rowFigures =
+          contextualRow && row instanceof Y.XmlElement && row.nodeName === "tableRow"
+            ? sentences
+                .filter(
+                  (each) =>
+                    each.element.parent instanceof Y.XmlElement &&
+                    each.element.parent.parent === row,
+                )
+                .flatMap((each) => each.figures ?? [])
+            : sentence.figures;
+        const figures = rowFigures?.length ? rowFigures : undefined;
+        const parts: readonly ClaimPartPlan[] | undefined = contextualRow
+          ? [{ kind: "fact", span: { start: 0, end: said.claim.length } }]
+          : claim.parts;
         markSentence(
           sentence.element,
           sentence.from,
           sentence.to,
-          figures ? beginFigureCheck(null, marked, figures, null) : marked,
+          figures
+            ? beginFigureCheck(
+                null,
+                marked,
+                figures,
+                null,
+                contextualRow ? undefined : sentence.projection,
+              )
+            : marked,
         );
-        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
-        return [{ id: marked.id, ...said, ...(figures && { figures }) }];
+        return [
+          {
+            id: marked.id,
+            ...said,
+            ...(parts && { parts }),
+            ...(previous && { previous }),
+            ...(priorParts && { priorParts }),
+            ...(figures && { figures }),
+          },
+        ];
       });
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
       return marked;
@@ -315,6 +452,47 @@ export function createVerify(options: VerifyOptions) {
     return { kind: "checked", claims: queued.length, checked, stop };
   }
 
+  /**
+   * A Word file as a Mind imported from it, refused before anything is added, its original the
+   * Document it verifies; every Block is the document being checked.
+   */
+  async function verifyWordFile(
+    path: string,
+    folderId: string | null,
+  ): Promise<VerifyDocumentResult> {
+    const refusal = await options.wordRefusal(path);
+    if (refusal) return { ok: false, reason: "word", refusal };
+    const document = await options.addFile(path, folderId);
+    if (!document) return { ok: false, reason: "word", refusal: "unreadable" };
+    const { name } = options.document(document.id);
+    const made = await options.importWord({ path, folderId, documentId: document.id, name });
+    if (!made.ok) return { ok: false, reason: "word", refusal: made.refusal };
+    // Recorded before the rest is written, so an import a quit cut short still verifies.
+    content.edit(made.mind.id, (blocks) => {
+      if (!blocks.doc) return;
+      writeVerification(blocks.doc.getMap(MIND_SETTINGS_FIELD), {
+        documentId: document.id,
+        documentName: name,
+        pages: {},
+        claims: null,
+        comments: false,
+      });
+    });
+    if (!(await options.wordWritten(made.mind.id))) {
+      await options.discardWordMind(made.mind.id);
+      return { ok: false, reason: "word", refusal: "unreadable" };
+    }
+    content.edit(made.mind.id, (blocks) => {
+      if (!blocks.doc) return;
+      const ids = blocks.toArray().flatMap((each) => {
+        const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+        return typeof id === "string" ? [id] : [];
+      });
+      setTextOrigin(blocks.doc, ids, "checked-document");
+    });
+    return { ok: true, mind: made.mind, documentId: document.id };
+  }
+
   return {
     async verifyDocument(input: unknown): Promise<VerifyDocumentResult> {
       if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
@@ -324,6 +502,7 @@ export function createVerify(options: VerifyOptions) {
       }
       const folderId = parseFolderChoice(input.folderId);
       if (folderId !== null) options.requireFolder(folderId);
+      if (WORD_FILE.test(path)) return verifyWordFile(path, folderId);
 
       const document = await options.addFile(path, folderId);
       if (!document) return { ok: false, reason: "unreadable" };
@@ -368,6 +547,7 @@ export function createVerify(options: VerifyOptions) {
           documentName: name,
           pages,
           claims: null,
+          comments: false,
         });
       });
       return { ok: true, mind, documentId: document.id };

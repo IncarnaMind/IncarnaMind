@@ -125,11 +125,11 @@ export function analysisInstructions(offered: boolean): string {
 export function commandInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, check the Note in front, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
-    '- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn\'t find, and never guess an id. If nothing matches, say so and change nothing. A command that acts on the window in front needs nothing found: list_commands with kind "window" gives its id.',
+    "You can also do in the app whatever the User could do there with its commands, through list_commands and run_command: rename, move, tag and delete Documents and Notes; make, rename and delete Folders and Tags; bring back what is in Recently deleted; sort Documents into Folders by what they say (documents.organize); open things, also beside the Note, open Settings at a page, record, and the rest of what ⌘K offers; a Note's citation style and look; export a Note; add files from a folder; and the User's settings.",
+    "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing; never say a thing isn't there before list_commands looked: it also finds what is in Recently deleted. A command that acts on the window in front needs nothing found: list_commands with kind \"window\" gives its id. Checking the Note in front against the Documents, in any words, is the window's Check, mind.check: run it, never check the Note in your reply. It isn't for spelling.",
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
     "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
-    "- Documents to group by what they are about, rather than by their names, are Organize's: run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
+    "- Putting together what the User has on a subject, by what it says rather than by its name, means the Documents themselves, in a Folder: Organize's, never a Note written about them unless a note is asked for. Run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
     "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
     "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
@@ -341,8 +341,11 @@ export function signInNeededInstructions(connectorNames: readonly string[]): str
  * as one from the User's Documents. General knowledge only for a general
  * Question, labelled, and without figures. `cite`: the Answer cites with markers.
  */
-function notCovered(cite: boolean): string {
-  return `If the Documents don't cover the Question, say so plainly. You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
+function notCovered(cite: boolean, reads = false): string {
+  const absence = reads
+    ? "Absence needs read_document where X would be."
+    : "Never claim Document absence.";
+  return `If the Documents don't cover the Question, say "I didn't find X in “Doc”" ("未在“Doc”中找到 X"). ${absence} You may add what the Passages do say that comes closest${cite ? ", cited" : ""}, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts "Not from your Documents:" ("以下内容不是来自你的文档："), with no figures${cite ? " and no markers" : ""}.`;
 }
 
 /**
@@ -367,7 +370,7 @@ const FIGURES_AS_STATED =
 function readingRules(cite: boolean): string {
   const marker = (n: number) => (cite ? `[^${n}]` : "");
   return [
-    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "The Documents don't record a Board approval; the 14 May memo asks for one." / "文档中没有董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
+    `- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: "I didn't find a Board approval in the Documents; the 14 May memo asks for one." / "未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。"`,
     `- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date)${cite ? " and cite it" : ""}. Then write one sentence naming the older Document, its date and its figure${cite ? ", with a Citation" : ""}; never leave it out: "Report outages over 4 hours (memo, May 2025)${marker(1)}. The older handbook (January 2024) says 6 hours${marker(2)}." / "2025 年 5 月的备忘录要求报告超过 4 小时的停电${marker(1)}。较早的手册（2024 年 1 月）写的是 6 小时${marker(2)}。" Say "probably" (可能) only when neither is dated or newer.`,
   ].join("\n");
 }
@@ -700,7 +703,7 @@ export function documentInstructions(
         "",
         "Cite every claim you draw from a Passage:",
         ...(writeFirst ? writeThenCite(keeps, minds) : citeFirst(keeps)),
-        notCovered(true),
+        notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
         readingRules(true),

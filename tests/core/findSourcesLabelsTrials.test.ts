@@ -216,10 +216,12 @@ describe("Drug labels: adding", () => {
           text: "Metformin can cause lactic acidosis [^1], and the adverse reactions say so too [^2].",
         };
       }
-      const under = (result: string, heading: RegExp) => {
-        const passage = shownPassages(result).find((each) => heading.test(each.location ?? ""));
-        if (!passage) throw new Error(`No Passage under ${heading}.`);
-        return passage.id;
+      const under = (result: string, location: string) => {
+        const passage = shownPassages(result).find(
+          (each) => each.location === location || each.text.includes(`[${location}]`),
+        );
+        if (!passage) throw new Error(`No Passage under ${location}.`);
+        return { passage: passage.id, location };
       };
       return {
         calls: [
@@ -229,10 +231,14 @@ describe("Drug labels: adding", () => {
               citations: [
                 {
                   marker: 1,
-                  passage: under(searches[0]?.text ?? "", /^§ 5\.1 Lactic Acidosis/),
+                  ...under(searches[0]?.text ?? "", "§ 5.1 Lactic Acidosis"),
                   quote,
                 },
-                { marker: 2, passage: under(searches[1]?.text ?? "", /^§ 6(?:\.\d)? /), quote },
+                {
+                  marker: 2,
+                  ...under(searches[1]?.text ?? "", "§ 6 Adverse reactions"),
+                  quote,
+                },
               ],
             },
           },
@@ -252,6 +258,10 @@ describe("Drug labels: adding", () => {
     expect(finished.citations.map((each) => [each.quote === quote, each.check])).toEqual([
       [true, "found"],
       [true, "not-found"],
+    ]);
+    expect(finished.citations.map((each) => each.location)).toEqual([
+      { kind: "section", heading: "5.1 Lactic Acidosis" },
+      { kind: "section", heading: "6 Adverse reactions" },
     ]);
   });
 });

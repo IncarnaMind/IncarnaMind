@@ -13,6 +13,8 @@ registerMenu("mind", [
   "mind.openTab",
   "mind.openChat",
   "mind.outline",
+  "mind.duplicate",
+  "mind.tidy",
   ...EXPORTS,
   "mind.history",
   "mind.check",
@@ -95,6 +97,7 @@ registerMenu(
   [
     "mind.openChat",
     "mind.outline",
+    "mind.duplicate",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",
@@ -130,7 +133,7 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
-registerMenu("check", ["check.findSources"]);
+registerMenu("check", ["check.anyway", "check.useDocumentWording", "check.findSources"]);
 
 registerMenu("citation", [
   "citation.open",

@@ -68,11 +68,16 @@ export const readTextSize = (value: unknown): number | null => fontSize(value) ?
 export function lineHeightCss(
   line: WordParagraphLook["line"],
   length: (points: number) => string,
+  single: number | string = SINGLE_LINE,
 ): string {
-  if (!line) return String(SINGLE_LINE);
-  if (line.rule === "auto") return String(Math.round(SINGLE_LINE * line.value * 1000) / 1000);
+  const times = (value: number) =>
+    typeof single === "number"
+      ? String(Math.round(single * value * 1000) / 1000)
+      : `calc(${single} * ${value})`;
+  if (!line) return times(1);
+  if (line.rule === "auto") return times(line.value);
   if (line.rule === "exact") return length(line.value);
-  return `max(${SINGLE_LINE}em, ${length(line.value)})`;
+  return `max(${typeof single === "number" ? `${single}em` : `calc(${single} * 1em)`}, ${length(line.value)})`;
 }
 
 /**
@@ -83,6 +88,7 @@ export function lineHeightCss(
 export function paragraphFormatDeclarations(
   format: ParagraphFormat,
   length: (points: number) => string,
+  single: number | string = SINGLE_LINE,
 ): string[] {
   const { align, left, right, firstLine, firstLineChars, before, after, line } = format;
   return [
@@ -97,6 +103,6 @@ export function paragraphFormatDeclarations(
         : "",
     before !== undefined ? `margin-top: calc(var(--block-gap, 0px) + ${length(before)})` : "",
     after !== undefined ? `margin-bottom: ${length(after)}` : "",
-    line ? `line-height: ${lineHeightCss(line, length)}` : "",
+    line ? `line-height: ${lineHeightCss(line, length, single)}` : "",
   ].filter(Boolean);
 }

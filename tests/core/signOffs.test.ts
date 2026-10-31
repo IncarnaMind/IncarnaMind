@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import { citationSentences } from "../../src/core/answers/checks/sentences";
 import { type CalculatedFigure, CITATION_NODE, type Document } from "../../src/core/api";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { pendingPart } from "../../src/shared/claimParts";
 import { formatDate } from "../../src/shared/dates";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
@@ -18,7 +19,7 @@ import {
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { parseCsv } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { footnotesOf, part, textOf as textOfDocx, unzip } from "../helpers/docx";
+import { footnotesOf, paragraphsOf, part, textOf as textOfDocx, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
@@ -469,7 +470,7 @@ test.each(["en", "zh-CN"] as const)(
         at,
         contentHash: changed
           ? "checked-before-it-changed"
-          : citationSignOffBasis(sentences.get(id) ?? "", {
+          : citationSignOffBasis(sentences.get(id)?.sentence ?? "", {
               documentId: document.id,
               contentHash: document.contentHash,
               quote,
@@ -530,6 +531,99 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+// protects=a Document that leaves the Library keeps its source's check line in APA, IEEE and GB/T 7714: the line is the cited work's own record, never a live Document's (#1933), in English and Chinese; fails_when=the removed Document's reference loses its line or the line speaks for the whole document; no_claim=how each style words its own entries.
+test.each(["en", "zh-CN"] as const)(
+  "a check stays under its source after its Document leaves the Library (%s)",
+  async (language) => {
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    const sources = await createTempDataFolder();
+    const [gone, live] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Gone.txt", "The old harbour filled at high water."),
+      await writeSourceFile(sources, "Live.txt", "The new harbour fills at high water."),
+    ]);
+    if (!gone || !live) throw new Error("The Documents weren't added.");
+    const mind = await core.createMind({ title: "A source that left" });
+    const client = await connectToMind(core, mind.id);
+    const cited = (id: string, document: Document, quote: string) => ({
+      type: "citation",
+      attrs: {
+        passageId: `passage-${id}`,
+        documentId: document.id,
+        documentName: document.name,
+        contentHash: document.contentHash,
+        pageFrom: null,
+        pageTo: null,
+        quote,
+        check: "found",
+        id,
+      },
+    });
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          { type: "text", text: language === "en" ? "The harbour fills" : "港口满了" },
+          cited("c-gone", gone, "The old harbour filled at high water."),
+          { type: "text", text: language === "en" ? ", and again" : "，又一次" },
+          cited("c-live", live, "The new harbour fills at high water."),
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    await client.settled();
+    const sentences = citationSentences(client.blocks);
+    const at = "2026-10-28T09:00:00.000Z";
+    addSignOff(client.doc, {
+      id: "mark-gone",
+      target: { kind: "citation", id: "c-gone" },
+      at,
+      contentHash: citationSignOffBasis(sentences.get("c-gone")?.sentence ?? "", {
+        documentId: gone.id,
+        contentHash: gone.contentHash,
+        quote: "The old harbour filled at high water.",
+      }),
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    addSignOff(client.doc, {
+      id: "mark-live",
+      target: { kind: "citation", id: "c-live" },
+      at,
+      contentHash: "checked-before-it-changed",
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    await client.settled();
+    await core.deleteDocument(gone.id);
+    await client.settled();
+
+    const date = formatDate(at, language);
+    const checked = translate(language, "export.checkedBy", { name: "Ada", date });
+    const changed = translate(language, "export.checkedBy.changed", { name: "Ada", date });
+    const count = (text: string, part: string) => text.split(part).length - 1;
+    for (const style of ["apa", "ieee", "gb-t-7714-2015-numeric"]) {
+      await core.setMindCitationStyle(mind.id, style);
+      const word = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+      const text = `${textOfDocx(part(word, "word/document.xml"))}${Object.values(footnotesOf(part(word, "word/footnotes.xml"))).join("")}`;
+      expect(count(text, checked), style).toBe(1);
+      expect(count(text, changed), style).toBe(1);
+      // Each line sits in the entry of the source it is for, the gone one checked and the live
+      // one changed, never the other's or outside an entry.
+      const entries = paragraphsOf(part(word, "word/document.xml")).map((each) => each.text);
+      const goneEntry = entries.find((each) => each.includes(checked)) ?? "";
+      const liveEntry = entries.find((each) => each.includes(changed)) ?? "";
+      expect(goneEntry, style).toContain(gone.name);
+      expect(goneEntry, style).not.toContain(live.name);
+      expect(liveEntry, style).toContain(live.name);
+      expect(liveEntry, style).not.toContain(gone.name);
+    }
+  },
+);
+
 // protects=when History can't keep the Note as it was sent, the file is still saved and the result says so, so the User learns it where it happened (#1933); fails_when=the save reports nothing wrong; no_claim=why storage refused.
 test("a sent version History couldn't keep is said with the saved file", async () => {
   const dataDir = await createTempDataFolder();
@@ -550,3 +644,93 @@ test("a sent version History couldn't keep is said with the saved file", async (
   expect(sent).toMatchObject({ status: "saved", sentKept: false });
   expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual([]);
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a part Citation keeps its independent human record through reload, word changes and restore (${language})`, async () => {
+    const out = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder());
+    await core.updateSettings({ user: { language, personId: "person-1" } });
+    await core.setOutputLocation(out);
+    const mind = await core.createMind({ title: "Part receipts" });
+    const client = await connectToMind(core, mind.id);
+    const words = language === "en" ? "Revenue rose." : "收入增长。";
+    const receipt = {
+      id: "part-citation",
+      passageId: "p",
+      documentId: "source",
+      documentName: "Results",
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Revenue rose.",
+      check: "found",
+      checkReason: null,
+    };
+    const attrs = {
+      id: "check",
+      request: "request",
+      action: "check-against-documents",
+      state: "supported",
+      text: words,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-28T09:00:00.000Z",
+      parts: [
+        {
+          ...pendingPart({ span: { start: 0, end: words.length }, kind: "fact" }),
+          verdict: "supported",
+          evidence: [receipt],
+        },
+      ],
+    };
+    const write = (text: string) =>
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "p1" },
+          content: [{ type: "text", text, marks: [{ type: "claimCheck", attrs }] }],
+        },
+      ]);
+    write(words);
+    addSignOff(client.doc, {
+      id: "human",
+      target: { kind: "citation", id: receipt.id },
+      at: "2026-10-28T09:00:00.000Z",
+      contentHash: citationSignOffBasis(words, receipt),
+      deletedAt: null,
+      name: "Ada",
+      personId: "person-1",
+    });
+    await client.settled();
+    const kept = await core.saveCheckpoint(mind.id, "accept");
+    const csv = async () => {
+      const saved = await core.saveCheckRecord(mind.id);
+      if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+      return readFileSync(join(out, saved.file.name.replace(/\.(pdf|csv)$/, ".csv")), "utf8");
+    };
+    const initial = await csv();
+    expect(
+      parseCsv(initial).filter((row) => row.some((cell) => cell.startsWith("Ada · "))),
+    ).toHaveLength(1);
+    expect(initial).not.toContain(translate(language, "checkRecord.notInNote"));
+    const reopened = await connectToMind(core, mind.id);
+    expect(citationSentences(reopened.blocks).has(receipt.id)).toBe(true);
+    write(`Updated ${words}`);
+    await client.settled();
+    expect(await csv()).toContain(
+      translate(language, "checkRecord.person.changed", {
+        name: "Ada",
+        time: "2026-10-28T09:00:00.000Z",
+      }),
+    );
+    writeMind(client, [note("Removed.")]);
+    await client.settled();
+    expect(await csv()).toContain(translate(language, "checkRecord.notInNote"));
+    expect((await core.restoreCheckpoint(mind.id, kept.id)).checkedLeftOut).toBe(0);
+    await client.settled();
+    expect(citationSentences(client.blocks).has(receipt.id)).toBe(true);
+    expect(await csv()).not.toContain(translate(language, "checkRecord.notInNote"));
+  });
+}
