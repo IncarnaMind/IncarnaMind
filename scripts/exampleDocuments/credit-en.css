@@ -128,6 +128,7 @@ tbody tr:last-child td {
 .num {
   display: inline-block;
   width: 34.66px;
+  font-weight: 600;
 }
 
 .def {

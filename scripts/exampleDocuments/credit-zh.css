@@ -34,6 +34,7 @@ header {
 .brand {
   font-size: 13pt;
   font-weight: 700;
+  letter-spacing: 0.04em;
   color: #1F5F4A;
   line-height: 29px;
 }
@@ -126,6 +127,7 @@ tbody tr:last-child td {
 .num {
   display: inline-block;
   width: 40px;
+  font-weight: 700;
 }
 
 .def {

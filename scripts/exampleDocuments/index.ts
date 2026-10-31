@@ -7,7 +7,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chromium } from "playwright";
+import { chromium } from "@playwright/test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXAMPLES = join(HERE, "..", "..", "resources", "examples", "credit");
