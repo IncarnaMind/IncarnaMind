@@ -3042,23 +3042,36 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
-     * Reads a workbook again with its hidden and very hidden sheets, which are
-     * left out by default (#740), and keeps that for every version after. Only
-     * a workbook with hidden sheets left out, whose file is there.
+     * Reads a workbook with its hidden and very hidden sheets (`readHidden`),
+     * or again without them (#740), and keeps that for every version after. Only
+     * a workbook with hidden sheets left out to read, or one that reads them to
+     * leave them out, whose file is there.
      */
-    readHiddenSheets(idInput: unknown): Document {
+    readHiddenSheets(idInput: unknown, readInput: unknown = true): Document {
       const id = parseId(idInput);
+      if (typeof readInput !== "boolean") {
+        throw new InvalidInputError("readHiddenSheets takes true or false.");
+      }
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
-      const parts = parseUnreadParts(row.unread_parts);
-      if (row.kind !== "xlsx" || parts === null || parts.hiddenSheets.length === 0) {
+      if (row.kind !== "xlsx") {
         throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+      }
+      if (readInput) {
+        const parts = parseUnreadParts(row.unread_parts);
+        if (parts === null || parts.hiddenSheets.length === 0) {
+          throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+        }
+      } else if (row.read_hidden_sheets !== 1) {
+        return toDocument(row);
       }
       if (row.file_status !== "available") {
         throw new NotFoundError({ key: "error.document.fileGone" });
       }
-      if (row.read_hidden_sheets !== 1) {
-        db.run("UPDATE documents SET read_hidden_sheets = 1, updated_at = ? WHERE id = ?", [
+      const wanted = readInput ? 1 : 0;
+      if (row.read_hidden_sheets !== wanted) {
+        db.run("UPDATE documents SET read_hidden_sheets = ?, updated_at = ? WHERE id = ?", [
+          wanted,
           now(),
           id,
         ]);

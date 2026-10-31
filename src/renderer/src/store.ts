@@ -378,8 +378,8 @@ export interface AppState extends LayoutSlice {
   deleteDocuments(ids: readonly string[]): Promise<void>;
   /** Processes a Document that failed again, from its file. */
   retryDocument(id: string): Promise<void>;
-  /** Reads a workbook again with its hidden and very hidden sheets, which the User asked for. */
-  readHiddenSheets(id: string): Promise<void>;
+  /** Reads a workbook with its hidden and very hidden sheets, or again without them; Undo takes it back. */
+  readHiddenSheets(id: string, readHidden?: boolean): Promise<void>;
   dismissSkippedFiles(): void;
   dismissAlreadyAdded(): void;
   dismissSavedOutside(): void;
@@ -1651,11 +1651,23 @@ export const useAppStore = create<AppState>()((set, get) => {
         set((state) => ({ documents: upsert(state.documents, retried) }));
       }),
 
-    readHiddenSheets: (id) =>
+    readHiddenSheets: (id, readHidden = true) =>
       attempt(async () => {
-        const reread = await core.readHiddenSheets(id);
+        const reread = await core.readHiddenSheets(id, readHidden);
         documentUpdates.flush();
         set((state) => ({ documents: upsert(state.documents, reread) }));
+        if (!readHidden) return;
+        const again = async (read: boolean) => {
+          const document = await core.readHiddenSheets(id, read);
+          documentUpdates.flush();
+          set((state) => ({ documents: upsert(state.documents, document) }));
+        };
+        push({
+          said: (t) => t("undo.readHiddenSheets", { name: displayName(reread) }),
+          name: (t) => t("undo.name.readHiddenSheets"),
+          undo: () => again(false),
+          redo: () => again(true),
+        });
       }),
 
     dismissSkippedFiles() {

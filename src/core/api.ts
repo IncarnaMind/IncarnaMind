@@ -9254,7 +9254,7 @@ export interface MindExportPreview {
   theirChanges: number;
   /** The files in the Mind's Search scope that couldn't be read (#740); 0 when everything in it was read. */
   unreadFiles: number;
-  /** Whether the export names those files, as it does unless the Mind counts them only: the Mind's choice. */
+  /** Whether the export names those files, or only counts them: the Mind's choice, off until the User ticks it. */
   unreadFileNames: boolean;
   /**
    * Where the file puts its Citations, for the Saved line (#1945): footnotes or a list at the end,
@@ -10632,14 +10632,15 @@ export interface CoreApi {
    */
   retryDocument(id: string): Promise<Document>;
   /**
-   * Reads a workbook again with its hidden and very hidden sheets, which are
-   * left out by default (#740), and keeps that for every version after. Returns
-   * it, queued; "document.status" events report its progress. Throws
-   * InvalidInputError for a Document that isn't a workbook, or one with no
-   * hidden sheet left out, and NotFoundError for an unknown one or one whose
-   * file isn't there.
+   * Reads a workbook with its hidden and very hidden sheets (`readHidden`, the
+   * default), or again without them (`false`), which Undo asks for (#740). The
+   * choice is kept for every version after. Returns it, queued;
+   * "document.status" events report its progress. Throws InvalidInputError for
+   * a Document that isn't a workbook, or one with no hidden sheet left out when
+   * asked to read them, and NotFoundError for an unknown one or one whose file
+   * isn't there.
    */
-  readHiddenSheets(id: string): Promise<Document>;
+  readHiddenSheets(id: string, readHidden?: boolean): Promise<Document>;
   /**
    * Opens a password-protected PDF Document with `password` (#763). When it
    * opens, the password is kept on this device, in the system's keychain, by
@@ -11923,8 +11924,9 @@ export interface CoreApi {
     options?: SetMindCitationStyleOptions,
   ): Promise<MindCitationStyle>;
   /**
-   * Whether this Mind's exports name the files in its Search scope that couldn't be read, as they
-   * do unless the User counts them only (#740). The export and its preview ask this.
+   * Whether this Mind's exports name the files in its Search scope that couldn't be read, or only
+   * count them (#740). Off until the User ticks it in the export options; the export and its
+   * preview ask this.
    */
   setMindUnreadFileNames(mindId: string, names: boolean): Promise<void>;
   /**

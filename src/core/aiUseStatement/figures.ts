@@ -127,7 +127,7 @@ export interface AiUseFigures {
   sentences: SentenceCounts;
   checked: CheckedSentence[];
   unread: UnreadFile[];
-  /** Whether the statement names them: the Mind's own choice, named unless the User counts them only. */
+  /** Whether the statement names them: the Mind's own choice, off until the User ticks it. */
   unreadNames: boolean;
 }
 

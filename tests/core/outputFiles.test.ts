@@ -158,7 +158,7 @@ describe("The Output location", () => {
       },
       trackedChanges: 0,
       unreadFiles: 0,
-      unreadFileNames: true,
+      unreadFileNames: false,
       needsDetails: [],
       citedDocuments: 0,
       footnotes: 0,

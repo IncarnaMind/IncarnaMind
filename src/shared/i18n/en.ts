@@ -370,6 +370,8 @@ export const en = {
   "error.folder.keepInside": "keepInside must be true or false.",
   "undo.folderWallOn": "“{name}” now keeps its work inside it",
   "undo.folderWallOff": "“{name}” no longer keeps its work inside it",
+  "undo.readHiddenSheets": "Read the hidden sheets of “{name}”",
+  "undo.name.readHiddenSheets": "Read hidden sheets",
   "folder.wall.title": "This Folder keeps its work inside it",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",

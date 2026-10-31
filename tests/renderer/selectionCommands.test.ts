@@ -257,6 +257,12 @@ test("Read hidden sheets too is offered for a workbook whose hidden sheets were 
   }
 });
 
+test("the assistant is never offered Read hidden sheets too: the opt-in is the User's", async () => {
+  const { offeredCommands } = await import("../../src/renderer/src/assistantWindow");
+  const entry = offeredCommands(null).find((each) => each.id === "document.readHiddenSheets");
+  expect(entry).toMatchObject({ yours: "privacy" });
+});
+
 test("Retry reloads a failed viewer through its place, and keeps indexing retries for failed Documents elsewhere", async () => {
   const { useAppStore } = await import("../../src/renderer/src/store");
   const before = useAppStore.getState();

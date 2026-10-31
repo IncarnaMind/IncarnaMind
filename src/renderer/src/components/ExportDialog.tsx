@@ -661,7 +661,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           <SwitchRow
             label={t("export.unreadNames")}
             hint={t("export.unreadNames.hint")}
-            checked={nameUnreadFiles ?? true}
+            checked={nameUnreadFiles ?? false}
             onChange={setNameUnreadFiles}
             testId="export-unread-names"
           />

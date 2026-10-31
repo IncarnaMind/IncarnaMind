@@ -455,19 +455,19 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setOutputLocation(window, out);
 
-      // The files are named unless the User counts them in the export options, for this Mind.
+      // The files aren't named until the User asks for them in the export options, for this Mind.
       await openExportOptions(window);
-      await expect(window.getByTestId("export-unread-names")).toBeChecked();
+      await expect(window.getByTestId("export-unread-names")).not.toBeChecked();
       await screenshot(window, `export-options-unread-${language}`);
       await pointAndClick(window, window.getByTestId("export-options-close"));
 
       await exportFromMenu(window, "markdown");
       const done = window.getByTestId("export-result").getByTestId("export-done");
       await expect(done).toContainText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
-      const named = await readFile(join(out, "Harbour.md"), "utf8");
-      expect(named).toContain(WORDS[language].markdown.heading);
-      expect(named).toContain(WORDS[language].markdown.count);
-      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
+      const counted = await readFile(join(out, "Harbour.md"), "utf8");
+      expect(counted).toContain(WORDS[language].markdown.heading);
+      expect(counted).toContain(WORDS[language].markdown.count);
+      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
 
       await openExportOptions(window);
       await pointAndClick(window, window.getByTestId("export-unread-names"));
@@ -476,30 +476,14 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await exportFromMenu(window, "markdown");
       await expect(done).toContainText("Harbour", { timeout: 30_000 });
-      // The second export goes beside the first, under a name of its own.
-      let counted = "";
-      await expect
-        .poll(
-          async () => {
-            const names = (await readdir(out)).filter((name) => name.endsWith(".md"));
-            for (const name of names) {
-              const text = await readFile(join(out, name), "utf8");
-              if (
-                text.includes(WORDS[language].markdown.count) &&
-                WORDS[language].markdown.reasons.every((reason) => !text.includes(reason))
-              ) {
-                counted = text;
-                return true;
-              }
-            }
-            return false;
-          },
-          { timeout: 30_000 },
-        )
-        .toBe(true);
-      expect(counted).toContain(WORDS[language].markdown.heading);
-      expect(counted).toContain(WORDS[language].markdown.count);
-      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
+      const exports = await Promise.all(
+        (await readdir(out))
+          .filter((name) => name.endsWith(".md"))
+          .map(async (name) => readFile(join(out, name), "utf8")),
+      );
+      const named = exports.find((each) => each.includes(WORDS[language].markdown.reasons[0]));
+      if (named === undefined) throw new Error("No export named the files.");
+      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
 
       // The check record, its PDF and its CSV: the same count and list.
       const mind = window.getByTestId("mind-row").filter({ hasText: "Harbour" });

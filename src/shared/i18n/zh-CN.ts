@@ -361,6 +361,8 @@ export const zhCN = {
   "error.folder.keepInside": "keepInside 必须是 true 或 false。",
   "undo.folderWallOn": "已开启“{name}”只在本文件夹内工作",
   "undo.folderWallOff": "已关闭“{name}”只在本文件夹内工作",
+  "undo.readHiddenSheets": "已读取“{name}”的隐藏工作表",
+  "undo.name.readHiddenSheets": "读取隐藏工作表",
   "tag.rename": "重命名",
   "tag.renameLabel": "“{name}”的新名称",
   "tag.delete": "删除",

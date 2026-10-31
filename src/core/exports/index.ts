@@ -188,8 +188,8 @@ function withoutEmptyTitle(blocks: Block[]): Block[] {
   return empty ? blocks.slice(1) : blocks;
 }
 
-// The files are named unless the Mind counts them only: an export usually goes to someone else,
-// and a file's name can be private.
+// The count alone unless the Mind names the files: an export usually goes to someone else, and a
+// file's name can be private.
 function unreadBlocks(unread: readonly UnreadFile[], language: Language, names: boolean): Block[] {
   if (unread.length === 0) return [];
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);

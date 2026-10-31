@@ -282,7 +282,9 @@ export const documentCommands: readonly Command[] = [
     label: "documents.readHiddenSheets",
     group: "main",
     appliesTo: ["document"],
+    assistant: { never: "privacy" },
     when: (ctx) =>
+      onlyOne(ctx) &&
       everyDocument(
         ctx,
         (document) =>
@@ -294,7 +296,8 @@ export const documentCommands: readonly Command[] = [
       ),
     reversible: true,
     run: async (ctx) => {
-      await Promise.all(idsOf(ctx, "document").map((id) => store().readHiddenSheets(id)));
+      const id = idsOf(ctx, "document")[0];
+      if (id) await store().readHiddenSheets(id);
     },
   },
   {
