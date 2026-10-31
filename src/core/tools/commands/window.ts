@@ -87,6 +87,7 @@ function targetsOf(
 /**
  * Checks a call of a window command: what it acts on, and what its entry says it does. `into`:
  * the Suggested Folder each target was checked against, which the window accepts it for alone.
+ * `wall`: the Folder wall it was checked behind, which the window files nothing across.
  */
 export function windowChecked(
   entry: OfferedCommand,
@@ -95,6 +96,7 @@ export function windowChecked(
   context: WindowRun,
   window: CommandsHost["window"],
   into?: ReadonlyMap<string, string | null>,
+  wall: string | null = null,
 ): CheckedCommand {
   if (entry.yours) return yoursChecked(entry.id, entry.yours);
   const items = targetsOf(entry, ids, findable);
@@ -124,6 +126,7 @@ export function windowChecked(
           targets: items.map(({ kind, id }) =>
             into?.has(id) ? { kind, id, into: into.get(id) ?? null } : { kind, id },
           ),
+          wall,
           mindId: context.mindId,
           clientId,
         },

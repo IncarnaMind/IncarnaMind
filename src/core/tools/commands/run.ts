@@ -338,6 +338,8 @@ export type CommandTouch = CommandTarget | "library" | "settings" | "front";
 /** What a check knows of where the Answer was asked. */
 export interface CommandPlace {
   filing: CommandFiling;
+  /** The Folder wall the Answer was asked behind; null: outside every wall (#1934). */
+  wallId: string | null;
   /** The Documents, Notes, Folders, Tags and deleted things on the turn's side of the wall. */
   findable(): Promise<Findable>;
 }
@@ -429,7 +431,7 @@ async function moveBack(core: CommandsCore, move: FolderMove): Promise<void> {
 }
 
 function moveTo(command: "document.moveTo" | "mind.moveTo", kind: CommandTarget): Checker {
-  return async (input, { core }) => {
+  return async (input, { core }, { wallId }) => {
     const name = needs(input.folder, "error.commands.noFolderName");
     const asked = kind === "document" ? await documentsOf(core, input.ids) : [];
     // The examples stay where they are: their Documents never join the User's Folders, and the
@@ -453,7 +455,7 @@ function moveTo(command: "document.moveTo" | "mind.moveTo", kind: CommandTarget)
       const { folder, made } = await folderNamed(core, name);
       let move: FolderMove;
       try {
-        move = await core.moveToFolder({ ...moving, folderId: folder.id });
+        move = await core.moveToFolder({ ...moving, folderId: folder.id, wall: wallId });
       } catch (error) {
         if (made) await unmake(core, "folder", folder.id);
         throw error;
@@ -488,7 +490,8 @@ function moveTo(command: "document.moveTo" | "mind.moveTo", kind: CommandTarget)
           redo: async () => {
             if (removed) await core.restore([{ kind: "folder", id: folder.id }]);
             removed = null;
-            move = await core.moveToFolder({ ...moving, folderId: folder.id });
+            // A redo files the work again, so it judges the walls again as the move does (#2250).
+            move = await core.moveToFolder({ ...moving, folderId: folder.id, wall: wallId });
           },
         },
         said: `Moved ${plural(changed.length, kind === "document" ? "Document" : "Note")} to the Folder “${folder.name}”${made ? ", which this made" : ""}.${already > 0 ? ` ${plural(already, "was", "were")} in it already.` : ""}`,

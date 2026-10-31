@@ -385,7 +385,7 @@ export function commandTools(options: CommandToolsOptions): {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
           findable: () => options.findable(options.focusedMindId, options.wallId),
-          wallId: options.wallId,
+          wallId: options.wallId ?? null,
           filing: options.filing,
           answerId: options.answerId,
           runId: options.runId,
