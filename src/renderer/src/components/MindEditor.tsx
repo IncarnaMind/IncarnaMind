@@ -101,6 +101,7 @@ import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
 import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
+import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { SlashMenu } from "../editor/SlashMenu";
 import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
@@ -449,6 +450,7 @@ function MindEditorView({
         BlockCommands,
         FindInMind,
         HeldSelection,
+        ShiftClickSelection,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({

@@ -67,6 +67,7 @@ import { citationNumberOf } from "./citationNumbers";
 import { QuoteWithUnsureWords, ScanLine, useReadableQuote, useScannedQuote } from "./citationScan";
 import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
+import { extendSelectionTo } from "./shiftClickSelection";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
   InFootnoteContext,
@@ -420,8 +421,11 @@ export function CitationView({
         title={styled.kind === "runs" ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        // Keep the editor's selection and focus where they are.
-        onMouseDown={(event) => event.preventDefault()}
+        // Keep the editor's selection and focus where they are, except for a Shift-press: that
+        // extends the selection to the Citation, as one in the text does (#2279).
+        onMouseDown={(event) => {
+          if (!extendSelectionTo(editor.view, event.nativeEvent)) event.preventDefault();
+        }}
         // In a cluster, the pointer shows the card of the Citation whose words it is over.
         onPointerMove={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
         // The pointer can come back without moving: the card first placed before its font
@@ -433,6 +437,8 @@ export function CitationView({
         }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
+          // A Shift-click extends the selection to it (ShiftClickSelection), as one in the text does.
+          if (event.shiftKey) return;
           const target = markerOfWork(workAt(event.target, inCluster));
           if (target && target !== marker.current) target.click();
           else onClick();
