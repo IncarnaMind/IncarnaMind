@@ -68,6 +68,7 @@ import {
 import { pageCommands } from "./page";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
+import { pictureCommands } from "./pictures";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
@@ -528,6 +529,7 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

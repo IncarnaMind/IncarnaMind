@@ -35,6 +35,7 @@ import {
   setMenuSidebarHidden,
 } from "./menu";
 import { rememberPick, startFolder, startNear } from "./pickerFolders";
+import { decodePictureToPng } from "./pictureDecode";
 import { showOpenDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
@@ -71,6 +72,12 @@ export function serveFileActions(
   handle(FILES_CHANNELS.showSavedFile, async (event, path: unknown) => {
     refuseUnknown(event);
     await core.showSavedFile(path as string);
+  });
+
+  // A picture the web engine can't read (HEIC), read by this computer's own decoder (#1937).
+  handle(FILES_CHANNELS.decodePicture, async (event, bytes: unknown) => {
+    refuseUnknown(event);
+    return bytes instanceof Uint8Array ? decodePictureToPng(bytes) : null;
   });
 
   handle(FILES_CHANNELS.openSavedFile, async (event, path: unknown) => {

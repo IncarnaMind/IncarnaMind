@@ -558,6 +558,8 @@ export interface AnswersOptions {
   providerExists(providerId: string): boolean;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
+  /** Whether this model reads pictures: one that can't is sent none, even one the User selected (#1937). */
+  readsImages?(choice: ChatModelChoice): boolean;
   /** Whether Questions can be asked with this model (the default one when undefined). */
   readiness(choice: ChatModelChoice | undefined): Promise<ChatReadiness>;
   /** The model, once the User has accepted its data flow (see `Core.prepareChatModel`). */
@@ -3291,13 +3293,17 @@ export function createAnswers(options: AnswersOptions) {
     mindId: string | null,
     focus: MindFocus | null,
     question: string,
+    model: ChatModelChoice | null = null,
   ): MindToRead | null {
     if (mindId === null) return null;
     const name = options.readableMindName(mindId);
     if (name === null) return null;
     const documents = options.documents.names();
     const ids = contextCitationsFor(mindId);
-    const reading = content.peek(mindId, (blocks) => readMind(blocks, name, focus, documents, ids));
+    const readsPictures = model === null || options.readsImages?.(model) !== false;
+    const reading = content.peek(mindId, (blocks) =>
+      readMind(blocks, name, focus, documents, ids, readsPictures),
+    );
     return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
 
@@ -3402,6 +3408,7 @@ export function createAnswers(options: AnswersOptions) {
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
       selection: kept.selection,
+      ...(kept.pictures?.length && { pictures: kept.pictures }),
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
@@ -3746,12 +3753,17 @@ export function createAnswers(options: AnswersOptions) {
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
       const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
-      const mind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
-      const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
           : options.defaultModel();
+      const mind = mindToRead(
+        question.mind?.id ?? null,
+        question.focus,
+        question.text,
+        answerModel,
+      );
+      const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const added = options.conversations.add(
         { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
         answerModel,
@@ -3775,7 +3787,12 @@ export function createAnswers(options: AnswersOptions) {
           options.conversations.discard(added);
           return ready;
         }
-        const readyMind = mindToRead(question.mind?.id ?? null, question.focus, question.text);
+        const readyMind = mindToRead(
+          question.mind?.id ?? null,
+          question.focus,
+          question.text,
+          ready.model,
+        );
         // The Documents can change while readiness waits: search and quote them as they are now.
         const { documentIds, emptyScope } = scopeNow(
           scope,
@@ -3832,7 +3849,9 @@ export function createAnswers(options: AnswersOptions) {
       const remake = made && options.readableMindName(made.mindId) !== null ? made.mindId : null;
       const from = question.askedFrom;
       const mind =
-        !from || from.deleted ? null : mindToRead(from.mindId, question.focus, question.text);
+        !from || from.deleted
+          ? null
+          : mindToRead(from.mindId, question.focus, question.text, ready.model);
       const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
       const { documentIds, emptyScope } = scopeNow(
         question.scope,

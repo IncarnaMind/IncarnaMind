@@ -236,9 +236,20 @@ function toModelMessages(messages: readonly RunMessage[]): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const message of messages) {
     if (message.role === "user") {
+      const pictures = message.pictures ?? [];
       out.push({
         role: "user",
-        content: message.text,
+        content:
+          pictures.length > 0
+            ? [
+                ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+                ...pictures.map((picture) => ({
+                  type: "file" as const,
+                  data: picture.data,
+                  mediaType: picture.mediaType,
+                })),
+              ]
+            : message.text,
         ...(message.stablePrefix && { providerOptions: stablePrefixOptions(message.stablePrefix) }),
       });
     } else if (message.role === "assistant") {

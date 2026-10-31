@@ -609,6 +609,15 @@ export const en = {
   "editor.checklist.empty": "Empty checklist item",
   "editor.slash.quote": "Quote",
   "editor.slash.divider": "Divider",
+  "editor.slash.picture": "Picture",
+  "editor.picture.insert": "Insert a picture…",
+  "editor.picture.alt": "Description of the picture",
+  "editor.picture.altPlaceholder": "Describe this picture",
+  "editor.picture.unreadable": "This picture can’t be read. Try a PNG or JPEG file.",
+  "editor.picture.heic":
+    "HEIC pictures can’t be read on this computer. Save it as a PNG or JPEG first.",
+  "editor.picture.empty": "This picture is empty.",
+  "editor.picture.tooLarge": "This picture is too large to add. Try one under 50 MB.",
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
@@ -1253,6 +1262,11 @@ export const en = {
   "composer.edit.stop": "Stop editing the selection",
   "composer.edit.send": "Change it (Enter)",
   "composer.selection.drop": "Don’t ask about this",
+  "composer.picture.chip": "Picture",
+  "composer.picture.sends": "Asks about this picture, sent to {provider}",
+  "composer.picture.onThisComputer": "Asks about this picture, which stays on this computer",
+  "composer.picture.unreadableModel":
+    "This model can’t read pictures. Choose a model that can, to ask about one.",
   "assistant.question.quote": "About:",
   "assistant.question.quoteGone": "(since deleted)",
   "assistant.quote.leftOut.deleted":
@@ -2409,7 +2423,7 @@ export const en = {
   "providers.form.save": "Use this service",
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
+    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a Note to ask about",
   "providers.sends.checks": "each sentence you check",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
@@ -2688,6 +2702,7 @@ export const en = {
   "consent.flow.scan-images": "Page images of scans",
   "consent.flow.scan-images.purpose": "read a scan that has no text, so it can be sorted",
   "consent.data.page-images": "Up to 3 page images of a scan with no text",
+  "consent.data.pictures": "A picture you select in a Note to ask about",
   "consent.flow.embeddings": "Document search",
   "consent.flow.embeddings.purpose": "search your Documents by their meaning",
   "consent.data.document-text":

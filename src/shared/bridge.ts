@@ -25,6 +25,12 @@ export const FILES_BRIDGE_KEY = "incarnamindFiles";
 export interface FilesBridge {
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
   pathForFile(file: File): string;
+  /**
+   * A picture the web engine can't read, as macOS's HEIC, as a PNG of this
+   * computer's own decoder (#1937); null where this computer has none, and
+   * the picture says it can't be read.
+   */
+  decodePicture(bytes: Uint8Array): Promise<Uint8Array | null>;
   /** Shows a file IncarnaMind saved (`CoreApi.saveMindExport`), selected in the system's file manager. */
   showSavedFile(path: string): Promise<void>;
   /** Opens a file IncarnaMind saved (`CoreApi.saveMindExport`) in the system's default app for it. */
@@ -194,6 +200,7 @@ export interface RendererErrorReport {
 /** The main process's channels for the `FilesBridge` methods that need it. */
 export const FILES_CHANNELS = {
   showSavedFile: "files:showSavedFile",
+  decodePicture: "files:decodePicture",
   openSavedFile: "files:openSavedFile",
   pickOutputLocation: "files:pickOutputLocation",
   saveMindCopy: "files:saveMindCopy",

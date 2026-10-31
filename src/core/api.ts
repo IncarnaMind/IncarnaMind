@@ -709,6 +709,7 @@ export const NOTE_BLOCK_TYPES = [
   "horizontalRule",
   "table",
   "chart",
+  "picture",
   "wordBlock",
 ] as const;
 
@@ -1395,6 +1396,15 @@ export const WORD_BLOCK_NODE = "wordBlock";
 
 /** A picture in a paragraph's text, as Tiptap names it: a .docx's inline pictures (#104). */
 export const IMAGE_NODE = "image";
+
+/**
+ * A picture the User pasted or dropped into a Note (#1937): a Block of its
+ * own, kept as a `data:` URL of the Note's data (the app's
+ * Content-Security-Policy allows no other kind), resized to fit, with the alt
+ * text the User writes for it. Unlike an `IMAGE_NODE` it sits between Blocks,
+ * never inside a paragraph's text.
+ */
+export const PICTURE_NODE = "picture";
 
 /**
  * What a kept-as-is atom is. Bookmarks, other ranges (a comment's, an
@@ -6713,6 +6723,11 @@ export interface MindFocus {
   /** The selected text as the editor reads it; "" with nothing selected. */
   selection: string;
   blockIds: string[];
+  /**
+   * The pictures the User selected in the Note to ask about (#1937), by Block
+   * id: only these go to the model, and only with this Question.
+   */
+  pictures?: string[];
 }
 
 /** The Mind an Answer in a conversation read (#544), as it was then: what the Answer is based on. */
@@ -7573,6 +7588,7 @@ export const dataKinds = [
   "document-names",
   "other-minds",
   "live-transcript",
+  "pictures",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9031,6 +9047,12 @@ export interface SentenceChecksExported {
   comments: number;
 }
 
+/** A file an export writes beside its main file, e.g. a picture a Markdown export links (#1937). */
+export interface ExportFile {
+  name: string;
+  data: Uint8Array;
+}
+
 /** What a Mind's web page to share would hold, for the sheet to show before it is made. */
 export interface SharePagePreview {
   /** Every Document the Mind cites, in the order it is first cited. */
@@ -9056,6 +9078,12 @@ export interface SharedDocument {
 export interface MindExport extends MindExportPreview {
   /** The file's contents: UTF-8 text for Markdown and HTML, a ZIP package for .docx, a PDF for PDF and a source pack. */
   data: Uint8Array;
+  /**
+   * Files the export writes beside its main file, in the same folder: the
+   * pictures a Markdown export links (#1937). Empty or absent for a format
+   * that holds its pictures itself.
+   */
+  files?: readonly ExportFile[];
   /** For a Mind imported from a Word file, exported back into it: what it kept and couldn't keep. */
   word: WordExportReport | null;
   sentenceChecks: SentenceChecksExported;

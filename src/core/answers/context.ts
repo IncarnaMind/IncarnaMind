@@ -22,11 +22,13 @@ import {
   INCLUDE_IN_CONTEXT_ATTRIBUTE,
   MIND_TEXT_ORIGINS_FIELD,
   type MindFocus,
+  PICTURE_NODE,
   QUESTION_BLOCK,
   type ThirdPartySource,
 } from "../api";
 import { keywordTerms, keywordText } from "../documents/keywords";
 import { type ReviewReading, reviewReading } from "../mindText";
+import type { RunPicture } from "../runs/engine";
 import { attribute, contentMarkdown, textAttribute, toMarkdown } from "./blocks";
 import { eachCitation } from "./citedVersions";
 import type { ContextCitations } from "./contextCitations";
@@ -186,7 +188,6 @@ export interface QuestionContext {
   /** The Question's own text. */
   question: string;
 }
-
 /** A Question context, and where the third-party text it holds came from. */
 export interface QuestionContextWithOrigins {
   context: QuestionContext;
@@ -292,9 +293,18 @@ export interface MindCut {
   text: string;
   /** What the User selected in it, as the Question's message starts; "" when none. */
   selection: string;
+  /**
+   * The pictures the User selected to ask about (#1937), read from the Note's
+   * data. Only a Question that names them sends them, and only to a model that
+   * reads images; otherwise empty.
+   */
+  pictures?: readonly AskedPicture[];
   /** How much of the Mind's text it holds, from 0 to 1: 1 when it is whole. */
   share: number;
 }
+
+/** A picture the User selected in a Note to ask about, as a model that reads images takes it. */
+export type AskedPicture = RunPicture;
 
 /** A `MindCut`, and what it says of what it kept. */
 export interface MindSection extends MindCut {
@@ -351,6 +361,8 @@ export function readMind(
   focus: MindFocus | null,
   documents: Documents = null,
   ids?: ContextCitations,
+  /** Whether the model reads images: one that can't is sent no picture, even one the User selected. */
+  readsPictures = true,
 ): MindReading {
   const recordedOrigins = blocks.doc?.getMap<unknown>(MIND_TEXT_ORIGINS_FIELD);
   const recorded = recordedOrigins && recordedOrigins.size > 0 ? recordedOrigins : null;
@@ -360,6 +372,7 @@ export function readMind(
    * an empty line, is where the one before it is), and whether the User excluded it.
    */
   const byId = new Map<string, { index: number; excluded: boolean }>();
+  const picturesById = new Map<string, Y.XmlElement>();
   const review = reviewReading(blocks);
   for (const block of blocks.toArray()) {
     if (!(block instanceof Y.XmlElement)) continue;
@@ -370,6 +383,7 @@ export function readMind(
         index: piece ? read.length : read.length - 1,
         excluded: attribute(block, INCLUDE_IN_CONTEXT_ATTRIBUTE) === false,
       });
+      if (block.nodeName === PICTURE_NODE) picturesById.set(id, block);
     }
     if (!piece) continue;
     read.push({
@@ -386,6 +400,14 @@ export function readMind(
     focus && placed.length > 0 && placed.every((each) => each !== undefined && !each.excluded)
       ? focus.selection.trim()
       : "";
+  // Only the pictures the User selected to ask about: their Block ids come with the Question (#1937).
+  const pictures = readsPictures
+    ? [...new Set(focus?.pictures ?? [])].flatMap((id) => {
+        const block = picturesById.get(id);
+        const picture = block ? askedPictureOf(block) : null;
+        return picture ? [picture] : [];
+      })
+    : [];
   const version = createHash("sha256")
     .update(read.map((block) => block.text).join("\n\n"))
     .digest("base64url")
@@ -393,7 +415,30 @@ export function readMind(
   return {
     version,
     section: (tokens = QUESTION_CONTEXT_TOKEN_BUDGET, question = "") =>
-      cutMind({ name, read, focused, selection }, tokens, question),
+      cutMind(
+        {
+          name,
+          read,
+          focused,
+          selection,
+          ...(pictures.length > 0 && { pictures }),
+        },
+        tokens,
+        question,
+      ),
+  };
+}
+
+const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
+
+/** A picture Block as a model takes it, or null when it holds no picture a model reads. */
+function askedPictureOf(block: Y.XmlElement): AskedPicture | null {
+  const match = PICTURE_DATA_URL.exec(block.getAttribute("src") ?? "");
+  if (!match?.[1] || !match[2]) return null;
+  return {
+    data: new Uint8Array(Buffer.from(match[2], "base64")),
+    mediaType: match[1] as AskedPicture["mediaType"],
+    alt: block.getAttribute("alt") ?? "",
   };
 }
 
@@ -461,11 +506,17 @@ function matching(read: readonly ReadBlock[], question: string): number[] {
  * Blocks were left out.
  */
 function cutMind(
-  mind: { name: string; read: readonly ReadBlock[]; focused: readonly number[]; selection: string },
+  mind: {
+    name: string;
+    read: readonly ReadBlock[];
+    focused: readonly number[];
+    selection: string;
+    pictures?: readonly AskedPicture[];
+  },
   tokens: number,
   question: string,
 ): MindSection {
-  const { read, focused, selection } = mind;
+  const { read, focused, selection, pictures } = mind;
   const wrap = (body: string) =>
     `<mind name="${xmlAttribute(mind.name)}">\n${body}${body ? "\n" : ""}</mind>`;
   const selected = (text: string) => (text ? `<selection>\n${text}\n</selection>` : "");
@@ -486,6 +537,7 @@ function cutMind(
     return {
       text: whole,
       selection: selected(selection),
+      ...(pictures?.length ? { pictures } : {}),
       share: 1,
       partial: false,
       origins: originsOf(read.keys(), selection !== ""),
@@ -493,7 +545,16 @@ function cutMind(
   }
 
   let left = tokens - estimateTokens(wrap(LEFT_OUT)) - BLOCK_EXTRA_TOKENS;
-  if (left <= 0) return { text: "", selection: "", share: 0, partial: true, origins: [] };
+  if (left <= 0) {
+    return {
+      text: "",
+      selection: "",
+      ...(pictures?.length ? { pictures } : {}),
+      share: 0,
+      partial: true,
+      origins: [],
+    };
+  }
   let selectionText = "";
   if (selection) {
     const room = left - selectedTokens("…");
@@ -556,6 +617,7 @@ function cutMind(
   return {
     text: wrap(parts.join("\n\n")),
     selection: selected(selectionText),
+    ...(pictures?.length ? { pictures } : {}),
     share: total > 0 ? Math.min(1, keptTokens / total) : 0,
     partial: true,
     origins: originsOf(order, selectionText !== ""),
@@ -563,7 +625,7 @@ function cutMind(
 }
 
 /** The Mind read with a Question (`MindCut`): where the request holds it. */
-type MindParts = Pick<MindCut, "text" | "selection">;
+type MindParts = Pick<MindCut, "text" | "selection" | "pictures">;
 
 /**
  * The Question context of a Question in one of the assistant's conversations
@@ -652,7 +714,7 @@ export function conversationContextOf(
   const asked = askedText(onScreen, mind?.selection ?? "", question);
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
   return {
-    context: { messages: withMind(mind?.text ?? "", kept, asked), question },
+    context: { messages: withMind(mind?.text ?? "", kept, asked, mind?.pictures), question },
     origins: originsOf(kept),
   };
 }
@@ -699,9 +761,14 @@ export function withLineBefore(
  * with the Question (if any) first: the first message starts with it, and
  * says so (`AnswerMessage.stablePrefix`).
  */
-function withMind(mind: string, kept: readonly Piece[], asked: string): AnswerMessage[] {
-  if (!mind) return asMessages(kept, asked);
-  const messages = asMessages([{ role: "user", text: mind }, ...kept], asked);
+function withMind(
+  mind: string,
+  kept: readonly Piece[],
+  asked: string,
+  pictures?: readonly AskedPicture[],
+): AnswerMessage[] {
+  if (!mind) return asMessages(kept, asked, pictures);
+  const messages = asMessages([{ role: "user", text: mind }, ...kept], asked, pictures);
   const [first] = messages;
   if (first) first.stablePrefix = mind.length;
   return messages;
@@ -776,13 +843,19 @@ function keptWithinBudget(newestFirst: Iterable<Piece>, remaining: number): Piec
 }
 
 /** The kept pieces, then the Question, as messages: one per run of the same role, as providers expect roles to alternate. */
-function asMessages(kept: readonly Piece[], question: string): AnswerMessage[] {
+function asMessages(
+  kept: readonly Piece[],
+  question: string,
+  pictures?: readonly AskedPicture[],
+): AnswerMessage[] {
   const messages: AnswerMessage[] = [];
   for (const piece of [...kept, { role: "user", text: question } satisfies Piece]) {
     const last = messages.at(-1);
     if (last?.role === piece.role) last.content = `${last.content}\n\n${piece.text}`;
     else messages.push({ role: piece.role, content: piece.text });
   }
+  const last = messages.at(-1);
+  if (last?.role === "user" && pictures && pictures.length > 0) last.pictures = pictures;
   return messages;
 }
 
@@ -854,7 +927,7 @@ export function fitQuestionContext(
     if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
     remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
   }
-  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked);
+  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, mind?.pictures);
 }
 
 /** Messages as pieces, the records of earlier Answers' Tool calls and a Document's whole text apart from the messages that hold them. */

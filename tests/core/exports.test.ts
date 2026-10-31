@@ -832,14 +832,21 @@ describe("exporting a Mind", () => {
     });
     await client.settled();
 
-    const markdown = decode(await core.exportMind(mind.id, { format: "markdown" }));
+    const exported = await core.exportMind(mind.id, { format: "markdown" });
+    const markdown = decode(exported);
+    // The picture is a file beside the .md, named after its bytes, that the text links (#1937).
+    const [picture] = exported.files ?? [];
+    expect(picture?.name).toMatch(/^picture-[0-9a-f]{12}\.png$/);
+    expect(Buffer.from(picture?.data ?? [])).toEqual(
+      Buffer.from(PIXEL.split(",")[1] as string, "base64"),
+    );
     expect(markdown).toBe(
       [
         "| Tide | Height |",
         "| --- | --- |",
         "| Spring | 4 m \\| high |",
         "",
-        `![A chart](${PIXEL})`,
+        `![A chart](${picture?.name})`,
         "",
       ].join("\n"),
     );

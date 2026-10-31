@@ -332,6 +332,17 @@ export function SortLineIcon(props: IconProps) {
   );
 }
 
+/** A picture in a Note: a frame with a mountain and the sun (#1937). */
+export function ImageLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m4 17 4.5-4.5L13 17m3.5-3.5L20 17" />
+    </LineIcon>
+  );
+}
+
 export function CalculatorLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>

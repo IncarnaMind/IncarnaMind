@@ -109,7 +109,7 @@ import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
-import { earlierContext, type RequestMind, withLineBefore } from "./context";
+import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import {
   NOTHING_SHOWN_YET,
@@ -137,6 +137,11 @@ export interface AnswerMessage {
    * cache keeps (see ../providers/promptCache).
    */
   stablePrefix?: number;
+  /**
+   * Pictures the User selected in the Note to ask about (#1937), which only the
+   * Answer's own Run reads: the calls that search send the text alone.
+   */
+  pictures?: readonly AskedPicture[];
 }
 
 /** A Citation record, as the model gives it for one marker. */
@@ -1561,6 +1566,7 @@ const runMessage = (message: AnswerMessage): RunMessage =>
         role: "user",
         text: message.content,
         ...(message.stablePrefix && { stablePrefix: message.stablePrefix }),
+        ...(message.pictures?.length && { pictures: message.pictures }),
       }
     : { role: "assistant", text: message.content, toolCalls: [] };
 

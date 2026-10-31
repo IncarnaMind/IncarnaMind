@@ -105,6 +105,7 @@ import {
   type DocumentStatus,
   type EmbeddingModelStatus,
   type EmbeddingSettings,
+  type ExportFile,
   type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
@@ -1774,6 +1775,11 @@ export function createCore(adapters: CoreAdapters): Core {
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
+      await saveExportFiles(
+        exported.files,
+        folder ?? file.folder,
+        typeof mindId === "string" ? mindId : null,
+      );
       await rememberExportChoices(exported, oneOff);
       recordExport(written);
       return { file, marking: settled };
@@ -1804,6 +1810,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
     defaultModel: () => settings.get().user.chatModel,
+    readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     writesThenCites: ({ provider, modelId }, flow) =>
@@ -2812,6 +2819,26 @@ export function createCore(adapters: CoreAdapters): Core {
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
+  /**
+   * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
+   * export's pictures. The User let that folder take the export, so it takes these too.
+   */
+  const saveExportFiles = async (
+    files: readonly ExportFile[] | undefined,
+    folder: string,
+    from: string | null,
+  ): Promise<void> => {
+    for (const file of files ?? []) {
+      await outputs.save({
+        name: file.name,
+        data: file.data,
+        ownFile: "export",
+        fromFolder: folderOfNote(from),
+        folder,
+        approved: true,
+      });
+    }
+  };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
    * an error. `from`: the Note it was written from, whose Folder wall it stays behind; null for none.
@@ -4194,7 +4221,9 @@ export function createCore(adapters: CoreAdapters): Core {
               : {}),
           }),
         );
-        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language));
+        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language), {
+          pictures: false,
+        }).text;
       },
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
@@ -5495,6 +5524,7 @@ export function createCore(adapters: CoreAdapters): Core {
         theirChanges: _waiting,
         data,
         word,
+        files,
         ...counts
       } = await mindExports.export(mindId, options);
       // What a Word file can't keep is said before anything is saved (#105).
@@ -5508,6 +5538,7 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      await saveExportFiles(files, saved.file.folder, typeof mindId === "string" ? mindId : null);
       exportFiles.set(saved.file.path, {
         mindId,
         path: saved.file.path,

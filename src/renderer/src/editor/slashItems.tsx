@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { SkillIcon } from "../components/icons";
+import { ImageLineIcon } from "../components/lineIcons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { insertFootnote } from "./footnoteSchema";
@@ -116,6 +117,17 @@ export const noteSlashItems: readonly SlashItem[] = [
     keywords: ["blockquote", "citation"],
     icon: "❝",
     run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+  },
+  {
+    id: "picture",
+    label: "editor.slash.picture",
+    // "tupian" is 图片 in pinyin; "image" and "photo" are what it is called elsewhere.
+    keywords: ["image", "photo", "picture", "screenshot", "tupian"],
+    icon: <ImageLineIcon className="size-3.5" />,
+    run(editor, range) {
+      editor.chain().focus().deleteRange(range).run();
+      editor.commands.choosePicture();
+    },
   },
   {
     id: "divider",

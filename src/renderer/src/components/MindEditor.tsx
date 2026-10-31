@@ -90,7 +90,9 @@ import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
 import { PageMenu } from "../editor/PageMenu";
+import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
+import { Pictures } from "../editor/pictures";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
 import { QuestionView } from "../editor/QuestionView";
@@ -263,6 +265,18 @@ const chartView = ReactNodeViewRenderer(ChartView, {
 });
 
 /**
+ * A picture pasted into the Note (#1937): it takes its own pointer over the
+ * alt text's line, so the editor doesn't type into it; the picture itself is
+ * the editor's to select and drag like any Block.
+ */
+const pictureView = ReactNodeViewRenderer(PictureView, {
+  stopEvent: ({ event }) => {
+    const target = event.target;
+    return target instanceof Element && target.closest("[data-picture-alt]") !== null;
+  },
+});
+
+/**
  * A comparison table (#98): its title line, heading row and "+ Question" take
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
@@ -387,9 +401,12 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          pictureView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
         CitationNumbers.configure({ form: () => formRef.current }),
+        // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
+        Pictures,
         CitationClusters,
         ClaimChecks,
         CopyCitations.configure({
