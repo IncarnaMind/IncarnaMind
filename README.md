@@ -15,6 +15,8 @@
 
 <p align="center">Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
 
+<p align="center"><b>Free and open source.</b> It runs on your computer with nothing to sign up for. Use ChatGPT, Claude, Gemini or a local model through Ollama.</p>
+
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
 <p align="center">
@@ -29,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A credit memo says 36.8% where the Q3 results say 38.6%, and the figure is marked in the margin. Then the app sorts scattered files, drafts from them, charts a spreadsheet with every bar linked to its cell, checks the whole memo and fixes the wrong figure in one click, exports to Word with footnotes, and takes notes on an expert call that cite what was said. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-check-en.gif" width="880" alt="A credit memo is checked against its files. One figure comes back contradicted: the memo says 36.8% where the Q3 results say 38.6%, and the card quotes the page. The page opens, and the figure is fixed in one click. Recorded in the app with Claude Sonnet 5.5."></p>
 
-<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
+<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the one-minute film</a>: sorting files, drafting, charts, the check, Word and meetings.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
 ## Download
 
@@ -41,7 +43,7 @@
 | Windows | `.exe` |
 | Linux | `.deb` for Ubuntu and Debian, or `.AppImage` |
 
-Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
+Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
 
 <details>
 <summary>If your system won't open it</summary>
