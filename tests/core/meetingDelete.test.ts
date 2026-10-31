@@ -150,6 +150,18 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(found.map((passage) => passage.documentId)).toContain(documentId);
       expect(partsOf(dataDir, meeting.id)).toEqual(parts);
       expectPlayable(dataDir, meeting.id);
+
+      // Redo deletes it again, and Undo again brings it all back again.
+      await core.deleteMind(meeting.mindId);
+      expect(await core.listMeetings()).toEqual([]);
+      expect(await core.listDeleted()).toHaveLength(1);
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      expect(await meetingOf(core, meeting.id)).toMatchObject({
+        audio: { kept: true, deletedAt: null },
+        transcript: { state: "saved", documentId },
+      });
+      expect(await transcriptIn(core, documentId)).toBeDefined();
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
     });
 
     test("a Meeting recording stops at Delete, and Restore from Recently deleted brings it back stopped, its Transcript finished", async () => {
