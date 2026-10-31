@@ -11,6 +11,7 @@ import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
+import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
@@ -169,6 +170,7 @@ function CheckActions({
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
+  const editing = useEdits((state) => state.pending[mindId] !== undefined);
   const planned = useCheckThisMindPlan(doc, mindId, running);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
@@ -190,7 +192,7 @@ function CheckActions({
           <button
             type="button"
             data-testid="badge-correct-contradictions"
-            disabled={running}
+            disabled={running || editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
               if (correctContradictions(editor, mindId) === 0) return;
