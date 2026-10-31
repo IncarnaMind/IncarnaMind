@@ -2423,7 +2423,7 @@ export const en = {
   "providers.form.save": "Use this service",
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a Note to ask about",
+    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
   "providers.sends.checks": "each sentence you check",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
@@ -2702,7 +2702,7 @@ export const en = {
   "consent.flow.scan-images": "Page images of scans",
   "consent.flow.scan-images.purpose": "read a scan that has no text, so it can be sorted",
   "consent.data.page-images": "Up to 3 page images of a scan with no text",
-  "consent.data.pictures": "A picture you select in a Note to ask about",
+  "consent.data.pictures": "A picture you select in a note to ask about",
   "consent.flow.embeddings": "Document search",
   "consent.flow.embeddings.purpose": "search your Documents by their meaning",
   "consent.data.document-text":
