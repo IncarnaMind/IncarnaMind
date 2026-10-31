@@ -157,7 +157,13 @@ test("the packaged app keeps the short first word of each Chinese line", async (
     ).toBeVisible({ timeout: 5 * 60_000 });
   }
   const said = await words.allTextContents();
-  expect(said.map((line) => line.charAt(0))).toEqual(expect.arrayContaining(["对", "行", "是"]));
+  // Each line with its first word, as tests/fixtures/speech/README.md has them.
+  for (const line of [/^对[，。,.\s]*总价/, /^行[，。,.\s]*周五/, /^是[，。,.\s]*合同/]) {
+    expect(
+      said.some((each) => line.test(each)),
+      `${line} in ${said.join(" | ")}`,
+    ).toBe(true);
+  }
   // The bug's mark: a line that starts with the words after its first one.
   expect(said.filter((line) => /^(总价|周五|合同)/.test(line))).toEqual([]);
 
