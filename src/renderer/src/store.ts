@@ -148,6 +148,8 @@ export interface AppState extends LayoutSlice {
   skippedFiles: string[];
   /** Names of the files the last add found in IncarnaMind already, shown until dismissed. */
   alreadyAdded: string[];
+  /** Pages the User saved that did not go into the Folder they chose, with that Folder, until dismissed. */
+  savedOutside: { id: string; name: string; folder: string }[];
   /** The built-in embedding model and its download. Set once loaded, then follows the core's event. */
   embeddingModel: EmbeddingModelStatus | null;
   /** The embedding model search uses, local mode and any rebuild. Set once loaded, then follows the core's event. */
@@ -373,6 +375,7 @@ export interface AppState extends LayoutSlice {
   retryDocument(id: string): Promise<void>;
   dismissSkippedFiles(): void;
   dismissAlreadyAdded(): void;
+  dismissSavedOutside(): void;
   /** Downloads the embedding model again after a failure. */
   downloadEmbeddingModel(): Promise<void>;
   /** Downloads the built-in reranking model again after a failure. */
@@ -901,6 +904,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     keptCitationTexts: [],
     skippedFiles: [],
     alreadyAdded: [],
+    savedOutside: [],
     embeddingModel: null,
     embedding: null,
     rerank: null,
@@ -1630,6 +1634,10 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     dismissAlreadyAdded() {
       set({ alreadyAdded: [] });
+    },
+
+    dismissSavedOutside() {
+      set({ savedOutside: [] });
     },
 
     downloadEmbeddingModel: () =>

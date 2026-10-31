@@ -332,9 +332,17 @@ export const zhCN = {
   "folder.keepInside": "只在本文件夹内工作",
   "folder.keepInside.hint": "其中的笔记只使用本文件夹的文档，其他笔记也不会搜索这些文档",
   "folder.wall.refusal": "只在本文件夹内工作。",
+  "folder.wall.changed": "在生成回答期间，该文件夹的“只在本文件夹内工作”发生了变化。",
   "folder.wall.title": "只在本文件夹内工作",
   "folder.wall.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
+  "folder.wall.pageNotFiled":
+    "此回答读过的一个网页没有归入文件夹：在生成回答期间，“只在本文件夹内工作”发生了变化。",
+  "folder.wall.pageNotFiledGone":
+    "此回答读过的一个网页没有归入文件夹：在生成回答期间，它要归入的文件夹被删除了。",
+  "status.savedOutside.one": "1 个网页未存入所选文件夹",
+  "status.savedOutside.other": "{count} 个网页未存入所选文件夹",
+  "documents.savedOutside": "这些网页已保存，但没有存入你选择的文件夹：{names}",
   "error.folder.wall": "只在本文件夹内工作。",
   "error.turnPlace": "需要知道这是在哪篇笔记或哪个对话中。",
   "error.citation.recheckNote": "只能针对引用所在的笔记重新核对引用。",
