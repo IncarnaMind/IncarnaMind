@@ -55,7 +55,7 @@ export function outcomeOf(check: ClaimCheckAttributes | undefined): Outcome {
 }
 
 /** One read of the Mind's marks, from the core's own copy of it. */
-async function marksOf(core: Core, mindId: string) {
+export async function marksOf(core: Core, mindId: string) {
   const { state } = await core.openMind(mindId);
   const doc = new Y.Doc();
   Y.applyUpdate(doc, state);
