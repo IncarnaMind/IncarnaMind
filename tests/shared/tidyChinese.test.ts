@@ -73,13 +73,26 @@ describe("tidyChinese", () => {
 
   test("half-width punctuation after Latin text or an address is full-width in Chinese, and the name stays as written", () => {
     expect(tidyChinese("main.py,运行")).toBe("main.py，运行");
-    expect(tidyChinese("5kg,Model3")).toBe("5kg，Model3");
+    expect(tidyChinese("5kg,型号")).toBe("5kg，型号");
+    // A comma that leads into Latin text, or into no Chinese at all, keeps its width.
+    expect(tidyChinese("5kg,Model3")).toBe("5kg,Model3");
     expect(tidyChinese("访问https://example.com/a,然后")).toBe("访问 https://example.com/a，然后");
     // The name itself keeps its characters; the parentheses after it are the sentence's.
     expect(tidyChinese("http://a.cn(备注)")).toBe("http://a.cn（备注）");
-    // Straight quotes pair across the protected name, so it stays as written inside them.
-    expect(tidyChinese('"zhang@example.com"')).toBe("“zhang@example.com”");
+    // A balanced pair inside an address is the address's.
+    expect(tidyChinese("访问https://example.com/Foo_(bar)")).toBe(
+      "访问 https://example.com/Foo_(bar)",
+    );
+    // Straight quotes pair across the protected name in Chinese, and only there.
     expect(tidyChinese('联系"zhang@example.com"')).toBe("联系“zhang@example.com”");
+    expect(tidyChinese('"zhang@example.com"')).toBe('"zhang@example.com"');
+    expect(tidyChinese("Email \"bob@example.com\" today, it's the students' site")).toBe(
+      "Email \"bob@example.com\" today, it's the students' site",
+    );
+    // Single quotes pair only when there are two, and a letter before one keeps it.
+    expect(tidyChinese("他说'好的")).toBe("他说'好的");
+    expect(tidyChinese("他说'好的'")).toBe("他说‘好的’");
+    expect(tidyChinese("students'的")).toBe("students'的");
   });
 
   test("an empty string stays empty", () => {

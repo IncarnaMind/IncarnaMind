@@ -104,7 +104,13 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
 
 /** The text of a sentence as checks compare it: without inline nodes, spaces collapsed. */
 export const comparableSentence = (text: string): string =>
-  text.replaceAll(INLINE_NODE, "").replace(/\s+/gu, " ").trim();
+  text
+    .replaceAll(INLINE_NODE, "")
+    .replace(/\s+/gu, " ")
+    // Tidy's own changes: a space between Chinese and Latin, and a comma's width.
+    .replace(/(?<=\p{Script=Han})\s+(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])\s+(?=\p{Script=Han})/gu, "")
+    .replace(/，/g, ",")
+    .trim();
 
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’.,-]*/gu;

@@ -48,17 +48,6 @@ function after(text: string, at: number, context: TidyContext): string | undefin
   return context.after;
 }
 
-/** Whether the token ending just before `at` has a digit in it: `5kg`, `Model3`, `report2.docx`. */
-function tokenHasDigit(text: string, at: number): boolean {
-  let found = false;
-  for (let index = at - 1; index >= 0; index--) {
-    const char = text[index] ?? "";
-    if (!/[A-Za-z0-9._%+-]/.test(char)) break;
-    if (isDigit(char)) found = true;
-  }
-  return found;
-}
-
 /** Whether the pair of parentheses starting at `at` is whole: no other parenthesis inside. */
 function closedAt(text: string, at: number): number {
   for (let index = at + 1; index < text.length; index++) {
@@ -90,12 +79,11 @@ function fullWidthPunctuation(
     const convert = (mark: string) => replaced.set(index, mark);
     switch (char) {
       case ",":
-        // A comma in Chinese text, even after a Latin word or address: `main.py，运行`; a number's
-        // comma stays, and so does an English paragraph's. A measurement or model name with a
-        // digit in it marks the text as mixed Chinese too (`5kg，Model3`).
-        if ((isHan(previous) || chinese || tokenHasDigit(text, index)) && !isDigit(next)) {
-          convert("，");
-        }
+        // After Chinese text, a comma is the sentence's unless a number follows. After Latin text
+        // it is only when the next non-space character is Chinese (`main.py,运行`, `5kg,型号`):
+        // `Hello, world` and `Version 2, released` keep theirs, and a run with no Chinese never
+        // changes one.
+        if (isHan(previous) ? !isDigit(next) : chinese && isHan(next)) convert("，");
         break;
       case ".":
         // A decimal point, a file name's dot and an address's dot keep their place.
@@ -170,13 +158,25 @@ function curlyQuotes(text: string, chinese: boolean, skip: (index: number) => bo
     }
     out = built;
   }
-  let open = true;
-  out = out.replace(/'(?![A-Za-z])|(?<![A-Za-z])'/g, (match, offset: number) => {
-    if (skip(offset)) return match;
-    const mark = open ? "‘" : "’";
-    open = !open;
-    return mark;
-  });
+  const singles: number[] = [];
+  at = 0;
+  for (const char of out) {
+    if (char === "'" && !skip(at) && !/[A-Za-z]/.test(out[at - 1] ?? "")) singles.push(at);
+    at += char.length;
+  }
+  if (singles.length > 0 && singles.length % 2 === 0) {
+    const replaced = new Map<number, string>();
+    singles.forEach((index, order) => {
+      replaced.set(index, order % 2 === 0 ? "‘" : "’");
+    });
+    let built = "";
+    at = 0;
+    for (const char of out) {
+      built += replaced.get(at) ?? char;
+      at += char.length;
+    }
+    out = built;
+  }
   return out;
 }
 
@@ -222,15 +222,15 @@ function spacesBetweenScripts(text: string, context: TidyContext): string {
 const FILE_EXTENSION =
   "(?:docx?|pdf|xlsx?|pptx?|txt|md|csv|tsv|png|jpe?g|gif|svg|zip|json|html?|xml|ya?ml|toml|py|ts|tsx|js|jsx|mp3|mp4|mov|wav|rtf|pages|numbers|key|ppt|doc|xls|epub|tex|bib)";
 const ADDRESSES: readonly RegExp[] = [
-  /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]+/giu,
+  /[a-z][a-z0-9+.-]*:\/\/[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
   /@[\p{L}\p{N}.-]+\.[A-Za-z]{2,}/gu,
   new RegExp(`[A-Za-z0-9._%+'-]+\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
   new RegExp(`\\.${FILE_EXTENSION}(?![A-Za-z0-9])`, "giu"),
-  /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]*)?/gu,
-  /(?<=\p{Script=Han})\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、()（）“”‘’《》]*)?/gu,
+  /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]*)?/gu,
+  /(?<=\p{Script=Han})\.[A-Za-z]{2,}(?:[/\\?#][^\s,;，。；：！？、（）“”‘’《》]*)?/gu,
   /[A-Za-z0-9._%+'-]+(?:[\\/][A-Za-z0-9._%+'-]+)+/gu,
-  /[A-Za-z]:\\[^\s,;，。；：！？、()（）“”‘’《》]+/gu,
-  /www\.[^\s,;，。；：！？、()（）“”‘’《》\p{Script=Han}]+/giu,
+  /[A-Za-z]:\\[^\s,;，。；：！？、（）“”‘’《》]+/gu,
+  /www\.[^\s,;，。；：！？、（）“”‘’《》\p{Script=Han}]+/giu,
 ];
 
 /** Where an address, a file name or a path is, so the tidy leaves those characters alone. */
@@ -242,7 +242,10 @@ function protectedRanges(text: string): { start: number; end: number }[] {
   for (const pattern of ADDRESSES) {
     for (const match of text.matchAll(new RegExp(pattern.source, pattern.flags))) {
       const start = match.index ?? 0;
-      found.push({ start, end: start + match[0].length });
+      // An address never ends with its open parenthesis: `http://a.cn(备注)` stops at `(`,
+      // while `…/Foo_(bar)` keeps its balanced pair.
+      const end = start + match[0].length - (match[0].endsWith("(") ? 1 : 0);
+      found.push({ start, end });
     }
   }
   found.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -270,8 +273,7 @@ export function tidyChinese(text: string, context: TidyContext = {}): string {
   const inRange = (index: number) => protectedChars[index] === 1;
   // Full-width punctuation sees the whole run, so a pair around a protected address still pairs.
   const punctuated = fullWidthPunctuation(text, context, inRange);
-  // A name marks the text as mixed Chinese even without a Han character: `"zhang@example.com"`.
-  const quoted = curlyQuotes(punctuated, HAN.test(text) || ranges.length > 0, inRange);
+  const quoted = curlyQuotes(punctuated, HAN.test(text), inRange);
   if (ranges.length === 0) return tidyPiece(quoted, context);
   let out = "";
   let at = 0;

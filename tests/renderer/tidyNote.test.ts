@@ -139,6 +139,18 @@ describe("tidying Chinese text in the Note", () => {
     expect(spans[0]?.sentence.text).toBe("潮汐 document");
   });
 
+  test("English lines keep their commas, quotes and apostrophes through the Note", () => {
+    const lines = [
+      "Version 2, released in 2024, adds tables.",
+      "Revenue rose 5%, then fell.",
+      "英文句子 Hello, world. 后面是中文。",
+      "Email \"bob@example.com\" today, it's the students' site",
+    ];
+    const editor = editorWith(lines.map((line) => paragraph(text(line))));
+    tidyNote(editor);
+    expect(paragraphsIn(editor)).toEqual(lines);
+  });
+
   test("a whole Note is one Undo step", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Tidy" });
