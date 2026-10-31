@@ -253,11 +253,14 @@ for (const language of ["en", "zh-CN"] as const) {
             await window.evaluate(() => getSelection()?.type),
             "The plain click left a caret, so there is nothing to extend.",
           ).toBe("Caret");
+          // Run the page's clock, so the card this press pins must outlive the hover peek, which
+          // closes 200 ms after the pointer leaves (peek.ts); an unpinned card would be gone.
+          await window.clock.install();
           await shiftClick(window, box.x + box.width / 8, y);
-          // Its card is pinned, so it stays once the pointer leaves.
-          await expect(window.getByTestId("citation-card")).toHaveCount(1);
           await window.mouse.move(box.x - 15, box.y - 120);
+          await window.clock.runFor(400);
           await expect(window.getByTestId("citation-card")).toHaveCount(1);
+          await window.clock.resume();
         } finally {
           await app.close();
         }
