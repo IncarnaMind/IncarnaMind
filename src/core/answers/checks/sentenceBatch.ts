@@ -92,13 +92,18 @@ export function batchPrompt(sentences: readonly BatchSentence[]): string {
 
 const VERDICTS = new Set(["supported", "unsupported", "contradicted"]);
 
-/** A batch's reply, by the sentence's number from 1; a sentence it gave nothing readable for is missing. */
+/**
+ * A batch's reply, by the sentence's number from 1. A sentence it gave nothing readable for is
+ * missing, and so is one it gave two verdicts for.
+ */
 export async function readBatchReply(
   reply: string,
   count: number,
 ): Promise<Map<number, BatchVerdict>> {
   const value = await replyJson(reply);
   const read = new Map<number, BatchVerdict>();
+  /** Numbers given twice: which of the two verdicts is the sentence's can't be told. */
+  const twice = new Set<number>();
   const entries = isRecord(value) && Array.isArray(value.sentences) ? value.sentences : [];
   for (const entry of entries) {
     if (!isRecord(entry)) continue;
@@ -107,6 +112,7 @@ export async function readBatchReply(
       continue;
     }
     if (typeof verdict !== "string" || !VERDICTS.has(verdict)) continue;
+    if (read.has(number)) twice.add(number);
     read.set(number, {
       kind: kind === "opinion" ? "opinion" : "fact",
       verdict: verdict as BatchVerdict["verdict"],
@@ -115,6 +121,7 @@ export async function readBatchReply(
       says: typeof says === "string" && says.trim() ? says.trim() : null,
     });
   }
+  for (const number of twice) read.delete(number);
   return read;
 }
 

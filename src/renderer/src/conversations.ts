@@ -399,13 +399,6 @@ export function stopAnswer(answerId: string): void {
   if (conversationId) core.stopConversationAnswer({ conversationId, answerId }).catch(report);
 }
 
-/** Judges again the sentences of an Answer whose Citations are not checked (#2311). */
-export function checkAnswerAgain(answer: { id: string; conversationId: string }): void {
-  core
-    .checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id })
-    .catch(report);
-}
-
 /** What judging the rest of an Answer's sentences costs, past its checking limit (#2311). */
 export function estimateCheckTheRest(answer: {
   id: string;

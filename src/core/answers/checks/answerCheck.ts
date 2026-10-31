@@ -15,14 +15,18 @@ import type {
   ChatModelChoice,
   Citation,
   CitedQuote,
+  Currency,
   MarkedCitation,
   MarkedFigure,
+  Money,
 } from "../../api";
-import type { EstimatedRead } from "../../cost/meter";
+import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
+import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
@@ -79,6 +83,12 @@ export interface AnswerCheckOptions {
   units(citation: Citation): readonly { text: string }[];
   /** How long one batch may take: a reply may never come. */
   claimTimeLimitMs: number;
+  /** The most one request may cost, as the meter reserves it; null for one it doesn't reserve. */
+  mostOf(model: ChatModelChoice, request: EstimatedRequest): Money | null;
+  /** What a Run's requests have settled at, in `currency`. */
+  spent(runId: string, currency: Currency): number;
+  /** What the monthly cap leaves, counting what open requests may cost; null with no cap. */
+  capLeft(): Money | null;
 }
 
 /** The sentences that hold a waiting Citation, each with its Citations whose quotes were found. */
@@ -162,8 +172,24 @@ function stopOf(error: unknown): JudgementStop | null {
   return failure.budget ? "answer-limit" : "monthly-limit";
 }
 
+/**
+ * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
+ * one, and all the reply may write, so a limit of their sum lets every batch through (#1554).
+ */
+function mostRequest(batch: readonly BatchSentence[]): EstimatedRequest {
+  const asSent = {
+    content: [{ type: "text", text: batchPrompt(batch), providerOptions: CACHED }],
+  };
+  return {
+    inputTokens: promptTokensOf([{ content: SENTENCE_BATCH_INSTRUCTIONS }, asSent]),
+    outputTokens: outputTokens("sentence-batch", batch.length),
+  };
+}
+
 /** About what a batch's reply writes for each sentence. */
 const LIKELY_OUTPUT_TOKENS = 120;
+/** The cache mark a provider's request may carry on its text (../../providers/promptCache). */
+const CACHED = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
 export function createAnswerCheck(options: AnswerCheckOptions) {
   /** The sentences to judge, each with what it cites and the Passages those quotes are on. */
@@ -190,10 +216,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
-      most: batches.map((batch) => ({
-        inputTokens: inputTokens(batch),
-        outputTokens: outputTokens("sentence-batch", batch.length),
-      })),
+      most: batches.map(mostRequest),
     };
   }
 
@@ -245,13 +268,23 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
 
     /** The limit that stopped the judgement: no batch after the one it stopped sends anything. */
     let stopped: JudgementStop | null = null;
-    const judge = async (batch: (typeof judged)[number][]) => {
-      if (stopped || input.signal.aborted) {
-        for (const sentence of batch) settle(sentence, null, stopped);
-        return;
-      }
+    /** Batches with a request out, which the meter counts at the most each may cost until it settles. */
+    let open = 0;
+    /** What the batches out may cost at most, in the limit's currency. */
+    let outMost = 0;
+    let waiting: (() => void)[] = [];
+    const settledAll = () =>
+      open === 0 ? Promise.resolve() : new Promise<void>((resolve) => waiting.push(resolve));
+    let sent = 0;
+
+    /** One request for a batch: its verdicts, or the limit that refused it, or null when it failed. */
+    const send = async (
+      batch: (typeof judged)[number][],
+      most: number,
+    ): Promise<Map<number, BatchVerdict> | JudgementStop | null> => {
+      const id = ++sent;
       const ended = AbortSignal.any([input.signal, AbortSignal.timeout(options.claimTimeLimitMs)]);
-      let verdicts = new Map<number, BatchVerdict>();
+      open++;
       try {
         const { text } = await generateText({
           model: prepared.model,
@@ -262,15 +295,87 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           maxRetries: 1,
           abortSignal: ended,
         });
-        verdicts = await readBatchReply(text, batch.length);
+        const verdicts = await readBatchReply(text, batch.length);
+        if (verdicts.size === 0) {
+          console.warn(
+            `Batch ${id} of an Answer's ${batch.length} sentences had no readable reply.`,
+          );
+        }
+        return verdicts;
       } catch (error) {
-        const stop = stopOf(error);
-        if (stop) stopped ??= stop;
-        for (const sentence of batch) settle(sentence, null, stop);
+        return stopOf(error);
+      } finally {
+        outMost -= most;
+        open--;
+        if (open === 0) {
+          for (const resolve of waiting) resolve();
+          waiting = [];
+        }
+      }
+    };
+
+    /**
+     * Whether a batch fits within the judgement's limit, counting what its batches have settled at
+     * and what those still out may cost at most: batches are let through one after another, in
+     * their order, so the one that doesn't fit is the first left, and none after it is sent. One
+     * that would fit once those out have settled waits for them. Null: no limit holds it.
+     */
+    const task = currentTask.getStore();
+    const limit = task?.budget ?? null;
+    let admitted: Promise<unknown> = Promise.resolve();
+    /**
+     * The limit a batch that may cost `reserved` at most would pass now, if any. What the cap
+     * leaves counts the batches out that the meter has reserved already, and those let through
+     * that it hasn't yet are counted again: under a cap it errs early, never past it.
+     */
+    const passes = (reserved: Money | null): JudgementStop | null => {
+      if (!reserved) return null;
+      const out = (currency: Currency) =>
+        limit ? inCurrency(outMost, limit.currency, currency) : 0;
+      const cap = options.capLeft();
+      if (
+        cap &&
+        out(cap.currency) + inCurrency(reserved.amount, reserved.currency, cap.currency) >
+          cap.amount
+      ) {
+        return "monthly-limit";
+      }
+      if (!task || !limit) return null;
+      const most = inCurrency(reserved.amount, reserved.currency, limit.currency);
+      return options.spent(task.id, limit.currency) + outMost + most > limit.amount
+        ? "answer-limit"
+        : null;
+    };
+    const admit = (batch: (typeof judged)[number][]): Promise<number | JudgementStop> => {
+      const turn = admitted.then(async () => {
+        const reserved = options.mostOf(input.model, mostRequest(batch));
+        while (passes(reserved) && open > 0) await settledAll();
+        const stop = passes(reserved);
+        if (stop) return stop;
+        const most =
+          reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
+        outMost += most;
+        return most;
+      });
+      admitted = turn;
+      return turn;
+    };
+
+    const judge = async (batch: (typeof judged)[number][]) => {
+      const most = stopped ? stopped : await admit(batch);
+      if (typeof most === "string" || stopped || input.signal.aborted) {
+        stopped ??= typeof most === "string" ? most : null;
+        for (const sentence of batch) settle(sentence, null, stopped);
+        return;
+      }
+      const reply = await send(batch, most);
+      if (reply === null || typeof reply === "string") {
+        if (reply) stopped ??= reply;
+        for (const sentence of batch) settle(sentence, null, reply);
         return;
       }
       for (const [index, sentence] of batch.entries()) {
-        settle(sentence, await supportOf(sentence, verdicts.get(index + 1), options.units), null);
+        settle(sentence, await supportOf(sentence, reply.get(index + 1), options.units), null);
       }
     };
 

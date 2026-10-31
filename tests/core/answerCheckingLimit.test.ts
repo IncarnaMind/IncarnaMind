@@ -28,7 +28,8 @@ async function answered(
     failing = false,
     // Priced high enough for 200 sentences' batches to pass the Answer's $0.25.
     modelId = "claude-opus-5-5",
-  }: { failing?: boolean; modelId?: string } = {},
+    usage = BATCH_USAGE,
+  }: { failing?: boolean; modelId?: string; usage?: ReportedUsage } = {},
 ) {
   const lines = Array.from({ length: count }, (_, index) => lineOf(index + 1));
   const batches: GenerateCall[] = [];
@@ -50,7 +51,8 @@ async function answered(
         }));
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
-      return { text: lines.map((line, index) => `${line}[^${index + 1}].`).join(" ") };
+      // A sentence a paragraph, as a long Answer's list of points reads.
+      return { text: lines.map((line, index) => `${line}[^${index + 1}].`).join("\n\n") };
     },
     {
       generate: (call) => {
@@ -66,7 +68,7 @@ async function answered(
           time: "same",
           says: "The schedule says so.",
         }));
-        return { text: JSON.stringify({ sentences }), usage: BATCH_USAGE };
+        return { text: JSON.stringify({ sentences }), usage };
       },
     },
   );
@@ -144,6 +146,46 @@ describe("judging an Answer's sentences stops at a limit, at the end", { timeout
         .filter((citation) => citation.check === "not-checked")
         .every((citation) => citation.checkReason === "monthly-limit"),
     ).toBe(true);
+  });
+
+  test.each(["claude-sonnet-5-5", "claude-haiku-5-5"])(
+    "Check the rest of one batch on %s judges all of it within the most it said",
+    async (modelId) => {
+      const { core, answer, judging, batches } = await answered(8, { failing: true, modelId });
+      judging.failing = false;
+      const ids = { conversationId: answer.conversationId, answerId: answer.id };
+
+      const estimate = await core.estimateAnswerCheck(ids);
+      if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) {
+        throw new Error(`No estimate: ${JSON.stringify(estimate)}`);
+      }
+      await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
+      const again = await answerJudged(core, answer.conversationId, answer.id);
+
+      expect(checksOf(answer.citations)).toEqual(Array(8).fill("not-checked"));
+      expect(checksOf(again.citations)).toEqual(Array(8).fill("found"));
+      expect(batches).toHaveLength(1);
+    },
+  );
+
+  test("200 sentences on Sonnet stop only once what they spent is close to the Answer's $0.25", async () => {
+    // What a batch of eight used on Sonnet in the eval: about $0.014 a batch.
+    const usage: ReportedUsage = {
+      inputTokens: { total: 4_500, noCache: 4_500, cacheRead: undefined, cacheWrite: undefined },
+      outputTokens: { total: 500, text: 500, reasoning: undefined },
+    };
+    const { core, answer } = await answered(200, { modelId: "claude-sonnet-5-5", usage });
+    const checks = checksOf(answer.citations);
+    const judged = checks.indexOf("not-checked");
+    const spent = (await core.getCostSummary()).spent
+      .filter((each) => each.currency === "USD")
+      .reduce((total, each) => total + each.amount, 0);
+
+    expect(judged).toBeGreaterThan(0);
+    expect(checks.slice(judged).every((check) => check === "not-checked")).toBe(true);
+    // Within one batch of the limit: what the open batches reserved no longer stops it early.
+    expect(spent).toBeGreaterThan(0.25 - 0.03);
+    expect(spent).toBeLessThanOrEqual(0.25);
   });
 
   test("Check the rest says what the rest costs, sending nothing, then judges it within that", async () => {

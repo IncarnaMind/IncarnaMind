@@ -2644,6 +2644,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return metered && meter.estimateRead(metered, read);
     },
     readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    capLeft() {
+      const { cap, spentTowardCap, setAsideTowardCap } = meter.summary();
+      if (!cap) return null;
+      const used = (spentTowardCap?.amount ?? 0) + (setAsideTowardCap?.amount ?? 0);
+      return { currency: cap.currency, amount: cap.amount - used };
+    },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });

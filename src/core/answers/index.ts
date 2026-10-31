@@ -4117,7 +4117,7 @@ export function createAnswers(options: AnswersOptions) {
         answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
       );
       if (waiting.size === 0) return null;
-      return (
+      const estimate =
         options.estimateAnswerCheck?.({
           text: answer.text,
           citations: answer.citations,
@@ -4125,8 +4125,12 @@ export function createAnswers(options: AnswersOptions) {
           waiting,
           documentIds: judgedScope(question),
           model: answer.model,
-        }) ?? null
-      );
+        }) ?? null;
+      const most = estimate?.billing === "per-token" ? estimate.upTo?.cost : null;
+      if (!estimate || estimate.billing !== "per-token" || !estimate.upTo || !most) return estimate;
+      // Up to the next cent: the limit it is checked within is never below a request's sum.
+      const amount = Math.ceil(most.amount * 100) / 100;
+      return { ...estimate, upTo: { ...estimate.upTo, cost: { ...most, amount } } };
     },
 
     /**

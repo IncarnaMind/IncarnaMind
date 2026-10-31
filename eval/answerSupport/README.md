@@ -50,7 +50,7 @@ Claude Haiku 5.5 (the cases three times each, the supported set twice) and Sonne
 - Sonnet's green held-out sentence is installed-zh-2, "窑炉升级的费用为 £185,000，即两台 K9 窑炉的安装费用": it reads the price of two kilns installed as their installation fee, as both models did when checking it on its own. Haiku refused it in all three.
 - The control not checked is control-dated-zh-3, "根据供货协议，交货从 2027 年 1 月开始，每季度 12 吨。", on both models.
 - The supported set's not checked are all figures no quote states as the sentence does: arithmetic (fs-049 "rose every quarter", fs-203 "about 23 per cent", fs-205 a sum, fs-207 "48,000 fewer"), and fs-050, a total that its row states among several amounts, which a batch doesn't confirm against the row (a check on its own asks the model once more). Each twice on Haiku, once on Sonnet.
-- Requests and cost for an Answer of 200 cited sentences: checked one by one, about 4.6 requests a sentence on Haiku and 4.4 on Sonnet (the held-out runs below), about 920 and 880 requests, $0.22 and $2.42; in batches of eight, 25 requests, about $0.02 on Haiku and $0.35 on Sonnet, so on Sonnet the Answer's $0.25 checking limit stops it at about 140 sentences.
+- Requests and cost for an Answer of 200 cited sentences: checked one by one, about 4.6 requests a sentence on Haiku and 4.4 on Sonnet (the held-out runs below), about 920 and 880 requests, $0.22 and $2.42; in batches of eight, 25 requests, about $0.02 on Haiku and $0.35 on Sonnet. On Sonnet the Answer's $0.25 checking limit stops it at 128 sentences with $0.224 spent: a probe through the core whose batches each use what the eval measured on Sonnet, 4,500 input and 500 output tokens, about $0.014.
 
 ### Checked one sentence at a time
 

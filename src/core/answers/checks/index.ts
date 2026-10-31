@@ -244,6 +244,8 @@ export interface ChecksOptions
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** What a whole read's requests have settled at, by its request id, in `currency`. */
   readSpent(requestId: string, currency: Currency): Money;
+  /** What the monthly cap leaves this month, counting what open requests may cost; null with no cap. */
+  capLeft(): Money | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
@@ -1496,6 +1498,12 @@ export function createChecks(options: ChecksOptions) {
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
+    mostOf: (model, request) => {
+      const estimate = options.estimateRead(model, { likely: [request], most: [request] });
+      return estimate?.billing === "per-token" ? (estimate.upTo?.cost ?? null) : null;
+    },
+    spent: (runId, currency) => options.readSpent(runId, currency).amount,
+    capLeft: () => options.capLeft(),
   });
 
   const wholeRead = createWholeRead({
