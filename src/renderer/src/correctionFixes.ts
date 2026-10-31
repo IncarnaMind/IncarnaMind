@@ -168,6 +168,14 @@ export function correctableCount(editor: Editor): number {
 }
 
 /** A text figure of the sentence where the edits left it: its place, reading, id and context. */
+/** The edit that writes over a text figure's words, if one does. */
+function replacing(before: ProseMirrorNode, plan: CorrectionPlan, figure: FigureFinding) {
+  const old = figure.locator.kind === "text" ? figurePlace(before, figure) : null;
+  return old && !old.node
+    ? plan.edits.find((edit) => edit.from <= old.from && old.to <= edit.to)
+    : undefined;
+}
+
 function movedFigure<Figure extends FigureFinding>(
   before: ProseMirrorNode,
   tr: Transaction,
@@ -178,7 +186,7 @@ function movedFigure<Figure extends FigureFinding>(
   const place = after.place;
   const old = figurePlace(before, figure);
   if (!place || !old || old.node || figure.locator.kind !== "text") return null;
-  const owner = plan.edits.find((edit) => edit.from <= old.from && old.to <= edit.to);
+  const owner = replacing(before, plan, figure);
   const replacements = owner ? readFigures(owner.choice.wording, { language: languageNow() }) : [];
   const replacement = replacements.length === 1 ? replacements[0] : undefined;
   if (owner && !replacement) return null;
@@ -233,22 +241,34 @@ const supportedBy = (edit: Edit) => ({
   calculation: null,
 });
 
-/** A part's figure or remainder result after its correction, written for the corrected words. */
+/** A part's figure or remainder result for the corrected words, Supported when `settled` is given. */
 function judgedAfter(
   result: ClaimPartJudgment,
-  edit: Edit | undefined,
+  settled: Edit | undefined,
   text: string,
 ): ClaimPartJudgment {
   const words = result.text === undefined ? {} : { text };
-  return edit && result.verdict === "contradicted" && corrects(result)
-    ? {
-        ...withoutCorrection(result),
-        verdict: "supported" as const,
-        evidence: edit.evidence,
-        says: null,
-        ...words,
-      }
-    : { ...result, ...words };
+  if (!settled) return { ...result, ...words };
+  const { id, request, action, scope, checkedAt, providerId, modelId, versions, excluded } = result;
+  return {
+    ...(id !== undefined && { id }),
+    ...(request !== undefined && { request }),
+    ...(action !== undefined && { action }),
+    ...(scope !== undefined && { scope }),
+    ...(checkedAt !== undefined && { checkedAt }),
+    ...(providerId !== undefined && { providerId }),
+    ...(modelId !== undefined && { modelId }),
+    versions,
+    excluded,
+    verdict: "supported",
+    evidence: settled.evidence,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    ...words,
+  };
 }
 
 /** The part where the edits left it, Supported on its choice's Citation when one corrects it. */
@@ -273,8 +293,11 @@ function correctedPart(
   const figures = part.figures?.map((figure) => {
     const moved = movedFigure(before, tr, plan, after, figure);
     if (!moved) return null;
+    // A figure the edit writes over takes the Document's number, as one it corrects does.
+    const settled =
+      replacing(before, plan, figure) ?? (edit && corrects(moved.result) ? edit : undefined);
     // A figure's result is named by its figure, so it follows the figure's new id.
-    const result = judgedAfter(moved.result, edit, text);
+    const result = judgedAfter(moved.result, settled, text);
     return { ...moved, result: result.id === undefined ? result : { ...result, id: moved.id } };
   });
   if (figures && !figures.every((figure) => figure !== null)) return null;
@@ -282,7 +305,13 @@ function correctedPart(
     ...part,
     span: { start: shift(part.span.start), end: shift(part.span.end) },
     ...(figures && { figures }),
-    ...(part.remainder && { remainder: judgedAfter(part.remainder, edit, text) }),
+    ...(part.remainder && {
+      remainder: judgedAfter(
+        part.remainder,
+        edit && corrects(part.remainder) ? edit : undefined,
+        text,
+      ),
+    }),
   };
   return edit
     ? {
@@ -315,7 +344,7 @@ function checkedAfter(
   const figures = check.figures?.map((figure) => {
     const moved = movedFigure(before, tr, plan, after, figure);
     if (!moved) return null;
-    return corrects(moved)
+    return corrects(moved) || replacing(before, plan, figure)
       ? { ...withoutCorrection(moved), ...supportedBy(edit), text }
       : { ...moved, text };
   });

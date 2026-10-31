@@ -194,37 +194,75 @@ describe("A correction from the public core", () => {
     expect(marked.figures?.[0]?.correction).toEqual(marked.correction);
   });
 
-  test("has none when a figure's deciding value differs from the correction", async () => {
-    const quote = "Revenue was £21, previously £22.";
+  test.each([
+    {
+      name: "a To line with another of the quote's values",
+      claim: "Revenue was £20.",
+      quote: "Revenue was £21, previously £22.",
+      lines: "Change 1: £20\nTo 1: £22",
+      number: "£21",
+      from: "£20",
+    },
+    {
+      name: "a To line that merely contains the deciding digits",
+      claim: "Revenue was 20%.",
+      quote: "Revenue was 36.8%, previously 136.8%.",
+      lines: "Change 1: 20%\nTo 1: 136.8%",
+      number: "36.8%",
+      from: "20%",
+    },
+    {
+      name: "Chinese old words that are the whole sentence",
+      claim: "每个停车位每月收费人民币1,000元。",
+      quote: "每个停车位每月收费人民币800元，与租金一并支付。",
+      lines:
+        "Change 1: 每个停车位每月收费人民币1,000元。\nTo 1: 每个停车位每月收费人民币800元，与租金一并支付。",
+      number: "人民币800元",
+      from: "人民币1,000元",
+    },
+  ])("changes the figure to the Document's number its check found, despite $name", async (each) => {
     const marked = await markWith(
       {
-        ...contradicted("The report gives another value.\nChange 1: £20\nTo 1: £22"),
-        quote,
-        number: "£21",
+        ...contradicted(`The report gives another value.\n${each.lines}`),
+        quote: each.quote,
+        number: each.number,
       },
-      "Revenue was £20.",
-      [{ name: "Revenue.md", contents: quote }],
+      each.claim,
+      [{ name: "Report.md", contents: each.quote }],
     );
 
-    expect(marked.state).toBe("contradicted");
-    expect(marked.correction).toBeUndefined();
+    expect(marked).toMatchObject({
+      state: "contradicted",
+      correction: { from: each.from, choices: [{ wording: each.number }] },
+    });
   });
 
-  test("has none when a replacement merely contains the deciding digits", async () => {
-    const quote = "Revenue was 36.8%, previously 136.8%.";
-    const marked = await markWith(
-      {
-        ...contradicted("The report gives another rate.\nChange 1: 20%\nTo 1: 136.8%"),
-        quote,
-        number: "36.8%",
-      },
-      "Revenue was 20%.",
-      [{ name: "Revenue.md", contents: quote }],
-    );
+  test.each([
+    { name: "only the figure", from: "$15,000", to: "$14,250", offered: true },
+    {
+      name: "the whole sentence",
+      from: "The base rent is $15,000 per month.",
+      to: "The base rent is $14,250 per month, paid in advance.",
+      offered: false,
+    },
+  ])(
+    "writes over a figure it couldn't compare when the reply names $name",
+    async ({ from, to, offered }) => {
+      // The note's bare "$" isn't backed by the quote's digits alone (#2073): the figure is
+      // Unsupported, and the sentence's own verdict is the contradiction.
+      const claim = "The base rent is $15,000 per month.";
+      const quote = "The base rent is $14,250 per month, paid in advance.";
+      const marked = await markWith(
+        { ...contradicted(`The lease gives another rent.\nChange 1: ${from}\nTo 1: ${to}`), quote },
+        claim,
+        [{ name: "Lease.md", contents: quote }],
+      );
 
-    expect(marked.state).toBe("contradicted");
-    expect(marked.correction).toBeUndefined();
-  });
+      expect(marked.state).toBe("contradicted");
+      expect(marked.figures?.[0]?.state).toBe("unsupported");
+      expect(marked.correction?.choices[0]?.wording).toBe(offered ? "$14,250" : undefined);
+    },
+  );
 
   test("has none rather than attaching a later figure's correction to the first", async () => {
     const claim = "Revenue was £20 and profit was £30.";

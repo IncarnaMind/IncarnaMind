@@ -1235,25 +1235,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       // number read the same in the old words and the Document's, or else the rest of the words.
       const withCorrection = (checked: ClaimCheckResult): ClaimCheckResult => {
         if (checked.verdict !== "contradicted" || checked.remainder === undefined) return checked;
-        const found = correctionFor(
-          request.originalClaim ?? request.claim,
-          request.claim,
-          said?.correction,
-          session.finalCitation,
-          scoped.documentDate,
-        );
-        if (!found) return checked;
         const figures = checked.figures ?? [];
         const { remainder } = checked;
         const results = [
           ...figures.map((figure) => figure.result),
           ...(remainder ? [remainder] : []),
         ];
-        if (
-          results.filter((each) => each.verdict === "contradicted").length !== 1 ||
-          results.some((each) => each.verdict !== "supported" && each.verdict !== "contradicted")
-        )
-          return checked;
+        if (results.filter((each) => each.verdict === "contradicted").length !== 1) return checked;
         const sentence = request.originalClaim ?? request.claim;
         if (
           figures.some(
@@ -1267,28 +1255,67 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           )
         )
           return checked;
+        const corrected = (
+          read: ReadCorrection | undefined,
+          citation: (marker: number) => Citation | null,
+        ) => correctionFor(sentence, request.claim, read, citation, scoped.documentDate);
+        const stated = corrected(said?.correction, session.finalCitation);
         const owner = figures.find((figure) => figure.result.verdict === "contradicted");
         const language = { language: deps.language() };
+        let found = stated;
         if (owner) {
-          const deciding = owner.sourceInput?.number.chars;
-          const old = readFigures(found.correction.from, language);
-          if (
-            !deciding ||
-            old.length !== 1 ||
-            old[0]?.chars !== owner.reading.chars ||
-            !found.correction.choices.every((choice) => {
-              const replacement = readFigures(choice.wording, language);
-              return replacement.length === 1 && replacement[0]?.chars === deciding;
-            })
+          const deciding = owner.sourceInput;
+          if (!deciding) return checked;
+          const changes = (from: string, to: string) => {
+            const old = readFigures(from, language);
+            const replacement = readFigures(to, language);
+            return (
+              old.length === 1 &&
+              old[0]?.chars === owner.reading.chars &&
+              replacement.length > 0 &&
+              replacement.every(
+                (figure) => Math.abs(figure.value) === Math.abs(deciding.number.value),
+              )
+            );
+          };
+          // The figure's own check already found the Document's number and its quote, so the
+          // correction is that number in place of the sentence's: Claude Haiku 5.5 named the whole
+          // sentence as its old words (#1481). Its Change and To lines stand when they change this
+          // figure to the same number, in the Document's words, as they can give a second
+          // Document's.
+          found = stated?.correction.choices.every((choice) =>
+            changes(stated.correction.from, choice.wording),
           )
-            return checked;
-        } else if (
-          remainder?.verdict !== "contradicted" ||
-          !readFigureReply(
+            ? stated
+            : corrected(
+                {
+                  from: owner.reading.chars,
+                  choices: [{ wording: deciding.number.chars, marker: 1 }],
+                },
+                () => deciding.citation,
+              );
+        } else {
+          // Old words of the rest of the sentence lie outside its figures, where the reply names
+          // that rest; a sentence judged whole may be corrected anywhere.
+          const rest = readFigureReply(
             figuresText,
             request.figures ?? [],
             request.claim,
-          )?.remainder?.text.includes(found.correction.from)
+          )?.remainder;
+          if (!stated || (rest && !rest.text.includes(stated.correction.from))) return checked;
+        }
+        if (!found) return checked;
+        // Every other result stands, or is a figure whose words the correction writes over: its
+        // number couldn't be compared, and the Document's takes its place.
+        const replaced = readFigures(found.correction.from, language).map((figure) => figure.chars);
+        if (
+          figures.some(
+            (figure) =>
+              figure !== owner &&
+              figure.result.verdict !== "supported" &&
+              !(figure.result.verdict === "unsupported" && replaced.includes(figure.reading.chars)),
+          ) ||
+          (owner && remainder && remainder.verdict !== "supported")
         )
           return checked;
         const decision = {

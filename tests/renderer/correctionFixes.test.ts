@@ -225,6 +225,8 @@ beforeEach(() => {
   useNotices.setState({ errors: [], confirmation: null });
 });
 
+const claim0 = (check: ClaimCheckAttributes) => check.parts?.[0]?.verdict;
+
 const undoManager = (editor: Editor) => yUndoPluginKey.getState(editor.state)?.undoManager;
 
 describe("Correct a contradiction from the Documents", () => {
@@ -269,7 +271,10 @@ describe("Correct a contradiction from the Documents", () => {
     expect(claim(editor, "one").check.correction).toEqual(attrs.correction);
   });
 
-  test("settles the owning figure and gives every figure its id in the corrected sentence", () => {
+  test.each([
+    { name: "the figure it corrects", corrects: "figure" },
+    { name: "a figure its words write over", corrects: "remainder" },
+  ])("settles $name and gives every figure its id in the corrected sentence", ({ corrects }) => {
     const text = "The rate is 36.8%.";
     const reading = readFigures("36.8%", { language: "en" })[0];
     if (!reading) throw new Error("The fixture has no figure.");
@@ -293,23 +298,51 @@ describe("Correct a contradiction from the Documents", () => {
             roundedFrom: null,
             difference: 0.018,
             footing: [],
-            result: {
-              verdict: "contradicted",
-              evidence: source,
-              correction: contradicted.correction,
-              says: "The Document says 38.6%.",
-              unsupported: null,
-              calculation: null,
-              citedCaseUnchecked: false,
-              citedCaseFound: false,
-              versions: [],
-              excluded: [],
-            },
+            result:
+              corrects === "figure"
+                ? {
+                    verdict: "contradicted",
+                    evidence: source,
+                    correction: contradicted.correction,
+                    says: "The Document says 38.6%.",
+                    unsupported: null,
+                    calculation: null,
+                    citedCaseUnchecked: false,
+                    citedCaseFound: false,
+                    versions: [],
+                    excluded: [],
+                  }
+                : {
+                    verdict: "unsupported",
+                    evidence: null,
+                    says: null,
+                    unsupported: { reason: null, covered: null, uncovered: null, found: true },
+                    calculation: null,
+                    citedCaseUnchecked: false,
+                    citedCaseFound: false,
+                    versions: [],
+                    excluded: [],
+                  },
           },
         ],
-        remainder: null,
+        remainder:
+          corrects === "figure"
+            ? null
+            : {
+                verdict: "contradicted",
+                evidence: source,
+                correction: contradicted.correction,
+                says: "The Document says 38.6%.",
+                unsupported: null,
+                calculation: null,
+                citedCaseUnchecked: false,
+                citedCaseFound: false,
+                versions: [],
+                excluded: [],
+              },
       },
     ]);
+    expect(claim0(attrs)).toBe("contradicted");
     const { editor, doc } = editorWith([
       { type: "paragraph", attrs: { id: "block-one" }, content: [marked(text, attrs)] },
     ]);
