@@ -267,6 +267,40 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=in Simplified Chinese, with no notes taken, the sections start the Note where its blank lines were, with none above them, and the model is told the Transcript's own Chinese words for who spoke, so it writes 我 and 对方 rather than Me, Them or 用户 (#2305); fails_when=a blank line is left above the first section, or the model is shown only the English marks; no_claim=a real model's wording, which tests/live/meetingNotes.live.test.ts measures.
+  test("in Simplified Chinese, the sections start the Note with no blank line above, and the model is told the Transcript's words for who spoke", async () => {
+    const prompts: string[] = [];
+    const model = fillingModel(
+      [
+        "### SUMMARY",
+        "通话谈了价格和合同 [^1]。",
+        "### ACTIONS",
+        "- 周五之前寄出合同 — 我 [^2]。",
+      ].join("\n"),
+      { 1: MY_LINES[0] as string, 2: MY_LINES[1] as string },
+      {},
+      {
+        seen: (call) => {
+          if (isFill(call)) prompts.push(call.prompt);
+        },
+      },
+    );
+    const { core, meeting, client } = await recorded(model, [note(""), note("")], async (core) => {
+      await core.updateSettings({ user: { language: "zh-CN" } });
+    });
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "sections" });
+    await vi.waitFor(() => expect(shown(client).length).toBeGreaterThan(2));
+    expect(shown(client)).toEqual([
+      "«摘要»",
+      "«通话谈了价格和合同 »\uFFFC«。»",
+      "«待办事项»",
+      "«周五之前寄出合同 — 我 »\uFFFC«。»",
+    ]);
+    expect(prompts.at(-1)).toContain("in Simplified Chinese Me is 我, Them is 对方");
+    expect(prompts.at(-1)).toContain('Never call the User "the User" or 用户');
+    core.close();
+  });
+
   // protects=an addition the model wrote without a Citation is dropped, never written uncited, while its cited ones go in; fails_when=an uncited sentence lands in the notes; no_claim=none beyond protects.
   test("an addition without a Citation is dropped", async () => {
     const model = fillingModel(
