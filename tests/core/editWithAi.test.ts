@@ -4023,6 +4023,75 @@ describe("An edit never loses the User's words (#2333)", () => {
     },
   );
 
+  // protects=Claude Haiku 5.5's own replies to "Change the parking bullet to say parking is no longer free." over #2180's probe Note, stray lines and all, lose none of the Note's paragraphs, and their Chinese counterparts none of the Chinese Note's; fails_when=the stray lines take the places of the Role, Hours, Pay or Office paragraphs; no_claim=that the request is done exactly.
+  test.each([
+    {
+      blocks: [
+        ["heading", "Role"],
+        ["paragraph", "The post is a senior analyst position in the finance team."],
+        ["heading", "Hours"],
+        ["paragraph", "Work is full time, Monday to Friday."],
+        ["paragraph", "Core hours are 9:30 to 15:30."],
+        ["heading", "Benefits"],
+        ["bullet", "A pension matched up to 5% of salary."],
+        ["bullet", "25 days of annual leave."],
+        ["bullet", "Free parking at the north site."],
+        ["heading", "Pay"],
+        ["paragraph", "The salary is set by grade 7 and paid monthly."],
+      ],
+      replies: [
+        "- Free parking at the north site. → now charged at the north site.\n\nWait, correcting the bullet properly:\n\n- Parking at the north site is no longer free.",
+        '- Free parking at the north site.\n\nChanged to: "Parking at the north site is no longer free." Hmm, the bullet should replace the free parking line.\n\n- Parking at the north site is no longer free.',
+        '- Free parking at the north site.\n\nChanged to: "Parking at the north site is no longer free."\n\nLet me write the new bullet:\n\n- Parking at the north site is no longer free.',
+        "Wait, I must write the new bullet. Here it is:\n\nChanged to:\n\n- Parking at the north site is no longer free.",
+      ],
+    },
+    {
+      blocks: [
+        ["heading", "职位"],
+        ["paragraph", "该岗位是财务团队的高级分析岗位。"],
+        ["heading", "工时"],
+        ["paragraph", "全职，周一至周五上班。"],
+        ["paragraph", "核心工作时间为9:30至15:30。"],
+        ["heading", "福利"],
+        ["bullet", "养老金按工资的5%匹配。"],
+        ["bullet", "每年25天年假。"],
+        ["bullet", "北区免费停车。"],
+        ["heading", "薪酬"],
+        ["paragraph", "薪酬按7级确定，按月发放。"],
+      ],
+      replies: [
+        "- 北区免费停车。→ 现已收费。\n\n等等，我重新写这一条：\n\n- 北区停车不再免费。",
+        "- 北区免费停车。\n\n改为：“北区停车不再免费。”嗯，这一条应该替换免费停车那一行。\n\n- 北区停车不再免费。",
+        "- 北区免费停车。\n\n改为：“北区停车不再免费。”\n\n我来写新的要点：\n\n- 北区停车不再免费。",
+        "等等，我得写出新的要点，如下：\n\n改为：\n\n- 北区停车不再免费。",
+      ],
+    },
+  ])("real stray-line replies lose none of the Note: $blocks.0.1", async ({ blocks, replies }) => {
+    const content: JSONContent[] = [];
+    for (const [kind, words] of blocks) {
+      if (kind === "heading") content.push(headingOf(words ?? ""));
+      else if (kind === "paragraph") content.push(paragraph(text(words ?? "")));
+      else {
+        const item = { type: "listItem", content: [paragraph(text(words ?? ""))] };
+        const last = content.at(-1);
+        if (last?.type === "bulletList") last.content?.push(item);
+        else content.push({ type: "bulletList", content: [item] });
+      }
+    }
+    const parking = blocks[8]?.[1] ?? "";
+    const others = blocks.map(([, words]) => words ?? "").filter((words) => words !== parking);
+    for (const reply of replies) {
+      const { core, mind, client, before } = await noteOf(content, () => reply);
+
+      await core.editWithAi(wholeMind(client, mind.id, "Change the parking bullet"));
+
+      const accepted = await acceptThenUndo(client, before);
+      expect(accepted).toEqual(expect.arrayContaining(others));
+      expect(accepted.join("\n")).toMatch(/no longer free|不再免费/);
+    }
+  });
+
   // protects=a stray line and a new line in a partial reply, after the line it repeats, are added, and the sections after them stay as they were; English and Chinese; fails_when=they take the place of the paragraphs that follow (seen on Claude Haiku 5.5 in #2192's check); no_claim=what a real model writes.
   test.each([
     {

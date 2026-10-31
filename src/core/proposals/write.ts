@@ -1906,8 +1906,9 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * added where it now goes. When two are like none of the selection's before
  * any is much like one (a translation), each pairs in order as it comes.
  * With `leftOut: "keep"` the text may leave paragraphs out: a paragraph pairs
- * by its place only in a text written anew, or while the text has left none
- * out; else only with one it reads as (`readsAs`, #2333). `finish` takes out
+ * by its place only in a text written anew, none of whose paragraphs is much
+ * like one of the selection's, which is known only once it ends, or while the
+ * text has left none out; else only with one it reads as (`readsAs`, #2333). `finish` takes out
  * the selection's paragraphs the text never reached, or with `leftOut: "keep"`
  * keeps them unless the text quotes them between <removed>
  * and </removed> (#2180); a request stopped before leaves them. Call each in a
@@ -1952,6 +1953,9 @@ export function createRewriteStream(
     nearness.set(paragraph, found);
     return found;
   };
+  /** Much like one of the selection's paragraphs, whichever it is. */
+  const resembles = (paragraph: NewParagraph) =>
+    nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
   /**
    * A new paragraph reads as this one of the selection's: like it by `least`, and clearly more
    * like it than like any other whose place it could take, unless it says words only each of
@@ -2081,10 +2085,12 @@ export function createRewriteStream(
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
-    // A paragraph's place says which it is in a text written anew, or while the text has left
-    // none out (as many new paragraphs as old ones here): otherwise a new line in the place of the
-    // next one is new text, not that one (#2333).
-    const placed = !keeps || anew || (kept.length === 0 && held.length === between.length);
+    // A paragraph's place says which it is in a text written anew, none of whose paragraphs is
+    // much like one of the selection's, or while the text has left none out (as many new
+    // paragraphs as old ones here): otherwise a new line in the place of the next one is new
+    // text, not that one, as a stray line before a paragraph the text repeats is (#2333).
+    const writtenAnew = held.length >= 2 && !seen.some(resembles);
+    const placed = !keeps || writtenAnew || (kept.length === 0 && held.length === between.length);
     // As many new paragraphs as old ones between two that held their place: each rewrites its own.
     const inPlace =
       placed &&
@@ -2146,7 +2152,8 @@ export function createRewriteStream(
     }
     held.push(paragraph);
     if (near === null && !anchored) unlike++;
-    if (unlike >= 2) anew = true;
+    // Where paragraphs may be left out, whether the text is written anew is known only at its end.
+    if (unlike >= 2 && !keeps) anew = true;
     if (at >= segments.length) writeHeld(at);
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };
