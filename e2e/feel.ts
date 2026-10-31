@@ -44,6 +44,7 @@ export const KNOWN: readonly Known[] = [
     step: "ask for a section",
     kind: "shift",
     moved: [
+      "answer-actions",
       "mind-changes",
       "mind-changes-left",
       "mind-changes-review",
