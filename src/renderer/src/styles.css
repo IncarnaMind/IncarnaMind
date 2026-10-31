@@ -2606,10 +2606,6 @@
     padding-block: 3px;
     white-space: normal;
   }
-  .composer-controls:has([data-stand-in]) .composer-model > span {
-    white-space: normal;
-    overflow: visible;
-  }
   .composer-model-anchor {
     display: flex;
     min-width: 0;
