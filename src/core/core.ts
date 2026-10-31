@@ -254,6 +254,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
+import { newestReads } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
@@ -3518,10 +3519,12 @@ export function createCore(adapters: CoreAdapters): Core {
   };
 
   const settingsChanged = () => events.emit("settings.changed", settings.get());
+  const readinessRead = newestReads();
   const readinessChanged = async () => {
+    const newest = readinessRead();
     try {
       const readiness = await chat.readiness();
-      if (!lifetime.signal.aborted) events.emit("chatReadiness.changed", readiness);
+      if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
       if (!lifetime.signal.aborted) throw error;
@@ -3529,11 +3532,13 @@ export function createCore(adapters: CoreAdapters): Core {
     // Documents waiting for a chat model may be able to go on now.
     if (!lifetime.signal.aborted) await taggingChanged();
   };
+  const chatGptRead = newestReads();
   chatGptChanged = () => {
     const report = async () => {
+      const newest = chatGptRead();
       const status = await chatGpt.status();
       if (lifetime.signal.aborted) return;
-      events.emit("chatGptPlan.changed", status);
+      if (newest()) events.emit("chatGptPlan.changed", status);
       await readinessChanged();
     };
     report().catch((error: unknown) => {
@@ -3553,20 +3558,23 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   // Not a readiness change: the renderer keeps its model lists.
   chatGptLimitsChanged = () => {
+    const newest = chatGptRead();
     chatGpt.status().then(
       (status) => {
-        if (!lifetime.signal.aborted) events.emit("chatGptPlan.changed", status);
+        if (!lifetime.signal.aborted && newest()) events.emit("chatGptPlan.changed", status);
       },
       (error: unknown) => {
         if (!lifetime.signal.aborted) console.error(error);
       },
     );
   };
+  const copilotRead = newestReads();
   copilotChanged = () => {
     const report = async () => {
+      const newest = copilotRead();
       const status = await copilot.status();
       if (lifetime.signal.aborted) return;
-      events.emit("copilot.changed", status);
+      if (newest()) events.emit("copilot.changed", status);
       await readinessChanged();
     };
     report().catch((error: unknown) => {
@@ -3728,11 +3736,13 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => (adapters.now?.() ?? new Date()).getTime(),
   });
   usageData.record({ event: "app_opened", fields: { language: settings.get().language } });
+  const dataFlowsRead = newestReads();
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
+    const newest = dataFlowsRead();
     const flows = await consent.listRegistered();
     if (lifetime.signal.aborted) return;
-    events.emit("dataFlows.changed", flows);
+    if (newest()) events.emit("dataFlows.changed", flows);
     await readinessChanged();
   };
 

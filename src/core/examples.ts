@@ -19,7 +19,7 @@
  * table changes: the renderer marks them "Example", and `remove` deletes both.
  */
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import * as Y from "yjs";
 import { withCitations } from "../shared/blockJson";
@@ -477,16 +477,20 @@ export function createExamples(options: ExamplesOptions) {
     options.writeValue(valueKey(group), { ...examples, checked: true });
   };
 
+  /** Deletes the copies of an example's files, only those in the data folder. */
+  const removeCopies = async (folder: string): Promise<void> => {
+    const inside = relative(resolve(options.dataDir), resolve(folder));
+    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
+      await rm(folder, { recursive: true, force: true });
+    }
+  };
+
   /** Unlinks an example's Documents and deletes the copies of their files. */
   const discardFiles = async (examples: StoredExamples): Promise<void> => {
     if (options.linkedFolderExists(examples.linkedFolderId)) {
       options.unlinkFolder(examples.linkedFolderId);
     }
-    // Only the copies the examples made, in the data folder: never anything else.
-    const inside = relative(resolve(options.dataDir), resolve(examples.folder));
-    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
-      await rm(examples.folder, { recursive: true, force: true });
-    }
+    await removeCopies(examples.folder);
   };
 
   /**
@@ -705,7 +709,22 @@ export function createExamples(options: ExamplesOptions) {
     const sameFolder = resolve(examples.folder) === resolve(join(options.dataDir, set.folder));
     // A folder of the same name would mix the two languages' files: the old ones go first.
     if (sameFolder) await discardFiles(examples);
+    const madeHere = await access(join(options.dataDir, set.folder)).then(
+      () => false,
+      () => true,
+    );
     const { folder, linked } = await copyAndLink(source, set);
+    // Written in or deleted while the files were copied: it stays as the User left it (#2302).
+    if (
+      !options.mindExists(examples.mindId) ||
+      !untouched(examples, EXAMPLE_SETS[group][examples.language])
+    ) {
+      // Only what the switch made goes: a Linked folder of the User's that holds the copy is
+      // theirs, and so are files in a folder that was there before.
+      if (linked.path === (await realpath(folder))) options.unlinkFolder(linked.id);
+      if (madeHere) await removeCopies(folder);
+      return;
+    }
     const questionId = randomUUID();
     const answerId = randomUUID();
     // The old Documents go before the example names the new folder, so nothing reads them as the
@@ -726,6 +745,20 @@ export function createExamples(options: ExamplesOptions) {
     if (!sameFolder) await discardFiles(examples);
     checkWhenRead(group);
   };
+
+  // Made, removed, brought back and switched to another language one at a time: each copies
+  // files, and one run in that wait would act on an example the other is halfway through (#2302).
+  let queue: Promise<unknown> = Promise.resolve();
+  const inTurn =
+    <A extends unknown[], T>(work: (...args: A) => Promise<T>) =>
+    (...args: A): Promise<T> => {
+      const run = queue.then(
+        () => work(...args),
+        () => work(...args),
+      );
+      queue = run.catch(() => undefined);
+      return run;
+    };
 
   return {
     status,
@@ -748,7 +781,7 @@ export function createExamples(options: ExamplesOptions) {
       return example ? documentIdsOf(example) : null;
     },
 
-    create,
+    create: inTurn(create),
 
     readyQuestion,
 
@@ -760,7 +793,7 @@ export function createExamples(options: ExamplesOptions) {
      * its Documents swapped. One they changed stays as it is, and so does one
      * whose Documents a check result (#819) or a Citation elsewhere relies on.
      */
-    async followLanguage(): Promise<void> {
+    followLanguage: inTurn(async (): Promise<void> => {
       const source = options.source;
       if (source === undefined) return;
       const language = options.language();
@@ -782,22 +815,22 @@ export function createExamples(options: ExamplesOptions) {
         }
         await switchLanguage(group, examples, source, language);
       }
-    },
+    }),
 
     /**
      * On a first run (no Mind yet, examples never offered): makes the credit
      * paper, once. Returns it, or null when nothing was made.
      */
-    async offer(hasMinds: boolean): Promise<Examples | null> {
+    offer: inTurn(async (hasMinds: boolean): Promise<Examples | null> => {
       if (options.source === undefined || options.readValue(OFFERED_VALUE) === true) return null;
       options.writeValue(OFFERED_VALUE, true);
       if (hasMinds) return null;
       return create(DEFAULT_GROUP);
-    },
+    }),
 
-    remove,
+    remove: inTurn(remove),
 
-    restore,
+    restore: inTurn(restore),
 
     /** A Document's status changed: the examples' Citations may now be checkable. */
     documentChanged() {
