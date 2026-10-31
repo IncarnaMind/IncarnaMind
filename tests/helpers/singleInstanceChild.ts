@@ -32,6 +32,7 @@ console.log(
           kind: instance.kind,
           identity: instance.owner.identity,
           previousOwner: instance.owner.previousOwner,
+          endedUnexpectedly: instance.owner.endedUnexpectedly,
         }
       : instance,
   ),

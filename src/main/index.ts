@@ -26,6 +26,7 @@ import { installedOllamaModels } from "../core/providers/ollama";
 import { channelFor, EVENT_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
+import { logAppEnd, unexpectedEnds } from "./appEnd";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
@@ -87,6 +88,7 @@ if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
 const logger = startLogging(app.getPath("userData"));
+const appEnd = logAppEnd(app, logger);
 
 const reportLock = (what: string, error: unknown) => logger.exception(what, error);
 const systemLanguage = () => resolveLanguage("system", app.getPreferredSystemLanguages());
@@ -98,6 +100,9 @@ const instance = acquireInstance(
   { currentVersion: app.getVersion(), recoveryId: updateRecoveryId(process.argv) },
 );
 const ownsDataFolder = instance.kind === "owner";
+const lastRunEnded = instance.kind === "owner" ? instance.owner.endedUnexpectedly : null;
+if (lastRunEnded) logger.warn("app.lastRunEndedUnexpectedly", { ...lastRunEnded });
+const endsToTell = unexpectedEnds(lastRunEnded !== null);
 if (instance.kind === "update") {
   app.whenReady().then(async () => {
     try {
@@ -231,23 +236,27 @@ function forgetCheckWindow(contentsId: number): void {
     .catch((error: unknown) => logger.exception("app.checkWindowForgotten", error));
 }
 
-// Any window that shows a Note can watch its comparison tables: when it is gone, the core
-// stops waiting for it.
+/** The window's page is gone: the core stops waiting for it to watch its comparison tables. */
+function forgetComparisonWindow(contentsId: number): void {
+  const clientId = comparisonClients.get(contentsId);
+  if (!clientId) return;
+  comparisonClients.delete(contentsId);
+  core
+    ?.forgetComparisonWindow({ clientId })
+    .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
+}
+
 app.on("browser-window-created", (_event, created) => {
   const contentsId = created.webContents.id;
   created.on("closed", () => {
     forgetCommandWindow(contentsId);
     forgetCheckWindow(contentsId);
-    const clientId = comparisonClients.get(contentsId);
-    if (!clientId) return;
-    comparisonClients.delete(contentsId);
-    core
-      ?.forgetComparisonWindow({ clientId })
-      .catch((error: unknown) => logger.exception("app.comparisonWindowForgotten", error));
+    forgetComparisonWindow(contentsId);
   });
   created.webContents.on("render-process-gone", () => {
     forgetCommandWindow(contentsId);
     forgetCheckWindow(contentsId);
+    forgetComparisonWindow(contentsId);
   });
   created.webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
@@ -357,6 +366,29 @@ function exposeCore(core: Core): void {
   });
 }
 
+/**
+ * A window whose page crashed loads it again and says so (#2309): left alone, it stays blank. One
+ * that crashes again before it has loaded is left, so a page that can't load doesn't loop.
+ */
+function reopenAfterCrash(window: BrowserWindow): void {
+  const contents = window.webContents;
+  let reopening = false;
+  contents.on("did-finish-load", () => {
+    reopening = false;
+  });
+  contents.on("render-process-gone", (_event, { reason }) => {
+    if (reason === "clean-exit" || window.isDestroyed()) return;
+    if (reopening) {
+      logger.error("window.notReopened", { reason });
+      return;
+    }
+    reopening = true;
+    endsToTell.pageEnded(contents.id);
+    logger.info("window.reopened", { reason });
+    contents.reload();
+  });
+}
+
 function createWindow(): BrowserWindow {
   const dataDir = app.getPath("userData");
   const place = windowPlace(dataDir, { width: 1280, height: 800 }, { width: 900, height: 560 });
@@ -399,8 +431,9 @@ function createWindow(): BrowserWindow {
   // A Meeting's hidden capture window doesn't keep the app running once its last window
   // closes, where closing the last window quits (Windows, Linux): quitting saves the recording.
   window.on("closed", () => {
-    if (process.platform !== "darwin" && appWindows().length === 0) app.quit();
+    if (process.platform !== "darwin" && appWindows().length === 0) appEnd.quit("lastWindow");
   });
+  reopenAfterCrash(window);
 
   // Links open in the User's browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -433,7 +466,7 @@ function installMenuInLanguage(core: Core): void {
   const install = (language: Language) => {
     if (language === shown) return;
     shown = language;
-    installAppMenu(language, { developer, windows: appWindows });
+    installAppMenu(language, { developer, windows: appWindows, quit: appEnd.quit });
   };
   install(resolveLanguage("system", app.getPreferredSystemLanguages()));
   core.getSettings().then(
@@ -506,13 +539,14 @@ app.whenReady().then(async () => {
     logger.info("app.startup.coreReady");
   } catch (error) {
     await showStartupError(error);
-    app.quit();
+    appEnd.quit("startFailed");
     return;
   }
   exposeCore(core);
   const settleQuit = guardQuit(
     core,
     () => BrowserWindow.getFocusedWindow() ?? appWindows()[0] ?? null,
+    () => appEnd.quit("unsavedChoice"),
   );
   if (instance.kind === "owner") {
     app.on("before-quit", (event) => instance.owner.quitting(event.defaultPrevented));
@@ -528,6 +562,7 @@ app.whenReady().then(async () => {
     dataDir: app.getPath("userData"),
     trusted: isFromOurRenderer,
     logger,
+    takeUnexpectedEnd: endsToTell.take,
   });
   serveDocumentFiles(core, rendererUrl ? new URL(rendererUrl).origin : null);
   serveMeetingPanel(core, {
@@ -605,6 +640,7 @@ app.whenReady().then(async () => {
       },
       (reopens) => {
         closingForUpdate = true;
+        appEnd.asking("update");
         if (instance.kind === "owner") instance.owner.installing(reopens);
       },
       (version, reopens) => {
@@ -631,6 +667,8 @@ app.whenReady().then(async () => {
   // A Meeting saves what it has before the computer sleeps, and records again when it wakes.
   powerMonitor.on("suspend", () => core?.systemSleeping());
   powerMonitor.on("resume", () => core?.systemAwake());
+  powerMonitor.on("shutdown", () => appEnd.asking("shutdown"));
+  appEnd.watchSignals();
   startupComplete = true;
   finishStartup();
   logger.info("app.startup.hostReady");
@@ -645,7 +683,7 @@ app.on("select-client-certificate", (event, _contents, _url, _list, callback) =>
 
 app.on("window-all-closed", () => {
   // The engine check's only window, the hidden Analyses one, may close and open again.
-  if (process.platform !== "darwin" && !engineCheckReport) app.quit();
+  if (process.platform !== "darwin" && !engineCheckReport) appEnd.quit("lastWindow");
 });
 
 app.on("will-quit", () => {

@@ -51,6 +51,12 @@ export class InstanceOwner {
   private onStart: ((start: SecondStart) => boolean) | null = null;
   private readonly requests: string;
 
+  /**
+   * The run before this one, when it ended while in use without quitting: a crash, a force quit, a
+   * power cut (#2309). Its `instance-info.json` still says "ready", as a quit would have changed it.
+   */
+  readonly endedUnexpectedly: Identity | null;
+
   constructor(
     private readonly folder: string,
     private readonly lock: InstanceLock,
@@ -58,6 +64,7 @@ export class InstanceOwner {
     readonly previousOwner: boolean,
     private readonly acceptedUpdate?: { record: { id: string }; pendingTarget: string | null },
   ) {
+    this.endedUnexpectedly = this.lastRunInUse();
     this.requests = join(folder, "instance-requests");
     mkdirSync(this.requests, { recursive: true, mode: 0o700 });
     for (const name of readdirSync(this.requests))
@@ -70,6 +77,19 @@ export class InstanceOwner {
       .unref();
     // File watches can lose an event; a pending start still needs a reply (#2022).
     setInterval(() => this.receive(), 1_000).unref();
+  }
+
+  private lastRunInUse(): Identity | null {
+    let last: unknown;
+    try {
+      last = readJson(join(this.folder, "instance-info.json"));
+    } catch (error) {
+      this.report("app.lastRunUnreadable", error);
+      return null;
+    }
+    return identity(last) && isRecord(last) && last.phase === "ready"
+      ? { pid: last.pid, startedAt: last.startedAt }
+      : null;
   }
 
   get pendingUpdate(): string | null {

@@ -22,7 +22,7 @@ import {
 } from "electron";
 import type { Core } from "../core";
 import { addFilesTitleByPlatform } from "../shared/addFilesAction";
-import { FILES_CHANNELS } from "../shared/bridge";
+import { FILES_CHANNELS, type UnexpectedEnd } from "../shared/bridge";
 import { type MessageKey, translate } from "../shared/i18n";
 import { sandboxOff } from "./analysisPaths";
 import { handle } from "./ipc";
@@ -52,11 +52,13 @@ export interface FileActionsOptions {
   trusted(event: IpcMainInvokeEvent | IpcMainEvent): boolean;
   /** Where the window's uncaught errors are logged. */
   logger: FileLogger;
+  /** What ended unexpectedly that the window with this content should say, once (./appEnd). */
+  takeUnexpectedEnd(contentsId: number): UnexpectedEnd | null;
 }
 
 export function serveFileActions(
   core: Core,
-  { dataDir, trusted, logger }: FileActionsOptions,
+  { dataDir, trusted, logger, takeUnexpectedEnd }: FileActionsOptions,
 ): void {
   const refuseUnknown = (event: IpcMainInvokeEvent) => {
     if (!trusted(event)) throw new Error("Refused a call from an unknown page.");
@@ -323,6 +325,11 @@ export function serveFileActions(
       return false;
     }
     return sandboxOff((name) => app.commandLine.hasSwitch(name), process.env);
+  });
+
+  handle(FILES_CHANNELS.takeUnexpectedEnd, (event) => {
+    refuseUnknown(event);
+    return takeUnexpectedEnd(event.sender.id);
   });
 
   ipcMain.on(FILES_CHANNELS.sidebarHidden, (event, hidden: unknown) => {

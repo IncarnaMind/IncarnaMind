@@ -6,17 +6,21 @@ import { LineAction, ProblemMark } from "./ProblemLine";
 import { buttonStyle } from "./ui";
 
 export const useUnsavedShown = () =>
-  useUnsavedChanges((state) => state.unsaved !== null || state.lost !== null);
+  useUnsavedChanges(
+    (state) => state.unsaved !== null || state.lost !== null || state.ended !== null,
+  );
 
 /**
  * Among the error notices: while changes storage refused wait in memory, what happened and what
  * to do (#1119), until they are stored. And, once, how many changes the last run lost when it
- * closed without quitting.
+ * closed without quitting, or else that it, or this window's page, ended unexpectedly and what was
+ * kept (#2309): one line, as the count already says IncarnaMind closed.
  */
 export function UnsavedNotices() {
   const t = useT();
   const unsaved = useUnsavedChanges((state) => state.unsaved);
   const lost = useUnsavedChanges((state) => state.lost);
+  const ended = useUnsavedChanges((state) => state.ended);
   return (
     <>
       {unsaved && (
@@ -64,15 +68,19 @@ export function UnsavedNotices() {
           </div>
         </div>
       )}
-      {lost !== null && (
+      {(lost !== null || ended !== null) && (
         <div
           role="status"
-          data-testid="unsaved-lost"
+          data-testid={lost !== null ? "unsaved-lost" : "unexpected-end"}
           className="flex items-start gap-3 rounded-lg bg-sheet py-2.5 pr-2.5 pl-4 text-[13px] leading-5 text-ink shadow-popover"
         >
           <ProblemMark className="mt-2 -mr-1.5" />
           <p className="min-w-0 flex-1 py-1">
-            {lost === 1 ? t("unsaved.lost.one") : t("unsaved.lost", { count: lost })}
+            {lost === 1
+              ? t("unsaved.lost.one")
+              : lost !== null
+                ? t("unsaved.lost", { count: lost })
+                : t(ended === "window" ? "unexpectedEnd.window" : "unexpectedEnd.app")}
           </p>
           <button
             type="button"

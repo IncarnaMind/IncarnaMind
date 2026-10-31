@@ -4340,6 +4340,8 @@ export const zhCN = {
   "unsaved.saveCopy.title": "另存一份这篇笔记",
   "unsaved.lost": "IncarnaMind 关闭前有 {count} 处改动没能保存",
   "unsaved.lost.one": "IncarnaMind 关闭前有 1 处改动没能保存",
+  "unexpectedEnd.app": "IncarnaMind 意外关闭，关闭前的内容都已保留。",
+  "unexpectedEnd.window": "窗口意外停止，已重新打开，内容都已保留。",
   "quit.unsaved.title": "有 {count} 处改动尚未保存",
   "quit.unsaved.title.one": "有 1 处改动尚未保存",
   "quit.unsaved.quit": "仍然退出",
