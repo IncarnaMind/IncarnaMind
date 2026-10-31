@@ -13,7 +13,7 @@ import type {
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
-import { applyWhatWasAsked } from "./askedChanges";
+import { applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
@@ -136,14 +136,14 @@ function unfold(): void {
 }
 
 /**
- * The latest open or New chat: a conversation read that lands after another open, or after New
- * chat, puts nothing back (#2310).
+ * Counts each time the User moves the assistant to a conversation or a new chat: a reply, or a
+ * read, that comes after a later move no longer decides what the assistant shows (#2302, #2310).
  */
-let openRequest = 0;
+let moves = 0;
 
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
-  openRequest += 1;
+  moves += 1;
   useConversations.setState({
     openId: null,
     messages: [],
@@ -161,11 +161,10 @@ export async function openConversation(
   conversationId: string,
   answerId?: string,
 ): Promise<boolean> {
-  openRequest += 1;
-  const request = openRequest;
+  const move = ++moves;
   try {
     const { messages } = await core.getConversation(conversationId);
-    if (request !== openRequest) return false;
+    if (move !== moves) return false;
     useConversations.setState({
       openId: conversationId,
       messages,
@@ -214,11 +213,13 @@ export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
     // The last ask's problem is not this ask's: the row says what this one is reading.
     settleAsk(composerKey(null), null);
     useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
+    const move = moves;
     try {
       const { conversationId, stopped } = await core.askExampleReadyQuestion();
       // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
       if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
-      await openConversation(conversationId);
+      // Moved elsewhere while the Documents were read: the Answer waits in History (#2302).
+      if (move === moves) await openConversation(conversationId);
       return !stopped;
     } catch (error) {
       // Why not, and what to do, where the card's button is, rather than a notice that passes.
@@ -261,6 +262,7 @@ export async function askInAssistant(
   input: Omit<AskInConversationInput, "conversationId"> & { mindId: string | null },
 ): Promise<boolean> {
   const key = composerKey(input.mindId);
+  const move = moves;
   useConversations.setState({
     asking: input.text,
     askingReads: { mindId: input.mindId, scope: input.scope ?? null },
@@ -291,17 +293,20 @@ export async function askInAssistant(
     sayLeftOut(result);
     if (!result.asked) return false;
     watchMindsMadeBy(result.answerId);
-    await applyWhatWasAsked(result.answerId);
+    // A new Answer has nothing to make way for, and it may end before an Undo running now does.
+    applyWhatIsAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (useConversations.getState().stopWanted) {
       core.stopConversationAnswer({ conversationId: id, answerId: result.answerId }).catch(report);
     }
-    if (useConversations.getState().openId !== id) {
+    if (move === moves && useConversations.getState().openId !== id) {
       // A new conversation: its messages as they are now; each write after this comes as an event.
       useConversations.setState({ openId: id, messages: [] });
       const { messages } = await core.getConversation(id);
-      if (useConversations.getState().openId === id) useConversations.setState({ messages });
+      if (move === moves && useConversations.getState().openId === id) {
+        useConversations.setState({ messages });
+      }
     }
     return true;
   } catch (error) {
@@ -477,8 +482,9 @@ export async function clearConversation(): Promise<void> {
   if (!openId) return;
   const conversation = conversationById(openId);
   const name = (conversation && conversationName(conversation)) || "";
+  const move = moves;
   await core.deleteConversation(openId);
-  startNewChat();
+  if (move === moves) startNewChat();
   useUndo.getState().push({
     said: (t) => t("assistant.cleared", { title: name || t("conversation.untitled") }),
     undo: async () => {
