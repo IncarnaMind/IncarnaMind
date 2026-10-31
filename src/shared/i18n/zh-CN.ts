@@ -4352,6 +4352,11 @@ export const zhCN = {
   "unsaved.lost.one": "IncarnaMind 关闭前有 1 处改动没能保存",
   "unexpectedEnd.app": "IncarnaMind 意外关闭，关闭前的内容都已保留。",
   "unexpectedEnd.window": "窗口意外停止，已重新打开，内容都已保留。",
+  "unexpectedEnd.app.unknown": "IncarnaMind 意外关闭，最后的改动可能没能保存。",
+  "unexpectedEnd.session":
+    "Windows 结束了 IncarnaMind，有 {count} 处改动没来得及保存，其余内容都已保留。",
+  "unexpectedEnd.session.one":
+    "Windows 结束了 IncarnaMind，有 1 处改动没来得及保存，其余内容都已保留。",
   "quit.unsaved.title": "有 {count} 处改动尚未保存",
   "quit.unsaved.title.one": "有 1 处改动尚未保存",
   "quit.unsaved.quit": "仍然退出",

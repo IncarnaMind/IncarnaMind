@@ -10352,7 +10352,8 @@ export interface CoreApi {
   saveChangesAgain(): Promise<UnsavedChanges | null>;
   /**
    * How many changes the last run couldn't store before it closed without quitting (a crash, a
-   * force-quit), once: later calls give null. Null too when it doesn't know.
+   * force-quit), once: later calls give null. 0 when it lost none, or quit; null when it doesn't
+   * know, as when the count itself couldn't be written.
    */
   takeLostChanges(): Promise<number | null>;
   /**

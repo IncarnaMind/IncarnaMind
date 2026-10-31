@@ -32,7 +32,7 @@ console.log(
           kind: instance.kind,
           identity: instance.owner.identity,
           previousOwner: instance.owner.previousOwner,
-          endedUnexpectedly: instance.owner.endedUnexpectedly,
+          lastRunEnd: instance.owner.lastRunEnd,
         }
       : instance,
   ),
@@ -52,6 +52,9 @@ if (instance.kind === "owner" && mode !== "take") {
       instance.owner.quitting();
       console.log(JSON.stringify({ kind: "quitting" }));
     } else if (input.trim() === "ready") ready();
-    else if (input.trim() === "exit") process.exit(0);
+    else if (input.trim() === "session-ended") {
+      instance.owner.sessionEnded(2);
+      console.log(JSON.stringify({ kind: "session-ended" }));
+    } else if (input.trim() === "exit") process.exit(0);
   });
 }

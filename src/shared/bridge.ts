@@ -28,8 +28,14 @@ export const SERVED_CHANNEL = "host:served";
  */
 export const FILES_BRIDGE_KEY = "incarnamindFiles";
 
-/** What ended unexpectedly: the app's last run, or this window's page (`FilesBridge.takeUnexpectedEnd`). */
-export type UnexpectedEnd = "app" | "window";
+/**
+ * What ended unexpectedly (`FilesBridge.takeUnexpectedEnd`): the app's last run, with no quit;
+ * the last run, ended by the system with `unsaved` changes it couldn't store; or this window's page.
+ */
+export type UnexpectedEnd =
+  | { kind: "app" }
+  | { kind: "session"; unsaved: number }
+  | { kind: "window" };
 
 export interface FilesBridge {
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
@@ -124,8 +130,9 @@ export interface FilesBridge {
   runsWithoutSandbox(): Promise<boolean>;
   /**
    * How this window's page or the app's last run ended unexpectedly, said once to the window that
-   * shows it (#2309): "window" to a page loaded again after it crashed, "app" to the first window
-   * after a run that crashed or was forced to quit. Null otherwise, and on every later ask.
+   * shows it (#2309): to the first window after a run that crashed, was forced to quit, or was ended
+   * by the system before it stored its changes; or to a page loaded again after it crashed. Null
+   * otherwise, and on every later ask.
    */
   takeUnexpectedEnd(): Promise<UnexpectedEnd | null>;
   /** Writes an error nothing in the window caught to the log, scrubbed of the User's content. */

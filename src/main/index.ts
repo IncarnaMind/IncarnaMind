@@ -100,9 +100,20 @@ const instance = acquireInstance(
   { currentVersion: app.getVersion(), recoveryId: updateRecoveryId(process.argv) },
 );
 const ownsDataFolder = instance.kind === "owner";
-const lastRunEnded = instance.kind === "owner" ? instance.owner.endedUnexpectedly : null;
-if (lastRunEnded) logger.warn("app.lastRunEndedUnexpectedly", { ...lastRunEnded });
-const endsToTell = unexpectedEnds(lastRunEnded !== null);
+const lastRun = instance.kind === "owner" ? instance.owner.lastRunEnd : null;
+if (lastRun?.kind === "app") {
+  logger.warn("app.lastRunEndedUnexpectedly", { pid: lastRun.pid, startedAt: lastRun.startedAt });
+} else if (lastRun) {
+  logger.warn("app.lastRunEndedBySystem", {
+    pid: lastRun.pid,
+    startedAt: lastRun.startedAt,
+    unsaved: lastRun.unsaved,
+  });
+}
+const endsToTell = unexpectedEnds(
+  lastRun &&
+    (lastRun.kind === "app" ? { kind: "app" } : { kind: "session", unsaved: lastRun.unsaved }),
+);
 if (instance.kind === "update") {
   app.whenReady().then(async () => {
     try {
@@ -433,7 +444,14 @@ function createWindow(): BrowserWindow {
     if (process.platform !== "darwin" && appWindows().length === 0) appEnd.quit("lastWindow");
   });
   reopenAfterCrash(window);
-  appEnd.watchSessionEnd(window);
+  appEnd.watchSessionEnd(window, {
+    store: () => core?.sessionEnding() ?? 0,
+    record: (unsaved) => {
+      if (instance.kind !== "owner") return;
+      if (unsaved > 0) instance.owner.sessionEnded(unsaved);
+      else instance.owner.quitting();
+    },
+  });
 
   // Links open in the User's browser, never inside the app.
   window.webContents.setWindowOpenHandler(({ url }) => {

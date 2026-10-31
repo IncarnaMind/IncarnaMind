@@ -72,22 +72,43 @@ test("an update installing is named as what asked for the quit it starts", () =>
   expect(lines).toEqual(["app.quitAsked by=update", "app.quit"]);
 });
 
-test("Windows ending the session quits at once, logged as the system's, before the process ends", () => {
-  const { app, lines, end } = start();
+/** A session end with `waiting` changes the store can't store, and a quit `held` for them or not. */
+function endSession(waiting: number, held: boolean) {
+  const run = start();
   const window = new EventEmitter();
-  let markedQuitting = false;
-  app.on("before-quit", () => {
-    markedQuitting = true;
+  const steps: string[] = [];
+  // The unsaved-changes guard, and the owner marking the run as quitting or (when held) in use.
+  run.app.on("before-quit", (event: { preventDefault(): void }) => {
+    if (held) event.preventDefault();
+    steps.push(held ? "phase=ready" : "phase=quitting");
   });
-  end.watchSessionEnd(window);
-  expect(app.quits).toBe(0);
+  run.end.watchSessionEnd(window, {
+    store: () => {
+      steps.push("store");
+      return waiting;
+    },
+    record: (unsaved) =>
+      steps.push(unsaved > 0 ? `phase=quitting unsaved=${unsaved}` : "phase=quitting"),
+  });
   window.emit("query-session-end");
-  expect(app.quits).toBe(0);
+  const beforeEnd = [...steps];
   window.emit("session-end");
-  // Synchronously: Windows ends the process as soon as the event returns.
-  expect(markedQuitting).toBe(true);
+  return { ...run, steps, beforeEnd };
+}
+
+test("Windows ending the session stores what waits, quits as the system's and records a clean end, all before the event returns", () => {
+  const { app, lines, steps, beforeEnd } = endSession(0, false);
+  expect(beforeEnd).toEqual([]);
+  expect(steps).toEqual(["store", "phase=quitting", "phase=quitting"]);
   expect(app.quits).toBe(1);
   expect(lines).toEqual(["app.quitAsked by=os", "app.quit"]);
+});
+
+test("a session end with changes it couldn't store records them last, after the held quit marked the run in use", () => {
+  const { app, lines, steps } = endSession(2, true);
+  expect(steps).toEqual(["store", "phase=ready", "phase=quitting unsaved=2"]);
+  expect(app.quits).toBe(1);
+  expect(lines).toEqual(["app.quitAsked by=os unsaved=2"]);
 });
 
 test("a quit held for unsaved changes, then answered, logs both asks and one quit", () => {
@@ -116,21 +137,25 @@ test("a signal quits as Electron's handler did, logged, and only the first is ta
   expect(host.listenerCount("SIGINT")).toBe(1);
 });
 
-test("an unexpected end is told once: the app's to the first window that asks, a page's to its own", () => {
-  const ends = unexpectedEnds(true);
+test("an unexpected end is told once: the run's to the first window that asks, a page's to its own", () => {
+  const ends = unexpectedEnds({ kind: "app" });
   ends.pageEnded(7);
-  expect(ends.take(7)).toBe("app");
+  expect(ends.take(7)).toEqual({ kind: "app" });
   expect(ends.take(7)).toBeNull();
   ends.pageEnded(7);
   expect(ends.take(8)).toBeNull();
-  expect(ends.take(7)).toBe("window");
+  expect(ends.take(7)).toEqual({ kind: "window" });
   expect(ends.take(7)).toBeNull();
 
-  const quiet = unexpectedEnds(false);
+  const session = unexpectedEnds({ kind: "session", unsaved: 2 });
+  expect(session.take(5)).toEqual({ kind: "session", unsaved: 2 });
+  expect(session.take(5)).toBeNull();
+
+  const quiet = unexpectedEnds(null);
   expect(quiet.take(3)).toBeNull();
   quiet.pageEnded(3);
   expect(quiet.take(4)).toBeNull();
-  expect(quiet.take(3)).toBe("window");
+  expect(quiet.take(3)).toEqual({ kind: "window" });
 });
 
 test("a crashed page loads again at its first and second crash in a minute, not its third", () => {

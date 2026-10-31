@@ -12,7 +12,7 @@ import { useNotices } from "./notices";
 
 interface UnsavedState {
   unsaved: UnsavedChanges | null;
-  /** Changes the last run lost when it closed without quitting; null once said. */
+  /** Changes the last run lost when it closed without quitting: 0 when none, null when unknown or once said. */
   lost: number | null;
   /** What ended unexpectedly before this window's page loaded; null once said. */
   ended: UnexpectedEnd | null;
