@@ -45,7 +45,7 @@ const WORDS = {
 export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const { fill } = meeting;
-  if (!fill || (fill.state === "off" && !fill.problem)) return null;
+  if (!fill) return null;
   const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
     label,

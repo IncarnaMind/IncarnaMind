@@ -469,7 +469,6 @@ const CALLS = [
     theirs: THEIR_LINES,
     typed: ["price", "contract"],
     actionsHeading: "Action items",
-    plainHeading: "Q3 review",
     titles: ["Summary", "Decisions", "Action items", "Open questions"],
     stop: ".",
     written: {
@@ -480,6 +479,12 @@ const CALLS = [
       ACTIONS: "Finish the security review — Them ",
       QUESTIONS: "Whether the security review is done in time ",
     },
+    // What a model may write again in a section, and what it may say beside it from the same line.
+    again: {
+      L1: "Enterprise price: 45 dollars a seat ",
+      L2: "Send the contract by Friday — Dana ",
+      beside: "The price holds for two years ",
+    },
   },
   {
     language: "zh-CN",
@@ -487,7 +492,6 @@ const CALLS = [
     theirs: ["今年的预算已经批了", "安全审查还没做"],
     typed: ["价格", "合同"],
     actionsHeading: "待办",
-    plainHeading: "第三季度回顾",
     titles: ["摘要", "决定", "待办事项", "待定问题"],
     stop: "。",
     written: {
@@ -498,6 +502,11 @@ const CALLS = [
       ACTIONS: "完成安全审查 — 对方",
       QUESTIONS: "安全审查能否按时完成",
     },
+    again: {
+      L1: "企业版每个席位 45 美元，已定",
+      L2: "把合同发过来 — Dana，周五前",
+      beside: "价格两年不变",
+    },
   },
 ] as const;
 
@@ -506,17 +515,19 @@ for (const call of CALLS) {
   const ai = (text: string) => `«${text}»￼«${stop}»`;
   const asked: string[] = [];
   const limits: (number | undefined)[] = [];
-  // Writes every section whatever the prompt asks, as a model may: only those asked go in.
-  const model = () =>
+  // With `repeats`, it writes the typed lines' facts again in DECISIONS and ACTIONS, as models do.
+  const model = ({ repeats = false } = {}) =>
     fillingModel(
       (prompt) => {
         const lines = new Set([...prompt.matchAll(/^(L\d+): /gm)].map((match) => match[1]));
+        const again = (text: string, marker: number) =>
+          repeats ? `\n- ${text}[^${marker}]${stop}` : "";
         return [
           lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
           lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
           `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
-          `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}`,
-          `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}`,
+          `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
+          `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
           `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
         ]
           .filter((part) => part !== false)
@@ -541,11 +552,12 @@ for (const call of CALLS) {
   const recordedWith = (
     notes: Parameters<typeof writeMind>[1],
     before?: (core: Core) => Promise<void>,
+    options: { repeats?: boolean } = {},
   ) => {
     asked.length = 0;
     limits.length = 0;
     return recorded(
-      model(),
+      model(options),
       notes,
       async (core) => {
         await core.updateSettings({ user: { language: call.language } });
@@ -642,41 +654,28 @@ for (const call of CALLS) {
       core.close();
     });
 
-    // protects=with the switch off, a Note with nothing typed to fill out, only a plain heading, gets nothing: no model is asked, nothing is written and no failure is shown; turned on, Fill in again writes the sections under it; fails_when=the sections are written with the switch off, the fill fails as finding nothing, or nothing is written once it is on; no_claim=a Note with typed lines, which the next test covers.
-    test("with the switch off, a Note with only a heading gets nothing below it", async () => {
-      const { core, meeting, client } = await recordedWith(
-        [heading(2, call.plainHeading)],
-        (core) => core.updateSettings({ user: { meetingFillUncovered: false } }).then(() => {}),
-      );
-      expect(await settledFill(core, meeting)).toMatchObject({ state: "off", problem: null });
-      expect(shown(client)).toEqual([call.plainHeading]);
-      expect(asked).toEqual([]);
-
-      await core.updateSettings({ user: { meetingFillUncovered: true } });
-      await core.fillMeetingNotes(meeting.id);
-      await vi.waitFor(() => expect(shown(client)).toHaveLength(1 + sectionsBelow.length));
-      // Written with no notes, a section's sentence may cite the Transcript more than once.
-      const once = shown(client).map((line) => line.replace(/\uFFFC+/g, "\uFFFC"));
-      expect(once).toEqual([call.plainHeading, ...sectionsBelow]);
-      core.close();
-    });
-
-    // protects=with "Fill sections my notes don't cover" off, only the typed lines are filled out and nothing is written below them, even from a model that writes sections unasked; turned back on, Fill in again adds the sections; fails_when=a section is written with the switch off, or none with it on; no_claim=the switch's row in Settings, which the smoke test covers.
-    test("with the switch off, nothing is written below the typed lines", async () => {
-      const { core, meeting, client } = await recordedWith(typedLines(), (core) =>
-        core.updateSettings({ user: { meetingFillUncovered: false } }).then(() => {}),
-      );
+    // protects=a fact a typed line's part states isn't written again in a section, even when the model writes it twice: the decision and the action that repeat the lines go, and a decision citing the same Transcript line but saying something else stays; fails_when=a repeat stays in Decisions or Action items, or the other decision is dropped with it; no_claim=a real model's repeats, which the PR's real-model run counts.
+    test("a fact a typed line states isn't written again in a section", async () => {
+      const { core, meeting, client } = await recordedWith(typedLines(), undefined, {
+        repeats: true,
+      });
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-      await vi.waitFor(() => expect(shown(client)).toHaveLength(4));
-      expect(shown(client)).toEqual([call.typed[0], ai(written.L1), call.typed[1], ai(written.L2)]);
-      expect(asked.at(-1)).not.toContain("### SUMMARY:");
-
-      await core.undoMeetingFill(meeting.id);
-      await core.updateSettings({ user: { meetingFillUncovered: true } });
-      await core.fillMeetingNotes(meeting.id);
-      await vi.waitFor(() => expect(shown(client)).toHaveLength(4 + sectionsBelow.length));
-      expect(shown(client).slice(4)).toEqual(sectionsBelow);
-      expect(asked.at(-1)).toContain("### SUMMARY:");
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(13));
+      expect(shown(client)).toEqual([
+        call.typed[0],
+        ai(written.L1),
+        call.typed[1],
+        ai(written.L2),
+        `«${titles[0]}»`,
+        ai(written.SUMMARY),
+        `«${titles[1]}»`,
+        ai(written.DECISIONS),
+        ai(call.again.beside),
+        `«${titles[2]}»`,
+        ai(written.ACTIONS),
+        `«${titles[3]}»`,
+        ai(written.QUESTIONS),
+      ]);
       core.close();
     });
 
@@ -700,37 +699,15 @@ for (const call of CALLS) {
   });
 }
 
-describe("With the switch off and nothing typed (#2306)", { timeout: 60_000 }, () => {
-  // protects=with "Fill sections my notes don't cover" off, an empty Note stays empty after Stop: no model is asked and no failure is shown, where with it on the sections are written; fails_when=the sections are written with the switch off, or the fill says it failed; no_claim=a Note with a heading, which the tests above cover.
-  test("an empty Note stays empty, and no model is asked", async () => {
-    const fills: string[] = [];
-    const model = fillingModel(
-      "### SUMMARY\nThe enterprise price is 45 dollars a seat [^1].",
-      { 1: MY_LINES[0] as string },
-      {},
-      { seen: (each) => isFill(each) && fills.push(each.prompt) },
-    );
-    const { core, meeting, client } = await recorded(model, null, (core) =>
-      core.updateSettings({ user: { meetingFillUncovered: false } }).then(() => {}),
-    );
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "off", problem: null });
-    expect(shown(client).some((line) => line.includes("«"))).toBe(false);
-    expect(fills).toEqual([]);
-
-    await core.updateSettings({ user: { meetingFillUncovered: true } });
-    await core.fillMeetingNotes(meeting.id);
-    await vi.waitFor(() =>
-      expect(shown(client)).toContain("«The enterprise price is 45 dollars a seat »\uFFFC«.»"),
-    );
-    expect(fills.length).toBeGreaterThan(0);
-    core.close();
-  });
-});
-
 describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
-  // protects=a Meeting's notes are asked thinking as an Answer does, and the Citations a reply left out are asked of the small calls' model, which doesn't think first, so neither reply's room goes to thinking and the addition keeps its Citation; fails_when=the notes are asked at a Task's thinking, the Citations of a thinking model, or the addition is dropped as uncited; no_claim=how long a real model thinks, which the real-model run measures.
+  // protects=a Meeting's notes are asked thinking as an Answer does, and the Citations a reply left out are asked of the small calls' model, which doesn't think first, with room for a record a sentence, so neither reply's room goes to thinking and the addition keeps its Citation; fails_when=the notes are asked at a Task's thinking, the Citations of a thinking model or within a fixed room, or the addition is dropped as uncited; no_claim=how long a real model thinks, which the real-model run measures.
   test("the notes think as an Answer does, and the Citations they left out are asked without thinking", async () => {
-    const asked: { fill: boolean; cites: boolean; thinking: string | undefined }[] = [];
+    const asked: {
+      fill: boolean;
+      cites: boolean;
+      thinking: string | undefined;
+      limit: number | undefined;
+    }[] = [];
     const sentence = "The enterprise price is 45 dollars a seat";
     const scripted = scriptedModel((call) => {
       if (call.json && call.system === CITE_RETRY_INSTRUCTIONS) {
@@ -758,6 +735,7 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
               fill: said.includes("Fill them in from the transcript"),
               cites: said.includes(CITE_RETRY_INSTRUCTIONS.slice(0, 40)),
               thinking: spec.thinking,
+              limit: params.maxOutputTokens,
             });
             return params;
           },
@@ -784,6 +762,8 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
     await vi.waitFor(() => expect(shown(client)).toEqual(["price", `«${sentence} »\uFFFC«.»`]));
     expect(asked.filter((each) => each.fill).map((each) => each.thinking)).toEqual(["answer"]);
     expect(asked.filter((each) => each.cites).map((each) => each.thinking)).toEqual(["off"]);
+    // Room for a record a sentence: one sentence here, dozens in a long call's notes.
+    expect(asked.filter((each) => each.cites).map((each) => each.limit)).toEqual([150]);
     core.close();
   });
 });

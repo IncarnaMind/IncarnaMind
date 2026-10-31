@@ -195,7 +195,7 @@ export function HelpSettings() {
   const hiddenId = useId();
   if (!device) return null;
   return (
-    <section data-testid="help-settings" className="flex flex-col">
+    <section data-testid="help-settings" className="mt-6 flex flex-col">
       <h4 className={`mb-2 ${sectionTitleClass}`}>{t("meetings.help.label")}</h4>
       <div className={ruledListClass}>
         <div className={ruledRowClass}>

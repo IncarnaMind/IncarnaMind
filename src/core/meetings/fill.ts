@@ -51,6 +51,7 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
+import { withoutRepeats } from "./repeats";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
@@ -112,8 +113,6 @@ export interface MeetingFillOptions {
   ): Citation | null;
   /** Saves a Checkpoint of the Mind before the notes go in (#113). */
   checkpoint(mindId: string): void;
-  /** "Fill sections my notes don't cover": with notes, the sections they don't cover follow them. */
-  fillUncovered(): boolean;
   language(): Language;
   /** The notes are in: a system notification, unless the Mind is on screen. */
   filled(meeting: Meeting): void;
@@ -164,12 +163,6 @@ function linesIn(parent: Y.XmlFragment | Y.XmlElement, found: Y.XmlElement[] = [
   }
   return found;
 }
-
-/** Whether the User wrote anything to fill out: a line, or a heading that names a section. */
-const fillable = (blocks: Y.XmlFragment) =>
-  linesIn(blocks).some(
-    (element) => element.nodeName !== "heading" || sectionNamed(readLine(element).text) !== null,
-  );
 
 // Each line gets an id if it had none, so it can be found once filled in.
 function userLines(blocks: Y.XmlFragment): UserLine[] {
@@ -436,8 +429,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
     );
 
   /**
-   * A Meeting's notes: under the User's lines, then the sections they don't cover unless the
-   * switch is off; in sections when they wrote none.
+   * A Meeting's notes: under the User's lines, then the sections they don't cover; in sections
+   * when they wrote none.
    */
   async function notes(
     meeting: Meeting,
@@ -448,24 +441,17 @@ export function createMeetingFill(options: MeetingFillOptions) {
     // Lines get an id if they had none, before the model reads them: an attribute, not text.
     const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
     const mode = lines.some((line) => !line.heading || line.section) ? "notes" : "sections";
-    const named = new Set(lines.flatMap((line) => (line.section ? [line.section] : [])));
-    const asked = options.fillUncovered()
-      ? FILL_SECTIONS
-      : FILL_SECTIONS.filter((section) => named.has(section));
     set(meeting.id, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
     const question = words(
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
     );
-    const context =
-      mode === "notes" ? notesContext(lines, asked, question) : sectionsContext(question);
+    const context = mode === "notes" ? notesContext(lines, question) : sectionsContext(question);
     const gathered = new Map<string, NodeJSON[]>();
     for (const part of parts) {
       const answer = await ask(context, part, transcriptId, route, signal);
       for (const [marker, blocks] of partsOf(answer.blocks)) {
-        const section = sectionOf(marker);
-        if (section && !asked.includes(section)) continue;
         const cited = citedOnly(blocks);
         if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
       }
@@ -473,11 +459,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (gathered.size === 0) {
       throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
     }
-    const sections = new Map<FillSection, NodeJSON[]>();
+    const written = new Map<FillSection, NodeJSON[]>();
+    const lineParts: NodeJSON[] = [];
     for (const [marker, blocks] of gathered) {
       const section = sectionOf(marker);
-      if (section) sections.set(section, blocks);
+      if (section) written.set(section, blocks);
+      else lineParts.push(...blocks);
     }
+    const sections = mode === "notes" ? withoutRepeats(lineParts, written) : written;
     const claims = sections.get("claims");
     if (claims) {
       const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);
@@ -561,14 +550,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
         state: "off",
         problem: { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
       });
-      return;
-    }
-    if (
-      meeting.kind === "meeting" &&
-      !options.fillUncovered() &&
-      !content.read(meeting.mindId, fillable)
-    ) {
-      set(meetingId, { state: "off", mode: null, problem: null, blocks: [] });
       return;
     }
     let route: FillRoute;

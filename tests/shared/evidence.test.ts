@@ -30,7 +30,6 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
     taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: { font: "default", size: "default" },
-    meetingFillUncovered: true,
   },
 });
 

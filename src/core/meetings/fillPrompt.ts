@@ -94,30 +94,26 @@ const SECTION_ASKS: Readonly<Record<FillSection, string>> = {
 
 export const lineMarker = (index: number) => `L${index + 1}`;
 
-/** Asked with the User's notes: each section leaves out what the lines' parts already say. */
+/** Asked with the User's notes, so that each fact is written once in all of them (#2306). */
 const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
   ...SECTION_ASKS,
+  questions:
+    "what the call left unanswered, a bullet each: never what was decided or what someone will do",
   summary:
-    "two or three sentences on what the call was about and how it ended, then each figure, date or term said in the call that nothing written above has",
-  decisions: "what was decided that no line's part already says, a bullet each",
-  questions: "what the call left open, not what it settled or gave someone to do, a bullet each",
-};
-
-/** How what the call said is shared out between the User's lines and the sections. */
-const NOTES_SECTION_RULES: Readonly<Partial<Record<FillSection, string>>> = {
-  actions:
-    "- Every action goes in ACTIONS, each once, with the one person who will do it. Only a line of the User's that is itself an action is filled out in place instead.",
-  claims: "- CLAIMS alone lists the facts again, to be checked.",
+    "one sentence on what the call was about, with no figure or date in it; then, a bullet each, any figure, date or term said in the call that nothing above has",
 };
 
 /**
  * The order the model writes the sections in: the summary after the others, so it can leave out
- * what they hold. They go into the notes in the template's order all the same.
+ * what they hold, and the claims, which repeat them, last. They go into the notes in the
+ * template's order all the same.
  */
-const writtenOrder = (sections: readonly FillSection[]): FillSection[] => [
-  ...sections.filter((section) => section !== "summary" && section !== "claims"),
-  ...sections.filter((section) => section === "summary"),
-  ...sections.filter((section) => section === "claims"),
+const WRITTEN_ORDER: readonly FillSection[] = [
+  "decisions",
+  "actions",
+  "questions",
+  "summary",
+  "claims",
 ];
 
 const callIntro =
@@ -129,40 +125,31 @@ const rules = [
   "- Write in the language of the call.",
 ];
 
-/**
- * Under each of the User's lines, what the call said about it; then `sections`, the sections the
- * notes don't cover and those a line names, which go under that line.
- */
-export function notesContext(
-  lines: readonly FillLine[],
-  sections: readonly FillSection[],
-  question: string,
-): QuestionContext {
+/** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
+export function notesContext(lines: readonly FillLine[], question: string): QuestionContext {
   const shown = lines.map((line) => {
     if (line.section)
       return `(heading: ### ${SECTION_MARKERS[line.section]} goes under it) ${line.text}`;
     return line.heading ? `(heading) ${line.text}` : `${line.marker}: ${line.text}`;
   });
-  const asked =
-    sections.length === 0
-      ? []
-      : [
-          "Then, after the lines' parts, write these sections, each starting with its marker alone as a heading, in this order:",
-          ...writtenOrder(sections).map(
-            (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
-          ),
-          "- Write each fact, decision, date and figure once in all the notes: under the line it belongs to, else in the one section it fits. Before writing a sentence in a section, check that no line's part says it already. A line's part says where the call ended up about it, not each offer on the way.",
-          ...sections.flatMap((section) => NOTES_SECTION_RULES[section] ?? []),
-          "- Leave out a section with nothing in it.",
-        ];
   const framing = [
     callIntro,
     "The User took the notes below during the call, a line each. Fill them in from the transcript:",
-    "- For each line, write what the call said about it: one to three short sentences.",
+    "- For each line, write where the call ended up about it, not each offer on the way: one to three short sentences. What someone will do goes in ACTIONS, not under a line, unless the line is that action itself.",
     '- Start each line\'s part with its marker alone as a heading ("### L3"), in the order of the notes. Leave out a line the call said nothing about.',
     "- Never repeat or reword the User's line: write only what goes under it. Write nothing for a heading.",
-    ...asked,
+    "Then, after the lines' parts, write these sections, each starting with its marker alone as a heading, in this order:",
+    ...WRITTEN_ORDER.map(
+      (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
+    ),
+    "- Each fact goes in the notes once. Before you write a sentence or a bullet in a section, look at everything written above it: if its figure, date, decision or action is there already, leave it out.",
+    "- Every action goes in ACTIONS, once, with the one person who will do it.",
+    "- CLAIMS alone lists the facts again, to be checked.",
+    "- Leave out a section with nothing in it.",
     ...rules,
+    // Notes this long were sent without their records one time in five: the Citations asked for
+    // afterwards then missed some, and what they missed was dropped.
+    "- Then, in the same reply, call cite once with a record for every marker in the notes.",
     "",
     "The notes:",
     ...shown,

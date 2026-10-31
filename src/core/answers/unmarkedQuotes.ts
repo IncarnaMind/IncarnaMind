@@ -438,7 +438,7 @@ function passagesToAsk(
   }
   let room = budget.roomBeside(
     [CITE_RETRY_INSTRUCTIONS, citeRetryPrompt(answer, [])],
-    outputTokens("unmarked-quotes"),
+    outputTokens("unmarked-quotes", markedUnits(answer).length),
   );
   const asked: ShownPassage[] = [];
   for (const passage of passages) {
@@ -470,7 +470,7 @@ async function askForCitations(
       instructions: CITE_RETRY_INSTRUCTIONS,
       prompt: citeRetryPrompt(answer, passages),
       temperature: small.temperature,
-      maxOutputTokens: outputTokens("unmarked-quotes"),
+      maxOutputTokens: outputTokens("unmarked-quotes", markedUnits(answer).length),
       output: Output.object({ schema: askedSchema, name: "citations" }),
       // One request, never more.
       maxRetries: 0,

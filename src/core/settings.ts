@@ -173,7 +173,6 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: DEFAULT_MIND_STYLE,
-    meetingFillUncovered: true,
   },
   validators: {
     language: isLanguagePreference,
@@ -191,7 +190,6 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: isBoolean,
     recentCitationStyles: isRecentStyles,
     newMindStyle: isMindStyle,
-    meetingFillUncovered: isBoolean,
   },
 };
 
