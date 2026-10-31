@@ -1,5 +1,5 @@
 {
- "about": "Tags from content (#2308): synthetic Documents as the tagger reads them (name, type, the start of their text). `invoice`: whether the Invoice kind Tag fits; `fits`: words of which one, in a Tag's name, makes the Tags fitting (compared case-free); `topic`: the walk's two subjects, for the Folders Organize proposes. `tune`: 40 Documents (20 per language) whose results have been read; `heldout`: 40 more (20 per language), none paired with a tuning Document, fixed before any model read them. Tune on `tune` only.",
+ "about": "Tags from content (#2308): synthetic Documents as the tagger reads them (name, type, the start of their text). `invoice`: whether the Invoice kind Tag fits; `fits`: words of which one, in a Tag's name, makes the Tags fitting (compared case-free); `topic`: the walk's two subjects, for the Folders Organize proposes. `tune`: 60 Documents (20 English, 40 Chinese) whose results have been read; `heldout`: 40 more (20 per language), none paired with a tuning Document, the Chinese ones of other kinds and subjects than the English, fixed before any model read them. Tune on `tune` only.",
  "documents": [
   {
    "id": "t-en-1",
@@ -1122,12 +1122,12 @@
    "kind": "pdf",
    "pageCount": 1,
    "text": "Riverside Food Bank. Official donation receipt no. 2026-0417. Received from: Tom Becker. Date: 17 March 2026. Amount: 250.00, by bank transfer. Thank you for your gift; no goods or services were provided in exchange. Registered charity 1123456.",
-   "invoice": true,
+   "invoice": false,
    "fits": [
     "donation",
     "charity",
     "receipt",
-    "invoice"
+    "giving"
    ]
   },
   {
@@ -1311,8 +1311,341 @@
    ]
   },
   {
-   "id": "n-zh-1",
+   "id": "m-zh-1",
    "split": "heldout",
+   "language": "zh",
+   "name": "开题报告",
+   "kind": "docx",
+   "pageCount": 8,
+   "text": "硕士学位论文开题报告。题目：短视频平台算法推荐对青少年阅读习惯的影响。研究背景与意义。国内外研究现状。研究方法：问卷调查 600 份，深度访谈 20 人。研究进度：2026 年 3 月完成文献综述，9 月完成初稿。",
+   "invoice": false,
+   "fits": [
+    "开题",
+    "论文",
+    "学位",
+    "研究",
+    "毕业",
+    "阅读"
+   ]
+  },
+  {
+   "id": "m-zh-2",
+   "split": "heldout",
+   "language": "zh",
+   "name": "会员积分功能需求文档",
+   "kind": "docx",
+   "pageCount": 6,
+   "text": "产品需求文档（PRD）v1.2。功能：会员积分。背景：复购率下降。需求：下单每满 10 元积 1 分；积分可抵现，100 分抵 1 元；积分 12 个月后过期。验收标准：积分实时到账，退款时扣回。",
+   "invoice": false,
+   "fits": [
+    "需求",
+    "产品",
+    "积分",
+    "会员",
+    "prd"
+   ]
+  },
+  {
+   "id": "m-zh-3",
+   "split": "heldout",
+   "language": "zh",
+   "name": "家长会通知",
+   "kind": "text",
+   "pageCount": null,
+   "text": "各位家长：本学期家长会定于 11 月 8 日（周五）下午 3 点在各班教室召开，内容包括期中考试情况、寒假安全教育和下学期选课。请准时参加，不能到场的请提前告知班主任。三年级二班",
+   "invoice": false,
+   "fits": [
+    "家长会",
+    "学校",
+    "通知",
+    "班级",
+    "孩子",
+    "教育"
+   ]
+  },
+  {
+   "id": "m-zh-4",
+   "split": "heldout",
+   "language": "zh",
+   "name": "社区植树活动报名表",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：报名\n姓名 | 楼栋 | 人数 | 是否带工具\n刘洋 | 3 栋 | 2 | 是\n陈静 | 5 栋 | 3 | 否\n赵磊 | 1 栋 | 1 | 是\n工作表：说明\n活动时间：3 月 12 日上午 9 点，集合地点：小区东门",
+   "invoice": false,
+   "fits": [
+    "植树",
+    "社区",
+    "活动",
+    "报名",
+    "志愿"
+   ]
+  },
+  {
+   "id": "m-zh-5",
+   "split": "heldout",
+   "language": "zh",
+   "name": "外卖订单详情",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "订单详情。订单号 20260318-8812。商家：老街牛肉面。宫保鸡丁饭 1 份 28 元，酸辣汤 1 份 12 元，配送费 3 元，满减 -8 元。实付 35 元。送达时间 18:42。如有问题请联系商家。",
+   "invoice": false,
+   "fits": [
+    "外卖",
+    "订单",
+    "餐饮",
+    "美食"
+   ]
+  },
+  {
+   "id": "m-zh-6",
+   "split": "heldout",
+   "language": "zh",
+   "name": "停车费电子发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 25330000000045120。开票日期 2026 年 3 月 20 日。购买方：周宁。销售方：某停车场管理有限公司。项目：停车服务费 2026 年 3 月，金额 291.26 元，税额 8.74 元，价税合计 300.00 元。",
+   "invoice": true,
+   "fits": [
+    "停车",
+    "发票",
+    "交通"
+   ]
+  },
+  {
+   "id": "m-zh-7",
+   "split": "heldout",
+   "language": "zh",
+   "name": "打车电子发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 25110000000077310。开票日期 2026 年 3 月 22 日。购买方：周宁。销售方：某网约车平台。项目：客运服务费，行程 3 次，金额 145.63 元，税额 4.37 元，价税合计 150.00 元。",
+   "invoice": true,
+   "fits": [
+    "打车",
+    "出行",
+    "交通",
+    "发票",
+    "差旅"
+   ]
+  },
+  {
+   "id": "m-zh-8",
+   "split": "heldout",
+   "language": "zh",
+   "name": "年终述职",
+   "kind": "pptx",
+   "pageCount": 10,
+   "text": "2026 年度述职\n年度目标完成情况\n重点项目：会员积分上线\n团队建设\n不足与反思\n明年计划",
+   "invoice": false,
+   "fits": [
+    "述职",
+    "年终",
+    "总结",
+    "工作",
+    "幻灯片",
+    "汇报"
+   ]
+  },
+  {
+   "id": "m-zh-9",
+   "split": "heldout",
+   "language": "zh",
+   "name": "第12周工作周报",
+   "kind": "docx",
+   "pageCount": 1,
+   "text": "第 12 周工作周报。本周完成：积分功能联调、修复 7 个缺陷、参加需求评审。进行中：活动页改版（60%）。下周计划：积分功能灰度发布。风险：支付接口变更待确认。",
+   "invoice": false,
+   "fits": [
+    "周报",
+    "工作",
+    "汇报",
+    "进度"
+   ]
+  },
+  {
+   "id": "m-zh-10",
+   "split": "heldout",
+   "language": "zh",
+   "name": "用户访谈记录",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 用户访谈 #7\n受访者：32 岁，二胎妈妈，每周网购 3 次。\n- 积分规则看不懂，觉得“满 10 元积 1 分”太少\n- 最在意配送时间\n- 希望积分能换优惠券\n结论：积分说明要放在结算页。",
+   "invoice": false,
+   "fits": [
+    "访谈",
+    "用户",
+    "调研",
+    "积分",
+    "研究"
+   ]
+  },
+  {
+   "id": "m-zh-11",
+   "split": "heldout",
+   "language": "zh",
+   "name": "打印机驱动安装说明",
+   "kind": "pdf",
+   "pageCount": 12,
+   "text": "打印机驱动安装说明。适用型号：LJ-2200 系列。一、下载驱动：访问官网支持页面。二、运行安装程序，选择“USB 连接”或“网络连接”。三、打印测试页。常见问题：无法识别打印机时，请检查数据线并重启电脑。",
+   "invoice": false,
+   "fits": [
+    "打印机",
+    "驱动",
+    "安装",
+    "说明书",
+    "手册"
+   ]
+  },
+  {
+   "id": "m-zh-12",
+   "split": "heldout",
+   "language": "zh",
+   "name": "体检报告",
+   "kind": "pdf",
+   "pageCount": 14,
+   "text": "健康体检报告。姓名：周宁，男，35 岁。体检日期：2026 年 3 月 5 日。主要异常：总胆固醇 6.1 mmol/L（偏高）；脂肪肝（轻度）；视力下降。建议：低脂饮食，每周运动 3 次以上，半年后复查血脂。",
+   "invoice": false,
+   "fits": [
+    "体检",
+    "健康",
+    "医疗",
+    "报告"
+   ]
+  },
+  {
+   "id": "m-zh-13",
+   "split": "heldout",
+   "language": "zh",
+   "name": "猫咪领养协议",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "领养协议。送养人：小橘救助站。领养人：方晴。被领养猫：橘猫“团子”，约 1 岁，已绝育、已接种疫苗。领养人承诺：不弃养、不转送，室内饲养，按时驱虫，接受三次回访。",
+   "invoice": false,
+   "fits": [
+    "领养",
+    "猫",
+    "宠物",
+    "协议"
+   ]
+  },
+  {
+   "id": "m-zh-14",
+   "split": "heldout",
+   "language": "zh",
+   "name": "基金定投记录",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：定投\n日期 | 基金 | 金额 | 份额 | 净值\n2026-01-05 | 沪深300指数 | 1,000 | 254.3 | 3.932\n2026-02-05 | 沪深300指数 | 1,000 | 248.1 | 4.031\n2026-03-05 | 沪深300指数 | 1,000 | 251.7 | 3.973\n工作表：汇总\n累计投入 | 3,000",
+   "invoice": false,
+   "fits": [
+    "基金",
+    "定投",
+    "投资",
+    "理财"
+   ]
+  },
+  {
+   "id": "m-zh-15",
+   "split": "heldout",
+   "language": "zh",
+   "name": "秋夜",
+   "kind": "text",
+   "pageCount": null,
+   "text": "秋夜。窗外的桂花开了，香气一阵一阵地飘进来。我想起小时候，外婆在院子里摇着蒲扇，给我讲月亮上的故事。如今院子早已拆了，只有这香气，每年秋天还会准时回来。",
+   "invoice": false,
+   "fits": [
+    "散文",
+    "随笔",
+    "回忆",
+    "文学",
+    "写作"
+   ]
+  },
+  {
+   "id": "m-zh-16",
+   "split": "heldout",
+   "language": "zh",
+   "name": "办公楼保洁服务招标公告",
+   "kind": "pdf",
+   "pageCount": 3,
+   "text": "招标公告。项目名称：办公楼保洁服务采购。招标编号：ZB-2026-031。服务期限：一年。投标人资格：具有物业保洁资质，近三年无重大事故。投标截止时间：2026 年 4 月 15 日 9:30。开标地点：行政楼三楼会议室。",
+   "invoice": false,
+   "fits": [
+    "招标",
+    "保洁",
+    "采购",
+    "公告"
+   ]
+  },
+  {
+   "id": "m-zh-17",
+   "split": "heldout",
+   "language": "zh",
+   "name": "婚礼请柬",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "诚邀您参加 林皓 与 苏念 的婚礼。时间：2026 年 5 月 20 日（周三）中午 11:58。地点：西湖边 湖畔酒店 二楼宴会厅。敬请光临。",
+   "invoice": false,
+   "fits": [
+    "婚礼",
+    "请柬",
+    "邀请",
+    "喜宴"
+   ]
+  },
+  {
+   "id": "m-zh-18",
+   "split": "heldout",
+   "language": "zh",
+   "name": "科目一错题本",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 科目一错题\n1. 高速公路最低车速：60 公里/小时（我选了 50）\n2. 驾驶证记满 12 分：参加满分学习和考试\n3. 雾天能见度小于 50 米：车速不超过 20 公里/小时\n下周六第二次模拟考。",
+   "invoice": false,
+   "fits": [
+    "驾照",
+    "科目一",
+    "驾考",
+    "错题",
+    "学车"
+   ]
+  },
+  {
+   "id": "m-zh-19",
+   "split": "heldout",
+   "language": "zh",
+   "name": "房贷还款计划",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：还款\n期数 | 月供 | 本金 | 利息 | 剩余本金\n1 | 5,368 | 2,035 | 3,333 | 997,965\n2 | 5,368 | 2,042 | 3,326 | 995,923\n3 | 5,368 | 2,049 | 3,319 | 993,874\n工作表：说明\n贷款 100 万元，30 年，年利率 4%，等额本息",
+   "invoice": false,
+   "fits": [
+    "房贷",
+    "贷款",
+    "还款",
+    "月供",
+    "房子"
+   ]
+  },
+  {
+   "id": "m-zh-20",
+   "split": "heldout",
+   "language": "zh",
+   "name": "《流浪地球》观后感",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 《流浪地球》观后感\n最打动我的不是特效，而是刘启和外公之间的亲情。带着地球去流浪，是中国式的浪漫：故土难离。缺点是后半段节奏太快，几个配角的故事没讲完。",
+   "invoice": false,
+   "fits": [
+    "观后感",
+    "电影",
+    "影评",
+    "流浪地球"
+   ]
+  },
+  {
+   "id": "n-zh-1",
+   "split": "tune",
    "language": "zh",
    "name": "劳动合同",
    "kind": "pdf",
@@ -1329,7 +1662,7 @@
   },
   {
    "id": "n-zh-2",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "手机参数表",
    "kind": "pdf",
@@ -1346,7 +1679,7 @@
   },
   {
    "id": "n-zh-3",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "董事会会议纪要",
    "kind": "docx",
@@ -1361,7 +1694,7 @@
   },
   {
    "id": "n-zh-4",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "细胞培养实验记录",
    "kind": "markdown",
@@ -1379,7 +1712,7 @@
   },
   {
    "id": "n-zh-5",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "个人所得税年度汇算",
    "kind": "pdf",
@@ -1397,7 +1730,7 @@
   },
   {
    "id": "n-zh-6",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "红烧肉做法",
    "kind": "markdown",
@@ -1415,7 +1748,7 @@
   },
   {
    "id": "n-zh-7",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "高等数学课程大纲",
    "kind": "pdf",
@@ -1433,7 +1766,7 @@
   },
   {
    "id": "n-zh-8",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "天使轮融资路演",
    "kind": "pptx",
@@ -1451,7 +1784,7 @@
   },
   {
    "id": "n-zh-9",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "云服务器电子发票",
    "kind": "pdf",
@@ -1467,24 +1800,23 @@
   },
   {
    "id": "n-zh-10",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "慈善捐赠收据",
    "kind": "pdf",
    "pageCount": 1,
    "text": "公益事业捐赠统一票据（收据）。编号 2026-0417。捐赠人：唐明。捐赠日期：2026 年 3 月 17 日。捐赠金额：500.00 元（银行转账）。用途：乡村儿童图书角。受赠单位：某市慈善总会。",
-   "invoice": true,
+   "invoice": false,
    "fits": [
     "捐赠",
     "慈善",
     "公益",
-    "收据",
-    "发票"
+    "收据"
    ]
   },
   {
    "id": "n-zh-11",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "办公用品采购订单",
    "kind": "pdf",
@@ -1501,7 +1833,7 @@
   },
   {
    "id": "n-zh-12",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "快递发货单",
    "kind": "pdf",
@@ -1518,7 +1850,7 @@
   },
   {
    "id": "n-zh-13",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "京都五日游行程",
    "kind": "docx",
@@ -1536,7 +1868,7 @@
   },
   {
    "id": "n-zh-14",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "数据分析师招聘",
    "kind": "docx",
@@ -1553,7 +1885,7 @@
   },
   {
    "id": "n-zh-15",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "儿童疫苗接种记录",
    "kind": "pdf",
@@ -1570,7 +1902,7 @@
   },
   {
    "id": "n-zh-16",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "二手房验房清单",
    "kind": "xlsx",
@@ -1588,7 +1920,7 @@
   },
   {
    "id": "n-zh-17",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "第14期播客提纲",
    "kind": "markdown",
@@ -1605,7 +1937,7 @@
   },
   {
    "id": "n-zh-18",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "课题经费预算表",
    "kind": "xlsx",
@@ -1622,7 +1954,7 @@
   },
   {
    "id": "n-zh-19",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "用户隐私政策",
    "kind": "web",
@@ -1639,7 +1971,7 @@
   },
   {
    "id": "n-zh-20",
-   "split": "heldout",
+   "split": "tune",
    "language": "zh",
    "name": "学术会议报告摘要",
    "kind": "text",

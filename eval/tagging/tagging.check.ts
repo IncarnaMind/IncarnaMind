@@ -57,6 +57,8 @@ interface Tagged {
   missedInvoice: boolean;
   /** New Tags named in another language than the Document's. */
   otherLanguage: string[];
+  /** A Chinese Document with a Tag in Chinese; null for an English one. */
+  chineseTag: boolean | null;
 }
 
 const root = process.cwd();
@@ -159,6 +161,7 @@ async function tagGroup(
       falseInvoice: invoice && !document.invoice,
       missedInvoice: document.invoice && !invoice,
       otherLanguage,
+      chineseTag: document.language === "zh" ? names.some((name) => han.test(name)) : null,
     });
     log(`${document.id} ${document.name}: ${names.join(", ") || "(none)"}`);
   }
@@ -230,6 +233,7 @@ function groupLines(label: string, tagged: readonly Tagged[]): string[] {
   const invoices = tagged.filter((each) => each.isInvoice);
   const made = tagged.flatMap((each) => each.made);
   const otherLanguage = tagged.flatMap((each) => each.otherLanguage);
+  const chinese = tagged.filter((each) => each.chineseTag !== null);
   return [
     `### ${label}`,
     "",
@@ -239,6 +243,7 @@ function groupLines(label: string, tagged: readonly Tagged[]): string[] {
     `| Invoices and receipts tagged Invoice | ${share(invoices.filter((each) => each.invoice).length, invoices.length)} |`,
     `| Documents with a fitting Tag (bar: 90%) | ${share(tagged.filter((each) => each.fitting).length, tagged.length)} |`,
     `| New Tags in the Document's language (bar: 95%) | ${share(made.length - otherLanguage.length, made.length)} |`,
+    `| Chinese Documents with a Tag in Chinese (bar: 95%) | ${share(chinese.filter((each) => each.chineseTag).length, chinese.length)} |`,
     `| Most Tags on one Document (bar: 3) | ${Math.max(0, ...tagged.map((each) => each.tags.length))} |`,
     `| New Tags made | ${made.length}: ${[...new Set(made)].join(", ")} |`,
     "",

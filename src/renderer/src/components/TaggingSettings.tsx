@@ -429,6 +429,7 @@ function OtherModelForm({
     current?.kind === "ollama" && current.usePageImages === true,
   );
   const [error, setError] = useState<string | null>(null);
+  const service = providers.find((provider) => provider.id === where)?.service?.name ?? null;
   useEffect(() => {
     core.listChatProviders().then(
       (list) => {
@@ -480,6 +481,11 @@ function OtherModelForm({
           <option value="auto">{t("tagging.other.auto")}</option>
         </select>
       </label>
+      {service && (
+        <p data-testid="tagging-other-sends" className={choiceTextClass}>
+          {t("setup.sorting.sends", { service })}
+        </p>
+      )}
       {where !== "auto" && (
         <label className={fieldLabelClass}>
           {t("library.model")}

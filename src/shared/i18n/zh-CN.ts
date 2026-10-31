@@ -2346,7 +2346,10 @@ export const zhCN = {
   "models.sorting.chat": "用你的 AI 模型",
   "setup.sorting.uses": "标签、文件夹和会议提示都使用这个模型",
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
-  "setup.sorting.sends": "文档名称和摘录，以及文件夹和标签的名称与描述，会发送给 {service}",
+  "setup.sorting.sends":
+    "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+  "setup.sorting.sendsWhenOn":
+    "开启自动打标签后（设置 → 自动打标签），每个新文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
   "setup.sorting.chatHere": "标签和文件夹在本机使用 {model} · 不会离开这台电脑",
   "setup.sorting.chat.hints": "选择分类模型前，会议提示不会开启",

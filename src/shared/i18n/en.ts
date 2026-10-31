@@ -2454,7 +2454,9 @@ export const en = {
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
-    "Documents’ names and excerpts, and Folder and Tag names and descriptions, go to {service}",
+    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
+  "setup.sorting.sendsWhenOn":
+    "With tagging by itself on (Settings › Tagging), each new Document’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}.",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",

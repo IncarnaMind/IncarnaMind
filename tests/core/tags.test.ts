@@ -683,7 +683,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     ]);
   });
 
-  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline", async () => {
+  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline for new Documents", async () => {
     const dataDir = await createTempDataFolder();
     const { core, tagging } = await startTagging(["Paper"], dataDir);
     const provider = await core.saveChatProvider(OPENAI);
@@ -711,7 +711,11 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: OPENAI.modelId } },
       automatic: true,
     });
-    await waitForTagging(core, [document.id]);
+    // The Document waiting from before isn't sent by the choice: only new ones are (#2308).
+    await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(tagging.requests).toEqual([]);
+    const next = await addDocument(core, "Report.md", PAPER_TEXT);
+    await waitForTagging(core, [next.id]);
     expect(tagging.requests).toHaveLength(1);
     expect(await core.listDataFlows()).toContainEqual(
       expect.objectContaining({

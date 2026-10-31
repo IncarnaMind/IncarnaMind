@@ -5,9 +5,12 @@
  * theirs; a Document gets at most three. And choosing a cloud model for Tags turns tagging on.
  * Through the core's public interface, with a scripted model.
  */
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import type { Core, SaveChatProviderInput } from "../../src/core";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { type Core, DATABASE_FILE, type SaveChatProviderInput } from "../../src/core";
+import { openDatabase } from "../../src/core/storage";
+import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
@@ -179,5 +182,90 @@ describe("Choosing a model for Tags", () => {
     expect((await core.getLibrary()).settings.automatic).toBe(false);
     expect(document.tagging).toBe("off");
     expect(tagging.requests).toEqual([]);
+  });
+
+  test("an upgraded profile with a Tags model chosen and the switch off keeps it off, through saves that show it off", async () => {
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const tagging = taggingModel(["Report"]);
+    const models = scriptedModels(tagging.model);
+    const first = startCore(dataDir, { keychain, createChatModel: models.createChatModel });
+    const provider = await first.saveChatProvider(ANTHROPIC);
+    first.close();
+    // As setup saved a choice before #2308: the model, and no switch of the User's.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      const at = "2026-10-30T09:00:00.000Z";
+      db.run(
+        `INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES (?, 'library', ?, ?, ?)`,
+        [
+          randomUUID(),
+          JSON.stringify({
+            classifier: {
+              kind: "chat",
+              choice: { providerId: provider.id, modelId: ANTHROPIC.modelId },
+            },
+            organizeWith: null,
+            taggingStopped: [],
+          }),
+          at,
+          at,
+        ],
+      );
+    } finally {
+      db.close();
+    }
+    const core = startCore(dataDir, { keychain, createChatModel: models.createChatModel });
+    expect((await core.getLibrary()).settings.automatic).toBe(false);
+
+    // Saves of what the switch shows, another model among them, as Settings › Models sends one.
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings });
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "claude-sonnet-5-5" },
+      },
+    });
+    const document = await add(core, "Report.txt", "A quarterly report.");
+
+    expect((await core.getLibrary()).settings.automatic).toBe(false);
+    expect(document.tagging).toBe("off");
+    expect(tagging.requests).toEqual([]);
+  });
+
+  test("choosing a cloud model sends none of the Documents already here: they wait for what the User starts", async () => {
+    const { core, tagging } = await start();
+    tagging.choose(["Report"]);
+    await core.saveChatProvider(LOCAL);
+    tagging.fail(new Error("The model on this computer is down."));
+    const existing: string[] = [];
+    for (let at = 1; at <= 10; at++) {
+      existing.push((await add(core, `Report ${at}.txt`, `Quarterly report ${at}.`)).id);
+    }
+    await waitForTagging(core, existing, (each) => each.tagging === "failed");
+    tagging.fail(null);
+    const asked = tagging.requests.length;
+
+    const provider = await core.saveChatProvider(ANTHROPIC);
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: ANTHROPIC.modelId } },
+      automatic: true,
+    });
+    const after = await waitForTagging(core, existing, (each) => each.tagging === "off");
+    expect(after).toHaveLength(10);
+    expect(tagging.requests).toHaveLength(asked);
+
+    const fresh = await add(core, "New report.txt", "A new quarterly report.");
+    await waitForTagging(core, [fresh.id]);
+    expect(tagging.requests).toHaveLength(asked + 1);
+
+    await core.retagDocuments(existing.slice(0, 2));
+    await waitForTagging(core, existing.slice(0, 2));
+    expect(tagging.requests).toHaveLength(asked + 3);
+    expect(tagging.requests.at(-1)?.text).toContain("Quarterly report");
   });
 });

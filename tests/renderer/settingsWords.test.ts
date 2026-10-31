@@ -100,6 +100,7 @@ const CONSENT_FACTS = [
   "setup.sorting.here",
   "setup.sorting.chatHere",
   "setup.sorting.sends",
+  "setup.sorting.sendsWhenOn",
 ];
 
 describe("The Settings pages", () => {

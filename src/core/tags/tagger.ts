@@ -501,6 +501,26 @@ export function createTagger(options: TaggerOptions) {
       enqueue(id);
     },
 
+    /**
+     * A model for Tags on another computer was just chosen: the Documents already here that
+     * wait to be tagged are "off", so choosing it sends none of them (#2308). Organize, or a
+     * re-tag, which the User starts, still does.
+     */
+    holdExisting(): void {
+      const ids = db
+        .all<{ id: string }>(
+          `SELECT id FROM documents WHERE deleted_at IS NULL AND status = 'ready'
+             AND tagging_status IN ('pending', 'waiting-for-provider', 'failed', 'no-tags')`,
+        )
+        .map((row) => row.id)
+        .filter((id) => !organized(id) && !asked.has(id));
+      for (const id of ids) {
+        const at = queue.indexOf(id);
+        if (at !== -1) queue.splice(at, 1);
+      }
+      setStates(ids, "off");
+    },
+
     /** A Tag may exist now: the Documents checked while there were none are tagged. */
     tagsDefined: () => resume("no-tags"),
 

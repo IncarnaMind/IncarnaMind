@@ -5266,7 +5266,10 @@ export function createCore(adapters: CoreAdapters): Core {
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
       // Turning on tagging and sorting by themselves, where a line says what goes, is the consent too (#1617).
       if (tagsAnew || switchedOn) {
-        for (const service of await taggingServices()) consent.choose(["tagging"], service);
+        const services = await taggingServices();
+        for (const service of services) consent.choose(["tagging"], service);
+        // The line says only new Documents go: those already here wait for Organize (#2308).
+        if (tagsAnew && services.length > 0) tagger.holdExisting();
       }
       if (organizesAnew || switchedOn) {
         for (const service of await classificationServices()) {
