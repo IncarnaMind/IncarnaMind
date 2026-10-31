@@ -102,6 +102,7 @@ import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
+import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
@@ -451,6 +452,7 @@ function MindEditorView({
         BlockCommands,
         FindInMind,
         HeldSelection,
+        ShiftClickSelection,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({
