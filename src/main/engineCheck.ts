@@ -2,7 +2,8 @@
  * The packaged app's engine check (#1239). Started with `--check-engines=<file>`, the app opens no
  * window of its own and uses a data folder of its own. It starts each engine process as the app
  * does and has it load its modules through the engine's own loaders (../core/engineModules), loads
- * the OS sandbox's module here, and runs a line of Python in the hidden Analyses window. It writes
+ * the OS sandbox's module here, and runs a regression, a forecast, a clustering and a plot in the
+ * hidden Analyses window, with every package Analyses bring (ADR-0025). It writes
  * what it found to <file> as JSON and exits, with 1 when anything didn't load. No model is
  * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
  * uploads anything.
@@ -114,22 +115,34 @@ function problemOf(end: AnalysisEnd): string | null {
   }
 }
 
+/** Each package Analyses bring, used as an Analysis uses it: a check fails naming what didn't run. */
+const PYTHON_CHECK = [
+  "import numpy as np, pandas as pd",
+  "import statsmodels.formula.api as smf",
+  "from statsmodels.tsa.holtwinters import ExponentialSmoothing",
+  "from sklearn.cluster import KMeans",
+  "import matplotlib.pyplot as plt",
+  'df = pd.DataFrame({"x": np.arange(24.0)})',
+  'df["y"] = 3 * df.x + df.x % 5',
+  'slope = smf.ols("y ~ x", data=df).fit().params["x"]',
+  'ahead = ExponentialSmoothing(df.y.to_numpy(), trend="add").fit().forecast(3)',
+  'groups = KMeans(n_clusters=3, n_init=3, random_state=0).fit(df[["x", "y"]]).labels_',
+  'assert abs(slope - 3) < 0.2, f"regression: slope {slope}"',
+  'assert ahead[2] > ahead[0], f"forecast: {list(ahead)}"',
+  'assert len(set(groups)) == 3, f"clustering: {set(groups)}"',
+  "plt.plot(df.x, df.y)",
+].join("\n");
+
 async function checkPython(log: FileLogger): Promise<EngineCheck> {
   const runtime = analysisRuntime(log);
-  const { end } = await runtime
-    .run(
-      {
-        language: "python",
-        code: "import numpy, pandas\nprint(numpy.__version__, pandas.__version__)",
-        inputs: [],
-      },
-      new AbortController().signal,
-    )
+  const { end, output } = await runtime
+    .run({ language: "python", code: PYTHON_CHECK, inputs: [] }, new AbortController().signal)
     .finally(() => runtime.close());
+  const drawn = end.kind !== "done" || (output.pictures ?? []).length === 1;
   return {
     process: "Analyses window",
-    module: "Pyodide, numpy and pandas",
-    problem: problemOf(end),
+    module: "Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib",
+    problem: problemOf(end) ?? (drawn ? null : "matplotlib drew no picture"),
   };
 }
 

@@ -155,7 +155,12 @@ describe("an Analysis an Answer runs", () => {
       }));
       const { answer } = await askAndRead(core, "What was the total revenue?");
       expect(answer.figures).toEqual([]);
-      expect(answer.analyses[0]?.markers).toEqual({ figures: [], tables: [], charts: [] });
+      expect(answer.analyses[0]?.markers).toEqual({
+        figures: [],
+        tables: [],
+        charts: [],
+        pictures: [],
+      });
       expect(answer.text).not.toContain("| Region | Revenue |");
       const report = told(model, "run_analysis").join("\n");
       expect(report).not.toContain("Unfinished total");
@@ -566,6 +571,164 @@ describe("an Analysis an Answer runs", () => {
       });
     },
   );
+
+  test("a figure() figure gets its marker only when IncarnaMind's own arithmetic over its cells gives the same number, and the model reads what the cells come to when it doesn't", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('figure("total", inputs["sales"]["Revenue"], "sum", "Total revenue")')],
+      answer: "Revenue came to [=1], and the slope was [=2].",
+    });
+    const sales = (rows: [number, number][], how: "sum" | "max" | null, columns = ["Revenue"]) => ({
+      input: "sales",
+      columns,
+      rows,
+      count: rows.reduce((n, [from, to]) => n + to - from + 1, 0),
+      how,
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [
+          // 120 + 150.5 + 80; row 5's "n/a" is no number, as pandas reads it.
+          {
+            kind: "figure",
+            name: "total",
+            label: "Total",
+            unit: "USD",
+            value: 350.5,
+            of: sales([[2, 5]], "sum"),
+          },
+          {
+            kind: "figure",
+            name: "north",
+            label: "North",
+            unit: "USD",
+            value: 999,
+            of: sales([[2, 3]], "sum"),
+          },
+          {
+            kind: "figure",
+            name: "late",
+            label: "Late",
+            unit: null,
+            value: 1,
+            of: sales([[9, 9]], "max"),
+          },
+          {
+            kind: "figure",
+            name: "slope",
+            label: "Slope",
+            unit: null,
+            value: 1.25,
+            of: sales(
+              [
+                [2, 3],
+                [5, 5],
+              ],
+              null,
+              ["Quarter", "Revenue"],
+            ),
+          },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "What was the total revenue?");
+
+    expect(answer.analyses[0]?.markers.figures).toEqual([
+      { result: "total", marker: 1 },
+      { result: "slope", marker: 2 },
+    ]);
+    expect(answer.analyses[0]?.recalculations).toEqual([
+      { result: "total", check: { kind: "same", value: 350.5 } },
+      { result: "north", check: { kind: "differs", value: 270.5 } },
+      { result: "late", check: { kind: "unchecked", reason: "sales has no row 9" } },
+    ]);
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 350.5],
+      [2, 1.25],
+    ]);
+    const report = told(model, "run_analysis")[0] ?? "";
+    expect(report).toContain(
+      "- [=1] Total: 350.5 USD (the sum of Revenue in 4 rows of sales (rows 2–5), worked out again by IncarnaMind from its cells)",
+    );
+    expect(report).toContain(
+      "- north: no marker, so it can't be used: figure() gave 999, but the sum of Revenue in those rows of sales comes to 270.5",
+    );
+    expect(report).toContain(
+      "- late: no marker, so it can't be used: IncarnaMind couldn't work it out again: sales has no row 9.",
+    );
+    expect(report).toContain(
+      "- [=2] Slope: 1.25 (from 3 rows of sales (rows 2–3, 5): Quarter, Revenue)",
+    );
+    expect(report).not.toContain("[=3]");
+
+    const blocks = answerBlocks(answer);
+    expect(figureRunsOfAnswer(answer, blocks)[0]?.values).toEqual([
+      expect.objectContaining({ name: "total", of: sales([[2, 5]], "sum") }),
+      expect.objectContaining({
+        name: "slope",
+        of: sales(
+          [
+            [2, 3],
+            [5, 5],
+          ],
+          null,
+          ["Quarter", "Revenue"],
+        ),
+      }),
+    ]);
+  });
+
+  test("a plot comes back as a picture where the Answer puts [=picture n], in the conversation and in a Note", async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun("import matplotlib.pyplot as plt\nplt.plot([1, 2])")],
+      answer: "Revenue over time:\n\n[=picture 1]\n\nIt rose. [=picture 2]",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        pictures: [{ title: "Revenue by quarter", png, width: 1200, height: 900 }],
+        withoutGlyphs: ["各地区收入"],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "Plot revenue by quarter");
+
+    expect(answer.analyses[0]?.markers.pictures).toEqual([1]);
+    const report = told(model, "run_analysis")[0];
+    expect(report).toContain("- [=picture 1] Revenue by quarter (a picture matplotlib drew)");
+    expect(report).toContain(
+      'Left out: a picture ("各地区收入") whose text has characters matplotlib here has no font for, such as Chinese, Japanese or Korean, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot\'s text in English.',
+    );
+    const picture = {
+      type: "picture",
+      attrs: {
+        src: `data:image/png;base64,${png}`,
+        alt: "Revenue by quarter",
+        width: 600,
+        height: 450,
+      },
+    };
+    const blocks = answerBlocks(answer);
+    expect(blocks.filter((block) => block.type === "picture")).toEqual([picture]);
+    expect(blocks.map((block) => block.type)).toEqual(["paragraph", "picture", "paragraph"]);
+    expect(JSON.stringify(blocks)).not.toContain("[=picture");
+
+    const mind = await core.createMind({ title: "Revenue" });
+    await core.addToNote({
+      mindId: mind.id,
+      blocks,
+      figureRuns: figureRunsOfAnswer(answer, blocks),
+      model: answer.model,
+      origin: null,
+    });
+    const reader = await connectToMind(core, mind.id);
+    expect(
+      (readMind(reader).toJSON().content ?? []).filter((block) => block.type === "picture"),
+    ).toEqual([expect.objectContaining({ attrs: expect.objectContaining(picture.attrs) })]);
+  });
 
   test("a result table written as [=table 1] on a line of its own is in the Answer as a table, its numbers as a report shows them", async () => {
     const model = analysingModel({

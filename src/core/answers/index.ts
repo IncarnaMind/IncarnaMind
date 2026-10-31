@@ -43,6 +43,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
+import { withAnalysisPictures } from "../../shared/analysisPictures";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
 import { appliedAsAsked } from "../../shared/askedChanges";
@@ -1495,13 +1496,14 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
+              const drawn = withAnalysisPictures(blocks, analyses);
               return asGenerated(
                 calculating
-                  ? withCalculatedFigures(blocks, (marker) => figures.figure(marker), {
+                  ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
                       id: answerId,
                       analyses,
                     })
-                  : blocks,
+                  : drawn,
               );
             },
             citations: () => {

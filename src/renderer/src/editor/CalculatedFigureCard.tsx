@@ -1,4 +1,5 @@
 import type { CalculatedFigure, Citation, FigureInput, SignOffNow } from "../../../core/api";
+import type { AnalysisFigureRows } from "../../../shared/analysis";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
 import type { CalculatedSources } from "../../../shared/figureRuns";
@@ -41,6 +42,12 @@ export function CalculatedFigureCard({
     shown.state === "contradicted" ||
     shown.state === "needs-recheck";
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
+  const traced = sources?.analysis?.values.find(
+    (value) => value.name === figure.analysis?.result,
+  )?.of;
+  const ranges = traced
+    ? sources?.ranges.filter((range) => range.name === traced.input)
+    : sources?.ranges;
   return (
     <>
       <h3>
@@ -86,7 +93,8 @@ export function CalculatedFigureCard({
           input={input}
         />
       ))}
-      {sources?.ranges.map((range) => (
+      {traced && <TracedRows of={traced} />}
+      {ranges?.map((range) => (
         <div
           key={JSON.stringify([range.name, range.citation.passageId, range.range])}
           className="calculated-figure-input"
@@ -139,6 +147,39 @@ export function CalculatedFigureCard({
         </button>
       </div>
     </>
+  );
+}
+
+/** The rows of its input an Analysis figure was worked out from (#2346), and how. */
+function TracedRows({ of }: { of: AnalysisFigureRows }) {
+  const t = useT();
+  const plural = of.count === 1 ? "one" : "other";
+  const shown = of.rows
+    .slice(0, 6)
+    .map(([from, to]) => (from === to ? `${from}` : `${from}–${to}`));
+  const one = of.rows.length === 1 && of.rows[0]?.[0] === of.rows[0]?.[1];
+  const rows = t(one ? "figures.analysisRows.list.one" : "figures.analysisRows.list.other", {
+    runs: [...shown, ...(of.rows.length > shown.length ? ["…"] : [])].join(
+      t("figures.analysisRows.separator"),
+    ),
+  });
+  const shared = { count: of.count, input: of.input, rows };
+  return (
+    <div className="calculated-figure-input" data-testid="calculated-figure-rows">
+      <p>
+        {of.how
+          ? t(`figures.analysisRows.worked.${plural}`, {
+              ...shared,
+              how: t(`figures.analysisRows.how.${of.how}`),
+              label: of.columns[0] ?? "",
+            })
+          : t(`figures.analysisRows.used.${plural}`, {
+              ...shared,
+              names: of.columns.join(t("figures.analysisRows.separator")),
+            })}
+      </p>
+      {of.how && <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>}
+    </div>
   );
 }
 

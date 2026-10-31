@@ -80,7 +80,10 @@ const TYPES: Readonly<Record<string, string>> = {
   ".whl": "application/zip",
 };
 
-/** Starting Pyodide with numpy and pandas took 3–6 s on the spike's runners; a slow computer gets far longer. */
+/**
+ * Starting Pyodide with numpy and pandas took 3–6 s on the spike's runners, and a job's other
+ * packages up to 8 s more on a fast Mac (ADR-0025); a slow computer gets far longer.
+ */
 const START_LIMIT_MS = 120_000;
 /** The window and its spare interpreter wait this long for the next job before they close, freeing their memory. */
 const IDLE_MS = 5 * 60_000;
@@ -407,6 +410,8 @@ export function createElectronAnalysisRuntime(options: ElectronAnalysisOptions):
       const stop = () => done({ kind: "stopped" });
       let timer = setTimeout(() => done({ kind: "no-start" }), START_LIMIT_MS);
       sandbox.starts.set(request.id, () => {
+        // Once only, whatever the page sends after.
+        sandbox.starts.delete(request.id);
         started = performance.now();
         clearTimeout(timer);
         timer = setTimeout(() => done({ kind: "timed-out" }), limitMs);

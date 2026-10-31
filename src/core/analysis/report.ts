@@ -1,7 +1,15 @@
-import type { AnalysisCell, AnalysisTable } from "../../shared/analysis";
+import {
+  ANALYSIS_LIMITS,
+  type AnalysisCell,
+  type AnalysisFigureRows,
+  type AnalysisRecalculation,
+  type AnalysisTable,
+  type AnalysisValue,
+} from "../../shared/analysis";
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
+import { rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
 
@@ -98,23 +106,47 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
     output.cut.figures > 0 ? `${count(output.cut.figures)} figures` : "",
     output.cut.tables > 0 ? `${count(output.cut.tables)} tables` : "",
     output.cut.charts > 0 ? `${count(output.cut.charts)} charts` : "",
+    output.cut.pictures > 0
+      ? `${count(output.cut.pictures)} pictures (each at most ${ANALYSIS_LIMITS.pictureEdge} pixels and ${ANALYSIS_LIMITS.pictureBytes / 1_000_000} MB as a PNG)`
+      : "",
   ].filter(Boolean);
   if (cut.length > 0) lines.push(`Left out, over the limits: ${cut.join(", ")}.`);
+  const withoutGlyphs = output.withoutGlyphs ?? [];
+  if (end.kind === "done" && withoutGlyphs.length > 0) {
+    const titles = withoutGlyphs.map((title) => `"${title || "Untitled"}"`).join(", ");
+    lines.push(
+      `Left out: ${withoutGlyphs.length === 1 ? "a picture" : `${count(withoutGlyphs.length)} pictures`} (${titles}) whose text has characters matplotlib here has no font for, such as Chinese, Japanese or Korean, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text in English.`,
+    );
+  }
   lines.push(endLine(analysis, end));
   return lines.join("\n");
+}
+
+/** Which rows of which input a figure was worked out from, and how. */
+function tracedRows(of: AnalysisFigureRows): string {
+  const where = `${rowsOf(of.count)} of ${of.input} (${rowsText(of.rows)})`;
+  return of.how
+    ? `the ${of.how} of ${of.columns[0] ?? ""} in ${where}, worked out again by IncarnaMind from its cells`
+    : `from ${where}: ${of.columns.join(", ")}`;
 }
 
 function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
   const lines: string[] = [];
   const figure = new Map(analysis.markers.figures.map((each) => [each.result, each.marker]));
   const table = new Map(analysis.markers.tables.map((each) => [each.result, each.marker]));
+  const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
   for (const result of analysis.output.results) {
     const unit = result.unit ? ` ${result.unit}` : "";
     if (result.kind === "figure") {
       const marker = figure.get(result.name);
-      lines.push(
-        `- [=${marker}] ${result.label}: ${figureResultText(language, result.value, result.label)}${unit}`,
-      );
+      const value = `${figureResultText(language, result.value, result.label)}${unit}`;
+      const check = checks.get(result.name);
+      if (marker === undefined && check && check.kind !== "same") {
+        lines.push(`- ${result.name}: no marker, so it can't be used: ${refusal(result, check)}`);
+        continue;
+      }
+      const of = result.of ? ` (${tracedRows(result.of)})` : "";
+      lines.push(`- [=${marker}] ${result.label}: ${value}${of}`);
     } else {
       const marker = table.get(result.name);
       const { rowCount, columnCount } = result.table;
@@ -130,14 +162,29 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
       `- [=chart ${marker}] ${chart.title || "Chart"} (${chart.kind} of ${chart.y.join(", ")} by ${chart.x})`,
     );
   });
+  (analysis.output.pictures ?? []).forEach((picture, index) => {
+    const marker = analysis.markers.pictures?.[index];
+    lines.push(`- [=picture ${marker}] ${picture.title || "Untitled"} (a picture matplotlib drew)`);
+  });
   return lines;
+}
+
+function refusal(
+  result: Extract<AnalysisValue, { kind: "figure" }>,
+  check: AnalysisRecalculation,
+): string {
+  if (check.kind === "unchecked") return `IncarnaMind couldn't work it out again: ${check.reason}.`;
+  const of = result.of;
+  return `figure() gave ${figureText("en", result.value)}, but ${of ? `the ${of.how} of ${of.columns[0]} in those rows of ${of.input}` : "its cells"} comes to ${figureText("en", check.value)} as the sheet has them. figure() reads a column as its input has it; give a figure from a column the code changed with result().`;
 }
 
 function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
   switch (end.kind) {
     case "done":
-      return analysis.output.results.length > 0 || analysis.output.charts.length > 0
-        ? "Write [=n] where a figure goes, and [=table n] or [=chart n] on a line of its own where a table or chart goes. Never write their numbers yourself."
+      return analysis.output.results.length > 0 ||
+        analysis.output.charts.length > 0 ||
+        (analysis.output.pictures ?? []).length > 0
+        ? "Write [=n] where a figure goes, and [=table n], [=chart n] or [=picture n] on a line of its own where a table, chart or picture goes. Never write their numbers yourself."
         : "It gave no results: call result(name, value, label, unit) for each figure or table the Answer uses, and run it again.";
     case "error":
       return `It stopped with an error${end.line === null ? "" : ` on line ${end.line}`}:\n${end.message}\nFix the code and run it again: each run starts clean.`;

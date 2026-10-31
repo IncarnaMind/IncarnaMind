@@ -796,6 +796,21 @@ export const en = {
   "figures.inline.analysisNote":
     "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
   "figures.inline.analysis": "Saved Analysis: {title}",
+  "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
+  "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
+  "figures.analysisRows.how.sum": "Sum",
+  "figures.analysisRows.how.mean": "Average",
+  "figures.analysisRows.how.min": "Lowest value",
+  "figures.analysisRows.how.max": "Highest value",
+  "figures.analysisRows.how.count": "Count",
+  "figures.analysisRows.recalculated":
+    "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+  "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
+  "figures.analysisRows.used.other":
+    "Worked out from {count} rows of {input}: {rows}, using {names}",
+  "figures.analysisRows.list.one": "row {runs}",
+  "figures.analysisRows.list.other": "rows {runs}",
+  "figures.analysisRows.separator": ", ",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",

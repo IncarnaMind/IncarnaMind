@@ -180,7 +180,7 @@ What a Tool call can do beyond the conversation it is part of: read data, write 
 _Avoid_: permission, capability, side effect
 
 **Analysis**:
-Python an Answer wrote and IncarnaMind ran in its sandbox, with no network or files, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results.
+Python an Answer wrote and IncarnaMind ran in its sandbox, with no network or files, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
 _Avoid_: notebook, script, code interpreter (in the interface), Skill script
 
 **Third-party text**:

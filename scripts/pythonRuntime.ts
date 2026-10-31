@@ -1,11 +1,13 @@
 /**
- * Puts the files Analyses run with (ADR-0023) in resources/python, which
- * electron-builder ships beside app.asar: Pyodide's own files, unmodified,
- * from the pyodide package, and the wheels of numpy, pandas and what they
- * depend on, from Pyodide's CDN, each checked against the SHA-256 its lock
- * file records. Files already there and matching are kept; anything else in
- * the folder goes. The build runs it (electron.vite.config.ts), so the app
- * never fetches a package itself.
+ * Puts the files Analyses run with (ADR-0023, ADR-0025) in resources/python,
+ * which electron-builder ships beside app.asar: Pyodide's own files,
+ * unmodified, from the pyodide package, and the wheels of numpy, pandas,
+ * scipy, statsmodels, scikit-learn, matplotlib and what they depend on, from
+ * Pyodide's CDN, each checked against the SHA-256 its lock file records.
+ * packages.json lists each with the names code imports it by, for the Worker
+ * to load a job's packages. Files already there and matching are kept;
+ * anything else in the folder goes. The build runs it
+ * (electron.vite.config.ts), so the app never fetches a package itself.
  */
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,7 +15,14 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 /** What Analyses import; the wheels they depend on come with them. */
-export const PYTHON_PACKAGES = ["numpy", "pandas"] as const;
+export const PYTHON_PACKAGES = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "statsmodels",
+  "scikit-learn",
+  "matplotlib",
+] as const;
 
 /** Pyodide's files, as its package has them. */
 export const PYODIDE_FILES = [
@@ -29,6 +38,8 @@ interface LockedPackage {
   sha256: string;
   version: string;
   depends: string[];
+  /** The names code imports it by: scikit-learn's is "sklearn". */
+  imports: string[];
 }
 
 interface Lock {
@@ -102,6 +113,7 @@ export async function preparePythonRuntime(folder: string): Promise<{ fetched: s
     name: each.name,
     version: each.version,
     file: each.file_name,
+    imports: each.imports,
     expected: each.sha256,
   }));
   for (const { file, expected } of packages) {
@@ -123,10 +135,11 @@ export async function preparePythonRuntime(folder: string): Promise<{ fetched: s
     {
       pyodide: version,
       python: lock.info.python,
-      packages: packages.map(({ name, version: packageVersion, file }) => ({
+      packages: packages.map(({ name, version: packageVersion, file, imports }) => ({
         name,
         version: packageVersion,
         file,
+        imports,
       })),
     },
     null,

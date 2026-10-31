@@ -12,16 +12,34 @@ const REPO_ROOT = resolve(__dirname, "../..");
 const read = (path: string) => readFile(join(REPO_ROOT, path), "utf8");
 
 describe("the files Analyses run with", () => {
-  test("numpy and pandas come with every package they depend on", async () => {
+  test("numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib come with every package they depend on, each with the names code imports it by", async () => {
     const lock = JSON.parse(await read("node_modules/pyodide/pyodide-lock.json"));
+    const packages = packagesFor(lock);
 
-    expect(packagesFor(lock).map((each) => each.name)).toEqual([
+    expect(packages.map((each) => each.name)).toEqual([
+      "contourpy",
+      "cycler",
+      "fonttools",
+      "joblib",
+      "kiwisolver",
+      "matplotlib",
       "numpy",
+      "packaging",
       "pandas",
+      "patsy",
+      "pillow",
+      "pyparsing",
       "python-dateutil",
       "pytz",
+      "scikit-learn",
+      "scipy",
       "six",
+      "statsmodels",
+      "threadpoolctl",
     ]);
+    expect(packages.find((each) => each.name === "scikit-learn")?.imports).toEqual(["sklearn"]);
+    expect(packages.find((each) => each.name === "matplotlib")?.imports).toContain("matplotlib");
+    expect(packages.find((each) => each.name === "pillow")?.imports).toEqual(["PIL"]);
   });
 
   test("each is named in the notice at its version, with Pyodide's source at the version that ships", async () => {

@@ -27,7 +27,7 @@ const expected = (platform: NodeJS.Platform): string[] => [
   "IncarnaMind speakers: sherpa-onnx-node",
   ...(platform === "win32" ? [] : ["main process: @anthropic-ai/sandbox-runtime"]),
   ...(platform === "linux" ? ["main process: sandbox-runtime's seccomp helper"] : []),
-  "Analyses window: Pyodide, numpy and pandas",
+  "Analyses window: Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib",
 ];
 
 const described = (check: EngineCheck) =>
@@ -79,7 +79,7 @@ function runCheck(report: string, home: string): Promise<{ code: number | null; 
   });
 }
 
-// protects=a release never ships an engine that can't load (#1239): the packaged app, as built for this platform, loads each engine's native module in the process that runs it, through the engine's own loader, and finds every function the app calls, the way #1233 failed only in the built app while every test passed on the fake engines; then Python starts in the Analyses window from the packaged files; fails_when=a module is left out of the package or inside app.asar, its platform's build is missing, it loads without what the code calls (a CommonJS package through a native import()), an engine process can't start, or Pyodide, numpy or pandas don't load; no_claim=any model (none is downloaded), what an engine computes (the real-engine specs beside this one), or Analyses' isolation (e2e/analysis.spec.ts).
+// protects=a release never ships an engine that can't load (#1239): the packaged app, as built for this platform, loads each engine's native module in the process that runs it, through the engine's own loader, and finds every function the app calls, the way #1233 failed only in the built app while every test passed on the fake engines; then Python starts in the Analyses window from the packaged files and runs a regression, a forecast, a clustering and a plot offline; fails_when=a module is left out of the package or inside app.asar, its platform's build is missing, it loads without what the code calls (a CommonJS package through a native import()), an engine process can't start, or Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn or matplotlib don't load or run; no_claim=any model (none is downloaded), what an engine computes (the real-engine specs beside this one), or Analyses' isolation (e2e/analysis.spec.ts).
 test("the packaged app loads every engine's modules, each in the process that runs it", async () => {
   test.setTimeout(CHECK_LIMIT_MS + 60_000);
   expect(existsSync(packagedExecutable), `${packagedExecutable}: run npm run dist:dir first`).toBe(
