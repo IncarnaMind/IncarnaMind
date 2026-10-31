@@ -1236,6 +1236,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       const withCorrection = (checked: ClaimCheckResult): ClaimCheckResult => {
         if (checked.verdict !== "contradicted" || checked.remainder === undefined) return checked;
         const found = correctionFor(
+          request.originalClaim ?? request.claim,
           request.claim,
           said?.correction,
           session.finalCitation,
@@ -1626,6 +1627,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     const corrected =
       verdict.verdict === "contradicted"
         ? correctionFor(
+            request.originalClaim ?? request.claim,
             request.claim,
             verdict.correction,
             session.finalCitation,
@@ -2025,7 +2027,13 @@ function keepsNamedPeriods(from: string, replacement: string): boolean {
   return before.length === after.length && before.every((period, index) => period === after[index]);
 }
 
+/**
+ * A confirmed contradiction's correction of `claim`, a part of `sentence` or all of it: old words
+ * that occur once in it, never all the sentence's words, each choice's wording in its own found
+ * quote, keeping the sentence's named periods.
+ */
 function correctionFor(
+  sentence: string,
   claim: string,
   read: ReadCorrection | undefined,
   finalCitation: (marker: number) => Citation | null,
@@ -2034,12 +2042,15 @@ function correctionFor(
   if (!read || read.from === "" || read.choices.length < 1 || read.choices.length > 2) return null;
   const first = claim.indexOf(read.from);
   if (first < 0 || first !== claim.lastIndexOf(read.from)) return null;
+  // Old words that are all of the sentence would rewrite it, not correct its contradicted part:
+  // Claude Haiku 5.5 named a whole Chinese sentence so (#1481).
+  const kept = claim.slice(0, first) + claim.slice(first + read.from.length);
+  if (sentence === claim && !/[\p{L}\p{N}]/u.test(kept)) return null;
   const markers = new Set<number>();
   const wordings = new Set<string>();
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
   for (const choice of read.choices) {
     if (
-      (choice.marker !== 1 && choice.marker !== 2) ||
       markers.has(choice.marker) ||
       choice.wording === "" ||
       choice.wording === read.from ||

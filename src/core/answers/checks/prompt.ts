@@ -753,10 +753,36 @@ const topicOf = (line: string | undefined): ReadVerdict["topic"] => {
   return words === "found" || words === "not found" ? words : null;
 };
 
+/**
+ * A line with Change and To fields after its words, each field on a line of its own: Claude Haiku
+ * 5.5 wrote them at the end of its plain sentence, in quotation marks (#1481).
+ */
+function fieldLines(line: string): string[] {
+  // Capitalized as the reply form writes them, so "rose to 1: 2" in the old words is no field.
+  const field = (label: string) =>
+    new RegExp(`(\\s*)(?<![\\p{L}\\p{N}])(?=${label}[\\s*_]*(\\d+)[\\s*_]*[:：])`, "u");
+  const change = field("Change").exec(line);
+  if (!change) return [line];
+  const start = change.index + (change[1]?.length ?? 0);
+  const fields = line.slice(start);
+  const to = field("To").exec(fields.slice(1));
+  if (!to || to[2] !== change[2]) return [line];
+  const end = 1 + to.index + (to[1]?.length ?? 0);
+  return [line.slice(0, start), fields.slice(0, end), ...fieldLines(fields.slice(end))];
+}
+
+const PAIRED_QUOTES = /^(?:"(.+)"|“(.+)”|'(.+)'|‘(.+)’|「(.+)」|『(.+)』)$/su;
+
+/** Words a model put in quotation marks, without them. */
+const unquoted = (words: string): string => {
+  const match = PAIRED_QUOTES.exec(words);
+  return match?.slice(1).find((each) => each !== undefined) ?? words;
+};
+
 /** Each To line's marker by its number: the quote it ends with, read before markers are shown. */
 function toMarkers(reply: string): Map<number, number> {
   const markers = new Map<number, number>();
-  for (const line of reply.replace(THINKING, "").split("\n")) {
+  for (const line of reply.replace(THINKING, "").split("\n").flatMap(fieldLines)) {
     const match = TO.exec(line.trim());
     const marker = match && /\[[\^=]?(\d{1,4})\]\s*$/.exec(match[2] ?? "")?.[1];
     if (match && marker) markers.set(Number(match[1]), Number(marker));
@@ -783,7 +809,7 @@ function readCorrection(
       if (!match) continue;
       seen = true;
       if ((index !== 1 && index !== 2) || fields.has(index)) return null;
-      fields.set(index, match[2]?.trim() ?? "");
+      fields.set(index, unquoted((match[2] ?? "").replace(MARKERS, "").trim()));
     }
   }
   if (!seen) return undefined;
@@ -800,7 +826,7 @@ function readCorrection(
   const markers = toMarkers(reply);
   const choices = [...destinations].map(([index, text]) => ({
     marker: markers.get(index) ?? index,
-    wording: text.replace(MARKERS, "").trim(),
+    wording: text,
   }));
   return choices.some((choice) => choice.wording === "") ? null : { from, choices };
 }
@@ -854,6 +880,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   const text = reply.replace(THINKING, "").replace(DISPLAY_MARKERS, "").trim();
   const lines = text
     .split("\n")
+    .flatMap(fieldLines)
     .map((line) => line.trim())
     .filter((line) => line !== "");
   // A model that thinks aloud corrects itself with a second verdict: its last word counts.
