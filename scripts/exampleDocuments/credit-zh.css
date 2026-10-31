@@ -1,0 +1,146 @@
+@import url("./fonts/noto.css");
+
+@page {
+  size: A4;
+  margin: 22mm 20mm 20mm;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC Thin";
+  font-size: 10.5pt;
+  line-height: 1.7;
+  color: #1D232B;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  break-after: page;
+}
+
+.page:last-child {
+  break-after: auto;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 2px solid #1F5F4A;
+  padding-bottom: 8px;
+}
+
+.brand {
+  font-size: 13pt;
+  font-weight: 700;
+  color: #1F5F4A;
+  line-height: 29px;
+}
+
+.meta {
+  font-size: 9pt;
+  color: #5B6570;
+}
+
+h1 {
+  font-size: 17pt;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 19px 0 7px;
+}
+
+.sub {
+  color: #5B6570;
+  margin: 0 0 1px;
+}
+
+h3 {
+  font-size: 11.5pt;
+  font-weight: 700;
+  color: #1F5F4A;
+  line-height: 24px;
+  margin: 21px 0 9px;
+}
+
+header + h3 {
+  margin-top: 23px;
+}
+
+ul {
+  margin: 0 0 2px;
+  padding-left: 18.66px;
+}
+
+li + li {
+  margin-top: 5.2px;
+}
+
+p {
+  margin: 0 0 2px;
+}
+
+p + p {
+  margin-top: 7px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-size: 10pt;
+  margin: 1px 0 2px;
+}
+
+td,
+th {
+  padding: 5.5px 8px;
+  line-height: 22px;
+  text-align: right;
+}
+
+th {
+  font-weight: inherit;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+thead th {
+  color: #5B6570;
+  font-weight: 600;
+  border-bottom: 1px solid #1D232B;
+}
+
+tbody tr {
+  border-bottom: 1px solid #D5DAE0;
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  font-weight: 700;
+}
+
+.num {
+  display: inline-block;
+  width: 40px;
+}
+
+.def {
+  margin-left: 40px;
+}
+
+.notice {
+  font-size: 8.5pt;
+  line-height: 1.7;
+  color: #5B6570;
+  border-top: 1px solid #D5DAE0;
+  padding-top: 8px;
+  margin-top: 23px;
+}
+
+.page > .notice:first-child {
+  margin-top: 0;
+}
