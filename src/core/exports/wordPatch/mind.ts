@@ -225,6 +225,13 @@ export interface ListPlace {
   level: number;
   /** A numbered list's scheme, and the outermost numbered list it is in, whose numbering it shares. */
   numbered: { scheme: NumberingScheme; outer: NodeJSON } | null;
+  /** How many lists it is in, 0 for an outermost one. */
+  nesting: number;
+  /**
+   * The level its outermost list says it starts at, or null when it says none: a Note imported
+   * before lists kept their level (#1419) has none, though its file's list may start deeper.
+   */
+  startLevel: number | null;
 }
 
 /** What a counterpart is, as the export writes it. */
@@ -288,7 +295,8 @@ function collect(
     };
     if (LISTS.has(node.type)) {
       const ordered = node.type === "orderedList";
-      const startLevel = itemLevel(0, Number(node.attrs?.startLevel) || 0);
+      const named = Number(node.attrs?.startLevel);
+      const startLevel = itemLevel(0, named || 0);
       // Where its items sit in the file, which an outermost list that starts deeper does at its level.
       const depth = list ? Math.min(list.depth + 1, 8) : startLevel;
       const outer = ordered && list?.numbered ? list.numbered : null;
@@ -304,6 +312,8 @@ function collect(
           (ordered
             ? { scheme: isNumberingScheme(scheme) ? scheme : "default", outer: node }
             : null),
+        nesting: list ? list.nesting + 1 : 0,
+        startLevel: list ? list.startLevel : named > 0 ? startLevel : null,
       };
       for (const item of node.content ?? []) {
         collect(item.content ?? [], keyOf, place, into, {

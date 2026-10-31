@@ -986,9 +986,10 @@ export class DocumentPatch {
       return;
     }
     const numId = this.numIdOf(list);
+    const level = (based && this.importedLevel(based, list)) ?? this.levelOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${this.levelOf(list)}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
@@ -1033,14 +1034,25 @@ export class DocumentPatch {
     return this.imported(list)?.level ?? list.depth;
   }
 
+  /**
+   * The Word level an imported item goes at in `place`: its level in the file, moved by as many
+   * levels as the item was, so a list that starts deeper in the file than in the Note keeps it.
+   */
+  private importedLevel(based: Based, place: ListPlace): number | null {
+    const was = based.counterpart.list;
+    const level = levelIn(this.pPrOf(based.element));
+    if (!was || level === null) return null;
+    const started = place.startLevel === null ? 0 : place.startLevel - (was.startLevel ?? 0);
+    return Math.min(Math.max(level + place.nesting - was.nesting + started, 0), 8);
+  }
+
   private imported(place: ListPlace): { numId: number; level: number } | null {
     for (const item of this.listItems.get(place.list) ?? []) {
       const based = item.key ? this.based.get(item.key) : undefined;
       if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
-      const pPr = this.pPrOf(based.element);
-      const numId = numIdIn(pPr);
+      const numId = numIdIn(this.pPrOf(based.element));
       if (numId !== null && numId !== "0")
-        return { numId: Number(numId), level: levelIn(pPr) ?? place.depth };
+        return { numId: Number(numId), level: this.importedLevel(based, place) ?? place.depth };
     }
     return null;
   }
@@ -1523,9 +1535,18 @@ function resolvedMark(pPr: string, was: Pendings, now: Pendings): string {
   return properties.toXml();
 }
 
-const sameList = (a: ListPlace | null, b: ListPlace | null): boolean =>
-  (a === null && b === null) ||
-  (a !== null && b !== null && a.ordered === b.ordered && a.depth === b.depth);
+/**
+ * Whether an item is where it was in the file: as deep in lists, its list starting at the same
+ * level. A list that names no start level, as in a Note imported before lists kept theirs, starts
+ * where the file's does.
+ */
+const sameList = (now: ListPlace | null, was: ListPlace | null): boolean =>
+  (now === null && was === null) ||
+  (now !== null &&
+    was !== null &&
+    now.ordered === was.ordered &&
+    now.nesting === was.nesting &&
+    (now.startLevel === null || now.startLevel === (was.startLevel ?? 0)));
 
 const isHeaderRow = (row: NodeJSON) =>
   (row.content ?? []).length > 0 &&
@@ -1536,7 +1557,6 @@ function numIdIn(pPr: string): string | null {
   return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
 }
 
-/** The level a paragraph's own numbering puts it at, if it names one. */
 function levelIn(pPr: string): number | null {
   const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
   return value === undefined ? null : Math.min(Number(value), 8);

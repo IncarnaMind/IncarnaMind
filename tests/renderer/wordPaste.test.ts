@@ -205,7 +205,8 @@ describe("pasting what Word copies", () => {
     expect(items(inner)).toEqual(["Detail"]);
   });
 
-  test("a bullet under a numbered list that starts deeper follows it, rather than nesting in it", () => {
+  // protects=a bullet under an item of a numbered list that starts deeper nests in that item, the list going on after it; fails_when=the bullet becomes a list beside it, splitting the numbered list in two; no_claim=a bullet shallower than the list.
+  test("a bullet under a numbered list that starts deeper nests in its item", () => {
     const doc = pasted(
       word(
         listParagraph("l0", 2, "1.1.", "First") +
@@ -213,13 +214,28 @@ describe("pasting what Word copies", () => {
           listParagraph("l0", 2, "1.2.", "Second"),
       ),
     );
-    // The scheme list keeps its own level, so the bullet is a list beside it.
-    expect(blocks(doc)).toEqual([
-      { type: "orderedList", text: "First" },
-      { type: "bulletList", text: "Detail" },
-      { type: "orderedList", text: "Second" },
-    ]);
+    expect(blocks(doc).map((block) => block.type)).toEqual(["orderedList"]);
     expect(doc.firstChild?.attrs.startLevel).toBe(1);
+    expect(items(doc.firstChild)).toEqual(["First", "Second"]);
+    expect(doc.firstChild?.firstChild?.lastChild?.type.name).toBe("bulletList");
+    expect(items(doc.firstChild?.firstChild?.lastChild)).toEqual(["Detail"]);
+  });
+
+  // protects=a numbered list under a bullet in one Word list pastes as a list nested in the bullet, numbered from its scheme's first level; fails_when=its "1." a level in matches no scheme there, so the whole run stays typed; no_claim=a run whose numbers no scheme writes from any level.
+  test("a numbered list under a bullet of the same Word list nests in it, from 1.", () => {
+    const doc = pasted(
+      word(
+        listParagraph("l0", 1, "·", "Bullet") +
+          listParagraph("l0", 2, "1.", "First") +
+          listParagraph("l0", 2, "2.", "Second"),
+      ),
+    );
+    expect(blocks(doc).map((block) => block.type)).toEqual(["bulletList"]);
+    const nested = doc.firstChild?.firstChild?.lastChild;
+    expect(nested?.type.name).toBe("orderedList");
+    expect(items(nested)).toEqual(["First", "Second"]);
+    expect(nested?.attrs.numbering ?? null).toBe(null);
+    expect(nested?.attrs.startLevel ?? 0).toBe(0);
   });
 
   test("words beside a list, outside any paragraph, are kept", () => {

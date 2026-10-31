@@ -526,3 +526,244 @@ describe("Numbering schemes in Word", () => {
     expect(levelAt(numbering, top, 8)).toEqual(["decimal", "%1.%2.%3.%4.%5.%6.%7.%8.%9."]);
   });
 });
+
+/** A Word list definition, its levels' number formats and texts from level 0. */
+const wordDefinition = (id: number, levels: readonly (readonly [string, string])[]) =>
+  `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="hybridMultilevel"/>${levels
+    .map(
+      ([format, text], level) =>
+        `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/></w:lvl>`,
+    )
+    .join("")}</w:abstractNum>`;
+const BULLETS = wordDefinition(9, [
+  ["bullet", "•"],
+  ["bullet", "o"],
+  ["bullet", "•"],
+  ["bullet", "o"],
+]);
+const CLAUSES_FILE = wordDefinition(0, [
+  ["lowerLetter", "(%1)"],
+  ["lowerRoman", "(%2)"],
+  ["upperLetter", "(%3)"],
+]);
+const CHINESE_FILE = wordDefinition(0, [
+  ["chineseCounting", "%1、"],
+  ["chineseCounting", "（%2）"],
+]);
+const numberingOf = (definition: string, start = 1) =>
+  `${definition}${BULLETS}<w:num w:numId="1"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num><w:num w:numId="2"><w:abstractNumId w:val="9"/></w:num>`;
+
+const withLists = (
+  blocks: JSONContent[],
+  change: (list: JSONContent) => JSONContent,
+): JSONContent[] => blocks.map((block) => (block.type === "orderedList" ? change(block) : block));
+
+describe("A Word file's numbered lists, back into it", () => {
+  // protects=Tab on an item of the file's own list writes it a Word level deeper in the same numbering, tracked when changes are; fails_when=it keeps its old level (the file shows (c) (d) (e) where the screen shows (c) (i) (e)) or the change isn't tracked; no_claim=an item dragged into another list.
+  test.each([false, true])(
+    "an item of the file's list Tabbed under the one before goes a Word level deeper (tracked: %s)",
+    async (trackChanges) => {
+      const { core, dataDir } = await newMind();
+      const { mindId, client } = await importWordBytes(
+        core,
+        dataDir,
+        wordFile({
+          numbering: numberingOf(CLAUSES_FILE, 3),
+          body: ["Rent", "Deposit", "Repairs"]
+            .map((text) => wordParagraph(run(text), { numId: 1 }))
+            .join(""),
+        }),
+        { origin: "own" },
+      );
+      expect(listsIn(readMind(client))).toEqual([
+        { numbering: "clauses", startLevel: 0, items: ["Rent", "Deposit", "Repairs"] },
+      ]);
+      editMind(client, (blocks) =>
+        withLists(blocks, (list) => {
+          const [rent, deposit, repairs] = list.content ?? [];
+          return {
+            ...list,
+            content: [
+              { ...rent, content: [...(rent?.content ?? []), ordered({}, deposit ?? {})] },
+              repairs ?? {},
+            ],
+          };
+        }),
+      );
+      await client.settled();
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx", trackChanges })).data);
+      const document = part(files, "word/document.xml");
+      expect(numberedParagraphs(document)).toEqual([
+        { level: 0, numId: "1", text: "Rent" },
+        { level: 1, numId: "1", text: "Deposit" },
+        { level: 0, numId: "1", text: "Repairs" },
+      ]);
+      const deposit = /<w:p>(?:(?!<\/w:p>)[\s\S])*Deposit/.exec(document)?.[0] ?? "";
+      expect(deposit.includes("<w:pPrChange")).toBe(trackChanges);
+    },
+  );
+
+  // protects=a list of the file's taken a level deeper as a whole (Tab on its first item) goes a Word level deeper; fails_when=its items keep the file's level; no_claim=Shift-Tab back to the first level, which reads the same as a Note imported before lists kept their level.
+  test("a list of the file's that the User starts a level deeper goes a Word level deeper", async () => {
+    const { core, dataDir } = await newMind();
+    const { mindId, client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        numbering: numberingOf(CLAUSES_FILE),
+        body: ["Rent", "Deposit"].map((text) => wordParagraph(run(text), { numId: 1 })).join(""),
+      }),
+      { origin: "own" },
+    );
+    editMind(client, (blocks) =>
+      withLists(blocks, (list) => ({ ...list, attrs: { ...list.attrs, startLevel: 1 } })),
+    );
+    await client.settled();
+
+    const files = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+    expect(numberedParagraphs(part(files, "word/document.xml"))).toEqual([
+      { level: 1, numId: "1", text: "Rent" },
+      { level: 1, numId: "1", text: "Deposit" },
+    ]);
+  });
+
+  // protects=a Note imported before lists kept their scheme and level, whose file's list starts a level in, goes back into the file untouched; fails_when=its items are written again at the Note's level 0, or at all; no_claim=such a Note's list the User then edits.
+  test.each([false, true])(
+    "a list a Note imported before lists kept their level goes back untouched (tracked: %s)",
+    async (trackChanges) => {
+      const { core, dataDir } = await newMind();
+      const bytes = wordFile({
+        numbering: numberingOf(CHINESE_FILE),
+        body: ["第一项", "第二项"]
+          .map((text) => wordParagraph(run(text), { numId: 1, ilvl: 1 }))
+          .join(""),
+      });
+      const { mindId, client } = await importWordBytes(core, dataDir, bytes, { origin: "own" });
+      expect(listsIn(readMind(client))).toEqual([
+        { numbering: "chinese", startLevel: 1, items: ["第一项", "第二项"] },
+      ]);
+      editMind(client, (blocks) =>
+        withLists(blocks, (list) => {
+          const { numbering: _scheme, startLevel: _level, ...older } = list.attrs ?? {};
+          return { ...list, attrs: older };
+        }),
+      );
+      await client.settled();
+      expect(listsIn(readMind(client))).toEqual([
+        { numbering: null, startLevel: 0, items: ["第一项", "第二项"] },
+      ]);
+
+      const files = unzip((await core.exportMind(mindId, { format: "docx", trackChanges })).data);
+      expect(part(files, "word/document.xml")).toBe(part(unzip(bytes), "word/document.xml"));
+    },
+  );
+
+  // protects=a bullet under an item of a scheme list that starts a level in, or nested two levels in, imports inside that item; fails_when=the bullet becomes a list beside the numbered list, which splits it in two; no_claim=a bullet shallower than the list it follows.
+  test("a bullet under an item of a list that starts a level in imports inside that item", async () => {
+    const { core, dataDir } = await newMind();
+    const { client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        numbering: numberingOf(CHINESE_FILE),
+        body:
+          wordParagraph(run("第一项"), { numId: 1, ilvl: 1 }) +
+          wordParagraph(run("细节"), { numId: 2, ilvl: 2 }) +
+          wordParagraph(run("第二项"), { numId: 1, ilvl: 1 }),
+      }),
+      { origin: "own" },
+    );
+    const doc = readMind(client);
+    expect(nestedListsIn(doc)).toEqual([
+      {
+        type: "orderedList",
+        numbering: "chinese",
+        items: ["第一项", "第二项"],
+        inside: ["bulletList"],
+      },
+      { type: "bulletList", numbering: null, items: ["细节"], inside: [] },
+    ]);
+    expect(listsIn(doc)[0]?.startLevel).toBe(1);
+  });
+
+  test("a bullet under an item two Word levels in imports inside that item", async () => {
+    const { core, dataDir } = await newMind();
+    const { client } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        numbering: numberingOf(CLAUSES_FILE),
+        body:
+          wordParagraph(run("Rent"), { numId: 1, ilvl: 0 }) +
+          wordParagraph(run("Monthly"), { numId: 1, ilvl: 2 }) +
+          wordParagraph(run("Detail"), { numId: 2, ilvl: 3 }),
+      }),
+      { origin: "own" },
+    );
+    expect(nestedListsIn(readMind(client))).toEqual([
+      { type: "orderedList", numbering: "clauses", items: ["Rent"], inside: ["orderedList"] },
+      { type: "orderedList", numbering: "clauses", items: ["Monthly"], inside: ["bulletList"] },
+      { type: "bulletList", numbering: null, items: ["Detail"], inside: [] },
+    ]);
+  });
+});
+
+describe("A numbered list under bullets, out to Word and back", () => {
+  async function roundTrip(blocks: JSONContent[]) {
+    const { core, dataDir, mind, client } = await newMind();
+    writeMind(client, blocks);
+    await client.settled();
+    const before = readMind(client);
+    const exported = await core.exportMind(mind.id, { format: "docx" });
+    const { client: imported } = await importWordBytes(core, dataDir, Buffer.from(exported.data), {
+      origin: "own",
+      name: "lists.docx",
+    });
+    return { before, after: readMind(imported) };
+  }
+
+  // protects=a numbered list under two bullets imports back in its own scheme from its first level, as the editor draws it; fails_when=its decimal "%3." reads as Chinese report's third level and draws 一、 二、 or （1）; no_claim=a one-level Outline list, which Word writes the same as the default.
+  test.each(["default", "clauses", "chinese"] as const)(
+    "a %s list under two bullets imports back the same",
+    async (scheme) => {
+      const numbering = scheme === "default" ? null : scheme;
+      const { before, after } = await roundTrip([
+        bullet(item("Bullet", bullet(item("Inner", ordered({ numbering }, item("A"), item("B")))))),
+      ]);
+      expect(listsIn(after)).toEqual([{ numbering, startLevel: 0, items: ["A", "B"] }]);
+      expect(nestedListsIn(after)).toEqual(nestedListsIn(before));
+    },
+  );
+
+  // protects=a Clauses list under a bullet that starts at (i) imports back starting there; fails_when=its start level is lost and it draws (a) (b); no_claim=a list under a bullet in a numbered list.
+  test("a Clauses list from (i) under a bullet imports back from (i)", async () => {
+    const { before, after } = await roundTrip([
+      bullet(
+        item("Bullet", ordered({ numbering: "clauses", startLevel: 1 }, item("A"), item("B"))),
+      ),
+    ]);
+    expect(listsIn(after)).toEqual([{ numbering: "clauses", startLevel: 1, items: ["A", "B"] }]);
+    expect(nestedListsIn(after)).toEqual(nestedListsIn(before));
+  });
+
+  // protects=a Default or Outline list under a bullet in a numbered list imports back in its own scheme; fails_when=it comes back as Chinese report; no_claim=a one-level Outline list, which Word writes the same as the default.
+  test.each([
+    ["default", ordered({}, item("A"), item("B"))],
+    ["outline", ordered({ numbering: "outline" }, item("A", ordered({}, item("A1"))), item("B"))],
+  ] as const)("a %s list under a bullet in a numbered list stays it", async (scheme, inner) => {
+    const { before, after } = await roundTrip([
+      ordered({ numbering: "clauses" }, item("One", bullet(item("Bullet", inner)))),
+    ]);
+    const lists = listsIn(after);
+    expect(lists[0]).toEqual({ numbering: "clauses", startLevel: 0, items: ["One"] });
+    expect(lists[1]).toEqual({
+      numbering: scheme === "default" ? null : scheme,
+      startLevel: 0,
+      items: ["A", "B"],
+    });
+    const shape = (doc: ProseMirrorNode) =>
+      nestedListsIn(doc).map(({ type, items, inside }) => ({ type, items, inside }));
+    expect(shape(after)).toEqual(shape(before));
+  });
+});

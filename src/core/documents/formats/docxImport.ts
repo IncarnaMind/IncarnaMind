@@ -1288,7 +1288,7 @@ class Reader {
     const num = this.numbering.nums.get(numId);
     const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
     const levels = new Map<number, { format: string; text: string }>();
-    for (const level of used) {
+    for (let level = 0; level <= Math.max(...used); level++) {
       const override = num?.overrides.get(level);
       const own = base?.get(level);
       levels.set(level, {

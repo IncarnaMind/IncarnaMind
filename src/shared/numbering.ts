@@ -24,7 +24,6 @@ export const isNumberingScheme = (value: unknown): value is NumberingScheme =>
 export const itemLevel = (depth: number, startLevel: number) =>
   Math.min(DEEPEST_LEVEL, Math.max(0, depth) + Math.max(0, startLevel));
 
-/** Word's number formats (`w:numFmt`) the schemes use. */
 export type WordNumberFormat =
   | "decimal"
   | "lowerLetter"
@@ -121,7 +120,7 @@ const COUNTING: Record<
   chineseCounting: { write: chinese, pattern: "[一二三四五六七八九十]{1,3}", read: fromChinese },
 };
 
-/** A level as Word writes it: its number format, and its text with the number at "%". */
+/** Its text has "%" where the number goes. */
 interface LevelFormat {
   format: WordNumberFormat;
   text: string;
@@ -199,11 +198,11 @@ const sameText = (text: string) => text.replace(/\(/g, "（").replace(/\)/g, "�
 
 /**
  * The scheme a Word list is written in, and the level of it the list starts at, from its levels'
- * number formats and texts (`levels`, by level from 0, those it has), or null: a list numbered
- * any other way. The levels its definition's items use (`used`, the lists nested in it among them)
- * must all match, counted from the first level its own items use (`own`); Outline's levels must
- * carry their parents' numbers. A list that starts its numbering a level in, under a bullet, draws
- * the scheme's first format at that level (#1419).
+ * number formats and texts (`levels`, by level from 0), or null: a list numbered any other way.
+ * The levels its definition's items use (`used`, the lists nested in it among them) must all
+ * match, counted from the first level its own items use (`own`); Outline's levels must carry their
+ * parents' numbers. A list that starts its numbering a level in, under a bullet, draws the scheme's
+ * first format at that level and every level above it (#1419).
  */
 export function schemeOfWordLevels(
   levels: ReadonlyMap<number, { format: string; text: string }>,
@@ -211,20 +210,34 @@ export function schemeOfWordLevels(
   own: readonly number[] = used,
 ): { scheme: NumberingScheme; startLevel: number } | null {
   const depth = Math.min(...own);
+  const matches = (scheme: NumberingScheme, level: number, at: number) => {
+    const written = levels.get(at);
+    if (!written) return false;
+    const wanted = wordLevel(scheme, level, at);
+    const format = SAME_FORMAT[written.format] ?? written.format;
+    const lenient = scheme === "chinese" ? sameText : (text: string) => text;
+    return format === wanted.format && lenient(written.text.trim()) === lenient(wanted.text);
+  };
   const fits = (scheme: NumberingScheme, startLevel: number) =>
-    used.every((level) => {
-      if (level - depth + startLevel < 0) return false;
-      const own = levels.get(level);
-      if (!own) return false;
-      const wanted = wordLevel(scheme, level - depth + startLevel, level);
-      const format = SAME_FORMAT[own.format] ?? own.format;
-      const lenient = scheme === "chinese" ? sameText : (text: string) => text;
-      return format === wanted.format && lenient(own.text.trim()) === lenient(wanted.text);
-    });
-  // A scheme read at its own levels first, as most lists are written; else from its first level.
-  for (const startLevel of [depth, ...Array.from({ length: depth + 1 }, (_, at) => at)]) {
-    const scheme = NUMBERING_SCHEMES.find((each) => fits(each, startLevel));
-    if (scheme) return { scheme, startLevel };
+    used.every(
+      (level) =>
+        level - depth + startLevel >= 0 && matches(scheme, level - depth + startLevel, level),
+    );
+  // The levels above tell the readings apart where the list's own don't: a decimal "%3." is
+  // Chinese report's third level, and also the first format of a list under two bullets.
+  const above = (scheme: NumberingScheme, startLevel: number) =>
+    Array.from({ length: depth }, (_, at) => at).every((at) =>
+      matches(scheme, Math.max(at - depth + startLevel, 0), at),
+    );
+  const startLevels = [depth, ...Array.from({ length: depth + 1 }, (_, at) => at)];
+  for (const whole of [true, false]) {
+    // A scheme read at its own levels first, as most lists are written; else from its first level.
+    for (const startLevel of startLevels) {
+      const scheme = NUMBERING_SCHEMES.find(
+        (each) => fits(each, startLevel) && (!whole || above(each, startLevel)),
+      );
+      if (scheme) return { scheme, startLevel };
+    }
   }
   return null;
 }

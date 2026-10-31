@@ -77,7 +77,12 @@ function listBlocks(children: readonly Node[], document: Document) {
               listId: each.listId,
               level: each.level,
               ...(marker.ordered
-                ? { ordered: true, number: marker.number, scheme: marker.scheme }
+                ? {
+                    ordered: true,
+                    number: marker.number,
+                    scheme: marker.scheme,
+                    startLevel: marker.startLevel,
+                  }
                 : { ordered: false, number: 1 }),
             }
           : null,
