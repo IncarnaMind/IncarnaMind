@@ -202,7 +202,12 @@ export function useSorting() {
     }
     if (!settings) return false;
     try {
-      await core.saveLibrarySettings({ ...settings, classifier: option.classifier });
+      // "Use this", even for the model already saved, is choosing to tag and sort with it (#2308).
+      await core.saveLibrarySettings({
+        ...settings,
+        classifier: option.classifier,
+        automatic: true,
+      });
       return true;
     } catch (error) {
       useAppStore.getState().reportError(error);

@@ -117,6 +117,8 @@ test("a pasted key is named by its form and works at once: the waiting Question 
       .poll(async () => (await bridge(window).settings()).device.transcriptionRoute)
       .toBe("local");
     await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
+    // "Tags and Folders use Claude Haiku 5.5" is the choice to tag with it: tagging is on (#2308).
+    await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
   } finally {
     await app.close();
   }

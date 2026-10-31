@@ -11,3 +11,7 @@ Nothing leaves the computer for a service the User hasn't chosen. The User choos
 - **Local mode** sends nothing to any cloud service, whatever was chosen.
 
 Considered: a dialog per flow and service (the previous rule), rejected after persona testing found two or three dialogs in the first minute; one dialog per provider at the first send, rejected because the User has already chosen the provider a moment before and the dialog only repeats it.
+
+## Amendment: choosing a model for Tags turns the switch on (2026-10-31, #2308)
+
+Choosing the model that tags and sorts, where its line says what it sends (first-run setup's "Tags and Folders use …", Settings › Tagging, the Models defaults), is choosing a service for that flow, so it turns **Tag and sort new Documents automatically** on. Choosing the chat model for Answers still doesn't, and the switch stays where the User can turn it off. Before, a User who chose "Tags and Folders use Claude Haiku 5.5" in setup got no Tags at all, every Document "off", with nothing saying why.

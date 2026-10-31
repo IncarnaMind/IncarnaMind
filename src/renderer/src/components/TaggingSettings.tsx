@@ -157,9 +157,10 @@ export function TaggingSettings() {
         provider: providerOf(models.automatic, language) ?? "",
       })
     : t("tagging.using.none");
+  // Choosing a model, its sends line under the switch, is choosing to tag and sort with it (#2308).
   const choose = (classifier: LibraryClassifier) => {
     setOtherOpen(false);
-    void save({ classifier });
+    void save(classifier.kind === "automatic" ? { classifier } : { classifier, automatic: true });
   };
   const onPlan = inUse?.group === "plan";
   const { organizeWith } = settings;
