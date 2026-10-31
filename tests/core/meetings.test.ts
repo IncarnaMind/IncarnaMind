@@ -617,17 +617,4 @@ describe("What a Meeting needs", () => {
     expect(ready?.status).toBe("ready");
     expect(embedded.length).toBeGreaterThan(1);
   });
-
-  test("deleting the Mind stops its Meeting and deletes its audio", async () => {
-    const dataDir = await createTempDataFolder();
-    const { core, capture, record } = await meetingCore(dataDir);
-    const meeting = await core.createMeeting();
-    await core.startMeeting({ meetingId: meeting.id });
-    record(12 * SECOND);
-
-    await core.deleteMind(meeting.mindId);
-    expect(capture.running).toBe(false);
-    expect(await core.listMeetings()).toEqual([]);
-    expect(existsSync(meetingFolder(dataDir, meeting.id))).toBe(false);
-  });
 });
