@@ -3076,7 +3076,7 @@ export function createDocuments(options: DocumentsOptions) {
     readHiddenSheets(idInput: unknown, readInput: unknown = true): Document {
       const id = parseId(idInput);
       if (typeof readInput !== "boolean") {
-        throw new InvalidInputError("readHiddenSheets takes true or false.");
+        throw new InvalidInputError({ key: "error.document.readHiddenSheets" });
       }
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });

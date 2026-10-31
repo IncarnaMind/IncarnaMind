@@ -4350,6 +4350,7 @@ export const zhCN = {
   "error.webPage.lookGone": "这个网页原貌的 PDF 已不存在。",
   "error.document.notFailed": "只有处理失败的文档才能重试。",
   "error.document.noHiddenSheets": "这个工作簿没有未读取的隐藏工作表。",
+  "error.document.readHiddenSheets": "readHiddenSheets 必须是 true 或 false。",
   "error.document.notPdf": "只有 PDF 可以用密码打开。",
   "error.document.passwordMissing": "输入这个 PDF 的密码才能打开它。",
   "error.document.notLocked": "这个 PDF 没有加密，不用密码就能打开。",

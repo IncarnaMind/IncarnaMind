@@ -4550,6 +4550,7 @@ export const en = {
   "error.webPage.lookGone": "The PDF of how this page looked is gone.",
   "error.document.notFailed": "Only a Document that failed to process can be retried.",
   "error.document.noHiddenSheets": "This workbook has no hidden sheets left to read.",
+  "error.document.readHiddenSheets": "readHiddenSheets must be true or false.",
   "error.document.notPdf": "Only a PDF is opened with a password.",
   "error.document.passwordMissing": "Type the PDF’s password to open it.",
   "error.document.notLocked": "This PDF isn’t locked: it opens without a password.",
