@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CreateTerminalRequest } from "@agentclientprotocol/sdk";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { AgentProcess } from "../../src/core";
 import {
+  type HostedActions,
   type HostedDecision,
   type HostedEvent,
   type HostedPermission,
@@ -68,6 +70,24 @@ async function turn(
 ) {
   const { agentProcess, folder, log } = await startAgent();
   const asked: HostedPermission[] = [];
+  const written: { path: string; content: string }[] = [];
+  const started: CreateTerminalRequest[] = [];
+  // Stands in for the host: records what it was told to carry out.
+  const actions: HostedActions = {
+    writeTextFile: async (path, content) => {
+      written.push({ path, content });
+    },
+    startCommand: async (command) => {
+      started.push(command);
+      const exitStatus = { exitCode: 0, signal: null };
+      return {
+        output: () => ({ output: "hi\n", truncated: false, exitStatus }),
+        waitForExit: async () => exitStatus,
+        kill: async () => undefined,
+        release: async () => undefined,
+      };
+    },
+  };
   const controller = new AbortController();
   const events: HostedEvent[] = [];
   for await (const event of runHostedTurn({
@@ -85,6 +105,7 @@ async function turn(
       }
       return options.decide?.(permission) ?? "deny";
     },
+    actions,
     reportError: (error) => {
       throw error;
     },
@@ -96,19 +117,19 @@ async function turn(
   const text = events
     .flatMap((event) => (event.type === "text-delta" ? [event.text] : []))
     .join("");
-  return { events, text, asked, log: await log() };
+  return { events, text, asked, written, started, folder, log: await log() };
 }
 
 describe("a hosted agent's turn over ACP (#353 spike)", () => {
-  test("streams the agent's answer in its most restrictive mode, offered no file system or terminal", async () => {
+  test("streams the agent's answer in its most restrictive mode, offered writes and commands but no reads or sign-in", async () => {
     const { events, text, log } = await turn("hello");
 
     expect(events[0]).toEqual({ type: "started", agent: "scripted-agent", mode: "read-only" });
     expect(text).toBe("Revenue grew 12% [cite:k3x9a2b7].");
     expect(events.at(-1)).toEqual({ type: "finished", stopReason: "end_turn" });
     expect(log.find((line) => line.event === "initialize")?.clientCapabilities).toEqual({
-      fs: { readTextFile: false, writeTextFile: false },
-      terminal: false,
+      fs: { readTextFile: false, writeTextFile: true },
+      terminal: true,
       auth: { terminal: false },
     });
     expect(log.find((line) => line.event === "session/new")?.mcpServers).toEqual([
@@ -129,21 +150,55 @@ describe("a hosted agent's turn over ACP (#353 spike)", () => {
     expect(log.some((line) => line.event === "prompt")).toBe(false);
   });
 
-  test("For this run answers the run's next call of that kind, and never with the agent's always", async () => {
-    const { events, text, asked, log } = await turn("run code", {
-      decide: () => "allow-for-run",
-    });
+  test("Allow once answers each of the agent's own calls on its own, never with the agent's always", async () => {
+    const { events, text, asked, log } = await turn("run code", { decide: () => "allow-once" });
 
-    expect(asked).toEqual([{ toolCallId: "call-1", title: "Run tests", kind: "execute" }]);
-    expect(events.filter((event) => event.type === "permission")).toEqual([
-      { type: "permission", id: "call-1", decision: "allow-for-run" },
-      { type: "permission", id: "call-2", decision: "allow-for-run" },
+    expect(asked).toEqual([
+      { kind: "tool", toolCallId: "call-1", title: "Run tests", toolKind: "execute" },
+      { kind: "tool", toolCallId: "call-2", title: "Run tests", toolKind: "execute" },
     ]);
+    expect(events.filter((event) => event.type === "permission")).toHaveLength(2);
     expect(log.filter((line) => line.event === "permission").map((line) => line.outcome)).toEqual([
       { outcome: "selected", optionId: "allow-once-id" },
       { outcome: "selected", optionId: "allow-once-id" },
     ]);
     expect(text).toBe("Both ran.");
+  });
+
+  test("a file write the agent asks for waits for the User, and happens only once allowed", async () => {
+    const allowed = await turn("write file", { decide: () => "allow-once" });
+
+    const path = join(allowed.folder, "notes.md");
+    expect(allowed.asked).toEqual([{ kind: "write-file", path }]);
+    expect(allowed.written).toEqual([{ path, content: "# Notes\n" }]);
+    expect(allowed.text).toBe("Wrote it.");
+
+    const denied = await turn("write file", { decide: () => "deny" });
+
+    expect(denied.asked).toHaveLength(1);
+    expect(denied.written).toEqual([]);
+    expect(denied.log.find((line) => line.event === "write")?.ok).toBe(false);
+    expect(denied.text).toBe("Couldn't write it.");
+  });
+
+  test("a command the agent asks for waits for the User, and runs only once allowed", async () => {
+    const allowed = await turn("run command", { decide: () => "allow-once" });
+
+    expect(allowed.asked).toEqual([
+      { kind: "command", command: "echo", args: ["hi"], cwd: allowed.folder },
+    ]);
+    expect(allowed.started.map((command) => command.command)).toEqual(["echo"]);
+    expect(allowed.log.find((line) => line.event === "command")).toMatchObject({
+      ok: true,
+      output: "hi\n",
+      exitCode: 0,
+    });
+
+    const denied = await turn("run command", { decide: () => "deny" });
+
+    expect(denied.asked).toHaveLength(1);
+    expect(denied.started).toEqual([]);
+    expect(denied.text).toBe("Couldn't run it.");
   });
 
   test("Deny answers the agent's reject-once, and the call fails", async () => {
@@ -170,7 +225,9 @@ describe("a hosted agent's turn over ACP (#353 spike)", () => {
       stopWhenAsked: true,
     });
 
-    expect(asked).toEqual([{ toolCallId: "call-1", title: "Run tests", kind: "execute" }]);
+    expect(asked).toEqual([
+      { kind: "tool", toolCallId: "call-1", title: "Run tests", toolKind: "execute" },
+    ]);
     expect(log.filter((line) => line.event === "permission").map((line) => line.outcome)).toEqual([
       { outcome: "cancelled" },
     ]);

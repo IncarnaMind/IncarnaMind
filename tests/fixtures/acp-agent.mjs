@@ -4,15 +4,18 @@
  * prompt's words pick what it does.
  *
  * - "hello": answers with a sentence and a Citation token.
- * - "run code": asks permission twice for code it runs, then says what ran,
- *   or ends as cancelled if it was cancelled meanwhile.
+ * - "run code": asks permission twice for code it runs itself, then says what
+ *   ran, or ends as cancelled if it was cancelled meanwhile.
+ * - "write file": asks the client to write a file in its working folder.
+ * - "run command": asks the client to run `echo hi` and reads what it printed.
  * - "wait": goes on until it is cancelled.
  * - "crash": writes part of an answer, then exits with an error.
  *
  * It starts in "full-access" and also offers "read-only". If ACP_TEST_LOG
  * names a file, it appends a JSON line there for each thing tests look at: the
  * client's capabilities, the MCP servers it was given (their environment by
- * name only), the mode set, each permission answer and a cancel.
+ * name only), the mode set, each permission answer, what the client did with
+ * a file write or a command, and a cancel.
  */
 import { appendFileSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
@@ -30,6 +33,7 @@ const OPTIONS = [
 ];
 
 let cancelRequested = false;
+let workingFolder = "";
 let cancelled = () => undefined;
 
 const say = (client, sessionId, text) =>
@@ -37,6 +41,30 @@ const say = (client, sessionId, text) =>
     sessionId,
     update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
   });
+
+/** What the client said to a request: its result, or its error's message. */
+const outcomeOf = (request) =>
+  request.then(
+    (result) => ({ ok: true, result }),
+    (error) => ({ ok: false, error: error.message }),
+  );
+
+async function runCommand(client, sessionId) {
+  const created = await outcomeOf(
+    client.request("terminal/create", {
+      sessionId,
+      command: "echo",
+      args: ["hi"],
+      cwd: workingFolder,
+    }),
+  );
+  if (!created.ok) return created;
+  const { terminalId } = created.result;
+  const exit = await client.request("terminal/wait_for_exit", { sessionId, terminalId });
+  const { output } = await client.request("terminal/output", { sessionId, terminalId });
+  await client.request("terminal/release", { sessionId, terminalId });
+  return { ok: true, output, exitCode: exit.exitCode };
+}
 
 async function runCode(client, sessionId, toolCallId) {
   await client.notify("session/update", {
@@ -74,6 +102,7 @@ const app = agent({ name: "scripted-agent" })
     };
   })
   .onRequest("session/new", ({ params }) => {
+    workingFolder = params.cwd;
     log({
       event: "session/new",
       cwd: params.cwd,
@@ -120,6 +149,28 @@ const app = agent({ name: "scripted-agent" })
         process.stderr.write("boom: the agent's model went away\n", () => process.exit(3)),
       );
       return new Promise(() => undefined);
+    }
+    if (words.includes("write file")) {
+      const written = await outcomeOf(
+        client.request("fs/write_text_file", {
+          sessionId,
+          path: `${workingFolder}/notes.md`,
+          content: "# Notes\n",
+        }),
+      );
+      log({ event: "write", ...written });
+      await say(client, sessionId, written.ok ? "Wrote it." : "Couldn't write it.");
+      return { stopReason: "end_turn" };
+    }
+    if (words.includes("run command")) {
+      const ran = await runCommand(client, sessionId);
+      log({ event: "command", ...ran });
+      await say(
+        client,
+        sessionId,
+        ran.ok ? `It printed ${ran.output.trim()}.` : "Couldn't run it.",
+      );
+      return { stopReason: "end_turn" };
     }
     if (words.includes("run code")) {
       const first = await runCode(client, sessionId, "call-1");

@@ -4,35 +4,56 @@
  * Protocol from here. It imports nothing from Node or Electron: the process
  * is two web streams.
  *
- * - IncarnaMind offers the agent no file system, no terminal and no sign-in,
- *   so nothing of the User's is read or written through IncarnaMind for it.
  * - Its session gets IncarnaMind's MCP server, and starts in the mode the
  *   caller names as its most restrictive; an agent that doesn't offer it
  *   gets no prompt.
- * - Its permission requests are the caller's to decide: Allow once, For this
- *   run or Deny. The agent's own "always" options are never chosen, since an
- *   agent keeps those in its own settings, where IncarnaMind can't take them
- *   back.
+ * - Everything it does outside IncarnaMind's Tools waits for the User, as one
+ *   approval with Allow once or Deny: its own Tools' permission requests, and
+ *   the file writes and commands it asks IncarnaMind to carry out. The
+ *   agent's own "always" options are never chosen, since an agent keeps those
+ *   in its own settings, where IncarnaMind can't take them back.
+ * - It is offered no file reads (it reads the User's Documents through the
+ *   MCP server) and no sign-in.
  */
 import {
+  type CreateTerminalRequest,
   client,
   type McpServerStdio,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type StopReason,
+  type TerminalExitStatus,
   type ToolKind,
 } from "@agentclientprotocol/sdk";
 import type { AgentProcess } from "../adapters";
 
-/** What the User decided about one of the agent's own Tool calls. */
-export type HostedDecision = "allow-once" | "allow-for-run" | "deny";
+/** What the User decided on the approval card. */
+export type HostedDecision = "allow-once" | "deny";
 
-export interface HostedPermission {
-  toolCallId: string;
-  title: string;
-  kind: ToolKind | null;
+/** What the card asks about: what the agent would do outside IncarnaMind's Tools. */
+export type HostedPermission =
+  /** One of the agent's own Tools, run by the agent. */
+  | { kind: "tool"; toolCallId: string; title: string; toolKind: ToolKind | null }
+  /** A file the agent asks IncarnaMind to write. */
+  | { kind: "write-file"; path: string }
+  /** A command the agent asks IncarnaMind to run. */
+  | { kind: "command"; command: string; args: readonly string[]; cwd: string | null };
+
+/** A command IncarnaMind started for the agent, once the User allowed it. */
+export interface HostedCommand {
+  output(): { output: string; truncated: boolean; exitStatus: TerminalExitStatus | null };
+  waitForExit(): Promise<TerminalExitStatus>;
+  kill(): Promise<void>;
+  release(): Promise<void>;
+}
+
+/** How the host carries out what the User allowed. */
+export interface HostedActions {
+  writeTextFile(path: string, content: string): Promise<void>;
+  startCommand(request: CreateTerminalRequest): Promise<HostedCommand>;
 }
 
 export interface HostedTurnRequest {
@@ -47,6 +68,7 @@ export interface HostedTurnRequest {
   /** IncarnaMind's version, as it names itself to the agent. */
   version: string;
   ask(permission: HostedPermission, signal: AbortSignal): Promise<HostedDecision>;
+  actions: HostedActions;
   /** Told when Stop can't reach the agent; the turn then ends when the agent exits. */
   reportError(error: unknown): void;
   signal: AbortSignal;
@@ -60,7 +82,7 @@ export type HostedEvent =
   | { type: "reasoning"; text: string }
   | { type: "tool-call"; id: string; title: string; kind: ToolKind | null }
   | { type: "tool-call-finished"; id: string; ok: boolean }
-  | { type: "permission"; id: string; decision: HostedDecision }
+  | { type: "permission"; permission: HostedPermission; decision: HostedDecision }
   | { type: "finished"; stopReason: StopReason }
   | { type: "failed"; problem: HostedProblem; detail: string };
 
@@ -73,43 +95,95 @@ class HostedTurnError extends Error {
   }
 }
 
+/** JSON-RPC's code for a request the client refused. */
+const REFUSED = -32000;
+
 /** The agent's option of `kind`, if it offers one. */
 const optionOf = (request: RequestPermissionRequest, kind: "allow_once" | "reject_once") =>
   request.options.find((option) => option.kind === kind)?.optionId ?? null;
 
 export async function* runHostedTurn(request: HostedTurnRequest): AsyncGenerator<HostedEvent> {
-  /** What the permission handler decided, read out in order with the agent's updates. */
+  /** What the User decided, read out in order with the agent's updates. */
   const decided: HostedEvent[] = [];
-  const allowedForRun = new Set<ToolKind | null>();
+  /**
+   * Asks the User. Stop withdraws a waiting request, and one that comes after: ACP has
+   * the client answer them as cancelled, here null.
+   */
+  const decide = async (
+    permission: HostedPermission,
+    signal: AbortSignal,
+  ): Promise<HostedDecision | null> => {
+    const either = AbortSignal.any([signal, request.signal]);
+    if (either.aborted) return null;
+    const decision = await request.ask(permission, either);
+    if (either.aborted) return null;
+    decided.push({ type: "permission", permission, decision });
+    return decision;
+  };
+  const refused = (what: string) =>
+    new RequestError(REFUSED, `The User didn't allow IncarnaMind to ${what}.`);
+  const commands = new Map<string, HostedCommand>();
+  const command = (terminalId: string): HostedCommand => {
+    const started = commands.get(terminalId);
+    if (!started) throw RequestError.resourceNotFound(terminalId);
+    return started;
+  };
   const answer = async (
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> => {
-    const permission: HostedPermission = {
-      toolCallId: params.toolCall.toolCallId,
-      title: params.toolCall.title ?? "",
-      kind: params.toolCall.kind ?? null,
-    };
-    // Stop withdraws a waiting request, and one that comes after: ACP has the client
-    // answer them as cancelled.
-    const either = AbortSignal.any([signal, request.signal]);
-    if (either.aborted) return { outcome: { outcome: "cancelled" } };
-    const decision = allowedForRun.has(permission.kind)
-      ? "allow-for-run"
-      : await request.ask(permission, either);
-    if (either.aborted) return { outcome: { outcome: "cancelled" } };
-    if (decision === "allow-for-run") allowedForRun.add(permission.kind);
-    decided.push({ type: "permission", id: permission.toolCallId, decision });
+    const decision = await decide(
+      {
+        kind: "tool",
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title ?? "",
+        toolKind: params.toolCall.kind ?? null,
+      },
+      signal,
+    );
     const chosen =
-      decision === "deny" ? optionOf(params, "reject_once") : optionOf(params, "allow_once");
+      decision === null
+        ? null
+        : optionOf(params, decision === "deny" ? "reject_once" : "allow_once");
     return chosen === null
       ? { outcome: { outcome: "cancelled" } }
       : { outcome: { outcome: "selected", optionId: chosen } };
   };
-  const app = client({ name: "IncarnaMind" }).onRequest(
-    "session/request_permission",
-    ({ params, signal }) => answer(params, signal),
-  );
+  const app = client({ name: "IncarnaMind" })
+    .onRequest("session/request_permission", ({ params, signal }) => answer(params, signal))
+    .onRequest("fs/write_text_file", async ({ params, signal }) => {
+      const decision = await decide({ kind: "write-file", path: params.path }, signal);
+      if (decision !== "allow-once") throw refused(`write ${params.path}`);
+      await request.actions.writeTextFile(params.path, params.content);
+      return {};
+    })
+    .onRequest("terminal/create", async ({ params, signal }) => {
+      const asked: HostedPermission = {
+        kind: "command",
+        command: params.command,
+        args: params.args ?? [],
+        cwd: params.cwd ?? null,
+      };
+      const decision = await decide(asked, signal);
+      if (decision !== "allow-once") throw refused(`run ${params.command}`);
+      const terminalId = crypto.randomUUID();
+      commands.set(terminalId, await request.actions.startCommand(params));
+      return { terminalId };
+    })
+    .onRequest("terminal/output", ({ params }) => {
+      const { exitStatus, ...rest } = command(params.terminalId).output();
+      return exitStatus ? { ...rest, exitStatus } : rest;
+    })
+    .onRequest("terminal/wait_for_exit", ({ params }) => command(params.terminalId).waitForExit())
+    .onRequest("terminal/kill", async ({ params }) => {
+      await command(params.terminalId).kill();
+      return {};
+    })
+    .onRequest("terminal/release", async ({ params }) => {
+      await command(params.terminalId).release();
+      commands.delete(params.terminalId);
+      return {};
+    });
   const connection = app.connect(ndJsonStream(request.process.input, request.process.output));
   // Its output has ended: what it wrote before is still read, then what waits fails.
   void request.process.exited.then(() => connection.close());
@@ -118,8 +192,8 @@ export async function* runHostedTurn(request: HostedTurnRequest): AsyncGenerator
     const started = await connection.agent.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
-        terminal: false,
+        fs: { readTextFile: false, writeTextFile: true },
+        terminal: true,
         // An agent signs in through its own setup, never through a login IncarnaMind runs.
         auth: { terminal: false },
       },
@@ -201,5 +275,6 @@ export async function* runHostedTurn(request: HostedTurnRequest): AsyncGenerator
   } finally {
     if (cancel) request.signal.removeEventListener("abort", cancel);
     connection.close();
+    await Promise.all([...commands.values()].map((started) => started.release()));
   }
 }
