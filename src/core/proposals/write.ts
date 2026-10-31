@@ -921,7 +921,7 @@ function quotedRuns(quote: string, selection: Selection): { text: string; chars:
         .map((token) => token.text ?? "")
         .join("")
         .trim(),
-      chars: quoteChars(run),
+      chars: newCharsOf(run).chars,
     }));
 }
 
@@ -1705,12 +1705,20 @@ function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   return { chars, at };
 }
 
-const quoteChars = (tokens: readonly NewToken[]) =>
-  tokens
-    .map((token) => token.text ?? "")
-    .join("")
-    .replace(/\s+/g, "")
-    .toLowerCase();
+/** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
+function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
+  const text = tokens.map((token) => token.text ?? "").join("");
+  let chars = "";
+  const at: number[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index] as string;
+    if (/\s/.test(char)) continue;
+    const lower = char.toLowerCase();
+    chars += lower;
+    for (let unit = 0; unit < lower.length; unit++) at.push(index);
+  }
+  return { chars, at };
+}
 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
 const IN_WORD = /^[\p{L}\p{N}]$/u;
@@ -1724,7 +1732,16 @@ function placeQuote(
   paragraph: { chars: string; at: number[] },
   quote: string,
 ): { first: number; end: number } | null {
-  if (quote === "") return null;
+  const places = placesOf(paragraph, quote);
+  const [only] = places;
+  return places.length === 1 && only !== undefined
+    ? { first: only, end: only + quote.length }
+    : null;
+}
+
+/** Every place a quote's words are in a paragraph, word for word, never cutting a word: "draft" isn't in "drafts". */
+function placesOf(paragraph: { chars: string; at: number[] }, quote: string): number[] {
+  if (quote === "") return [];
   const places: number[] = [];
   for (
     let at = paragraph.chars.indexOf(quote);
@@ -1744,10 +1761,7 @@ function placeQuote(
     if (end < paragraph.chars.length && runsOn(end - 1, end)) continue;
     places.push(at);
   }
-  const [only] = places;
-  return places.length === 1 && only !== undefined
-    ? { first: only, end: only + quote.length }
-    : null;
+  return places;
 }
 
 /**
@@ -1956,8 +1970,8 @@ export function createRewriteStream(
   let quotedOut = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
-  /** The selection's paragraphs the text wrote over, each with its new words as a quote is compared. */
-  const writtenOver = new Map<Segment, string>();
+  /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
+  const writtenOver = new Map<Segment, { chars: string; at: number[] }>();
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
@@ -1965,7 +1979,7 @@ export function createRewriteStream(
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
     removeUpTo(index);
-    writtenOver.set(segment, quoteChars(paragraph.tokens));
+    writtenOver.set(segment, newCharsOf(paragraph.tokens));
     writeHunks(segment, paragraph.tokens, next, newId, notes);
     place = { element: segment.element, kind: segment.kind, side: "after" };
     at = index + 1;
@@ -2052,7 +2066,8 @@ export function createRewriteStream(
    * Of the paragraphs left out and kept, those the text says again were moved, and the words it
    * quotes as taken out go: a whole paragraph when the quotes say all of it, else only the words
    * quoted. A quote the text's own writing already took out is that writing's; any other that
-   * isn't in one kept paragraph exactly once takes nothing out, and the edit is refused.
+   * isn't in one kept paragraph exactly once, or is only part of one while the text wrote the
+   * same words again elsewhere, takes nothing out, and the edit is refused.
    */
   const settleLeftOut = () => {
     const said = [...addedAnew];
@@ -2065,32 +2080,37 @@ export function createRewriteStream(
           covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL,
       );
       if (again < 0) continue;
-      said.splice(again, 1);
+      const [movedTo] = said.splice(again, 1);
+      if (movedTo) writtenOver.set(segment, newCharsOf(movedTo.tokens));
       moved.push(...kept.splice(kept.indexOf(segment), 1));
     }
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
     const stretches = new Map<Segment, { first: number; end: number }[]>();
+    const none = { chars: "", at: [] };
     for (const quote of quotes) {
-      const holds = (segment: Segment) => read.get(segment)?.chars.includes(quote.chars) === true;
-      // Words a paragraph the text wrote over, or let go, held and no longer holds are the ones
-      // quoted: the same words in a kept paragraph stay (#2180).
+      const holds = (segment: Segment) =>
+        placesOf(read.get(segment) ?? none, quote.chars).length > 0;
+      const stillHolds = (segment: Segment) =>
+        placesOf(writtenOver.get(segment) ?? none, quote.chars).length > 0;
+      // Words a paragraph the text wrote over, moved or let go held and no longer holds are the
+      // ones quoted: the same words in a kept paragraph stay (#2180).
       const dropped = segments.some(
-        (segment) =>
-          !kept.includes(segment) &&
-          !moved.includes(segment) &&
-          holds(segment) &&
-          writtenOver.get(segment)?.includes(quote.chars) !== true,
+        (segment) => !kept.includes(segment) && holds(segment) && !stillHolds(segment),
       );
       if (dropped) continue;
       const holding = kept.filter(holds);
       // A quote that is all of a paragraph is that paragraph, though its words are in others too.
       const exact = holding.filter((segment) => read.get(segment)?.chars === quote.chars);
-      const [target] = exact.length === 1 ? exact : holding.length === 1 ? holding : [];
+      // Words the text wrote again as they were weren't taken out there, so which of their
+      // places a part quote means can't be told.
+      const writtenAgain = segments.some((segment) => holds(segment) && stillHolds(segment));
+      const [target] =
+        exact.length === 1 ? exact : holding.length === 1 && !writtenAgain ? holding : [];
       const place = !target
         ? null
         : exact.length === 1
           ? { first: 0, end: quote.chars.length }
-          : placeQuote(read.get(target) ?? { chars: "", at: [] }, quote.chars);
+          : placeQuote(read.get(target) ?? none, quote.chars);
       if (!target || !place) {
         unplaced.push(quote.text);
         continue;
