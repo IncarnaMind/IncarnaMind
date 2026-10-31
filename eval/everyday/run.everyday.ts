@@ -19,6 +19,7 @@ import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
+import { tokenLine, watchTokens } from "../lib/tokens";
 import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
 import { writeCedarDocuments } from "./cedar";
@@ -31,6 +32,9 @@ import { watchReasks } from "./reasks";
 import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** Every request the judge makes, for the report's count of its tokens. */
+const judgeTokens = watchTokens();
 
 /** Arm C (./decisions): INCARNAMIND_EVAL_EVERYDAY_DECIDE names the decision provider, and INCARNAMIND_EVAL_DECIDE_KEY is its key. */
 function decidingOf(): { provider: DecisionProvider; key: string } | null {
@@ -68,7 +72,9 @@ async function runModel(
   const calculates =
     catalogFacts(modelsProviderOfKind(chat.kind, chat.endpoint), chat.modelId)?.calculates === true;
   const ollamaModels = evalOllamaModels(chat);
-  const judge = createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" });
+  const judge = judgeTokens.wrap(
+    createAiSdkChatModel({ ...chatModelSpecOf(judging), thinking: "off" }),
+  );
   const model = `${chat.kind}/${chat.modelId}${decider ? ` + ${decider.provider} decisions` : ""}`;
   const results: CaseResult[] = [];
   for (const name of [
@@ -212,6 +218,7 @@ function report(
   results: readonly CaseResult[],
   rows: ReturnType<typeof rowRates>,
   judge: string,
+  judged: string,
 ): string {
   const runs: RequestRun[] = results.map((each) => ({
     id: each.id,
@@ -257,7 +264,7 @@ function report(
     "",
     `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}.`,
     "",
-    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache), ${sum("outputTokens")} out. Edit with AI's, the judge's and the cited sentences' checks aren't counted.`,
+    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache, ${sum("cacheWriteTokens")} written to it), ${sum("outputTokens")} out. The judge's: ${judged}. Edit with AI's and the cited sentences' checks aren't counted.`,
     "",
     `An Answer is ${averageLength(answered).toLocaleString("en")} characters long on average (${answered.length} Answers)${researched.length > 0 ? `, ${averageLength(researched).toLocaleString("en")} for the research questions (${researched.length})` : ""}.`,
     "",
@@ -435,7 +442,7 @@ test("everyday requests", async () => {
     return;
   }
   const only = process.env.INCARNAMIND_EVAL_EVERYDAY?.trim();
-  if (only === "claim-probes") return;
+  if (only === "claim-probes" || only === "filings-in-note") return;
   const cases = CASES.filter((each) => {
     if (!only) return true;
     if (only === "hard") return each.hard === true;
@@ -464,7 +471,7 @@ test("everyday requests", async () => {
   await mkdir(folder, { recursive: true });
   await writeFile(
     join(folder, "report.md"),
-    report(results, rows, `${judging.kind}/${judging.modelId}`),
+    report(results, rows, `${judging.kind}/${judging.modelId}`, tokenLine(judgeTokens.take())),
   );
   await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));
   const under = rows.filter((row) => row.under);

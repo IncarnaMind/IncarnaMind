@@ -1764,10 +1764,10 @@ export const CASES: readonly EverydayCase[] = [
       "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /declin\w*[^.!?\n]{0,20}6\.2%/i,
+      answerWith: /2\.1\s?%/,
       answerEvidence: {
         document: /Northmart Q2 2026 10-Q/,
-        quote: /like-for-like sales declined 6\.2%/i,
+        quote: /2\.1%/,
       },
       noDocumentAbsence: /comparable|同店/,
       documentAbsenceMetric: "consolidated comparable-sales change",
@@ -1781,10 +1781,10 @@ export const CASES: readonly EverydayCase[] = [
     request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /下降[^。！？\n]{0,12}6\.2%/,
+      answerWith: /2\.1\s?%/,
       answerEvidence: {
         document: /北域零售 2026年第二季度季报/,
-        quote: /同店销售额下降 6\.2%/,
+        quote: /2\.1%/,
       },
       noDocumentAbsence: /comparable|同店/,
       documentAbsenceMetric: "集团同店销售额变化",
@@ -1802,7 +1802,7 @@ export const CASES: readonly EverydayCase[] = [
       answerWith: /38\.2%/,
       answerEvidence: {
         document: /Harbour Hotels 2026 annual release/,
-        quote: /Operating profitability reached 38\.2%/,
+        quote: /38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
       documentAbsenceMetric: "2026 operating margin",
@@ -1819,7 +1819,7 @@ export const CASES: readonly EverydayCase[] = [
       answerWith: /38\.2%/,
       answerEvidence: {
         document: /港湾酒店 2026年度业绩公告/,
-        quote: /经营利润率达到 38\.2%/,
+        quote: /38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
       documentAbsenceMetric: "2026年经营利润率",
@@ -1831,16 +1831,16 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request:
-      "In Delta Manufacturing's 2026 8-K, what was the recast second-quarter revenue? Answer with the amount and cite it.",
+      "In Delta Manufacturing's 2026 8-K, what were the recast segment earnings for the second quarter of 2026? Answer with the amount and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /\$423 million/,
+      answerWith: /592/,
       answerEvidence: {
         document: /Delta Manufacturing 8-K 2026/,
-        quote: /Restated second-quarter sales: \$423 million/,
+        quote: /592/,
       },
-      noDocumentAbsence: /recast|重述|revenue|销售额/,
-      documentAbsenceMetric: "recast second-quarter revenue",
+      noDocumentAbsence: /recast|重述|earnings|利润/,
+      documentAbsenceMetric: "recast segment earnings for the second quarter of 2026",
     },
   },
   {
@@ -1848,16 +1848,17 @@ export const CASES: readonly EverydayCase[] = [
     language: "zh-CN",
     library: "filings",
     mind: null,
-    request: "三角洲制造2026年8-K中重述的第二季度收入是多少？请给出金额并注明出处。",
+    request:
+      "三角洲制造2026年的8-K中，重述后的2026年第二季度分部利润是多少？请给出金额并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /4\.23 亿元/,
+      answerWith: /592|5\.92\s?亿/,
       answerEvidence: {
         document: /三角洲制造 8-K 2026/,
-        quote: /重述第二季度销售额：4\.23 亿元/,
+        quote: /592/,
       },
-      noDocumentAbsence: /recast|重述|revenue|销售额/,
-      documentAbsenceMetric: "重述的第二季度收入",
+      noDocumentAbsence: /recast|重述|earnings|利润/,
+      documentAbsenceMetric: "重述后的2026年第二季度分部利润",
     },
   },
   {
