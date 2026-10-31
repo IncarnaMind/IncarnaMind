@@ -216,6 +216,8 @@ interface State extends Saved {
   finishing: Promise<void> | null;
   /** A voice memo (#1568): its lines name no speaker, and no pass tells speakers apart. */
   memo: boolean;
+  /** The words its speech may hold, once gathered (`TranscriptsOptions.wordsOf`). */
+  words: readonly string[] | null;
 }
 
 export interface TranscriptDocuments {
@@ -256,6 +258,13 @@ export interface TranscriptsOptions {
    * speakers told apart (#138), or with no lines.
    */
   saved?(meetingId: string): void;
+  /**
+   * The words the Meeting's speech may hold (#1031): gathered when it is first transcribed, and
+   * told to the engine on this computer for each of its streams.
+   */
+  wordsOf?(meetingId: string): readonly string[];
+  /** A line's text as the Transcript keeps it: Chinese in the User's script (#1031). */
+  lineText?(text: string): string;
   /** The cloud service the User chose for meeting audio (#141). Absent: always this computer. */
   cloud?: Pick<CloudTranscription, "start" | "sending" | "refuse">;
   changed(): void;
@@ -360,6 +369,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       partialTimer: null,
       finishing: null,
       memo: options.memo?.(meetingId) ?? false,
+      words: null,
     };
     states.set(meetingId, state);
     return state;
@@ -563,9 +573,10 @@ export function createTranscripts(options: TranscriptsOptions) {
         ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
         : found.speaker;
     const startMs = baseMs + segment.startMs;
+    const text = options.lineText ? options.lineText(segment.text) : segment.text;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
-      state.partials.set(segment.stream, { startMs, text: segment.text, id: segment.id, speaker });
+      state.partials.set(segment.stream, { startMs, text, id: segment.id, speaker });
       state.partialTimer ??= setTimeout(() => {
         state.partialTimer = null;
         options.changed();
@@ -575,8 +586,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live && state.partials.get(segment.stream)?.id === segment.id) {
       state.partials.delete(segment.stream);
     }
-    const cue = { startMs, endMs: baseMs + segment.endMs, text: segment.text, speaker };
-    if (segment.text && (live || !alreadySaid(state, cue))) {
+    const cue = { startMs, endMs: baseMs + segment.endMs, text, speaker };
+    if (text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
       if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
     }
@@ -782,6 +793,21 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   // ---- Live ----
 
+  function tellWords(state: State, stream: string): void {
+    if (state.words === null) {
+      try {
+        state.words = options.wordsOf?.(state.meetingId) ?? [];
+      } catch (error) {
+        log.warn("transcript.wordsUnread", {
+          meetingId: state.meetingId,
+          message: messageOf(error),
+        });
+        state.words = [];
+      }
+    }
+    if (state.words.length > 0) transcriber.words(stream, state.words);
+  }
+
   /** Starts the engine for the live stream, once the model is downloaded; the audio waits meanwhile. */
   function startEngine(state: State): void {
     const live = state.live;
@@ -882,6 +908,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         };
         live.streams[source] = own;
         if (live.cloud) transcriber.open(own.stream, live.cloud.stream);
+        else tellWords(state, own.stream);
       }
       if (own.waiting) own.waiting.push(samples);
       else transcriber.push(own.stream, samples);
@@ -1104,6 +1131,7 @@ export function createTranscripts(options: TranscriptsOptions) {
               speaker: () => speakerOf(source, callSound, state.memo),
             });
             opened.push(stream);
+            tellWords(state, stream);
           }
           transcriber.push(stream, track);
         }

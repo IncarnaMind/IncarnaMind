@@ -8,6 +8,7 @@
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
+import { contextWords, echoes, hotwordsOf } from "./context";
 import type { SpeechEngine, VoiceDetector } from "./speech";
 import { textOfResult, wordsOnly } from "./speechText";
 import { writtenNumbers } from "./spokenNumbers";
@@ -122,22 +123,30 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
 
   const detector = () => sileroDetector(sherpa, model.vad);
 
+  async function read(samples: Float32Array, words: readonly string[]): Promise<string> {
+    const stream = recognizer.createStream();
+    if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
+    stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
+    try {
+      return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
+      const addon = await SHERPA_ADDON.load();
+      return writtenNumbers(
+        wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
+      );
+    }
+  }
+
   return {
     detector,
     recognizer: {
-      async decode(samples) {
-        const stream = recognizer.createStream();
-        stream.acceptWaveform({ samples, sampleRate: MEETING_SAMPLE_RATE });
-        try {
-          return writtenNumbers(wordsOnly((await recognizer.decodeAsync(stream)).text));
-        } catch (error) {
-          if (!(error instanceof SyntaxError)) throw error;
-          // The stretch was decoded; sherpa's reader refused its JSON (#981): read it here.
-          const addon = await SHERPA_ADDON.load();
-          return writtenNumbers(
-            wordsOnly(textOfResult(addon.getOfflineStreamResultAsJson(stream.handle))),
-          );
-        }
+      async decode(samples, _stream, given) {
+        const words = contextWords(given);
+        const text = await read(samples, words);
+        // It wrote out the list it was told rather than the speech: the stretch is read without it.
+        return words.length > 0 && echoes(text, words) ? read(samples, []) : text;
       },
     },
     // The recognizer and detectors are freed with the process; nothing holds them here.

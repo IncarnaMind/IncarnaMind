@@ -3,7 +3,8 @@
  * (#136): sound louder than a whisper is speech, cut into stretches of at
  * most two seconds, and each stretch says the next of its lines in turn: the
  * User's lines on the microphone's stream, the other side's on the computer
- * sound's (#941). Deterministic, and never a real model. It can be slow, fail
+ * sound's (#941), with the names it mishears right only once it is told them.
+ * Deterministic, and never a real model. It can be slow, fail
  * to read stretches, and say it failed over to another engine, for capture
  * health (#161).
  */
@@ -46,6 +47,8 @@ export interface FakeSpeechOptions {
   failing?: readonly number[];
   /** The engine can't start, for this reason: as a real one's JavaScript error says. */
   failToLoad?: string;
+  /** Names it writes as these other words unless it was told them (#1031): { Dana: "Donna" }. */
+  mishears?: Readonly<Record<string, string>>;
 }
 
 /** A transcriber that says it moved its streams to the cloud, and back, after so many lines each. */
@@ -152,7 +155,7 @@ export function createFakeSpeechEngine(options: FakeSpeechOptions = {}): SpeechE
   return {
     detector,
     recognizer: {
-      async decode(samples, stream) {
+      async decode(samples, stream, words) {
         const ms = options.realTimeFactor
           ? ((samples.length * 1000) / MEETING_SAMPLE_RATE) * options.realTimeFactor
           : options.decodeMs;
@@ -162,7 +165,10 @@ export function createFakeSpeechEngine(options: FakeSpeechOptions = {}): SpeechE
         const line = lines[saidBy[theirSound ? "theirs" : "mine"]++ % lines.length] ?? "";
         said++;
         if (options.failing?.includes(said)) throw new Error("The fake engine can't read this.");
-        return line;
+        return Object.entries(options.mishears ?? {}).reduce(
+          (text, [name, heard]) => (words.includes(name) ? text : text.replaceAll(name, heard)),
+          line,
+        );
       },
     },
     close() {},

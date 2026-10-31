@@ -114,6 +114,36 @@ describe("Live text from VAD segments, decoded again as speech goes on", () => {
     await vi.waitFor(() => expect(segments.map((each) => each.stream)).toEqual(["b", "b"]));
   });
 
+  test("each stream's stretches, partial and final, are decoded with the words told for that stream (#1031)", async () => {
+    const decoded: { stream: string; words: readonly string[] }[] = [];
+    const host = createSpeechHost(
+      {
+        detector: () => scriptedDetector([[0, 4]]),
+        recognizer: {
+          decode: async (_samples, stream, words) => {
+            decoded.push({ stream, words });
+            return "Priya Raman";
+          },
+        },
+        close() {},
+      },
+      { segment: () => {}, progress: () => {}, failed: () => {} },
+    );
+    host.words("a:microphone", ["Priya Raman", "星河科技"]);
+    for (let at = 0; at < 50; at++) {
+      host.push("a:microphone", new Float32Array(RATE / 10));
+      host.push("a:system", new Float32Array(RATE / 10));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await Promise.all([host.finish("a:microphone"), host.finish("a:system")]);
+    const told = decoded.filter((each) => each.stream === "a:microphone");
+    expect(told.length).toBeGreaterThanOrEqual(2);
+    expect(told.every((each) => each.words.join() === "Priya Raman,星河科技")).toBe(true);
+    const untold = decoded.filter((each) => each.stream === "a:system");
+    expect(untold.length).toBeGreaterThanOrEqual(1);
+    expect(untold.every((each) => each.words.length === 0)).toBe(true);
+  });
+
   test("a stretch the engine can't read loses its text, and the stream goes on", async () => {
     const failures: string[] = [];
     const segments: SpeechSegment[] = [];

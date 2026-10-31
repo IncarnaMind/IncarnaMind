@@ -25,8 +25,11 @@ export interface VoiceDetector {
 }
 
 export interface Recognizer {
-  /** The words in one stretch of speech, said on the stream named. */
-  decode(samples: Float32Array, stream: string): Promise<string>;
+  /**
+   * The words in one stretch of speech, said on the stream named. `words` are those the speech may
+   * hold (the names in the call, #1031), for an engine that can be told them.
+   */
+  decode(samples: Float32Array, stream: string, words: readonly string[]): Promise<string>;
 }
 
 /** An engine, loaded: a detector for each stream, and one recognizer they share. */
@@ -94,6 +97,7 @@ interface Job {
   start: number;
   samples: Float32Array;
   final: boolean;
+  words: readonly string[];
 }
 
 interface Stream {
@@ -109,6 +113,7 @@ interface Stream {
   speech: { id: number; start: number; lastPartial: number } | null;
   level: (samples: Float32Array) => Float32Array;
   nextId: number;
+  words: readonly string[];
   /** Final decodes queued or running, by where they start. */
   unfinished: Set<number>;
   finishing: { resolve(): void } | null;
@@ -181,7 +186,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
     let text = "";
     let failed = false;
     try {
-      text = cleanSpeech(await engine.recognizer.decode(job.samples, job.stream));
+      text = cleanSpeech(await engine.recognizer.decode(job.samples, job.stream, job.words));
     } catch (error) {
       // A stretch the engine can't read loses its text, not the rest of the stream.
       failed = true;
@@ -222,7 +227,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
       samples.set(before);
       samples.set(found.samples, before.length);
       stream.unfinished.add(start);
-      finals.push({ stream: stream.name, id, start, samples, final: true });
+      finals.push({ stream: stream.name, id, start, samples, final: true, words: stream.words });
     }
     if (stream.detector.speaking()) {
       if (!stream.speech) {
@@ -244,6 +249,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
           start: speech.start,
           samples: slice(stream, speech.start),
           final: false,
+          words: stream.words,
         });
       }
     } else {
@@ -265,6 +271,7 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
         speech: null,
         level: createLeveler(),
         nextId: 1,
+        words: [],
         unfinished: new Set(),
         finishing: null,
         dropped: false,
@@ -275,6 +282,12 @@ export function createSpeechHost(engine: SpeechEngine, report: SpeechReport) {
   }
 
   return {
+    /** The words the stream's speech may hold, from its next stretch on (see `Recognizer.decode`). */
+    words(name: string, words: readonly string[]): void {
+      if (closed) return;
+      streamOf(name).words = words;
+    },
+
     push(name: string, samples: Float32Array): void {
       if (closed || samples.length === 0) return;
       const stream = streamOf(name);
