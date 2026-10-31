@@ -32,7 +32,7 @@ import {
   text,
 } from "./run";
 import { SETTINGS_TAKEN, settingsChecker } from "./settings";
-import { STYLE_CHECKERS } from "./styles";
+import { STYLE_CHECKERS, STYLE_EXAMPLES } from "./styles";
 import { type WindowRun, windowChecked, yoursChecked } from "./window";
 
 /** What a command the core runs acts on and does, its arguments as the model reads them, and its check. */
@@ -110,8 +110,7 @@ export const CORE_COMMANDS = {
   "mind.citationStyle": {
     on: "mind",
     does: "app",
-    takes:
-      "ids: one Note; style: a citation style's name, such as APA 7, Chicago, MLA or GB/T 7714",
+    takes: `ids: one Note; style: a citation style's name, such as ${STYLE_EXAMPLES.join(", ")}`,
     check: STYLE_CHECKERS["mind.citationStyle"],
   },
   "mind.style": {

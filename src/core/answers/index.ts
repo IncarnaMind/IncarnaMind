@@ -52,6 +52,7 @@ import {
 } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
+import { yoursLine } from "../../shared/commands";
 import { withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
@@ -2018,7 +2019,7 @@ export function createAnswers(options: AnswersOptions) {
       return true;
     };
 
-    let settleMinds = (): void => undefined;
+    let settleMinds = (_failed: boolean): void => undefined;
     const run = async () => {
       // An outside agent's Question, or a table's cell, whose scope has no Documents has nothing to
       // answer from: it says so without asking the model.
@@ -2484,7 +2485,7 @@ export function createAnswers(options: AnswersOptions) {
               now: () => new Date(),
             })
           : null;
-      if (mindsTools) settleMinds = () => mindsTools.settle();
+      if (mindsTools) settleMinds = (failed) => mindsTools.settle(failed);
       const commands = outside ? undefined : options.commands;
       commandsOffered =
         commands && input.assistant
@@ -2514,6 +2515,7 @@ export function createAnswers(options: AnswersOptions) {
               // A window's command that went on, a Check for one, ends after its call: its card
               // says so then, while the Answer is written or after it.
               ended: laterCall,
+              signal: controller.signal,
             })
           : null;
       const asking = asksUser ? askTool(asksUser) : null;
@@ -2659,6 +2661,14 @@ export function createAnswers(options: AnswersOptions) {
         ),
       ];
       const endedAfterRefusal = () => !changedAMind() && missingMindNames().length > 0;
+      /** What the turn asked for that is the User's alone, each once (#2252). */
+      const refusedCommands = () => [
+        ...new Map(
+          [...commandsDone.values()].flatMap(({ yours, folder }) =>
+            yours ? [[`${yours} ${folder?.id ?? ""}`, { yours, folder }] as const] : [],
+          ),
+        ).values(),
+      ];
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
@@ -2758,15 +2768,22 @@ export function createAnswers(options: AnswersOptions) {
         {
           name: "refused-no-reply",
           check: (text) => {
-            const missing = missingMindNames();
-            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            if (text.trim() !== "") return null;
+            const missing = endedAfterRefusal() ? missingMindNames() : [];
+            const refused = refusedCommands().length > 0;
+            if (missing.length === 0 && !refused) return null;
             const named =
               missing.length === 1
                 ? `there is no note called “${missing[0]}”`
                 : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
+            const notThere =
+              missing.length > 0 ? `that ${named}, and that the change wasn't made` : "";
             return {
               claims: [],
-              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
+              writeOnly: true,
+              note: refused
+                ? `Your reply is empty. Say in the User's language ${notThere ? `${notThere}; ` : ""}that what run_command said is the User's to do wasn't done, and where they do it; then what the other calls did.`
+                : `Your reply is empty. Say in the User's language ${notThere}. Don't say that you changed anything.`,
             };
           },
         },
@@ -2938,20 +2955,28 @@ export function createAnswers(options: AnswersOptions) {
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
-                if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
-                const missing = missingMindNames();
+                const missing = endedAfterRefusal() ? missingMindNames() : [];
                 const [only] = missing;
-                if (missing.length === 1 && only !== undefined) {
-                  return translate(language, "answer.refused.noSuchMind", { name: only });
-                }
                 const quoted = missing.map((name) => `“${name}”`);
-                return translate(language, "answer.refused.noSuchMind.many", {
-                  names:
-                    language === "zh-CN"
-                      ? quoted.join("、")
-                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-                });
+                const lines = [
+                  ...(missing.length === 1 && only !== undefined
+                    ? [translate(language, "answer.refused.noSuchMind", { name: only })]
+                    : missing.length > 1
+                      ? [
+                          translate(language, "answer.refused.noSuchMind.many", {
+                            names:
+                              language === "zh-CN"
+                                ? quoted.join("、")
+                                : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+                          }),
+                        ]
+                      : []),
+                  ...refusedCommands().map(({ yours, folder }) =>
+                    yoursLine(language, yours, folder),
+                  ),
+                ];
+                return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
               },
               refusalSuffix: () =>
                 wallRefusals.size === 0
@@ -3104,12 +3129,12 @@ export function createAnswers(options: AnswersOptions) {
             break;
         }
       }
-      settleMinds();
+      settleMinds(outcome.status === "failed");
       finish(outcome);
     };
     inFlow(flow, run).catch((error: unknown) => {
       options.reportError(error);
-      settleMinds();
+      settleMinds(true);
       finish({ status: "failed", error: classifyProviderError(error) });
     });
   }

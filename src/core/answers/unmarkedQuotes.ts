@@ -40,6 +40,7 @@ import { jsonSchema, Output, streamText } from "ai";
 import { answerSentences } from "../../shared/answerSentences";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
+import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import {
   answerTableUnits,
@@ -92,8 +93,6 @@ const MIN_SIMILARITY = 0.6;
 /** The most Passages, and of each one's text, the one request for Citations holds without a window. */
 const MAX_ASKED_PASSAGES = 12;
 const MAX_ASKED_CHARACTERS = 3000;
-/** The request's output cap: a sentence, an id and a quote for each Citation. */
-const ASK_OUTPUT_TOKENS = 1500;
 
 /** Text in quotation marks. */
 const QUOTATION = /["“「『]([^"“”「」『』\n]+)["”」』]/gu;
@@ -438,7 +437,7 @@ function passagesToAsk(
   }
   let room = budget.roomBeside(
     [CITE_RETRY_INSTRUCTIONS, citeRetryPrompt(answer, [])],
-    ASK_OUTPUT_TOKENS,
+    outputTokens("unmarked-quotes"),
   );
   const asked: ShownPassage[] = [];
   for (const passage of passages) {
@@ -465,7 +464,7 @@ async function askForCitations(
       instructions: CITE_RETRY_INSTRUCTIONS,
       prompt: citeRetryPrompt(answer, passages),
       temperature,
-      maxOutputTokens: ASK_OUTPUT_TOKENS,
+      maxOutputTokens: outputTokens("unmarked-quotes"),
       output: Output.object({ schema: askedSchema, name: "citations" }),
       // One request, never more.
       maxRetries: 0,

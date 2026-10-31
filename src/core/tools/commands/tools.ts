@@ -53,12 +53,26 @@ const coreLine = (id: CoreCommandId) => `${id} (${CORE_COMMANDS[id].takes})`;
 const windowLine = (entry: OfferedCommand) =>
   `${entry.id} (“${entry.label}”${entry.purpose ? `: ${entry.purpose}` : ""}${entry.deletes ? "; to Recently deleted, asks first" : entry.final ? "; can't be undone, asks first" : ""})`;
 
-/** The core's commands for a kind, then the window's that act on it and that the core doesn't run. */
+const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
+
+const yoursFor = (kind: CommandTarget, offered: readonly OfferedCommand[]): string | null => {
+  const yours = offered.filter((entry) => entry.yours !== null && entry.on?.includes(kind));
+  return yours.length > 0 ? `the User's alone: ${yours.map(yoursLine).join("; ")}` : null;
+};
+
+/**
+ * The core's commands for a kind, then the window's that act on it and that the core doesn't run,
+ * then those of the User's alone, which say where the User does it (#2252).
+ */
 function commandsFor(kind: CommandTarget, offered: readonly OfferedCommand[]): string {
   const windows = offered.filter(
     (entry) => entry.yours === null && entry.on?.includes(kind) && !isCoreCommand(entry.id),
   );
-  return [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; ");
+  const yours = yoursFor(kind, offered);
+  return [
+    [...coreCommandsOn(kind).map(coreLine), ...windows.map(windowLine)].join("; "),
+    ...(yours ? [yours] : []),
+  ].join("; ");
 }
 
 const nouns: Record<CommandTarget, [string, string]> = {
@@ -71,7 +85,7 @@ const nouns: Record<CommandTarget, [string, string]> = {
 
 /** What only the User changes (#1421), as the model is told how to ask for it. */
 const YOURS_RULE =
-  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. For a request for one, call run_command with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, …), or with the window's own command for it: nothing runs, and the User is shown where they change it.";
+  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. For a request for one, always call run_command, never only words: with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …), or with the window's own command for it. Nothing runs, and the User is shown where they change it.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -105,6 +119,8 @@ export interface CommandToolsOptions {
   failed(toolCallId: string, problem: CommandProblem): void;
   /** How a window's command that started and went on ended, after its call returned. */
   ended(toolCallId: string, end: { done: CommandDone } | { problem: CommandProblem }): void;
+  /** The Answer's: stopped, no call checked after it runs, and none waits for one that won't. */
+  signal: AbortSignal;
 }
 
 const given = (value: unknown): string | undefined =>
@@ -138,6 +154,23 @@ export function commandTools(options: CommandToolsOptions): {
   drop(toolCallId: string): void;
 } {
   const checked = new Map<string, CheckedCommand>();
+  /**
+   * The calls checked and not yet run or dropped. A call is checked as it arrives, so the next one
+   * of the same step waits for these: "bring back the memo, then open it" must find it restored.
+   */
+  const unrun = new Map<string, { ran: Promise<void>; settle: () => void }>();
+  const settle = (toolCallId: string) => {
+    unrun.get(toolCallId)?.settle();
+    unrun.delete(toolCallId);
+  };
+  // Stopped, a call waiting for approval is neither run nor dropped: settle every one here.
+  options.signal.addEventListener(
+    "abort",
+    () => {
+      for (const toolCallId of [...unrun.keys()]) settle(toolCallId);
+    },
+    { once: true },
+  );
   const asks = new Map<string, CommandAsk>();
   /** How many things the Answer changed without asking, since the User last allowed more. */
   let changed = 0;
@@ -204,7 +237,7 @@ export function commandTools(options: CommandToolsOptions): {
             : `Commands for the window in front: ${windowCommands.map(windowLine).join("; ")}.`,
           ...(yoursCommands.length > 0
             ? [
-                `The User's alone, which only tell them where they change it: ${yoursCommands.map((entry) => `${entry.id} (“${entry.label}”)`).join("; ")}.`,
+                `The User's alone, which only tell them where they change it: ${yoursCommands.map(yoursLine).join("; ")}.`,
               ]
             : []),
         ].join("\n");
@@ -215,9 +248,30 @@ export function commandTools(options: CommandToolsOptions): {
         tag: given(input.tag),
         folder: given(input.folder),
       };
-      const found = find(query, await options.findable(options.focusedMindId, options.wallId));
-      options.found(toolCallId, foundOf(query, found.length));
+      const findable = await options.findable(options.focusedMindId, options.wallId);
+      const found = find(query, findable);
       const [one, many] = nouns[query.kind];
+      // What was deleted under these words is still there: a request for it by name must find it
+      // in Recently deleted, not take a live near match in its place (#2252).
+      const deleted =
+        query.kind === "deleted" || !query.name || query.tag || query.folder
+          ? []
+          : find({ kind: "deleted", name: query.name }, findable).filter(
+              (each) => each.deletedKind === query.kind,
+            );
+      const yours = yoursFor("deleted", options.offered);
+      // Not restore's to offer here: "open the memo" must not bring it back unasked.
+      const inDeleted = [
+        ...deleted.slice(0, MAX_LISTED).map((each) => foundLine(each, options.focusedMindId)),
+        `Change nothing of what is in Recently deleted unless the request is to bring it back (deleted.restore)${yours ? ` or is ${yours}` : ""}.`,
+      ];
+      if (found.length === 0 && deleted.length > 0) {
+        options.found(toolCallId, foundOf({ kind: "deleted", name: query.name }, deleted.length));
+        return [`No ${one} matches outside Recently deleted, which holds:`, ...inDeleted].join(
+          "\n",
+        );
+      }
+      options.found(toolCallId, foundOf(query, found.length));
       if (found.length === 0) {
         return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
       }
@@ -229,7 +283,9 @@ export function commandTools(options: CommandToolsOptions): {
         ...(found.length > shown.length
           ? [`…and ${found.length - shown.length} more: narrow it by name, Tag or Folder.`]
           : []),
+        "Act only on one with the name the request gives: one that only shares a word with it is another, so ask.",
         `Commands for ${many}: ${commandsFor(query.kind, options.offered)}.`,
+        ...(deleted.length > 0 ? ["Recently deleted holds too:", ...inDeleted] : []),
       ].join("\n");
     },
   };
@@ -238,8 +294,8 @@ export function commandTools(options: CommandToolsOptions): {
     name: COMMAND_TOOLS.run,
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
-      `${COMMAND_TOOLS.list} gives the other commands that apply to what it found, and with kind "window" those that act on the window in front; run any of them by its id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it. These wait for the User to allow them: a file saved anywhere but the Output location itself, files added from a folder, a new Output location, every delete, a command that can't be undone, starting a recording or turning the microphone on, and a change that would take this answer past ${COMMAND_AT_ONCE} things changed.`,
+      `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
+      `A change inside IncarnaMind runs at once and the User can undo it. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
       "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
@@ -303,6 +359,7 @@ export function commandTools(options: CommandToolsOptions): {
         throw error;
       } finally {
         counted.delete(toolCallId);
+        settle(toolCallId);
       }
       renames.push(...renamesOf(ran.done.items));
       if (ran.step) options.steps.add(options.runId, ran.step);
@@ -322,6 +379,8 @@ export function commandTools(options: CommandToolsOptions): {
   return {
     tools: [listTool, runTool],
     async check(toolCallId, input, read) {
+      await Promise.all([...unrun.values()].map((each) => each.ran));
+      options.signal.throwIfAborted();
       try {
         const command = await checkCommand(parseCommandInput(input), options.host, {
           offered: options.offered,
@@ -337,6 +396,8 @@ export function commandTools(options: CommandToolsOptions): {
         });
         const ask = askOf(command, { changed, renames, read: read || readTitles.size > 0 });
         checked.set(toolCallId, command);
+        const { promise: ran, resolve: settled } = Promise.withResolvers<void>();
+        unrun.set(toolCallId, { ran, settle: settled });
         if (ask) asks.set(toolCallId, ask);
         else if (command.changes) {
           changed += command.items.length;
@@ -356,6 +417,7 @@ export function commandTools(options: CommandToolsOptions): {
     drop: (toolCallId) => {
       checked.delete(toolCallId);
       asks.delete(toolCallId);
+      settle(toolCallId);
     },
   };
 }

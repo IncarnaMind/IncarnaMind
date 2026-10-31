@@ -291,6 +291,8 @@ export type ScriptedReply =
        * input, are out, until `until` resolves.
        */
       pause?: { after: number; until: Promise<void> };
+      /** The reply reached the request's output limit: it ends there, cut off. */
+      cutOff?: boolean;
     }
   /** The provider refuses the request with an HTTP error. */
   | { error: { status: number; message: string } };
@@ -455,7 +457,7 @@ export function scriptedModel(
       parts.push({
         type: "finish",
         finishReason: {
-          unified: reply.calls?.length ? "tool-calls" : "stop",
+          unified: reply.cutOff ? "length" : reply.calls?.length ? "tool-calls" : "stop",
           raw: undefined,
         },
         usage,

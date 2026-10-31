@@ -51,6 +51,7 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "kept-inside",
   "absence-read-limit",
   "absence-unconfirmed",
+  "cut-short",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
