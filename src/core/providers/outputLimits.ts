@@ -13,7 +13,7 @@ import type { ChatLanguageModel } from "./models";
 
 export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
-  "answer-step": { most: 16_000 },
+  "answer-step": { most: 32_000 },
   "check-step": { most: 8_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },

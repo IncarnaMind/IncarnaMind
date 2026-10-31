@@ -254,7 +254,8 @@ describe("Every model call's output limit", () => {
     await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(model.doStreamCalls.length).toBeGreaterThanOrEqual(3);
-    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(outputTokens("answer-step"));
+    // 32,000: Claude Haiku 5.5 wrote 11,701 tokens in one step for a 4,000-word essay (#2275).
+    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(32_000);
     expect(unlimited(model)).toEqual([]);
   });
 
@@ -271,8 +272,8 @@ describe("Every model call's output limit", () => {
     await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     const limits = model.doStreamCalls.map((call) => call.maxOutputTokens);
-    expect(limits.at(-1)).toBe(outputTokens("answer"));
-    expect(limits.slice(0, -1)).toEqual(limits.slice(0, -1).map(() => outputTokens("answer-step")));
+    expect(limits.at(-1)).toBe(8_000);
+    expect(limits.slice(0, -1)).toEqual(limits.slice(0, -1).map(() => 32_000));
     expect(unlimited(model)).toEqual([]);
   });
 
