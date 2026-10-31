@@ -13,6 +13,13 @@ import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
+/** The two looks at the quote a whole read gives (#1554): asked by these instructions. */
+const looks = (call: { system: string }) =>
+  call.system.startsWith("A sentence the User wrote says something is absent");
+
+/** Each look finds the quote states the very thing the sentence says is absent. */
+const THERE = { text: "Judgement: there" };
+
 const CLAIM = "The lease has no break clause.";
 const CLAUSE = "Either party may end this lease with 30 days' notice.";
 
@@ -21,6 +28,7 @@ function absenceModel(verdict: "supported" | "contradicted", wholeReads: number[
     (call) => checkReply(call, { [CLAIM]: { verdict: "supported", absence: true } }),
     {
       generate: (call) => {
+        if (looks(call)) return THERE;
         if (call.system.startsWith("Read the whole Documents")) {
           wholeReads.push(1);
           if (verdict === "supported") return { text: JSON.stringify(HOLDS) };
@@ -78,6 +86,7 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
     },
     {
       generate: (call) => {
+        if (looks(call)) return THERE;
         requests.push(call.system);
         if (!call.system.startsWith("Read the whole Documents")) {
           return call.system.startsWith("You sort the sentences")
@@ -126,6 +135,7 @@ describe("Checking an absence sentence", () => {
       (call) => checkReply(call, { [CLAIM]: { verdict: "supported", absence: true } }),
       {
         generate: (call) => {
+          if (looks(call)) return THERE;
           if (call.system.startsWith("Read the whole Documents")) return { text: wholeReply };
           return checkGenerate({ [CLAIM]: { verdict: "supported", absence: true } })(call);
         },
@@ -174,6 +184,7 @@ describe("Checking an absence sentence", () => {
       (call) => checkReply(call, { [claim]: { verdict: "supported", absence: true, quote } }),
       {
         generate: (call) => {
+          if (looks(call)) return THERE;
           if (call.system.startsWith("Read the whole Documents")) {
             wholeReads.push(1);
             return {
@@ -272,6 +283,72 @@ describe("Checking an absence sentence", () => {
     expect(wholeReads).toHaveLength(1);
   });
 
+  // Claude Haiku 5.5's whole read called 没有租金调整的约定 contained, quoting the rent's due date (#1443).
+  test.each([
+    {
+      language: "en",
+      review: "The lease contains no rent review clause.",
+      unrelated: "The Tenant pays rent of GBP 1,450 a month.",
+      pets: "The lease says nothing about pets.",
+      clause: "The Tenant may keep one cat with the Landlord's consent.",
+      lines: (rent: string, pets: string) => [{ lines: ["Rent", rent] }, { lines: ["Pets", pets] }],
+    },
+    {
+      language: "zh-CN",
+      review: "租约里没有租金调整的约定。",
+      unrelated: "月租金为人民币 6,800 元，乙方应于每月 1 日前支付当月租金。",
+      pets: "租约对养宠物只字未提。",
+      clause: "经甲方书面同意，乙方可饲养一只猫。",
+      lines: (rent: string, pets: string) => [
+        { chineseLines: ["租金", rent] },
+        { chineseLines: ["宠物", pets] },
+      ],
+    },
+  ])(
+    "a whole read's quote the looks find unrelated is Not checked, never Contradicted, and one they confirm is ($language)",
+    async ({ review, unrelated, pets, clause, lines }) => {
+      const sentences = {
+        [review]: { verdict: "supported", absence: true },
+        [pets]: { verdict: "supported", absence: true },
+      } as const;
+      const looked: string[] = [];
+      const model = scriptedModel((call) => checkReply(call, sentences), {
+        generate: (call) => {
+          if (looks(call)) {
+            const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
+            looked.push(quote);
+            return { text: `Judgement: ${quote === clause ? "there" : "not"}` };
+          }
+          if (call.system.startsWith("Read the whole Documents")) {
+            const asked = call.prompt.includes(review) ? unrelated : clause;
+            const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
+            return {
+              text: JSON.stringify({
+                absent: "it",
+                absence: "contained",
+                citations: [{ marker: 1, passage, quote: asked }],
+              }),
+            };
+          }
+          return checkGenerate(sentences)(call);
+        },
+      });
+      const { core } = await setUpWithDocuments(model, [
+        { name: "Lease.pdf", contents: buildPdf(lines(unrelated, clause)) },
+      ]);
+
+      const unconfirmed = await core.checkClaim({ claim: review });
+      const confirmed = await core.checkClaim({ claim: pets });
+
+      expect(unconfirmed).toMatchObject({ verdict: "not-checked", reason: "absence-unconfirmed" });
+      expect(confirmed).toMatchObject({
+        verdict: "contradicted",
+        evidence: { quote: clause, check: "found", pageFrom: 2, pageTo: 2 },
+      });
+      expect(looked).toEqual([unrelated, clause, clause]);
+    },
+  );
+
   test("an invalid whole-read Passage never falls back to the search's Citation", async () => {
     const wholeReads: number[] = [];
     const model = scriptedModel(
@@ -285,6 +362,7 @@ describe("Checking an absence sentence", () => {
         }),
       {
         generate: (call) => {
+          if (looks(call)) return THERE;
           if (call.system.startsWith("Read the whole Documents")) {
             wholeReads.push(1);
             return {
@@ -411,6 +489,7 @@ describe("Checking an absence sentence", () => {
     const plan = { verdict: "contradicted", absence: true, quote: CLAUSE } as const;
     const model = scriptedModel((call) => checkReply(call, { [CLAIM]: plan }), {
       generate: (call) => {
+        if (looks(call)) return THERE;
         if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
         return checkGenerate({ [CLAIM]: plan })(call);
       },
@@ -464,6 +543,7 @@ describe("Checking an absence sentence", () => {
         },
         {
           generate: (call) => {
+            if (looks(call)) return THERE;
             if (call.system.startsWith("Read the whole Documents")) {
               reads.push(1);
               const passage = /id="([^"]+)"/.exec(call.prompt)?.[1];
@@ -531,6 +611,7 @@ describe("Checking an absence sentence", () => {
     const plan = { verdict: "contradicted", absence: true, quote } as const;
     const model = scriptedModel((call) => checkReply(call, { [claim]: plan }), {
       generate: (call) => {
+        if (looks(call)) return THERE;
         if (call.system.startsWith("Read the whole Documents")) wholeReads.push(1);
         return checkGenerate({ [claim]: plan })(call);
       },
@@ -613,6 +694,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       },
       {
         generate: (call) => {
+          if (looks(call)) return THERE;
           requests.push(call.system);
           if (call.system.startsWith("Read the whole Documents")) {
             reads.push({ system: call.system, prompt: call.prompt });
@@ -985,6 +1067,7 @@ describe("An absence is one part of its sentence, judged by the whole read alone
       const plans = { [claim]: { ...absent(), judgement: "same" } as Plan };
       const model = scriptedModel((call) => withParts(call, checkReply(call, plans), [claim]), {
         generate: (call) => {
+          if (looks(call)) return THERE;
           if (call.system.startsWith("Read the whole Documents")) {
             reads.push(1);
             return { text: JSON.stringify({ absent: "a second contract", absence: "holds" }) };

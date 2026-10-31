@@ -241,16 +241,15 @@ export async function checkAbsence({
     session.check();
     const evidence = session.finalCitation(1);
     if (evidence?.check !== "found") return notChecked("no-evidence");
-    if (window) {
-      // A window's judgement can give a quote about something else, a garden clause for "no
-      // parking": the thing stands as there only when two looks find the quote states it, and a
-      // quote either look rejects leaves the window unjudged, never the absence holding (#1554).
-      const presence = await lookAt(evidence, absent);
-      if ("failed" in presence) return failedCheck(presence.failed);
-      if (presence.kind === "stopped") return notChecked("stopped");
-      if (presence.kind === "malformed") return notChecked("malformed");
-      if (presence.kind === "not") return notChecked("absence-unconfirmed");
-    }
+    // A whole read can give a quote about something else, a garden clause for "no parking" (#1554)
+    // or the rent's due date for "no rent review" (#1443): the thing stands as there only when two
+    // looks find the quote states it, and a quote either look rejects leaves the absence unjudged,
+    // never holding.
+    const presence = await lookAt(evidence, absent);
+    if ("failed" in presence) return failedCheck(presence.failed);
+    if (presence.kind === "stopped") return notChecked("stopped");
+    if (presence.kind === "malformed") return notChecked("malformed");
+    if (presence.kind === "not") return notChecked("absence-unconfirmed");
     absence = judgment("contradicted", evidence);
   } else return notChecked("malformed");
   const figures = request.figures ?? [];

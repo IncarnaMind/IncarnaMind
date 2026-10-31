@@ -14,6 +14,10 @@
  */
 
 import { WHOLE_READ } from "../../core/answers/checks/absence";
+import {
+  PRESENCE_INSTRUCTIONS,
+  STRICT_PRESENCE_INSTRUCTIONS,
+} from "../../core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
@@ -76,6 +80,8 @@ export const PARTLY_UNCITED = [
 
 export const ABSENCE_WORDS = /(?:has no|never|没有|从未)/i;
 
+const BREAK_CLAUSE = "Either party may end this lease with 30 days' notice.";
+
 export function fakeAbsence(options: GenerateOptions): string | null {
   const prompt = lastUserText(options.prompt);
   if (!systemOf(options.prompt).startsWith(WHOLE_READ) || !ABSENCE_WORDS.test(prompt)) {
@@ -98,11 +104,19 @@ export function fakeAbsence(options: GenerateOptions): string | null {
         {
           marker: 1,
           passage: /id="([^"]+)"/.exec(prompt)?.[1],
-          quote: "Either party may end this lease with 30 days' notice.",
+          quote: BREAK_CLAUSE,
         },
       ],
     }),
   });
+}
+
+/** Each look at a whole read's quote (#1554, #1443) finds the clause the whole read quoted there. */
+export function fakePresence(options: GenerateOptions): string | null {
+  const system = systemOf(options.prompt);
+  if (system !== PRESENCE_INSTRUCTIONS && system !== STRICT_PRESENCE_INSTRUCTIONS) return null;
+  const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(lastUserText(options.prompt))?.[1];
+  return `Judgement: ${quote === BREAK_CLAUSE ? "there" : "not"}`;
 }
 
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
