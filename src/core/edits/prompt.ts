@@ -141,8 +141,8 @@ const QUOTES: readonly [string, string][] = [
 /**
  * The passage's new text in the model's reply: without thinking, a code
  * fence, the passage's tags, or quotation marks around all of it that the
- * passage didn't have, nor the reason for the change. Empty when it gave
- * nothing.
+ * passage didn't have, nor the reason for the change, and with the User's own
+ * <removed> tags escaped (`escapeTypedTags`). Empty when it gave nothing.
  */
 export function readEditReply(reply: string, passage: string): string {
   let text = withoutThinking(reply).replace(WHY, "").replace(/\r\n?/g, "\n").trim();
@@ -161,7 +161,7 @@ export function readEditReply(reply: string, passage: string): string {
       text = text.slice(open.length, -close.length).trim();
     }
   }
-  return text;
+  return escapeTypedTags(text, passage);
 }
 
 /**
@@ -172,6 +172,91 @@ const ESCAPE_OR_TAG = /\\[\s\S]|<(\/?)removed(?=[\s/>])[^<>]*?(\/?)>/gi;
 
 const withoutTags = (text: string) =>
   text.replace(ESCAPE_OR_TAG, (each) => (each.startsWith("\\") ? each : ""));
+
+/** A <removed> tag, in any shape `ESCAPE_OR_TAG` reads, where the search is. */
+const TAG_HERE = /<(\/?)removed(?=[\s/>])[^<>]*?(\/?)>/iy;
+
+interface Tag {
+  /** Where it starts, at its backslash when it is escaped. */
+  at: number;
+  end: number;
+  escaped: boolean;
+  kind: "open" | "close" | "empty";
+}
+
+/** The <removed> tags in `text`, escaped or not, in order. */
+function tagsOf(text: string): Tag[] {
+  const tags: Tag[] = [];
+  for (let at = 0; at < text.length; at++) {
+    const escaped = text[at] === "\\";
+    const start = escaped ? at + 1 : at;
+    TAG_HERE.lastIndex = start;
+    const tag = text[start] === "<" ? TAG_HERE.exec(text) : null;
+    if (tag) {
+      const kind = tag[1] ? "close" : tag[2] ? "empty" : "open";
+      tags.push({ at, end: start + tag[0].length, escaped, kind });
+      at = start + tag[0].length - 1;
+    } else if (escaped) at++;
+  }
+  return tags;
+}
+
+/** How many characters beside a tag tell where it is. */
+const BESIDE_TAG = 10;
+
+/** The characters beside a tag on its line, up to the next tag, without spaces or escapes: the nearest `BESIDE_TAG`. */
+function besideTag(text: string, tags: readonly Tag[], index: number, side: "before" | "after") {
+  const tag = tags[index] as Tag;
+  const plain = (part: string) => part.replace(/\\([\s\S])/g, "$1").replace(/\s+/g, "");
+  if (side === "before") {
+    const from = Math.max(tags[index - 1]?.end ?? 0, text.lastIndexOf("\n", tag.at - 1) + 1);
+    return plain(text.slice(from, tag.at)).slice(-BESIDE_TAG);
+  }
+  const line = text.indexOf("\n", tag.end);
+  const to = Math.min(tags[index + 1]?.at ?? text.length, line < 0 ? text.length : line);
+  return plain(text.slice(tag.end, to)).slice(0, BESIDE_TAG);
+}
+
+/**
+ * The reply with each <removed> tag the User typed escaped as the passage shows it (#2333): a
+ * model may write the passage's `\<removed>` back without its backslash, and the mark would take
+ * the User's words out. A tag of the reply is one they typed when the passage has a tag of its
+ * kind, not yet answered for, with the same characters beside it on one side; tags the reply
+ * kept escaped answer for theirs first.
+ */
+export function escapeTypedTags(reply: string, passage: string): string {
+  const typed = tagsOf(passage);
+  if (typed.length === 0) return reply;
+  const theirs = typed.map((tag, index) => ({
+    kind: tag.kind,
+    before: besideTag(passage, typed, index, "before"),
+    after: besideTag(passage, typed, index, "after"),
+  }));
+  const tags = tagsOf(reply);
+  const answered = new Set<number>();
+  const typedOne = (index: number): boolean => {
+    const tag = tags[index] as Tag;
+    const before = besideTag(reply, tags, index, "before");
+    const after = besideTag(reply, tags, index, "after");
+    const one = theirs.findIndex(
+      (each, at) =>
+        !answered.has(at) &&
+        each.kind === tag.kind &&
+        ((before !== "" && before === each.before) || (after !== "" && after === each.after)),
+    );
+    if (one >= 0) answered.add(one);
+    return one >= 0;
+  };
+  for (const [index, tag] of tags.entries()) if (tag.escaped) typedOne(index);
+  let out = "";
+  let at = 0;
+  for (const [index, tag] of tags.entries()) {
+    if (tag.escaped || !typedOne(index)) continue;
+    out += `${reply.slice(at, tag.at)}\\`;
+    at = tag.at;
+  }
+  return out + reply.slice(at);
+}
 
 /**
  * The new text without what the reply says it takes out (#2180), and the words of the paragraphs
@@ -223,7 +308,8 @@ export const sameText = (a: string, b: string) =>
 /**
  * The passage's new text so far, as the model writes it (#202): without
  * thinking, a code fence's first line or the passage's tag before it, and
- * up to the reason. Null while that can't be told yet: the model is still
+ * up to the reason, the User's own <removed> tags escaped as in
+ * `readEditReply`. Null while that can't be told yet: the model is still
  * thinking or opening a tag, or it starts with a quotation mark the passage
  * doesn't, which may go round all of it.
  */
@@ -238,5 +324,5 @@ export function passageSoFar(reply: string, passage: string): string | null {
   if (text.startsWith("<passage>")) text = text.slice("<passage>".length).trimStart();
   if (QUOTES.some(([open]) => text.startsWith(open) && !passage.startsWith(open))) return null;
   const why = text.search(/<why>/i);
-  return why < 0 ? text : text.slice(0, why);
+  return escapeTypedTags(why < 0 ? text : text.slice(0, why), passage);
 }
