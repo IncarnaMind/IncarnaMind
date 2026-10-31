@@ -118,8 +118,10 @@ test("the Word corpus's largest file opens in its look about as fast as drawn pl
   const corpus = largestCorpusFile();
   await importWordFile(app, window, files, basename(corpus), readFileSync(corpus));
   const editor = window.getByTestId("mind-editor");
-  await expect(editor.locator(":scope > *").first()).toBeVisible();
-  await expect(window.getByTestId("mind-word-progress")).toHaveCount(0);
+  // The import is the setup, not the speed check: the largest file's first Block can take
+  // longer than Playwright's 5 s on a loaded runner, so wait for the import to finish first.
+  await expect(window.getByTestId("mind-word-progress")).toHaveCount(0, { timeout: 120_000 });
+  await expect(editor.locator(":scope > *").first()).toBeVisible({ timeout: 120_000 });
   const blocks = await editor.locator(":scope > *").count();
   const ids = await window.evaluate(
     async (title) => {
