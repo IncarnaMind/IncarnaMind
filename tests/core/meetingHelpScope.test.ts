@@ -324,4 +324,31 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     expect(calls.slice(ordinary).some((call) => call.prompt.includes(note))).toBe(true);
   });
+
+  test(`${language}: a free-form recap after guide help carries only the call`, async () => {
+    const { core, meeting, guide, calls, fact, spoken } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    const first = calls.length;
+    const recap = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text: translate(language, "meeting.ask.recap"),
+      }),
+    );
+    const asked = calls.slice(first);
+    const guideWords = fact.slice(0, -1);
+    expect(asked.some((call) => call.prompt.includes(spoken))).toBe(true);
+    for (const call of asked) {
+      expect(call.prompt).not.toContain(guideWords);
+      expect(call.prompt).not.toContain(translate(language, "meetings.help.notCovered"));
+    }
+    expect(recap.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
+  });
 }
