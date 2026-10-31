@@ -304,11 +304,16 @@ async function makeWayForAnswer(
   return outcome;
 }
 
+/** An Answer this window has just asked for: what it was asked to write or change applies here. */
+export function applyWhatIsAsked(answerId: string): void {
+  askedHere.add(answerId);
+}
+
 /**
- * An Answer this window asked for, or asks for again: what it was asked to write or change
- * applies here. Asked again, what it applied before makes way for what it writes now, while
- * nothing was done in the Mind since. `keepWritten`: asked again from every Document, the text it
- * wrote stays, which the core writes over as one change, so Undo brings it back (#1149).
+ * An Answer this window asks for again: what it was asked to write or change applies here, and
+ * what it applied before makes way for what it writes now, while nothing was done in the Mind
+ * since. `keepWritten`: asked again from every Document, the text it wrote stays, which the core
+ * writes over as one change, so Undo brings it back (#1149).
  */
 export async function applyWhatWasAsked(
   answerId: string,
@@ -505,11 +510,11 @@ async function finishIn(
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
-    if (!(await openBeside(row.mindId, behind))) {
-      each.application = refOf(application);
-      return;
-    }
+    if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
+    // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
+    // change: nothing is left to hold this apply back (#2302).
+    if (each.application?.undoId !== application.undoId) return;
     if (opened && editorDoc(opened)) applyCore(each, opened, application);
     return;
   }
@@ -548,6 +553,9 @@ async function recover(each: Asked, editor: Editor): Promise<void> {
   try {
     const pending = finishing.get(each.answerId);
     if (pending) await pending;
+    // The card's Undo of these changes, still running, decides whether there is anything to apply.
+    const headless = headlessChanges.get(key);
+    if (headless && useUndo.getState().running?.change === headless.change) await undoSettled();
     if (asked.get(key) !== each || each.applied || !each.application) return;
     const application = await core.applyAskedChanges({
       answerId: each.answerId,

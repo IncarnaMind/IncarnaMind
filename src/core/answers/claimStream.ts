@@ -49,7 +49,7 @@ const THEIRS =
 const REPORT = new RegExp(`^(?:[-*•]\\s+)?(${REPORT_VERBS})\\b`, "i");
 const PASSIVE = new RegExp(`\\b(?:has|have) been (${VERBS})\\b`, "i");
 const STATED =
-  /^(?:the\s+|a\s+|your\s+|this\s+)?(?:new\s+)?(?:summary\s+)?(?:page|mind)\s+(?:was\s+|has been\s+|is\s+|now\s+)?(made|created|replaces)\b/i;
+  /^(?:the\s+|a\s+|your\s+|this\s+)?(?:new\s+)?(?:summary\s+)?(?:page|note|mind)\s+(?:was\s+|has been\s+|is\s+|now\s+)?(made|created|replaces)\b/i;
 const NOW_LONGER =
   /^(?:the|your|this|my)\s+(?:summary|section|page|note|notes|handout)\s+(?:is|are)\s+(?:now\s+(?:about\s+|roughly\s+|almost\s+)?(?:twice|three times|\d+(?:\.\d+)?\s+times|longer|shorter|much longer|much shorter)|(?:longer|shorter)\s+now)\b/i;
 const READY =

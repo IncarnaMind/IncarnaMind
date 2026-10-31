@@ -519,8 +519,11 @@ export function createLibrary(options: LibraryOptions) {
 
   // --- Watching -------------------------------------------------------------
 
-  function startWatcher(row: LinkedFolderRow): void {
-    if (closed || row.paused || watchers.has(row.id)) return;
+  function startWatcher(id: string): void {
+    // The folder as it is now: a pass reads every row first, and one can be paused or unlinked
+    // while an earlier folder is scanned (#2302).
+    const row = folderRow(id);
+    if (closed || !row || row.paused || watchers.has(row.id)) return;
     const ignore = ignoreOf(row);
     const watcher = options.watch(row.path, {
       onChange(paths) {
@@ -1181,7 +1184,7 @@ export function createLibrary(options: LibraryOptions) {
       downloading.delete(id);
       if (!row.paused) {
         statuses.set(id, "watching");
-        startWatcher(row);
+        startWatcher(id);
       }
     }
     watchSingles();
@@ -1227,7 +1230,7 @@ export function createLibrary(options: LibraryOptions) {
         parts.splice(0, parts.length, row.path);
         statuses.set(row.id, "scanning");
       }
-      startWatcher(row); // before reading, so nothing that changes meanwhile is missed
+      startWatcher(row.id); // before reading, so nothing that changes meanwhile is missed
       changes.folders.add(row.id);
       if (parts[0] === row.path) scanned.add(row.id);
       const ignore = ignoreOf(row);

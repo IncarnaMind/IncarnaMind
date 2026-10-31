@@ -3,9 +3,10 @@
  *
  * Deleting marks rows deleted (ADR-0003), a Mind, conversation, Document, Folder or Tag together
  * with the rows that go with it, all at the same moment: restoring one brings back the rows whose
- * `deleted_at` is its own. Deleting permanently, by the User or `RECENTLY_DELETED_DAYS` after
- * at start-up, drops that content and keeps the row as a tombstone (`purged_at`), which can't
- * be restored. Nothing here reads or writes the User's files. A Document's text that a Citation
+ * `deleted_at` is its own. A Mind's Meeting goes with it, and its Transcript Document, which isn't
+ * listed apart from the Mind and is deleted permanently with it (#1253). Deleting permanently, by
+ * the User or `RECENTLY_DELETED_DAYS` after at start-up, drops that content and keeps the row as a
+ * tombstone (`purged_at`), which can't be restored. Nothing here reads or writes the User's files. A Document's text that a Citation
  * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
@@ -15,8 +16,10 @@ import {
   type DeletedKind,
   type DeletedRef,
   type DocumentKind,
+  type ExpiredAudio,
   RECENTLY_DELETED_DAYS,
   type RestoreRef,
+  type RestoreResult,
   type TagLinkState,
 } from "./api";
 import type { Conversations } from "./conversations";
@@ -24,6 +27,7 @@ import type { createDocuments } from "./documents";
 import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { createLibrary } from "./library";
+import type { RestoredMeeting } from "./meetings";
 import type { createMindContent } from "./mindContent";
 import { forgetMindBlocks } from "./mindIndex";
 import type { createMinds } from "./minds";
@@ -187,6 +191,14 @@ export function createRecentlyDeleted(options: {
   tags: TagsStore;
   library: ReturnType<typeof createLibrary>;
   mindsChanged(): void;
+  /** A Mind's Meetings, deleted and restored with it (#1253): see `Meetings`. */
+  meetings: {
+    transcriptsDeletedWith(mindId: string, deletedAt: string): string[];
+    recordingDeletedWith(mindId: string, deletedAt: string): boolean;
+    restoreWith(mindId: string, deletedAt: string): RestoredMeeting[];
+    /** After the restore and its events: the Minds whose Meeting came back without its audio. */
+    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: ExpiredAudio[] };
+  };
   /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
   mindsRestored(mindIds: readonly string[], reopen: boolean): void;
   /** Minds gone for good: what the layout kept for their tabs goes. */
@@ -214,6 +226,19 @@ export function createRecentlyDeleted(options: {
         : kind === "conversation"
           ? say("conversation.untitled")
           : "";
+
+  /** The Transcript Documents deleted with a Mind, at its time. */
+  function documentsWith(mindId: string, deletedAt: string): string[] {
+    const ids = options.meetings.transcriptsDeletedWith(mindId, deletedAt);
+    if (ids.length === 0) return [];
+    return db
+      .all<{ id: string }>(
+        `SELECT id FROM documents
+         WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at = ? AND purged_at IS NULL`,
+        [JSON.stringify(ids), deletedAt],
+      )
+      .map((row) => row.id);
+  }
 
   function checkDocument(id: string, name: string, coming: Set<string>): void {
     const row = db.get<{ path: string; linked_folder_id: string | null }>(
@@ -313,11 +338,24 @@ export function createRecentlyDeleted(options: {
           )
           .map((row) => item("tag", row)),
       ];
-      return items.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+      // A Transcript waits with its Meeting's Mind, not beside it.
+      const withMinds = new Set<string>();
+      for (const each of items) {
+        if (each.kind !== "mind") continue;
+        const transcripts = documentsWith(each.id, each.deletedAt);
+        const recording = options.meetings.recordingDeletedWith(each.id, each.deletedAt);
+        for (const id of transcripts) withMinds.add(id);
+        if (recording || transcripts.length > 0) {
+          each.meeting = { recording, transcript: transcripts.length > 0 };
+        }
+      }
+      return items
+        .filter((each) => !(each.kind === "document" && withMinds.has(each.id)))
+        .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
     },
 
     /** See `CoreApi.restore`. */
-    restore(input: unknown, restoreOptions?: unknown): void {
+    restore(input: unknown, restoreOptions?: unknown): RestoreResult {
       // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
       const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
       const refs = parseRefs(input, "restore");
@@ -327,6 +365,7 @@ export function createRecentlyDeleted(options: {
           minds: false,
           mindIds: [] as string[],
           mindsDeletedAt: [] as { id: string; deletedAt: string }[],
+          meetings: [] as RestoredMeeting[],
           conversations: false,
           documents: [] as string[],
           folders: false,
@@ -364,10 +403,19 @@ export function createRecentlyDeleted(options: {
               restored.minds = true;
               restored.mindIds.push(ref.id);
               restored.mindsDeletedAt.push({ id: ref.id, deletedAt: row.deleted_at });
+              // Its Transcripts are found from its Meetings while those are still deleted with it.
+              for (const documentId of documentsWith(ref.id, row.deleted_at)) {
+                checkDocument(documentId, rowOf("document", documentId)?.name ?? name, coming);
+                waiting.push(documentId);
+                restored.documents.push(documentId);
+              }
+              restored.meetings.push(...options.meetings.restoreWith(ref.id, row.deleted_at));
             } else if (kind === "conversation") {
               conversations.restore(ref.id);
               restored.conversations = true;
             } else if (kind === "document") {
+              // Asked for with its Mind, which brings it back already.
+              if (restored.documents.includes(ref.id)) continue;
               checkDocument(ref.id, name, coming);
               waiting.push(ref.id);
               restored.documents.push(ref.id);
@@ -410,6 +458,8 @@ export function createRecentlyDeleted(options: {
       if (done.folders) library.restored();
       if (done.tags) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
+      const audio = options.meetings.restored(done.meetings);
+      return { audioLost: audio.lost, audioExpired: audio.expired };
     },
 
     /**
@@ -429,8 +479,8 @@ export function createRecentlyDeleted(options: {
       });
     },
 
-    /** See `CoreApi.deletePermanently`. */
-    deletePermanently(input: unknown): void {
+    /** See `CoreApi.deletePermanently`. Returns the Minds it deleted permanently. */
+    deletePermanently(input: unknown): string[] {
       const refs: DeletedRef[] = parseRefs(input, "deletePermanently");
       const at = now();
       db.transaction(() => {
@@ -443,12 +493,17 @@ export function createRecentlyDeleted(options: {
               values: { name: nameOf(kind, row) },
             });
           purge(db, kind, [id], at, documentText);
+          // After the Mind, so its Citations no longer keep its Transcript's text.
+          if (kind === "mind" && row.deleted_at !== null) {
+            purge(db, "document", documentsWith(id, row.deleted_at), at, documentText);
+          }
         }
       });
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
       const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
       for (const mindId of minds) content.forget(mindId);
       if (minds.length > 0) options.mindsForgotten(minds);
+      return minds;
     },
   };
 }
