@@ -1228,6 +1228,126 @@ describe("A correction read again in its sentence (#1481)", () => {
   });
 });
 
+describe("A correction of one number of a range written with words or spaces (#1481)", () => {
+  test.each([
+    {
+      name: "one end of a range joined by to",
+      claim: "The term is 10 to 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 to 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by to",
+      claim: "The term is 10 to 12 months.",
+      from: "10 to 12",
+      to: "8 to 10",
+      quote: "The term is 8 to 10 months.",
+      wording: "8 to 10",
+    },
+    {
+      name: "one end of a range joined by 至",
+      claim: "租期为10至12个月。",
+      from: "10",
+      to: "8",
+      quote: "租期为8至10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by 至",
+      claim: "租期为10至12个月。",
+      from: "10至12",
+      to: "8至10",
+      quote: "租期为8至10个月。",
+      wording: "8至10",
+    },
+    {
+      name: "one end of a range joined by 到",
+      claim: "租期为10到12个月。",
+      from: "10",
+      to: "8",
+      quote: "租期为8到10个月。",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by 到",
+      claim: "租期为10到12个月。",
+      from: "10到12",
+      to: "8到10",
+      quote: "租期为8到10个月。",
+      wording: "8到10",
+    },
+    {
+      name: "one end of a range joined by a spaced dash",
+      claim: "The term is 10 – 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 – 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by a spaced dash",
+      claim: "The term is 10 – 12 months.",
+      from: "10 – 12",
+      to: "8 – 10",
+      quote: "The term is 8 – 10 months.",
+      wording: "8 – 10",
+    },
+    {
+      name: "one end of a range joined by through",
+      claim: "The term is 10 through 12 months.",
+      from: "10",
+      to: "8",
+      quote: "The term is 8 through 10 months.",
+      wording: undefined,
+    },
+    {
+      name: "a whole range joined by through",
+      claim: "The term is 10 through 12 months.",
+      from: "10 through 12",
+      to: "8 through 10",
+      quote: "The term is 8 through 10 months.",
+      wording: "8 through 10",
+    },
+    {
+      name: "a number with another number in a clause of its own",
+      claim: "The rate is 36.8%, and staff numbered 52.",
+      from: "36.8%",
+      to: "38.6%",
+      quote: "The rate is 38.6%.",
+      wording: "38.6%",
+    },
+    {
+      name: "a Chinese number with another number in a clause of its own",
+      claim: "增长率为36.8%，员工52人。",
+      from: "36.8%",
+      to: "38.6%",
+      quote: "增长率为38.6%。",
+      wording: "38.6%",
+    },
+  ])("gives $wording for $name", async (each) => {
+    const { result } = await checkConflict({
+      claim: each.claim,
+      reply: [
+        "Verdict: contradicted",
+        "Scope: none, same",
+        "Topic: found",
+        "Roles: none, same",
+        "The Document gives another value.",
+        `Change 1: ${each.from}`,
+        `To 1: ${each.to} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote: each.quote }],
+      files: [{ name: "Terms.md", contents: `${each.quote}\n${each.claim}` }],
+      dates: ["2026-01-01T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices[0]?.wording).toBe(each.wording);
+  });
+});
+
 describe("A wording that goes on past its quote", () => {
   test.each([
     {

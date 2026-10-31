@@ -2167,6 +2167,29 @@ function numberAround(text: string, start: number, end: number): string {
   return text.slice(from, to);
 }
 
+/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
+const NUMBERS =
+  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
+
+/** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
+const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;
+
+/**
+ * Whether every other number in the clause the corrected words sit in is one the quote writes. A
+ * range is one clause however it is joined, so this fails closed on any connector: "8" over "10"
+ * of "10 to 12", 10至12 or 10到12 leaves the User's 12 beside the Document's 8 (#1481).
+ */
+function clauseHolds(corrected: string, first: number, end: number, quote: string): boolean {
+  const ends = [...corrected.matchAll(CLAUSE_END)].map((match) => match.index);
+  const start = Math.max(0, ...ends.filter((at) => at < first).map((at) => at + 1));
+  const stop = Math.min(corrected.length, ...ends.filter((at) => at >= end));
+  const quoted = new Set([...quote.matchAll(NUMBERS)].map((match) => match[0]));
+  return [...corrected.slice(start, stop).matchAll(NUMBERS)].every((match) => {
+    const at = start + match.index;
+    return (at < end && at + match[0].length > first) || quoted.has(match[0]);
+  });
+}
+
 /**
  * Whether the corrected sentence reads, where the old words stood, the very numbers the quote
  * reads in the same words, with their scale and sign, written as the quote writes them: "1.5" of
@@ -2186,7 +2209,10 @@ function readsAsQuote(
   if (written === null || at < 0) return false;
   const corrected = claim.slice(0, first) + wording + claim.slice(first + from.length);
   const end = first + wording.length;
-  if (numberAround(corrected, first, end) !== numberAround(quote, at, at + wording.length))
+  if (
+    numberAround(corrected, first, end) !== numberAround(quote, at, at + wording.length) ||
+    !clauseHolds(corrected, first, end, quote)
+  )
     return false;
   const quoted = readFigures(quote, documentFigureContext([{ text: quote }])).filter(
     (each) => each.start < at + wording.length && each.end > at,
