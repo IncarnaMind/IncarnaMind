@@ -3,7 +3,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
-import { type Core, type Logger, MIND_CHECK_UNREAD_FIELD, type UnreadFile } from "../../src/core";
+import {
+  type Core,
+  InvalidInputError,
+  type Logger,
+  MIND_CHECK_UNREAD_FIELD,
+  type UnreadFile,
+} from "../../src/core";
 import { MAX_ROWS } from "../../src/core/documents/formats/grid";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkUnreadOf } from "../../src/shared/unreadFiles";
@@ -316,29 +322,40 @@ describe("The AI use statement", () => {
   );
 
   test.each(["en", "zh-CN"] as const)(
-    "names no file and no sheet until the Mind asks for names (%s)",
+    "names the files, and counts them once the Mind asks for no names (%s)",
     async (language) => {
       const { core, folderId } = await withUnreadFiles();
       await core.updateSettings({ user: { language } });
       const { mind, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
       await check();
 
-      const made = await core.createAiUseStatement(mind.id);
-      const statement = readMind(await connectToMind(core, made.id));
+      const named = readMind(
+        await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
+      );
+      expect(named.textContent).toContain(
+        language === "en" ? "didn’t search them:" : "没有检索这些文件：",
+      );
+      for (const name of ["Contract.doc", "Locked.pdf", "Scan.pdf"]) {
+        expect(named.textContent).toContain(name);
+      }
 
-      expect(statement.textContent).toContain(
+      await core.setMindUnreadFileNames(mind.id, false);
+      const counted = readMind(
+        await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
+      );
+      expect(counted.textContent).toContain(
         language === "en"
           ? "3 files they were checked against couldn’t be read, so the checks didn’t search them."
           : "有 3 个文件未能读取，因此没有检索这些文件。",
       );
-      expect(statement.textContent).not.toMatch(
-        language === "en" ? /didn’t search them:$/ : /没有检索这些文件：$/,
+      expect(counted.textContent).not.toContain(
+        language === "en" ? "didn’t search them:" : "没有检索这些文件：",
       );
       for (const name of ["Contract.doc", "Locked.pdf", "Scan.pdf"]) {
-        expect(statement.textContent).not.toContain(name);
+        expect(counted.textContent).not.toContain(name);
       }
       let lists = 0;
-      statement.forEach((node) => {
+      counted.forEach((node) => {
         if (node.type.name === "bulletList") lists++;
       });
       expect(lists).toBe(0);
@@ -385,12 +402,13 @@ describe("An export", () => {
       },
     ],
   ] as const)(
-    "counts what this Mind's checks couldn't read, without naming the files (%s)",
+    "counts what this Mind's checks couldn't read, without naming the files when asked (%s)",
     async (language, words) => {
       const { core, folderId } = await withUnreadFiles();
       await core.updateSettings({ user: { language } });
       const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
       await check();
+      await core.setMindUnreadFileNames(mind.id, false);
 
       const markdown = await markdownOf(core, mind.id);
 
@@ -416,39 +434,47 @@ describe("An export", () => {
     },
   );
 
-  test("names the files when the Mind says so, and keeps that choice for that Mind alone", async () => {
-    const { core, folderId } = await withUnreadFiles();
+  test("names the files unless the Mind counts them only, and keeps that choice for that Mind alone", async () => {
+    const { printed, printer } = fakePrinter();
+    const { core, folderId } = await withUnreadFiles({ printer });
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
     await check();
 
     const before = await core.previewMindExport(mind.id, { format: "markdown" });
     expect(before.unreadFiles).toBe(3);
-    expect(before.unreadFileNames).toBe(false);
+    expect(before.unreadFileNames).toBe(true);
 
-    await core.setMindUnreadFileNames(mind.id, true);
     const named = await markdownOf(core, mind.id);
     expect(named).toContain("- Contract.doc: Format not read yet (.doc)");
     expect(named).toContain("- Locked.pdf: Password-protected");
     expect(named).toContain("- Scan.pdf: A scan with no text");
+
+    const docx =
+      unzip((await core.exportMind(mind.id, { format: "docx" })).data)
+        .get("word/document.xml")
+        ?.toString("utf8") ?? "";
+    expect(docx).toContain("Contract.doc: Format not read yet (.doc)");
+    await core.exportMind(mind.id, { format: "pdf" });
+    expect(printed[0]?.body ?? "").toContain("Contract.doc: Format not read yet (.doc)");
+
+    await core.setMindUnreadFileNames(mind.id, false);
     expect((await core.previewMindExport(mind.id, { format: "markdown" })).unreadFileNames).toBe(
-      true,
+      false,
     );
+    expect(await markdownOf(core, mind.id)).not.toContain("Contract.doc");
 
     const { mind: other, check: otherCheck } = await mindOf(core, folderId, [SUPPORTED]);
     await otherCheck();
     const elsewhere = await markdownOf(core, other.id);
-    expect(elsewhere).toContain("3 files couldn’t be read");
-    expect(elsewhere).not.toContain("Contract.doc");
-
-    await core.setMindUnreadFileNames(mind.id, false);
-    expect(await markdownOf(core, mind.id)).not.toContain("Contract.doc");
+    expect(elsewhere).toContain("- Contract.doc: Format not read yet (.doc)");
   });
 
-  test("a PDF export prints the count only", async () => {
+  test("a PDF export prints the count only when the Mind counts them", async () => {
     const { printed, printer } = fakePrinter();
     const { core, folderId } = await withUnreadFiles({ printer });
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
     await check();
+    await core.setMindUnreadFileNames(mind.id, false);
 
     await core.exportMind(mind.id, { format: "pdf" });
 
@@ -464,12 +490,13 @@ describe("An export", () => {
     ["en", "1 file couldn’t be read"],
     ["zh-CN", "1 个文件未能读取"],
   ] as const)(
-    "says it in the singular for one file, without naming it (%s)",
+    "says it in the singular for one file, without naming it when the Mind counts (%s)",
     async (language, count) => {
       const { core, folderId } = await linkedFolderWith({ "Old/Contract.doc": "binary" });
       await core.updateSettings({ user: { language } });
       const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
       await check();
+      await core.setMindUnreadFileNames(mind.id, false);
 
       const markdown = await markdownOf(core, mind.id);
 
@@ -508,7 +535,7 @@ describe("An export", () => {
     expect(await markdownOf(core, unchecked.id)).not.toContain("couldn’t be read");
   });
 
-  test("the source pack counts what the checks couldn't read, and names files only when the Mind does", async () => {
+  test("the source pack names what the checks couldn't read, and counts it when the Mind counts", async () => {
     const { printed, printer } = fakePrinter();
     const { core, folderId } = await withUnreadFiles({ printer });
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
@@ -516,14 +543,14 @@ describe("An export", () => {
     await citeTides(core, mind.id);
 
     await core.exportMind(mind.id, { format: "source-pack" });
-    const counted = printed[0]?.body ?? "";
+    expect(printed[0]?.body ?? "").toContain("Contract.doc: Format not read yet (.doc)");
+
+    await core.setMindUnreadFileNames(mind.id, false);
+    await core.exportMind(mind.id, { format: "source-pack" });
+    const counted = printed[1]?.body ?? "";
     expect(counted).toContain("What couldn’t be read");
     expect(counted).toContain("3 files couldn’t be read");
     expect(counted).not.toContain("Contract.doc");
-
-    await core.setMindUnreadFileNames(mind.id, true);
-    await core.exportMind(mind.id, { format: "source-pack" });
-    expect(printed[1]?.body ?? "").toContain("Contract.doc: Format not read yet (.doc)");
   });
 });
 
@@ -643,23 +670,104 @@ describe("A workbook read in part", () => {
     ]);
   });
 
-  test("an export counts them, and names them only when the Mind names the files", async () => {
+  test("Read hidden sheets too reads the workbook again with them, and the list says only what is still unread", async () => {
+    const { core, folderId } = await withWorkbook();
+    const budget = (await core.listDocuments()).find((document) => document.name === "Budget 2026");
+    if (!budget) throw new Error("No workbook.");
+    expect(budget.readHiddenSheets).toBe(false);
+
+    const before = await core.readDocumentText(budget.id);
+    expect(before.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(false);
+
+    const queued = await core.readHiddenSheets(budget.id);
+    expect(queued).toMatchObject({ readHiddenSheets: true, status: "queued" });
+    const [read] = await waitForProcessing(core, [budget.id]);
+    expect(read?.status).toBe("ready");
+
+    const after = await core.readDocumentText(budget.id);
+    expect(after.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(true);
+    expect(after.pages.some((unit) => unit.label?.sheet === "Q4 raw")).toBe(true);
+    expect(after.pages.map((unit) => unit.text).join("\n")).toContain("Secret");
+
+    const found = (await core.listUnreadFiles(null)).find((file) => file.name === BUDGET);
+    expect(found).toMatchObject({
+      reason: "parts",
+      parts: {
+        hiddenSheets: [],
+        rowsCut: [{ sheet: "Big", from: MAX_ROWS - 4 }],
+        sheetsNotRead: ["After"],
+      },
+    });
+
+    // A check made now says the same: the rows past the limit, not the hidden sheets.
+    const { client, check } = await mindOf(core, folderId, [SUPPORTED]);
+    await check();
+    const checked = (await unreadOfChecks(client)).find((file) => file.name === BUDGET);
+    expect(checked?.parts).toEqual({
+      hiddenSheets: [],
+      rowsCut: [{ sheet: "Big", from: MAX_ROWS - 4 }],
+      sheetsNotRead: ["After"],
+    });
+
+    await expect(core.readHiddenSheets(budget.id)).rejects.toThrow(InvalidInputError);
+  });
+
+  test("the workbook stays read with its hidden sheets when the file changes", async () => {
+    const { core, library } = await withWorkbook();
+    const budget = (await core.listDocuments()).find((document) => document.name === "Budget 2026");
+    if (!budget) throw new Error("No workbook.");
+
+    await core.readHiddenSheets(budget.id);
+    const [read] = await waitForProcessing(core, [budget.id]);
+    if (!read) throw new Error("No workbook read.");
+
+    await writeSourceFile(
+      library,
+      BUDGET,
+      xlsxOf([
+        {
+          name: "Visible",
+          rows: [
+            ["Region", "Sales"],
+            ["North", "10"],
+          ],
+        },
+        { name: "Q3 raw", state: "hidden", rows: [["Secret"], ["1"]] },
+      ]),
+    );
+    await core.reconcileDocuments();
+    const updated = await vi.waitFor(
+      async () => {
+        const document = (await core.listDocuments()).find((each) => each.id === budget.id);
+        if (!document || document.contentHash === read.contentHash || document.status !== "ready") {
+          throw new Error("The workbook is not re-read yet.");
+        }
+        return document;
+      },
+      { timeout: 15_000, interval: 50 },
+    );
+    expect(updated.readHiddenSheets).toBe(true);
+    const text = await core.readDocumentText(budget.id);
+    expect(text.pages.some((unit) => unit.label?.sheet === "Q3 raw")).toBe(true);
+  });
+
+  test("an export names them, and counts them once the Mind counts", async () => {
     const { core, folderId } = await withWorkbook();
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
     await check();
 
+    const named = await markdownOf(core, mind.id);
+    expect(named).toContain(
+      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw” weren’t read; “Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
+    );
+
+    await core.setMindUnreadFileNames(mind.id, false);
     const counted = await markdownOf(core, mind.id);
     expect(counted).toContain("1 file couldn’t be read");
     expect(counted).toContain("2 hidden sheets weren’t read");
     expect(counted).toContain("2 sheets have rows that weren’t read");
     expect(counted).not.toContain(BUDGET);
     expect(counted).not.toContain("Q3 raw");
-
-    await core.setMindUnreadFileNames(mind.id, true);
-    const named = await markdownOf(core, mind.id);
-    expect(named).toContain(
-      "Budget 2026.xlsx: the hidden sheets “Q3 raw”, “Q4 raw” weren’t read; “Big”: rows 20,000+ weren’t read; “After”: the whole sheet wasn’t read",
-    );
   });
 
   test("an unticked export names neither the workbook nor its sheets, in every format", async () => {
@@ -667,6 +775,7 @@ describe("A workbook read in part", () => {
     const { core, folderId } = await withWorkbook({ printer });
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED]);
     await check();
+    await core.setMindUnreadFileNames(mind.id, false);
     await citeTides(core, mind.id);
 
     const markdown = await markdownOf(core, mind.id);
@@ -718,24 +827,24 @@ describe("A workbook read in part", () => {
     expect(named).not.toContain("Salaries Secret");
   });
 
-  test("the AI use statement names no hidden sheet until the Mind asks", async () => {
+  test("the AI use statement names the hidden sheet unless the Mind counts", async () => {
     const { core, folderId } = await withWorkbook();
     const { mind, check } = await mindOf(core, folderId, [SUPPORTED, UNSUPPORTED]);
     await check();
 
-    const unticked = readMind(
+    const named = readMind(
       await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
     );
-    expect(unticked.textContent).toContain("2 hidden sheets weren’t read");
-    expect(unticked.textContent).not.toContain(BUDGET);
-    expect(unticked.textContent).not.toContain("Q3 raw");
+    expect(named.textContent).toContain(BUDGET);
+    expect(named.textContent).toContain("Q3 raw");
 
-    await core.setMindUnreadFileNames(mind.id, true);
-    const ticked = readMind(
+    await core.setMindUnreadFileNames(mind.id, false);
+    const counted = readMind(
       await connectToMind(core, (await core.createAiUseStatement(mind.id)).id),
     );
-    expect(ticked.textContent).toContain(BUDGET);
-    expect(ticked.textContent).toContain("Q3 raw");
+    expect(counted.textContent).toContain("2 hidden sheets weren’t read");
+    expect(counted.textContent).not.toContain(BUDGET);
+    expect(counted.textContent).not.toContain("Q3 raw");
   });
 
   test("a stored value that can't be read says some of it wasn't read, never that all was", async () => {

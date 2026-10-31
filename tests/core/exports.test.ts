@@ -447,7 +447,7 @@ describe("exporting a Mind", () => {
       fromWord: false,
       theirChanges: 0,
       unreadFiles: 0,
-      unreadFileNames: false,
+      unreadFileNames: true,
       citationPlace: "footnotes",
       markAiText: false,
       othersFile: false,

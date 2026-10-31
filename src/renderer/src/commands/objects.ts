@@ -278,6 +278,26 @@ export const documentCommands: readonly Command[] = [
     },
   },
   {
+    id: "document.readHiddenSheets",
+    label: "documents.readHiddenSheets",
+    group: "main",
+    appliesTo: ["document"],
+    when: (ctx) =>
+      everyDocument(
+        ctx,
+        (document) =>
+          document.kind === "xlsx" &&
+          document.fileStatus === "available" &&
+          document.status !== "queued" &&
+          document.status !== "extracting" &&
+          (document.unreadParts?.hiddenSheets.length ?? 0) > 0,
+      ),
+    reversible: true,
+    run: async (ctx) => {
+      await Promise.all(idsOf(ctx, "document").map((id) => store().readHiddenSheets(id)));
+    },
+  },
+  {
     // Opens it where its password is asked for (#763).
     id: "document.unlock",
     label: "documents.unlockAction",

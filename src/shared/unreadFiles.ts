@@ -211,19 +211,19 @@ export function unreadSection(
   };
 }
 
-/** The Mind settings key that says its exports name the files they couldn't read; absent: count only. */
+/** The Mind settings key that says its exports count the files they couldn't read instead of naming them. */
 const NAMES_KEY = "unreadFileNames";
 
-/** Whether this Mind's exports name the files that couldn't be read, or only count them (#740). */
+/** Whether this Mind's exports name the files that couldn't be read (#740), as they do unless the User counts them only. */
 export function unreadFileNamesOf(settings: Y.Map<unknown>): boolean {
-  return settings.get(NAMES_KEY) === true;
+  return settings.get(NAMES_KEY) !== false;
 }
 
 export function setUnreadFileNames(settings: Y.Map<unknown>, names: boolean): void {
   if (names) {
-    if (settings.get(NAMES_KEY) !== true) settings.set(NAMES_KEY, true);
-  } else if (settings.has(NAMES_KEY)) {
-    settings.delete(NAMES_KEY);
+    if (settings.has(NAMES_KEY)) settings.delete(NAMES_KEY);
+  } else if (settings.get(NAMES_KEY) !== false) {
+    settings.set(NAMES_KEY, false);
   }
 }
 

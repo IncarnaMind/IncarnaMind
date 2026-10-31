@@ -455,19 +455,19 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setOutputLocation(window, out);
 
-      // The files aren't named until the User asks for them in the export options, for this Mind.
+      // The files are named unless the User counts them in the export options, for this Mind.
       await openExportOptions(window);
-      await expect(window.getByTestId("export-unread-names")).not.toBeChecked();
+      await expect(window.getByTestId("export-unread-names")).toBeChecked();
       await screenshot(window, `export-options-unread-${language}`);
       await pointAndClick(window, window.getByTestId("export-options-close"));
 
       await exportFromMenu(window, "markdown");
       const done = window.getByTestId("export-result").getByTestId("export-done");
       await expect(done).toContainText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
-      const counted = await readFile(join(out, "Harbour.md"), "utf8");
-      expect(counted).toContain(WORDS[language].markdown.heading);
-      expect(counted).toContain(WORDS[language].markdown.count);
-      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
+      const named = await readFile(join(out, "Harbour.md"), "utf8");
+      expect(named).toContain(WORDS[language].markdown.heading);
+      expect(named).toContain(WORDS[language].markdown.count);
+      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
 
       await openExportOptions(window);
       await pointAndClick(window, window.getByTestId("export-unread-names"));
@@ -476,14 +476,30 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await exportFromMenu(window, "markdown");
       await expect(done).toContainText("Harbour", { timeout: 30_000 });
-      const exports = await Promise.all(
-        (await readdir(out))
-          .filter((name) => name.endsWith(".md"))
-          .map(async (name) => readFile(join(out, name), "utf8")),
-      );
-      const named = exports.find((each) => each.includes(WORDS[language].markdown.reasons[0]));
-      if (named === undefined) throw new Error("No export named the files.");
-      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
+      // The second export goes beside the first, under a name of its own.
+      let counted = "";
+      await expect
+        .poll(
+          async () => {
+            const names = (await readdir(out)).filter((name) => name.endsWith(".md"));
+            for (const name of names) {
+              const text = await readFile(join(out, name), "utf8");
+              if (
+                text.includes(WORDS[language].markdown.count) &&
+                WORDS[language].markdown.reasons.every((reason) => !text.includes(reason))
+              ) {
+                counted = text;
+                return true;
+              }
+            }
+            return false;
+          },
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+      expect(counted).toContain(WORDS[language].markdown.heading);
+      expect(counted).toContain(WORDS[language].markdown.count);
+      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
 
       // The check record, its PDF and its CSV: the same count and list.
       const mind = window.getByTestId("mind-row").filter({ hasText: "Harbour" });
@@ -550,6 +566,33 @@ for (const language of ["en", "zh-CN"] as const) {
         : /隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
     );
     await screenshot(window, `answer-workbook-${language}`);
+
+    // The Document's menu reads it again with the hidden sheets, and the line says only the rows.
+    const document = window.getByTestId("document-list-item").filter({ hasText: "Budget 2026" });
+    await pointAndClick(window, document.getByTestId("document-file-menu"));
+    const menu = window.getByTestId("document-file-actions").filter({ visible: true });
+    await expect(menu.getByTestId("document.readHiddenSheets")).toBeVisible();
+    // The screenshot waits for the menu's own motion to rest, not a time.
+    await menu.evaluate((element) =>
+      Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+    );
+    await screenshot(window, `document-menu-hidden-sheets-${language}`);
+    await pointAndClick(window, menu.getByTestId("document.readHiddenSheets"));
+    await expect(row).not.toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
+    await expect(row).toHaveText(
+      language === "en"
+        ? /“Big”: rows 19,996\+ weren’t read; “After”: the whole sheet wasn’t read/
+        : /“Big”：第 19,996 行及之后的内容未读取；“After”：整张工作表未读取/,
+    );
+    await screenshot(window, `answer-workbook-hidden-read-${language}`);
+
+    // The viewer shows the sheets that were hidden too, so their cells can be cited and read.
+    await pointAndClick(window, document.getByTestId("open-document"));
+    await expect(
+      window.getByTestId("viewer-sheet-tab").filter({ hasText: "Q3 raw" }),
+    ).toBeVisible();
     await app.close();
   });
 }

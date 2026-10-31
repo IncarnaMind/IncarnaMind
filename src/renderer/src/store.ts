@@ -378,6 +378,8 @@ export interface AppState extends LayoutSlice {
   deleteDocuments(ids: readonly string[]): Promise<void>;
   /** Processes a Document that failed again, from its file. */
   retryDocument(id: string): Promise<void>;
+  /** Reads a workbook again with its hidden and very hidden sheets, which the User asked for. */
+  readHiddenSheets(id: string): Promise<void>;
   dismissSkippedFiles(): void;
   dismissAlreadyAdded(): void;
   dismissSavedOutside(): void;
@@ -1647,6 +1649,13 @@ export const useAppStore = create<AppState>()((set, get) => {
         const retried = await core.retryDocument(id);
         documentUpdates.flush();
         set((state) => ({ documents: upsert(state.documents, retried) }));
+      }),
+
+    readHiddenSheets: (id) =>
+      attempt(async () => {
+        const reread = await core.readHiddenSheets(id);
+        documentUpdates.flush();
+        set((state) => ({ documents: upsert(state.documents, reread) }));
       }),
 
     dismissSkippedFiles() {
