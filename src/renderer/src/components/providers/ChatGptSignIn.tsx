@@ -133,7 +133,9 @@ export function useContinueWithChatGpt(
 ) {
   const t = useT();
   const { waiting, failure } = useSignIn();
-  const run = async (input: { anotherAccount?: boolean } = {}): Promise<void> => {
+  const run = async (
+    input: { anotherAccount?: boolean; replaceUnreadable?: boolean } = {},
+  ): Promise<void> => {
     const result = await continueWithChatGpt({
       ...input,
       ...(options.keepDefault && { keepDefault: true }),
@@ -211,10 +213,20 @@ export function ChatGptSignInState({
   if (!failure || !failureText) return null;
   const action =
     failure.kind === "other-account"
-      ? { testId: "chatgpt-another-account", label: t("chatgpt.anotherAccount"), another: true }
-      : retry && failure.kind !== "secret-storage"
-        ? { testId: "chatgpt-retry", label: t("chatgpt.signInAgain"), another: false }
-        : null;
+      ? {
+          testId: "chatgpt-another-account",
+          label: t("chatgpt.anotherAccount"),
+          run: { anotherAccount: true },
+        }
+      : failure.kind === "record-unreadable"
+        ? {
+            testId: "chatgpt-replace-sign-in",
+            label: t("chatgpt.signInAgain"),
+            run: { replaceUnreadable: true },
+          }
+        : retry && failure.kind !== "secret-storage" && failure.kind !== "store-unreadable"
+          ? { testId: "chatgpt-retry", label: t("chatgpt.signInAgain"), run: {} }
+          : null;
   return (
     <div role="alert" data-testid="chatgpt-error" className="text-[13px] leading-5 break-words">
       <p className="text-ink">
@@ -226,7 +238,7 @@ export function ChatGptSignInState({
             <button
               type="button"
               data-testid={action.testId}
-              onClick={() => void sign.run(action.another ? { anotherAccount: true } : {})}
+              onClick={() => void sign.run(action.run)}
               className="font-semibold text-accent underline-offset-2 hover:underline"
             >
               {action.label}

@@ -31,17 +31,17 @@
   font-size: 13px;
   line-height: 20px;
 }
-.calculated-figure-card h3 {
+:is(.calculated-figure-card, .chart-card-figure) h3 {
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 400;
   color: var(--color-ink-meta);
 }
-.calculated-figure-card h3 strong {
+:is(.calculated-figure-card, .chart-card-figure) h3 strong {
   color: var(--color-ink);
   font-weight: 600;
 }
-.calculated-figure-card p {
+:is(.calculated-figure-card, .chart-card-figure) p {
   margin: 0;
 }
 .calculated-figure-state {
@@ -86,7 +86,7 @@
   color: var(--color-accent);
   flex-shrink: 0;
 }
-.calculated-figure-card blockquote {
+:is(.calculated-figure-card, .chart-card-figure) blockquote {
   margin: 6px 0 0;
   font-family: var(--font-serif);
   font-size: 13px;
@@ -94,7 +94,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.calculated-figure-card .calculated-figure-note {
+:is(.calculated-figure-card, .chart-card-figure) .calculated-figure-note {
   color: var(--color-ink-meta);
   font-size: 12px;
   line-height: 18px;
@@ -124,7 +124,7 @@
   background: var(--color-warning-wash);
   border-radius: 6px;
 }
-.calculated-figure-card .sign-off-line {
+:is(.calculated-figure-card, .chart-card-figure) .sign-off-line {
   margin-top: 10px;
   padding-left: 18px;
 }

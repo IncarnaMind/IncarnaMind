@@ -43,8 +43,9 @@ export const DOCUMENT_SCHEME_PRIVILEGES: CustomScheme = {
  * CORS. In development the page comes from the dev server, so its origin
  * (`devServerOrigin`) is the one cross-origin reader allowed.
  */
-export function serveDocumentFiles(core: Core, devServerOrigin: string | null): void {
+export function serveDocumentFiles(started: Promise<Core>, devServerOrigin: string | null): void {
   protocol.handle(DOCUMENT_SCHEME, async (request) => {
+    const core = await started;
     const headers: Record<string, string> = {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
