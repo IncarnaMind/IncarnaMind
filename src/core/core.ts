@@ -5307,7 +5307,11 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
       // The line says only new Documents go: those already here wait for Organize (#2308).
-      if ((turnedOn || tagsAnew) && (await taggingServices()).length > 0) tagger.holdExisting();
+      const sends = [...(await taggingServices()), ...(await classificationServices())];
+      if ((turnedOn || tagsAnew || organizesAnew) && sends.length > 0) {
+        tagger.holdExisting();
+        library.holdExisting();
+      }
       if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
       await taggingChanged();
     },

@@ -33,6 +33,7 @@ import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
 import { documentType, excerptFromPassages } from "../tags/classify";
+import { heldOff } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
 import { fallbackLine } from "../tags/suggest";
 import type { FolderSample, GroupClassifier } from "./classifier";
@@ -1533,9 +1534,44 @@ export function createLibrary(options: {
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
     },
+    /**
+     * Tagging and sorting were turned on, or where they send changed: what Organize waits to file
+     * by itself is held "off", as automatic tagging's Documents are (`holdExisting` in
+     * ../tags/tagger), so none goes to where it sends now (#2308). Organize, or a re-tag, which the
+     * User starts, still sends them. One it had filed stays in its Folder.
+     */
+    holdExisting() {
+      const rows = db
+        .all<{ document_id: string; group_id: string | null }>(
+          `SELECT document_id, group_id FROM document_groups WHERE deleted_at IS NULL
+             AND source = 'automatic' AND status IN ('pending', 'waiting')`,
+        )
+        .filter((row) => !asked.has(row.document_id));
+      if (rows.length === 0) return;
+      const at = now();
+      db.transaction(() => {
+        for (const { document_id: id, group_id: groupId } of rows) {
+          if (groupId === null) {
+            db.run(
+              "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+              [at, at, id],
+            );
+          } else {
+            state(id, "classified");
+          }
+          db.run(
+            "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [at, id],
+          );
+        }
+      });
+      const ids = rows.map((row) => row.document_id);
+      options.tagged(ids);
+      announce(ids);
+    },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
-      if (options.isExampleDocument?.(id)) return;
+      if (options.isExampleDocument?.(id) || heldOff(db, id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {

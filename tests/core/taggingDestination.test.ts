@@ -29,7 +29,8 @@ import {
   createSourceFolder,
   documentAt,
   linkAndProcess,
-  waitForDocuments,
+  sha256,
+  waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
 import { tagNamesOf, waitForTagging } from "../helpers/tags";
@@ -208,68 +209,103 @@ describe("Tagging new Documents is turned on for where it sends", () => {
   });
 });
 
-describe("A Document held off stays off when it is read again", () => {
-  test("after an update's re-read and a Linked folder's file change, none is sent; Organize then tags them", async () => {
-    const dataDir = await createTempDataFolder();
-    const keychain = createMemoryKeychain();
+/** Organize has made no assignment for these Documents, so it sends none of them by itself. */
+const unassigned = async (core: Core, ids: readonly string[]) =>
+  (await core.getLibrary()).assignments.filter((each) => ids.includes(each.documentId));
+
+describe("A Document held off stays off, for every sender", () => {
+  test.each([
+    { where: "with a Folder there, so Organize files new ones", folderFirst: true },
+    { where: "with no Folder, so automatic tagging tags new ones", folderFirst: false },
+  ])(
+    "$where: after a Linked folder's file change and an update's re-read none is sent; Organize then sends each once",
+    async ({ folderFirst }) => {
+      const dataDir = await createTempDataFolder();
+      const keychain = createMemoryKeychain();
+      const providers = perProvider();
+      const options = { keychain, createChatModel: providers.createChatModel };
+      let core = startCore(dataDir, options);
+      const anthropic = await core.saveChatProvider(ANTHROPIC);
+      if (folderFirst) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+      const folder = await createSourceFolder();
+      for (const at of [1, 2, 3, 4, 5]) {
+        await writeSourceFile(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
+      }
+      const linked = await linkAndProcess(core, folder);
+      const ids = linked.map((each) => each.id);
+      await waitForTagging(core, ids, (each) => each.tagging === "off");
+
+      await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+      expect(providers.sent("anthropic")).toBe(0);
+
+      // A file in the Linked folder changes, read again through the public rescan.
+      const revisedText = "Quarterly report 1, revised.";
+      const revisedPath = await writeSourceFile(folder, "Report 1.txt", revisedText);
+      await core.reconcileDocuments();
+      const revisedId = documentAt(linked, revisedPath).id;
+      const [revised] = await waitForProcessing(core, [revisedId]);
+      expect(revised?.contentHash).toBe(sha256(revisedText));
+      expect(revised?.tagging).toBe("off");
+      expect(await unassigned(core, ids)).toEqual([]);
+
+      // An update with a newer pipeline reads every Document again at the next start.
+      core.close();
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        db.run("UPDATE documents SET processing_version = 1");
+      } finally {
+        db.close();
+      }
+      core = startCore(dataDir, options);
+      await vi.waitFor(() =>
+        expect(
+          queryDatabase<{ processing_version: number }>(
+            dataDir,
+            "SELECT DISTINCT processing_version FROM documents WHERE deleted_at IS NULL",
+          ).map((row) => row.processing_version),
+        ).toEqual([PROCESSING_VERSION]),
+      );
+      const reread = await waitForProcessing(core, ids);
+
+      expect(reread.map((each) => each.tagging)).toEqual(["off", "off", "off", "off", "off"]);
+      expect(await unassigned(core, ids)).toEqual([]);
+      expect(providers.sent("anthropic")).toBe(0);
+
+      if (!folderFirst) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+      await core.classifyDocuments(ids);
+      await waitForTagging(core, ids);
+      expect(providers.sent("anthropic")).toBe(5);
+      expect(await tagNamesOf(core, ids[0] ?? "")).toEqual(["Quarterly reports"]);
+      core.close();
+    },
+  );
+
+  test("what Organize waits to file by itself is held when where it sends changes: none goes to the new service", async () => {
     const providers = perProvider();
-    const options = { keychain, createChatModel: providers.createChatModel };
-    let core = startCore(dataDir, options);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
     const anthropic = await core.saveChatProvider(ANTHROPIC);
-    const folder = await createSourceFolder();
-    for (const at of [1, 2, 3, 4, 5]) {
-      await writeSourceFile(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
-    }
-    const linked = await linkAndProcess(core, folder);
-    const ids = linked.map((each) => each.id);
-    await waitForTagging(core, ids, (each) => each.tagging === "off");
-
-    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
-    expect(providers.sent("anthropic")).toBe(0);
-
-    // A file in the Linked folder changes.
-    const revisedPath = await writeSourceFile(
-      folder,
-      "Report 1.txt",
-      "Quarterly report 1, revised.",
-    );
-    await waitForDocuments(core, (documents) => {
-      const revised = documentAt(documents, revisedPath);
-      expect(revised.status).toBe("ready");
-      expect(revised.contentHash).not.toBe(documentAt(linked, revisedPath).contentHash);
-    });
-    // An update with a newer pipeline reads every Document again at the next start.
-    core.close();
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    try {
-      db.run("UPDATE documents SET processing_version = 1");
-    } finally {
-      db.close();
-    }
-    core = startCore(dataDir, options);
-    await vi.waitFor(
-      () => {
-        const versions = queryDatabase<{ processing_version: number }>(
-          dataDir,
-          "SELECT DISTINCT processing_version FROM documents WHERE status = 'ready'",
-        ).map((row) => row.processing_version);
-        expect(versions).toEqual([PROCESSING_VERSION]);
-      },
-      { timeout: 15_000 },
-    );
-    await waitForDocuments(core, (documents) => {
-      expect(documents.every((each) => each.status === "ready")).toBe(true);
-    });
-
-    const after = await core.listDocuments();
-    expect(after.map((each) => each.tagging)).toEqual(["off", "off", "off", "off", "off"]);
-    expect(providers.sent("anthropic")).toBe(0);
-
     await core.createLibraryGroup({ name: "Finance", description: "Reports." });
-    await core.classifyDocuments(ids);
-    await waitForTagging(core, ids);
-    expect(providers.sent("anthropic")).toBe(5);
-    expect(await tagNamesOf(core, ids[0] ?? "")).toEqual(["Quarterly reports"]);
-    core.close();
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await core.setLocalOnly(true);
+    const waiting = await add(core, "Waiting.txt");
+    await vi.waitFor(async () =>
+      expect((await unassigned(core, [waiting.id]))[0]?.status).toBe("waiting"),
+    );
+
+    const openai = await core.saveChatProvider(OPENAI);
+    await chooseInModels(core, chatModel(openai.id, OPENAI.modelId));
+    await core.setLocalOnly(false);
+    const [held] = await waitForTagging(core, [waiting.id], (each) => each.tagging === "off");
+
+    expect(held?.tagging).toBe("off");
+    expect(await unassigned(core, [waiting.id])).toEqual([]);
+    expect(providers.sent("openai")).toBe(0);
+    expect(providers.sent("anthropic")).toBe(0);
+
+    await core.classifyDocuments([waiting.id]);
+    await waitForTagging(core, [waiting.id]);
+    expect(providers.sent("openai")).toBe(1);
   });
 });
