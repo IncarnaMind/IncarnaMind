@@ -256,7 +256,8 @@ test("Tags from content, and Organize's Folders", async () => {
   const set = JSON.parse(await readFile(join(root, "eval", "tagging", "set.json"), "utf8")) as {
     documents: SetDocument[];
   };
-  const split = env.INCARNAMIND_TAGGING_SPLIT ?? "heldout";
+  const asked = env.INCARNAMIND_TAGGING_SPLIT ?? "heldout";
+  const split = asked === "tuning" ? "tune" : asked;
   const chat = model();
   log(chat.label);
   const groups: { label: string; documents: SetDocument[]; language: Language }[] = [];

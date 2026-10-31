@@ -10,7 +10,8 @@ The app's own code, without its database: the tagger (`chatClassifier` in `src/c
 
 `set.json`, synthetic, as the tagger reads each Document (name, type, the start of its text):
 
-- `tune`, 20 Documents (10 English, 10 Chinese), and `heldout`, 20 more of the same kinds on other subjects: quotes, estimates, price lists, orders, registrations and notes that mention money, beside real invoices and receipts, contracts, decks, plans in workbooks, a proposal and minutes. Tune prompts on `tune` only; `heldout` is the measurement.
+- `tune`, 40 Documents (20 English, 20 Chinese): quotes, estimates, price lists, orders, registrations and notes that mention money, beside real invoices and receipts, contracts, decks, plans in workbooks, a proposal and minutes. Their results have been read: tune prompts on these only.
+- `heldout`, 40 more (20 English, 20 Chinese), none paired with a tuning Document: a contract, a spec sheet, minutes, lab notes, a tax summary, a recipe, a syllabus, a pitch deck, invoices and a donation receipt beside a purchase order and a packing slip, an itinerary, a job description, a vaccination record, an inspection checklist, a podcast outline, a grant budget, a privacy policy and a talk abstract. They were fixed before any model read them, and are the measurement.
 - `walk`: the 14 files of the 2026-10-31 walk on two subjects, a kitchen renovation and a marathon, four with Chinese names: a countertop quote, notes on tile samples, a race registration and a training-plan workbook among them.
 
 Each Document says whether the Invoice kind fits it (`invoice`) and the words one of which in a Tag's name makes its Tags fitting (`fits`). The labels and the split were fixed before any model ran.
@@ -36,4 +37,4 @@ INCARNAMIND_EVAL_CHAT_KEY=sk-ant-... \
 npm run eval:tagging
 ```
 
-`INCARNAMIND_TAGGING_SPLIT` is `heldout` (default), `tune` or `all`; the walk always runs. Each run writes `eval/results/tagging/<start time>/report.md` and `results.json` (ignored).
+`INCARNAMIND_TAGGING_SPLIT` is `heldout` (default), `tune` (or `tuning`) or `all`; the walk always runs. Each run writes `eval/results/tagging/<start time>/report.md` and `results.json` (ignored).

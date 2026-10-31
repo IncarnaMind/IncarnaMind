@@ -31,10 +31,10 @@ export const NEW_TAG_LIMIT = 60;
 
 /** What the model is told about Tags, wherever it chooses them. */
 export const TAG_RULES = [
-  `Give the Document up to ${TAGS_PER_DOCUMENT} Tags that would help its owner find it again with others like it: what it is about (its topic, or the project or matter it belongs to) and, where one clearly applies, what kind of document it is.`,
-  "Use an existing Tag only when its description truly fits the Document as a whole. A Tag for a kind of document fits only a document of that kind: a quote, an estimate, a price list, an order or a registration is not an invoice, and notes that mention prices are notes, not an invoice.",
-  `When no existing Tag fits what the Document is about, name up to ${NEW_TAGS_PER_DOCUMENT} new Tags in newTags: each a short, general name of one to three words (a topic or project other Documents could share, not a sentence, a date, a person's name or the file's format), written in the language of the Document's text, with a one-line description of what belongs under it. Never name a new Tag that means the same as an existing one, in any language: use the existing one.`,
-  "No Tag at all is fine when the excerpt says too little.",
+  `Give the Document up to ${TAGS_PER_DOCUMENT} Tags that would help its owner find it again with others like it. The first says what it is about: its topic, or the project or matter it belongs to, as specific as the text allows ("Kitchen renovation", not "Home"; "Marathon training", not "Notes"). Then, where one clearly applies, what kind of document it is.`,
+  "Use an existing Tag only when its description truly fits the Document as a whole. A Tag for a kind of document fits only a document of that kind: a quote, an estimate, a price list, an order or a registration is not an invoice, and notes that mention prices are notes, not an invoice. A kind Tag such as Notes or Report is never the only Tag of a Document whose text has a clear topic.",
+  `When no existing Tag names what the Document is about, name up to ${NEW_TAGS_PER_DOCUMENT} new Tags in newTags: each a short, general name of one to three words (a topic or project other Documents could share, not a sentence, a date, a person's name or the file's format), written in the language of the Document's text, with a one-line description of what belongs under it. A Document whose text is Chinese gets Chinese Tag names, whatever language the other Tags are in. Never name a new Tag that means the same as an existing one in the Document's language: use the existing one.`,
+  "No Tag at all is fine only when the excerpt says too little to tell what the Document is about.",
 ].join("\n");
 
 /** The schema of `newTags`, closed and fully required as every reply schema is. */

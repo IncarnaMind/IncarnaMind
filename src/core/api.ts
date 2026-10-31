@@ -3041,7 +3041,8 @@ export interface DocumentScanProgress {
  *   and none fit.
  * - "no-tags": there were no Tags to choose from and the tagger only chooses
  *   (Jev, a decision model), so no model was asked. It is tagged once a Tag
- *   exists. The chat model names Tags of its own, so it is asked anyway.
+ *   exists. The chat model names Tags of its own, so it is asked anyway; a
+ *   Document it gives none is "no-tags" too.
  * - "failed": the tagger's provider failed (see `taggingError`); a re-tag, a
  *   change of model or a restart tries again.
  * - "skipped": the Document has no text to tag (processing failed, or found none).

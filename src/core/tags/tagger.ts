@@ -28,7 +28,8 @@
  * - With no Tags defined, a tagger that only chooses from the list (Jev, a
  *   decision model) is skipped and a Document is "no-tags", not "tagged", so it
  *   is checked once a Tag exists (see `tagsDefined`). The chat model names Tags
- *   from what the Document says (./suggest), so it is asked anyway.
+ *   from what the Document says (./suggest), so it is asked anyway; one it
+ *   gives no Tag is "no-tags" too.
  */
 import type { DocumentKind, ProviderError } from "../api";
 import type { BackgroundCall, BackgroundJob, BackgroundQueue } from "../backgroundQueue";
@@ -52,7 +53,7 @@ import {
   type TagChoice,
   type TagClassifier,
 } from "./classify";
-import type { TagsStore } from "./index";
+import { type TagsStore, tagsOfDocument } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
 import { isTransient, RETRY_WAIT_MS } from "./transient";
 
@@ -305,7 +306,9 @@ export function createTagger(options: TaggerOptions) {
       // Deleted, or processed again, meanwhile.
       if (rowOf(id)?.status !== "ready") return { changed: false, made: 0 };
       const applied = tags.applyAutomatic(id, choice.decisions, choice.newTags);
-      const settled = setState(id, asked ? "tagged" : "no-tags");
+      // Asked with no Tag to offer and given none, it is checked again once a Tag exists.
+      const found = definitions.length > 0 || tagsOfDocument(db, id).length > 0;
+      const settled = setState(id, asked && found ? "tagged" : "no-tags");
       return { changed: settled || applied.changed, made: applied.made };
     });
     if (made > 0) options.tagsMade?.();
@@ -400,7 +403,7 @@ export function createTagger(options: TaggerOptions) {
    */
   function resume(only?: "no-tags"): void {
     if (lifetime.signal.aborted) return;
-    const checkable = tags.list().length > 0 || options.namesTags?.() === true;
+    const checkable = tags.list().length > 0;
     if (only && !checkable) return;
     const statuses = only
       ? [only]
