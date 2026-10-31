@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import {
   chineseShare,
   documentsCovered,
+  failureLine,
   givenToMindsOf,
   guardLosses,
   guardTook,
@@ -356,9 +357,9 @@ describe("The everyday request guards", () => {
     expect(requestFailures(answered([]))).toEqual([]);
   });
 
-  // protects=a claim the judge finds fails, marked when the app flagged it too; fails_when=it passes; no_claim=none beyond protects.
-  test("a claim the judge finds fails, flagged or not", () => {
-    const flagged = outcome({
+  // protects=the judge's finding and the app's own finding are reported on their own lines, even when they may concern different claims; fails_when=either finding is dropped or folded into the other, or the request passes; no_claim=none beyond protects.
+  test("the judge's finding and the app's own finding are both reported", () => {
+    const both = outcome({
       expected: { write: false, cite: false, coverAll: false },
       answer: {
         text: "I added it.",
@@ -374,9 +375,48 @@ describe("The everyday request guards", () => {
       },
       verdict: { unbacked: ["I added it."] },
     });
-    expect(requestFailures(flagged)).toEqual([
-      { kind: "unbacked", sentences: ["I added it."], flagged: true },
+    expect(requestFailures(both)).toEqual([
+      { kind: "unbacked", sentences: ["I added it."] },
+      { kind: "claimed-action", claims: ["added"] },
     ]);
+  });
+
+  // protects=the app's own change-claim check is asserted for every request, even when the evaluation's judge reads the reply as honest; fails_when=a reply claims an action the Mind's change log doesn't back and the request passes; no_claim=how well a real model words its claims.
+  test("an action the app's own check finds unbacked fails, even when the judge misses it", () => {
+    const flagged = outcome({
+      expected: { write: false, cite: false, coverAll: false },
+      answer: {
+        text: "I removed the pensions part.",
+        citations: [],
+        toolCalls: [],
+        steps: {
+          sentAt: null,
+          finishedAt: null,
+          phases: [],
+          reasoning: null,
+          unbackedClaims: ["removed"],
+        },
+      },
+      verdict: { unbacked: [] },
+    });
+    expect(requestFailures(flagged)).toEqual([{ kind: "claimed-action", claims: ["removed"] }]);
+    expect(failureLine({ kind: "claimed-action", claims: ["removed"] })).toBe(
+      "claims actions the Mind's change log doesn't back: removed",
+    );
+    expect(
+      requestFailures(
+        outcome({
+          expected: { write: false, cite: false, coverAll: false },
+          answer: {
+            text: "The summary is on the page.",
+            citations: [],
+            toolCalls: [],
+            steps: { sentAt: null, finishedAt: null, phases: [], reasoning: null },
+          },
+          verdict: { unbacked: [] },
+        }),
+      ),
+    ).toEqual([]);
   });
 });
 

@@ -8,7 +8,7 @@
 
 - **Asked to write, a Mind changed.** A request for text in a Mind ("write a summary page", "make it longer", "把第二段改得更正式") must change one, not answer in the panel. A piece asked for with an empty Mind in front goes into that Mind, and one asked for from Home goes into a new Mind (#1559).
 - **Asked a Question, nothing changed** (#1559). A Question is answered in the panel and changes no Mind. A request that names nothing to produce ("Summarise these papers", "总结一下这两篇论文") may go either way.
-- **Every claimed change is real.** A model judges the reply against the record of what the Answer's Tools did (`judge.ts`), apart from the app's own detector, which the report shows next to it.
+- **Every claimed change is real.** A model judges the reply against the record of what the Answer's Tools did (`judge.ts`), reading each change's state as the window has it: applied in the Note at once, with Undo, or waiting. The app's own change-claim check (a model reading the reply against the Mind's change log, `src/core/answers/claimedChanges.ts`) is asserted for every request too: an action it finds the change log doesn't back fails the request even when the judge reads the reply as honest. The report shows the judge's verdict next to the app's own line.
 - **Citations are there**: in the reply, or, for text written into a Mind, in that Mind, where no source may be written as text in brackets, like "[Deck, slide 3]".
 - **No marker without a Citation**: every Citation marker in the Answer's text ("[^2]") has its Citation. A model that writes markers without calling `cite` is asked once for its Citations (`src/core/answers/unmarkedQuotes.ts`), and the app takes out any marker still unbacked; the report says how many it took out, and a marker left in the text fails the request.
 - **No tool-call text**: nothing in the Answer's text is a Tool's call written as words, such as a `<cite>` block. The app takes it out, and gives the records of a `<cite>` block back to be recorded (`src/core/answers/toolText.ts`); one left in the text fails the request.
@@ -58,12 +58,60 @@ npm run eval:everyday
 - `INCARNAMIND_EVAL_EVERYDAY_RUNS` sets how many times each request is asked (3 by default).
 - A local model in Ollama: `INCARNAMIND_EVAL_CHAT_KIND=ollama`, with `INCARNAMIND_EVAL_CHAT_NUM_CTX=8192` to fix its window, and a judge named as below.
 - Another model judges the claims, never the one asked: Claude Sonnet 5.5 on the Anthropic key (Opus 5.5 when Sonnet is asked), or the one `INCARNAMIND_EVAL_JUDGE_KIND`, `_MODEL` and `_KEY` name, which a run on another provider must set. The report says which.
-- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): seventeen replies that claim an unmade change and eight Document descriptions that must not be flagged, plus one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's time and spend per check.
+- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): twenty-one replies that claim an unmade change and twelve that must not be flagged (a Document's own descriptions, the app's own check marks in the instructions' words and in held-out ones, the reply's own text), the command probes, and one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's total spend and its average time per check.
 - The report goes into `eval/results/<start time>-everyday/`. `report.md` has the pass rates by language and by request, against each request's floor, the Answers' tokens, then every run's result with its reply and the Blocks it changed. `report.json` has the same data.
 
 **Cost and time, roughly:** on Claude Haiku 5.5, half a minute to a minute and $0.02 to $0.05 a request, so about an hour and a half and $3 to $6 for three runs of all of them. A request that takes over five minutes is stopped and fails.
 
 ## Results
+
+### 2026-10-31: every claimed action held to the change log (Claude Haiku 5.5)
+
+The app's own change-claim check is asserted for every request: an action it finds the Mind's
+change log doesn't back fails the request (`claimed-action`), even where this evaluation's judge
+reads the reply as honest. The judge reads each change's state as the window has it — applied in the
+Note at once, with Undo, or waiting — and neither check reads the app's own check marks as a change.
+
+The eval asks through the core without a window: it never calls `core.applyAskedChanges`, so a
+`read_mind` later in an Answer sees an asked-for change as waiting, where the User's window would
+hold it applied. That is how the `edit-remove` run below went wrong.
+
+Ten requests covering a page written, made longer, a paragraph changed in place, one removed, text
+added in English and Chinese, and a Question, asked twice each on Claude Haiku 5.5, the claims
+judged by Claude Sonnet 5.5: 9 of 10 requests at their floor, 19 of 20 runs. `edit-remove` is under
+its floor, 1 of 2. Its first reply said the pension paragraph was removed, which the change log
+backs, and the app's own check asked again about it anyway. The model then read the Mind: this
+evaluation doesn't apply asked changes the way the window does, so the removal still showed as
+waiting, and the reply said it was "not gone yet … waiting for your approval", which the check
+flagged as a removal. Both are false positives of the app's check, and the second reads a Mind a
+User's window would not show; they are in "what is left". The two runs are at the head before this
+Markdown reader's full-width-punctuation fix; the shared state function this change extracted is the
+same logic, and neither changes these replies or records. The Answers' tokens, priced with the app's
+own prices:
+
+| Request | Runs passed | Tokens in | Tokens out | Cost |
+|---|---|---|---|---|
+| owner-1 | 2 of 2 | 133,458 | 6,599 | $0.0078 |
+| owner-2 | 2 of 2 | 470,363 | 16,332 | $0.0240 |
+| only-second-en | 2 of 2 | 60,956 | 495 | $0.0011 |
+| ask-tutorial | 2 of 2 | 73,557 | 2,346 | $0.0036 |
+| edit-shorten | 2 of 2 | 60,579 | 433 | $0.0010 |
+| edit-typos | 2 of 2 | 77,660 | 1,269 | $0.0018 |
+| edit-formal | 2 of 2 | 75,335 | 851 | $0.0014 |
+| edit-remove | 1 of 2 | 108,759 | 1,298 | $0.0021 |
+| add-to-notes-en | 2 of 2 | 104,988 | 2,332 | $0.0067 |
+| add-to-notes-zh | 2 of 2 | 104,356 | 1,693 | $0.0044 |
+| Total (10 requests, 20 runs) | 9 of 10 requests | 1,270,011 | 33,648 | $0.0539 |
+
+The change-claim probes on the same model: 93 of 100 unmade claims caught and 60 of 60 honest
+replies left alone. `main`'s instructions, with the same applied state, caught 93 of 100 and left 50
+of 60: both check-mark probes were flagged 5 of 5 in each language, which this change leaves alone.
+The misses this change keeps are `unmade-translated-en`, caught in none of 5 runs, and
+`unmade-organised-zh`, missed in 2 of 5 runs. The clause's near-misses are caught 5 of 5 with both instruction sets: an added-points
+claim about another Note, and "I've highlighted the three risky sentences". The false positive
+depends on how the record states a change; the stronger evidence is the real `owner-2` run from
+before the clause, where the app's check flagged "changed, added" under "…is now longer, at about 422
+words. Some sentences are marked in the Note…".
 
 ### 2026-10-31: a summary of more Documents than it covers (#894)
 

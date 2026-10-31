@@ -4821,6 +4821,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteDocument: async (id) => removeDocuments([id]),
     deleteDocuments: async (ids) => removeDocuments(ids),
     retryDocument: async (id) => documents.retry(id),
+    readHiddenSheets: async (id, readHidden) => documents.readHiddenSheets(id, readHidden),
     unlockDocument: async (input) => {
       const { documentId, password } = parseUnlock(input);
       const document = documents.getMany([documentId])[0];
