@@ -373,6 +373,13 @@ export async function asOneStep(
     undo: async () => {
       for (const step of [...steps].reverse()) await step.undo();
     },
+    // What any step couldn't take back as it was, such as a Meeting's audio (#1253), is said too.
+    undoneNote: () => {
+      const notes = steps.flatMap((step) => step.undoneNote?.() ?? []);
+      if (notes.length === 0) return null;
+      return (t) =>
+        notes.map((note) => note(t)).reduce((first, then) => t("undo.notes", { first, then }));
+    },
     redo: async () => {
       for (const step of steps) await step.redo?.();
     },

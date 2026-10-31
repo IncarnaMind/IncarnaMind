@@ -222,7 +222,7 @@ describe("A Meeting's capture health", { timeout: 60_000 }, () => {
     ]);
   });
 
-  test("goes with the Meeting's Mind", async () => {
+  test("waits with the Meeting's Note in Recently deleted, and goes once it is deleted permanently", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir, { engine: { failing: [1] } });
     const meeting = await core.createMeeting();
@@ -233,6 +233,9 @@ describe("A Meeting's capture health", { timeout: 60_000 }, () => {
     expect(JSON.parse(readFileSync(path, "utf8")).events).toHaveLength(1);
 
     await core.deleteMind(meeting.mindId);
+    expect(JSON.parse(readFileSync(path, "utf8")).events).toHaveLength(1);
+
+    await core.deletePermanently([{ kind: "mind", id: meeting.mindId }]);
     expect(() => readFileSync(path)).toThrow();
   });
 });

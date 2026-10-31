@@ -221,3 +221,10 @@ A Note imported from Word kept its footnotes and endnotes as read-only atoms who
 - **How the file numbers its notes** (the number format and start of footnotes and of endnotes, from its settings or its last section) is kept in the `word` map beside the Blocks (`notes`), one whole value, which an older version ignores.
 - **Notes imported before are converted when opened,** from the kept package, in one change of the core's, which is no Undo step in the editor: each old atom is replaced where it is by what an import reads there now, and a Block that was still as imported is fingerprinted again, so export still finds it unchanged; one the User edited stays edited. A Note whose package is missing keeps its read-only notes. The start-up look backfill converts first too, so it plans the look on the same nodes as an import makes.
 - **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
+
+## Amendment: a chart keeps its calculated figures (2026-10-31, #2307)
+
+A chart drawn from a table of calculated figures kept each cell's first Citation as its value's source, which is one Input of the figure, not the figure. Its values now keep the figure itself, as the table does.
+
+- **Content schema version 43** adds `figure` to a value in a chart's `data`: the calculated figure the value was drawn from, with its formula and every Input with its Citation, as the figure's node holds it. An older version's editor reads chart data without it and writes it back so when it changes the chart, leaving bare numbers with no source, so it opens these Notes read-only. Older content is version 43 content as it is: a chart drawn before holds no figure, its values read as quoted, and Update draws it again from its table with the figures.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.

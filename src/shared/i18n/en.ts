@@ -447,6 +447,7 @@ export const en = {
   "object.restoredTo": "Restored “{name}” to {folder}",
   "object.restored.count": "Restored {count} items",
   "undo.name.restore": "Restore",
+  "undo.notes": "{first} {then}",
   "deleted.title": "Recently deleted",
   "deleted.command": "Show Recently deleted",
   "deleted.intro": "Kept here for 30 days, then deleted for good. Files on disk aren’t touched.",
@@ -493,6 +494,12 @@ export const en = {
     "IncarnaMind forgets the text it read from {count} Documents and their Tags.",
   "deleted.lost.mind.one": "Your text in “{name}” is gone.",
   "deleted.lost.mind": "Your text in {count} notes is gone.",
+  "deleted.lost.meeting.one": "Its recording and Transcript are deleted too.",
+  "deleted.lost.meeting": "Their meetings’ recordings and Transcripts are deleted too.",
+  "deleted.lost.recording.one": "Its recording is deleted too.",
+  "deleted.lost.recording": "Their meetings’ recordings are deleted too.",
+  "deleted.lost.transcript.one": "Its Transcript is deleted too.",
+  "deleted.lost.transcript": "Their meetings’ Transcripts are deleted too.",
   "deleted.lost.conversation.one": "The messages in “{name}” are gone.",
   "deleted.lost.conversation": "The messages in {count} conversations are gone.",
   "deleted.lost.folder.one": "“{name}” is gone. Its Documents and notes stay, in no Folder.",
@@ -702,12 +709,27 @@ export const en = {
   "chart.point.position": "{index} of {count}",
   "chart.point.notDrawn": "Not a number, so not drawn",
   "chart.point.noUnit": "No unit, so not drawn",
+  "chart.point.calculated": "Calculated from {inputs} in {document}",
+  "chart.point.calculatedDocuments": "Calculated from {inputs} in {documents} Documents",
+  "chart.point.analysis": "From an Analysis",
   "chart.value.noUnit": "no unit",
   "chart.source.place.one": "1 value, quoted from {document}, {location}",
   "chart.source.place.other": "{count} values, each quoted from {document}, {location}",
   "chart.source.document.one": "1 value, quoted from {document}",
   "chart.source.document.other": "{count} values, each quoted from {document}",
   "chart.source.documents": "{count} values, quoted from {documents} Documents",
+  "chart.source.calculated.one": "1 value, calculated from {inputs} in {document}",
+  "chart.source.calculated.other": "{count} values, calculated from {inputs} in {document}",
+  "chart.source.calculatedDocuments.one":
+    "1 value, calculated from {inputs} in {documents} Documents",
+  "chart.source.calculatedDocuments.other":
+    "{count} values, calculated from {inputs} in {documents} Documents",
+  "chart.source.analysis.one": "1 value, from an Analysis",
+  "chart.source.analysis.other": "{count} values, from an Analysis",
+  "chart.inputs.cells.one": "1 cell",
+  "chart.inputs.cells.other": "{count} cells",
+  "chart.inputs.numbers.one": "1 cited number",
+  "chart.inputs.numbers.other": "{count} cited numbers",
   "chart.source.none.one": "1 value, with no Citation",
   "chart.source.none.other": "{count} values, none with a Citation",
   "chart.source.uncited": "{count} with no Citation",
@@ -2624,6 +2646,7 @@ export const en = {
   "chatgpt.continue": "Continue with ChatGPT",
   "chatgpt.account.signedOut": "Not signed in.",
   "chatgpt.account.expired": "Your ChatGPT sign-in ended. Sign in again to use your plan.",
+  "chatgpt.account.unreadable": "This computer’s saved ChatGPT sign-in can’t be read.",
   "chatgpt.account.signedIn": "Signed in as {account}.",
   "chatgpt.account.unknown": "your ChatGPT account",
   "chatgpt.signingIn": "Finish signing in in your browser…",
@@ -2649,6 +2672,10 @@ export const en = {
     "Allow IncarnaMind to use your ChatGPT plan: sign in again.",
   "chatgpt.signIn.error.other-account":
     "That’s not the ChatGPT account used here before. Sign in with that one.",
+  "chatgpt.signIn.error.record-unreadable":
+    "This computer’s saved ChatGPT sign-in can’t be read. Sign in again to replace it.",
+  "chatgpt.signIn.error.store-unreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the ChatGPT sign-in can’t be read. Signing in again won’t fix it.",
   "chatgpt.signIn.error.failed": "The sign-in didn’t work. Try again.",
   "chatgpt.test.not-signed-in":
     "You’re not signed in to ChatGPT. Continue with ChatGPT, then try again.",
@@ -4389,6 +4416,8 @@ export const en = {
   "export.chart.sources": "Source:",
   "export.chart.uncited.one": "1 value has no Citation.",
   "export.chart.uncited.other": "{count} values have no Citation.",
+  "export.chart.calculated.one": "1 value is calculated.",
+  "export.chart.calculated.other": "{count} values are calculated.",
   "export.chart.picture": "{kind}: {title}",
   "export.chart.cut": "Only the first {rows} of {total} rows are charted.",
   "export.change.inserted": "Inserted by {author}, {date}",
@@ -4883,6 +4912,10 @@ export const en = {
   "error.secrets.plainText":
     "No keyring running, so keys would be unencrypted. Start GNOME Keyring or KWallet.",
   "error.secrets.unencrypted": "This system can’t encrypt API keys, so they can’t be saved.",
+  "error.signIn.unreadable":
+    "The {provider} sign-in saved on this computer can’t be read. Sign in again to replace it.",
+  "error.signIn.storeUnreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the {provider} sign-in can’t be read. Signing in again won’t fix it.",
   "error.consent.declined": "You declined sending data to {service}, so nothing was sent.",
   "error.consent.needed": "Waiting until you allow sending data to {service}. Nothing was sent.",
   "error.consent.revoked": "Stopped: you turned off sending to {service}",
@@ -4956,6 +4989,8 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
+  "error.meeting.purgeFailed":
+    "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
   "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.cantDiscard": "Only a Meeting that hasn’t started can be discarded.",
@@ -5668,6 +5703,20 @@ export const en = {
   "meetings.audio.keep": "Keep it",
   "meetings.audio.deleted": "Audio deleted",
   "meetings.audio.none": "No audio was recorded",
+  "meetings.audio.notRestored":
+    "Restored “{name}” without its audio: it was no longer on this computer.",
+  "meetings.audio.someNotRestored":
+    "Restored {count} items without some meeting audio: it was no longer on this computer.",
+  "meetings.audio.expired":
+    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after the call.",
+  "meetings.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after the call.",
+  "memos.audio.expired":
+    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after it was recorded.",
+  "memos.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after it was recorded.",
+  "meetings.audio.someExpired":
+    "Restored {count} items. Some audio was deleted 24 hours after it was recorded.",
   "meetings.health.label": "Recording details",
   "meetings.health.show": "Show recording details",
   "meetings.health.hide": "Hide recording details",
