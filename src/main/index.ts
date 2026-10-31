@@ -59,6 +59,7 @@ import {
   startupProblem,
   updateStartupDialog,
 } from "./startupError";
+import { DatabaseHeldError, migrateOffThread } from "./storageStart";
 import { showMessageBox } from "./systemDialogs";
 import { realHomeProblem } from "./testHome";
 import { reportFullScreen, titleBarOptions } from "./titleBar";
@@ -498,6 +499,15 @@ app.whenReady().then(async () => {
   // before the window, and answers once the core has started.
   const started = Promise.withResolvers<Core>();
   serveDocumentFiles(started.promise, rendererUrl ? new URL(rendererUrl).origin : null);
+  const storage = migrateOffThread(app.getPath("userData"), logger, () => {
+    if (instance.kind === "owner") instance.owner.starting();
+  }).then(
+    () => undefined,
+    (error: unknown) => {
+      logger.exception("storage.migrateOffThreadFailed", error);
+      return error instanceof DatabaseHeldError ? error : undefined;
+    },
+  );
   const first = createWindow();
   logger.info("app.startup.windowReturned");
   // The core's start holds this thread, for seconds on a slow disk, and the page can neither load
@@ -505,7 +515,9 @@ app.whenReady().then(async () => {
   // until everything is served.
   await firstPaint(first);
   logger.info("app.startup.windowPainted");
+  const held = await storage;
   try {
+    if (held) throw held;
     const adapters = createElectronAdapters(logger);
     logger.info("app.startup.adaptersReady");
     core = createCore({
