@@ -12,13 +12,14 @@ import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { sameName } from "./index";
 import {
+  foundedTags,
   NEW_TAGS_SCHEMA,
   type NewTag,
   newTagsOf,
   TAG_RULES,
   TAGS_PER_DOCUMENT,
+  type TagAnswer,
   tagsToOffer,
-  withoutUnfoundedInvoice,
 } from "./suggest";
 
 /** About how much of a Document's text the excerpt holds: enough for its title, abstract or first pages. */
@@ -53,6 +54,8 @@ export interface TagDecision {
 export interface TagChoice {
   decisions: TagDecision[];
   newTags: NewTag[];
+  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, and asking again gave none. */
+  untagged?: boolean;
 }
 
 /** What decides a Document's Tags: the chat model, or Jev. */
@@ -192,17 +195,39 @@ function taggingPrompt(tags: readonly TagDefinition[], excerpt: DocumentExcerpt)
 /**
  * Asks the model which Tags apply and which new ones it names, offering only the Tags in the
  * Document's script (`tagsToOffer`). Names it returns that aren't offered are ignored, an Invoice
- * Tag the text doesn't bear out is dropped (`withoutUnfoundedInvoice`), and at most
- * `TAGS_PER_DOCUMENT` count, those from the list first. Throws what the provider throws.
+ * Tag the text doesn't bear out is dropped (`foundedTags`), and at most `TAGS_PER_DOCUMENT`
+ * count, those from the list first. Throws what the provider throws.
  */
 async function chooseTags(input: {
   model: ChatLanguageModel;
   tags: readonly TagDefinition[];
   excerpt: DocumentExcerpt;
   signal: AbortSignal;
-}): Promise<{ ids: string[]; newTags: NewTag[] }> {
-  const { model, excerpt, signal } = input;
-  const tags = tagsToOffer(input.tags, excerpt.text);
+}): Promise<{ ids: string[]; newTags: NewTag[]; untagged: boolean }> {
+  const { excerpt } = input;
+  const held = await foundedTags(
+    excerpt,
+    tagsToOffer(input.tags, excerpt.text),
+    (tags, instruction) => askForTags({ ...input, tags }, instruction),
+  );
+  const ids = held.chosen.slice(0, TAGS_PER_DOCUMENT).map((tag) => tag.id);
+  return {
+    ids,
+    newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - ids.length),
+    untagged: held.untagged,
+  };
+}
+
+async function askForTags(
+  input: {
+    model: ChatLanguageModel;
+    tags: readonly TagDefinition[];
+    excerpt: DocumentExcerpt;
+    signal: AbortSignal;
+  },
+  instruction: string | null,
+): Promise<TagAnswer<TagDefinition>> {
+  const { model, tags, excerpt, signal } = input;
   const schema = jsonSchema<{ tags: string[]; newTags: unknown[] }>({
     type: "object",
     properties: {
@@ -221,7 +246,7 @@ async function chooseTags(input: {
   });
   const result = await generateText({
     model,
-    instructions: TAGGING_INSTRUCTIONS,
+    instructions: instruction ? `${TAGGING_INSTRUCTIONS}\n${instruction}` : TAGGING_INSTRUCTIONS,
     prompt: taggingPrompt(tags, excerpt),
     output: Output.object({
       schema,
@@ -240,9 +265,7 @@ async function chooseTags(input: {
     const tag = tags.find((each) => sameName(each.name, name.trim()));
     if (tag) found.add(tag);
   }
-  const held = withoutUnfoundedInvoice(excerpt, [...found], newTagsOf(result.output?.newTags));
-  const ids = held.chosen.slice(0, TAGS_PER_DOCUMENT).map((tag) => tag.id);
-  return { ids, newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - ids.length) };
+  return { chosen: [...found], newTags: newTagsOf(result.output?.newTags) };
 }
 
 /**
@@ -254,10 +277,11 @@ export function chatClassifier(model: ChatLanguageModel, { local = false } = {})
     local,
     namesTags: true,
     async decide({ tags, excerpt, signal }) {
-      const { ids, newTags } = await chooseTags({ model, tags, excerpt, signal });
+      const { ids, newTags, untagged } = await chooseTags({ model, tags, excerpt, signal });
       return {
         decisions: ids.map((tagId) => ({ tagId, confidence: null, needsReview: false })),
         newTags,
+        ...(untagged ? { untagged } : {}),
       };
     },
   };

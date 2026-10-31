@@ -100,19 +100,52 @@ const INVOICE_NAMES = new Set(
 const INVOICE_EVIDENCE =
   /invoice|receipt|\bbill\b|folio|发票|收据|账单|小票|凭证|缴费|税号|增值税|开票/iu;
 
-/**
- * A chat model's Tags for a Document, without an Invoice Tag where neither its name nor its
- * text says it is a bill or a receipt. A Document with no text, a scan, is left as chosen.
- */
-export function withoutUnfoundedInvoice<T extends { name: string }>(
-  excerpt: { name: string; text: string },
-  chosen: readonly T[],
-  newTags: readonly NewTag[],
-): { chosen: T[]; newTags: NewTag[] } {
-  const founded = !excerpt.text.trim() || INVOICE_EVIDENCE.test(`${excerpt.name}\n${excerpt.text}`);
-  const keep = (tag: { name: string }) => founded || !INVOICE_NAMES.has(tagKey(tag.name));
-  return { chosen: chosen.filter(keep), newTags: newTags.filter(keep) };
+const isInvoice = (tag: { name: string }) => INVOICE_NAMES.has(tagKey(tag.name));
+
+/** A chat model's Tags for a Document: those it chose from the ones offered, and those it named. */
+export interface TagAnswer<T> {
+  chosen: T[];
+  newTags: NewTag[];
 }
+
+/** Added to the instructions of the second request `foundedTags` makes. */
+const NOT_A_BILL =
+  "This Document is not a bill or a receipt: choose and name no Tag for one, only Tags that say what it is or is about.";
+
+/**
+ * The chat model's Tags for a Document from `offered`, without an Invoice Tag where neither its
+ * name nor its text says it is a bill or a receipt; a Document with no text, a scan, keeps it.
+ * When that Tag was its only one, `ask` is called once more with it left out and `NOT_A_BILL`,
+ * so the check doesn't leave the Document with no Tag (#2308); the rest of the answer, such as
+ * Organize's Folder, stays the first one's. `untagged`: the second request gave none either.
+ */
+export async function foundedTags<T extends { name: string }, A extends TagAnswer<T>>(
+  excerpt: { name: string; text: string },
+  offered: readonly T[],
+  ask: (offered: readonly T[], instruction: string | null) => Promise<A>,
+): Promise<A & { untagged: boolean }> {
+  const first = await ask(offered, null);
+  if (!excerpt.text.trim() || INVOICE_EVIDENCE.test(`${excerpt.name}\n${excerpt.text}`))
+    return { ...first, untagged: false };
+  const held = (answer: TagAnswer<T>) => ({
+    chosen: answer.chosen.filter((tag) => !isInvoice(tag)),
+    newTags: answer.newTags.filter((tag) => !isInvoice(tag)),
+  });
+  const count = (answer: TagAnswer<T>) => answer.chosen.length + answer.newTags.length;
+  const kept = held(first);
+  if (count(kept) > 0 || count(first) === 0) return { ...first, ...kept, untagged: false };
+  const again = held(
+    await ask(
+      offered.filter((tag) => !isInvoice(tag)),
+      NOT_A_BILL,
+    ),
+  );
+  return { ...first, ...again, untagged: count(again) === 0 };
+}
+
+/** The line logged for a Document `foundedTags` left with no Tag: its id only, never its name or text. */
+export const untaggedLine = (documentId: string) =>
+  `Document ${documentId} has no Tag: its only one, Invoice, had no bill or receipt wording, and asking again gave none.`;
 
 /** A Latin word without its plural ending: "invoices" and "invoice", "studies" and "study". */
 function singular(word: string): string {

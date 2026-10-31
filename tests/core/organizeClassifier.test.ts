@@ -27,14 +27,15 @@ const tags = [
   { id: "t-slides", name: "Slides", description: "A presentation deck" },
 ];
 
-/** A chat model answering `answer`, recording what it was asked. */
-function model(answer: unknown) {
+/** A chat model giving `answers` in turn, the last one from then on, recording what it was asked. */
+function model(...answers: unknown[]) {
   const calls: CallOptions[] = [];
   return {
     calls,
     model: new MockLanguageModelV4({
       doGenerate: async (options) => {
         calls.push(options);
+        const answer = answers[Math.min(calls.length, answers.length) - 1];
         return {
           content: [{ type: "text", text: JSON.stringify(answer) }],
           finishReason: { unified: "stop", raw: undefined },
@@ -214,25 +215,70 @@ describe("Organize with the chat model", () => {
     expect(schema.properties.tags.items.enum).toEqual(["t-zh-report", "t-nda"]);
   });
 
-  test("an order is not an Invoice, chosen or named, and a receipt still is", async () => {
-    const invoice = { id: "t-invoice", name: "Invoice", description: "A bill or receipt" };
-    const answer = {
-      groupId: "__unsorted__",
+  test("an order whose only Tag was Invoice is asked once more without it, and a receipt keeps Invoice in one request", async () => {
+    const offered = [
+      { id: "t-invoice", name: "Invoice", description: "A bill or receipt" },
+      { id: "t-furniture", name: "Furniture", description: "Buying furniture" },
+    ];
+    const onlyInvoice = {
+      groupId: "g-finance",
       tags: ["t-invoice"],
       newTags: [{ name: "invoices", description: "Bills." }],
     };
-    const organize = (text: string) =>
-      chatGroupClassifier(model(answer).model, false).organize(
+    const organize = (fake: ReturnType<typeof model>, text: string) =>
+      chatGroupClassifier(fake.model, false).organize(
         groups,
-        [invoice],
+        offered,
         { name: "Scan 0193", kind: "text", pageCount: null, text },
         new AbortController().signal,
       );
+    const enumOf = (call: CallOptions | undefined) => {
+      const format = call?.responseFormat;
+      const schema = (format?.type === "json" ? format.schema : undefined) as {
+        properties: { tags: { items: { enum: string[] } } };
+      };
+      return schema.properties.tags.items.enum;
+    };
+    const order = "Order 5512 confirmed: a three-seat sofa in green, 899.00.";
 
-    const order = await organize("Order 5512 confirmed: a three-seat sofa in green, 899.00.");
-    expect(order).toEqual({ groupId: null, tags: [], newTags: [] });
-    const receipt = await organize("Corner Café. Receipt 0193. Flat white 3.20. Paid by card.");
-    expect(receipt.tags.map((tag) => tag.tagId)).toEqual(["t-invoice"]);
+    const retried = model(onlyInvoice, {
+      groupId: "g-reports",
+      tags: ["t-furniture"],
+      newTags: [{ name: "Invoice", description: "A bill." }],
+    });
+    expect(await organize(retried, order)).toEqual({
+      groupId: "g-finance",
+      tags: [{ tagId: "t-furniture", confidence: null, needsReview: false }],
+      newTags: [],
+    });
+    expect(retried.calls).toHaveLength(2);
+    expect(enumOf(retried.calls[0])).toEqual(["t-invoice", "t-furniture"]);
+    expect(enumOf(retried.calls[1])).toEqual(["t-furniture"]);
+    expect(retried.calls.map(textOf)[1]).toContain("not a bill or a receipt");
+    expect(retried.calls.map(textOf)[0]).not.toContain("not a bill or a receipt");
+
+    const empty = model(onlyInvoice, { groupId: "g-reports", tags: [], newTags: [] });
+    expect(await organize(empty, order)).toEqual({
+      groupId: "g-finance",
+      tags: [],
+      newTags: [],
+      untagged: true,
+    });
+    expect(empty.calls).toHaveLength(2);
+
+    const furniture = model({ groupId: "g-finance", tags: ["t-furniture"], newTags: [] });
+    expect((await organize(furniture, order)).tags.map((tag) => tag.tagId)).toEqual([
+      "t-furniture",
+    ]);
+    expect(furniture.calls).toHaveLength(1);
+
+    const receipt = model(onlyInvoice);
+    const kept = await organize(
+      receipt,
+      "Corner Café. Receipt 0193. Flat white 3.20. Paid by card.",
+    );
+    expect(kept.tags.map((tag) => tag.tagId)).toEqual(["t-invoice"]);
+    expect(receipt.calls).toHaveLength(1);
   });
 });
 

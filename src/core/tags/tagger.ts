@@ -55,6 +55,7 @@ import {
 } from "./classify";
 import { type TagsStore, tagsOfDocument } from "./index";
 import { type RateLimitPause, rateLimitError } from "./rateLimit";
+import { untaggedLine } from "./suggest";
 import { isTransient, RETRY_WAIT_MS } from "./transient";
 
 /** What the "tagging" flow sends to the tagger's service: the chat model's or Jev's. */
@@ -301,6 +302,7 @@ export function createTagger(options: TaggerOptions) {
       options.rateLimit.succeeded();
     }
     if (stale()) return;
+    if (choice.untagged) console.info(untaggedLine(id));
 
     const { changed, made } = db.transaction(() => {
       // Deleted, or processed again, meanwhile.

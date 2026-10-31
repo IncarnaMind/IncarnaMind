@@ -8,13 +8,13 @@ import { outputTokens } from "../providers/outputLimits";
 import type { DocumentExcerpt, TagDecision, TagDefinition } from "../tags/classify";
 import { documentType, excerptFromPassages } from "../tags/classify";
 import {
+  foundedTags,
   NEW_TAGS_SCHEMA,
   type NewTag,
   newTagsOf,
   TAG_RULES,
   TAGS_PER_DOCUMENT,
   tagsToOffer,
-  withoutUnfoundedInvoice,
 } from "../tags/suggest";
 import type { DocumentPageImage } from "./pdfImages";
 import type { ClassificationModel, LibraryGroup } from "./types";
@@ -25,6 +25,8 @@ export interface OrganizationDecision {
   tags: TagDecision[];
   /** Tags the chat model named for the Document, where none in the list fit (see ../tags/suggest). */
   newTags?: NewTag[];
+  /** Its only Tag, an Invoice Tag its text doesn't bear out, was dropped, and asking again gave none. */
+  untagged?: boolean;
 }
 
 /** A Folder Organize proposes, where there are none to sort into. */
@@ -133,72 +135,77 @@ export function chatGroupClassifier(
     },
     async organize(groups, allTags, excerpt, signal, images = []) {
       const pages = readsImages ? images : [];
-      const tags = tagsToOffer(allTags, excerpt.text);
       const choices = [...groups.map((group) => group.id), UNSORTED];
-      const data = JSON.stringify({
-        groups: groups.map(({ id, name, description }) => ({ id, name, description })),
-        tags: tags.map(({ id, name, description }) => ({ id, name, description })),
-        document: documentData(excerpt, pages),
-      });
-      const result = await generateText({
-        model,
-        instructions: pages.length
-          ? `${ORGANIZE_INSTRUCTIONS}\n${PAGE_IMAGES_INSTRUCTIONS}`
-          : ORGANIZE_INSTRUCTIONS,
-        prompt: pages.length
-          ? [
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: data },
-                  ...pages.map((page) => ({
-                    type: "file" as const,
-                    data: page.data,
-                    mediaType: "image/jpeg",
-                  })),
-                ],
+      const ask = async (tags: readonly TagDefinition[], instruction: string | null) => {
+        const data = JSON.stringify({
+          groups: groups.map(({ id, name, description }) => ({ id, name, description })),
+          tags: tags.map(({ id, name, description }) => ({ id, name, description })),
+          document: documentData(excerpt, pages),
+        });
+        const result = await generateText({
+          model,
+          instructions: [
+            ORGANIZE_INSTRUCTIONS,
+            ...(pages.length ? [PAGE_IMAGES_INSTRUCTIONS] : []),
+            ...(instruction ? [instruction] : []),
+          ].join("\n"),
+          prompt: pages.length
+            ? [
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: data },
+                    ...pages.map((page) => ({
+                      type: "file" as const,
+                      data: page.data,
+                      mediaType: "image/jpeg",
+                    })),
+                  ],
+                },
+              ]
+            : data,
+          output: Output.object({
+            name: "document_group",
+            schema: jsonSchema<{ groupId: string; tags: string[]; newTags: unknown[] }>({
+              type: "object",
+              properties: {
+                groupId: { type: "string", enum: choices },
+                tags: {
+                  type: "array",
+                  items: tags.length
+                    ? { type: "string", enum: tags.map((tag) => tag.id) }
+                    : { type: "string" },
+                  ...(tags.length ? {} : { maxItems: 0 }),
+                },
+                newTags: NEW_TAGS_SCHEMA,
               },
-            ]
-          : data,
-        output: Output.object({
-          name: "document_group",
-          schema: jsonSchema<{ groupId: string; tags: string[]; newTags: unknown[] }>({
-            type: "object",
-            properties: {
-              groupId: { type: "string", enum: choices },
-              tags: {
-                type: "array",
-                items: tags.length
-                  ? { type: "string", enum: tags.map((tag) => tag.id) }
-                  : { type: "string" },
-                ...(tags.length ? {} : { maxItems: 0 }),
-              },
-              newTags: NEW_TAGS_SCHEMA,
-            },
-            required: ["groupId", "tags", "newTags"],
-            additionalProperties: false,
+              required: ["groupId", "tags", "newTags"],
+              additionalProperties: false,
+            }),
           }),
-        }),
-        maxOutputTokens: outputTokens("organize"),
-        maxRetries: 0,
-        abortSignal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
-      });
-      const selected = result.output?.groupId;
-      if (!selected || !choices.includes(selected))
-        throw new Error("The classifier did not return an allowed group.");
-      const ids = result.output.tags;
-      if (!Array.isArray(ids) || ids.some((id) => !tags.some((tag) => tag.id === id)))
-        throw new Error("The classifier did not return allowed tags.");
-      const held = withoutUnfoundedInvoice(
-        excerpt,
-        [...new Set(ids)].flatMap((id) => tags.filter((tag) => tag.id === id)),
-        newTagsOf(result.output.newTags),
-      );
+          maxOutputTokens: outputTokens("organize"),
+          maxRetries: 0,
+          abortSignal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+        });
+        const selected = result.output?.groupId;
+        if (!selected || !choices.includes(selected))
+          throw new Error("The classifier did not return an allowed group.");
+        const ids = result.output.tags;
+        if (!Array.isArray(ids) || ids.some((id) => !tags.some((tag) => tag.id === id)))
+          throw new Error("The classifier did not return allowed tags.");
+        return {
+          groupId: selected === UNSORTED ? null : selected,
+          chosen: [...new Set(ids)].flatMap((id) => tags.filter((tag) => tag.id === id)),
+          newTags: newTagsOf(result.output.newTags),
+        };
+      };
+      const held = await foundedTags(excerpt, tagsToOffer(allTags, excerpt.text), ask);
       const chosen = held.chosen.slice(0, TAGS_PER_DOCUMENT);
       return {
-        groupId: selected === UNSORTED ? null : selected,
+        groupId: held.groupId,
         tags: chosen.map((tag) => ({ tagId: tag.id, confidence: null, needsReview: false })),
         newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - chosen.length),
+        ...(held.untagged ? { untagged: true } : {}),
       };
     },
     async proposeFolders(documents, existing, language, signal) {

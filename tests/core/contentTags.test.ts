@@ -196,6 +196,40 @@ describe("Tags named from what a Document says", () => {
     expect(await tagNamesOf(core, receipt.id)).toEqual(["发票"]);
   });
 
+  test("an order whose only Tag was Invoice gets another from a second request, which doesn't offer Invoice", async () => {
+    const { core, tagging } = await start();
+    await core.saveChatProvider(LOCAL);
+    tagging.choose((request) => (request.names.includes("Invoice") ? ["Invoice"] : []));
+    tagging.name((request) =>
+      request.names.includes("Invoice")
+        ? []
+        : [{ name: "Takeaway orders", description: "Food ordered for delivery." }],
+    );
+
+    const order = await add(
+      core,
+      "Golden Wok order.txt",
+      "Golden Wok takeaway. Order 6021. Kung pao chicken 1 x 12.00, rice 2 x 2.00, delivery 3.00. Paid 19.00 by card.",
+    );
+    await waitForTagging(core, [order.id]);
+    const [first, second, ...more] = tagging.requests;
+    const vat = await add(
+      core,
+      "Printer repair.txt",
+      "VAT invoice 0442-1187. Buyer: Zhou Ning. Printer repair 194.17, VAT 5.83, total 200.00.",
+    );
+    await waitForTagging(core, [vat.id]);
+
+    expect(await tagNamesOf(core, order.id)).toEqual(["Takeaway orders"]);
+    expect(more).toEqual([]);
+    expect(first?.names).toContain("Invoice");
+    expect(first?.text).not.toContain("not a bill or a receipt");
+    expect(second?.names).not.toContain("Invoice");
+    expect(second?.text).toContain("not a bill or a receipt");
+    expect(await tagNamesOf(core, vat.id)).toEqual(["Invoice"]);
+    expect(tagging.requests).toHaveLength(3);
+  });
+
   test("past sixty Tags no new one is made, and the ones that exist still apply", async () => {
     const { core, tagging } = await start();
     await core.saveChatProvider(LOCAL);
