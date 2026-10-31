@@ -4,7 +4,7 @@ status: proposed (2026-10-31)
 
 # Deep analysis: more Python in the Analysis sandbox first, then code runs in the OS sandbox
 
-Analysts ask for more than totals and group-bys: regressions, tests, clustering, forecasts and plots. They want the assistant to work as an agent harness works: write code, run it, read what it printed, and run again. Today an Analysis (ADR-0023) runs Python in Pyodide with numpy and pandas, in a hidden sandboxed window with no network and no files, on Inputs cited from Documents, on every system. A Skill script runs through the "os" Executor (#65): Seatbelt on macOS and bubblewrap on Linux, through `@anthropic-ai/sandbox-runtime`, with no network. Windows has no OS sandbox, so Skill scripts there ask every time.
+Analysts ask for more than totals and group-bys: regressions, tests, clustering, forecasts and plots. They want the assistant to work as an agent harness works: write code, run it, read what it printed, and run again. Today an Analysis (ADR-0023) runs Python in Pyodide with numpy and pandas, in a hidden sandboxed window with no network and no files, on Inputs cited from Documents, on every system. A Skill script runs through the "os" Executor (#65): Seatbelt on macOS and bubblewrap on Linux, through `@anthropic-ai/sandbox-runtime`, with no network. Windows has no OS sandbox, so Skill scripts there ask every time. A User who has an agent harness of their own can already bring it (ADR-0013's addendum; #353); this record is about IncarnaMind's own assistant, which most Users will use.
 
 The spike on `spike/run-code-sandbox` measured three ways to give the assistant more:
 - Pyodide's own builds of scipy, statsmodels, scikit-learn and matplotlib, in the Analysis window as it is.
@@ -17,7 +17,7 @@ The prototype is `src/core/runCode/`. Its tests are `tests/main/runCode*.test.ts
 
 In this order:
 
-1. **Analyses gain scipy, statsmodels, scikit-learn and matplotlib.**
+1. **Analyses gain scipy, statsmodels, scikit-learn and matplotlib** (#2346).
    - They are Pyodide's own wheels, from its lock file, fetched at build time and checked against the SHA-256 the lock records, as numpy and pandas are now.
    - They load and run under ADR-0023's Content-Security-Policy as it is. In 18 fresh Workers, no request was cancelled and no policy was violated (below).
    - A job loads only the packages its code imports. The spare interpreter keeps only numpy and pandas, so an Analysis that uses only pandas starts as fast as it does now.
@@ -36,11 +36,12 @@ In this order:
    - **What comes back:** what it leaves in `out/`, up to 20 files of 5 MB each. Nothing it writes reaches a Linked folder or a Note by itself. The assistant adds a file or a figure the usual ways.
    - **Python is the User's own `python3`,** when it can import what the code needs: pandas at least, checked once in the sandbox at startup. Otherwise `run_code` offers bash only, and the assistant uses an Analysis for Python. A bundled CPython is not shipped now (Considered options).
    - **What the sandbox denies reading:** the home and data folders as now, and also the shared temporary folder (`os.tmpdir()`) and removable and network volumes (`/Volumes` on macOS; `/media`, `/mnt` and `/run/media` on Linux). Each run's own folders are allowed again inside them. The spike found that the shared temporary folder was readable from the sandbox.
-3. **A figure from code keeps the trust story of ADR-0021.** The model never types a number. Code gives each figure with `result(name, value, label, unit, of=column, how=…)`:
-   - **Where `of` comes from.** `read_table` gives a DataFrame indexed by each row's number in its sheet, the headings being row 1. In the shipped version it reads the rows as the app's index read them, the same Units Citations are checked against. In the spike it reads the copied CSV.
-   - **What a figure records.** `of` is a column taken from that DataFrame, after any filtering. The figure keeps that column's heading and exact row numbers, its input's Document version, and `how`: one of sum, mean, min, max or count.
+3. **A figure from code keeps the trust story of ADR-0021.** The model never types a number. Code gives a figure the app can check with `figure(name, column, how, label, unit)`, and any other number with `result(name, value, label, unit)`:
+   - **Where the column comes from.** `read_table` gives a DataFrame whose rows carry their row number in the sheet, the headings being row 1. In the shipped version it reads the rows as the app's index read them, the same Units Citations are checked against, and keeps each row's number in a column of its own, since a merge resets a DataFrame's index (measured). In the spike it reads the copied CSV and numbers the index.
+   - **What a figure records.** The column is taken from that DataFrame, after any filtering. `how` is sum, mean, min, max or count. The helper works the value out itself, so the value and its cells can't disagree. The figure keeps the column's heading and exact row numbers, its input's Document version, and `how`.
    - **The check.** The app reads those cells itself from its own reading of the Document version, works the figure out again with its own arithmetic, and compares the two to Excel's 15 digits. A match is "Inputs found · recalculated", and its Inputs are cited as a rows Citation. A mismatch is never shown as a figure, and the model is told the number the cells come to. The check needs no sandbox, so it runs again on Recalculate as `calculate`'s does.
    - **Figures without `of`.** A regression coefficient, a p-value or a forecast is an Analysis figure. It is kept with its code, its Inputs' Document versions and hashes, and the runtime's versions, and shown as calculated by code and not recalculated. It can be run again only where its runtime is pinned: Pyodide, or a bundled CPython. With the User's own Python it is marked as one that can't be run again.
+   - **One contract for both runtimes.** The Analysis helper (`incarnamind.py`) gains the same `figure()`. Its Inputs already carry their row numbers, so an Analysis's sums, means, minimums, maximums and counts are recalculated too, not only `run_code`'s.
    - **What run_code's figures go through.** They reach an Answer only as markers (`[=n]`), as an Analysis's do. A number the reply writes without a marker is caught as ADR-0021 already catches one (#1796).
 4. **What asks.** The rules are approvals by Effect, as ADR-0013 sets out:
    - **Runs without asking.** `run_code` at level "os" is "sandboxed code", ADR-0023's Effect scope, which now covers both sandboxes. It reads only copies of Documents the Run may already read, writes only its own folder, and can't send anything. So it runs without asking, also after the Run has read third-party text (#78).
@@ -98,10 +99,19 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
   - a bash fork bomb, limited to 64 processes over the account's own, ran to its time limit, and nothing of it was left running.
 - Figure checks: of four figures, the two a sum of named rows gave were recalculated. A figure 10% above its cells was caught as differing, and one without `of` stayed unchecked.
 
-**A real model** (Claude Haiku 5.5, a direct Anthropic key, 3 questions on a 9-row CSV):
-- 3 of its 4 figures named their cells and were recalculated: two sums and a maximum. The fourth, an average, didn't name them and stayed unchecked.
-- Its first call failed in all 3 questions, and its second in 2 of them, before a call worked.
-- Tokens: 11 requests, 26,210 uncached input, 0 cache reads or writes, 3,261 output, about $0.004.
+**A real model** (Claude Haiku 5.5 on a direct Anthropic key, AI SDK 7, up to 4 steps; held-out questions on a 9-row CSV, with no examples in the prompt):
+
+| Helper | Questions | Figures recalculated | Calls that failed | Requests | Uncached input | Output | Spend |
+|---|---|---|---|---|---|---|---|
+| `result(…, of=, how=)` (run 1) | 3 | 3 of 4 | 5 of 8 | 11 | 26,210 | 3,261 | $0.0043 |
+| `result(…, of=, how=)` (run 2) | 3 | 3 of 4 | 6 of 9 | 11 | 26,094 | 3,230 | $0.0042 |
+| `figure(name, column, how)` (run 3) | 5 | 6 of 6 | 2 of 10 | 14 | 21,120 | 2,817 | $0.0035 |
+
+- No request read or wrote the prompt cache. Prices: $0.10 per million input tokens and $0.50 per million output.
+- With `result()`, most failed calls were refused by the helper's own check of `of=`, or passed a DataFrame as the value; the average was given without `of` and stayed unchecked.
+- With `figure()`, one failure was the column's name given in place of the column, which the helper's message fixed on the next call.
+- The replies wrote markers where the figures go. One also wrote "about 33.5%" without one, which #1796's line marks.
+- The check shows the arithmetic over the cited cells, not that they were the right cells: "the highest in Q3" came back as the maximum of East's Q3 row alone. As ADR-0021 says, that is for the User to judge from the Inputs.
 
 **Not measured:** Linux and Windows. On GitHub's ubuntu-24.04 runners, the OS sandbox's tests are skipped today (6 of 6 in the last green run on `main`), as `run_code`'s would be.
 
