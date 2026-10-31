@@ -45,11 +45,7 @@ import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { runsByDefault } from "../../shared/approvalRules";
-import {
-  askedFor,
-  waitsForUser as heldForUser,
-  requestedRequests,
-} from "../../shared/askedChanges";
+import { appliedAsAsked } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
@@ -153,6 +149,7 @@ import { proposeBlocks } from "../proposals/write";
 import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
+import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
@@ -1046,6 +1043,13 @@ export function createAnswers(options: AnswersOptions) {
     outside?: boolean;
     /** Which Tools its Run is offered (see `ToolSet`); absent: every Tool. */
     toolSet?: ToolSet;
+    /** The output limit of its replies, when it writes more than an Answer (see `AnswerRequest`). */
+    outputKind?: ModelCallKind;
+    /**
+     * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
+     * does: at a Task's effort the thinking alone filled their replies' limits (#2306).
+     */
+    thinking?: "answer";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -2072,7 +2076,9 @@ export function createAnswers(options: AnswersOptions) {
         prepared = await options.prepareModel(
           model,
           // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : input.task ? "summary" : careful ? "careful" : "answer",
+          help
+            ? "off"
+            : (input.thinking ?? (input.task ? "summary" : careful ? "careful" : "answer")),
         );
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
@@ -2684,23 +2690,13 @@ export function createAnswers(options: AnswersOptions) {
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
-      const appliedInTurn: ChangeStates = (change) => {
-        const asked = new Set(
-          toolCalls.flatMap((call) =>
-            call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
-          ),
-        );
-        return (
-          minds?.read(change.mindId, (blocks) => {
-            const doc = blocks.doc;
-            if (!doc) return null;
-            const requested = requestedRequests(doc, asked);
-            return askedFor(doc, change.request) && !heldForUser(doc, requested)
-              ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
-              : null;
-          }) ?? null
-        );
-      };
+      const appliedInTurn: ChangeStates = (change) =>
+        minds?.read(change.mindId, (blocks) => {
+          const doc = blocks.doc;
+          return doc !== null && appliedAsAsked(doc, change, toolCalls)
+            ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+            : null;
+        }) ?? null;
       const claimedTools: TurnCheck = {
         name: "claimed-tool",
         check: (text) => {
@@ -2938,6 +2934,7 @@ export function createAnswers(options: AnswersOptions) {
         gate,
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
         }),
@@ -4079,6 +4076,8 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           toolSet: "check",
+          outputKind: "meeting-fill",
+          thinking: "answer",
           task: true,
           transcript: input.passages,
         });

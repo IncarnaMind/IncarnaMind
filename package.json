@@ -58,6 +58,7 @@
     "check:package": "node scripts/check-package.mjs",
     "icons": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/icons.ts",
     "samples:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/sampleDocuments/index.ts",
+    "examples:credit:print": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs scripts/exampleDocuments/index.ts",
     "eval:skills": "vitest run --config eval/skills/vitest.config.ts",
     "eval:citations": "vitest run --config eval/citations/vitest.config.ts run.citations",
     "eval:citations:estimate": "vitest run --config eval/citations/vitest.config.ts estimate.citations",

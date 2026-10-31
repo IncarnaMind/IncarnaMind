@@ -42,6 +42,7 @@ registerMenu("document", [
   "folder.newWith",
   "document.tags",
   "document.retry",
+  "document.readHiddenSheets",
   "document.unlock",
   "document.fetchAgain",
   "document.countAsEvidence",

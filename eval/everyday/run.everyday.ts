@@ -263,7 +263,7 @@ function report(
   return [
     "# Everyday requests",
     "",
-    `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}.`,
+    `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}, and the app's own change-claim check is asserted for every request.`,
     "",
     `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache, ${sum("cacheWriteTokens")} written to it), ${sum("outputTokens")} out. Each request: the Answers' ${tokens.answers}; the judge's ${tokens.judge}. Edit with AI's and the cited sentences' checks aren't counted.`,
     "",

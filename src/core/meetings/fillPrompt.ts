@@ -5,8 +5,17 @@
  * headings ("### L3", "### DECISIONS") that the notes never show.
  */
 import type { NodeJSON } from "../../shared/blockJson";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import {
+  numberedVoice,
+  SPEAKER_ME,
+  SPEAKER_THEM,
+  SPEAKER_UNKNOWN,
+  speakerName,
+} from "../../shared/speakers";
 import type { QuestionContext } from "../answers/context";
 import { CITATION_NODE } from "../api";
+import { LANGUAGE_NAMES, LANGUAGES } from "../language";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -14,11 +23,63 @@ export interface FillLine {
   text: string;
   /** A heading the User wrote: shown for where lines belong, never filled in itself. */
   heading: boolean;
+  /** The section the line names ("Action items", "待办"): that section is written under it. */
+  section: FillSection | null;
 }
 
-/** The sections written when the User took no notes, in order. `claims` is checked afterwards. */
+/** The meeting's sections, in order. `claims` is checked afterwards. */
 export const FILL_SECTIONS = ["summary", "decisions", "actions", "questions", "claims"] as const;
 export type FillSection = (typeof FILL_SECTIONS)[number];
+
+export const SECTION_TITLES = {
+  summary: "meetings.fill.section.summary",
+  decisions: "meetings.fill.section.decisions",
+  actions: "meetings.fill.section.actions",
+  questions: "meetings.fill.section.questions",
+  claims: "meetings.fill.section.claims",
+} as const satisfies Record<FillSection, MessageKey>;
+
+/** What else a User may call a section in their notes, besides its title in each language. */
+const SECTION_NAMES: Readonly<Record<FillSection, readonly string[]>> = {
+  summary: ["overview", "recap", "总结", "概要", "小结", "概述"],
+  decisions: ["decision", "decided", "agreed", "what we agreed", "决策", "决议", "结论", "共识"],
+  actions: [
+    "actions",
+    "action item",
+    "next steps",
+    "to do",
+    "todo",
+    "to dos",
+    "todos",
+    "follow ups",
+    "待办",
+    "行动项",
+    "后续步骤",
+    "下一步",
+  ],
+  questions: ["questions", "open issues", "待解决问题", "待解决的问题", "未决问题", "问题", "疑问"],
+  claims: [],
+};
+
+const plain = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}\s]+/gu, " ")
+    .trim();
+
+/** The section a line of the User's notes is named for, by its whole text, in either language. */
+export function sectionNamed(text: string): FillSection | null {
+  const name = plain(text);
+  if (name === "") return null;
+  const names = (section: FillSection) => [
+    ...LANGUAGES.map((language) => translate(language, SECTION_TITLES[section])),
+    ...SECTION_NAMES[section],
+  ];
+  return (
+    FILL_SECTIONS.find((section) => names(section).some((each) => plain(each) === name)) ?? null
+  );
+}
 
 const SECTION_MARKERS: Readonly<Record<FillSection, string>> = {
   summary: "SUMMARY",
@@ -40,27 +101,73 @@ const SECTION_ASKS: Readonly<Record<FillSection, string>> = {
 
 export const lineMarker = (index: number) => `L${index + 1}`;
 
+/** Asked with the User's notes, so that each fact is written once in all of them (#2306). */
+const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
+  ...SECTION_ASKS,
+  questions:
+    "what the call left unanswered, a bullet each: never what was decided or what someone will do",
+  summary:
+    "one sentence on what the call was about, with no figure or date in it; then, a bullet each, any figure, date or term said in the call that nothing above has",
+};
+
+/**
+ * The order the model writes the sections in: the summary after the others, so it can leave out
+ * what they hold, and the claims, which repeat them, last. They go into the notes in the
+ * template's order all the same.
+ */
+const WRITTEN_ORDER: readonly FillSection[] = [
+  "decisions",
+  "actions",
+  "questions",
+  "summary",
+  "claims",
+];
+
 const callIntro =
-  "The transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]).";
+  "The transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]). Me is the User, Them the other side of the call.";
+
+/**
+ * The transcript's marks are its English words: in Chinese notes the model wrote "— Them" and
+ * "Me（用户）" (#2305). The Transcript's own words for them, in each other interface language.
+ */
+const speakerWords = LANGUAGES.filter((language) => language !== "en").map((language) => {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  const marks = [SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN, numberedVoice(2)];
+  return `in ${LANGUAGE_NAMES[language]} ${marks.map((mark) => `${mark} is ${speakerName(mark, t)}`).join(", ")}`;
+});
 
 const rules = [
   "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
   "- Write only what the transcript says. Leave out what it doesn't.",
   "- Write in the language of the call.",
+  `- Name who spoke with the transcript's words for them in the language you write in: in English as marked; ${speakerWords.join("; ")}. Never call the User "the User" or 用户.`,
 ];
 
-/** Under each of the User's lines, what the call said about it. */
+/** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
 export function notesContext(lines: readonly FillLine[], question: string): QuestionContext {
-  const shown = lines.map((line) =>
-    line.heading ? `(heading) ${line.text}` : `${line.marker}: ${line.text}`,
-  );
+  const shown = lines.map((line) => {
+    if (line.section)
+      return `(heading: ### ${SECTION_MARKERS[line.section]} goes under it) ${line.text}`;
+    return line.heading ? `(heading) ${line.text}` : `${line.marker}: ${line.text}`;
+  });
   const framing = [
     callIntro,
     "The User took the notes below during the call, a line each. Fill them in from the transcript:",
-    "- For each line, write what the call said about it: one to three short sentences.",
+    "- For each line, write where the call ended up about it, not each offer on the way: one to three short sentences. What someone will do goes in ACTIONS, not under a line, unless the line is that action itself.",
     '- Start each line\'s part with its marker alone as a heading ("### L3"), in the order of the notes. Leave out a line the call said nothing about.',
     "- Never repeat or reword the User's line: write only what goes under it. Write nothing for a heading.",
+    "Then, after the lines' parts, write these sections, each starting with its marker alone as a heading, in this order:",
+    ...WRITTEN_ORDER.map(
+      (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
+    ),
+    "- Each fact goes in the notes once. Before you write a sentence or a bullet in a section, look at everything written above it: if its figure, date, decision or action is there already, leave it out.",
+    "- Every action goes in ACTIONS, once, with the one person who will do it.",
+    "- CLAIMS alone lists the facts again, to be checked.",
+    "- Leave out a section with nothing in it.",
     ...rules,
+    // Notes this long were sent without their records one time in five: the Citations asked for
+    // afterwards then missed some, and what they missed was dropped.
+    "- Then, in the same reply, call cite once with a record for every marker in the notes.",
     "",
     "The notes:",
     ...shown,
