@@ -908,6 +908,33 @@ describe("A ChatGPT test profile shared by several data folders", () => {
     ]);
     for (const { keychain } of [owner, agent]) expect(keychain.secrets.size).toBe(0);
   });
+
+  test("without a keyring, the profile saves the sign-in once the User accepts plain text", async () => {
+    const clock = manualClock();
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const profile = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain("plain-text"),
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: createAiSdkChatModel,
+      chatGptPlan: fake.endpoints,
+      chatGptStore: {
+        keychain: createFileKeychain(join(profile, SECRETS_FILE), createFakeCipher("plain-text")),
+        lockFile: join(profile, "refresh.lock"),
+      },
+    });
+
+    expect(await core.signInToChatGpt()).toMatchObject({
+      ok: false,
+      error: { kind: "secret-storage" },
+    });
+
+    await core.acceptPlainTextSecretStorage();
+
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: true });
+    expect((await core.getChatGptPlan()).account).toMatchObject({ state: "signed-in" });
+  });
 });
 
 describe("A ChatGPT profile whose sign-in can't be read", () => {
