@@ -173,8 +173,8 @@ function itemForKey(key: string, all: readonly HTMLElement[]): HTMLElement | und
  * A new name is looked for from the row after the one in focus and round, so pressing a letter
  * again on its own moves to the next name starting with it; letters typed within a pause add to
  * the name being typed and look again from the first row. A Space within that pause is part of
- * the name ("untitled s" reaches "Untitled something"), and never presses the row in focus. A
- * field the menu holds keeps its own keys.
+ * the name when a name goes on with it ("untitled s" reaches "Untitled something"), and presses
+ * the row in focus otherwise. A field the menu holds keeps its own keys.
  *
  * Only letters that reached a name are kept: any other key that moves the focus ends the name
  * (see `onKeyDown`), and letters no name takes end it too, so a Space after either presses the
@@ -216,9 +216,8 @@ function typedTo(
   const item = around.find((each) => startsWith(text, (each.textContent ?? "").trim()));
   // Letters no name takes end the name, so the Space after them presses the row in focus.
   if (item === undefined) typed.current = { text: "", at: 0 };
-  // The first letters of a name are never a stray key: the menu keeps them for the next one,
-  // and a Space typed into a name never presses the row it is in.
-  if (item !== undefined || key === " ") event.preventDefault();
+  // The first letters of a name are never a stray key: the menu keeps them for the next one.
+  if (item !== undefined) event.preventDefault();
   return item;
 }
 

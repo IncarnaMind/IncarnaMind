@@ -659,7 +659,7 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`typing in the list searches from the row in focus, repeats cycle, and Space is part of the name only straight after the letters that reached one (${language}) (#2244)`, async () => {
+  test(`typing in the list searches from the row in focus, repeats cycle, and a Space joins a name only when the name goes on with it (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
@@ -670,6 +670,7 @@ for (const language of LANGUAGES) {
     const other = language === "en" ? "Zebra notes" : "斑马笔记";
     const key = language === "en" ? "u" : "c";
     const none = language === "en" ? "q" : "l";
+    const jump = language === "en" ? "z" : "b";
     const query = language === "en" ? "untitled b" : "chengshiredao c";
     const report = await addReport(window, language);
     for (const name of [first, second, other]) await addMind(window, groupAt(window, 0), name);
@@ -767,6 +768,29 @@ for (const language of LANGUAGES) {
     await window.keyboard.press("Space");
     await expect(menu).not.toBeVisible();
     await expect(list.getByRole("tab", { name: second, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // A letter that jumped to a row, then a Space straight after: the space goes on with no name,
+    // so it presses the row the letter reached.
+    await reopen();
+    await window.keyboard.press(jump);
+    await expect(rowOf(other)).toBeFocused();
+    await window.keyboard.press("Space");
+    await expect(menu).not.toBeVisible();
+    await expect(list.getByRole("tab", { name: other, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // The same for a letter that reaches the row after the one shown.
+    await reopen();
+    await window.keyboard.press(key);
+    const reached = await menu.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+    await window.keyboard.press("Space");
+    await expect(menu).not.toBeVisible();
+    await expect(list.getByRole("tab", { name: reached, exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
     );
