@@ -22,14 +22,16 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Browser } from "../../adapters";
-import { nonEmptyText, type OAuthPage, type OAuthTokens, refreshOAuthTokens } from "../../oauth";
+import { nonEmptyText, type OAuthPage, refreshOAuthTokens } from "../../oauth";
 import {
   createOAuthAccount,
+  isSignInUnreadable,
   type OAuthAccountRecord,
   parseAccountRecord,
   type RefreshLock,
   revokeRefreshToken,
   type SignInFlows,
+  SignInRecordUnreadableError,
 } from "../../oauthAccount";
 import type { Secrets } from "../../secrets";
 import {
@@ -108,6 +110,8 @@ function parseStored(record: Record<string, unknown>): StoredAccount | null {
 export type ChatGptAccountState =
   | { state: "signed-out" }
   | { state: "expired" }
+  /** A record is kept here, but it can't be read; signing in again replaces it once it completes. */
+  | { state: "unreadable" }
   | { state: "signed-in"; email: string | null };
 
 export function createChatGptSignIn(options: {
@@ -138,6 +142,7 @@ export function createChatGptSignIn(options: {
 
   const account = createOAuthAccount<StoredAccount>({
     secretName: ACCOUNT_SECRET,
+    provider: "ChatGPT",
     secrets: options.secrets,
     parse: parseStored,
     ...(options.refreshLock && { refreshLock: options.refreshLock }),
@@ -172,80 +177,81 @@ export function createChatGptSignIn(options: {
     ...(options.fetch && { fetch: options.fetch }),
   });
 
-  /** The record to sign in with, a host ID chosen and kept before the first sign-in. */
-  const prepare = async (): Promise<StoredAccount> => {
-    const existing = await account.load();
-    if (existing) return existing;
-    const fresh: StoredAccount = {
-      hostId: `urn:uuid:${randomUUID()}`,
-      clientId: null,
-      subject: null,
-      email: null,
-      idToken: null,
-      tokens: null,
-      ended: null,
-      planRefused: false,
-    };
-    await account.save(fresh);
-    return fresh;
+  /**
+   * What to sign in with: the record kept here, or a fresh one held in memory
+   * until a sign-in completes. A record that can't be read is not replaced,
+   * unless the User signs in again to replace it (`replaceUnreadable`). A store
+   * that can't be read at all is not replaceable, so its error always stops.
+   */
+  const prepare = async (replaceUnreadable: boolean): Promise<StoredAccount> => {
+    let existing: StoredAccount | null = null;
+    try {
+      existing = await account.load();
+    } catch (error) {
+      if (!(error instanceof SignInRecordUnreadableError) || !replaceUnreadable) throw error;
+    }
+    return (
+      existing ?? {
+        hostId: `urn:uuid:${randomUUID()}`,
+        clientId: null,
+        subject: null,
+        email: null,
+        idToken: null,
+        tokens: null,
+        ended: null,
+        planRefused: false,
+      }
+    );
   };
 
   const signInOnce = async (
     authorize: SignInFlows["browser"],
     signal: AbortSignal,
     anotherAccount: boolean,
+    replaceUnreadable: boolean,
   ) => {
-    const stored = await prepare();
+    const stored = await prepare(replaceUnreadable);
     const registered = anotherAccount ? null : stored.clientId;
     const nonce = randomBytes(24).toString("base64url");
     /** The client the code is for: the registered one, or the one OpenAI issues now. */
     let clientId = registered;
-    let tokens: OAuthTokens;
-    try {
-      tokens = await authorize({
-        authorizeUrl: endpoints.authorizeUrl,
-        tokenUrl: endpoints.tokenUrl,
-        clientId: registered ?? DYNAMIC_CLIENT,
-        scope: SCOPE,
-        redirect: { kind: "loopback", port: 0, path: CALLBACK_PATH },
-        authorizeParams: {
-          resource: CHATGPT_PLAN_RESOURCE,
-          nonce,
-          ext_agent_host_id: stored.hostId,
-          ...(registered
-            ? {
-                ...(stored.email && { login_hint: stored.email }),
-                ...(stored.idToken && stored.ended !== "signed-out"
-                  ? { id_token_hint: stored.idToken }
-                  : {}),
-              }
-            : { agent_name_hint: APP_NAME }),
-          // Asked again only after the User didn't allow plan use: not on every sign-in.
-          ...(stored.planRefused && registered && { prompt: "consent" }),
-        },
-        tokenParams: { resource: CHATGPT_PLAN_RESOURCE },
-        verify(params) {
-          if (!params.has("code")) return;
-          const returned = params.get("client_id");
-          if (registered) {
-            if (returned && returned !== registered) {
-              throw new Error("OpenAI answered for another registration of IncarnaMind.");
+    const tokens = await authorize({
+      authorizeUrl: endpoints.authorizeUrl,
+      tokenUrl: endpoints.tokenUrl,
+      clientId: registered ?? DYNAMIC_CLIENT,
+      scope: SCOPE,
+      redirect: { kind: "loopback", port: 0, path: CALLBACK_PATH },
+      authorizeParams: {
+        resource: CHATGPT_PLAN_RESOURCE,
+        nonce,
+        ext_agent_host_id: stored.hostId,
+        ...(registered
+          ? {
+              ...(stored.email && { login_hint: stored.email }),
+              ...(stored.idToken && stored.ended !== "signed-out"
+                ? { id_token_hint: stored.idToken }
+                : {}),
             }
-          } else if (!returned || returned === DYNAMIC_CLIENT) {
-            throw new Error("OpenAI didn't finish registering IncarnaMind. Try again.");
-          } else {
-            clientId = returned;
+          : { agent_name_hint: APP_NAME }),
+        // Asked again only after the User didn't allow plan use: not on every sign-in.
+        ...(stored.planRefused && registered && { prompt: "consent" }),
+      },
+      tokenParams: { resource: CHATGPT_PLAN_RESOURCE },
+      verify(params) {
+        if (!params.has("code")) return;
+        const returned = params.get("client_id");
+        if (registered) {
+          if (returned && returned !== registered) {
+            throw new Error("OpenAI answered for another registration of IncarnaMind.");
           }
-        },
-        exchangeClientId: () => clientId ?? DYNAMIC_CLIENT,
-      });
-    } catch (error) {
-      // A registration that went through stays, so the next attempt reuses its client.
-      if (!registered && clientId) {
-        await account.save({ ...stored, clientId, subject: null, idToken: null });
-      }
-      throw error;
-    }
+        } else if (!returned || returned === DYNAMIC_CLIENT) {
+          throw new Error("OpenAI didn't finish registering IncarnaMind. Try again.");
+        } else {
+          clientId = returned;
+        }
+      },
+      exchangeClientId: () => clientId ?? DYNAMIC_CLIENT,
+    });
     const issued = clientId ?? DYNAMIC_CLIENT;
     if (!tokens.idToken) throw new Error("OpenAI's sign-in returned no ID token.");
     const claims = await verifyIdToken({
@@ -278,7 +284,12 @@ export function createChatGptSignIn(options: {
     if (!scopes.includes(PLAN_SCOPE)) {
       // Signed in, but not allowed to use the plan: nothing IncarnaMind could use is kept.
       await abandon();
-      await account.commit({ ...signedIn, planRefused: true });
+      // A tokenless record keeps why it asked again, so the next page asks for
+      // consent; one that holds a sign-in, or can't be read, is left as it was.
+      await account.commitUnlessSignedIn((current) => ({
+        ...(current ?? signedIn),
+        planRefused: true,
+      }));
       throw new ChatGptPlanNotAllowedError();
     }
     await account.commit({ ...signedIn, tokens: account.storedTokens(tokens, null), ended: null });
@@ -289,28 +300,44 @@ export function createChatGptSignIn(options: {
     credentials: account.credentials,
 
     async account(): Promise<ChatGptAccountState> {
-      const stored = await account.load();
+      let stored: StoredAccount | null;
+      try {
+        stored = await account.load();
+      } catch (error) {
+        if (isSignInUnreadable(error)) return { state: "unreadable" };
+        throw error;
+      }
       if (stored?.tokens) return { state: "signed-in", email: stored.email };
       return stored?.ended === "expired" ? { state: "expired" } : { state: "signed-out" };
     },
 
-    hasSignIn: async () => (await account.load())?.tokens != null,
+    hasSignIn: async () => (await account.loadOrNull())?.tokens != null,
 
     /** Whether this device has signed in with ChatGPT, or is signing in: its traffic can happen. */
-    used: async () => account.signingIn() || (await account.load())?.clientId != null,
+    used: async () => account.signingIn() || (await account.loadOrNull())?.clientId != null,
 
     signingIn: account.signingIn,
 
     /**
      * Opens the browser and waits for the User. Starting again cancels a
      * sign-in still waiting. `anotherAccount` registers a new client instead
-     * of signing in to the one this device has. Rejects with `OAuthFlowError`,
+     * of signing in to the one this device has. `replaceUnreadable` is the
+     * User's answer to a record that can't be read: sign in again, replacing
+     * it once the sign-in completes. Rejects with `OAuthFlowError`,
      * `OAuthTokenError`, `IdTokenError`, `SecretStorageError`,
-     * `ChatGptPlanNotAllowedError` or `ChatGptOtherAccountError`.
+     * `SignInRecordUnreadableError`, `ChatGptPlanNotAllowedError` or
+     * `ChatGptOtherAccountError`.
      */
-    signIn: (signInOptions: { anotherAccount?: boolean } = {}): Promise<{ firstTime: boolean }> =>
+    signIn: (
+      signInOptions: { anotherAccount?: boolean; replaceUnreadable?: boolean } = {},
+    ): Promise<{ firstTime: boolean }> =>
       account.signIn((flows, signal) =>
-        signInOnce(flows.browser, signal, signInOptions.anotherAccount === true),
+        signInOnce(
+          flows.browser,
+          signal,
+          signInOptions.anotherAccount === true,
+          signInOptions.replaceUnreadable === true,
+        ),
       ),
 
     cancelSignIn: account.cancelSignIn,
