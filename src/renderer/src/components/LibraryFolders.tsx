@@ -532,6 +532,7 @@ function NotInAFolder({
           title={t("sidebar.notes")}
           headingTestId="notes-title"
           count={ownMinds.length}
+          tooltip={dayOne ? undefined : t("sidebar.notInFolder.hint")}
         >
           <Contents
             listKey="notes"
@@ -549,7 +550,6 @@ function NotInAFolder({
           title={title}
           headingTestId="not-in-a-folder-title"
           count={notesApart && documents.length > 0 ? documents.length : undefined}
-          tooltip={examplesOnly || dayOne ? undefined : t("sidebar.notInFolder.hint")}
           actions={examplesOnly ? <ExamplesMenu /> : undefined}
           drop={drop}
         >

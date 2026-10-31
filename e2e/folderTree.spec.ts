@@ -95,15 +95,14 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     ).toHaveCount(2);
     await bridge(window).file("Tide tables", ocean);
 
-    // One tree: the Folder, closed, with its count; Not in a Folder, which searches everything.
+    // One tree: the Folder, closed, with its count; Not in a Folder holds the loose Document.
     const folder = sidebarFolder(window, "Ocean research");
     await expect(folder).toHaveAttribute("data-expanded", "false");
     await expect(folder.getByTestId("browse-count")).toHaveText("1");
     await expect(notInAFolder(window)).toContainText("Not in a Folder");
-    await expect(window.getByTestId("not-in-a-folder-section-heading")).toHaveAttribute(
-      "title",
-      "Searches everything",
-    );
+    await expect(
+      window.getByTestId("not-in-a-folder-section").getByTestId("sidebar-section-count"),
+    ).toHaveText("1");
     await expect(
       notInAFolder(window).getByTestId("document-list-item").getByTestId("row-text"),
     ).toHaveText("Spring menu");

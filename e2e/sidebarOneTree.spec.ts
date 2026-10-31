@@ -266,12 +266,13 @@ for (const [language, width] of [
       await writeFile(join(sources, "Budget.txt"), "Budget for the harbour survey.\n");
       await addFiles(window, [join(sources, "Budget.txt")]);
       await expect(documentRow(window, "Budget")).toHaveAttribute("data-status", "ready");
-      // The Document's heading comes with it, and says what a Mind there searches.
-      await expect(minds.getByTestId("not-in-a-folder-title")).toContainText(t("library.unsorted"));
-      await expect(notInAFolderHeading(window)).toHaveAttribute(
+      // The Notes heading says what a Mind in no Folder searches; the Documents' heading comes
+      // with the first Document.
+      await expect(minds.getByTestId("notes-section-heading")).toHaveAttribute(
         "title",
         t("sidebar.notInFolder.hint"),
       );
+      await expect(minds.getByTestId("not-in-a-folder-title")).toContainText(t("library.unsorted"));
       await tagDocument(window, (await documentIds(window)).Budget ?? "", "Harbour");
       const tags = window.getByTestId("sidebar-tags");
       await expect(tags.getByTestId("tags-toggle")).toContainText(t("tags.title"));
