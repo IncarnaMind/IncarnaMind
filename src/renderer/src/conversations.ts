@@ -135,8 +135,15 @@ function unfold(): void {
   }
 }
 
+/**
+ * The latest open or New chat: a conversation read that lands after another open, or after New
+ * chat, puts nothing back (#2310).
+ */
+let openRequest = 0;
+
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
+  openRequest += 1;
   useConversations.setState({
     openId: null,
     messages: [],
@@ -146,10 +153,19 @@ export function startNewChat(): void {
   });
 }
 
-/** Shows a conversation in the assistant, at one of its Answers (flashed) if given. */
-export async function openConversation(conversationId: string, answerId?: string): Promise<void> {
+/**
+ * Shows a conversation in the assistant, at one of its Answers (flashed) if given. Resolves to
+ * whether it is the one showing: one whose read lands after another open, or New chat, is dropped.
+ */
+export async function openConversation(
+  conversationId: string,
+  answerId?: string,
+): Promise<boolean> {
+  openRequest += 1;
+  const request = openRequest;
   try {
     const { messages } = await core.getConversation(conversationId);
+    if (request !== openRequest) return false;
     useConversations.setState({
       openId: conversationId,
       messages,
@@ -158,8 +174,10 @@ export async function openConversation(conversationId: string, answerId?: string
       sought: answerId ?? null,
     });
     unfold();
+    return true;
   } catch (error) {
     report(error);
+    return false;
   }
 }
 

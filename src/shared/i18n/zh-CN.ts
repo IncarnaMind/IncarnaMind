@@ -2315,6 +2315,7 @@ export const zhCN = {
   "setup.step.skipped": "已跳过",
   "setup.steps.line": "设置会议转写和整理",
   "setup.services.failed": "无法读取转写服务",
+  "setup.services.reading": "正在读取转写服务…",
   "setup.sorting.failed": "无法读取可用于整理的模型",
   "read.tryAgain": "重试",
   "setup.step.addKey": "添加密钥…",

@@ -2420,6 +2420,7 @@ export const en = {
   "setup.step.skipped": "Skipped",
   "setup.steps.line": "Set up meeting transcription and sorting",
   "setup.services.failed": "Couldn’t read the transcription services",
+  "setup.services.reading": "Reading the transcription services…",
   "setup.sorting.failed": "Couldn’t read the models that can sort",
   "read.tryAgain": "Try again",
   "setup.step.addKey": "Add a key\u2026",

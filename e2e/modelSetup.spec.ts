@@ -1410,6 +1410,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await field.press("Enter");
       await openSetupSteps(window);
       await expect.poll(() => controlReads(app, SERVICES, {})).toBeGreaterThanOrEqual(1);
+      // Reading the list, the card says so rather than offering a key again; the steps wait.
+      await expect(card.getByTestId("setup-services-reading")).toBeVisible();
       await expect(card.getByTestId("setup-step-transcription")).toHaveCount(0);
 
       // Meetings is opened again, its reads held too, and a key the service refuses is tried.

@@ -23,8 +23,8 @@ export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose()
   const conversations = useConversations((state) => state.list);
   const open = async (conversationId: string): Promise<void> => {
     onClose();
-    await openConversation(conversationId);
-    focusComposer();
+    // The cursor goes where the User asks next, unless New chat or another row took over meanwhile.
+    if (await openConversation(conversationId)) focusComposer();
   };
   return (
     <Popover
