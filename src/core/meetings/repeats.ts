@@ -3,16 +3,15 @@
  * fact once still writes one twice now and then: under a line of the User's and again as a
  * decision, an action or an open question. A section's bullet or paragraph goes when every
  * Transcript line it cites is cited above it already (a line's part, or an earlier section in the
- * order the model writes them) and most of its words are there too. Its words decide as much as its
- * Citations: one Transcript line can say two things, and a bullet with the other one stays.
+ * order the model writes them) and every word of it is there too, so a date, a figure or a name
+ * the notes above don't have keeps its bullet. A section itself is never left out: when all of its
+ * lines are repeats, its first stays, so the template's sections, and a heading the User typed,
+ * are never empty.
  */
 import type { NodeJSON } from "../../shared/blockJson";
 import { wordsOf } from "../answers/markerPlacement";
 import { CITATION_NODE } from "../api";
 import { type FillSection, textOf } from "./fillPrompt";
-
-/** The share of a bullet's words found above it, beside the same Citations, that makes it a repeat. */
-const SAID_ALREADY = 0.6;
 
 /** The sections checked, in the order the model writes them; Said in the call lists them again on purpose. */
 const CHECKED: readonly FillSection[] = ["decisions", "actions", "questions", "summary"];
@@ -54,11 +53,19 @@ function saidAbove(unit: Unit, above: readonly Unit[]): boolean {
   const cited = new Set(beside.flatMap((each) => [...each.places]));
   if (![...unit.places].every((place) => cited.has(place))) return false;
   const words = new Set(beside.flatMap((each) => [...each.words]));
-  const found = [...unit.words].filter((word) => words.has(word)).length;
-  return found / unit.words.size >= SAID_ALREADY;
+  return [...unit.words].every((word) => words.has(word));
 }
 
-/** `sections` without the bullets and paragraphs `lineParts`, or a section written before, say already. */
+/** The first bullet or paragraph of a section that would otherwise be left with nothing. */
+function firstOf(blocks: readonly NodeJSON[]): NodeJSON[] {
+  const block = blocks[0];
+  if (!block) return [];
+  if (!isList(block)) return [block];
+  const item = (block.content ?? [])[0];
+  return item ? [{ ...block, content: [item] }] : [];
+}
+
+/** `sections` without the bullets and paragraphs `lineParts`, or a section written before, say already; a section is never emptied. */
 export function withoutRepeats(
   lineParts: readonly NodeJSON[],
   sections: ReadonlyMap<FillSection, NodeJSON[]>,
@@ -82,9 +89,16 @@ export function withoutRepeats(
       const items = (block.content ?? []).filter(keep);
       return items.length > 0 ? [{ ...block, content: items }] : [];
     });
-    units.push(...written);
     if (left.length > 0) kept.set(section, left);
-    else kept.delete(section);
+    else {
+      const first = firstOf(blocks);
+      if (first.length === 0) kept.delete(section);
+      else {
+        kept.set(section, first);
+        written.push(...first.map(unitOf));
+      }
+    }
+    units.push(...written);
   }
   return kept;
 }

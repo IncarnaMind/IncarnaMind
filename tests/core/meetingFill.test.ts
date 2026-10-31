@@ -514,7 +514,15 @@ const CALLS = [
       L1: "Enterprise price: 45 dollars a seat ",
       L2: "Send the contract by Friday — Dana ",
       beside: "The price holds for two years ",
+      kept: false,
     },
+    probe: {
+      line: "The hall is booked and Felix travel is covered for the meetup ",
+      bullet: "12 November meetup hall booked Felix travel covered ",
+      other: "The hall costs 2,100 euros without catering ",
+      fact: "12 November",
+    },
+    sameAction: "Send the venue contract by Monday — Nadia ",
   },
   {
     language: "zh-CN",
@@ -536,7 +544,15 @@ const CALLS = [
       L1: "企业版每个席位 45 美元，已定",
       L2: "把合同发过来 — Dana，周五前",
       beside: "价格两年不变",
+      kept: true,
     },
+    probe: {
+      line: "场地已经订好 Felix 差旅报销 ",
+      bullet: "11 月 12 日场地已经订好 Felix 差旅报销 ",
+      other: "场地两千一百欧元，不含餐饮 ",
+      fact: "11 月 12 日",
+    },
+    sameAction: "周一前发出场地合同 — Nadia ",
   },
 ] as const;
 
@@ -545,31 +561,39 @@ for (const call of CALLS) {
   const ai = (text: string) => `«${text}»￼«${stop}»`;
   const asked: string[] = [];
   const limits: (number | undefined)[] = [];
+  const quotes = {
+    1: call.mine[0] as string,
+    2: call.mine[1] as string,
+    3: call.mine[2] as string,
+    4: call.theirs[0] as string,
+    5: call.theirs[1] as string,
+  };
   // With `repeats`, it writes the typed lines' facts again in DECISIONS and ACTIONS, as models do.
-  const model = ({ repeats = false } = {}) =>
+  const model = ({
+    repeats = false,
+    reply,
+  }: {
+    repeats?: boolean;
+    reply?: (prompt: string) => string;
+  } = {}) =>
     fillingModel(
-      (prompt) => {
-        const lines = new Set([...prompt.matchAll(/^(L\d+): /gm)].map((match) => match[1]));
-        const again = (text: string, marker: number) =>
-          repeats ? `\n- ${text}[^${marker}]${stop}` : "";
-        return [
-          lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
-          lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
-          `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
-          `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
-          `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
-          `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
-        ]
-          .filter((part) => part !== false)
-          .join("\n\n");
-      },
-      {
-        1: call.mine[0] as string,
-        2: call.mine[1] as string,
-        3: call.mine[2] as string,
-        4: call.theirs[0] as string,
-        5: call.theirs[1] as string,
-      },
+      reply ??
+        ((prompt) => {
+          const lines = new Set([...prompt.matchAll(/^(L\d+): /gm)].map((match) => match[1]));
+          const again = (text: string, marker: number) =>
+            repeats ? `\n- ${text}[^${marker}]${stop}` : "";
+          return [
+            lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
+            lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
+            `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
+            `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
+            `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
+            `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
+          ]
+            .filter((part) => part !== false)
+            .join("\n\n");
+        }),
+      quotes,
       {},
       {
         seen: (each) => {
@@ -582,7 +606,7 @@ for (const call of CALLS) {
   const recordedWith = (
     notes: Parameters<typeof writeMind>[1],
     before?: (core: Core) => Promise<void>,
-    options: { repeats?: boolean } = {},
+    options: { repeats?: boolean; reply?: (prompt: string) => string } = {},
   ) => {
     asked.length = 0;
     limits.length = 0;
@@ -684,13 +708,56 @@ for (const call of CALLS) {
       core.close();
     });
 
-    // protects=a fact a typed line's part states isn't written again in a section, even when the model writes it twice: the decision and the action that repeat the lines go, and a decision citing the same Transcript line but saying something else stays; fails_when=a repeat stays in Decisions or Action items, or the other decision is dropped with it; no_claim=a real model's repeats, which the PR's real-model run counts.
-    test("a fact a typed line states isn't written again in a section", async () => {
+    // protects=a Decisions bullet with a date the filled-out lines don't say stays, so the date is in the note and not only in a bullet that says it; fails_when=the bullet goes because most of its words are above; no_claim=a bullet that says only what is above, which the test below covers.
+    test("a Decisions bullet with a date the filled-out lines don't say stays", async () => {
+      const { core, meeting, client } = await recordedWith([note(call.typed[0])], undefined, {
+        reply: () =>
+          [
+            `### L1\n${call.probe.line}[^1]${stop}`,
+            `### DECISIONS\n- ${call.probe.bullet}[^1]${stop}\n- ${call.probe.other}[^1]${stop}`,
+          ].join("\n\n"),
+      });
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toContain(`«${titles[1]}»`));
+      expect(shown(client).filter((line) => line.includes(call.probe.fact))).toEqual([
+        ai(call.probe.bullet),
+      ]);
+      core.close();
+    });
+
+    // protects=a heading the User typed for Action items is never left empty when the model also writes the same action in Decisions: the action stays under the User's heading; fails_when=the heading stays empty; no_claim=a section the model leaves out, which no fill can fill.
+    test(`a typed "${call.actionsHeading}" heading is never left empty when the same action is in Decisions`, async () => {
+      const { core, meeting, client } = await recordedWith(
+        [note(call.typed[0]), heading(2, call.actionsHeading), note(call.typed[1])],
+        undefined,
+        {
+          reply: () =>
+            [
+              `### L1\n${written.L1}[^1]${stop}`,
+              `### L2\n${written.L2}[^2]${stop}`,
+              `### DECISIONS\n- ${call.sameAction}[^4]${stop}`,
+              `### ACTIONS\n- ${call.sameAction}[^4]${stop}`,
+            ].join("\n\n"),
+        },
+      );
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() => expect(shown(client)).toContain(ai(call.sameAction)));
+      const lines = shown(client);
+      const under = lines.indexOf(call.typed[1]);
+      expect(lines[under + 1]).toContain(written.L2);
+      expect(lines[under + 2]).toBe(ai(call.sameAction));
+      expect(lines.filter((line) => line === call.actionsHeading)).toHaveLength(1);
+      core.close();
+    });
+
+    // protects=an exact copy of a fact a typed line states isn't written again in a section, while a copy that adds a word the notes above don't say stays; fails_when=an exact repeat stays, or a copy with a new word goes; no_claim=a real model's repeats, which the PR's real-model run counts.
+    test("an exact copy of a typed line's fact goes, and a copy with a new word stays", async () => {
       const { core, meeting, client } = await recordedWith(typedLines(), undefined, {
         repeats: true,
       });
+      const kept = call.again.kept ? [ai(call.again.L1)] : [];
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-      await vi.waitFor(() => expect(shown(client)).toHaveLength(13));
+      await vi.waitFor(() => expect(shown(client)).toHaveLength(13 + kept.length));
       expect(shown(client)).toEqual([
         call.typed[0],
         ai(written.L1),
@@ -700,6 +767,7 @@ for (const call of CALLS) {
         ai(written.SUMMARY),
         `«${titles[1]}»`,
         ai(written.DECISIONS),
+        ...kept,
         ai(call.again.beside),
         `«${titles[2]}»`,
         ai(written.ACTIONS),
