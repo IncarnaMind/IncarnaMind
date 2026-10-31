@@ -52,6 +52,67 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
   });
 
+  // protects=on the cloud path too, a line the User said before the others made a sound becomes Me once the computer's sound is heard, not the room's "Speaker 1" the service's voice gave it (#2305); fails_when=the first line keeps a number; no_claim=the local engine, which tests/core/transcripts.test.ts covers.
+  test("the User speaks before the others make a sound: the service's first lines read Me once the call is heard", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    record(4 * SECOND, ["microphone"]);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 1);
+    record(6 * SECOND);
+    const live = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    await vi.waitFor(() =>
+      expect(readVtt(readFileSync(live, "utf8")).cues.some((cue) => cue.speaker !== "Me")).toBe(
+        true,
+      ),
+    );
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    // Only the microphone was heard for the first four seconds: the first line is the User's.
+    expect(cues[0]).toMatchObject({ startMs: 0, speaker: "Me" });
+    expect(cues.some((cue) => cue.speaker !== "Me")).toBe(true);
+  });
+
+  // protects=the same across a quit: the service numbered the User's first line as a room's voice before the others made a sound, IncarnaMind closed, and once the resumed Meeting hears the call, that line read back from the file becomes Me too (#2305); fails_when=the saved first line keeps "Speaker 1"; no_claim=a macOS that never allows the computer's sound.
+  test("the User's first lines read Me after a quit, once the resumed Meeting hears the call", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = await transcribingCore(dataDir);
+    await chooseSoniox(first.core);
+    const meeting = await first.core.createMeeting();
+    await first.core.startMeeting({ meetingId: meeting.id });
+    await until(first.core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    first.record(4 * SECOND, ["microphone"]);
+    await until(first.core, meeting.id, (transcript) => transcript.lines >= 1);
+    first.core.close();
+
+    const second = await transcribingCore(dataDir);
+    await chooseSoniox(second.core);
+    await second.core.resumeMeeting(meeting.id);
+    await until(second.core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    second.record(4 * SECOND, ["microphone"]);
+    second.record(8 * SECOND);
+    const live = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    await vi.waitFor(() =>
+      expect(readVtt(readFileSync(live, "utf8")).cues.some((cue) => cue.speaker !== "Me")).toBe(
+        true,
+      ),
+    );
+    await second.core.stopMeeting(meeting.id);
+    const saved = await until(
+      second.core,
+      meeting.id,
+      (transcript) => transcript.state === "saved",
+    );
+    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    expect(cues[0]).toMatchObject({ startMs: 0, speaker: "Me" });
+    expect(cues.some((cue) => cue.speaker !== "Me")).toBe(true);
+    second.core.close();
+  });
+
   // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are; fails_when=one voice is numbered, or the pass runs over the cloud's labels; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
   test('with one voice on the other side, its lines say "Them", and the speaker pass leaves the service\'s voices', async () => {
     const dataDir = await createTempDataFolder();

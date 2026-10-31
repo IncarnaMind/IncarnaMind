@@ -435,6 +435,11 @@ export function createMeetings(options: MeetingsOptions) {
         });
       }
     }
+    if (source === "system") {
+      const quiet = samples.every((sample) => sample === 0);
+      current.silent = quiet ? current.silent + samples.length : 0;
+      if (!quiet) current.systemSignal = true;
+    }
     transcripts?.hear(current.meetingId, source, samples, run.startMs + msOf(run.samples));
     tellLevel(current, source, samples);
     run.waiting.push(samples);
@@ -442,11 +447,6 @@ export function createMeetings(options: MeetingsOptions) {
     run.samples += samples.length;
     while (run.waitingSamples >= PART_SAMPLES) {
       savePart(current, source, run, take(run, PART_SAMPLES));
-    }
-    if (source === "system") {
-      const quiet = samples.every((sample) => sample === 0);
-      current.silent = quiet ? current.silent + samples.length : 0;
-      if (!quiet) current.systemSignal = true;
     }
     setSource(
       current,
