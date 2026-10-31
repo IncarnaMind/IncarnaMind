@@ -1813,11 +1813,17 @@ export function createCore(adapters: CoreAdapters): Core {
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
-      await saveExportFiles(
-        exported.files,
-        folder ?? file.folder,
-        typeof mindId === "string" ? mindId : null,
-      );
+      try {
+        await saveExportFiles(
+          exported.files,
+          folder ?? file.folder,
+          typeof mindId === "string" ? mindId : null,
+        );
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(file.path, fingerprintOf(exported.data)).catch(() => undefined);
+        throw error;
+      }
       await rememberExportChoices(exported, oneOff);
       recordExport(written);
       return { file, marking: settled };
@@ -5536,6 +5542,9 @@ export function createCore(adapters: CoreAdapters): Core {
         const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
         if (word?.notKept.some((loss) => !accepted.has(loss.key)))
           return { status: "review", word };
+        // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
+        // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
+        await saveExportFiles(files, dirname(known.path), known.mindId);
         const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
         const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
         let file: SavedFile;
@@ -5560,7 +5569,6 @@ export function createCore(adapters: CoreAdapters): Core {
           }
           step = keepStep(file.path, null, choiceBefore);
         }
-        await saveExportFiles(files, file.folder, known.mindId);
         exportFiles.set(file.path, { ...known, path: file.path, wrote: fingerprintOf(data) });
         // Only once the file holds them, so the choice never says what the file doesn't.
         if (checkComments !== undefined) setNoteComments(known.mindId, checkComments);
@@ -5642,7 +5650,13 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
-      await saveExportFiles(files, saved.file.folder, typeof mindId === "string" ? mindId : null);
+      try {
+        await saveExportFiles(files, saved.file.folder, typeof mindId === "string" ? mindId : null);
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(saved.file.path, fingerprintOf(data)).catch(() => undefined);
+        throw error;
+      }
       exportFiles.set(saved.file.path, {
         mindId,
         path: saved.file.path,

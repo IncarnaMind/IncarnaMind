@@ -11,6 +11,15 @@ import { isHeicPicture, preparePicture } from "../pictureFile";
 
 const IMAGE_NAME = /\.(png|jpe?g|heic|heif|webp|gif|bmp|avif)$/i;
 
+/** Whether copied HTML holds a picture that isn't the Note's own data URL, which a paste can't keep. */
+function holdsForeignPicture(html: string): boolean {
+  if (html === "") return false;
+  const document = new DOMParser().parseFromString(html, "text/html");
+  return [...document.querySelectorAll("img")].some(
+    (image) => !(image.getAttribute("src") ?? "").startsWith("data:image/"),
+  );
+}
+
 /**
  * A picture the web engine can't read (a HEIC), as a PNG: this computer's own decoder,
  * through the main process, which has none on Windows. Null where it can't be read.
@@ -169,20 +178,21 @@ export const Pictures = Extension.create({
         props: {
           handlePaste(_view, event) {
             const data = event.clipboardData;
-            const files = data ? pictureFilesOf(data) : [];
-            if (!data || files.length === 0) return false;
-            // Copied with words (Word's text and a picture, a page's paragraph), the words paste
-            // as they are and the picture with them isn't added: say so once. Copied alone
-            // (Chrome's Copy image), the picture pastes as a picture.
-            const words = data
-              .getData("text/html")
+            if (!data) return false;
+            const html = data.getData("text/html");
+            const words = html
               .replace(/<[^>]*>/g, " ")
               .replace(/&nbsp;|&#160;/gi, " ")
               .trim();
-            if (words !== "") {
+            // Words copied with a picture that isn't the Note's own (a page's paragraph and its
+            // chart, Word's text and a picture): the words paste as they are and the picture
+            // isn't added, said once. Copied alone (Chrome's Copy image), a picture pastes.
+            if (words !== "" && (holdsForeignPicture(html) || pictureFilesOf(data).length > 0)) {
               useNotices.getState().confirm("editor.picture.pastedAsText");
               return false;
             }
+            const files = pictureFilesOf(data);
+            if (files.length === 0) return false;
             event.preventDefault();
             void insertPictures(editor, files, { onProblem });
             return true;

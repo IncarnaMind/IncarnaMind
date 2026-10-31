@@ -284,6 +284,68 @@ test("a photo of about 20 MB dropped is made small enough to keep", async () => 
   }
 });
 
+test("typing above while a photo is made small keeps it where it was pasted", async () => {
+  test.setTimeout(90_000);
+  const { app, window, editor } = await startNote("en", 1280);
+  try {
+    await window.keyboard.type("One.");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Two.");
+
+    // A photo of many megabytes, pasted at the end of the Note, which takes a moment to be made small.
+    await window.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 6000;
+      canvas.height = 4000;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("No canvas.");
+      const image = context.createImageData(6000, 4000);
+      const pixels = image.data;
+      let seed = 11;
+      for (let at = 0; at < pixels.length; at += 4) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        pixels[at] = seed & 0xff;
+        pixels[at + 1] = (seed >>> 8) & 0xff;
+        pixels[at + 2] = (seed >>> 16) & 0xff;
+        pixels[at + 3] = 255;
+      }
+      context.putImageData(image, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.92),
+      );
+      if (!blob) throw new Error("The photo wasn't made.");
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!target) throw new Error("No editor.");
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "IMG_2205.jpg", { type: "image/jpeg" }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+
+    // Typed meanwhile, above it: the word goes in at the start of "One.".
+    await editor.locator("p", { hasText: "One." }).click({ position: { x: 1, y: 8 } });
+    await window.keyboard.type("Early.");
+
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
+    // The picture stands at the end, where it was pasted, not where the ended Note now is... it was
+    // asked for after "Two."; the line typed meanwhile is before it and moves nothing.
+    const order = await editor.evaluate((element) =>
+      [...element.children].map((child) =>
+        child.querySelector('[data-testid="mind-picture"]') !== null ||
+        child.getAttribute("data-testid") === "mind-picture"
+          ? "PICTURE"
+          : (child.textContent ?? "").trim(),
+      ),
+    );
+    expect(order).toEqual(["Early.One.", "Two.", "PICTURE", ""]);
+    // The line typed meanwhile is there, and the picture is not before it.
+    expect(order[0]).toContain("Early.");
+  } finally {
+    await app.close();
+  }
+});
+
 test("Chrome's Copy image pastes the picture; words copied with one paste as words, said once", async () => {
   const { app, window, editor } = await startNote("en", 1280);
   try {
@@ -331,6 +393,31 @@ test("Chrome's Copy image pastes the picture; words copied with one paste as wor
     });
     await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
     await expect(editor).toContainText("Spring tides rise twice a day.");
+    await expect(window.getByTestId("copied-line")).toContainText(
+      "Pasted the text; a picture with it wasn’t added.",
+    );
+
+    // Words copied from a web page with a picture that comes as no file (an address only): the
+    // words paste, and the same line says the picture wasn't added. The line goes first, so what
+    // appears after this paste is this paste's.
+    await expect(window.getByTestId("copied-line")).not.toContainText("Pasted the text", {
+      timeout: 6_000,
+    });
+    await window.evaluate(() => {
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!target) throw new Error("No editor.");
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        '<p>Neap tides are weaker.</p><img src="https://images.example/neap.png">',
+      );
+      data.setData("text/plain", "Neap tides are weaker.");
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+    await expect(editor).toContainText("Neap tides are weaker.");
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
     await expect(window.getByTestId("copied-line")).toContainText(
       "Pasted the text; a picture with it wasn’t added.",
     );
