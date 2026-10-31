@@ -25,14 +25,16 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
+import type { Language } from "../language";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import { sameName, type TagsStore } from "../tags";
+import { documentType, excerptFromPassages } from "../tags/classify";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
-import type { GroupClassifier } from "./classifier";
+import type { FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -279,6 +281,11 @@ function parseAssignmentState(input: unknown): AssignmentState {
  */
 export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"] as const;
 
+/** How many Documents a Folder proposal reads the start of, how much of each, and how many more by name. */
+const SAMPLED = 60;
+const SAMPLE_TOKENS = 120;
+const NAMED = 240;
+
 /** Up to 3 page images of a PDF with no text, to a model that reads images. */
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
@@ -297,6 +304,8 @@ export function createLibrary(options: {
   assigned(assignments: DocumentGroupAssignment[]): void;
   tags: TagsStore;
   tagged(ids: string[]): void;
+  /** Organize made new Tags: the list of Tags is to be read again. */
+  tagsMade?(): void;
   prepare(settings: LibrarySettings): Promise<GroupClassifier>;
   providerExists(id: string): boolean;
   /**
@@ -786,7 +795,7 @@ export function createLibrary(options: {
           if (groupId !== null && !offered.some((item) => item.id === groupId))
             throw new Error("The classifier returned an unknown group.");
           const chosen = initial.source === "user";
-          db.transaction(() => {
+          const { made } = db.transaction(() => {
             write(
               latest,
               chosen ? initial.group_id : groupId,
@@ -797,9 +806,11 @@ export function createLibrary(options: {
                 : null,
               !chosen && groupId !== null,
             );
-            options.tags.applyAutomatic(id, result.tags);
+            const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
             tagState(id, "classified");
+            return applied;
           });
+          if (made > 0) options.tagsMade?.();
           options.tagged([id]);
           announce([id]);
         } catch (error) {
@@ -907,6 +918,26 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.keepInside" });
     return { name, description, countsOwnFiles, keepInside };
   }
+
+  const documentIdsOf = (input: unknown): string[] => {
+    if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
+      throw new InvalidInputError("Choose valid Documents.");
+    return [...new Set(input as string[])];
+  };
+
+  /**
+   * What a proposal reads: the first `SAMPLED` Documents with the start of their text, the rest
+   * up to `NAMED` by name and type only, so a Linked folder of thousands stays one request.
+   */
+  const samplesOf = (docs: readonly DocumentRow[]): FolderSample[] =>
+    docs.slice(0, SAMPLED + NAMED).map((doc, at) => {
+      const excerpt = organizeExcerpt(source(doc, at < SAMPLED));
+      return {
+        name: doc.name,
+        type: documentType(excerpt),
+        text: at < SAMPLED ? excerptFromPassages([excerpt.text], SAMPLE_TOKENS) : "",
+      };
+    });
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
@@ -1226,16 +1257,34 @@ export function createLibrary(options: {
         if (!isRecord(each)) throw new InvalidInputError("Choose a classifier.");
         checkClassifier(each);
       }
-      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
       const before = savedSettings();
+      // Choosing another model for Tags with the switch on, where its line says what it sends,
+      // turns tagging on (#2308), whatever the switch showed before: for Automatic, that follows
+      // its last pick. A model on this computer needs no consent: the switch follows the model.
+      const picked = automaticChosen ? null : taggingClassifierOf(chosen);
+      const modelChosen =
+        picked !== null &&
+        input.automatic === true &&
+        JSON.stringify(picked) !== JSON.stringify(before.classifier);
+      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
       const showing = before.automatic ?? !options.usesCloud(before);
-      const setByUser = before.automatic !== null || input.automatic !== showing;
-      if (setByUser && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
+      const automatic =
+        picked !== null && modelChosen
+          ? options.usesCloud({
+              classifier: picked,
+              organizeWith: taggingClassifierOf(organizeWith),
+            })
+            ? true
+            : null
+          : input.automatic !== showing
+            ? input.automatic
+            : before.automatic;
+      if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
-        ...(setByUser && { automatic: input.automatic }),
+        ...(automatic !== null && { automatic }),
         organizeWith,
         taggingStopped: before.taggingStopped,
       });
@@ -1243,21 +1292,48 @@ export function createLibrary(options: {
       changed();
       resume();
     },
+    /**
+     * Proposes Folders for these Documents (the User's own, live ones with text), names them in
+     * `language` and makes them; Organize then sorts the Documents into them (`classify`).
+     * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
+     */
+    async propose(input: unknown, language: Language): Promise<LibraryGroup[]> {
+      const settings = getSettings();
+      if (!organizeModelOf(settings))
+        throw new InvalidInputError({ key: "error.library.noClassifier" });
+      const docs = documentIdsOf(input)
+        .filter((id) => !options.isExampleDocument?.(id))
+        .map(document)
+        .filter(hasContent);
+      if (docs.length === 0) return [];
+      const classifier = await options.prepare(settings);
+      if (!classifier.proposeFolders)
+        throw new InvalidInputError({ key: "error.library.cantPropose" });
+      const existing = groups().map((each) => each.name);
+      const proposed = await classifier.proposeFolders(
+        samplesOf(docs),
+        existing,
+        language,
+        lifetime.signal,
+      );
+      const made: LibraryGroup[] = [];
+      for (const folder of proposed) {
+        if (groups().some((each) => sameName(each.name, folder.name))) continue;
+        if (groups().length >= 100) break;
+        made.push(create(folder));
+      }
+      return made;
+    },
     classify(input: unknown) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      if (
-        input !== undefined &&
-        (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-      )
-        throw new InvalidInputError("Choose valid Documents.");
       const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
-          : [...new Set(input as string[])]
+          : documentIdsOf(input)
       ).filter((id) => !options.isExampleDocument?.(id));
       const docs = ids.map(document);
       for (const doc of docs) asked.add(doc.id);

@@ -36,6 +36,11 @@ export const en = {
   "library.organize.setUp": "Set up a model on this computer",
   "library.organize.done.one": "Organize suggested a Folder for 1 Document",
   "library.organize.done": "Organize suggested a Folder for {count} Documents",
+  "library.organize.doneFolders": "Organize suggested Folders for {count} Documents",
+  "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
+  "library.organize.reading": "Reading what they say…",
+  "library.organize": "Organize Documents not in a Folder",
+  "library.organize.keywords": "organize sort folders tags suggest",
   "library.review.title": "To review",
   "library.review.summary": "Sorted {count} Documents: {parts}",
   "library.review.summary.one": "Sorted 1 Document: {parts}",
@@ -4948,6 +4953,8 @@ export const en = {
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
+  "error.library.cantPropose":
+    "The model Organize uses can sort into Folders but can’t name them. Make a Folder first, or choose an AI model for Organize.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
   "scan.images.allow": "Allow page images",

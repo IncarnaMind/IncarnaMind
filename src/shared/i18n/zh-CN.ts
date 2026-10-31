@@ -33,6 +33,11 @@ export const zhCN = {
   "library.organize.setUp": "在这台电脑上设置模型",
   "library.organize.done.one": "已为 1 个文档推荐文件夹",
   "library.organize.done": "已为 {count} 个文档推荐文件夹",
+  "library.organize.doneFolders": "已为 {count} 个文档推荐文件夹",
+  "library.organize.noneFit": "未能为这些文档推荐文件夹",
+  "library.organize.reading": "正在读取文档内容…",
+  "library.organize": "整理不在文件夹中的文档",
+  "library.organize.keywords": "zhengli 整理 文件夹 标签 归类 推荐",
   "library.review.title": "待确认",
   "library.review.summary": "已整理 {count} 个文档：{parts}",
   "library.review.summary.one": "已整理 1 个文档：{parts}",
@@ -4713,6 +4718,8 @@ export const zhCN = {
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
+  "error.library.cantPropose":
+    "整理所用的模型只能把文档放进已有的文件夹，无法为文件夹命名。先新建文件夹，或为整理选择 AI 模型。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",
   "scan.images.allow": "允许发送页面图片",

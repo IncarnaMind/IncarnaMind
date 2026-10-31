@@ -4,9 +4,11 @@ import type {
   AssignmentState,
   DocumentGroupAssignment,
   DocumentTagging,
+  LibraryGroup,
 } from "../../core/api";
 import { core } from "./core";
 import { isShown } from "./layoutSlice";
+import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { type Undoable, useUndo } from "./undo";
 
@@ -49,15 +51,39 @@ const wasBefore = (
   return item && (working(item) || item.status === "waiting") ? undefined : item;
 };
 
+/** Whether anything is filed in a Folder: a Document, suggested or not, or a Note. */
+const holdsAny = (folderId: string) => {
+  const { library, minds } = useAppStore.getState();
+  return (
+    (library?.assignments ?? []).some((item) => item.groupId === folderId) ||
+    minds.some((mind) => mind.folderId === folderId)
+  );
+};
+
+/**
+ * The Folders Organize made that nothing went into, moved to Recently deleted: their ids. Those
+ * the User has put something in since are theirs, and stay.
+ */
+async function removeEmpty(made: readonly LibraryGroup[]): Promise<string[]> {
+  await useAppStore.getState().refreshLibrary();
+  const live = new Set((useAppStore.getState().library?.groups ?? []).map((group) => group.id));
+  const empty = made.filter((group) => live.has(group.id) && !holdsAny(group.id));
+  for (const group of empty) await core.deleteLibraryGroup(group.id);
+  if (empty.length > 0) await useAppStore.getState().refreshLibrary();
+  return empty.map((group) => group.id);
+}
+
 /**
  * Says what Organize did once it has gone through `ids` (#763): how many
  * Documents got a Suggested Folder, with Undo, which puts each back as it was
- * (Tags it suggested stay, to accept or reject). Said nothing when it
- * suggested none.
+ * (Tags it suggested stay, to accept or reject) and takes away the Folders it
+ * `made` for them (#2308) that hold nothing else; Redo brings them back first.
+ * Said nothing when it suggested none, and the Folders it made then go.
  */
 export function sayWhenOrganized(
   ids: readonly string[],
   before: ReadonlyMap<string, DocumentGroupAssignment>,
+  made: readonly LibraryGroup[] = [],
 ): void {
   const mine = new Set(ids);
   const itemsNow = () =>
@@ -68,7 +94,15 @@ export function sayWhenOrganized(
     const changed = itemsNow().filter(
       (item) => item.suggested && placeOf(item) !== placeOf(wasBefore(before, item.documentId)),
     );
-    if (changed.length === 0) return;
+    if (changed.length === 0) {
+      if (made.length > 0) {
+        removeEmpty(made).then(
+          () => useNotices.getState().confirm("library.organize.noneFit"),
+          useAppStore.getState().reportError,
+        );
+      }
+      return;
+    }
     // Undo puts back these rows, and Redo does Organize's again: each hands the change back and
     // keeps the fresh one, so what it compares against is always what it left (#1928).
     const held = new Map<string, AssignmentChange>(
@@ -114,11 +148,17 @@ export function sayWhenOrganized(
       });
       await useAppStore.getState().refreshLibrary();
     };
+    let removed: string[] = [];
     const step: Undoable = {
       said: (t) =>
-        t(changed.length === 1 ? "library.organize.done.one" : "library.organize.done", {
-          count: changed.length,
-        }),
+        t(
+          changed.length === 1
+            ? "library.organize.done.one"
+            : made.length > 1
+              ? "library.organize.doneFolders"
+              : "library.organize.done",
+          { count: changed.length },
+        ),
       name: (t) => t("undo.name.organize"),
       // From another tab, where To review isn't in sight.
       ...(!isShown(useAppStore.getState().layout, { kind: "library" }) && {
@@ -132,8 +172,18 @@ export function sayWhenOrganized(
           },
         },
       }),
-      undo: flip,
-      redo: flip,
+      undo: async () => {
+        await flip();
+        if (made.length > 0) removed = await removeEmpty(made);
+      },
+      redo: async () => {
+        if (removed.length > 0) {
+          await core.restore(removed.map((id) => ({ kind: "folder" as const, id })));
+          removed = [];
+          await useAppStore.getState().refreshLibrary();
+        }
+        await flip();
+      },
     };
     lastOrganize = step;
     useUndo.getState().push(step);
