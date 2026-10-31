@@ -3872,6 +3872,107 @@ describe("An edit never loses the User's words (#2333)", () => {
     },
   );
 
+  // protects=a list item a partial reply rewrites alone, reworded as far as an item may be and still be its new version, takes that item's place, in English and Chinese (seen on Claude Haiku 5.5: "- 北区停车需按月另付费用。" for "北区免费停车。"); fails_when=it is added at the top of the Note beside the item it rewrites; no_claim=how far a real model rewords.
+  test.each([
+    {
+      heading: ["Benefits", "Pay"],
+      bullets: [
+        "A pension matched up to 5% of salary.",
+        "25 days of annual leave.",
+        "Free parking at the north site.",
+      ],
+      salary: "The salary is set by grade 7 and paid monthly.",
+      rewritten: "Parking at the north site now costs extra each month.",
+    },
+    {
+      heading: ["福利", "薪酬"],
+      bullets: ["养老金按工资的5%匹配。", "每年25天年假。", "北区免费停车。"],
+      salary: "薪酬按7级确定，按月发放。",
+      rewritten: "北区停车需按月另付费用。",
+    },
+  ])("a list item rewritten alone takes its item's place: $rewritten", async (each) => {
+    const [benefits = "", pay = ""] = each.heading;
+    const bulletList: JSONContent = {
+      type: "bulletList",
+      content: each.bullets.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
+    };
+    const { core, mind, client, before } = await noteOf(
+      [headingOf(benefits), bulletList, headingOf(pay), paragraph(text(each.salary))],
+      () => `- ${each.rewritten}`,
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Say parking is no longer free"));
+
+    expect(await acceptThenUndo(client, before)).toEqual([
+      benefits,
+      ...each.bullets.slice(0, 2),
+      each.rewritten,
+      pay,
+      each.salary,
+    ]);
+  });
+
+  // protects=a list item a partial reply rewrites without its mark, after an item it repeats, still takes that item's place, in English and Chinese; fails_when=the item stays beside its rewrite; no_claim=how often a real model drops the mark.
+  test.each([
+    {
+      items: [
+        "A pension matched up to 5% of salary.",
+        "25 days of annual leave.",
+        "Free parking at the north site.",
+      ],
+      rewritten: "Parking at the north site is no longer free.",
+    },
+    {
+      items: ["养老金按工资的5%匹配。", "每年25天年假。", "北区免费停车。"],
+      rewritten: "北区停车不再免费。",
+    },
+  ])(
+    "an item rewritten without its mark takes its item's place: $rewritten",
+    async ({ items, rewritten }) => {
+      const bulletList: JSONContent = {
+        type: "bulletList",
+        content: items.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
+      };
+      const { core, mind, client, before } = await noteOf([bulletList], () =>
+        [`- ${items[1]}`, rewritten].join("\n\n"),
+      );
+
+      await core.editWithAi(wholeMind(client, mind.id, "Say parking is no longer free"));
+
+      expect(await acceptThenUndo(client, before)).toEqual([...items.slice(0, 2), rewritten]);
+    },
+  );
+
+  // protects=a summary line a partial reply adds after the item it repeats, naming the items after it, takes none of them out, in English and Chinese; fails_when=an item it names goes; no_claim=what a real model writes.
+  test.each([
+    {
+      items: [
+        "Spring tides: strongest at new moon.",
+        "Neap tides: weakest.",
+        "Storm surge: after gales.",
+      ],
+      summary: "Spring, neap and storm tides all matter.",
+    },
+    {
+      items: ["大潮：新月时最强。", "小潮：最弱。", "风暴潮：大风过后。"],
+      summary: "大潮、小潮和风暴潮都很重要。",
+    },
+  ])("a summary that names items takes none of them out: $summary", async ({ items, summary }) => {
+    const bulletList: JSONContent = {
+      type: "bulletList",
+      content: items.map((item) => ({ type: "listItem", content: [paragraph(text(item))] })),
+    };
+    const { core, mind, client, before } = await noteOf([bulletList], () =>
+      [`- ${items[0]}`, summary].join("\n\n"),
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Add a line that sums them up"));
+
+    const accepted = await acceptThenUndo(client, before);
+    expect(accepted).toHaveLength(4);
+    expect(accepted).toEqual(expect.arrayContaining([...items, summary]));
+  });
+
   // protects=a reply that keeps none of the passage's paragraphs and is longer than it is written anew in its place (through the assistant, its guard then holds it for the User), while one that repeats a paragraph and then writes more lines than follow it adds them and keeps the paragraph after; English and Chinese; fails_when=the rewrite is added beside the text it rewrites, or the stray line takes the following paragraph's place; no_claim=what a real model writes.
   test.each([
     {

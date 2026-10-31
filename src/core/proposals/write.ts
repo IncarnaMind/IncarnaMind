@@ -1565,10 +1565,7 @@ function likeness(old: readonly OldToken[], next: readonly NewToken[]): number {
   return (2 * shared) / (a.length + b.length);
 }
 
-/**
- * How alike a new paragraph must be to one of the selection's to pair with it when its place
- * can't say which it is: it is of unknown kind, or the reply has left paragraphs out (#2333).
- */
+/** How alike a paragraph of unknown kind must be to one of the selection's to pair with it. */
 const UNKNOWN_KIND_LIKENESS = 0.3;
 
 /**
@@ -1591,6 +1588,8 @@ function placeLikeness(segment: Segment, paragraph: NewParagraph): number {
  * How alike a new list item must be to one of the selection's to be its new
  * version: less, and the old one is removed and the new one added (DESIGN.md,
  * AI edits), so a bullet on a degree never reads as turning into one on a job.
+ * In a reply that has left paragraphs out, any new paragraph must be as alike
+ * to take one's place (`readsAs`, #2333).
  */
 const COUNTERPART_LIKENESS = 0.25;
 const LIST_ITEMS: ReadonlySet<BlockKind> = new Set(["bullet", "numbered"]);
@@ -1955,22 +1954,28 @@ export function createRewriteStream(
   };
   /**
    * A new paragraph reads as this one of the selection's: like it by `least`, and clearly more
-   * like it than like any other it could take the place of, unless it says words only each of
-   * them has, as two joined in one do.
+   * like it than like any other whose place it could take, unless it says words only each of
+   * them has, as two joined in one do. One that would `standIn` for a Block of another kind,
+   * which it can't pair with, must also say no word only another paragraph has: a summary, or a
+   * table, that names several takes none of them out.
    */
-  const readsAs = (segment: Segment, paragraph: NewParagraph, least = UNKNOWN_KIND_LIKENESS) => {
+  const readsAs = (
+    segment: Segment,
+    paragraph: NewParagraph,
+    { least = COUNTERPART_LIKENESS, standIn = false }: { least?: number; standIn?: boolean } = {},
+  ) => {
     const { alike, own } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
+    const clearly = (at: number) => (alike[at] ?? 0) <= mine - CLEARLY_MORE;
     return (
       mine >= least &&
-      segments.every(
-        (other, at) =>
-          at === index ||
-          (paragraph.kind !== null && paragraph.kind !== other.kind) ||
-          (alike[at] ?? 0) <= mine - CLEARLY_MORE ||
-          (own[index] === true && own[at] === true),
-      )
+      segments.every((other, at) => {
+        if (at === index) return true;
+        if (standIn) return own[at] !== true && clearly(at);
+        if (paragraph.kind !== null && paragraph.kind !== other.kind) return true;
+        return clearly(at) || (own[index] === true && own[at] === true);
+      })
     );
   };
   const first = segments[0];
@@ -2099,7 +2104,9 @@ export function createRewriteStream(
     const paired = inPlace
       ? held.map((_, index) => index)
       : pairUp(between, held, whole, placed ? undefined : readsAs);
-    for (const segment of replacedIn(between, held, paired, placed ? null : readsAs)) {
+    const standsIn = (segment: Segment, paragraph: NewParagraph) =>
+      !paragraph.table && readsAs(segment, paragraph, { standIn: true });
+    for (const segment of replacedIn(between, held, paired, placed ? null : standsIn)) {
       replaced.add(segment);
     }
     for (const [index, paragraph] of held.entries()) {
@@ -2123,7 +2130,11 @@ export function createRewriteStream(
         most = alike;
       }
     }
-    if (best !== null && keeps && !readsAs(segments[best] as Segment, paragraph, MOVED_LIKENESS)) {
+    if (
+      best !== null &&
+      keeps &&
+      !readsAs(segments[best] as Segment, paragraph, { least: MOVED_LIKENESS })
+    ) {
       return null;
     }
     return best;
@@ -2327,7 +2338,7 @@ export function createRewriteStream(
             segment !== undefined &&
             (paragraph.kind === null || paragraph.kind === segment.kind) &&
             (keeps
-              ? readsAs(segment, paragraph, MOVED_LIKENESS)
+              ? readsAs(segment, paragraph, { least: MOVED_LIKENESS })
               : placeLikeness(segment, paragraph) >= MOVED_LIKENESS);
           if (!alike) {
             addNew(paragraph);
