@@ -4,28 +4,38 @@ import type { EditorView } from "@tiptap/pm/view";
 import { CITATION_NODE } from "../../../core/api";
 
 /**
- * Where the User's selection starts: what the page shows, while it shows a
- * selection, else where the editor's own selection starts. A press can follow
- * the click that made the selection by a few milliseconds, before the editor
- * has read it, so the page speaks first; a caret on the page is nothing to
- * extend, though the editor's selection can lag behind it (#2279).
+ * Where the User's selection is: what the page shows, while it shows a
+ * selection, else the editor's own. A press can follow the click that made the
+ * selection by a few milliseconds, before the editor has read it, so the page
+ * speaks first, and its range is the one extended; a caret on the page is
+ * nothing to extend, though the editor's selection can lag behind it (#2279).
  *
  * @returns null when there is no selection to extend.
  */
-function selectionStart(view: EditorView): number | null {
+function selectionRange(view: EditorView): {
+  from: number;
+  to: number;
+  anchor: number;
+} | null {
   const chosen = view.dom.ownerDocument.getSelection();
   const node = chosen?.anchorNode;
-  if (chosen && node && view.dom.contains(node)) {
+  const focus = chosen?.focusNode;
+  if (chosen && node && focus && view.dom.contains(node) && view.dom.contains(focus)) {
     // A caret is nothing to extend, and the editor's own selection can lag behind the click
     // that left it, so it is not asked when the page shows a caret (#2279).
     if (chosen.isCollapsed) return null;
     try {
-      return view.posAtDOM(node, chosen.anchorOffset);
+      const anchor = view.posAtDOM(node, chosen.anchorOffset);
+      const head = view.posAtDOM(focus, chosen.focusOffset);
+      return { from: Math.min(anchor, head), to: Math.max(anchor, head), anchor };
     } catch {
-      // Not a position the editor knows: its own selection speaks for it.
+      // Not positions the editor knows: its own selection speaks for it.
     }
   }
-  return view.state.selection.empty ? null : view.state.selection.anchor;
+  const { selection } = view.state;
+  return selection.empty
+    ? null
+    : { from: selection.from, to: selection.to, anchor: selection.anchor };
 }
 
 /** The table cell that holds `pos`, by its position, or null outside a table. */
@@ -74,13 +84,13 @@ export function extendSelectionTo(view: EditorView, event: MouseEvent): boolean 
   // A press something nearer has taken, such as a comparison cell's own range selection.
   if (event.defaultPrevented) return false;
   if (event.button !== 0 || !event.shiftKey) return false;
-  const start = selectionStart(view);
-  if (start === null) return false;
+  const range = selectionRange(view);
+  if (!range) return false;
+  const { from, to, anchor } = range;
   const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
   if (!at) return false;
-  const { from, to, anchor } = view.state.selection;
   const head =
-    markerEnd(view, event, start) ?? Math.max(0, Math.min(at.pos, view.state.doc.content.size));
+    markerEnd(view, event, anchor) ?? Math.max(0, Math.min(at.pos, view.state.doc.content.size));
   // A press in another table cell is the table's own: it selects a range of cells.
   if (cellAt(view, head) !== cellAt(view, from)) return false;
   if (!view.hasFocus()) view.focus();
