@@ -101,6 +101,9 @@ export const CHAT_FLOW_SENDS = [
   "document-names",
   "other-minds",
   "live-transcript",
+  // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
+  // as part of the note's text.
+  "pictures",
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;

@@ -135,7 +135,12 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
       }),
     );
     const first = await askAndWaitForConsent(core);
-    expect(first.request.newKinds).toEqual(["document-names", "other-minds", "live-transcript"]);
+    expect(first.request.newKinds).toEqual([
+      "document-names",
+      "other-minds",
+      "live-transcript",
+      "pictures",
+    ]);
     await core.respondToConsent(first.request.requestId, true);
     expect(await first.result).toMatchObject({ modelId: "gpt-5.4-mini" });
 

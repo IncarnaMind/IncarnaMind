@@ -8,6 +8,7 @@
  * Someone's changes from a Word file still waiting are CriticMarkup, each with
  * who made it and when: "{--by cheque--}{>>Deleted by Priya Nair, 2 Oct 2026<<}" (#734).
  */
+import { createHash } from "node:crypto";
 import type { TableAlign } from "../../shared/markdownTables";
 import type { StyledRun } from "../api";
 import {
@@ -15,6 +16,7 @@ import {
   type Footnote,
   type HeadingEntry,
   headingEntries,
+  type Image,
   type Inline,
   type Marks,
   tableLayout,
@@ -37,12 +39,36 @@ interface Context {
  */
 type Written = { kind: "citation"; footnote: Footnote } | { kind: "note"; text: string };
 
+/** A picture written beside a Markdown export, which the text links by `name`. */
+export interface MarkdownPicture {
+  name: string;
+  mediaType: string;
+  data: Uint8Array;
+}
+
+/** A Markdown export: its text, and the pictures written beside it. */
+export interface MarkdownExport {
+  text: string;
+  pictures: MarkdownPicture[];
+}
+
+export interface MarkdownOptions {
+  /**
+   * Whether a picture kept in the Note's data is written as a file beside the
+   * text (an export) or read as its alt text (an outside agent that can open no
+   * file).
+   */
+  pictures?: boolean;
+}
+
 export function renderMarkdown(
   title: string,
   blocks: readonly Block[],
   labels: MarkdownLabels,
-): string {
+  options: MarkdownOptions = {},
+): MarkdownExport {
   const footnotes: Written[] = [];
+  const pictures: MarkdownPicture[] = [];
   const writer = new MarkdownWriter(
     labels,
     (footnote) => {
@@ -50,6 +76,7 @@ export function renderMarkdown(
       return footnotes.length;
     },
     headingEntries(blocks),
+    options.pictures === false ? null : (image) => pictureFile(image, pictures),
   );
   const parts: string[] = [];
   if (title) parts.push(`# ${escapeText(title, false)}`);
@@ -69,7 +96,38 @@ export function renderMarkdown(
         .join("\n"),
     );
   }
-  return `${parts.join("\n\n")}\n`;
+  return { text: `${parts.join("\n\n")}\n`, pictures };
+}
+
+/**
+ * Where a picture stands in the text: a data URL becomes a file beside the .md,
+ * named after its bytes so the same picture is never written twice and a name
+ * never changes; a picture from the web keeps its address.
+ */
+function pictureFile(
+  image: Image,
+  pictures: MarkdownPicture[],
+): { src: string; alt?: string } | null {
+  if (!image.src.startsWith("data:")) return image.src ? { src: image.src } : null;
+  const decoded = decodeDataUrl(image.src);
+  if (!decoded) return null;
+  const name = `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
+  if (!pictures.some((each) => each.name === name)) {
+    pictures.push({ name, mediaType: decoded.mediaType, data: decoded.data });
+  }
+  return { src: name, alt: image.alt };
+}
+
+/** A `data:` URL's bytes and media type, and the extension Outlook and Word use for them. */
+function decodeDataUrl(
+  url: string,
+): { data: Uint8Array; mediaType: string; extension: string } | null {
+  const match = /^data:(image\/[\w.+-]+);base64,([\s\S]*)$/i.exec(url);
+  if (!match?.[1] || !match[2]) return null;
+  const extension = match[1].slice("image/".length).toLowerCase().replace("jpeg", "jpg");
+  if (!/^(png|jpg|gif|webp)$/.test(extension)) return null;
+  const data = new Uint8Array(Buffer.from(match[2], "base64"));
+  return data.length > 0 ? { data, mediaType: match[1], extension } : null;
 }
 
 /**
@@ -99,6 +157,10 @@ class MarkdownWriter {
     /** Numbers a footnote: 1, 2, 3… in the order they are written. */
     private readonly number: (footnote: Written) => number,
     private readonly headings: readonly HeadingEntry[] = [],
+    /** Where a picture goes; null when the text reads the alt text instead. */
+    private readonly picture:
+      | ((image: Image) => { src: string; alt?: string } | null)
+      | null = null,
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
@@ -144,7 +206,7 @@ class MarkdownWriter {
       case "chart":
         return this.chart(block);
       case "image":
-        return image(block.image.src, block.image.alt, context);
+        return this.image(block.image, context, true);
       case "toc": {
         if (this.headings.length === 0) return "";
         const lowest = Math.min(...this.headings.map((entry) => entry.level));
@@ -209,6 +271,21 @@ class MarkdownWriter {
       sources.push(escapeText(this.labels.chartCut(rows.length, cutFrom), false));
     if (sources.length > 0) parts.push(sources.join(" "));
     return parts.join("\n\n");
+  }
+
+  /**
+   * A picture: a link to the file written beside the .md, or, for a reader that
+   * can open none, its description as words. `block`: it stands on a line of
+   * its own.
+   */
+  private image(image: Image, context: Context, block: boolean): string {
+    const placed = this.picture?.(image) ?? null;
+    if (!placed) {
+      const description = escapeText(image.alt, context.table);
+      return description ? (block ? description : ` ${description} `) : "";
+    }
+    const alt = placed.alt ?? image.alt;
+    return placed.src ? `![${escapeText(alt, context.table)}](${destination(placed.src)})` : "";
   }
 
   /**
@@ -322,7 +399,7 @@ class MarkdownWriter {
       case "footnote":
         return `[^${this.number({ kind: "note", text: this.inline(item.content, { table: false, note: true }) })}]`;
       case "image":
-        return image(item.image.src, item.image.alt, context);
+        return this.image(item.image, context, false);
       case "cite": {
         // A style's note is a footnote of its own; in the text, or in a footnote's text, its words.
         if (item.note && !context.note) {
@@ -397,10 +474,6 @@ function closingDelimiter(mark: OpenMark): string {
 
 /** A link or image destination: spaces and parentheses would end it early. */
 const destination = (url: string) => url.replace(/[ ()<>]/g, (char) => encodeURIComponent(char));
-
-function image(src: string, alt: string, context: Context): string {
-  return src ? `![${escapeText(alt, context.table)}](${destination(src)})` : "";
-}
 
 /**
  * Escapes what Markdown would read as formatting: emphasis, code, links, math,

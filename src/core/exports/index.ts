@@ -44,6 +44,7 @@ import {
   COMPARISON_TABLE_NODE,
   type Document,
   EXPORT_FORMATS,
+  type ExportFile,
   type ExportFormat,
   type ExportMindOptions,
   type FormattedCitations,
@@ -720,11 +721,14 @@ export function createExports(deps: ExportsDependencies) {
       }
       const { blocks, labels } = await styledBlocks(prepared, thin);
       let data: Uint8Array;
+      let files: readonly ExportFile[] = [];
       let commented: readonly FailedSentence[] = [];
       let checkComments = 0;
       let footnotes = 0;
       if (format === "markdown") {
-        data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
+        const written = renderMarkdown("", blocks, labels);
+        data = new TextEncoder().encode(written.text);
+        files = written.pictures.map(({ name, data: bytes }) => ({ name, data: bytes }));
       } else if (format === "docx") {
         ({ data, commented, checkComments, footnotes } = renderDocx(
           await withPictures(blocks, language, deps),
@@ -769,6 +773,7 @@ export function createExports(deps: ExportsDependencies) {
         data,
         word: null,
         needsDetails: [...thin.documents],
+        ...(files.length > 0 && { files }),
         ...reviewOf(prepared, commented, checkComments),
       };
     },

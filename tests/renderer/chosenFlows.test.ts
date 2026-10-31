@@ -14,13 +14,13 @@ const t =
 
 const FULL = {
   en: [
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), and a Meeting’s Transcript",
+    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
     "each sentence you check",
     "the paragraph you pause on, for writing suggestions",
     "the text you ask the assistant to change",
   ],
   "zh-CN": [
-    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个），以及会议的转写稿",
+    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
     "你核对的每一句话",
     "写作建议时你停下的那一段",
     "你让助手修改的文字",
@@ -29,7 +29,7 @@ const FULL = {
 
 /** The kinds of data each item of the line names, so a kind a flow starts sending fails until one does. */
 const NAMED_BY: Record<string, readonly DataKind[]> = {
-  chat: ["blocks", "passages", "document-names", "other-minds", "live-transcript"],
+  chat: ["blocks", "passages", "document-names", "other-minds", "live-transcript", "pictures"],
   checks: ["verified-document"],
   suggestions: ["writing", "writing-passages"],
   edits: ["selection"],

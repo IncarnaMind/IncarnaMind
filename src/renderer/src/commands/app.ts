@@ -69,6 +69,7 @@ import {
 import { pageCommands } from "./page";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
+import { pictureCommands } from "./pictures";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
@@ -542,6 +543,7 @@ const appCommands: readonly Command[] = [
   },
   ...footnoteCommands,
   ...noteBasicsCommands,
+  ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

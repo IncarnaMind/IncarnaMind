@@ -84,6 +84,7 @@ import {
   GENERATED_MARK,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
+  PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -756,6 +757,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       ];
     }
     case "image":
+      return [{ kind: "image", image: readImage(element) }];
+    case PICTURE_NODE:
       return [{ kind: "image", image: readImage(element) }];
     case CHART_NODE:
       return [readChartBlock(element, options)];
