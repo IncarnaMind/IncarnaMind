@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  asksForSummary,
   COVERED_AT_ONCE,
   coverageOf,
   documentsAsked,
@@ -13,6 +14,32 @@ import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
 import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/models";
+
+describe("What a recap Question asks for", () => {
+  // protects=a recap or summary of what was said, in English and Chinese; fails_when=a wording the call-help starters or a typer would use is missed; no_claim=no text that isn't a recap.
+  test.each([
+    "Recap the last 5 minutes",
+    "Summarize what we've discussed",
+    "What have we covered so far?",
+    "Give me a quick run-through of the call",
+    "回顾最近 5 分钟",
+    "把刚才的讨论梳理一下",
+    "我们聊到哪了",
+    "刚才说到哪了",
+  ])("%s is a recap", (question) => {
+    expect(asksForSummary(question)).toBe(true);
+  });
+
+  // protects=an ordinary Question during a call is not read as a recap; fails_when=one is, and loses its earlier replies; no_claim=none beyond protects.
+  test.each([
+    "What did they say about the budget?",
+    "Search the contract for the payment terms",
+    "Which one should I ask first?",
+    "报价是多少？",
+  ])("%s is no recap", (question) => {
+    expect(asksForSummary(question)).toBe(false);
+  });
+});
 
 describe("What a Question asks of the Documents in scope", () => {
   // protects=a summary of the set, in English and Chinese, asks about each Document; fails_when=one reads as an ordinary Question; no_claim=every wording.

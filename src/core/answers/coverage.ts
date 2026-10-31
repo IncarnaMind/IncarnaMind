@@ -20,7 +20,10 @@ export interface SizedDocument {
 }
 
 const SUMMARY =
-  /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|overview|digest|recap|synops[ie]s)\b|总结|概括|概述|摘要|综述|汇总/i;
+  /\b(?:summar(?:y|ies|i[sz]e[sd]?|i[sz]ing)|sum up|overview|digest|recap|synops[ie]s|gist|run[- ]?through|go over|(?:covered|discussed|said) so far)\b|\bwhat (?:we(?:'ve| have)?|has been|was) (?:covered|discussed|said)\b|\bwhere we (?:are|left off|got to)\b|总结|概括|概述|摘要|综述|汇总|回顾|复盘|小结|梳理|归纳|聊到哪|说到哪|讲到哪/i;
+
+/** Whether a Question asks for a summary or recap of what it is about ("recap the last 5 minutes", "回顾最近 5 分钟"). */
+export const asksForSummary = (question: string): boolean => SUMMARY.test(question);
 const DOCUMENT_WORDS = "(?:documents|docs|papers|files|reports)";
 const ZH_DOCUMENT_WORDS = "(?:文档|论文|文件|报告)";
 const THE_SET = new RegExp(

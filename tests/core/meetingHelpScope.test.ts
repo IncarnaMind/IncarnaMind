@@ -351,4 +351,45 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     expect(recap.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
   });
+
+  test(`${language}: an ordinary follow-up after guide help still carries it`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    const first = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text: language === "en" ? "Which one should I ask first?" : "我应该先问哪一个？",
+      }),
+    );
+    expect(calls.slice(first).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+  });
+
+  test(`${language}: a recap after the call ended keeps the conversation's earlier replies`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    await core.stopMeeting(meeting.id);
+    const first = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text: translate(language, "meeting.ask.recap"),
+      }),
+    );
+    expect(calls.slice(first).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+  });
 }
