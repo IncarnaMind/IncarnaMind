@@ -339,6 +339,14 @@ test("a slow storage start leaves the first window showing its page", async () =
   expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
 });
 
+test("a fresh start applies its migrations on the built app's worker thread", async () => {
+  start();
+  await ownerWindow();
+  const log = await readFile(join(data, "logs/incarnamind.log"), "utf8");
+  expect(log).toMatch(/storage\.migratedOffThread applied=[1-9]/);
+  expect(log).not.toContain("storage.migrateOffThreadFailed");
+});
+
 for (const language of ["en", "zh-CN"]) {
   test(`a fresh initial launch reaches its native page (${language})`, async () => {
     test.setTimeout(90_000);
