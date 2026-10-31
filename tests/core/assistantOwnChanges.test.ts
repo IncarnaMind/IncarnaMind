@@ -1074,7 +1074,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(instructions).toContain("The record's Tool names and fields say mind for a Note.");
     expect(instructions).not.toContain("A Note is called a Mind in the record.");
     expect(instructions).toContain(
-      "A revision of text the assistant wrote into a Mind earlier is a change",
+      "A revision of text the assistant wrote into a Note earlier is a change",
     );
     expect(instructions).not.toContain("A revision of the assistant's own text is a change");
     expect(answer.text).toBe(HONEST);
