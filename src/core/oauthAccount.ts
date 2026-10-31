@@ -352,7 +352,6 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
     credentials,
     load,
     loadOrNull,
-    save,
     /** Saves what a sign-in ended with: a refresh that finishes afterwards changes nothing. */
     async commit(account: A): Promise<void> {
       generation += 1;
