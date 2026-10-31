@@ -905,6 +905,61 @@ describe("A correction's wording in the sentence's own language", () => {
   });
 });
 
+describe("A To line that goes on with a second Document's words", () => {
+  const english = "The Landlord shall return it within 30 days after the Lease ends";
+  const chinese = "租期届满后30日内无息退还";
+  test.each([
+    {
+      claim: "The Landlord must return the deposit within 60 days.",
+      from: "60 days",
+      to: `within 30 days after the Lease ends (Harbor Street Lease); ${chinese} (补充协议)`,
+      wording: "30 days after the Lease ends",
+      quote: english,
+    },
+    {
+      claim: "押金应在租期届满后60日内退还。",
+      from: "60日内",
+      to: `30日内 (补充协议); ${english} (Harbor Street Lease)`,
+      wording: "30日内",
+      quote: chinese,
+    },
+  ])("gives $wording its own quote (#1481)", async ({ claim, from, to, wording, quote }) => {
+    const reply = [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      `Change 1: ${from}`,
+      `To 1: ${to}`,
+      "The leases give another period.",
+      "Evidence: [1, 2]",
+    ].join("\n");
+    const { result } = await checkConflict({
+      claim,
+      reply,
+      citations: [
+        { marker: 1, quote },
+        { marker: 2, quote: quote === english ? chinese : english },
+      ],
+      files: [
+        // Each has a line in the other language, so that either sentence's search finds both.
+        {
+          name: "Lease.md",
+          contents: `${english}, less any amounts properly deducted.\n押金按本租约退还。`,
+        },
+        {
+          name: "租赁合同.md",
+          contents: `${chinese}。\nThe Landlord returns the deposit as this lease says.`,
+        },
+      ],
+      dates: ["2025-01-14T00:00:00.000Z", "2026-02-03T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices).toMatchObject([{ wording, evidence: { quote } }]);
+  });
+});
+
 const evidence = (documentId: string): CitationAttributes => ({
   passageId: `passage-${documentId}`,
   documentId,

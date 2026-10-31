@@ -793,12 +793,19 @@ const unquoted = (words: string): string => {
   return match?.slice(1).find((each) => each !== undefined) ?? words;
 };
 
-/** Each To line's marker by its number: the quote it ends with, read before markers are shown. */
+/** A second Document's words after a value's notes, which the check marks with their own quote. */
+const OTHER_WORDS = new RegExp(String.raw`(\s+${NOTE}(?:\s*${NOTE})*\s*)[;；,，]\s*\S.*$`, "su");
+
+/**
+ * Each To line's marker by its number: the quote its own words end with, read before markers are
+ * shown, never that of a second Document's words after them (#1481).
+ */
 function toMarkers(reply: string): Map<number, number> {
   const markers = new Map<number, number>();
   for (const line of reply.replace(THINKING, "").split("\n").flatMap(fieldLines)) {
     const match = TO.exec(line.trim());
-    const marker = match && /\[[\^=]?(\d{1,4})\]\s*$/.exec(match[2] ?? "")?.[1];
+    const own = (match?.[2] ?? "").replace(OTHER_WORDS, "$1");
+    const marker = match && /\[[\^=]?(\d{1,4})\]\s*$/.exec(own)?.[1];
     if (match && marker) markers.set(Number(match[1]), Number(marker));
   }
   return markers;
