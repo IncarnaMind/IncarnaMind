@@ -519,6 +519,10 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
 
 `npm run eval:hard` asks harder Questions of a library at scale: public Documents across domains, fetched at evaluation time and never committed, in every retrieval mode with embeddings on, reported per domain and difficulty and never gating. `npm run eval` doesn't run it. See `hard/README.md`.
 
+## The citation benchmark
+
+`npm run eval:citations` asks one model the citation benchmark's 150 Questions, in English and Chinese, through the app's own Answers path, checks each Answer's Note as Check this Note does, and keeps every Answer, Citation, Location, check result, setting, token, cost and time in a run file per model and language, resuming where a run stopped (#1999). `npm run eval:citations:score` scores quote found, supported, figure right and what the check catches of each miss, and writes a results page that leads with the misses. A run on a model with a price needs a cap; `npm run eval:citations:estimate` prints the expected cost first. See `citations/README.md`; `tests/eval/citationBenchmark.test.ts` checks the scorers, the cap, the scan and the results page.
+
 ## The grouping check
 
 The check before building the Library's grouping (#51) found that clustering Documents' vectors into Topics splits them by language, and ADR-0012 replaced Topics with Folders and Tags. It was removed on 2026-10-10 with the Topic code. Its fixture set stays in `grouping/`, because the classification comparison (`classification/`) reads it; `grouping/README.md` gives the set and the check's results.
