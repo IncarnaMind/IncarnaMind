@@ -776,11 +776,16 @@ function fieldLines(line: string): string[] {
 
 const PAIRED_QUOTES = /^(?:"(.+)"|“(.+)”|'(.+)'|‘(.+)’|「(.+)」|『(.+)』)$/su;
 
+const NOTE = String.raw`(?:\([^()]*\)|\[[^[\]]*\]|（[^（）]*）)`;
+
 /**
- * A value without the note a model wrote after it: "为期三年 (the grant letter, …)", "$14,250
- * [P1, p. 1]" from Claude Haiku 5.5 (#1481).
+ * A value without the notes a model wrote after it, and the quote it gave after them: "为期三年
+ * (the grant letter, …)", "$14,250 [P1, p. 1]", "within 30 days after the Lease ends [p. 1]
+ * (Harbor Street Lease); "The Landlord shall …"" from Claude Haiku 5.5 (#1481).
  */
-const withoutNote = (value: string): string => value.replace(/\s+(?:\([^()]*\)|\[[^[\]]*\])$/u, "");
+const AFTER_VALUE = new RegExp(String.raw`\s+${NOTE}(?:\s*${NOTE})*\s*(?:[;；,，]\s*\S.*)?$`, "su");
+
+const withoutNote = (value: string): string => value.replace(AFTER_VALUE, "");
 
 /** Words a model put in quotation marks, without them. */
 const unquoted = (words: string): string => {

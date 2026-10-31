@@ -46,6 +46,8 @@ import type {
   ClaimPartPlan,
   ClaimPartSpan,
   Document,
+  FigureCheckResult,
+  FigureInput,
   LeftOutDocument,
   LimitRelation,
   PassageSearchResult,
@@ -1212,13 +1214,23 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         (result.verdict === "not-checked" ? null : result.evidence);
       // A contradiction with no quote found is asked for its quote once, as a sentence without
       // figures is: Claude Haiku 5.5 wrote its record into the reply instead of calling cite in
-      // about one contradicted check in seven (#2184).
+      // about one contradicted check in seven (#2184). Asked under the markers its Evidence line
+      // names, the record is also the quote its Change and To lines give (#1481).
+      const unrecorded = (verdict: ReadVerdict): number[] => {
+        const rejected = new Set(session.summary().rejectedRecords.map(({ marker }) => marker));
+        const named = [...new Set(verdict.evidence ?? [])];
+        return named.every(
+          (marker) => session.finalCitation(marker) === null && !rejected.has(marker),
+        )
+          ? named
+          : [];
+      };
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
-            ? await askForEvidence(request, verdict, session, signal)
+            ? await askForEvidence(request, verdict, session, signal, null, unrecorded(verdict))
             : null);
         if (!isFailed(evidence)) return judged(verdict, request.claim, evidence);
         const failure = failureOf(evidence.failed);
@@ -1247,7 +1259,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           figures.some(
             (figure) =>
               figure.calculated ||
-              ("calculation" in figure.result && figure.result.calculation) ||
+              ("calculation" in figure.result &&
+                figure.result.calculation &&
+                !checkedNumber(figure)) ||
               figure.locator.kind !== "text" ||
               figure.context !== sentence ||
               figure.footing.length > 0 ||
@@ -1267,19 +1281,19 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         const writesOver = (from: string, chars: string) =>
           readFigures(from, context).some((old) => chars.includes(old.chars));
         if (owner) {
-          const deciding = owner.sourceInput;
+          const deciding = checkedNumber(owner);
           const changes = (from: string, to: string) => {
-            const old = readFigures(from, context);
             const replacement = readFigures(to, context);
-            const [written] = replacement;
             return (
-              old.length === 1 &&
+              readFigures(from, context).length === 1 &&
               writesOver(from, owner.reading.chars) &&
-              replacement.length === 1 &&
-              written !== undefined &&
               (deciding
-                ? Math.abs(written.value) === Math.abs(deciding.number.value)
-                : written.unit.kind === owner.reading.unit.kind)
+                ? // The Document may write its number twice: 人民币九万八千元（¥98,000）.
+                  replacement.length > 0 &&
+                  replacement.every(
+                    (written) => Math.abs(written.value) === Math.abs(deciding.number.value),
+                  )
+                : replacement.length === 1 && replacement[0]?.unit.kind === owner.reading.unit.kind)
             );
           };
           // The figure's own check already found the Document's number and its quote, so the
@@ -1291,7 +1305,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             changes(stated.correction.from, choice.wording),
           )
             ? stated
-            : deciding
+            : // "（¥98,000）" after 人民币九万八千元 reads as a negative number: it never takes
+              // the place of a positive one.
+              deciding && Math.sign(deciding.number.value) === Math.sign(owner.reading.value)
               ? corrected(
                   {
                     from: owner.reading.chars,
@@ -2068,6 +2084,25 @@ function keepsNamedPeriods(from: string, replacement: string): boolean {
   return before.length === after.length && before.every((period, index) => period === after[index]);
 }
 
+/**
+ * The Document's number a figure was checked against: its source, or the one number a calculation
+ * only names, as Claude Haiku 5.5 sent the lease's $14,250 as the calculation "rent" (#1481). Null
+ * for a number worked out.
+ */
+function checkedNumber(figure: FigureCheckResult): FigureInput | null {
+  if (figure.sourceInput) return figure.sourceInput;
+  const calculation = "calculation" in figure.result ? figure.result.calculation?.figure : null;
+  const [input, ...more] = calculation?.inputs ?? [];
+  return input &&
+    more.length === 0 &&
+    calculation?.literals.length === 0 &&
+    calculation.formula.trim() === input.name
+    ? input
+    : null;
+}
+
+const HAN = /\p{Script=Han}/u;
+
 /** The one figure `words` are, or null when they are more or less than a figure. */
 function figureOnly(words: string, context: FigureContext): Figure | null {
   const read = readFigures(words, context);
@@ -2131,7 +2166,10 @@ function correctionFor(
   const wordings = new Set<string>();
   const choices: ({ wording: string; marker: number } & { evidence: Citation })[] = [];
   const figure = figureOnly(read.from, context);
-  for (const stated of read.choices) {
+  // Chinese words never take the place of words in a sentence without any: Claude Haiku 5.5 gave a
+  // Chinese lease's 30日内 for an English sentence's "60 days" (#1481).
+  const readable = (wording: string) => !HAN.test(wording) || HAN.test(sentence);
+  for (const stated of read.choices.filter((choice) => readable(choice.wording))) {
     const fitted = inPlace(
       claim.slice(0, first),
       claim.slice(first + read.from.length),

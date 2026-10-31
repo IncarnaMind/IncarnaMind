@@ -190,6 +190,8 @@ async function checkWith(options: {
   providerKind?: ChatProviderKind;
   /** It never calls cite: its sources and its calculation's inputs give their quotes inline. */
   neverCites?: boolean;
+  /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
+  recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
 }) {
   const body =
@@ -241,6 +243,23 @@ async function checkWith(options: {
     },
     {
       generate(call) {
+        const quote = options.recordWhenAsked;
+        if (quote !== undefined && call.system.startsWith("You checked a sentence")) {
+          const record = { passage: "P1", location: "p. 1", quote };
+          const markers = /Missing Citation markers: (\[[^\]]*\])/.exec(call.prompt)?.[1];
+          return {
+            text: JSON.stringify(
+              markers
+                ? {
+                    citations: (JSON.parse(markers) as number[]).map((marker) => ({
+                      marker,
+                      ...record,
+                    })),
+                  }
+                : record,
+            ),
+          };
+        }
         confirmations.push(call.prompt);
         return { text: options.judgement ?? "conflict" };
       },
@@ -1511,31 +1530,34 @@ test.each([
   { name: "alone", calculated: false, offered: true },
   { name: "beside a supported calculated figure", calculated: true, offered: false },
 ])("a figure's correction is offered $name", async ({ calculated, offered }) => {
-  const sentence = calculated ? "Revenue was £20 and growth was £10." : "Revenue was £20.";
+  const sentence = calculated ? "Revenue was £20 and profit was £10." : "Revenue was £20.";
   const revenue = {
     ...item("revenue"),
     verdict: "contradicted",
     source: { citation: 1, number: "£21" },
   };
   const items = calculated
-    ? [revenue, { ...item("growth"), source: null, calculation: 1 }]
+    ? [revenue, { ...item("profit"), source: null, calculation: 1 }]
     : [revenue];
   const { result } = await checkWith({
     claim: sentence,
     figures: [
       target("revenue", "£20", sentence),
-      ...(calculated ? [target("growth", "£10", sentence)] : []),
+      ...(calculated ? [target("profit", "£10", sentence)] : []),
     ],
-    body: "Revenue was £21. Growth was £10.",
+    body: "Revenue was £21. Costs were £11.",
     ...(calculated && {
       calculations: [
         {
           marker: 1,
-          label: "Growth",
-          formula: "source",
+          label: "Profit",
+          formula: "revenue - costs",
           stated: "£10",
           relation: "equals",
-          inputs: [{ name: "source", label: "Growth", citation: 1, position: 2 }],
+          inputs: [
+            { name: "revenue", label: "Revenue", citation: 1, position: 1 },
+            { name: "costs", label: "Costs", citation: 1, position: 2 },
+          ],
         },
       ],
     }),
@@ -1543,6 +1565,9 @@ test.each([
   });
 
   expect(result.verdict).toBe("contradicted");
+  expect(result.figures?.map((figure) => figure.result.verdict)).toEqual(
+    calculated ? ["contradicted", "supported"] : ["contradicted"],
+  );
   expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
 });
 
@@ -1564,3 +1589,128 @@ test.each([
   expect(result.verdict).toBe("contradicted");
   expect(correctionOf(result)?.choices[0]?.wording).toBe(offered ? "£21" : undefined);
 });
+
+const RENT = "The base rent is $15,000 per month.";
+const LEASE = "The Tenant shall pay a base rent of $14,250 per month, in advance.";
+const rentLines = (to: string) =>
+  [
+    "Verdict: contradicted",
+    "Absence: no",
+    "Scope: none, same",
+    "Topic: found",
+    "Roles: none, same",
+    "Change 1: $15,000",
+    `To 1: ${to}`,
+    "The lease sets the base rent at $14,250 per month, not $15,000.",
+    "Evidence: [1]",
+  ].join("\n");
+
+test.each([
+  { name: "the lease's", quote: LEASE, wording: "$14,250" },
+  { name: "another line's", quote: "The Tenant shall pay rent monthly.", wording: undefined },
+])(
+  "a figure's correction is offered from $name quote when the record is given only once asked (#1481)",
+  async ({ quote, wording }) => {
+    const { result } = await checkWith({
+      claim: RENT,
+      figures: [target("f1", "$15,000", RENT)],
+      body: `${LEASE} The Tenant shall pay rent monthly.`,
+      neverCites: true,
+      recordWhenAsked: quote,
+      text: `${rentLines('"a base rent of $14,250 per month"')}\nFigures: ${JSON.stringify({
+        items: [
+          {
+            ...item(),
+            verdict: "contradicted",
+            source: { citation: 1, number: "$14,250", reading: 1, unitQuote: null },
+          },
+        ],
+        remainder: null,
+      })}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(wording);
+  },
+);
+
+const TERM = "Rent is paid 12 times a year.";
+
+test.each([
+  { name: "only names the lease's number", claim: RENT, formula: "rent", wording: "$14,250" },
+  {
+    name: "works a number out",
+    claim: "The base rent is $150,000 a year.",
+    formula: "rent * months",
+    wording: undefined,
+  },
+])("a figure's correction is offered when its calculation $name (#1481)", async (each) => {
+  const stated = each.claim === RENT ? "$15,000" : "$150,000";
+  const { result } = await checkWith({
+    claim: each.claim,
+    figures: [target("f1", stated, each.claim)],
+    body: `${LEASE} ${TERM}`,
+    quotes: [LEASE, TERM],
+    calculations: [
+      {
+        marker: 1,
+        label: "Base rent",
+        formula: each.formula,
+        stated,
+        relation: "equals",
+        as: "currency",
+        inputs: [
+          {
+            name: "rent",
+            label: "Base rent per month",
+            citation: 1,
+            number: "$14,250",
+            reading: 1,
+          },
+          ...(each.formula === "rent"
+            ? []
+            : [{ name: "months", label: "Payments a year", citation: 2, number: "12" }]),
+        ],
+      },
+    ],
+    text: `${rentLines("$14,250 per month").replace("$15,000", stated)}\nFigures: ${JSON.stringify({
+      items: [{ ...item(), verdict: "contradicted", source: null, calculation: 1 }],
+      remainder: null,
+    })}`,
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+  expect(correctionOf(result)?.choices[0]?.wording).toBe(each.wording);
+});
+
+test.each([
+  { to: "人民币九万八千元（¥98,000）", wording: "人民币九万八千元（¥98,000）" },
+  { to: "人民币九万六千元", wording: undefined },
+])(
+  "a Chinese figure's correction is $to when the Document writes its number twice (#1481)",
+  async ({ to, wording }) => {
+    const sentence = "月租金为人民币九万五千元。";
+    const { result } = await checkWith({
+      claim: sentence,
+      figures: [target("f1", "人民币九万五千元", sentence, "zh-CN")],
+      body: "月租金调整为人民币九万八千元（¥98,000）。",
+      text: `Verdict: contradicted\nChange 1: 人民币九万五千元\nTo 1: ${to}\nEvidence: [1]\nFigures: ${JSON.stringify(
+        {
+          items: [
+            {
+              ...item(),
+              verdict: "contradicted",
+              source: { citation: 1, number: "98,000", reading: null, unitQuote: null },
+            },
+          ],
+          remainder: null,
+        },
+      )}`,
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(result.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(correctionOf(result)?.choices[0]?.wording).toBe(wording);
+  },
+);

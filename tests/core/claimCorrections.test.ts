@@ -142,6 +142,12 @@ describe("A correction in a check reply", () => {
     ["为期三年 (the grant letter, “基金会提供为期三年的资助”)", "为期三年"],
     ["$14,250 [P1, p. 1]", "$14,250"],
     ["西境商业地产投资与资产管理（华东）有限公司", "西境商业地产投资与资产管理（华东）有限公司"],
+    [
+      'within 30 days after the Lease ends [p. 1] (Harbor Street Lease); "The Landlord shall return it within 30 days after the Lease ends"',
+      "within 30 days after the Lease ends",
+    ],
+    ["30日内 [第1页]（租赁合同）；“押金在租期届满后30日内退还”", "30日内"],
+    ["the 2026 liquidity (and capital) strategy", "the 2026 liquidity (and capital) strategy"],
   ])("reads the To value %s without a note after it", (to, wording) => {
     const read = readVerdict(
       `Verdict: contradicted\nThe report differs.\nChange 1: old\nTo 1: ${to}`,
@@ -852,6 +858,50 @@ describe("Conflicting Documents' correction choices", () => {
         ],
       },
     });
+  });
+});
+
+describe("A correction's wording in the sentence's own language", () => {
+  const quotes: Record<string, string> = {
+    "30日内": "押金在30日内退还。",
+    "30 days": "The deposit is returned within 30 days.",
+  };
+  test.each([
+    { to: ["30日内", "30 days"], wordings: ["30 days"] },
+    { to: ["30日内"], wordings: undefined },
+    { to: ["30 days"], wordings: ["30 days"] },
+  ])("an English sentence is offered $wordings for $to (#1481)", async ({ to, wordings }) => {
+    const reply = [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The leases give another period.",
+      ...to.flatMap((wording, index) => [
+        `Change ${index + 1}: 60 days`,
+        `To ${index + 1}: ${wording} [^${index + 1}]`,
+      ]),
+    ].join("\n");
+    const { result } = await checkConflict({
+      claim: "The deposit is returned within 60 days.",
+      reply,
+      citations: to.map((wording, index) => ({
+        marker: index === 0 ? 1 : 2,
+        quote: quotes[wording] ?? "",
+      })),
+      files: [
+        // Its English line lets the English sentence's search find it.
+        {
+          name: "租赁合同.md",
+          contents: `${quotes["30日内"]}\nThe deposit is returned as this lease says.`,
+        },
+        { name: "Lease.md", contents: quotes["30 days"] ?? "" },
+      ],
+      dates: ["2026-02-03T00:00:00.000Z", "2025-01-14T00:00:00.000Z"],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)?.choices.map((choice) => choice.wording)).toEqual(wordings);
   });
 });
 
