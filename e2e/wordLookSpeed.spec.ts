@@ -12,6 +12,7 @@ import {
   largestCorpusFile,
   launchApp,
   msToOpen,
+  newMind,
   pointAndClick,
   removeDataFolder,
   setWindowSize,
@@ -53,12 +54,13 @@ async function typeAt(window: Page, index: number) {
   const target = window.getByTestId("mind-editor").locator(":scope > p").nth(index);
   await target.scrollIntoViewIfNeeded();
   await pointAndClick(window, target);
-  await window.keyboard.press("End");
   await takeKeyLatency(window);
+  await window.keyboard.press("End");
+  await takeKeyLatency(window, { keys: 1 });
   const start = Date.now();
   await window.keyboard.type("x".repeat(KEYS), { delay: BETWEEN_KEYS_MS });
   const taken = Math.round((Date.now() - start) / KEYS - BETWEEN_KEYS_MS);
-  return { taken, ...(await takeKeyLatency(window)) };
+  return { taken, ...(await takeKeyLatency(window, { keys: KEYS })) };
 }
 
 test("typing on the 304-page contract in its look takes each key in a moment, as the same Note drawn plain does", async () => {
@@ -66,29 +68,36 @@ test("typing on the 304-page contract in its look takes each key in a moment, as
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
-  await importWordFile(app, window, files, "Framework Services Agreement.docx", longContract());
+  await installKeyLatency(window);
+  await newMind(window);
   const editor = window.getByTestId("mind-editor");
+  await window.keyboard.type("Fees.");
+  for (const clause of ["The fee is $1,250 a month.", "It is due within 30 days."]) {
+    await window.keyboard.press("Enter");
+    await window.keyboard.type(clause);
+  }
+  const short = await typeAt(window, 1);
+  await importWordFile(app, window, files, "Framework Services Agreement.docx", longContract());
   await expect(editor.locator("h1")).toHaveCount(241, { timeout: 120_000 });
   await expect(window.getByTestId("mind-word-progress")).toHaveCount(0);
   await expect(editor.locator("[data-word-look]").first()).toBeVisible();
-  await installKeyLatency(window);
   const clauses = await editor.locator(":scope > p").count();
 
   const word = [await typeAt(window, 2), await typeAt(window, clauses - 2)];
   await chooseLook(window, "plain");
   await expect(window.locator(".mind-editor-frame > style")).toHaveCount(0);
   const plain = [await typeAt(window, 2), await typeAt(window, clauses - 2)];
-  const result = { word, plain };
+  const result = { short, word, plain };
   console.log(`Typing on the 304-page contract (ms): ${JSON.stringify(result)}`);
   test.info().annotations.push({ type: "typing", description: JSON.stringify(result) });
 
-  for (const [at, typed] of [...word, ...plain].entries()) {
-    expect(typed.keys).toBeGreaterThanOrEqual(KEYS - 2);
-    // About 40 ms on a laptop and 60 to 85 ms on a Linux runner. Work in the main process for
-    // every change holds each key back, by seconds on a Note this long.
+  for (const [at, typed] of [short, ...word, ...plain].entries()) {
+    expect(typed.keys).toBe(KEYS);
+    // Work in the main process for every change holds each key back: by seconds on a Note this
+    // long while each change read all of it.
     expect(
       typed.taken,
-      `the app taking each key (${at < word.length ? "Word look" : "plain"})`,
+      `the app taking each key (${at === 0 ? "short Note" : at <= word.length ? "Word look" : "plain"})`,
     ).toBeLessThanOrEqual(TAKEN_CEILING_MS);
     expect(typed.p95, "the slowest keystrokes").toBeLessThanOrEqual(INPUT_CEILING_MS);
   }

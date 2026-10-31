@@ -3339,7 +3339,15 @@ export async function installKeyLatency(window: Page): Promise<void> {
   });
 }
 
-export async function takeKeyLatency(window: Page) {
+/**
+ * The keys timed since the last take, and clears them. With `keys`, waits until that many have
+ * been timed: each is timed once its frame is drawn, after the key itself.
+ */
+export async function takeKeyLatency(window: Page, { keys: typed }: { keys?: number } = {}) {
+  if (typed !== undefined)
+    await expect
+      .poll(() => window.evaluate(() => (window as unknown as { __keys: number[] }).__keys.length))
+      .toBeGreaterThanOrEqual(typed);
   return window.evaluate(() => {
     const w = window as unknown as {
       __keys: number[];
