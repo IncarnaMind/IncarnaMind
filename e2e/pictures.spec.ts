@@ -28,6 +28,12 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
+/** Keeps the window's picture for the pull request, when INCARNAMIND_SHOTS names a folder. */
+async function shot(window: Page, name: string): Promise<void> {
+  const folder = process.env.INCARNAMIND_SHOTS;
+  if (folder) await window.screenshot({ path: join(folder, `${name}.png`) });
+}
+
 /** A picture of a size a person sees: a gradient, as a PNG, written without a library. */
 function gradientPng(size = 64): Buffer {
   const rows = Buffer.alloc(size * (size * 3 + 1));
@@ -128,6 +134,14 @@ const keptPicture = (editor: Locator) =>
 test("a screenshot pasted becomes a picture; its description is written in place, and ⌘Z takes each back", async () => {
   const { app, window, editor } = await startNote("en", 900);
   try {
+    // ⌘K reaches it too, as every command.
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type("picture");
+    await expect(window.locator('[data-key="command:picture.insert"]')).toContainText(
+      "Insert a picture…",
+    );
+    await window.keyboard.press("Escape");
     const png = writePicture("Screenshot 2026-10-30 at 09.41.png", gradientPng());
     await loadFiles(window, [png]);
     await paste(window);
@@ -150,6 +164,7 @@ test("a screenshot pasted becomes a picture; its description is written in place
     await alt.fill("A chart of spring tides");
     await alt.press("Enter");
     expect((await keptPicture(editor)).alt).toBe("A chart of spring tides");
+    await shot(window, "pictures-en-900");
 
     // ⌘Z takes the description back; the picture stays.
     await pointAndClick(window, editor);
@@ -161,7 +176,7 @@ test("a screenshot pasted becomes a picture; its description is written in place
   }
 });
 
-test("a dropped photo of many megabytes is made small enough to keep, and a JPEG dropped is a picture too", async () => {
+test("a photo of about 20 MB dropped is made small enough to keep", async () => {
   const { app, window, editor } = await startNote("zh-CN", 1600);
   try {
     const size = await window.evaluate(async () => {
@@ -201,7 +216,8 @@ test("a dropped photo of many megabytes is made small enough to keep, and a JPEG
       );
       return blob.size;
     });
-    expect(size).toBeGreaterThan(5 * 1024 * 1024);
+    // A photo of about 20 MB, as a phone or a camera makes it.
+    expect(size).toBeGreaterThan(15 * 1024 * 1024);
     await expect(editor.getByTestId("mind-picture")).toHaveCount(1);
     const kept = await keptPicture(editor);
     expect(Math.max(kept.width, kept.height)).toBeLessThanOrEqual(1600);
@@ -213,6 +229,53 @@ test("a dropped photo of many megabytes is made small enough to keep, and a JPEG
       "placeholder",
       "描述这张图片",
     );
+
+    // A JPEG pasted, and a PNG dropped from the computer, are pictures too.
+    await window.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 200;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("No canvas.");
+      context.fillStyle = "#336699";
+      context.fillRect(0, 0, 320, 200);
+      context.fillStyle = "#ffffff";
+      context.fillRect(40, 40, 120, 60);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.9),
+      );
+      if (!blob) throw new Error("The JPEG wasn't made.");
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!target) throw new Error("No editor.");
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "chart.jpg", { type: "image/jpeg" }));
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    });
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(2);
+
+    await loadFiles(window, [writePicture("Screenshot.png", gradientPng())]);
+    await window.evaluate(() => {
+      const input = document.querySelector<HTMLInputElement>('[data-testid="picture-source"]');
+      const target = document.querySelector('[data-testid="mind-editor"]');
+      if (!input?.files || !target) throw new Error("No files to drop, or no editor.");
+      const transfer = new DataTransfer();
+      for (const file of Array.from(input.files)) transfer.items.add(file);
+      const box = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: transfer,
+          clientX: box.x + 120,
+          clientY: box.y + 60,
+        }),
+      );
+      input.remove();
+    });
+    await expect(editor.getByTestId("mind-picture")).toHaveCount(3);
+    await shot(window, "pictures-zh-1600");
   } finally {
     await app.close();
   }
