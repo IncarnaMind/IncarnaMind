@@ -1764,7 +1764,7 @@ export const CASES: readonly EverydayCase[] = [
       "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /2\.1\s?%/,
+      answerWith: /^(?![\s\S]*declin\w*[^.!?\n]{0,20}2\.1\s?%)[\s\S]*2\.1\s?%/i,
       answerEvidence: {
         document: /Northmart Q2 2026 10-Q/,
         quote: /2\.1%/,
@@ -1781,7 +1781,7 @@ export const CASES: readonly EverydayCase[] = [
     request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /2\.1\s?%/,
+      answerWith: /^(?![\s\S]*下降[^。！？\n]{0,12}2\.1\s?%)[\s\S]*2\.1\s?%/,
       answerEvidence: {
         document: /北域零售 2026年第二季度季报/,
         quote: /2\.1%/,

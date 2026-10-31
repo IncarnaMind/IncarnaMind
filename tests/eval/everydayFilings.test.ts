@@ -4,19 +4,34 @@ import { writeFilingDocuments } from "../../eval/everyday/filings";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 
+// Each filing's length, and the page and words that hold its figure, as `filings.ts` writes them.
 const EXPECTED = new Map([
-  ["Northmart Q2 2026 10-Q", { page: 8, text: "like-for-like sales declined 6.2%" }],
-  ["北域零售 2026年第二季度季报", { page: 8, text: "同店销售额下降 6.2%" }],
+  [
+    "Northmart Q2 2026 10-Q",
+    {
+      pages: 33,
+      page: 30,
+      text: "Change in sales from stores and channels open over 13 months",
+      figure: "2.1%",
+    },
+  ],
+  [
+    "北域零售 2026年第二季度季报",
+    { pages: 33, page: 30, text: "开业满 13 个月的门店及渠道销售额变动", figure: "2.1%" },
+  ],
   [
     "Harbour Hotels 2026 annual release",
-    { page: 2, text: "Operating profitability reached 38.2%" },
+    { pages: 13, page: 11, text: "Operating income as a percentage of revenue", figure: "38.2%" },
   ],
-  ["港湾酒店 2026年度业绩公告", { page: 2, text: "经营利润率达到 38.2%" }],
+  [
+    "港湾酒店 2026年度业绩公告",
+    { pages: 13, page: 11, text: "营业利润占收入的百分比", figure: "38.2%" },
+  ],
   [
     "Delta Manufacturing 8-K 2026",
-    { page: 9, text: "Restated second-quarter sales: $423 million" },
+    { pages: 18, page: 16, text: "Total segment earnings", figure: "592" },
   ],
-  ["三角洲制造 8-K 2026", { page: 9, text: "重述第二季度销售额：4.23 亿元" }],
+  ["三角洲制造 8-K 2026", { pages: 18, page: 16, text: "分部利润合计", figure: "592" }],
 ]);
 
 describe("The filing evaluation", () => {
@@ -36,8 +51,9 @@ describe("The filing evaluation", () => {
       const expected = EXPECTED.get(document.name);
       if (!expected) throw new Error(`Unexpected filing: ${document.name}`);
       const stored = await core.readDocumentText(document.id);
-      expect(stored.pages).toHaveLength(12);
+      expect(stored.pages).toHaveLength(expected.pages);
       expect(stored.pages[expected.page - 1]?.text).toContain(expected.text);
+      expect(stored.pages[expected.page - 1]?.text).toContain(expected.figure);
     }
     core.close();
   });
@@ -72,13 +88,13 @@ describe("The filing evaluation", () => {
     }
   });
 
-  test("the comparable-sales guard requires a decline, not an increase", () => {
+  test("the comparable-sales guard requires the rise the 10-Q states, not a decline", () => {
     const english = CASES.find((each) => each.id === "filing-comparable-en");
     const chinese = CASES.find((each) => each.id === "filing-comparable-zh");
 
-    expect(english?.expected.answerWith?.test("Comparable sales declined 6.2%.")).toBe(true);
-    expect(english?.expected.answerWith?.test("Comparable sales increased 6.2%.")).toBe(false);
-    expect(chinese?.expected.answerWith?.test("集团同店销售额下降 6.2%。")).toBe(true);
-    expect(chinese?.expected.answerWith?.test("集团同店销售额上升 6.2%。")).toBe(false);
+    expect(english?.expected.answerWith?.test("Comparable sales rose **2.1%** [^1].")).toBe(true);
+    expect(english?.expected.answerWith?.test("Comparable sales declined 2.1%.")).toBe(false);
+    expect(chinese?.expected.answerWith?.test("集团同店销售额增长 2.1%。")).toBe(true);
+    expect(chinese?.expected.answerWith?.test("集团同店销售额下降 2.1%。")).toBe(false);
   });
 });
