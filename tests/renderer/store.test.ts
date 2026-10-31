@@ -655,8 +655,8 @@ describe("changes the User can take back", () => {
     );
   });
 
-  // protects=a Meeting whose audio's day ended while its Note waited in Recently deleted comes back saying why its recording is gone, from Undo and from Restore, in English and Chinese (#1253); fails_when=nothing is said, or it is said as a failure; no_claim=how the core times the audio's day.
-  test("Undo and Restore say when a Meeting's recording was removed after its day, and why", async () => {
+  // protects=a Meeting whose audio's day ended while its Note waited in Recently deleted comes back saying it came with its transcript and its audio was deleted 24 hours after the call, from Undo and from Restore, and the ordinary line when the audio is still there, in English and Chinese (#1253); fails_when=nothing is said, it is said as a failure, or it is said when the audio is there; no_claim=how the core times the audio's day.
+  test("Undo and Restore say when a Meeting's audio was deleted 24 hours after the call, and only then", async () => {
     const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
     const zh = (key: Parameters<Translate>[0], params?: Parameters<Translate>[1]) =>
       translate("zh-CN", key, params);
@@ -667,9 +667,9 @@ describe("changes the User can take back", () => {
     await useUndo.getState().undo();
     const note = useUndo.getState().line?.note;
     expect(note?.(words)).toBe(
-      "Restored “Plan”. Its recording was removed a day after the meeting, as audio is only kept that long.",
+      "Restored “Plan” with its transcript. Its audio was deleted 24 hours after the call.",
     );
-    expect(note?.(zh)).toBe("已恢复“Plan”。音频只在会议结束后保存一天，录音已删除。");
+    expect(note?.(zh)).toBe("已恢复“Plan”及其转写稿。音频已在会议结束 24 小时后删除。");
 
     const item = {
       kind: "mind",
@@ -680,13 +680,29 @@ describe("changes the User can take back", () => {
       groupId: null,
       linkedFolderId: null,
     } as const;
-    await restoreItems([item, { ...item, id: "n", name: "Budget" }]);
+    await restoreItems([item]);
     expect(said(top())).toBe(
-      "Restored 2 items. Some recordings were removed a day after their meeting, as audio is only kept that long.",
+      "Restored “Plan” with its transcript. Its audio was deleted 24 hours after the call.",
     );
     expect(undoLines(zh).said(top())).toBe(
-      "已恢复 2 项。音频只在会议结束后保存一天，部分录音已删除。",
+      "已恢复“Plan”及其转写稿。音频已在会议结束 24 小时后删除。",
     );
+    await restoreItems([item, { ...item, id: "n", name: "Budget" }]);
+    expect(said(top())).toBe(
+      "Restored 2 items with their transcripts. Some audio was deleted 24 hours after its call.",
+    );
+    expect(undoLines(zh).said(top())).toBe(
+      "已恢复 2 项及其转写稿。部分音频已在会议结束 24 小时后删除。",
+    );
+
+    // With its audio still there, the line is the ordinary one.
+    method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
+    await restoreItems([item]);
+    expect(said(top())).toBe("Restored “Plan”");
+    expect(undoLines(zh).said(top())).toBe("已恢复“Plan”");
+    await useAppStore.getState().deleteMind("m");
+    await useUndo.getState().undo();
+    expect(useUndo.getState().line).toBeNull();
   });
 
   // protects=Delete permanently that couldn't remove a file of a Meeting's still refreshes Recently deleted, and passes the plain-words problem on (#1253); fails_when=the list keeps showing what was deleted, or the problem is swallowed; no_claim=the problem's own wording, which the core test reads.
