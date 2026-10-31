@@ -2,16 +2,16 @@ import { useMemo } from "react";
 import type { ConversationAnswer, ConversationQuestion } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
 import { useAskedChanges } from "../../askedChanges";
-import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
-import { askInAssistant } from "../../conversations";
+import { answerGroups, type ChangedMind, changedMinds } from "../../changedMinds";
+import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
+import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import {
   resolveAllChanges,
   showChanges,
   showNoteWaiting,
+  useWaitingBesidesApplied,
   useWaitingChanges,
-  useWaitingIn,
   type Waiting,
 } from "../../mindChanges";
 import type { Translate } from "../../objects";
@@ -49,7 +49,13 @@ export function MindChangesCard({
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
   const waiting = useWaitingChanges(rows);
-  const noteTotal = useWaitingIn(rows.length === 1 ? (rows[0]?.mindId ?? null) : null);
+  const messages = useConversations((state) => state.messages);
+  const noteMindId = rows.length === 1 ? (rows[0]?.mindId ?? null) : null;
+  const noteGroups = useMemo(
+    () => (noteMindId ? answerGroups(messages, noteMindId) : []),
+    [messages, noteMindId],
+  );
+  const noteTotal = useWaitingBesidesApplied(noteMindId, noteGroups);
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;
@@ -84,7 +90,7 @@ export function MindChangesCard({
       : t("mindChanges.minds", { count: rows.length });
   const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
-  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, waiting[0]?.count) : null;
+  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
 
   return (
     <section

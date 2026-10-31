@@ -20,6 +20,7 @@ import {
   MIND_REVISIONS_FIELD,
   type ProposalRef,
 } from "../../core/api";
+import { askedFor, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../shared/madeMind";
 import { aiUseOfAccepted, decideProposals, pendingProposals } from "../../shared/proposals";
@@ -96,19 +97,59 @@ const belongsTo = (requests: readonly string[]) => (proposal: ProposalRef) =>
 interface WaitingIn {
   mindId: string;
   requests: readonly string[] | null;
+  /**
+   * Leave out the changes the Mind applies at once, which only pass through its copy on the way
+   * in: a count of what waits in the Mind must not move as an Answer's own change applies (#1325).
+   */
+  besidesApplied?: true;
+  /**
+   * The requests one Answer made in this Mind: a change the Mind holds back for the User because
+   * several of them together rewrite most of their text is held as a set, not request by request.
+   */
+  groups?: readonly (readonly string[])[];
+}
+
+/** Whether the Mind applies a request's changes at once, rather than holding them for the User. */
+function appliesAtOnce(doc: Y.Doc, request: string): boolean {
+  return askedFor(doc, request) && !waitsForUser(doc, new Set([request]));
+}
+
+/** Which of `requests` the Mind applies at once: one decision for each group, one for each of the rest. */
+function applyingIds(
+  doc: Y.Doc,
+  pending: readonly ProposalRef[],
+  groups: readonly (readonly string[])[],
+): Set<string> {
+  const decided = new Map<string, boolean>();
+  for (const group of groups) {
+    const asked = group.filter((request) => askedFor(doc, request));
+    const applies =
+      asked.length > 0 && asked.length === group.length && !waitsForUser(doc, new Set(asked));
+    for (const request of group) decided.set(request, applies);
+  }
+  return new Set(
+    pending
+      .filter((each) => decided.get(each.request) ?? appliesAtOnce(doc, each.request))
+      .map((each) => each.id),
+  );
 }
 
 /**
  * How many of a row's changes wait in its Mind, counted as the Mind's bar and its change card
  * count them (what Accept and Reject act on), or every change from anyone; null until its copy
- * has arrived.
+ * has arrived. `applying`: how many of the row's changes the Mind applies at once.
  */
-function waiting(row: WaitingIn): { count: number; ids: readonly string[] } | null {
+function waiting(
+  row: WaitingIn,
+): { count: number; ids: readonly string[]; applying: number } | null {
   const doc = held.get(row.mindId)?.doc;
   if (!doc) return null;
   const belongs = row.requests ? belongsTo(row.requests) : () => true;
-  const pending = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).filter(belongs);
-  return { count: pending.length, ids: pending.map((each) => each.id) };
+  const own = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).filter(belongs);
+  const groups = row.groups ?? (row.requests ? [row.requests] : []);
+  const applying = applyingIds(doc, own, groups);
+  const pending = row.besidesApplied ? own.filter((each) => !applying.has(each.id)) : own;
+  return { count: pending.length, ids: pending.map((each) => each.id), applying: applying.size };
 }
 
 /** How many of a row's changes wait in its Mind, and which: a count, "gone" for a Mind deleted, null until its copy arrives. */
@@ -116,6 +157,8 @@ export type Waiting = number | "gone" | null;
 
 export interface WaitingRow {
   count: Waiting;
+  /** How many of the row's changes the Mind applies at once, which its copy holds only while they come in. */
+  applying: number;
   /** The changes still waiting there, so a card can tell its copy has taken the ones an apply took. */
   pending: readonly string[];
 }
@@ -152,16 +195,17 @@ export function useWaitingChanges(rows: readonly WaitingIn[]): WaitingRow[] {
   const snapshot = useSyncExternalStore(subscribe, () =>
     rows
       .map((row) => {
-        if (!live.includes(row)) return "gone|";
+        if (!live.includes(row)) return "gone||";
         const counted = waiting(row);
-        return counted ? `${counted.count}|${counted.ids.join(" ")}` : "|";
+        return counted ? `${counted.count}|${counted.applying}|${counted.ids.join(" ")}` : "||";
       })
       .join(";"),
   );
   return snapshot.split(";").map((each) => {
-    const [count = "", ids = ""] = each.split("|");
+    const [count = "", applying = "", ids = ""] = each.split("|");
     return {
       count: count === "gone" ? "gone" : count === "" ? null : Number(count),
+      applying: Number(applying) || 0,
       pending: ids === "" ? [] : ids.split(" "),
     };
   });
@@ -170,6 +214,18 @@ export function useWaitingChanges(rows: readonly WaitingIn[]): WaitingRow[] {
 /** How many changes wait in a Mind, from anyone, as they change. */
 export function useWaitingIn(mindId: string | null): Waiting {
   const rows = useMemo(() => (mindId ? [{ mindId, requests: null }] : []), [mindId]);
+  return useWaitingChanges(rows)[0]?.count ?? null;
+}
+
+/** How many changes wait in a Mind besides the ones it applies at once, as they change. */
+export function useWaitingBesidesApplied(
+  mindId: string | null,
+  groups: readonly (readonly string[])[] = [],
+): Waiting {
+  const rows = useMemo(
+    () => (mindId ? [{ mindId, requests: null, besidesApplied: true as const, groups }] : []),
+    [mindId, groups],
+  );
   return useWaitingChanges(rows)[0]?.count ?? null;
 }
 

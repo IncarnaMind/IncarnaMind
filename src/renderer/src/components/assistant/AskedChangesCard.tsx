@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { appliedWaiting } from "../../../../shared/proposals";
 import {
   type AskedOutcome,
@@ -9,11 +10,24 @@ import {
   useAskedState,
   useWrittenOnTop,
 } from "../../askedChanges";
-import type { ChangedMind } from "../../changedMinds";
-import { appliedFact, changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
+import { answerGroups, type ChangedMind } from "../../changedMinds";
+import {
+  appliedFact,
+  changeFact,
+  inNoteText,
+  keptText,
+  leftText,
+  ownWaiting,
+} from "../../changeFacts";
 import { shortcutLabel } from "../../commands/keymap";
+import { useConversations } from "../../conversations";
 import { useT } from "../../i18n";
-import { showChanges, showNoteWaiting, useWaitingIn, type WaitingRow } from "../../mindChanges";
+import {
+  showChanges,
+  showNoteWaiting,
+  useWaitingBesidesApplied,
+  type WaitingRow,
+} from "../../mindChanges";
 import { PencilLineIcon } from "../lineIcons";
 import { useReadMindId } from "./readMind";
 
@@ -42,6 +56,12 @@ export function AskedChangesCard({
   nameOf(row: ChangedMind): string;
 }) {
   const t = useT();
+  const messages = useConversations((state) => state.messages);
+  const groupsByMind = useMemo(() => {
+    const groups = new Map<string, string[][]>();
+    for (const row of rows) groups.set(row.mindId, answerGroups(messages, row.mindId));
+    return groups;
+  }, [messages, rows]);
   const applied = rows.filter((row) => outcomes[row.mindId] !== undefined);
   const also = rows.flatMap((row, index) => {
     const count = waiting[index]?.count;
@@ -58,6 +78,7 @@ export function AskedChangesCard({
           row={row}
           outcome={outcomes[row.mindId]}
           waiting={waiting[rows.indexOf(row)]}
+          groups={groupsByMind.get(row.mindId) ?? []}
           name={nameOf(row)}
         />
       ))}
@@ -88,12 +109,14 @@ function AskedRow({
   row,
   outcome,
   waiting,
+  groups,
   name,
 }: {
   answerId: string;
   row: ChangedMind;
   outcome: AskedOutcome | undefined;
   waiting: WaitingRow | undefined;
+  groups: readonly (readonly string[])[];
   name: string;
 }) {
   const t = useT();
@@ -111,11 +134,11 @@ function AskedRow({
   // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
   const shown = outcome === "held" || settled === null || settled.settled;
   const kept = keptText(t, row);
-  const total = useWaitingIn(row.mindId);
+  const total = useWaitingBesidesApplied(row.mindId, groups);
   const inNote = inNoteText(
     t,
     total,
-    outcome === "held" ? waiting?.count : outcome === "applied" ? (settled?.count ?? 0) : null,
+    outcome === "held" ? ownWaiting(waiting) : outcome === "applied" ? (settled?.count ?? 0) : null,
   );
   return (
     <div className="mind-changes-head">
