@@ -230,6 +230,149 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`skipping the steps with the line's ✕ puts the cursor in the composer, by click (${language}) (#2310)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+      const line = window.getByTestId("assistant-setup-line");
+      const composer = window.getByTestId("composer-input");
+      await expect(line).toBeVisible();
+
+      await pointAndClick(window, window.getByTestId("assistant-setup-skip"));
+      await expect(line).toHaveCount(0);
+      await expect(card).toHaveCount(0);
+      await expect(composer).toBeFocused();
+      await window.keyboard.type("next");
+      await expect(composer).toHaveValue("next");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`skipping the steps with the keyboard puts the cursor in the composer (${language}) (#2310)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+      const line = window.getByTestId("assistant-setup-line");
+      const composer = window.getByTestId("composer-input");
+      const skip = window.getByTestId("assistant-setup-skip");
+      await expect(line).toBeVisible();
+      await expect(composer).toBeFocused();
+
+      // The line is two stops above the composer: its ✕ first, then Set up.
+      await window.keyboard.press("Shift+Tab");
+      await expect(skip).toBeFocused();
+      await window.keyboard.press(language === "en" ? "Enter" : "Space");
+      await expect(line).toHaveCount(0);
+      await expect(card).toHaveCount(0);
+      await expect(composer).toBeFocused();
+      await window.keyboard.type("next");
+      await expect(composer).toHaveValue("next");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the last step done puts the cursor in the composer, with the line gone (${language}) (#2310)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+      const line = window.getByTestId("assistant-setup-line");
+      const composer = window.getByTestId("composer-input");
+      await openSetupSteps(window);
+      await expect(card.getByTestId("setup-step-transcription")).toBeVisible({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-transcription-use"));
+      await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
+      await pointAndClick(window, card.getByTestId("setup-sorting-use"));
+
+      await expect(card).toHaveCount(0);
+      await expect(line).toHaveCount(0);
+      await expect(composer).toBeFocused();
+      await window.keyboard.type("next");
+      await expect(composer).toHaveValue("next");
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`skipping the steps while the transcription services are read puts the cursor in the composer (${language}) (#2310)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      await controlReads(app, SERVICES, { hold: 50 });
+      const field = card.getByTestId("setup-key");
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+      const line = window.getByTestId("assistant-setup-line");
+      const composer = window.getByTestId("composer-input");
+      await openSetupSteps(window);
+      await expect(card.getByTestId("setup-services-reading")).toBeVisible({ timeout: 15_000 });
+
+      await pointAndClick(window, window.getByTestId("assistant-setup-skip"));
+      await expect(card).toHaveCount(0);
+      await expect(line).toHaveCount(0);
+      await expect(composer).toBeFocused();
+      await window.keyboard.type("next");
+      await expect(composer).toHaveValue("next");
+    } finally {
+      await controlReads(app, SERVICES, { settle: "resolveAll" }).catch(() => undefined);
+      await app.close();
+    }
+  });
+}
+
 /** Where the card and its step in hand's buttons are, as the User's eye holds them. */
 interface StepsFrame {
   step: string;

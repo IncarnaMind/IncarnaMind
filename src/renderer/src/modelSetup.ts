@@ -115,6 +115,25 @@ export function openSetupSteps(): void {
 export const openSetupStep = (step: SetupStep): void => useModelSetup.setState({ step });
 
 /**
+ * Whether the cursor is in the setup line or a step above the composer: the only place a skip or
+ * a last step may take it from, so typing in the Note is never interrupted (#2310).
+ */
+function focusInSetup(): boolean {
+  const active = document.activeElement;
+  if (!active || active === document.body) return true;
+  return (
+    active instanceof Element &&
+    (active.closest(".assistant-setup-line") !== null ||
+      active.closest('[data-testid="model-setup"]') !== null)
+  );
+}
+
+/** The composer takes the cursor as the setup lets go, when the User was in it (#2310). */
+function handComposerTheCursor(): void {
+  if (focusInSetup()) useComposer.getState().requestFocus();
+}
+
+/**
  * A step is finished or skipped: the next one opens, and after the last the card and its line go,
  * with the composer left where the User asks next (#2310).
  */
@@ -123,13 +142,16 @@ export function finishSetupStep(step: SetupStep, choice: string): void {
   const nextDone = { ...done, [step]: choice };
   const next = nextStep(nextDone);
   if (next === null) {
+    handComposerTheCursor();
     useModelSetup.setState({ done: nextDone, step: null, wanted: false });
-    useComposer.getState().requestFocus();
   } else useModelSetup.setState({ done: nextDone, step: next });
 }
 
-/** The line's ✕: what is left waits in Settings › Models, and the composer has the panel (#2310). */
-export const skipSetupSteps = (): void => useModelSetup.setState({ wanted: false, step: null });
+/** The line's ✕: what is left waits in Settings › Models, and the composer takes the cursor (#2310). */
+export function skipSetupSteps(): void {
+  handComposerTheCursor();
+  useModelSetup.setState({ wanted: false, step: null });
+}
 
 /** Keeps a Question that couldn't be asked for want of a model, for the setup card to wait on. */
 export const waitForModel = (question: WaitingQuestion): void =>
