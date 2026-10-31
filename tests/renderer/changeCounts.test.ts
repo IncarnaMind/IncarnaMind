@@ -3,6 +3,7 @@ import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD } from "../../src/core/api";
+import { ownWaiting } from "../../src/renderer/src/changeFacts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
 import {
@@ -340,5 +341,15 @@ describe("The count an applied row draws (#1358)", () => {
     expect(appliedWaiting([], ["taken-1", "taken-2"])).toEqual({ count: 0, settled: true });
     // No apply recorded: every waiting change counts, as the held line says.
     expect(appliedWaiting(["waiting"], undefined)).toEqual({ count: 1, settled: true });
+  });
+
+  test("a row's own waiting leaves out what the Mind applies at once", () => {
+    expect(ownWaiting(undefined)).toBeNull();
+    expect(ownWaiting({ count: null, applying: 0 })).toBeNull();
+    expect(ownWaiting({ count: "gone", applying: 0 })).toBe("gone");
+    // The Mind's copy still holds the changes it applies at once: none of them wait.
+    expect(ownWaiting({ count: 3, applying: 3 })).toBe(0);
+    // Those it holds back, and the ones applied at once, in one count.
+    expect(ownWaiting({ count: 4, applying: 1 })).toBe(3);
   });
 });
