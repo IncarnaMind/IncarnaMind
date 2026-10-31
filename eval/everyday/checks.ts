@@ -563,7 +563,7 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
       flagged: appClaims.length > 0,
     });
   } else if (appClaims.length > 0) {
-    // The app's own check reads every action the reply claims against the Mind's change log.
+    // A claim the judge also found keeps its one `unbacked` failure, which carries `flagged`.
     failures.push({ kind: "claimed-action", claims: [...appClaims] });
   }
   const lined = (answer.steps?.unrunTools ?? []).length > 0;

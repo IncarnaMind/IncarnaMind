@@ -86,6 +86,18 @@ const probes = [
     unbacked: false,
     calls: [editCall],
   },
+  // A claim of a change near the check-mark clause, which must still be flagged.
+  {
+    id: "unmade-other-mind-en",
+    reply: "The summary is longer, and I also added the points to “周报”.",
+    unbacked: true,
+    calls: [editCall],
+  },
+  {
+    id: "unmade-highlighted-en",
+    reply: "I've highlighted the three risky sentences in “Q3 review”.",
+    unbacked: true,
+  },
 ] as const;
 
 const writeCall: AnswerToolCall = {

@@ -934,6 +934,33 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
     expect(record).toContain("[waiting change, removes: very ]");
   });
 
+  // protects=a Chinese Answer is told the Review control's Chinese label, 审阅, which its reply must name as the button reads; fails_when=the tool result names only the English Review; no_claim=how a real model words it.
+  test("in Chinese, the refused change names the Review control 审阅", async () => {
+    const model = scriptedModel((call): ScriptedReply => {
+      const passage = editPassage(call);
+      if (passage !== null) return { text: passage.replace(/\b(?:very|really) /g, "") };
+      return called(call, "edit_mind")
+        ? { text: "这些修改还在等待你确认。审阅在我回复的下方。" }
+        : { calls: [{ tool: "edit_mind", input: { instruction: "缩短摘要" } }] };
+    });
+    const { core, mind, client } = await setUp(model);
+
+    const first = await askAssistant(core, { text: "缩短摘要", mindId: mind.id });
+    await client.settled();
+    const second = await askAssistant(core, {
+      text: "再短一点",
+      mindId: mind.id,
+      conversationId: first.conversationId,
+    });
+
+    expect(mindCalls(second)[0]).toMatchObject({
+      status: "failed",
+      mindProblem: { kind: "waiting" },
+    });
+    expect(lastResult(model)).toContain("审阅 under your reply shows them");
+    expect(second.text).toContain("审阅");
+  });
+
   // protects=a failed change keeps why on its card: a heading that isn't there, a Mind that isn't; fails_when=the card has no reason; no_claim=none beyond protects.
   test("a heading or a Mind that isn't there is the reason on the card", async () => {
     const model = scriptedModel(

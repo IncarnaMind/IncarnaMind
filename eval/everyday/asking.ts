@@ -27,7 +27,7 @@ import { type ChangeStates, toolRecordLines } from "../../src/core/answers/toolR
 import { plainText } from "../../src/core/mindText";
 import type { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
-import { askedFor, requestedRequests, waitsForUser } from "../../src/shared/askedChanges";
+import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -533,17 +533,10 @@ export async function runCase(
       if (was.get(id) !== text) writtenInMinds.push(text);
     }
   }
-  // The window applies a change the User asked for at once, with Undo; only a change that takes out
-  // most of their text waits. The judge reads the record as the app's own claim check does.
+  // The judge reads the record as the app's own claim check does: what the window applies at once.
   const states: ChangeStates = (change) => {
     const doc = mindDocs.get(change.mindId);
-    if (!doc) return null;
-    const asked = new Set(
-      answer.toolCalls.flatMap((call) =>
-        call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
-      ),
-    );
-    return askedFor(doc, change.request) && !waitsForUser(doc, requestedRequests(doc, asked))
+    return doc && appliedAsAsked(doc, change, answer.toolCalls)
       ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
       : null;
   };
