@@ -4,6 +4,7 @@ import {
   createOAuthAccount,
   type OAuthAccountRecord,
   parseAccountRecord,
+  type RefreshLock,
   SignInRecordUnreadableError,
   SignInStoreUnreadableError,
 } from "../../src/core/oauthAccount";
@@ -34,11 +35,40 @@ function secretStore(read: () => Promise<string | null>) {
   return { secrets, written: () => written };
 }
 
-function accountStoredIn(secrets: Secrets) {
+/** A mutex like the shared refresh lock: one task at a time, in order. */
+function serialLock(): RefreshLock {
+  let tail = Promise.resolve();
+  return {
+    run<T>(task: () => Promise<T>): Promise<T> {
+      const run = tail.then(task, task);
+      tail = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+  };
+}
+
+/** A secret store over one shared value; `write` may hold the write it is given. */
+function sharedStore(read: () => string | null, write: (value: string) => Promise<void>): Secrets {
+  const status = { protection: "os", plainTextAccepted: false, canSave: true } as const;
+  return {
+    status: () => status,
+    acceptPlainText: () => status,
+    get: async () => read(),
+    tryGet: async () => read(),
+    set: async (_name, value) => write(value),
+    delete: async () => undefined,
+  };
+}
+
+function accountStoredIn(secrets: Secrets, refreshLock?: RefreshLock) {
   return createOAuthAccount<Account>({
     secretName: "chatgpt:account",
     provider: "ChatGPT",
     secrets,
+    ...(refreshLock && { refreshLock }),
     parse: (record) =>
       typeof record.profile === "string"
         ? { ...parseAccountRecord(record), profile: record.profile }
@@ -135,6 +165,56 @@ describe("A kept sign-in's record", () => {
     }));
 
     expect(store.written()).toBeNull();
+  });
+
+  test("the shared lock keeps a refusal from clobbering a sign-in finished in between", async () => {
+    const tokenless: Account = { tokens: null, ended: "signed-out", profile: "own" };
+    const finished: Account = {
+      tokens: { accessToken: "access", refreshToken: "refresh", expiresAt: 1 },
+      ended: null,
+      profile: "own",
+    };
+    let current = JSON.stringify(tokenless);
+    let beganWrite = () => {};
+    const writing = new Promise<void>((resolve) => {
+      beganWrite = resolve;
+    });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lock = serialLock();
+    const refusing = accountStoredIn(
+      sharedStore(
+        () => current,
+        async (value) => {
+          beganWrite();
+          await held;
+          current = value;
+        },
+      ),
+      lock,
+    );
+    const finishing = accountStoredIn(
+      sharedStore(
+        () => current,
+        async (value) => {
+          current = value;
+        },
+      ),
+      lock,
+    );
+
+    const refusal = refusing.commitUnlessSignedIn((found) => ({
+      ...(found ?? tokenless),
+      ended: "signed-out",
+    }));
+    await writing;
+    const success = finishing.commit(finished);
+    release();
+    await Promise.all([refusal, success]);
+
+    expect(current).toBe(JSON.stringify(finished));
   });
 
   test("a completed sign-in replaces the record, which only commit writes", async () => {

@@ -1191,6 +1191,34 @@ describe("A ChatGPT profile whose sign-in can't be read", () => {
     expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-out" });
   });
 
+  test("a sign-in whose shared lock can't be taken revokes the tokens it got", async () => {
+    const clock = manualClock();
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const profile = await createTempDataFolder();
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain(),
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: createAiSdkChatModel,
+      chatGptPlan: fake.endpoints,
+      chatGptStore: {
+        keychain: createFileKeychain(join(profile, SECRETS_FILE), createFakeCipher()),
+        lockFile: join(profile, "missing-folder", "refresh.lock"),
+      },
+    });
+
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: false, error: { kind: "failed" } });
+
+    expect(fake.revocations).toEqual([
+      {
+        token: fake.issued[0]?.refreshToken,
+        token_type_hint: "refresh_token",
+        client_id: "oaiapp_test_1",
+      },
+    ]);
+    expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-out" });
+  });
+
   test("a sign-in that doesn't allow plan use leaves a signed-in record as it was", async () => {
     const { core, fake, browser, file } = await setUpProfile();
     expect(await core.signInToChatGpt()).toMatchObject({ ok: true, firstTime: true });

@@ -382,17 +382,19 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
      * changes nothing.
      */
     async commit(account: A): Promise<void> {
-      await lock.run(async () => {
-        generation += 1;
-        try {
+      try {
+        await lock.run(async () => {
+          generation += 1;
           await save(account);
-        } catch (error) {
-          // The sign-in finished but can't be kept: end the session it opened rather than leave it loose.
-          const refreshToken = account.tokens?.refreshToken;
-          if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
-          throw error;
-        }
-      });
+        });
+      } catch (error) {
+        // The sign-in finished but can't be kept (the save or the lock failed):
+        // end the session it opened rather than leave it loose. The revoke is
+        // outside the lock, so no network call holds it.
+        const refreshToken = account.tokens?.refreshToken;
+        if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
+        throw error;
+      }
     },
 
     /**
