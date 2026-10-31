@@ -136,7 +136,7 @@ describe("Research", () => {
 
       research.openResearch("mind", "Tide tables", null, false);
       research.cancelResearch("mind");
-      vi.advanceTimersByTime(2_000);
+      // Asked again within the same millisecond: the two cards are told apart all the same.
       research.openResearch("mind", "Tide tables in winter", null, false);
       first.reject(new Error("The model couldn't be reached."));
       await settle();
@@ -162,7 +162,14 @@ describe("Research", () => {
 });
 
 const meeting = (microphonePausedAtMs: number | null, status = "recording"): Meeting =>
-  ({ id: "meeting", mindId: "mind", status, microphonePausedAtMs }) as unknown as Meeting;
+  ({
+    id: "meeting",
+    mindId: "mind",
+    status,
+    recordedMs: 60_000,
+    recordingSince: null,
+    microphonePausedAtMs,
+  }) as unknown as Meeting;
 
 describe("Meetings", () => {
   test("a refused microphone switch doesn't put back a Meeting older than the core's", async () => {
@@ -172,7 +179,7 @@ describe("Meetings", () => {
     method("setMeetingMicrophone").mockReturnValue(switching.promise);
 
     const paused = useMeetings.getState().setMicrophonePaused("meeting", true);
-    expect(useMeetings.getState().meetings[0]?.microphonePausedAtMs).not.toBeNull();
+    expect(useMeetings.getState().meetings[0]?.microphonePausedAtMs).toBe(60_000);
     const stopped = meeting(null, "stopped");
     emit("meetings.changed", [stopped]);
     switching.reject(new Error("The microphone couldn't be switched."));

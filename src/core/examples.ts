@@ -477,16 +477,20 @@ export function createExamples(options: ExamplesOptions) {
     options.writeValue(valueKey(group), { ...examples, checked: true });
   };
 
+  /** Deletes the copies of an example's files, only those in the data folder. */
+  const removeCopies = async (folder: string): Promise<void> => {
+    const inside = relative(resolve(options.dataDir), resolve(folder));
+    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
+      await rm(folder, { recursive: true, force: true });
+    }
+  };
+
   /** Unlinks an example's Documents and deletes the copies of their files. */
   const discardFiles = async (examples: StoredExamples): Promise<void> => {
     if (options.linkedFolderExists(examples.linkedFolderId)) {
       options.unlinkFolder(examples.linkedFolderId);
     }
-    // Only the copies the examples made, in the data folder: never anything else.
-    const inside = relative(resolve(options.dataDir), resolve(examples.folder));
-    if (inside !== "" && !inside.startsWith("..") && !inside.includes(":")) {
-      await rm(examples.folder, { recursive: true, force: true });
-    }
+    await removeCopies(examples.folder);
   };
 
   /**
@@ -711,7 +715,9 @@ export function createExamples(options: ExamplesOptions) {
       !options.mindExists(examples.mindId) ||
       !untouched(examples, EXAMPLE_SETS[group][examples.language])
     ) {
-      await discardFiles({ ...examples, folder, linkedFolderId: linked.id });
+      // A Linked folder of the User's that holds the copy is theirs: only one made for it goes.
+      if (resolve(linked.path) === resolve(folder)) options.unlinkFolder(linked.id);
+      await removeCopies(folder);
       return;
     }
     const questionId = randomUUID();

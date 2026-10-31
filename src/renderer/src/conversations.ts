@@ -294,7 +294,9 @@ export async function askInAssistant(
       // A new conversation: its messages as they are now; each write after this comes as an event.
       useConversations.setState({ openId: id, messages: [] });
       const { messages } = await core.getConversation(id);
-      if (useConversations.getState().openId === id) useConversations.setState({ messages });
+      if (move === moves && useConversations.getState().openId === id) {
+        useConversations.setState({ messages });
+      }
     }
     return true;
   } catch (error) {

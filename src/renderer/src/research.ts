@@ -74,6 +74,8 @@ export interface ResearchPlanCard {
   topic: string;
   /** When it was asked: the thread shows the topic there. */
   askedAt: string;
+  /** Which opening of a card this is: a reply for one cancelled since is for another card. */
+  opening: number;
   /** The model is making or redoing the plan. */
   planning: boolean;
   /** Asking the core to start it: Start waits, and a second press does nothing. */
@@ -156,7 +158,7 @@ async function plan(
       model,
       change: change ? { steps: [...card.steps], text: change } : null,
     });
-    if (useResearch.getState().plans[mindId]?.askedAt !== card.askedAt) return;
+    if (useResearch.getState().plans[mindId]?.opening !== card.opening) return;
     if (result.planned) {
       updatePlan(mindId, { title: result.plan.title, steps: result.plan.steps, planning: false });
     } else {
@@ -169,7 +171,7 @@ async function plan(
     }
   } catch (error) {
     // Cancelled and asked again meanwhile: the new card is planning its own steps (#2302).
-    if (useResearch.getState().plans[mindId]?.askedAt !== card.askedAt) {
+    if (useResearch.getState().plans[mindId]?.opening !== card.opening) {
       console.error("An earlier research plan failed.", error);
       return;
     }
@@ -182,6 +184,8 @@ async function plan(
  * Research… then a topic: the plan card opens in the tray, and the model
  * proposes its steps. Web is on when the model can search it.
  */
+let openings = 0;
+
 export function openResearch(
   mindId: string,
   topic: string,
@@ -194,6 +198,7 @@ export function openResearch(
       [mindId]: {
         topic,
         askedAt: new Date().toISOString(),
+        opening: ++openings,
         planning: true,
         starting: false,
         title: topic,

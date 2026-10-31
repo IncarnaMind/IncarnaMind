@@ -178,3 +178,24 @@ test("clearing a conversation starts a new chat when the User stayed", async () 
 
   expect(shown()).toBeNull();
 });
+
+test("a new conversation's first read doesn't replace a newer one the User opened it with since", async () => {
+  const first = held<{ messages: ConversationMessage[] }>();
+  reads.set("new", first.promise);
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  for (let turn = 0; turn < 10 && shown() !== "new"; turn++) await Promise.resolve();
+  expect(shown()).toBe("new");
+  // The User goes to another conversation and back, which reads it again, before the first read.
+  await conversations.openConversation("other");
+  reads.set("new", Promise.resolve({ messages: [question("new"), question("later")] }));
+  await conversations.openConversation("new");
+  first.settle({ messages: [question("new")] });
+  await asked;
+
+  expect(shown()).toBe("new");
+  expect(conversations.useConversations.getState().messages).toEqual([
+    question("new"),
+    question("later"),
+  ]);
+});

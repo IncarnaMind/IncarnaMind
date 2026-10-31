@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import type { Document, Examples, LinkedFolder, Mind } from "../../src/core";
@@ -61,6 +61,8 @@ async function exampleOverFakes() {
   let shown: Examples | undefined;
   /** The next folder link waits for this, once it has started. */
   let linkHeld: { reached: () => void; until: Promise<void> } | null = null;
+  /** A Linked folder of the User's that holds the data folder: linking inside it gives it back. */
+  let outer: { id: string; path: string } | null = null;
   const reports: { folder: string; shownFolder: string | null | undefined }[] = [];
 
   const examples = createExamples({
@@ -104,7 +106,7 @@ async function exampleOverFakes() {
         held.reached();
         await held.until;
       }
-      const id = randomUUID();
+      const id = outer?.id ?? randomUUID();
       folders.add(id);
       // The names the ready Question cites, in the language just asked for.
       const quotes = EXAMPLE_SETS.credit[language].ready?.quotes ?? [];
@@ -115,7 +117,7 @@ async function exampleOverFakes() {
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
-        path,
+        path: outer?.path ?? path,
         folderId: randomUUID(),
         status: "scanning",
         layout: "tree",
@@ -156,6 +158,12 @@ async function exampleOverFakes() {
     shown: () => shown,
     setLanguage: (next: Language) => {
       language = next;
+    },
+    /** The User links the folder that holds the data folder. */
+    linkOuter: () => {
+      outer = { id: randomUUID(), path: dirname(dataDir) };
+      folders.add(outer.id);
+      return outer.id;
     },
     /** Holds the next folder link until `release`; `reached` once it has started. */
     holdLink: () => {
@@ -293,4 +301,26 @@ test("an example written in while it follows the language keeps what was written
   expect(mind.mind.title).toBe(EXAMPLE_SETS.credit.en.title);
   expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
   expect([...folders]).toEqual([made.linkedFolderId]);
+});
+
+// protects=a Linked folder of the User's that holds the copy stays linked when a switch gives way to their words (#2302); fails_when=giving way unlinks whatever folder the link returned, the User's own included; no_claim=what the User's folder indexes.
+test("an example written in while it follows the language leaves the User's own Linked folder", async () => {
+  const { examples, setLanguage, holdLink, minds, folders, linkOuter } = await exampleOverFakes();
+  const made = await examples.create();
+  const mind = minds.get(made.mindId as string);
+  if (!mind) throw new Error("The example Mind wasn't made.");
+  const theirs = linkOuter();
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const note = new Y.XmlElement("paragraph");
+  note.insert(0, [new Y.XmlText("My own note on the covenants.")]);
+  mind.blocks.insert(mind.blocks.length, [note]);
+  link.release();
+  await switching;
+
+  expect(mind.blocks.toString()).toContain("My own note on the covenants.");
+  expect([...folders].sort()).toEqual([made.linkedFolderId, theirs].sort());
 });
