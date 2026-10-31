@@ -346,6 +346,10 @@ for (const language of ["en", "zh-CN"]) {
     try {
       await ownerWindow();
       expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
+      // The built app's worker thread, loaded from its package, applied the migrations (#2104).
+      const log = await readFile(join(data, "logs/incarnamind.log"), "utf8");
+      expect(log).toMatch(/storage\.migratedOffThread applied=[1-9]/);
+      expect(log).not.toContain("storage.migrateOffThreadFailed");
     } catch (error) {
       const observation: Record<string, unknown> = {
         failedAt: new Date().toISOString(),
