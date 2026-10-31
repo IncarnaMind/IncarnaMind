@@ -209,7 +209,7 @@ export function useSorting() {
       await core.saveLibrarySettings({
         ...settings,
         classifier: option.classifier,
-        ...(turnOn && { automatic: true }),
+        ...(turnOn && { automatic: true, turnOn: true }),
       });
       return true;
     } catch (error) {

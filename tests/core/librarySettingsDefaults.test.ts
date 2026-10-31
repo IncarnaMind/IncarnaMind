@@ -36,7 +36,7 @@ test("a cloud model keeps the switch's own default, so nothing is a choice of th
   expect(automaticDefault).toBe(false);
   expect(await changed(core)).toBe(false);
 
-  await core.saveLibrarySettings({ ...settings, automatic: true });
+  await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
   expect(await changed(core)).toBe(true);
 });
 

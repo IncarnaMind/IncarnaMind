@@ -710,6 +710,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: OPENAI.modelId } },
       automatic: true,
+      turnOn: true,
     });
     // The Document waiting from before isn't sent by the choice: only new ones are (#2308).
     await waitForTagging(core, [document.id], (each) => each.tagging === "off");

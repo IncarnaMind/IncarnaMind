@@ -485,8 +485,9 @@ export function createTagger(options: TaggerOptions) {
     documentReady(id: string): void {
       if (options.enabled?.() === false || organized(id)) return;
       const row = rowOf(id);
-      // Processed again (e.g. by a newer pipeline): the same file keeps its Tags.
-      if (!row || row.tagging_status === "tagged") return;
+      // Processed again (e.g. by a newer pipeline, or its file changed): the same file keeps its
+      // Tags, and one held "off" stays off until Organize or a re-tag the User asks for (#2308).
+      if (!row || row.tagging_status === "tagged" || row.tagging_status === "off") return;
       if (!automatic()) {
         setState(id, "off");
         return;

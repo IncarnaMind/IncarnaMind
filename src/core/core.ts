@@ -3202,17 +3202,28 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
     },
-    usesCloud: ({ classifier, organizeWith }) => {
-      const sorts = classifier.kind === "automatic" ? organizeWith : classifier;
-      if (sorts && tagging.service(sorts) !== null) return true;
-      if (classifier.kind !== "automatic") return tagging.service(classifier) !== null;
+    sendsTo: ({ classifier, organizeWith }) => {
+      const services = new Map<string, ExternalService>();
+      const add = (service: ExternalService | null | undefined) => {
+        if (service) services.set(service.id, service);
+      };
+      if (classifier.kind !== "automatic") {
+        add(tagging.service(classifier));
+        return [...services.values()];
+      }
+      if (organizeWith) add(tagging.service(organizeWith));
       const picked = tagging.lastResolved();
-      if (picked) return tagging.service(picked) !== null;
-      // Not worked out yet: Jev, else the chat model, where Automatic looks first.
-      if (jev.service()) return true;
-      const chosen = settings.get().user.chatModel;
-      return !!chosen && chat.describeModel(chosen)?.service !== null;
+      if (picked) {
+        add(tagging.service(picked));
+      } else {
+        // Not worked out yet: Jev, else the chat model, where Automatic looks first.
+        const chosen = settings.get().user.chatModel;
+        add(jev.service() ?? (chosen && chat.describeModel(chosen)?.service));
+      }
+      return [...services.values()];
     },
+    allowed: (service) =>
+      consent.allows("tagging", service) || consent.allows("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -5281,25 +5292,23 @@ export function createCore(adapters: CoreAdapters): Core {
       const before = library.settings();
       library.saveSettings(input);
       const after = library.settings();
-      // Choosing the model that tags or organizes Documents, where a line says what goes,
-      // allows it (ADR-0022). Saving the same one again, for another setting, isn't a new choice.
-      const switchedOn = !before.automatic && after.automatic;
+      // Turning tagging on where its line says what goes is the consent for where it sends now
+      // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
+      const turnedOn = isRecord(input) && input.turnOn === true;
       const tagsAnew = JSON.stringify(after.classifier) !== JSON.stringify(before.classifier);
       const organizesAnew =
         JSON.stringify(organizeModelOf(after)) !== JSON.stringify(organizeModelOf(before));
-      // Turning on tagging and sorting by themselves, where a line says what goes, is the consent too (#1617).
-      if (tagsAnew || switchedOn) {
-        const services = await taggingServices();
-        for (const service of services) consent.choose(["tagging"], service);
-        // The line says only new Documents go: those already here wait for Organize (#2308).
-        if (tagsAnew && services.length > 0) tagger.holdExisting();
+      if (turnedOn) {
+        for (const service of await taggingServices()) consent.choose(["tagging"], service);
       }
-      if (organizesAnew || switchedOn) {
+      if (turnedOn || organizesAnew) {
         for (const service of await classificationServices()) {
           consent.choose(["classification"], service);
         }
       }
-      if (tagsAnew || organizesAnew || switchedOn) await dataFlowsChanged();
+      // The line says only new Documents go: those already here wait for Organize (#2308).
+      if ((turnedOn || tagsAnew) && (await taggingServices()).length > 0) tagger.holdExisting();
+      if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
       await taggingChanged();
     },
     getTaggingModels: async () => {

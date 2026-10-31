@@ -133,7 +133,7 @@ export function TaggingSettings() {
       ?.focus({ preventScroll: true }),
   );
 
-  const save = async (next: Partial<LibrarySettings>) => {
+  const save = async (next: Partial<LibrarySettings> & { turnOn?: boolean }) => {
     if (!settings) return;
     setError(null);
     try {
@@ -160,7 +160,11 @@ export function TaggingSettings() {
   // Choosing a model, its sends line under the switch, is choosing to tag and sort with it (#2308).
   const choose = (classifier: LibraryClassifier) => {
     setOtherOpen(false);
-    void save(classifier.kind === "automatic" ? { classifier } : { classifier, automatic: true });
+    void save(
+      classifier.kind === "automatic"
+        ? { classifier }
+        : { classifier, automatic: true, turnOn: true },
+    );
   };
   const onPlan = inUse?.group === "plan";
   const { organizeWith } = settings;
@@ -184,7 +188,7 @@ export function TaggingSettings() {
     ? null
     : clouds.length === 0
       ? t("tagging.automatic.local")
-      : t("tagging.automatic.sends", {
+      : t("setup.sorting.sendsWhenOn", {
           service: [
             ...new Set(clouds.map((each) => (each && providerOf(each, language)) || "")),
           ].join(", "),
@@ -310,7 +314,11 @@ export function TaggingSettings() {
           data-testid="tagging-automatic-organize"
           checked={settings.automatic}
           aria-describedby={sendsLine ? `${switchId}-sends` : undefined}
-          onChange={(event) => void save({ automatic: event.target.checked })}
+          onChange={(event) =>
+            void save(
+              event.target.checked ? { automatic: true, turnOn: true } : { automatic: false },
+            )
+          }
           className="mt-0.5 size-4 accent-ink"
         />
         <span className="flex min-w-0 flex-col">

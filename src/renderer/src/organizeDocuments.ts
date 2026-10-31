@@ -74,8 +74,13 @@ export async function organizeDocuments(
     await core.classifyDocuments([...ids]);
     await app.refreshLibrary();
   } catch (error) {
-    // Nothing would offer to take back the Folders made for a run that never started.
-    if (made.length > 0) await removeEmpty(made);
+    // Nothing would offer to take back the Folders made for a run that never started. The run's
+    // own failure is what the User is told; one in taking them back is only logged.
+    if (made.length > 0) {
+      await removeEmpty(made).catch((cleanup: unknown) =>
+        console.error("The Folders Organize made couldn't be taken back.", cleanup),
+      );
+    }
     throw error;
   }
   sayWhenOrganized(ids, before, made);

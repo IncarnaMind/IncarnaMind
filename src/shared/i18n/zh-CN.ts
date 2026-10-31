@@ -175,8 +175,6 @@ export const zhCN = {
   "library.automaticOff.turnOn": "在设置中开启",
   "library.automaticOff.dismiss": "知道了",
   "tagging.automatic.switch": "自动为新文档打标签并整理",
-  "tagging.automatic.sends":
-    "会把每个新文档的名称和开头的段落，以及你的文件夹和标签名称，发送给 {service}。",
   "tagging.automatic.local": "在这台电脑上运行。",
   "library.preset.research": "研究论文",
   "library.preset.research.description": "学术论文、实验和研究方法。",
@@ -2349,7 +2347,7 @@ export const zhCN = {
   "setup.sorting.sends":
     "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "setup.sorting.sendsWhenOn":
-    "开启自动打标签后（设置 → 自动打标签），每个新文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。",
+    "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "models.sorting.off": "自动给新文档打标签已关闭",
   "models.sorting.turnOn": "开启…",
   "command.tagging.turnOn": "开启自动给新文档打标签…",

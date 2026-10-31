@@ -143,7 +143,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
-    "Sends each new Document’s name and first passages, and your Folder and Tag names, to OpenAI.",
+    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, to OpenAI. Documents already in the Library go only when you run Organize.",
   );
   await closeSettings(window);
 

@@ -249,6 +249,23 @@ describe("Tags named from what a Document says", () => {
     expect(tagging.requests).toHaveLength(2);
   });
 
+  test("an empty first answer leaves a Document with no Tag, in one request", async () => {
+    const { core, tagging } = await start();
+    await core.saveChatProvider(LOCAL);
+    tagging.choose([]);
+    tagging.name([]);
+
+    const order = await add(
+      core,
+      "Golden Wok order.txt",
+      "Golden Wok takeaway. Order 6021. Kung pao chicken 1 x 12.00. Paid 12.00 by card.",
+    );
+    const [done] = await waitForTagging(core, [order.id]);
+
+    expect(done?.tags).toEqual([]);
+    expect(tagging.requests).toHaveLength(1);
+  });
+
   test("past sixty Tags no new one is made, and the ones that exist still apply", async () => {
     const { core, tagging } = await start();
     await core.saveChatProvider(LOCAL);
@@ -279,6 +296,7 @@ describe("Choosing a model for Tags", () => {
       ...settings,
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: ANTHROPIC.modelId } },
       automatic: true,
+      turnOn: true,
     });
     const document = await add(core, "Report.txt", "A quarterly report.");
     await waitForTagging(core, [document.id]);
@@ -379,6 +397,7 @@ describe("Choosing a model for Tags", () => {
       ...settings,
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: ANTHROPIC.modelId } },
       automatic: true,
+      turnOn: true,
     });
     const after = await waitForTagging(core, existing, (each) => each.tagging === "off");
     expect(after).toHaveLength(10);

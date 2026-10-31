@@ -959,7 +959,11 @@ test("on the quiet first open the tagging question still shows, with Allow, in t
       apiKey: "sk-test",
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     if (provider.service) await core.revokeConsent("tagging", provider.service.id);
   });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();

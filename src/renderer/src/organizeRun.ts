@@ -51,12 +51,13 @@ const wasBefore = (
   return item && (working(item) || item.status === "waiting") ? undefined : item;
 };
 
-/** Whether anything is filed in a Folder: a Document, suggested or not, or a Note. */
-const holdsAny = (folderId: string) => {
+/** Whether anything is filed in a Folder: a Document, suggested or not, a Note or a Conversation. */
+const holdsAny = (folderId: string, conversations: readonly { folderId: string | null }[]) => {
   const { library, minds } = useAppStore.getState();
   return (
     (library?.assignments ?? []).some((item) => item.groupId === folderId) ||
-    minds.some((mind) => mind.folderId === folderId)
+    minds.some((mind) => mind.folderId === folderId) ||
+    conversations.some((conversation) => conversation.folderId === folderId)
   );
 };
 
@@ -65,9 +66,12 @@ const holdsAny = (folderId: string) => {
  * the User has put something in since are theirs, and stay.
  */
 export async function removeEmpty(made: readonly LibraryGroup[]): Promise<string[]> {
-  await useAppStore.getState().refreshLibrary();
+  const [conversations] = await Promise.all([
+    core.listConversations(),
+    useAppStore.getState().refreshLibrary(),
+  ]);
   const live = new Set((useAppStore.getState().library?.groups ?? []).map((group) => group.id));
-  const empty = made.filter((group) => live.has(group.id) && !holdsAny(group.id));
+  const empty = made.filter((group) => live.has(group.id) && !holdsAny(group.id, conversations));
   for (const group of empty) await core.deleteLibraryGroup(group.id);
   if (empty.length > 0) await useAppStore.getState().refreshLibrary();
   return empty.map((group) => group.id);

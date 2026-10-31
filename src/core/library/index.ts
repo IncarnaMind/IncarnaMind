@@ -315,13 +315,15 @@ export function createLibrary(options: {
    */
   readsPages(classifier: TaggingClassifier): boolean;
   /**
-   * Whether the model tagging or organizing would use runs on another computer:
-   * the switch for doing it by itself is off for one until the User turns it on.
+   * The services tagging and organizing by themselves would send to, none for models on this
+   * computer: the switch for doing it by itself is off for one until the User turns it on there.
    */
-  usesCloud(settings: {
+  sendsTo(settings: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
-  }): boolean;
+  }): ExternalService[];
+  /** Whether the User allowed tagging or Organize to send to this service (../consent). */
+  allowed(service: ExternalService): boolean;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -353,6 +355,10 @@ export function createLibrary(options: {
       classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
       // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
+      // The services the User turned it on for; null for a switch saved before there was a list.
+      automaticFor: Array.isArray(saved.automaticFor)
+        ? saved.automaticFor.filter((each): each is string => typeof each === "string")
+        : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
@@ -361,11 +367,30 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
-  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
-    ...saved,
-    automatic: saved.automatic ?? defaultAutomatic(saved),
-  });
+  const usesCloud = (saved: Parameters<typeof options.sendsTo>[0]) =>
+    options.sendsTo(saved).length > 0;
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
+  /**
+   * Whether the switch the User turned on holds where tagging sends now: turned on for one
+   * service, it is off for another until they turn it on there (#2308). One saved before there was
+   * a list holds where they allowed tagging or Organize to send.
+   */
+  const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
+    const { automaticFor } = saved;
+    return options
+      .sendsTo(saved)
+      .every((service) =>
+        automaticFor === null ? options.allowed(service) : automaticFor.includes(service.id),
+      );
+  };
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
+    const { automaticFor: _automaticFor, ...shown } = saved;
+    return {
+      ...shown,
+      automatic:
+        saved.automatic === null ? defaultAutomatic(saved) : saved.automatic && turnedOnHere(saved),
+    };
+  };
   const getSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
@@ -1260,27 +1285,25 @@ export function createLibrary(options: {
         checkClassifier(each);
       }
       const before = savedSettings();
-      // Choosing another model for Tags with the switch on, where its line says what it sends,
-      // turns tagging on (#2308), whatever the switch showed before: for Automatic, that follows
-      // its last pick. A model on this computer needs no consent: the switch follows the model.
-      const picked = automaticChosen ? null : taggingClassifierOf(chosen);
-      const modelChosen =
-        picked !== null &&
-        input.automatic === true &&
-        JSON.stringify(picked) !== JSON.stringify(before.classifier);
-      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
-      const showing = before.automatic ?? !options.usesCloud(before);
-      const automatic =
-        picked !== null && modelChosen
-          ? options.usesCloud({
-              classifier: picked,
-              organizeWith: taggingClassifierOf(organizeWith),
-            })
-            ? true
-            : null
-          : input.automatic !== showing
-            ? input.automatic
-            : before.automatic;
+      const next = {
+        classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
+        organizeWith: taggingClassifierOf(organizeWith),
+      };
+      // Only `turnOn`, sent where the line says what goes, turns it on for a service (ADR-0022):
+      // a save sends the switch as shown, which reads on while it follows a model on this computer.
+      const turnOn = input.turnOn === true;
+      const showing = shownSettings(before).automatic;
+      const automatic = turnOn
+        ? true
+        : input.automatic !== showing
+          ? input.automatic
+          : before.automatic;
+      const automaticFor = turnOn
+        ? options.sendsTo(next).map((service) => service.id)
+        : (before.automaticFor ??
+          (before.automatic && showing
+            ? options.sendsTo(before).map((service) => service.id)
+            : []));
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
@@ -1288,6 +1311,7 @@ export function createLibrary(options: {
         classifier: automaticChosen ? AUTOMATIC : chosen,
         ...(automatic !== null && { automatic }),
         organizeWith,
+        automaticFor,
         taggingStopped: before.taggingStopped,
       });
       revision++;

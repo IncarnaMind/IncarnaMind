@@ -31,6 +31,21 @@ describe("What choosing a model for Tags says it sends", () => {
     expect(line).toContain("资料库中已有的文档，只有在你运行“整理”时才会发送");
   });
 
+  test("once tagging is on, in both languages, without naming a Settings page that isn't one", () => {
+    const en = translate("en", "setup.sorting.sendsWhenOn", { service: "Anthropic" });
+    expect(en).toContain("name and type and an excerpt of its start (about 1,500 tokens)");
+    expect(en).toContain("to Anthropic");
+    expect(en).toContain("new ones in your Linked folders too");
+    expect(en).toContain("Documents already in the Library go only when you run Organize");
+    expect(en).not.toContain("Settings › Tagging");
+    const zh = translate("zh-CN", "setup.sorting.sendsWhenOn", { service: "Anthropic" });
+    expect(zh).toContain("名称、类型和开头的一段摘录（约 1,500 token）");
+    expect(zh).toContain("发送给 Anthropic");
+    expect(zh).toContain("包括关联文件夹中的新文档");
+    expect(zh).toContain("资料库中已有的文档，只有在你运行“整理”时才会发送");
+    expect(zh).not.toContain("设置 → 自动打标签");
+  });
+
   test("the number is the excerpt the tagger sends", () => {
     expect(EXCERPT_TOKENS).toBe(1500);
   });

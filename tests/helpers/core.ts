@@ -243,5 +243,5 @@ export async function saveProviderUnasked(
  */
 export async function turnOnAutomaticTagging(core: Core): Promise<void> {
   const { settings } = await core.getLibrary();
-  await core.saveLibrarySettings({ ...settings, automatic: true });
+  await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
 }

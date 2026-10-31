@@ -3057,8 +3057,9 @@ export interface DocumentScanProgress {
  *   a Folder (see `stopTagging`): nothing is sent until it is turned back on.
  * - "off": the Document came in while automatic tagging and sorting was off
  *   (`LibrarySettings.automatic`, off for a cloud model until the User turns
- *   it on): nothing is sent for it, and turning the switch on doesn't tag
- *   it. A re-tag the User asks for does.
+ *   it on): nothing is sent for it, and turning the switch on, or reading
+ *   it again (a newer pipeline, its file changed), doesn't tag it. Organize,
+ *   or a re-tag the User asks for, does.
  */
 export type TaggingState =
   | "pending"
@@ -10206,13 +10207,17 @@ export interface CoreApi {
    * Saves the Tagging setting: the model for automatic tagging and Organize,
    * and whether new and changed Documents are organized automatically. A
    * classifier of null is Automatic; `organizeWith` left out stays as it was.
-   * Choosing another cloud model with `automatic` true turns it on, whatever
-   * the switch showed before (#2308).
+   * `automatic` is the switch as shown. `turnOn` turns it on, and is the
+   * consent for the services it sends to now (ADR-0022): only where the line
+   * says what goes, as setup's Use this, Settings › Models' Tagging section
+   * and Turn on… do. Turned on for one service, it reads off for another
+   * until it is turned on there (#2308).
    */
   saveLibrarySettings(
     settings: Omit<LibrarySettings, "classifier" | "organizeWith" | "taggingStopped"> & {
       classifier: LibraryClassifier | null;
       organizeWith?: TaggingClassifier | null;
+      turnOn?: boolean;
     },
   ): Promise<void>;
   /**

@@ -198,7 +198,7 @@ function TurnOnTagging({ option }: { option: SortingOption }) {
     const settings = useAppStore.getState().library?.settings;
     if (!settings) return;
     try {
-      await core.saveLibrarySettings({ ...settings, automatic: true });
+      await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
       await useAppStore.getState().refreshLibrary();
     } catch (error) {
       useAppStore.getState().reportError(error);
