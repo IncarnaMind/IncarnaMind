@@ -42,6 +42,10 @@ const NOT_THE_ASSISTANT =
 const CALL_SPAN =
   /\b(?:last|past|previous)\s+(?:\d+|few|several|two|three|four|five|six|seven|eight|nine|ten)\s+minutes\b/g;
 
+/** A call-time phrase with "before", not a reference to the assistant: "before the break". */
+const BEFORE_TIME =
+  /\bbefore\s+(?:the|this|our)\s+(?:break|call|meeting|conversation|recording|start|session|interview|discussion|lunch|end)\b|\bbefore\s+we\s+(?:started|began|spoke|talked)\b/giu;
+
 /**
  * What points at the assistant's own earlier words once request frames and other people's
  * answers are taken out: a second-person word, or a back-reference. Its test errs toward
@@ -49,11 +53,15 @@ const CALL_SPAN =
  * only the old recap context (#1319).
  */
 const REFERS_TO_AN_EARLIER_REPLY =
-  /\b(?:you|your|yours)\b|\b(?:from before|earlier|above|previous)\b|\b(?:those|these)\b|\b(?:that|this)\s+(?:list|message|answer|reply|response)\b|\blast\s+(?:message|answer|reply|response)\b|\bcall[ -]help\b|[你您]|前面|上面|之前|(?:刚才|刚刚)的?(?:回答|回复|答复|消息|清单|建议|提示|问题)|那几|那条|这几/iu;
+  /\b(?:you|your|yours)\b|\b(?:from before|earlier|above|previous|assistant|before)\b|\b(?:those|these)\b|\b(?:that|this)\s+(?:list|message|answer|reply|response)\b|\blast\s+(?:message|answer|reply|response)\b|\bcall[ -]help\b|[你您]|前面|上面|之前|(?:刚才|刚刚)的?(?:回答|回复|答复|消息|清单|建议|提示|问题)|那几|那条|这几|助手|给的(?:建议|问题|提示|清单)/iu;
 
 const refersToTheAssistant = (question: string): boolean =>
   REFERS_TO_AN_EARLIER_REPLY.test(
-    question.replace(REQUEST_FRAME, " ").replace(NOT_THE_ASSISTANT, " ").replace(CALL_SPAN, " "),
+    question
+      .replace(REQUEST_FRAME, " ")
+      .replace(NOT_THE_ASSISTANT, " ")
+      .replace(BEFORE_TIME, " ")
+      .replace(CALL_SPAN, " "),
   );
 
 /**

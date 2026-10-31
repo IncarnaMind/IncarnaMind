@@ -503,6 +503,8 @@ for (const language of ["en", "zh-CN"] as const) {
             "Summarise the items you pointed out during this call",
             "Can you sum up the stuff you proposed in this meeting?",
             "Recap the three questions from before, for this call",
+            "Sum up what the assistant suggested so far in this call",
+            "Can you recap what was suggested before in this call?",
           ]
         : [
             "把你刚才说的关于通话的内容总结一下",
@@ -528,6 +530,8 @@ for (const language of ["en", "zh-CN"] as const) {
             "概括一下你刚才指出的会议问题",
             "梳理一下刚才那条回答里的会议内容",
             "总结一下前面那条消息里关于会议的建议",
+            "请总结一下助手刚才的会议建议",
+            "帮我总结一下刚才给的建议",
           ];
     for (const text of wordings) {
       const first = calls.length;
@@ -617,6 +621,7 @@ for (const language of ["en", "zh-CN"] as const) {
             "What have they said so far?",
             "What's been agreed so far?",
             "Recap the previous 10 minutes",
+            "Recap what was said before the break in this call?",
             "Any action points or decisions from the call so far?",
           ]
         : [
