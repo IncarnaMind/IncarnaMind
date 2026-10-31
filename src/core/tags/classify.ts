@@ -11,7 +11,15 @@ import { approximateTokens } from "../documents/passages";
 import type { ChatLanguageModel } from "../providers/models";
 import { outputTokens } from "../providers/outputLimits";
 import { sameName } from "./index";
-import { NEW_TAGS_SCHEMA, type NewTag, newTagsOf, TAG_RULES, TAGS_PER_DOCUMENT } from "./suggest";
+import {
+  NEW_TAGS_SCHEMA,
+  type NewTag,
+  newTagsOf,
+  TAG_RULES,
+  TAGS_PER_DOCUMENT,
+  tagsToOffer,
+  withoutUnfoundedInvoice,
+} from "./suggest";
 
 /** About how much of a Document's text the excerpt holds: enough for its title, abstract or first pages. */
 export const EXCERPT_TOKENS = 1500;
@@ -182,9 +190,10 @@ function taggingPrompt(tags: readonly TagDefinition[], excerpt: DocumentExcerpt)
 }
 
 /**
- * Asks the model which Tags apply and which new ones it names. Names it returns that aren't in
- * the list are ignored, and at most `TAGS_PER_DOCUMENT` count, those from the list first. Throws
- * what the provider throws.
+ * Asks the model which Tags apply and which new ones it names, offering only the Tags in the
+ * Document's script (`tagsToOffer`). Names it returns that aren't offered are ignored, an Invoice
+ * Tag the text doesn't bear out is dropped (`withoutUnfoundedInvoice`), and at most
+ * `TAGS_PER_DOCUMENT` count, those from the list first. Throws what the provider throws.
  */
 async function chooseTags(input: {
   model: ChatLanguageModel;
@@ -192,7 +201,8 @@ async function chooseTags(input: {
   excerpt: DocumentExcerpt;
   signal: AbortSignal;
 }): Promise<{ ids: string[]; newTags: NewTag[] }> {
-  const { model, tags, excerpt, signal } = input;
+  const { model, excerpt, signal } = input;
+  const tags = tagsToOffer(input.tags, excerpt.text);
   const schema = jsonSchema<{ tags: string[]; newTags: unknown[] }>({
     type: "object",
     properties: {
@@ -224,14 +234,15 @@ async function chooseTags(input: {
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(CLASSIFY_TIMEOUT_MS)]),
   });
   const chosen: unknown = result.output?.tags;
-  const ids = new Set<string>();
+  const found = new Set<TagDefinition>();
   for (const name of Array.isArray(chosen) ? chosen : []) {
     if (typeof name !== "string") continue;
     const tag = tags.find((each) => sameName(each.name, name.trim()));
-    if (tag && ids.size < TAGS_PER_DOCUMENT) ids.add(tag.id);
+    if (tag) found.add(tag);
   }
-  const newTags = newTagsOf(result.output?.newTags).slice(0, TAGS_PER_DOCUMENT - ids.size);
-  return { ids: [...ids], newTags };
+  const held = withoutUnfoundedInvoice(excerpt, [...found], newTagsOf(result.output?.newTags));
+  const ids = held.chosen.slice(0, TAGS_PER_DOCUMENT).map((tag) => tag.id);
+  return { ids, newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - ids.length) };
 }
 
 /**

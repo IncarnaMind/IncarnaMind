@@ -13,6 +13,8 @@ import {
   newTagsOf,
   TAG_RULES,
   TAGS_PER_DOCUMENT,
+  tagsToOffer,
+  withoutUnfoundedInvoice,
 } from "../tags/suggest";
 import type { DocumentPageImage } from "./pdfImages";
 import type { ClassificationModel, LibraryGroup } from "./types";
@@ -129,8 +131,9 @@ export function chatGroupClassifier(
     async decide(groups, excerpt, signal, images) {
       return (await this.organize(groups, [], excerpt, signal, images)).groupId;
     },
-    async organize(groups, tags, excerpt, signal, images = []) {
+    async organize(groups, allTags, excerpt, signal, images = []) {
       const pages = readsImages ? images : [];
+      const tags = tagsToOffer(allTags, excerpt.text);
       const choices = [...groups.map((group) => group.id), UNSORTED];
       const data = JSON.stringify({
         groups: groups.map(({ id, name, description }) => ({ id, name, description })),
@@ -186,11 +189,16 @@ export function chatGroupClassifier(
       const ids = result.output.tags;
       if (!Array.isArray(ids) || ids.some((id) => !tags.some((tag) => tag.id === id)))
         throw new Error("The classifier did not return allowed tags.");
-      const chosen = [...new Set(ids)].slice(0, TAGS_PER_DOCUMENT);
+      const held = withoutUnfoundedInvoice(
+        excerpt,
+        [...new Set(ids)].flatMap((id) => tags.filter((tag) => tag.id === id)),
+        newTagsOf(result.output.newTags),
+      );
+      const chosen = held.chosen.slice(0, TAGS_PER_DOCUMENT);
       return {
         groupId: selected === UNSORTED ? null : selected,
-        tags: chosen.map((tagId) => ({ tagId, confidence: null, needsReview: false })),
-        newTags: newTagsOf(result.output.newTags).slice(0, TAGS_PER_DOCUMENT - chosen.length),
+        tags: chosen.map((tag) => ({ tagId: tag.id, confidence: null, needsReview: false })),
+        newTags: held.newTags.slice(0, TAGS_PER_DOCUMENT - chosen.length),
       };
     },
     async proposeFolders(documents, existing, language, signal) {

@@ -4,7 +4,9 @@
  * (./classify) and Organize's chat model (../library/classifier) give it. Decision models only
  * answer yes or no for each Tag, so they keep choosing from the list.
  */
+import { writtenInCjk } from "../documents/textLanguage";
 import { isRecord } from "../errors";
+import { PRESET_TAGS } from "./presets";
 
 /** A Tag the model names for a Document, which no Tag in the list matched. */
 export interface NewTag {
@@ -54,16 +56,63 @@ export const NEW_TAGS_SCHEMA = {
   },
 } as const;
 
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
 /** How wide a name reads: a character of a CJK script counts as two. */
 const widthOf = (text: string) =>
-  [...text].reduce(
-    (width, character) =>
-      width +
-      (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(character)
-        ? 2
-        : 1),
-    0,
-  );
+  [...text].reduce((width, character) => width + (CJK.test(character) ? 2 : 1), 0);
+
+type Script = "cjk" | "latin";
+
+/** A Tag name's script; null for one that reads the same in any language, such as "NDA" or "Q3". */
+const nameScript = (name: string): Script | null =>
+  CJK.test(name) ? "cjk" : /\p{Ll}/u.test(name) ? "latin" : null;
+
+const textScript = (text: string): Script | null =>
+  writtenInCjk(text) ? "cjk" : /\p{Script=Latin}/u.test(text) ? "latin" : null;
+
+/**
+ * The Tags the chat model is offered for a Document whose text is `text`: those named in its
+ * script, and those that read the same in any. Told in the prompt alone, the model still chose
+ * the English Tags made for English Documents for Chinese ones (#2308); the others stay in the
+ * Library, and it names a Tag in the Document's language instead.
+ */
+export function tagsToOffer<T extends { name: string }>(tags: readonly T[], text: string): T[] {
+  const script = textScript(text);
+  if (script === null) return [...tags];
+  return tags.filter((tag) => {
+    const own = nameScript(tag.name);
+    return own === null || own === script;
+  });
+}
+
+const INVOICE_NAMES = new Set(
+  PRESET_TAGS.filter((preset) => preset.key === "invoice").flatMap((preset) =>
+    Object.values(preset.text).map((text) => tagKey(text.name)),
+  ),
+);
+
+/**
+ * What a bill or a receipt calls itself or carries. An order, a quote or a registration lists
+ * items and amounts too, and the model tagged such Documents Invoice whatever its rules said
+ * (#2308).
+ */
+const INVOICE_EVIDENCE =
+  /invoice|receipt|\bbill\b|folio|发票|收据|账单|小票|凭证|缴费|税号|增值税|开票/iu;
+
+/**
+ * A chat model's Tags for a Document, without an Invoice Tag where neither its name nor its
+ * text says it is a bill or a receipt. A Document with no text, a scan, is left as chosen.
+ */
+export function withoutUnfoundedInvoice<T extends { name: string }>(
+  excerpt: { name: string; text: string },
+  chosen: readonly T[],
+  newTags: readonly NewTag[],
+): { chosen: T[]; newTags: NewTag[] } {
+  const founded = !excerpt.text.trim() || INVOICE_EVIDENCE.test(`${excerpt.name}\n${excerpt.text}`);
+  const keep = (tag: { name: string }) => founded || !INVOICE_NAMES.has(tagKey(tag.name));
+  return { chosen: chosen.filter(keep), newTags: newTags.filter(keep) };
+}
 
 /** A Latin word without its plural ending: "invoices" and "invoice", "studies" and "study". */
 function singular(word: string): string {

@@ -187,6 +187,53 @@ describe("Organize with the chat model", () => {
       { name: "Kitchen renovation", description: "The kitchen remodel." },
     ]);
   });
+
+  test("a Chinese Document is offered only the Tags in Chinese and those that read the same in any language", async () => {
+    const fake = model({ groupId: "__unsorted__", tags: ["t-zh-report"], newTags: [] });
+    const decision = await chatGroupClassifier(fake.model, false).organize(
+      groups,
+      [
+        { id: "t-report", name: "Report", description: "A report of findings" },
+        { id: "t-zh-report", name: "报告", description: "调查或分析的结果" },
+        { id: "t-nda", name: "NDA", description: "A non-disclosure agreement" },
+      ],
+      {
+        name: "季度报告",
+        kind: "text",
+        pageCount: null,
+        text: "第三季度销售报告：收入增长百分之十二。",
+      },
+      new AbortController().signal,
+    );
+    expect(decision.tags.map((tag) => tag.tagId)).toEqual(["t-zh-report"]);
+    const [call] = fake.calls;
+    const format = call?.responseFormat;
+    const schema = (format?.type === "json" ? format.schema : undefined) as {
+      properties: { tags: { items: { enum: string[] } } };
+    };
+    expect(schema.properties.tags.items.enum).toEqual(["t-zh-report", "t-nda"]);
+  });
+
+  test("an order is not an Invoice, chosen or named, and a receipt still is", async () => {
+    const invoice = { id: "t-invoice", name: "Invoice", description: "A bill or receipt" };
+    const answer = {
+      groupId: "__unsorted__",
+      tags: ["t-invoice"],
+      newTags: [{ name: "invoices", description: "Bills." }],
+    };
+    const organize = (text: string) =>
+      chatGroupClassifier(model(answer).model, false).organize(
+        groups,
+        [invoice],
+        { name: "Scan 0193", kind: "text", pageCount: null, text },
+        new AbortController().signal,
+      );
+
+    const order = await organize("Order 5512 confirmed: a three-seat sofa in green, 899.00.");
+    expect(order).toEqual({ groupId: null, tags: [], newTags: [] });
+    const receipt = await organize("Corner Café. Receipt 0193. Flat white 3.20. Paid by card.");
+    expect(receipt.tags.map((tag) => tag.tagId)).toEqual(["t-invoice"]);
+  });
 });
 
 describe("Organize a scan with a chat model that reads images", () => {
