@@ -247,6 +247,14 @@ function groupLines(label: string, tagged: readonly Tagged[]): string[] {
     `| Most Tags on one Document (bar: 3) | ${Math.max(0, ...tagged.map((each) => each.tags.length))} |`,
     `| New Tags made | ${made.length}: ${[...new Set(made)].join(", ")} |`,
     "",
+    "Misses, to read by hand (the word list can miss a fitting synonym):",
+    ...tagged
+      .filter((each) => !each.fitting || each.falseInvoice || each.missedInvoice)
+      .map(
+        (each) =>
+          `- ${each.name}: ${each.tags.join(", ") || "(no Tag)"}${each.falseInvoice ? " (Invoice, wrongly)" : each.missedInvoice ? " (Invoice missed)" : ""}`,
+      ),
+    "",
     "| Document | Tags | Fits | Invoice |",
     "|---|---|---|---|",
     ...tagged.map(

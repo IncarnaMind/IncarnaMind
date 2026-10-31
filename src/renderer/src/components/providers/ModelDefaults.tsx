@@ -8,15 +8,16 @@ import type {
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useModelNames } from "../../modelNames";
+import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { type ServicesView, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { TranscriptionRouteSelect } from "../meetings/TranscriptionRouteSelect";
 import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
-import { fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
+import { buttonStyle, fieldClass, hintClass, ruledListClass, sectionTitleClass } from "../ui";
 import { ModelHealthLine } from "./ModelHealthLine";
 import { providerName } from "./ProviderPage";
-import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
+import { SortingLine, type SortingOption, SortingSelect, useSorting } from "./SortingChoice";
 
 export type Role = "chatModel" | "quickTasksModel" | "imageModel";
 
@@ -138,7 +139,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose, read } = useSorting();
+  const { options, current, choose, read, library } = useSorting();
   return (
     <div
       data-testid="model-default-row-sorting"
@@ -164,7 +165,94 @@ function SortingRow({ id }: { id: string }) {
             onChange={(option) => void choose(option)}
           />
           <SortingLine option={current} reading={read.state === "loading"} choosing={false} />
+          {library && !library.settings.automatic && current && !current.unresolved && (
+            <TurnOnTagging option={current} />
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+const TURN_ON = ["turn-on-tagging"] as const;
+
+/**
+ * With tagging new Documents off, so a model chosen here tags nothing (#2308): a line that says
+ * so, and Turn on…, which shows what each new Document would send, and to whom, before Use this
+ * turns it on.
+ */
+function TurnOnTagging({ option }: { option: SortingOption }) {
+  const t = useT();
+  const [asking, setAsking] = useState(false);
+  const use = useRef<HTMLButtonElement>(null);
+  const turnOn = useRef<HTMLButtonElement>(null);
+  const reached = useSettingsTarget<HTMLDivElement>(TURN_ON, true, () => setAsking(true));
+  useEffect(() => {
+    if (asking) use.current?.focus();
+  }, [asking]);
+  const close = () => {
+    setAsking(false);
+    turnOn.current?.focus();
+  };
+  const turnOnNow = async () => {
+    const settings = useAppStore.getState().library?.settings;
+    if (!settings) return;
+    try {
+      await core.saveLibrarySettings({ ...settings, automatic: true });
+      await useAppStore.getState().refreshLibrary();
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+    }
+  };
+  return (
+    <div ref={reached} className="flex flex-col gap-1">
+      <p data-testid="models-tagging-off" className="text-[12px] leading-5 text-ink-meta">
+        {t("models.sorting.off")}
+        <span aria-hidden="true"> · </span>
+        <button
+          ref={turnOn}
+          type="button"
+          data-testid="models-tagging-turn-on"
+          aria-expanded={asking}
+          onClick={() => setAsking(true)}
+          className="font-semibold text-accent underline-offset-2 hover:underline"
+        >
+          {t("models.sorting.turnOn")}
+        </button>
+      </p>
+      {asking && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: Esc closes what Turn on… opened, as elsewhere in Settings.
+        <div
+          data-testid="models-tagging-consent"
+          className="flex flex-col gap-2"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          }}
+        >
+          <SortingLine option={option} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <button
+              ref={use}
+              type="button"
+              data-testid="models-tagging-use"
+              onClick={() => void turnOnNow()}
+              className={buttonStyle("primary", "sm")}
+            >
+              {t("setup.step.useThis")}
+            </button>
+            <button
+              type="button"
+              data-testid="models-tagging-cancel"
+              onClick={close}
+              className="text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
+            >
+              {t("library.cancel")}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

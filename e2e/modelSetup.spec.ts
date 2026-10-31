@@ -21,9 +21,11 @@ import {
   newMind,
   ollamaListing,
   openSettings,
+  paletteOffers,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
+  runCommand,
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
@@ -2273,6 +2275,94 @@ for (const language of ["en", "zh-CN"] as const) {
           kind: "chat",
           choice: { modelId: "gpt-6-luna" },
         });
+      expect((await bridge(window).library()).automatic).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+// With tagging new Documents off, a model chosen in Settings › Models tags nothing: the row says
+// so, and Turn on… shows what goes before Use this turns it on (#2308).
+for (const language of ["en", "zh-CN"] as const) {
+  test(`Settings › Models says tagging new Documents is off, and Turn on… shows what goes before turning it on (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await saveAnthropicAsDefault(window, "claude-haiku-5-5");
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      expect(
+        await paletteOffers(
+          window,
+          "tagging.turnOn",
+          translate(language, "command.tagging.turnOn"),
+        ),
+      ).toBe(1);
+      // The button that opens Settings is named in English until the language is changed inside it.
+      await setLanguage(window, "en");
+      const settings = await openSettings(window, "models");
+      await setLanguage(window, language);
+      const row = settings.getByTestId("model-default-row-sorting");
+      const off = row.getByTestId("models-tagging-off");
+      await expect(off).toContainText(translate(language, "models.sorting.off"));
+      const turnOn = row.getByTestId("models-tagging-turn-on");
+      await expect(turnOn).toHaveText(translate(language, "models.sorting.turnOn"));
+
+      // By keyboard from the choice, Turn on… is next.
+      await row.getByTestId("models-sorting").focus();
+      await window.keyboard.press("Tab");
+      await expect(turnOn).toBeFocused();
+      await window.keyboard.press("Enter");
+      const consent = row.getByTestId("models-tagging-consent");
+      const sends = translate(language, "setup.sorting.sends", { service: "Anthropic" });
+      expect(await sortingWords(consent)).toContain(sends);
+      expect((await bridge(window).library()).automatic).toBe(false);
+
+      // Esc closes it, and nothing was turned on.
+      await window.keyboard.press("Escape");
+      await expect(consent).toHaveCount(0);
+      await expect(settings).toBeVisible();
+      expect((await bridge(window).library()).automatic).toBe(false);
+      await expect(off).toBeVisible();
+
+      // Use this, with the line on screen, turns it on, and the line that it's off goes.
+      await pointAndClick(window, turnOn);
+      expect(await sortingWords(consent)).toContain(sends);
+      await pointAndClick(window, row.getByTestId("models-tagging-use"));
+      await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
+      await expect(off).toHaveCount(0);
+      await closeSettingsDialog(window);
+      expect(
+        await paletteOffers(
+          window,
+          "tagging.turnOn",
+          translate(language, "command.tagging.turnOn"),
+        ),
+      ).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`⌘K's Turn on tagging opens the same line in Settings › Models, and Cancel leaves it off (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await acceptPlainTextKeys(window);
+      await saveAnthropicAsDefault(window, "claude-haiku-5-5");
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await runCommand(window, "tagging.turnOn", translate(language, "command.tagging.turnOn"));
+      const consent = window.getByTestId("models-tagging-consent");
+      await expect(consent).toBeVisible();
+      await expect(window.getByTestId("models-tagging-use")).toBeFocused();
+      expect(await sortingWords(consent)).toContain(
+        translate(language, "setup.sorting.sends", { service: "Anthropic" }),
+      );
+      await pointAndClick(window, window.getByTestId("models-tagging-cancel"));
+      await expect(consent).toHaveCount(0);
       expect((await bridge(window).library()).automatic).toBe(false);
     } finally {
       await app.close();

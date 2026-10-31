@@ -2350,6 +2350,10 @@ export const zhCN = {
     "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "setup.sorting.sendsWhenOn":
     "开启自动打标签后（设置 → 自动打标签），每个新文档的名称、类型和开头的一段摘录（约 1,500 token），以及你的标签和文件夹的名称及描述，会发送给 {service}。",
+  "models.sorting.off": "自动给新文档打标签已关闭",
+  "models.sorting.turnOn": "开启…",
+  "command.tagging.turnOn": "开启自动给新文档打标签…",
+  "command.tagging.turnOn.keywords": "zidong dabiaoqian 自动打标签 标签 开启 设置",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
   "setup.sorting.chatHere": "标签和文件夹在本机使用 {model} · 不会离开这台电脑",
   "setup.sorting.chat.hints": "选择分类模型前，会议提示不会开启",

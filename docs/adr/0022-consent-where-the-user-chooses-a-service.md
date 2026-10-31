@@ -14,10 +14,10 @@ Considered: a dialog per flow and service (the previous rule), rejected after pe
 
 ## Amendment: choosing a model for Tags turns the switch on (2026-10-31, #2308)
 
-Choosing a cloud model for Tags turns **Tag and sort new Documents automatically** on in two places: first-run setup's third step ("Use this") and Settings › Tagging (a model's row, or Other model… once saved). In both, before the choice, a line on screen says what each new Document sends and to which service. It sends the Document's name and type and an excerpt of its start (about 1,500 tokens), with the Tags' and Folders' names and descriptions, in Settings › Privacy's words. The line says that a Linked folder's new Documents go too, and that Documents already in the Library go only when the User runs Organize.
+Choosing a cloud model for Tags turns **Tag and sort new Documents automatically** on in three places: first-run setup's third step ("Use this"), Settings › Tagging (a model's row, or Other model… once saved), and Settings › Models' sorting row, whose Turn on… is shown while the switch is off. In each, before the choice, a line on screen says what each new Document sends and to which service. It sends the Document's name and type and an excerpt of its start (about 1,500 tokens), with the Tags' and Folders' names and descriptions, in Settings › Privacy's words. The line says that a Linked folder's new Documents go too, and that Documents already in the Library go only when the User runs Organize.
 
 - **The Library already there isn't sent.** Documents that were waiting to be tagged when the model is chosen are set "off", so nothing goes for them until the User starts Organize or a re-tag.
-- **Settings › Models leaves the switch alone.** Changing the sorting model there keeps the switch where it was, and its line says what goes once tagging is on.
+- **Settings › Models turns it on only through Turn on….** Changing the sorting model there keeps the switch where it was, so the model doesn't silently tag nothing. While the switch is off, the row says "Tagging new Documents is off · Turn on…". Turn on… shows the same line, and only its Use this turns tagging on; Cancel or Esc leaves it off. ⌘K's "Turn on tagging new Documents…" opens it.
 - **The chat model for Answers doesn't turn it on.** Choosing it still doesn't.
 - **Existing profiles keep their switch.** A profile that chose a model before this rule keeps its switch as it was. No migration or default turns it on, and a save that shows the switch off keeps it off.
 

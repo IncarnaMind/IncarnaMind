@@ -10,7 +10,7 @@ The app's own code, without its database: the tagger (`chatClassifier` in `src/c
 
 `set.json`, synthetic, as the tagger reads each Document (name, type, the start of its text):
 
-- `tune`, 60 Documents whose results have been read (20 English, 40 Chinese): quotes, estimates, price lists, orders, registrations and notes that mention money, beside real invoices and receipts, contracts, decks, plans in workbooks, minutes and more. Tune prompts on these only.
+- `tune`, 64 Documents whose results have been read (22 English, 42 Chinese): quotes, estimates, price lists, orders, registrations and notes that mention money, beside real invoices and receipts, donation acknowledgements, contracts, pitch and review decks, plans in workbooks, minutes and more. Tune prompts on these only.
 - `heldout`, 40 more, none paired with a tuning Document, fixed before any model read them: they are the measurement.
   - 20 English: a contract, a spec sheet, minutes, lab notes, a tax summary, a recipe, a syllabus, a pitch deck, a hosting invoice, a donation receipt, a purchase order, a packing slip, an itinerary, a job description, a vaccination record, an inspection checklist, a podcast outline, a grant budget, a privacy policy and a talk abstract.
   - 20 Chinese, of other kinds and subjects than the English: a thesis proposal, a product requirements document, a school notice, a sign-up sheet, a takeaway order, parking and taxi e-invoices, a year-end deck, a weekly report, interview notes, an installation guide, a health check report, an adoption agreement, a fund sheet, an essay, a tender notice, a wedding invitation, driving-test notes, a mortgage schedule and a film review.
@@ -20,7 +20,7 @@ Each Document says whether the Invoice kind fits it (`invoice`), as the preset I
 
 ## Scores and bars
 
-Per group: non-invoices tagged Invoice (bar: none), invoices and receipts still tagged Invoice, Documents with a fitting Tag (bar: 90%), new Tags named in the language of the Document's text (bar: 95%), Chinese Documents with a Tag in Chinese (bar: 95%), the most Tags on one Document (bar: 3), and the new Tags made. On the walk: the quote, the notes and the registration not tagged Invoice, the workbook with a fitting Tag, 2 to 4 Folders proposed, and 90% of the Documents in a Folder of their own subject.
+Per group: non-invoices tagged Invoice (bar: none), invoices and receipts still tagged Invoice, Documents with a fitting Tag (bar: 90%), new Tags named in the language of the Document's text (bar: 95%), Chinese Documents with a Tag in Chinese (bar: 95%), the most Tags on one Document (bar: 3), and the new Tags made. Each report lists the Documents the word list scored as misses, with their Tags, to read by hand. On the walk: the quote, the notes and the registration not tagged Invoice, the workbook with a fitting Tag, 2 to 4 Folders proposed, and 90% of the Documents in a Folder of their own subject.
 
 ## Running it
 

@@ -1360,7 +1360,8 @@
     "通知",
     "班级",
     "孩子",
-    "教育"
+    "教育",
+    "家校"
    ]
   },
   {
@@ -1459,7 +1460,8 @@
     "周报",
     "工作",
     "汇报",
-    "进度"
+    "进度",
+    "积分"
    ]
   },
   {
@@ -1986,6 +1988,75 @@
     "传感器",
     "学术",
     "城市"
+   ]
+  },
+  {
+   "id": "t-en-11",
+   "split": "tune",
+   "language": "en",
+   "name": "Thank you for your gift",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Northside Animal Rescue. Thank you for your generous gift of 75.00 on 2 February 2026, received by card. Your donation feeds and shelters our dogs while they wait for a home. No goods or services were provided in return. Charity no. 1187331.",
+   "invoice": false,
+   "fits": [
+    "donation",
+    "charity",
+    "gift",
+    "giving",
+    "receipt"
+   ]
+  },
+  {
+   "id": "t-en-12",
+   "split": "tune",
+   "language": "en",
+   "name": "Series A deck",
+   "kind": "pptx",
+   "pageCount": 14,
+   "text": "Crumb: fresh bread delivered before breakfast\nThe market: 4M households buy bread daily\nHow it works\nTraction: 12,000 subscribers, 9% churn\nUnit economics\nUse of funds\nRaising 6M Series A",
+   "invoice": false,
+   "fits": [
+    "pitch",
+    "fundraising",
+    "investor",
+    "series a",
+    "deck",
+    "slides"
+   ]
+  },
+  {
+   "id": "t-zh-11",
+   "split": "tune",
+   "language": "zh",
+   "name": "捐款感谢函",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "城南流浪动物救助站 感谢函。感谢您于 2026 年 2 月 2 日捐款 300 元（微信支付）。善款将用于救助犬的口粮和医疗。本次捐赠未获得任何商品或服务。",
+   "invoice": false,
+   "fits": [
+    "捐款",
+    "捐赠",
+    "慈善",
+    "公益",
+    "感谢"
+   ]
+  },
+  {
+   "id": "t-zh-12",
+   "split": "tune",
+   "language": "zh",
+   "name": "A轮融资计划书",
+   "kind": "pptx",
+   "pageCount": 14,
+   "text": "“早面包”：早餐前送到家的新鲜面包\n市场规模：400 万家庭每天买面包\n商业模式\n数据：订阅用户 1.2 万，月流失率 9%\n单位经济模型\n资金用途\n本轮融资 4,000 万元",
+   "invoice": false,
+   "fits": [
+    "融资",
+    "路演",
+    "投资",
+    "计划书",
+    "商业计划"
    ]
   }
  ]

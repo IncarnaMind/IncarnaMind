@@ -2457,6 +2457,10 @@ export const en = {
     "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.sendsWhenOn":
     "With tagging by itself on (Settings › Tagging), each new Document’s name and type and an excerpt of its start (about 1,500 tokens), with your Tags’ and Folders’ names and descriptions, go to {service}.",
+  "models.sorting.off": "Tagging new Documents is off",
+  "models.sorting.turnOn": "Turn on…",
+  "command.tagging.turnOn": "Turn on tagging new Documents…",
+  "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
   "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
