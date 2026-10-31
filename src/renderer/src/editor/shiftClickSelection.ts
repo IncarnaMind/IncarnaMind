@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
+import { CITATION_NODE } from "../../../core/api";
 
 /**
  * Where the User's selection starts: what the page shows, while the editor
@@ -23,12 +24,44 @@ function selectionStart(view: EditorView): number | null {
   return view.state.selection.empty ? null : view.state.selection.anchor;
 }
 
+/** The table cell that holds `pos`, by its position, or null outside a table. */
+function cellAt(view: EditorView, pos: number): number | null {
+  const $pos = view.state.doc.resolve(pos);
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const name = $pos.node(depth).type.name;
+    if (name === "tableCell" || name === "tableHeader") return $pos.before(depth);
+  }
+  return null;
+}
+
 /**
- * Extends the selection to where a Shift-press landed, from where it started,
- * as Shift+arrows does (#2279). Left to the browser, the extension carries the
- * granularity of the selection the User last made: after a double-click that
- * is a word, so a click just past a Citation snaps back to the word before it
- * and the Citation stays unselected.
+ * Where a press on a Citation's marker ends: the Citation's far side from where
+ * the selection starts, which is the side the marker covers whatever half of it
+ * the pointer lands on.
+ *
+ * @returns null when the press is not on a marker, or the Citation isn't found.
+ */
+function markerEnd(view: EditorView, event: MouseEvent, start: number): number | null {
+  if (!(event.target instanceof Element) || !event.target.closest("[data-testid='citation']")) {
+    return null;
+  }
+  const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+  if (!at) return null;
+  for (const pos of at.inside >= 0 ? [at.inside] : [at.pos, at.pos - 1]) {
+    const node = pos >= 0 ? view.state.doc.nodeAt(pos) : null;
+    if (node?.type.name !== CITATION_NODE) continue;
+    return start <= pos ? pos + node.nodeSize : pos;
+  }
+  return null;
+}
+
+/**
+ * Extends the selection to where a Shift-press landed, as Shift+arrows does
+ * (#2279). Left to the browser, the extension carries the granularity of the
+ * selection the User last made: after a double-click that is a word, so a click
+ * just past a Citation snaps back to the word before it and the Citation stays
+ * unselected. A press outside the selection keeps its far end, as the browser
+ * and Shift+arrows do.
  *
  * @returns whether the press was a Shift-press with something to extend, and
  * so was taken.
@@ -41,12 +74,17 @@ export function extendSelectionTo(view: EditorView, event: MouseEvent): boolean 
   if (start === null) return false;
   const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
   if (!at) return false;
+  const { from, to, anchor } = view.state.selection;
+  const head =
+    markerEnd(view, event, start) ?? Math.max(0, Math.min(at.pos, view.state.doc.content.size));
+  // A press in another table cell is the table's own: it selects a range of cells.
+  if (cellAt(view, head) !== cellAt(view, from)) return false;
   if (!view.hasFocus()) view.focus();
   const { doc } = view.state;
-  const head = Math.max(0, Math.min(at.pos, doc.content.size));
+  const fixed = head < from ? to : head > to ? from : anchor;
   view.dispatch(
     view.state.tr
-      .setSelection(TextSelection.between(doc.resolve(start), doc.resolve(head), 1))
+      .setSelection(TextSelection.between(doc.resolve(fixed), doc.resolve(head), 1))
       .setMeta("pointer", true)
       .setMeta("addToHistory", false),
   );
@@ -57,8 +95,7 @@ export function extendSelectionTo(view: EditorView, event: MouseEvent): boolean 
 /**
  * A Shift-press in a Note's text extends the selection to the point pressed,
  * as Shift+arrows does, rather than by the browser's own rule (see
- * `extendSelectionTo`). A Citation's marker takes its own press before
- * ProseMirror hears it, so the marker calls this too (`CitationView`).
+ * `extendSelectionTo`).
  */
 export const ShiftClickSelection = Extension.create({
   name: "shiftClickSelection",
@@ -66,6 +103,22 @@ export const ShiftClickSelection = Extension.create({
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        view: (view) => {
+          // A Citation's marker takes a press of its own inside its node view before ProseMirror
+          // hears it, so a Shift-press on it is taken here, ahead of that.
+          const onMarkerPress = (event: MouseEvent) => {
+            if (
+              event.target instanceof Element &&
+              event.target.closest("[data-testid='citation']")
+            ) {
+              extendSelectionTo(view, event);
+            }
+          };
+          view.dom.addEventListener("mousedown", onMarkerPress, true);
+          return {
+            destroy: () => view.dom.removeEventListener("mousedown", onMarkerPress, true),
+          };
+        },
         props: {
           handleDOMEvents: {
             mousedown: (view, event) => extendSelectionTo(view, event),

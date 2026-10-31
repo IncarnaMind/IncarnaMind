@@ -79,7 +79,6 @@ import { onPeek, peekCitation, useCitationPeek } from "./peek";
 import { isQuietFocus } from "./quietFocus";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
-import { extendSelectionTo } from "./shiftClickSelection";
 import {
   citationSignOff,
   currentSigner,
@@ -189,8 +188,8 @@ export function CitationView({
   const { peeking, hold, clear: clearPeek } = useCitationPeek();
   const open = pinned || peeking;
   const marker = useRef<HTMLButtonElement>(null);
-  /** Whether the last press on the marker extended the selection instead of acting on the Citation. */
-  const extendedPress = useRef(false);
+  /** Whether the editor took the marker's last press to extend the selection. */
+  const pressTaken = useRef(false);
   // Its dot breathes only while a check the User started runs: an Answer is being written.
   const writing = useAnswers((store) => store.writing.size > 0);
   const answering = useAnswerBeingWritten() !== null;
@@ -423,11 +422,12 @@ export function CitationView({
         title={styled.kind === "runs" ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        // Keep the editor's selection and focus where they are, except for a Shift-press: that
-        // extends the selection to the Citation, as one in the text does (#2279).
+        // Keep the editor's selection and focus where they are. A Shift-press with something to
+        // extend is the Note's, which extends the selection through the Citation before this
+        // (ShiftClickSelection, #2279); a press it didn't take is kept here, as before.
         onMouseDown={(event) => {
-          extendedPress.current = extendSelectionTo(editor.view, event.nativeEvent);
-          if (!extendedPress.current) event.preventDefault();
+          pressTaken.current = event.nativeEvent.defaultPrevented;
+          if (!pressTaken.current) event.preventDefault();
         }}
         // In a cluster, the pointer shows the card of the Citation whose words it is over.
         onPointerMove={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
@@ -440,11 +440,11 @@ export function CitationView({
         }}
         onBlur={() => hold("focus", false)}
         onClick={(event) => {
-          // A press that extended the selection (ShiftClickSelection) isn't a press on the
-          // Citation; a key's click, which has no mouse press, still acts on it.
-          const extended = extendedPress.current;
-          extendedPress.current = false;
-          if (extended && event.detail > 0) return;
+          // A Shift-press the editor took extended the selection, so it is not an activation of
+          // the Citation; a key's click, or a press with nothing to extend, still is.
+          const taken = pressTaken.current;
+          pressTaken.current = false;
+          if (event.shiftKey && event.detail > 0 && taken) return;
           const target = markerOfWork(workAt(event.target, inCluster));
           if (target && target !== marker.current) target.click();
           else onClick();
