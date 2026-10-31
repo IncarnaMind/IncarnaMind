@@ -669,7 +669,9 @@ export function readClaimParts(
         readDocuments: readReadDocuments(each.readDocuments),
       }),
       ...(typeof each.currencyClause === "string" &&
-        each.currencyClause !== "" && { currencyClause: each.currencyClause }),
+        each.currencyClause !== "" && {
+          currencyClause: cutQuote(each.currencyClause, CHECK_QUOTE_CHARS_AT_MOST),
+        }),
       verdict,
       evidence,
       ...(decidingEvidence !== undefined && { decidingEvidence }),
@@ -771,7 +773,9 @@ export function partWithResult(
     ...pendingPart(plan),
     verdict: result.verdict,
     ...(result.readDocuments !== undefined && { readDocuments: result.readDocuments }),
-    ...(result.currencyClause && { currencyClause: result.currencyClause }),
+    ...(result.currencyClause && {
+      currencyClause: cutQuote(result.currencyClause, CHECK_QUOTE_CHARS_AT_MOST),
+    }),
     ...(result.kept && { kept: true }),
     ...(result.figures && { figures: result.figures }),
     ...(result.remainder !== undefined && { remainder: result.remainder }),

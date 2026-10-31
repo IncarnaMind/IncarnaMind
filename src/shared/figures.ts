@@ -34,6 +34,7 @@
  * Pure, with no Node or DOM imports: the core, the renderer and a later
  * phone build share it.
  */
+import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
 import { normaliseWithOffsets } from "./text";
 
@@ -2596,36 +2597,82 @@ function currencyMentions(
   return found;
 }
 
+/** The most characters of a Document line the card shows, a window around the words that name the currency (#2226). */
+const CURRENCY_LINE_CHARS_AT_MOST = 120;
+/** The most naming lines looked in, so a Document that names a currency on every line stays fast (#2226). */
+const MOST_CLAUSE_LINES = 200;
+
+const clauseWindow = (line: string, at: number, chars: number): string => {
+  if (line.length <= chars) return line.trim();
+  const room = chars - 2;
+  const from = Math.max(0, Math.min(at - Math.floor(room / 2), line.length - room));
+  const start = graphemeBoundary(line, from);
+  const end = graphemeBoundary(line, Math.min(line.length, start + room));
+  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
+};
+
+/** `at`'s line among starts sorted by position, the last start at or before it. */
+const lineAt = (starts: readonly number[], at: number): number => {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if ((starts[mid] as number) <= at) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+};
+
 /**
- * The first line of `written` that names which currency one of `codes` is, by the same words,
- * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`,
- * trimmed; null when no line does (#2226).
+ * The earliest line of `written` that names which currency one of `codes` is, by the same words,
+ * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`, and that
+ * `accept` takes when it is given: at most `CURRENCY_LINE_CHARS_AT_MOST` characters around those
+ * words; null when no line does (#2226).
  */
 export function currencyNamingLine(
   written: string,
   context: FigureContext,
   codes: ReadonlySet<string>,
+  accept?: (line: string) => boolean,
 ): string | null {
   const text = normaliseCurrencies(written);
   const settled = settle(context);
   const lines = written.split(LINE_BREAK);
-  let earliest: number | null = null;
+  const starts: number[] = [];
+  let start = 0;
+  for (const line of lines) {
+    starts.push(start);
+    start += line.length + 1;
+  }
+  const unitLines = new Map<string, number>();
+  const unitLineFor = (code: string): number => {
+    const known = unitLines.get(code);
+    if (known !== undefined) return known;
+    const found = lines.findIndex(
+      (line) =>
+        UNIT_LINE.test(line) &&
+        readStatedUnits(line, context).some(
+          (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
+        ),
+    );
+    unitLines.set(code, found);
+    return found;
+  };
+  const candidates = new Map<number, number>();
   for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
     if (!codes.has(code)) continue;
-    const index =
-      at < 0
-        ? lines.findIndex(
-            (each) =>
-              UNIT_LINE.test(each) &&
-              readStatedUnits(each, context).some(
-                (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
-              ),
-          )
-        : text.slice(0, at).split(LINE_BREAK).length - 1;
-    if (index < 0 || !lines[index]?.trim()) continue;
-    earliest = earliest === null ? index : Math.min(earliest, index);
+    const index = at < 0 ? unitLineFor(code) : lineAt(starts, at);
+    if (index < 0) continue;
+    const within = at < 0 ? 0 : at - (starts[index] as number);
+    const known = candidates.get(index);
+    if (known === undefined || within < known) candidates.set(index, within);
   }
-  return earliest === null ? null : (lines[earliest]?.trim() ?? null);
+  for (const index of [...candidates.keys()].sort((a, b) => a - b).slice(0, MOST_CLAUSE_LINES)) {
+    const line = lines[index] ?? "";
+    if (line.trim() === "" || (accept && !accept(line))) continue;
+    return clauseWindow(line, candidates.get(index) ?? 0, CURRENCY_LINE_CHARS_AT_MOST);
+  }
+  return null;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */

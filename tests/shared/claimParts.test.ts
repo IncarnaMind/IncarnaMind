@@ -10,6 +10,7 @@ import type {
 } from "../../src/core/api";
 import { claimCheckShown, readClaimCheck, restsOn } from "../../src/shared/claimChecks";
 import {
+  CHECK_QUOTE_CHARS_AT_MOST,
   checkWithParts,
   coverageCount,
   figuresByPart,
@@ -96,6 +97,19 @@ describe("ordered claim part codec", () => {
       parts: [{ currencyClause: clause }],
     });
     expect(partWithResult(plan, result()).currencyClause).toBeUndefined();
+  });
+
+  // protects=an older check without the field reads as it is, and a long saved line is cut to the check's quote bound (#2226); fails_when=the old check is refused or the line is stored whole; no_claim=the card's wording.
+  test("reads a check saved before the line, and bounds the line", () => {
+    const before = partWithResult(plan, result());
+    expect(readClaimCheck(mark([before]))?.parts?.[0]?.currencyClause).toBeUndefined();
+    const long = partWithResult(plan, { ...result(), currencyClause: "x".repeat(1_000) });
+    expect(long.currencyClause?.length).toBeLessThanOrEqual(CHECK_QUOTE_CHARS_AT_MOST);
+    const stored = readClaimParts(
+      [{ ...long, currencyClause: "y".repeat(1_000) }],
+      "Revenue rose.",
+    );
+    expect(stored?.[0]?.currencyClause?.length).toBeLessThanOrEqual(CHECK_QUOTE_CHARS_AT_MOST);
   });
 
   test.each(["Revenue rose. We should wait.", "收入增长。我们应该等待。"])(

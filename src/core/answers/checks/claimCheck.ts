@@ -386,7 +386,6 @@ function citedSources(
   return [...found.values()];
 }
 
-/** A Citation's quote, and its Document's whole text, read from its version. */
 function checkedTextOf(
   citation: Citation,
   pageTexts: ClaimCheckDependencies["documents"]["pageTexts"],
@@ -428,7 +427,6 @@ function lineLocation(
   );
 }
 
-/** Supported, naming where the Document says which dollar a bare "$" in the claim is (#2226). */
 function withDollarClause(
   deps: ClaimCheckDependencies,
   claim: string,

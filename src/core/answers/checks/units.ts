@@ -138,6 +138,42 @@ export interface DollarClause {
   line: string;
 }
 
+// "All amounts are in US dollars.", "Currency: AUD", "单位：人民币", "所有金额均以美元计。"
+const DOCUMENT_WIDE =
+  /(?:\b(?:amounts?|figures?|sums?|values?|prices?)\s+(?:are|is)\s+(?:in|stated|expressed|shown|denominated|payable)\b|\b(?:all|every|any)\s+(?:amounts?|figures?|sums?|values?|prices?)\b|\b(?:amounts?|figures?|sums?|values?|prices?)\s+in\b|\bcurrenc(?:y|ies)\b|(?:单位|币种)\s*[:：]|(?:所有|全部|各项)?金额|(?:所有|全部|各项)?价款)/i;
+// "“$” means Australian dollars.", "本合同中“$”指澳元。"
+const DEFINED =
+  /\b(?:means|is defined as|shall mean|refers to|denotes)\b|["”]\s*(?:指|是指|系指|定义为|指的是)/i;
+const subjectSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+// Joining words and measures too general to name what a clause is about: "The rent is paid each year." speaks of the rent, not the year.
+const SUBJECT_STOPWORDS = new Set(
+  [
+    "the and for are was were is in on at by with of to from as per a an this that these those its their his her our your all any each every such no not or if then than be been being has have had do does did will would shall should may might must can could year years month months day days period periods amount amounts total totals sum sums figure figures value values price prices currency currencies money rate rates document documents stated shown expressed paid payable payment payments made under same other which who what when",
+    "每年 每月 每日 金额 总额 合计 总计 单位 币种 合同 本文 所有 全部 支付 付款 约定 规定 相关 以上 以下 其他 以及 根据 按照 进行 可以 应当",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/** The words of `text` a clause shares when it speaks of the same subject, currency names and joining words left out. */
+function subjectWords(text: string, context: FigureContext): Set<string> {
+  const words = new Set<string>();
+  for (const { segment, isWordLike } of subjectSegmenter.segment(text.normalize("NFKC"))) {
+    if (!isWordLike) continue;
+    const word = segment.toLowerCase();
+    if (word.length < 2 || SUBJECT_STOPWORDS.has(word) || /\p{N}/u.test(word)) continue;
+    if (namedCurrencies(word, context, null).size > 0) continue;
+    words.add(word);
+  }
+  return words;
+}
+
+/** Whether `line` states the Document's own currency, rather than another payment's. */
+const documentWide = (line: string, context: FigureContext): boolean =>
+  readStatedUnits(line, context).some(({ unit }) => unit.kind === "currency") ||
+  DOCUMENT_WIDE.test(line) ||
+  DEFINED.test(line);
+
 /**
  * The line of a cited Document that says which dollar a bare "$" or "dollars" in `claim` is, in
  * words, a code, a heading, a unit line or a definition, when the quote its card shows doesn't
@@ -156,7 +192,7 @@ export function dollarClause(
   if (pairs.length === 0) return null;
   for (const { text, quote } of sources) {
     const document = text.document();
-    const context = documentFigureContext([{ text: document }]);
+    const context = documentFigureContext([{ text: quote || document.slice(0, 20_000) }]);
     const onQuote = readFigures(quote, context);
     const named = namedCurrencies(quote, context, onQuote, true);
     const beside = onQuote.filter((figure) => !bareDollar(figure));
@@ -173,7 +209,15 @@ export function dollarClause(
         .map(({ code }) => code),
     );
     if (wanted.size === 0) continue;
-    const line = currencyNamingLine(document, context, wanted);
+    const mine = subjectWords(claim, context);
+    const line = currencyNamingLine(
+      document,
+      context,
+      wanted,
+      (each) =>
+        documentWide(each, context) ||
+        [...subjectWords(each, context)].some((word) => mine.has(word)),
+    );
     if (line !== null) return { text, line };
   }
   return null;
