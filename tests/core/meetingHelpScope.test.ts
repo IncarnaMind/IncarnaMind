@@ -361,6 +361,41 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
+  test(`${language}: typed recaps after guide help carry only the call`, async () => {
+    const { core, meeting, guide, calls, fact, spoken } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const helped = await answerOf(
+      core,
+      await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" }),
+    );
+    expect(helped.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
+    const wordings =
+      language === "en"
+        ? [
+            "What have we covered so far?",
+            "Catch me up on what we've said so far",
+            "Walk me through what we've discussed",
+            "What did we discuss so far?",
+          ]
+        : ["我们聊到哪了？", "刚才都讲了什么？", "把刚才的讨论梳理一下"];
+    const guideWords = fact.slice(0, -1);
+    for (const text of wordings) {
+      const first = calls.length;
+      const recap = await answerOf(
+        core,
+        await core.askInConversation({
+          conversationId: helped.conversationId,
+          mindId: meeting.mindId,
+          text,
+        }),
+      );
+      const asked = calls.slice(first);
+      expect(asked.some((call) => call.prompt.includes(spoken))).toBe(true);
+      for (const call of asked) expect(call.prompt).not.toContain(guideWords);
+      expect(recap.citations.some((citation) => citation.documentId === guide.id)).toBe(false);
+    }
+  });
+
   test(`${language}: an ordinary follow-up after guide help still carries it`, async () => {
     const { core, meeting, guide, calls, fact } = await setup(language);
     await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
@@ -379,6 +414,19 @@ for (const language of ["en", "zh-CN"] as const) {
       }),
     );
     expect(calls.slice(first).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
+    const asked = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: helped.conversationId,
+        mindId: meeting.mindId,
+        text:
+          language === "en"
+            ? "Walk me through the supplier payment clause"
+            : "帮我梳理一下供应商的付款条款",
+      }),
+    );
+    expect(calls.slice(asked).some((call) => call.prompt.includes(fact.slice(0, -1)))).toBe(true);
   });
 
   test(`${language}: a recap after the call ended keeps the conversation's earlier replies`, async () => {

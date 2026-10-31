@@ -4033,7 +4033,10 @@ export function createCore(adapters: CoreAdapters): Core {
       ) ?? null
     );
   };
-  liveMeetingOf = (mindId) => meetings.liveOf(mindId) !== null;
+  liveMeetingOf = (mindId) => {
+    const meeting = meetings.liveOf(mindId);
+    return meeting !== null && meeting.kind === "meeting";
+  };
   /** The conversation each live Meeting's help went to last: the panel's goes on there. */
   const helpConversations = new Map<string, string>();
   const askMeetingHelp = async (given: unknown): Promise<ConversationAskResult> => {

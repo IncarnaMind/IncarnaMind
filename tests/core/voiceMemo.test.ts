@@ -19,7 +19,7 @@ import {
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import { wordsAdded } from "../../src/core/meetings/memo";
-import { shownPassages, transcriptCitations } from "../helpers/citations";
+import { answerEnded, shownPassages, transcriptCitations } from "../helpers/citations";
 import { createTempDataFolder, saveProviderUnasked, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, shownWithAiText, writeMind } from "../helpers/minds";
@@ -196,6 +196,42 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
     );
     expect(await core.listConversations()).toEqual([]);
     expect((await core.listMeetings())[0]?.help).toBeNull();
+    core.close();
+  });
+
+  // protects=a recap asked from a live memo's Mind keeps the conversation's earlier replies, since a memo has no live call; fails_when=the memo's Mind is treated as a recording call and its history is dropped; no_claim=the memo's own summary text, which the models cover.
+  test("a recap asked from a live voice memo keeps the conversation's earlier replies", async () => {
+    const calls: ModelCall[] = [];
+    const model = scriptedModel((call) => {
+      calls.push(call);
+      return {
+        text: call.prompt.includes("secret word")
+          ? "The secret word is marmalade."
+          : "The memo so far is about the garden.",
+      };
+    });
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      model,
+      engine: { lines: SAID },
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const memo = await core.recordMemo();
+    record(6 * SECOND, ["microphone"]);
+    await until(core, memo.id, (transcript) => transcript.lines >= 2);
+    const first = await core.askInConversation({
+      mindId: memo.mindId,
+      text: "What is the secret word?",
+    });
+    if (!first.asked) throw new Error("Not asked.");
+    await answerEnded(core, first.answerId);
+    const recap = await core.askInConversation({
+      conversationId: first.conversation.id,
+      mindId: memo.mindId,
+      text: "Recap the last 5 minutes",
+    });
+    if (!recap.asked) throw new Error("Not asked.");
+    await answerEnded(core, recap.answerId);
+    expect(calls.at(-1)?.prompt).toContain("marmalade");
     core.close();
   });
 
