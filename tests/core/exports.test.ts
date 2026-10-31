@@ -866,17 +866,22 @@ describe("exporting a Mind", () => {
   test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {
     const { core, mind, client } = await setUp("");
     const webp = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
-    client.doc.transact(() => {
-      client.blocks.push([
-        element("paragraph", {}, [
-          element(
-            "image",
-            { src: `data:image/webp;base64,${webp}`, alt: "A tide chart", width: 40, height: 20 },
-            [],
-          ),
-        ]),
-      ]);
-    });
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: `data:image/webp;base64,${webp}`,
+              alt: "A tide chart",
+              width: 40,
+              height: 20,
+            },
+          },
+        ],
+      },
+    ]);
     await client.settled();
 
     const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
