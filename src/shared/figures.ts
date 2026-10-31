@@ -2623,6 +2623,18 @@ const lineAt = (starts: readonly number[], at: number): number => {
   return low;
 };
 
+/** The original line's offset for a position in its normalised words ("™" grows to "TM", "½" to "1⁄2"). */
+const originalOffset = (line: string, at: number): number => {
+  let seen = 0;
+  let offset = 0;
+  for (const char of line) {
+    if (seen >= at) break;
+    seen += normaliseCurrencies(char).length;
+    offset += char.length;
+  }
+  return offset;
+};
+
 /**
  * The earliest line of `written` that names which currency one of `codes` is, by the same words,
  * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`, and that
@@ -2640,7 +2652,7 @@ export function currencyNamingLine(
   const lines = written.split(LINE_BREAK);
   const starts: number[] = [];
   let start = 0;
-  for (const line of lines) {
+  for (const line of text.split(LINE_BREAK)) {
     starts.push(start);
     start += line.length + 1;
   }
@@ -2670,7 +2682,8 @@ export function currencyNamingLine(
   for (const index of [...candidates.keys()].sort((a, b) => a - b).slice(0, MOST_CLAUSE_LINES)) {
     const line = lines[index] ?? "";
     if (line.trim() === "" || (accept && !accept(line))) continue;
-    return clauseWindow(line, candidates.get(index) ?? 0, CURRENCY_LINE_CHARS_AT_MOST);
+    const within = originalOffset(line, candidates.get(index) ?? 0);
+    return clauseWindow(line, within, CURRENCY_LINE_CHARS_AT_MOST);
   }
   return null;
 }

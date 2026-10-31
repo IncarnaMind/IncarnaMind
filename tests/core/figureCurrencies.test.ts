@@ -231,13 +231,31 @@ describe("Which dollar the card names (#2226)", () => {
     ).toBeNull();
   });
 
+  // protects=a quote that names its own dollar in words needs no clause, though the Document states one (#2226); fails_when=the quote's "in USD" is not taken as naming the dollar; no_claim=the card's wording.
+  test("a quote's own currency statement needs no clause", () => {
+    expect(
+      read(
+        "The fee is US$54,000.",
+        "Amounts in USD. The fee is $54,000.",
+        "Currency: USD\nThe fee is $54,000.",
+      ),
+    ).toBeNull();
+  });
+
   // protects=the line named is the earliest in the Document, not the first its scan happens to read (#2226); fails_when=a later body mention is named over an earlier heading; no_claim=the card's wording.
   test("the earliest line that says it is the one named", () => {
-    const document =
-      "Heading lease\nAmount (AUD)\nThe rent is $64,000 a year.\nAll amounts are in AUD.";
+    const document = "Amount (A$)\n…\nAll amounts are in Australian dollars.";
+    expect(
+      read("The rent is A$54,000 a year.", "The rent is $54,000 a year.", document)?.line,
+    ).toBe("Amount (A$)");
+  });
+
+  // protects=a character NFKC makes longer before the clause ("™" is "TM") does not move or lose the line (#2226); fails_when=the line comes from the original offsets while the words are read normalised; no_claim=the card's wording.
+  test("a character that grows when normalised doesn't move the line", () => {
+    const document = `Rate lease\n${"™".repeat(10)}\nCurrency: AUD\nThe rent is $64,000 a year.`;
     expect(
       read("The rent is A$64,000 a year.", "The rent is $64,000 a year.", document)?.line,
-    ).toBe("Amount (AUD)");
+    ).toBe("Currency: AUD");
   });
 });
 
