@@ -2109,7 +2109,10 @@ const HAN = /\p{Script=Han}/u;
  */
 function heldBy(quote: string, wording: string): string | null {
   if (quote.includes(wording)) return wording;
-  const ends = [...wording.matchAll(/\s*[,，;；]/gu)].map((match) => match.index).reverse();
+  // An English comma ends a clause only before a space: 1,200 is one number.
+  const ends = [...wording.matchAll(/\s*(?:[,;](?=\s)|[，；])/gu)]
+    .map((match) => match.index)
+    .reverse();
   for (const end of ends) {
     const clause = wording.slice(0, end);
     if (clause !== "" && quote.includes(clause)) return clause;

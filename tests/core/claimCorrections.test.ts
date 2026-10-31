@@ -147,6 +147,11 @@ describe("A correction in a check reply", () => {
       "within 30 days after the Lease ends",
     ],
     ["30日内 [第1页]（租赁合同）；“押金在租期届满后30日内退还”", "30日内"],
+    [
+      'within 30 days after the Lease ends [p. 1] "The Landlord shall return it within 30 days after the Lease ends"',
+      "within 30 days after the Lease ends",
+    ],
+    ["30日内 [第1页] “租期届满后30日内无息退还”", "30日内"],
     ["the 2026 liquidity (and capital) strategy", "the 2026 liquidity (and capital) strategy"],
   ])("reads the To value %s without a note after it", (to, wording) => {
     const read = readVerdict(
@@ -958,6 +963,28 @@ describe("A To line that goes on with a second Document's words", () => {
     expect(result.verdict).toBe("contradicted");
     expect(correctionIn(result)?.choices).toMatchObject([{ wording, evidence: { quote } }]);
   });
+});
+
+test("a figure's wording in another language than its quote is not cut at a thousands separator (#1481)", async () => {
+  const quote = "供应商每季度交付1,200件。";
+  const { result } = await checkConflict({
+    claim: "供应商每季度交付1,500件。",
+    reply: [
+      "Verdict: contradicted",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: none, same",
+      "The agreement gives another quantity.",
+      "Change 1: 1,500件",
+      "To 1: 1,200 units each quarter [^1]",
+    ].join("\n"),
+    citations: [{ marker: 1, quote }],
+    files: [{ name: "供货协议.md", contents: quote }],
+    dates: ["2026-01-01T00:00:00.000Z"],
+  });
+
+  expect(result.verdict).toBe("contradicted");
+  expect(correctionIn(result)).toBeUndefined();
 });
 
 describe("A wording that goes on past its quote", () => {

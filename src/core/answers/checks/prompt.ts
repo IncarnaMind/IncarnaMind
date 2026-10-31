@@ -778,12 +778,16 @@ const PAIRED_QUOTES = /^(?:"(.+)"|“(.+)”|'(.+)'|‘(.+)’|「(.+)」|『(.+
 
 const NOTE = String.raw`(?:\([^()]*\)|\[[^[\]]*\]|（[^（）]*）)`;
 
+/** What follows a value's notes: other words after a separator, or a quote. */
+const AFTER_NOTES = String.raw`(?:[;；,，]\s*\S|["“「『'‘]).*`;
+
 /**
- * A value without the notes a model wrote after it, and the quote it gave after them: "为期三年
- * (the grant letter, …)", "$14,250 [P1, p. 1]", "within 30 days after the Lease ends [p. 1]
- * (Harbor Street Lease); "The Landlord shall …"" from Claude Haiku 5.5 (#1481).
+ * A value without the notes a model wrote after it, and the words or quote it gave after them:
+ * "为期三年 (the grant letter, …)", "$14,250 [P1, p. 1]", "within 30 days after the Lease ends
+ * [p. 1] (Harbor Street Lease); 租期届满后…", "… [p. 1] "The Landlord shall …"" from Claude
+ * Haiku 5.5 (#1481).
  */
-const AFTER_VALUE = new RegExp(String.raw`\s+${NOTE}(?:\s*${NOTE})*\s*(?:[;；,，]\s*\S.*)?$`, "su");
+const AFTER_VALUE = new RegExp(String.raw`\s+${NOTE}(?:\s*${NOTE})*\s*(?:${AFTER_NOTES})?$`, "su");
 
 const withoutNote = (value: string): string => value.replace(AFTER_VALUE, "");
 
@@ -793,8 +797,8 @@ const unquoted = (words: string): string => {
   return match?.slice(1).find((each) => each !== undefined) ?? words;
 };
 
-/** A second Document's words after a value's notes, which the check marks with their own quote. */
-const OTHER_WORDS = new RegExp(String.raw`(\s+${NOTE}(?:\s*${NOTE})*\s*)[;；,，]\s*\S.*$`, "su");
+/** A second Document's words or a quote after a value's notes, which the check marks as its own. */
+const OTHER_WORDS = new RegExp(String.raw`(\s+${NOTE}(?:\s*${NOTE})*\s*)${AFTER_NOTES}$`, "su");
 
 /**
  * Each To line's marker by its number: the quote its own words end with, read before markers are
