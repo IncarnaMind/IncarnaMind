@@ -4425,6 +4425,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const access = accessFor(mind.kind, content.contentVersion(mind.id));
       if (access === "read-only") return { mind, access, state: content.storedState(mind.id) };
+      await wordImports.convertParts(mind.id);
       rebuildFigureRetention(mind.id);
       answers.settleOrphans(mind.id);
       checks.settleStale(mind.id);

@@ -315,10 +315,17 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   /** The open request whose highlight the view should move to once it is drawn. */
   const pendingHighlight = useRef<number | null>(null);
   /**
-   * The open request the view last moved to the quote for: finding the quote
-   * again (a scanned page's text arriving) washes it, but leaves the view where it is.
+   * The open request whose quote the view no longer moves to: it moved there already, or the
+   * User moved the view first. Finding the quote again (a scanned page's text arriving) washes
+   * it, but leaves the view where it is.
    */
   const shownHighlight = useRef<number | null>(null);
+  const appliedRequest = useRef<number | null>(null);
+  /** The quote is found and drawn after the page opens: a place the User went to before it stays. */
+  const keepUsersPlace = useCallback(() => {
+    pendingHighlight.current = null;
+    shownHighlight.current = appliedRequest.current;
+  }, []);
   const frame = useRef(0);
   /** The zoom shown, or about to be: a zoom by wheel or pinch goes on from it. */
   const shownZoom = useRef(1);
@@ -366,6 +373,13 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     },
     [pageCount],
   );
+  const goToPageAsked = useCallback(
+    (page: number) => {
+      keepUsersPlace();
+      goToPage(page);
+    },
+    [keepUsersPlace, goToPage],
+  );
 
   /** Works out the current page (the one taking most of the view) and the anchor. */
   const measure = useCallback(() => {
@@ -385,7 +399,10 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       setCurrentPage(placed.current.page);
       return;
     }
-    placed.current = null;
+    if (placed.current) {
+      placed.current = null;
+      keepUsersPlace();
+    }
     let best = low + 1;
     let bestVisible = -1;
     for (let index = low; index < elements.length; index++) {
@@ -400,7 +417,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       }
     }
     setCurrentPage(best);
-  }, []);
+  }, [keepUsersPlace]);
 
   const onScroll = () => {
     if (frame.current) return;
@@ -501,7 +518,6 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
 
   // Each open request goes to the first page of its range (a plain reopen keeps the place).
   // Read again, the file opens where the view was, or else at the range.
-  const appliedRequest = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (appliedRequest.current === target.request) return;
     const first = appliedRequest.current === null;
@@ -665,7 +681,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
           )
         }
       >
-        <PageNavigation current={currentPage} count={pageCount} onGo={goToPage} />
+        <PageNavigation current={currentPage} count={pageCount} onGo={goToPageAsked} />
         <HeaderDivider />
         <ZoomControls
           percent={zoomPercent}
@@ -682,7 +698,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       <UnreadPagesLine document={document} />
       <div className="flex min-h-0 flex-1">
         {hasOutline && outlineOpen && (
-          <OutlinePanel items={outline} currentPage={currentPage} onGoToPage={goToPage} />
+          <OutlinePanel items={outline} currentPage={currentPage} onGoToPage={goToPageAsked} />
         )}
         <div
           ref={scroller}

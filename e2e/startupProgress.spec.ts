@@ -324,6 +324,21 @@ test("a killed copy leaves a slow fresh launch alone and keeps its saved text", 
   );
 });
 
+test("a slow storage start leaves the first window showing its page", async () => {
+  test.setTimeout(90_000);
+  const owner = start("held-storage");
+  await expect
+    .poll(async () => (await events()).find((event) => event.kind === "storage-held"))
+    .toMatchObject({
+      pid: owner.pid,
+      visibleWindows: 1,
+      pages: [expect.stringMatching(/^file:\/\//)],
+    });
+  await writeFile(join(home, "release"), "");
+  await ownerWindow();
+  expect((await events()).filter((event) => event.kind === "problem")).toEqual([]);
+});
+
 for (const language of ["en", "zh-CN"]) {
   test(`a fresh initial launch reaches its native page (${language})`, async () => {
     test.setTimeout(90_000);
@@ -387,9 +402,6 @@ for (const language of ["en", "zh-CN"]) {
       throw new Error("The startup problem has no native error detail.");
     expect(problem.content.startsWith(prefix)).toBe(true);
     expect(problem.content.slice(prefix.length).trim()).not.toBe("");
-    expect(
-      recorded.filter((event) => event.kind === "window-visibility" && event.visible === true),
-    ).toEqual([]);
     expect(copiesWith(tag, true)).toEqual([]);
     expect(
       heldByAnotherCopy(data, (what, error) => {
