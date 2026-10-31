@@ -4030,20 +4030,13 @@
       color: var(--color-ink);
     }
   }
-  /* In the assistant's narrower column the choices take less room, so Deny keeps its place at their row's end. */
+  /* In the assistant's narrower column the choices take less room; the system's font is a little wider than the boards' Source Sans 3, so they tighten to keep Deny at their row's end. */
   .assistant-answer .approval-actions {
-    gap: 4px;
-    padding-right: 8px;
-  }
-  /* Deny has no frame: its padding is only its hit area, and the others need the room. */
-  .assistant-answer .approval-button--ghost {
-    padding-inline: 8px;
+    gap: 2px;
+    padding-right: 6px;
   }
   .assistant-answer .approval-button {
-    padding: 0 10px;
-  }
-  .assistant-answer .approval-button--primary {
-    padding: 0 12px;
+    padding: 0 8px;
   }
   /* "Always run": the risk, in the choices' section, before it can be confirmed. */
   .approval-warning {

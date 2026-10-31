@@ -204,8 +204,9 @@ test("the app and a Mind's writing are in the system's font and its scale, and i
           spacing: Number.parseFloat(style.letterSpacing) || 0,
         };
       });
+  // Chromium writes BlinkMacSystemFont as a quoted system-ui in the computed value.
   const system =
-    /^-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif$/;
+    /^-apple-system, (?:BlinkMacSystemFont|"system-ui"), "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif$/;
 
   // The sidebar, the assistant and the writing are the system's font, which nothing bundled draws.
   for (const family of [
