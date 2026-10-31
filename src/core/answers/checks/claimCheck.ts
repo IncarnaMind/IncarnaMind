@@ -27,12 +27,13 @@ import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/c
 import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
-import { formatLocation, locationOf, quoteInUnits } from "../../../shared/locations";
+import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { sentenceSpans } from "../../../shared/sentences";
 import type {
   CheckedVersion,
   CheckFigure,
   Citation,
+  CitationLocation,
   ClaimCalculation,
   ClaimCheckFailure,
   ClaimCheckPart,
@@ -401,6 +402,32 @@ function checkedTextOf(
   };
 }
 
+/**
+ * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
+ * Document (#2226).
+ */
+function lineLocation(
+  units: ReturnType<ClaimCheckDependencies["documents"]["pageTexts"]>,
+  line: string,
+  matching: ReturnType<typeof matchingOf>,
+): CitationLocation | null {
+  const ranges = quoteInUnits(units, line, matching);
+  if (!ranges) return null;
+  const { starts } = joinUnits(units);
+  const covered = units.map((unit, index) => {
+    const start = starts[index] as number;
+    return ranges.some((range) => range.start < start + unit.text.length && range.end > start);
+  });
+  const first = covered.indexOf(true);
+  const last = covered.lastIndexOf(true);
+  if (first < 0 || last < 0) return null;
+  const offset = starts[first] as number;
+  return locationOf(
+    units.slice(first, last + 1),
+    ranges.map((range) => ({ start: range.start - offset, end: range.end - offset })),
+  );
+}
+
 /** Supported, naming where the Document says which dollar a bare "$" in the claim is (#2226). */
 function withDollarClause(
   deps: ClaimCheckDependencies,
@@ -424,8 +451,7 @@ function withDollarClause(
   const source = found ? checked.find((each) => each.text === found.text)?.citation : undefined;
   if (!found || !source) return result;
   const units = deps.documents.pageTexts(source.documentId, source.contentHash, null, null);
-  const ranges = quoteInUnits(units, found.line, matchingOf(units));
-  const location = ranges ? locationOf(units, ranges) : null;
+  const location = lineLocation(units, found.line, matchingOf(units));
   const where = location
     ? formatLocation(location, (key, params) => translate(deps.language(), key, params))
     : null;

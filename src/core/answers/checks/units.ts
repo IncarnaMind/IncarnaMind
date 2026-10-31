@@ -148,28 +148,31 @@ export function dollarClause(
   sources: readonly DollarClauseSource[],
 ): DollarClause | null {
   const own = documentFigureContext([{ text: claim }]);
-  const currencyFigures = readFigures(claim, own).filter((figure) =>
-    [...currenciesOf(figure), ...currenciesOfSign(figure)].some(isDollar),
+  const pairs = readFigures(claim, own).flatMap((figure) =>
+    [...new Set([...currenciesOf(figure), ...currenciesOfSign(figure)])]
+      .filter(isDollar)
+      .map((code) => ({ code, value: figure.value })),
   );
-  const wanted = new Set(
-    currencyFigures
-      .flatMap((figure) => [...currenciesOf(figure), ...currenciesOfSign(figure)])
-      .filter(isDollar),
-  );
-  if (wanted.size === 0) return null;
-  const values = new Set(currencyFigures.map((figure) => figure.value));
+  if (pairs.length === 0) return null;
   for (const { text, quote } of sources) {
     const document = text.document();
     const context = documentFigureContext([{ text: document }]);
     const onQuote = readFigures(quote, context);
     const named = namedCurrencies(quote, context, onQuote, true);
-    const saysWhich = onQuote.some(
-      (figure) =>
-        values.has(figure.value) &&
-        !bareDollar(figure) &&
-        currenciesOf(figure).some((code) => wanted.has(code)),
+    const beside = onQuote.filter((figure) => !bareDollar(figure));
+    // The quote settles a dollar only for its own figure: another figure's "US$5,000" says nothing of a bare "$54,000".
+    const wanted = new Set(
+      pairs
+        .filter(
+          ({ code, value }) =>
+            !named.has(code) &&
+            !beside.some(
+              (figure) => sameValue(figure.value, value) && currenciesOf(figure).includes(code),
+            ),
+        )
+        .map(({ code }) => code),
     );
-    if (saysWhich || [...named].some((code) => wanted.has(code))) continue;
+    if (wanted.size === 0) continue;
     const line = currencyNamingLine(document, context, wanted);
     if (line !== null) return { text, line };
   }

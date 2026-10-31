@@ -6,7 +6,7 @@
  * left alone.
  */
 import { describe, expect, test } from "vitest";
-import { type CheckedText, unitNotStated } from "../../src/core/answers/checks/units";
+import { type CheckedText, dollarClause, unitNotStated } from "../../src/core/answers/checks/units";
 import { translate } from "../../src/shared/i18n";
 import {
   checkGenerate,
@@ -17,6 +17,7 @@ import {
 } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 const read = (cited: string, document = cited): CheckedText[] => [
   { cited: () => cited, document: () => document },
@@ -204,6 +205,40 @@ describe("Checking a bare $ and ¥ in Chinese text (#2226)", { timeout: 60_000 }
   });
 });
 
+describe("Which dollar the card names (#2226)", () => {
+  const read = (claim: string, quote: string, document: string) =>
+    dollarClause(claim, [{ quote, text: { cited: () => quote, document: () => document } }]);
+
+  // protects=the quote settles a dollar only for its own figure, so another figure's named dollar never hides this figure's clause, and a quote that names its figure's dollar adds no line; fails_when=the quote's "US$5,000" hides the rent's Australian-dollar clause, or a quote that names its own dollar is named again; no_claim=the card's wording.
+  test("another figure's named dollar doesn't hide the clause", () => {
+    const document =
+      "All amounts are in Australian dollars.\nThe rent is $54,000 and the deposit is US$5,000.";
+    expect(
+      read(
+        "The rent is A$54,000 and the deposit is US$5,000.",
+        "The rent is $54,000 and the deposit is US$5,000.",
+        document,
+      )?.line,
+    ).toBe("All amounts are in Australian dollars.");
+    expect(
+      read(
+        "The fee is US$54,000.",
+        "The fee is $54,000 USD.",
+        "All amounts are in US dollars.\nThe fee is $54,000 USD.",
+      ),
+    ).toBeNull();
+  });
+
+  // protects=the line named is the earliest in the Document, not the first its scan happens to read (#2226); fails_when=a later body mention is named over an earlier heading; no_claim=the card's wording.
+  test("the earliest line that says it is the one named", () => {
+    const document =
+      "Heading lease\nAmount (AUD)\nThe rent is $64,000 a year.\nAll amounts are in AUD.";
+    expect(
+      read("The rent is A$64,000 a year.", "The rent is $64,000 a year.", document)?.line,
+    ).toBe("Amount (AUD)");
+  });
+});
+
 describe("Checking where a Document says which dollar (#2226)", { timeout: 60_000 }, () => {
   const supported = (quote: string) => ({ verdict: "supported" as const, quote, says: quote });
   const which = (document: string, amount: string, zh: boolean) =>
@@ -240,7 +275,7 @@ describe("Checking where a Document says which dollar (#2226)", { timeout: 60_00
   const FEE = { name: "费用.txt", contents: "费用\n服务费用为¥54,000。\n" };
   const alone = async (
     claim: string,
-    document: { name: string; contents: string },
+    document: { name: string; contents: string | Uint8Array },
     plan: Plan,
     language: "en" | "zh-CN",
   ) => {
@@ -335,6 +370,32 @@ describe("Checking where a Document says which dollar (#2226)", { timeout: 60_00
     expect(heading.currencyClause).toBeUndefined();
     expect(heading.parts?.[0]?.currencyClause).toBeUndefined();
   });
+
+  // protects=a clause on another page of a PDF is located on its own page, never over the Document's whole range (#2226); fails_when=the card names pages 1–2 for a clause on page 1; no_claim=the printed page name.
+  test.each(["en", "zh-CN"] as const)(
+    "locates a PDF's clause on its own page (%s)",
+    async (language) => {
+      const found = await alone(
+        "The rent is A$64,000 a year.",
+        {
+          name: "Defined lease.pdf",
+          contents: buildPdf([
+            { lines: ["Definitions", "“$” means Australian dollars."] },
+            { lines: ["Rent", "The rent is $64,000 a year."] },
+          ]),
+        },
+        supported("The rent is $64,000 a year"),
+        language,
+      );
+      expect(found).toMatchObject({
+        verdict: "supported",
+        currencyClause:
+          language === "zh-CN"
+            ? "文档注明了币种（Defined lease · 第 1 页）：“$” means Australian dollars."
+            : "The Document states the currency (Defined lease · p. 1): “$” means Australian dollars.",
+      });
+    },
+  );
 });
 
 describe("Which dollar a bare $ is, wherever it is written (#2226)", () => {

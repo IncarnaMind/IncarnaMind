@@ -2609,23 +2609,23 @@ export function currencyNamingLine(
   const text = normaliseCurrencies(written);
   const settled = settle(context);
   const lines = written.split(LINE_BREAK);
+  let earliest: number | null = null;
   for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
     if (!codes.has(code)) continue;
-    if (at < 0) {
-      const line = lines.find(
-        (each) =>
-          UNIT_LINE.test(each) &&
-          readStatedUnits(each, context).some(
-            (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
-          ),
-      );
-      if (line !== undefined) return line.trim();
-      continue;
-    }
-    const line = lines[text.slice(0, at).split(LINE_BREAK).length - 1]?.trim();
-    if (line) return line;
+    const index =
+      at < 0
+        ? lines.findIndex(
+            (each) =>
+              UNIT_LINE.test(each) &&
+              readStatedUnits(each, context).some(
+                (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
+              ),
+          )
+        : text.slice(0, at).split(LINE_BREAK).length - 1;
+    if (index < 0 || !lines[index]?.trim()) continue;
+    earliest = earliest === null ? index : Math.min(earliest, index);
   }
-  return null;
+  return earliest === null ? null : (lines[earliest]?.trim() ?? null);
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */
