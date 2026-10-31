@@ -274,14 +274,14 @@ describe("The provider catalog", () => {
       ],
       ["xai", "grok-4.3", [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }]],
       ["xai", "grok-4.7", [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }]],
-      ["qwen", "qwen3.7-plus", [{ above: 256_000, input: 6, output: 24 }]],
+      ["qwen", "qwen3.7-plus", [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }]],
       ["qwen/intl", "qwen3.7-plus", [{ above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 }]],
       [
         "qwen",
         "qwen3.7-flash",
         [
-          { above: 32_000, input: 0.6, output: 2.4 },
-          { above: 256_000, input: 1.2, output: 4.8 },
+          { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+          { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
         ],
       ],
       [

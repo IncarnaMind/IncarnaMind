@@ -150,17 +150,21 @@ export const OVERRIDES: CatalogOverrides = {
       },
     },
     qwen: {
-      // Beijing, from Alibaba Cloud's price page, where K is 1,000.
+      // Beijing, from Alibaba Cloud's price page, where K is 1,000. A cache hit is the implicit
+      // cache's, 20% of the input price: requests to Qwen carry no explicit cache marks.
       "qwen3.7-plus": {
         structuredOutput: "json_schema",
-        price: { ...yuan(2, 8), tiers: [{ above: 256_000, input: 6, output: 24 }] },
+        price: {
+          ...yuan(2, 8, 0.4),
+          tiers: [{ above: 256_000, input: 6, output: 24, cacheRead: 1.2 }],
+        },
       },
       "qwen3.7-flash": {
         price: {
-          ...yuan(0.2, 0.8),
+          ...yuan(0.2, 0.8, 0.04),
           tiers: [
-            { above: 32_000, input: 0.6, output: 2.4 },
-            { above: 256_000, input: 1.2, output: 4.8 },
+            { above: 32_000, input: 0.6, output: 2.4, cacheRead: 0.12 },
+            { above: 256_000, input: 1.2, output: 4.8, cacheRead: 0.24 },
           ],
         },
       },

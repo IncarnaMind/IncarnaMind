@@ -1350,29 +1350,30 @@ describe("A model priced by prompt length is metered at its tier (#2285)", () =>
       route: "Beijing, in yuan",
       provider: { kind: "qwen" as const, modelId: "qwen3.7-flash" },
       currency: "CNY",
-      // ¥0.2 and ¥0.8; ¥0.6 and ¥2.4 over 32K; ¥1.2 and ¥4.8 over 256K.
-      costs: [0.0072, 0.0216006, 0.3120012],
+      // ¥0.2 and ¥0.8; ¥0.6 and ¥2.4 over 32K, a cache hit ¥0.12; ¥1.2 and ¥4.8 over 256K.
+      costs: [0.0072, 0.0216006, 0.3120012, 0.012],
     },
     {
       route: "Singapore, in dollars",
       provider: { kind: "qwen" as const, endpoint: "intl", modelId: "qwen3.7-flash" },
       currency: "USD",
-      // $0.03 and $0.13; $0.10 and $0.40 over 32K; $0.20 and $0.80 over 256K.
-      costs: [0.00109, 0.0036001, 0.0520002],
+      // $0.03 and $0.13; $0.10 and $0.40 over 32K, a cache hit $0.02; $0.20 and $0.80 over 256K.
+      costs: [0.00109, 0.0036001, 0.0520002, 0.002],
     },
     {
       route: "OpenRouter",
       provider: { kind: "openrouter" as const, modelId: "qwen/qwen3.7-flash" },
       currency: "USD",
-      costs: [0.00109, 0.0036001, 0.0520002],
+      costs: [0.00109, 0.0036001, 0.0520002, 0.002],
     },
   ])(
-    "Qwen 3.7 Flash ($route) pays its base prices up to 32,000 prompt tokens, and more over 32,000 and over 256,000",
+    "Qwen 3.7 Flash ($route) pays its base prices up to 32,000 prompt tokens, and more over 32,000 and over 256,000, cache hits included",
     async ({ provider, currency, costs }) => {
       const counts = [
         { input: 32_000, output: 1_000 },
         { input: 32_001, output: 1_000 },
         { input: 256_001, output: 1_000 },
+        { input: 40_000, cached: 30_000, output: 1_000 },
       ];
       const { core, dataDir } = await cloudCore(reportingModel(counts), provider);
 
