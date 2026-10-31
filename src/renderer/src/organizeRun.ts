@@ -64,7 +64,7 @@ const holdsAny = (folderId: string) => {
  * The Folders Organize made that nothing went into, moved to Recently deleted: their ids. Those
  * the User has put something in since are theirs, and stay.
  */
-async function removeEmpty(made: readonly LibraryGroup[]): Promise<string[]> {
+export async function removeEmpty(made: readonly LibraryGroup[]): Promise<string[]> {
   await useAppStore.getState().refreshLibrary();
   const live = new Set((useAppStore.getState().library?.groups ?? []).map((group) => group.id));
   const empty = made.filter((group) => live.has(group.id) && !holdsAny(group.id));

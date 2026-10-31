@@ -372,6 +372,11 @@ function ModelRow({
           )}
         </span>
         <span className={choiceTextClass}>{costText(option.cost, t)}</span>
+        {provider && option.group !== "local" && (
+          <span className={choiceTextClass} data-testid="tagging-option-sends">
+            {t("setup.sorting.sends", { service: provider })}
+          </span>
+        )}
       </span>
     </label>
   );

@@ -98,6 +98,7 @@ test("after linking a folder, the Library and ⌘K offer Organize, which propose
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1400, 900);
+    await setLanguage(window, "en");
     await sortWithLocalModel(window);
     await files(2);
     await window.evaluate(async (path) => {

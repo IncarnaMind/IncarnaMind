@@ -3,7 +3,7 @@ import type { DocumentGroupAssignment, LibraryGroup } from "../../core/api";
 import { organizeModelOf } from "../../shared/libraryModels";
 import { core } from "./core";
 import { useNotices } from "./notices";
-import { sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
+import { removeEmpty, sayWhenOrganized, useOrganizeAsk } from "./organizeRun";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
 
 /** Whether Organize is reading the Documents to propose Folders, before it sorts them. */
@@ -36,6 +36,8 @@ export async function organizeDocuments(
   /** What Undo goes back to, when it was read before something set the Documents going. */
   read?: ReadonlyMap<string, DocumentGroupAssignment>,
 ): Promise<void> {
+  // A second run while the first proposes would propose again, and its Undo would miss Folders.
+  if (useProposing.getState().proposing) return;
   const app = useAppStore.getState();
   const library = app.library;
   const model = library ? organizeModelOf(library.settings) : null;
@@ -68,7 +70,13 @@ export async function organizeDocuments(
       return;
     }
   }
-  await core.classifyDocuments([...ids]);
-  await app.refreshLibrary();
+  try {
+    await core.classifyDocuments([...ids]);
+    await app.refreshLibrary();
+  } catch (error) {
+    // Nothing would offer to take back the Folders made for a run that never started.
+    if (made.length > 0) await removeEmpty(made);
+    throw error;
+  }
   sayWhenOrganized(ids, before, made);
 }
