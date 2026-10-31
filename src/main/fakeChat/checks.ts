@@ -16,6 +16,7 @@
 import { WHOLE_READ } from "../../core/answers/checks/absence";
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { readFigures } from "../../shared/figures";
+import { KEPT_TO_THE_QUOTE } from "./answers";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import {
   type GenerateOptions,
@@ -105,6 +106,14 @@ export function fakeAbsence(options: GenerateOptions): string | null {
   });
 }
 
+/** The record of the first quote the check is given, on the Passage shown with it that holds it. */
+function keptToItsQuote(first: string): Record<string, unknown> | null {
+  const quote = /^- [^\n]*?: “([^\n]+)”$/m.exec(first)?.[1];
+  if (!quote) return null;
+  const passage = passagesIn(first).find((each) => each.text.includes(quote));
+  return passage ? (recordFor(passage, quote, 1)?.record ?? null) : null;
+}
+
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
 
 const withAbsence = (sentence: string, verdict: string): Reply => ({
@@ -121,6 +130,8 @@ const withAbsence = (sentence: string, verdict: string): Reply => ({
  * search again before it says a sentence isn't found, it searches the
  * sentence's longer words and numbers alone.
  * Offered calculate, a sentence that states a multiple has it worked out first.
+ * The scripted Answers' own sentences (`KEPT_TO_THE_QUOTE`), checked before the Answer ends
+ * (#2311), are supported by the quote they cite.
  */
 export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
   // The sentence is in the first message: the check may have been asked to search again since.
@@ -144,6 +155,11 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
   if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
+  const kept = KEPT_TO_THE_QUOTE.test(sentence) ? keptToItsQuote(first) : null;
+  if (kept && toolResults(prompt, "cite").length === 0) {
+    return { tool: "cite", input: { citations: [kept] } };
+  }
+  if (kept) return withAbsence(sentence, "Verdict: supported\nThe Document says so [^1].");
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {

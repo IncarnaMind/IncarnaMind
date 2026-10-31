@@ -198,10 +198,33 @@ export function failingStreamModel(statusCode: number | undefined, message: stri
 }
 
 /** What a model was asked, simplified: the instructions, then each message's role and text. */
-/** The index of the model's last request in an Answer itself, not the one request for its Citations (#760). */
+type StreamCall = MockLanguageModelV4["doStreamCalls"][number];
+
+/** A request that checks one of an Answer's sentences against what it cites, before it ends (#2311). */
+const checksASentence = (call: StreamCall) =>
+  call.prompt.some(
+    (message) => message.role === "system" && message.content.startsWith("You check one sentence"),
+  );
+
+/** The requests an Answer itself sent, without the checks of its sentences (#2311). */
+export const answerRequests = (model: MockLanguageModelV4): StreamCall[] =>
+  model.doStreamCalls.filter((call) => !checksASentence(call));
+
+/** Where an Answer's own request `nth` (from the end when negative) is among all the model's requests. */
+export function answerRequestIndex(model: MockLanguageModelV4, nth: number): number {
+  const call = answerRequests(model).at(nth);
+  if (!call) throw new Error(`No Answer sent request ${nth}.`);
+  return model.doStreamCalls.indexOf(call);
+}
+
+/**
+ * The index of the model's last request in an Answer itself: not the one request for its
+ * Citations (#760), nor a check of its sentences (#2311).
+ */
 export function lastAnswerCall(model: MockLanguageModelV4): number {
   return model.doStreamCalls.findLastIndex(
     (call) =>
+      !checksASentence(call) &&
       !call.prompt.some(
         (message) => message.role === "system" && message.content === CITE_RETRY_INSTRUCTIONS,
       ),

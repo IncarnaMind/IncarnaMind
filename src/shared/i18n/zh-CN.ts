@@ -5852,6 +5852,8 @@ export const zhCN = {
   "steps.check.allFound": "都找到了",
   "steps.check.found": "找到了",
   "steps.check.notFound": "{count} 处未找到",
+  "steps.check.needALook": "{count} 处需要留意",
+  "steps.check.needALook.one": "1 处需要留意",
   "steps.askedAgain.calculate": "已重新回答：回答中称已计算数字，但当时并未运行计算",
   "steps.askedAgain.search": "已重新回答：回答中称已搜索，但当时并未运行搜索",
   "steps.failed.search": "无法搜索{scope}",

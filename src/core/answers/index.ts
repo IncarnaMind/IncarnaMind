@@ -102,6 +102,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ChatReadiness,
+  type Citation,
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
@@ -202,6 +203,7 @@ import {
 import { answerLanguage, createCalculationSession, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
+import type { AnswerCheckInput, SupportResult } from "./checks/answerCheck";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -557,6 +559,11 @@ export interface AnswersOptions {
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   providerExists(providerId: string): boolean;
+  /**
+   * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
+   * each checked marker's result; null when none could be checked.
+   */
+  checkAnswer?(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null>;
   /** The default model, before its readiness is checked. */
   defaultModel(): ChatModelChoice | null;
   /** Whether this model reads pictures: one that can't is sent none, even one the User selected (#1937). */
@@ -1506,7 +1513,7 @@ export function createAnswers(options: AnswersOptions) {
               withCitations(markdownToBlocks(text, { streaming: !final }), (marker) => {
                 const citation = citationOf(marker);
                 if (citation && !found.some((each) => each.marker === marker)) {
-                  found.push({ marker, ...citation });
+                  found.push({ marker, ...withSupport(marker, citation) });
                 }
                 return null;
               });
@@ -1526,6 +1533,69 @@ export function createAnswers(options: AnswersOptions) {
       } catch (error) {
         options.reportError(error);
         return false;
+      }
+    };
+
+    let settled = false;
+    /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      markdown = session.citeWrittenIds(markdown, notKept);
+      // The check runs once, now; its results are stored with each Citation, and each figure's input.
+      try {
+        session.check();
+        figures.check();
+        const translated = session.checkQuotedWords(
+          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
+        );
+        if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
+      } catch (error) {
+        options.reportError(error);
+      }
+      // A marker no Citation backs is not kept in the text, and each is counted for the summary.
+      markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+    };
+
+    /** What the check of its sentences made of each checked marker's Citation (#2311). */
+    let sentenceChecks: ReadonlyMap<number, SupportResult> = new Map();
+    const withSupport = (marker: number, citation: Citation): Citation => {
+      const checked = sentenceChecks.get(marker);
+      if (!checked || checked.check === "found") return citation;
+      return {
+        ...citation,
+        check: checked.check,
+        checkReason: null,
+        ...(checked.verdict && { verdict: checked.verdict }),
+      };
+    };
+    /**
+     * The User reads an Answer in the assistant by its Citations' checks: one whose quote is found
+     * shows a green check, which its sentence must earn (#2311). An Answer read elsewhere is
+     * checked where it lands: in a Note, by its checks; by an outside agent or a Task, as they do.
+     */
+    const checkSupport = async (checking: () => void) => {
+      if (!options.checkAnswer || place.conversationId === undefined || flow !== "question") return;
+      settle();
+      const text = withoutFootnoteDefinitions(markdown);
+      const citations = [...new Set(markersIn(text))].flatMap((marker) => {
+        const citation = session.finalCitation(marker);
+        return citation ? [{ marker, ...citation }] : [];
+      });
+      if (!citations.some((each) => each.check === "found")) return;
+      checking();
+      try {
+        sentenceChecks =
+          (await options.checkAnswer({
+            text,
+            citations,
+            figures: placedFigures(text, true).figures,
+            documentIds: input.documentIds,
+            model,
+            signal: controller.signal,
+          })) ?? new Map();
+      } catch (error) {
+        options.reportError(error);
       }
     };
 
@@ -1551,20 +1621,7 @@ export function createAnswers(options: AnswersOptions) {
           ]),
         );
       }
-      markdown = session.citeWrittenIds(markdown, notKept);
-      // The check runs once, now; its results are stored with each Citation, and each figure's input.
-      try {
-        session.check();
-        figures.check();
-        const translated = session.checkQuotedWords(
-          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
-        );
-        if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
-      } catch (error) {
-        options.reportError(error);
-      }
-      // A marker no Citation backs is not kept in the text, and each is counted for the summary.
-      markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+      settle();
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
       if (placed.figures.length > 0 || placed.missing > 0) {
@@ -3146,6 +3203,12 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       settleMinds(outcome.status === "failed");
+      if (outcome.status === "done" && !finished) {
+        await checkSupport(() => {
+          activity = "checking-quotes";
+          showPhase();
+        });
+      }
       finish(outcome);
     };
     inFlow(flow, run).catch((error: unknown) => {

@@ -1878,11 +1878,12 @@ export interface WordExportReport {
  * sections, blocks of rows or of lines; see src/shared/units.ts), once, when
  * the Answer finishes. "found" means the quote is there, not that it supports
  * the sentence.
- * - "checking": the Answer is still being written.
+ * - "checking": the Answer is still being written, or its sentences checked.
  * - "found", "not-found": see `checkReason` for why it wasn't found.
  * - "cant-check": there is no text to look in (see `checkReason`).
  * - "unsupported", "contradicted": the verdict of checking the claim itself against
- *   the Documents, not only its quote (`verdict` says what the evidence says).
+ *   the Documents, not only its quote (`verdict` says what the evidence says). An Answer in the
+ *   assistant checks its sentences so before it ends (#2311): "found" then also means supported.
  */
 export type CitationCheck =
   | "checking"
@@ -2188,6 +2189,8 @@ export interface Citation {
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
   quotedWords?: QuotedWords;
+  /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
+  verdict?: string | null;
 }
 
 /**
@@ -6582,7 +6585,8 @@ export interface AnswerDelta extends AnswerPlace {
  * is loading the local model; "searching", the User's Documents are being
  * searched; "writing", the model is at work; "checking-quotes", a local model
  * that answered with structured output is asked once more for the quotes of
- * its Citations that the check didn't find (ADR-0007); "checking-figures", it
+ * its Citations that the check didn't find (ADR-0007), or an Answer in the
+ * assistant checks its sentences against what they cite (#2311); "checking-figures", it
  * is asked once more for the calculated figures it gave that couldn't be
  * worked out (ADR-0021); "checking-claims", the quick model is checking the
  * reply's claims of changes against what the Tools did.

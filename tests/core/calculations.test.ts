@@ -33,7 +33,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { askAndEnd, isAnswer, QWEN35, setUpLocalModel } from "../helpers/localModels";
 import { answerIn, question, writeMind } from "../helpers/minds";
-import { promptOf, scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, promptOf, scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxPackage } from "../helpers/office";
 import { type OllamaChatReply, startOllamaServer } from "../helpers/ollama";
 import { buildPdf } from "../helpers/pdf";
@@ -138,7 +138,7 @@ function passageOf(passages: readonly ShownPassage[], name: string): string {
 
 /** What each call of `tool` told the model, oldest first, as the model's last request shows them. */
 function told(model: MockLanguageModelV4, tool: string): string[] {
-  const last = model.doStreamCalls.at(-1);
+  const last = answerRequests(model).at(-1);
   if (!last) throw new Error("The model wasn't asked anything.");
   const texts: string[] = [];
   for (const message of last.prompt) {
@@ -400,7 +400,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
 
     const { answer } = await askAndRead(core, "How much did Acme's revenue grow in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answerRequests(model)).toHaveLength(3);
     expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4% in 2025, to $1,482.6 million.");
     expect(answer.figures).toMatchObject([
       { marker: 1, inputs: [{ citation: { check: "found" } }, { citation: { check: "found" } }] },
@@ -2161,7 +2161,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
       expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
     },
@@ -2188,7 +2188,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme's margin change in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.figures.map((figure) => figure.shown)).toEqual(["2.3 percentage points"]);
     },
   );
@@ -2225,7 +2225,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
     },
   );
@@ -2264,7 +2264,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(2);
+      expect(answerRequests(model)).toHaveLength(2);
       expect(answer.text).toContain("[^2]");
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
     },
@@ -2292,7 +2292,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(requests);
+      expect(answerRequests(model)).toHaveLength(requests);
       expect(answer.text).toContain("[^2]");
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
     },
@@ -2311,7 +2311,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls).toHaveLength(3);
+      expect(answerRequests(model)).toHaveLength(3);
       expect(answer.text).toContain("[^2]");
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
     },
@@ -2340,7 +2340,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
       const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-      expect(model.doStreamCalls.length).toBeGreaterThan(3);
+      expect(answerRequests(model).length).toBeGreaterThan(3);
       expect(answer.text).toContain("[^2]");
       expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
     },
@@ -2360,7 +2360,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
     const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(3);
+    expect(answerRequests(model)).toHaveLength(3);
     expect(answer.citations.map((citation) => citation.check)).toEqual(["found", "found"]);
   });
 
@@ -2379,7 +2379,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
 
     const { answer } = await askAndRead(core, "How did Acme do in 2025?");
 
-    expect(model.doStreamCalls).toHaveLength(4);
+    expect(answerRequests(model)).toHaveLength(4);
     expect(answer.text).toBe(
       "Revenue was $1,482.6 million in 2025[^1].\n\nAcme grew in every quarter.",
     );

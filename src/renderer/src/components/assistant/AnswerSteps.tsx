@@ -675,7 +675,14 @@ function StepItem({
         </Step>
       );
     case "check":
-      return <CheckStep count={row.count} notFound={row.notFound} running={row.running} />;
+      return (
+        <CheckStep
+          count={row.count}
+          notFound={row.notFound}
+          needALook={row.needALook ?? 0}
+          running={row.running}
+        />
+      );
   }
 }
 
@@ -939,10 +946,12 @@ function FailedSearch({
 function CheckStep({
   count,
   notFound,
+  needALook,
   running,
 }: {
   count: number;
   notFound: number;
+  needALook: number;
   running?: boolean | undefined;
 }) {
   const t = useT();
@@ -953,10 +962,14 @@ function CheckStep({
       </Step>
     );
   }
-  const allFound = notFound === 0;
+  const allFound = notFound === 0 && needALook === 0;
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
-    : t("steps.check.notFound", { count: notFound });
+    : [
+        ...(notFound > 0 ? [t("steps.check.notFound", { count: notFound })] : []),
+        ...(needALook === 1 ? [t("steps.check.needALook.one")] : []),
+        ...(needALook > 1 ? [t("steps.check.needALook", { count: needALook })] : []),
+      ].join(" · ");
   return (
     <Step
       kind="check"

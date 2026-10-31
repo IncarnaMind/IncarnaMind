@@ -6,6 +6,7 @@ import type {
   MeetingHelpTemplate,
 } from "../../src/core";
 import { translate } from "../../src/shared/i18n";
+import { isCheckRun } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -194,7 +195,12 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(answer.citations[0]?.check).toBe("found");
         }
       }
-      expect(calls.every((call) => call.prompt.includes("<live-transcript>"))).toBe(true);
+      // The Answer's sentence is then checked against its quote alone (#2311).
+      expect(
+        calls
+          .filter((call) => !isCheckRun(call))
+          .every((call) => call.prompt.includes("<live-transcript>")),
+      ).toBe(true);
       expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
     });
   }

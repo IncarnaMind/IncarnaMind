@@ -6152,6 +6152,8 @@ export const en = {
   "steps.check.allFound": "all found",
   "steps.check.found": "found",
   "steps.check.notFound": "{count} not found",
+  "steps.check.needALook": "{count} need a look",
+  "steps.check.needALook.one": "1 needs a look",
   "steps.askedAgain.calculate":
     "Asked again: the reply said figures were calculated, and no calculation had run",
   "steps.askedAgain.search": "Asked again: the reply said a search ran, and none had",

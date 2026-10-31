@@ -506,6 +506,31 @@ test("the folded line opens by click, Enter and Space, at once, to the reasoning
   await app.close();
 });
 
+test("a sentence its quote doesn't support loses its green check, and the check step says it needs a look, in English and Chinese (#2311)", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  const kept = await ask(window, "When do spring tides happen?");
+  await expect(kept.getByTestId("citation")).toHaveAttribute("data-check", "found");
+
+  const beyond = await ask(window, "When do spring tides happen, beyond its quote?");
+  await expect(beyond.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
+  await pointAndClick(window, beyond.getByTestId("answer-steps"));
+  await expect(beyond.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
+    "Checked 1 Citation against its source · 1 needs a look",
+  );
+  await screenshot(window, "beyond-its-quote-en");
+
+  await core(window).language("zh-CN");
+  const chinese = await ask(window, "大潮什么时候出现？超出引文");
+  await expect(chinese.getByTestId("citation")).toHaveAttribute("data-check", "unsupported");
+  await pointAndClick(window, chinese.getByTestId("answer-steps"));
+  await expect(chinese.getByTestId("answer-timeline").locator('[data-step="check"]')).toHaveText(
+    "把 1 处引用和原文核对 · 1 处需要留意",
+  );
+  await screenshot(window, "beyond-its-quote-zh");
+  await app.close();
+});
+
 test("in Chinese, the line and the timeline; after a restart the steps are still there, folded", async () => {
   const first = await start();
   let { window } = first;

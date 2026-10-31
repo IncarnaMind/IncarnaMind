@@ -1870,6 +1870,7 @@ export function createCore(adapters: CoreAdapters): Core {
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
+    checkAnswer: (input) => checks.checkAnswer(input),
     defaultModel: () => settings.get().user.chatModel,
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),

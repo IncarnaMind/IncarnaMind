@@ -2687,14 +2687,13 @@ describe("Stopping", () => {
 });
 
 describe("What the check is told about dates and its own workings (#821)", () => {
-  test("its instructions keep a metadata date and the words index, passages and metadata out of the explanation", async () => {
+  test("its instructions keep the words index, passages and metadata out of the explanation, and name no date beside a Passage (#2311)", async () => {
     const calls: ModelCall[] = [];
     const { check } = await mindWith([CONTRADICTED], checkingModel(PLANS, calls));
     await check();
     const system = calls[0]?.system ?? "";
-    expect(system).toContain("file's own metadata");
-    expect(system).toContain("never mention it unless the sentence itself is about a date");
     expect(system).toContain("Never mention the index, the search, the passages");
+    expect(system).not.toContain("date attribute");
   });
 });
 

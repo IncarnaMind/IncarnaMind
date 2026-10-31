@@ -153,6 +153,8 @@ describe("A search's steps", { timeout: 60_000 }, () => {
       "writing",
       "checking-claims",
       "writing",
+      // Its sentence checked against the quote it cites, before it ends (#2311).
+      "checking-quotes",
     ]);
     const times = answer.steps?.phases.map((each) => Date.parse(each.at)) ?? [];
     expect([...times].sort((a, b) => a - b)).toEqual(times);

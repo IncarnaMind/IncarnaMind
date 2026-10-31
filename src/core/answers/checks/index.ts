@@ -113,6 +113,7 @@ import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCite
 import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
+import { createAnswerCheck } from "./answerCheck";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
@@ -1447,6 +1448,15 @@ export function createChecks(options: ChecksOptions) {
     claimTimeLimitMs: options.watch.claimTimeLimitMs,
   });
 
+  const checkAnswer = createAnswerCheck({
+    prepare: prepareQuietly,
+    claimCheck,
+    scope: (documentIds) => options.evidence.scope(documentIds),
+    searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
+    citedNow,
+    claimTimeLimitMs: options.watch.claimTimeLimitMs,
+  });
+
   const wholeRead = createWholeRead({
     documents: options.documents,
     pickedDocuments: options.pickedDocuments,
@@ -1464,6 +1474,9 @@ export function createChecks(options: ChecksOptions) {
 
     /** What the assistant wrote in a Mind, checked before it lands (./written). */
     checkWritten,
+
+    /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
+    checkAnswer,
 
     async checkSentences(input: unknown): Promise<CheckSentencesResult> {
       const parsed = parseCheck(input);

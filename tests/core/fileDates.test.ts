@@ -7,7 +7,12 @@ import { askAssistant } from "../helpers/assistant";
 import { type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  answerRequests,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 /**
@@ -107,8 +112,10 @@ const withMarker = (sentence: string, marker: number) =>
 
 /** Everything a request sent the model: its instructions, messages and Tool results. */
 function sentText(model: MockLanguageModelV4, from: number): string {
+  const own = answerRequests(model);
   return model.doStreamCalls
     .slice(from)
+    .filter((call) => own.includes(call))
     .flatMap((call) =>
       call.prompt.flatMap((message) =>
         typeof message.content === "string"

@@ -96,7 +96,14 @@ export type StepRow =
   /** The figures the Answer shows, each calculated from its cited inputs. */
   | { kind: "calculated"; count: number }
   /** The Citations checked against their sources, and how many weren't found; `running`: being checked now. */
-  | { kind: "check"; count: number; notFound: number; running?: true };
+  | {
+      kind: "check";
+      count: number;
+      notFound: number;
+      /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
+      needALook?: number;
+      running?: true;
+    };
 
 export type FoldedLine =
   | { kind: "searched"; sources: number; extraScopes: number }
@@ -390,10 +397,14 @@ export function stepRows(
     const count = live.kind === "checking" ? live.count : checking;
     if (count !== null) rows.push({ kind: "check", count, notFound: 0, running: true });
   } else if (shown.length > 0) {
+    const needALook = shown.filter(
+      (citation) => citation.check === "unsupported" || citation.check === "contradicted",
+    ).length;
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
+      ...(needALook > 0 && { needALook }),
     });
   }
   return rows;

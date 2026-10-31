@@ -519,6 +519,17 @@ describe("an Answer's steps", () => {
       citations: [{ ...quoted(1, "Spring tides"), check: "not-found" }, quoted(2, "Full moon")],
     });
     expect(stepRows(lost).at(-1)).toEqual({ kind: "check", count: 3, notFound: 2 });
+    // A sentence its found quote doesn't support needs a look, as its badge says (#2311).
+    const unbacked = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [{ ...quoted(1, "Spring tides"), check: "unsupported" }, quoted(2, "Full moon")],
+    });
+    expect(stepRows(unbacked).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 1,
+    });
     expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
   });
