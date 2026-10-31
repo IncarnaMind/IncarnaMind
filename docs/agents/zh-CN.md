@@ -133,6 +133,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Voice memo | 语音备忘 | "录一段语音备忘"; the + menu's item is 语音备忘. As Apple's 语音备忘录, without its 录. Its note: "已写入语音备忘". |
 | Transcript | 转写稿 | |
 | Speaker | 发言人 | |
+| Words to know | 要识别的词 | Settings › Meetings: names and terms a Transcript should write as the User does. Not 热词, the engine's word. |
 | Me, Them, Speaker ? (a live line before speakers are told apart) | 我, 对方, 发言人 ? | "Me" is the microphone, "Them" the computer's sound, "Speaker ?" a meeting in a room, with no computer sound. |
 | Granted folder | 授权文件夹 | |
 | Output location | 保存位置 | |
