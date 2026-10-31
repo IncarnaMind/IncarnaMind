@@ -1,7 +1,13 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect, useMemo, useState } from "react";
 import type * as Y from "yjs";
-import { mindLookOf, observeWordLook, setMindLook, wordLookOf } from "../../../shared/wordLook";
+import {
+  mindLookOf,
+  observeWordLook,
+  setMindLook,
+  wordFontsOf,
+  wordLookOf,
+} from "../../../shared/wordLook";
 import { useAppStore } from "../store";
 import { holdWordLook } from "../wordLooks";
 import { openOriginalAtCaret, useWordFile } from "./WordOrigin";
@@ -28,6 +34,7 @@ export function useWordLookStyle(doc: Y.Doc, mindId: string, editor: Editor | nu
       shown: state.shown,
       choose: (look) => setMindLook(doc, look),
       openOriginal: originalId ? () => openOriginalAtCaret(originalId, editor, doc) : null,
+      fonts: wordFontsOf(state.look),
     });
   }, [state, mindId, originalId, doc, editor]);
 

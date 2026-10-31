@@ -34,6 +34,7 @@
  * Pure, with no Node or DOM imports: the core, the renderer and a later
  * phone build share it.
  */
+import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
 import { normaliseWithOffsets } from "./text";
 
@@ -557,19 +558,30 @@ const EVIDENCE: readonly [RegExp, Separators][] = [
 /** Below this share of a Document's telling numbers, the other convention is taken for stray text. */
 const MAX_STRAY_SHARE = 0.1;
 
-/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
-function separatorsIn(s: string): Separators | null {
-  const counts = new Map<string, { separators: Separators; count: number }>();
+/** How often each convention's telling numbers appear in a text, by decimal and group. */
+type Evidence = Readonly<Record<string, number>>;
+
+const keyOf = (separators: Separators) => `${separators.decimal}${separators.group}`;
+
+/** Each convention once, by its key, in `EVIDENCE`'s order: a tie goes to the earlier. */
+const CONVENTIONS = new Map(EVIDENCE.map(([, separators]) => [keyOf(separators), separators]));
+
+function evidenceIn(s: string): Evidence {
+  const counts: Record<string, number> = {};
   for (const [pattern, separators] of EVIDENCE) {
     const found = s.match(pattern)?.length ?? 0;
-    if (found === 0) continue;
-    const key = `${separators.decimal}${separators.group}`;
-    const known = counts.get(key);
-    counts.set(key, { separators, count: (known?.count ?? 0) + found });
+    if (found > 0) counts[keyOf(separators)] = (counts[keyOf(separators)] ?? 0) + found;
   }
+  return counts;
+}
+
+/** The separators a text's own numbers show, when they agree; null when they don't or none tells. */
+function separatorsFrom(evidence: Evidence): Separators | null {
   const byDecimal = (decimal: string) =>
-    [...counts.values()]
-      .filter((entry) => entry.separators.decimal === decimal)
+    [...CONVENTIONS.values()]
+      .filter((separators) => separators.decimal === decimal)
+      .map((separators) => ({ separators, count: evidence[keyOf(separators)] ?? 0 }))
+      .filter((entry) => entry.count > 0)
       .sort((a, b) => b.count - a.count);
   const point = byDecimal(".");
   const comma = byDecimal(",");
@@ -611,15 +623,50 @@ export function figureLanguageTag(name: string | null): string | null {
  * a Passage alone may hold no number that tells.
  */
 export function figureContextOf(text: string, language?: string | null): FigureContext {
+  return figureContextOfFacts([figureFactsOf(text, language ?? null)], language ?? null);
+}
+
+/**
+ * What one part of a Document tells of how the whole writes its figures. The parts' facts add
+ * up to the whole's, as their lines do: a telling number, a currency's name or a statement
+ * never runs across a line break.
+ */
+export interface FigureFacts {
+  evidence: Evidence;
+  cny: boolean;
+  jpy: boolean;
+  accounts: boolean;
+}
+
+export function figureFactsOf(text: string, language: string | null): FigureFacts {
   const prepared = prepare(text);
   const { s } = prepared;
-  const cny = CNY_WORDS.test(s);
-  const jpy = JPY_WORDS.test(s);
   return {
-    language: language ?? null,
-    separators: separatorsIn(s),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    evidence: evidenceIn(s),
+    cny: CNY_WORDS.test(s),
+    jpy: JPY_WORDS.test(s),
     accounts: writesAccounts(s, statementsIn(prepared, text, settle({ language }))),
+  };
+}
+
+/** `figureContextOf` the text its parts make, one a line, from each part's facts. */
+export function figureContextOfFacts(
+  parts: readonly FigureFacts[],
+  language: string | null,
+): FigureContext {
+  const evidence: Record<string, number> = {};
+  for (const part of parts) {
+    for (const [key, count] of Object.entries(part.evidence)) {
+      evidence[key] = (evidence[key] ?? 0) + count;
+    }
+  }
+  const cny = parts.some((part) => part.cny);
+  const jpy = parts.some((part) => part.jpy);
+  return {
+    language,
+    separators: separatorsFrom(evidence),
+    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    accounts: parts.some((part) => part.accounts),
   };
 }
 
@@ -2529,29 +2576,14 @@ export function namedCurrencies(
   figures: readonly Figure[] | null,
   which = false,
 ): Set<string> {
-  // "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
-  const text = written
-    .normalize("NFKC")
-    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+  const text = normaliseCurrencies(written);
   const settled = settle(context);
-  const codesOf = (word: string) =>
-    which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
   const named = new Set<string>();
   const add = (codes: readonly string[]) => {
     for (const code of codes) named.add(code);
   };
-  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
-    for (const match of text.matchAll(pattern)) {
-      if (!besideNumber(text, match.index, match.index + match[0].length)) add(codesOf(match[0]));
-    }
-  }
-  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
-    for (const match of text.matchAll(pattern)) add(codesOf(match[1] ?? ""));
-  }
-  for (const stated of readStatedUnits(figures ? text : unitLinesOf(text), context)) {
-    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
-      add([stated.unit.code]);
-  }
+  for (const { code } of currencyMentions(text, context, settled, which, figures === null))
+    add([code]);
   // Another figure's "HK$10m" says nothing of which dollar a bare "$54m" is.
   if (which) return named;
   if (figures) {
@@ -2561,12 +2593,145 @@ export function namedCurrencies(
   const onFigures = new Map<string, string[]>();
   for (const match of text.matchAll(CURRENCY_ANYWHERE)) {
     if (!besideNumber(text, match.index, match.index + match[0].length)) continue;
-    const codes = codesOf(match[0]);
+    const codes = currencyCodesOf(match[0], settled, which);
     if (codes.length > 0) onFigures.set(codes.join(), codes);
   }
   const [only] = onFigures.values();
   if (onFigures.size === 1 && only) add(only);
   return named;
+}
+
+// "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
+const normaliseCurrencies = (written: string) =>
+  written.normalize("NFKC").replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+
+const currencyCodesOf = (word: string, settled: Settled, which: boolean) =>
+  which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
+
+interface CurrencyMention {
+  code: string;
+  /** Where in the normalised text it stands; -1 for one a unit line states. */
+  at: number;
+}
+
+/** Every place `text` names a currency: its words or code in body text, a heading, "in …", or a unit line. */
+function currencyMentions(
+  text: string,
+  context: FigureContext,
+  settled: Settled,
+  which: boolean,
+  unitLinesOnly: boolean,
+): CurrencyMention[] {
+  const found: CurrencyMention[] = [];
+  const add = (codes: readonly string[], at: number) => {
+    for (const code of codes) found.push({ code, at });
+  };
+  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
+    for (const match of text.matchAll(pattern)) {
+      if (!besideNumber(text, match.index, match.index + match[0].length))
+        add(currencyCodesOf(match[0], settled, which), match.index);
+    }
+  }
+  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
+    for (const match of text.matchAll(pattern))
+      add(currencyCodesOf(match[1] ?? "", settled, which), match.index);
+  }
+  for (const stated of readStatedUnits(unitLinesOnly ? unitLinesOf(text) : text, context)) {
+    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
+      add([stated.unit.code], -1);
+  }
+  return found;
+}
+
+/** The most characters of a Document line the card shows, a window around the words that name the currency (#2226). */
+const CURRENCY_LINE_CHARS_AT_MOST = 120;
+/** The most naming lines looked in, so a Document that names a currency on every line stays fast (#2226). */
+const MOST_CLAUSE_LINES = 200;
+
+const clauseWindow = (line: string, at: number, chars: number): string => {
+  if (line.length <= chars) return line.trim();
+  const room = chars - 2;
+  const from = Math.max(0, Math.min(at - Math.floor(room / 2), line.length - room));
+  const start = graphemeBoundary(line, from);
+  const end = graphemeBoundary(line, Math.min(line.length, start + room));
+  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
+};
+
+/** `at`'s line among starts sorted by position, the last start at or before it. */
+const lineAt = (starts: readonly number[], at: number): number => {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if ((starts[mid] as number) <= at) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+};
+
+/** The original line's offset for a position in its normalised words ("™" grows to "TM", "½" to "1⁄2"). */
+const originalOffset = (line: string, at: number): number => {
+  let seen = 0;
+  let offset = 0;
+  for (const char of line) {
+    if (seen >= at) break;
+    seen += normaliseCurrencies(char).length;
+    offset += char.length;
+  }
+  return offset;
+};
+
+/**
+ * The earliest line of `written` that names which currency one of `codes` is, by the same words,
+ * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`, and that
+ * `accept` takes when it is given: at most `CURRENCY_LINE_CHARS_AT_MOST` characters around those
+ * words; null when no line does (#2226).
+ */
+export function currencyNamingLine(
+  written: string,
+  context: FigureContext,
+  codes: ReadonlySet<string>,
+  accept?: (line: string) => boolean,
+): string | null {
+  const text = normaliseCurrencies(written);
+  const settled = settle(context);
+  const lines = written.split(LINE_BREAK);
+  const starts: number[] = [];
+  let start = 0;
+  for (const line of text.split(LINE_BREAK)) {
+    starts.push(start);
+    start += line.length + 1;
+  }
+  const unitLines = new Map<string, number>();
+  const unitLineFor = (code: string): number => {
+    const known = unitLines.get(code);
+    if (known !== undefined) return known;
+    const found = lines.findIndex(
+      (line) =>
+        UNIT_LINE.test(line) &&
+        readStatedUnits(line, context).some(
+          (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
+        ),
+    );
+    unitLines.set(code, found);
+    return found;
+  };
+  const candidates = new Map<number, number>();
+  for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
+    if (!codes.has(code)) continue;
+    const index = at < 0 ? unitLineFor(code) : lineAt(starts, at);
+    if (index < 0) continue;
+    const within = at < 0 ? 0 : at - (starts[index] as number);
+    const known = candidates.get(index);
+    if (known === undefined || within < known) candidates.set(index, within);
+  }
+  for (const index of [...candidates.keys()].sort((a, b) => a - b).slice(0, MOST_CLAUSE_LINES)) {
+    const line = lines[index] ?? "";
+    if (line.trim() === "" || (accept && !accept(line))) continue;
+    const within = originalOffset(line, candidates.get(index) ?? 0);
+    return clauseWindow(line, within, CURRENCY_LINE_CHARS_AT_MOST);
+  }
+  return null;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */

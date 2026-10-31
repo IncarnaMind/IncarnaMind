@@ -39,6 +39,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { topLevelBlocks } from "../answers/blocks";
+import { estimateTokens } from "../answers/context";
 import { createWindowBudget } from "../answers/window";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -375,18 +376,26 @@ function editCall(
       quotes: selection.quotes,
     }),
   });
+  const { window } = prepared;
+  const budget = window ? createWindowBudget(window) : null;
   // The reply is about as long as the passage; a translation into Chinese can count more.
-  let maxOutputTokens = Math.min(
+  const passage = budget ? budget.tokens(selection.text) : estimateTokens(selection.text);
+  const expected = explain ? 512 : Math.ceil(passage * 1.5) + 64;
+  // A rewrite that can't fit would come back cut short: it isn't sent (#2275).
+  if (expected > Math.min(outputTokens("edit"), window?.outputTokens ?? Number.POSITIVE_INFINITY))
+    return null;
+  if (budget && window) {
+    if (budget.roomBeside([instructions, prompt], expected) < 0) return null;
+    return {
+      instructions,
+      prompt,
+      maxOutputTokens: Math.min(outputTokens("edit"), window.outputTokens),
+    };
+  }
+  const maxOutputTokens = Math.min(
     outputTokens("edit"),
     Math.max(1_024, Math.ceil(selection.characters * 1.5)),
   );
-  if (prepared.window) {
-    const budget = createWindowBudget(prepared.window);
-    const expected = explain ? 512 : Math.ceil(budget.tokens(selection.text) * 1.5) + 64;
-    if (expected > prepared.window.outputTokens) return null;
-    if (budget.roomBeside([instructions, prompt], expected) < 0) return null;
-    maxOutputTokens = Math.min(outputTokens("edit"), prepared.window.outputTokens);
-  }
   return { instructions, prompt, maxOutputTokens };
 }
 

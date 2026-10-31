@@ -50,7 +50,9 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
   "local-mode",
   "kept-inside",
   "absence-read-limit",
+  "absence-unconfirmed",
   "cut-short",
+  "read-budget",
 ];
 const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
@@ -607,6 +609,12 @@ export function readClaimParts(
     for (const key of ["says", "detail"]) {
       if (each[key] !== null && typeof each[key] !== "string") return null;
     }
+    if (
+      each.currencyClause !== undefined &&
+      each.currencyClause !== null &&
+      typeof each.currencyClause !== "string"
+    )
+      return null;
     const reason = CLAIM_CHECK_FAILURES.find((reason) => reason === each.reason) ?? null;
     if (each.reason !== null && !reason) return null;
     if (typeof each.citedCaseUnchecked !== "boolean" || typeof each.citedCaseFound !== "boolean")
@@ -663,6 +671,10 @@ export function readClaimParts(
       ...(each.readDocuments !== undefined && {
         readDocuments: readReadDocuments(each.readDocuments),
       }),
+      ...(typeof each.currencyClause === "string" &&
+        each.currencyClause !== "" && {
+          currencyClause: cutQuote(each.currencyClause, CHECK_QUOTE_CHARS_AT_MOST),
+        }),
       verdict,
       evidence,
       ...(decidingEvidence !== undefined && { decidingEvidence }),
@@ -764,6 +776,9 @@ export function partWithResult(
     ...pendingPart(plan),
     verdict: result.verdict,
     ...(result.readDocuments !== undefined && { readDocuments: result.readDocuments }),
+    ...(result.currencyClause && {
+      currencyClause: cutQuote(result.currencyClause, CHECK_QUOTE_CHARS_AT_MOST),
+    }),
     ...(result.kept && { kept: true }),
     ...(result.figures && { figures: result.figures }),
     ...(result.remainder !== undefined && { remainder: result.remainder }),
@@ -866,6 +881,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
         versions: part.versions,
         excluded: part.excluded,
         figures,
+        ...(part.currencyClause && { currencyClause: part.currencyClause }),
         ...(remainder !== undefined && { remainder }),
       },
       part.evidence,
@@ -1071,6 +1087,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
   return {
     ...common,
     verdict: outcome.part.verdict,
+    ...(outcome.part.currencyClause && { currencyClause: outcome.part.currencyClause }),
     evidence:
       outcome.part.decidingEvidence !== undefined
         ? outcome.part.decidingEvidence === null

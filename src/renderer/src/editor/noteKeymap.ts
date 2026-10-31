@@ -14,12 +14,6 @@ export function noteHolding(blockId: string): Editor | null {
   return null;
 }
 
-/** The note a command acts in, editable: the note's keymap gives it the Block at the cursor as its focus. */
-export function editableNoteAt(focus: ObjectRef | null): Editor | null {
-  const editor = focus?.kind === "block" ? noteHolding(focus.id) : null;
-  return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
-}
-
 /** The note the element is in, whose own undo ⌘Z reaches there. */
 export function noteAround(element: Element | null): Editor | null {
   if (!element) return null;

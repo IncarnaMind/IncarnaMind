@@ -55,6 +55,7 @@ import { linkCommands } from "./links";
 import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
 import { newFolderCommands } from "./newFolder";
+import { noteBasicsCommands } from "./noteBasics";
 import {
   answerCommands,
   citationCommands,
@@ -69,6 +70,7 @@ import { pageCommands } from "./page";
 import { pageBreakCommands } from "./pageBreaks";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
+import { pictureCommands } from "./pictures";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
@@ -511,6 +513,18 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "mind.replace",
+    label: "editor.replace.label",
+    shortcut: { keys: "CmdOrCtrl+Alt+F" },
+    group: "main",
+    reversible: true,
+    when: () => mindInFront() !== null,
+    run: () => {
+      const mindId = mindInFront();
+      if (mindId) useMindTools.getState().showFind(mindId, { replace: true });
+    },
+  },
+  {
     id: "mind.findNext",
     label: "command.mind.findNext",
     shortcut: { keys: "CmdOrCtrl+G" },
@@ -529,7 +543,9 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...noteBasicsCommands,
   ...pageBreakCommands,
+  ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

@@ -15,7 +15,7 @@ import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, part, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { heading, question, writeMind } from "../helpers/minds";
+import { editMind, heading, question, writeMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
 import { zipFingerprint } from "../helpers/zip";
 
@@ -253,6 +253,30 @@ describe("exporting a Mind to PDF", () => {
     expect(printed[0]).toMatchObject({ body: "", notes: [], title: "Tides 潮汐" });
     expect(exported.fileName).toBe("Untitled.pdf");
     expect(printed[1]).toMatchObject({ body: "", notes: [], title: "Untitled" });
+  });
+
+  test("printMind hands the printer exactly the PDF export's pages, a table of contents and all, and saves nothing (#1935)", async () => {
+    const { printed, printedOnPrinter, printer } = fakePrinter();
+    const { core, mind, client, tides, chinese } = await setUp({ printer });
+    writeBilingual(client, tides, chinese);
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+    await core.exportMind(mind.id, { format: "pdf" });
+
+    await core.printMind(mind.id);
+
+    expect(printedOnPrinter).toHaveLength(1);
+    expect(printedOnPrinter[0]).toEqual(printed[0]);
+    expect(printedOnPrinter[0]?.body).toContain('class="toc"');
+    expect(printedOnPrinter[0]?.body).toContain("Spring tides");
+  });
+
+  test("printing is refused where the copy can only make PDFs", async () => {
+    const { core, mind } = await setUp();
+
+    await expect(core.printMind(mind.id)).rejects.toMatchObject({
+      wording: { key: "error.print.noPrinter" },
+    });
   });
 
   test("a PDF is refused where nothing can print one, and a failed print saves nothing", async () => {

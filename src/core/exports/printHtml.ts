@@ -13,7 +13,15 @@
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
-import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
+import {
+  type Block,
+  type Footnote,
+  type HeadingEntry,
+  headingEntries,
+  type Inline,
+  type Marks,
+  tableLayout,
+} from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
@@ -74,9 +82,23 @@ export function renderPrintHtml(
     linkNotes,
     citations,
     isLink,
+    headingEntries(blocks),
   );
   const body = writer.blocks(blocks);
   return { body, notes, footnotes: notes.length };
+}
+
+/** A table of contents as the page draws it: its heading, then the Note's headings indented. */
+function tocHtml(entries: readonly HeadingEntry[], labels: PrintLabels): string {
+  if (entries.length === 0) return "";
+  const lowest = Math.min(...entries.map((entry) => entry.level));
+  const items = entries
+    .map(
+      (entry) =>
+        `<li class="toc-entry toc-level-${entry.level}" style="padding-left:${(entry.level - lowest) * 16}px">${escapeHtml(entry.text)}</li>`,
+    )
+    .join("");
+  return `<nav class="toc"><p class="toc-title">${escapeHtml(labels.contents)}</p><ul>${items}</ul></nav>`;
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
@@ -175,6 +197,7 @@ class PrintWriter {
     private readonly linkNotes: boolean,
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
+    private readonly headings: readonly HeadingEntry[] = [],
   ) {}
 
   blocks(blocks: readonly Block[]): string {
@@ -242,6 +265,8 @@ class PrintWriter {
       }
       case "chart":
         return this.chart(block);
+      case "toc":
+        return tocHtml(this.headings, this.labels);
       case "bibliography": {
         const entries = block.items
           .map((item) => {

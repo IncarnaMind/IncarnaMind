@@ -1,13 +1,15 @@
-import type { Editor, JSONContent, Range } from "@tiptap/core";
+import type { Editor, Range } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { SkillIcon } from "../components/icons";
+import { ImageLineIcon } from "../components/lineIcons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { insertFootnote } from "./footnoteSchema";
 import { TableIcon } from "./icons";
+import { insertBlock } from "./insertBlock";
 import { emptyTable } from "./tableCommands";
 
 /**
@@ -35,29 +37,6 @@ const turnInto =
   (editor: Editor, range: Range): void => {
     editor.chain().focus().deleteRange(range).setNode(type, attrs).run();
   };
-
-/**
- * Puts a new Block after the one the cursor is in, or in its place if that is
- * an empty paragraph, and returns where it starts. A Block added at the very end
- * gets an empty paragraph after it, to carry on writing in.
- */
-function insertBlock(editor: Editor, range: Range, block: JSONContent): number | null {
-  editor.commands.deleteRange(range);
-  const { $from } = editor.state.selection;
-  if ($from.depth === 0) return null;
-  const replacesEmptyLine =
-    $from.depth === 1 && $from.parent.type.name === "paragraph" && $from.parent.childCount === 0;
-  const from = replacesEmptyLine ? $from.before(1) : $from.after(1);
-  const to = replacesEmptyLine ? $from.after(1) : from;
-  const atEnd = to === editor.state.doc.content.size;
-  editor
-    .chain()
-    .insertContentAt({ from, to }, atEnd ? [block, { type: "paragraph" }] : block, {
-      updateSelection: false,
-    })
-    .run();
-  return from;
-}
 
 /** The slash menu's entries for writing Notes. */
 export const noteSlashItems: readonly SlashItem[] = [
@@ -118,6 +97,17 @@ export const noteSlashItems: readonly SlashItem[] = [
     run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
   {
+    id: "picture",
+    label: "editor.slash.picture",
+    // "tupian" is 图片 in pinyin; "image" and "photo" are what it is called elsewhere.
+    keywords: ["image", "photo", "picture", "screenshot", "tupian"],
+    icon: <ImageLineIcon className="size-3.5" />,
+    run(editor, range) {
+      editor.chain().focus().deleteRange(range).run();
+      editor.commands.choosePicture();
+    },
+  },
+  {
     id: "divider",
     label: "editor.slash.divider",
     keywords: ["rule", "line", "hr", "separator"],
@@ -147,6 +137,22 @@ export const noteSlashItems: readonly SlashItem[] = [
           .chain()
           .focus()
           .setTextSelection(TextSelection.near(editor.state.doc.resolve(pos + 1)).from)
+          .run();
+      }
+    },
+  },
+  {
+    id: "contents",
+    label: "editor.slash.contents",
+    keywords: ["toc", "outline", "contents", "mulu", "目录"],
+    icon: "☰",
+    run(editor, range) {
+      const pos = insertBlock(editor, range, { type: "tableOfContents" });
+      if (pos !== null) {
+        editor
+          .chain()
+          .focus()
+          .setTextSelection(TextSelection.near(editor.state.doc.resolve(pos + 1), 1).from)
           .run();
       }
     },

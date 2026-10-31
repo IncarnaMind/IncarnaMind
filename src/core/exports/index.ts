@@ -44,6 +44,7 @@ import {
   COMPARISON_TABLE_NODE,
   type Document,
   EXPORT_FORMATS,
+  type ExportFile,
   type ExportFormat,
   type ExportMindOptions,
   type FormattedCitations,
@@ -625,6 +626,34 @@ export function createExports(deps: ExportsDependencies) {
     };
   };
 
+  /** The Blocks a file or a printed page shows: a citation style's, with its Bibliography and notes. */
+  const styledBlocks = async (prepared: Prepared, thin: ThinEntries) => {
+    const { language, style, documents } = prepared;
+    const labels = exportLabels(language);
+    const figures = { footnote: prepared.readOptions.footnote, labels };
+    const blocks =
+      style.form !== "numbered"
+        ? await styleCitations(prepared.blocks, style, thin.format, figures)
+        : withFigureNotes(
+            prepared.listed
+              ? listCitations(
+                  prepared.blocks,
+                  { language, documents },
+                  translate(language, "bibliography.title"),
+                  labels.unverified,
+                )
+              : prepared.bibliography
+                ? addSources(
+                    prepared.blocks,
+                    { language, documents },
+                    translate(language, "bibliography.title"),
+                  )
+                : prepared.blocks,
+            figures,
+          );
+    return { blocks, labels };
+  };
+
   return {
     preview(mindId: unknown, options: unknown): MindExportPreview {
       return prepare(mindId, options).preview;
@@ -632,10 +661,43 @@ export function createExports(deps: ExportsDependencies) {
 
     previewSharePage,
 
+    /** Prints the Mind as its PDF export lays it out (#1935), on a printer the User chooses. */
+    async print(mindId: unknown, options: unknown): Promise<void> {
+      if (!deps.printer?.printToPrinter) {
+        throw new TranslatableError({ key: "error.print.noPrinter" });
+      }
+      const prepared = prepare(mindId, {
+        ...(isRecord(options) ? options : {}),
+        format: "pdf",
+      });
+      const thin = thinEntries(
+        (request) => deps.formatCitations({ ...request, language: prepared.textLanguage }),
+        prepared.documents,
+      );
+      const { blocks, labels } = await styledBlocks(prepared, thin);
+      const drawn = await withPictures(blocks, prepared.language, deps);
+      const { body, notes } = renderPrintHtml(drawn, labels);
+      try {
+        await deps.printer.printToPrinter({
+          language: prepared.language,
+          paper: deps.paper(),
+          title: prepared.preview.fileName.slice(0, -".pdf".length),
+          ...(prepared.font !== null && { fontFamily: bodyFamily(prepared.font) }),
+          body,
+          notes,
+        });
+      } catch (error) {
+        deps.log.error("export.printOnPrinterFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw new TranslatableError({ key: "error.print.failed" }, { cause: error });
+      }
+    },
+
     /** `othersComments`: for someone else's file, write with this comment choice, not the Note's (#110). */
     async export(mindId: unknown, options: unknown, othersComments?: boolean): Promise<MindExport> {
       const prepared = prepare(mindId, options, othersComments);
-      const { title, preview, language, format, style, documents } = prepared;
+      const { title, preview, language, format, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
         throw new TranslatableError({ key: "error.checkRecord.noPdf" });
       }
@@ -657,34 +719,16 @@ export function createExports(deps: ExportsDependencies) {
           ...reviewOf(prepared, [], 0),
         };
       }
-      const labels = exportLabels(language);
-      const figures = { footnote: prepared.readOptions.footnote, labels };
-      const blocks =
-        style.form !== "numbered"
-          ? await styleCitations(prepared.blocks, style, thin.format, figures)
-          : withFigureNotes(
-              prepared.listed
-                ? listCitations(
-                    prepared.blocks,
-                    { language, documents },
-                    translate(language, "bibliography.title"),
-                    labels.unverified,
-                  )
-                : prepared.bibliography
-                  ? addSources(
-                      prepared.blocks,
-                      { language, documents },
-                      translate(language, "bibliography.title"),
-                    )
-                  : prepared.blocks,
-              figures,
-            );
+      const { blocks, labels } = await styledBlocks(prepared, thin);
       let data: Uint8Array;
+      let files: readonly ExportFile[] = [];
       let commented: readonly FailedSentence[] = [];
       let checkComments = 0;
       let footnotes = 0;
       if (format === "markdown") {
-        data = new TextEncoder().encode(renderMarkdown("", blocks, labels));
+        const written = renderMarkdown("", blocks, labels);
+        data = new TextEncoder().encode(written.text);
+        files = written.pictures.map(({ name, data: bytes }) => ({ name, data: bytes }));
       } else if (format === "docx") {
         ({ data, commented, checkComments, footnotes } = renderDocx(
           await withPictures(blocks, language, deps),
@@ -729,6 +773,7 @@ export function createExports(deps: ExportsDependencies) {
         data,
         word: null,
         needsDetails: [...thin.documents],
+        ...(files.length > 0 && { files }),
         ...reviewOf(prepared, commented, checkComments),
       };
     },

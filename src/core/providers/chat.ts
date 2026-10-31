@@ -101,6 +101,9 @@ export const CHAT_FLOW_SENDS = [
   "document-names",
   "other-minds",
   "live-transcript",
+  // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
+  // as part of the note's text.
+  "pictures",
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
@@ -946,6 +949,38 @@ export function createChat(options: {
         "chat",
         capabilitiesOf(row, chosen.modelId),
         null,
+      );
+    },
+
+    /**
+     * What execution will know of a model before its first request, without sending a Document or
+     * asking for consent: what it can do, how it gives Citations, and the window its requests fit.
+     */
+    async modelShape(
+      choice?: ChatModelChoice,
+    ): Promise<Pick<PreparedChatModel, "capabilities" | "support" | "window"> | null> {
+      const chosen = choice ?? settings.get().user.chatModel;
+      const row = chosen && rowById(chosen.providerId);
+      if (!chosen || !row || !isKnownRow(row)) return null;
+      const shaped = (capabilities: ModelCapabilities, window: ContextWindow | undefined) => {
+        const support = startingSupport(capabilities);
+        return { capabilities, ...(support && { support }), ...(window && { window }) };
+      };
+      if (row.kind !== "ollama") {
+        // As `prepareModel` does: a local preset's list says how large its models' windows are.
+        const provider = await toProvider(row, chosen.modelId);
+        if (!provider.service && isPreset(catalogProvider(provider.catalogId))) {
+          await listedModels(row, provider);
+        }
+        const capabilities = capabilitiesOf(row, chosen.modelId);
+        return shaped(capabilities, cloudWindow(capabilities));
+      }
+      const profile = await profileFor(row.kind, row.base_url, chosen.modelId);
+      return shaped(
+        capabilitiesOf(row, chosen.modelId, profile ? ollamaFacts(profile) : undefined),
+        profile
+          ? { tokens: profile.settings.numCtx, outputTokens: profile.settings.outputTokens }
+          : undefined,
       );
     },
 

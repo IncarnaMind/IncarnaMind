@@ -255,16 +255,32 @@ export interface CreateMindInput {
  *   read to decide an absence sentence, which an older editor would strip,
  *   losing both the card's Locations and the dependency that makes a changed
  *   Document need a re-check. Older content is version 37 content as it is.
- * - 38: a Word file's footnotes and endnotes are the Note's own footnotes
+ * - 38: a table of contents Block (#1935). An older editor would drop it when
+ *   it saves the Note, so it opens these Notes read-only. Existing content is
+ *   version 38 content as it is.
+ * - 39: a check against a Document the User picked, read whole (#1554):
+ *   "check-against-document" and `read` on its mark, recording exactly how
+ *   much was read. An older version would treat it as a search and check it
+ *   again. Older content is version 39 content as it is.
+ * - 40: `currencyClause` on a `claimCheck` mark's `parts` (#2226): the card's
+ *   one line naming the Document clause that says which dollar a bare "$" is,
+ *   which an older editor would strip, losing the line the card shows. Older
+ *   content is version 40 content as it is.
+ * - 41: the `picture` Block (#1937), a picture the User pasted or dropped,
+ *   kept in the Note's data with its size and alt text. An older editor would
+ *   drop it when it saves the Note, so it opens these Notes read-only. Older
+ *   content is version 41 content as it is.
+ * - 42: a Word file's footnotes and endnotes are the Note's own footnotes
  *   (#746): `FOOTNOTE_NODE` gains `source` and `endnote`, and its text may hold
  *   what the import keeps as is (`WORD_ATOM_NODE`); page breaks are
  *   `PAGE_BREAK_NODE`, in every Note; a column break is an atom of its own
  *   kind. An older version's editor would strip the attributes and the node,
  *   so it opens these Notes read-only. A Note imported before keeps its
  *   read-only notes and breaks until it is opened, when they are converted
- *   from its kept package (`convertWordParts`).
+ *   from its kept package (`convertWordParts`). What the import keeps as is
+ *   gains `hash`, of the file's XML at its place.
  */
-export const CONTENT_SCHEMA_VERSION = 38;
+export const CONTENT_SCHEMA_VERSION = 42;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -723,8 +739,13 @@ export const NOTE_BLOCK_TYPES = [
   "horizontalRule",
   "table",
   "chart",
+  "tableOfContents",
+  "picture",
   "wordBlock",
 ] as const;
+
+/** A table of contents (#1935): a Block drawn from the Note's headings, and Word's own in a .docx. */
+export const TABLE_OF_CONTENTS_NODE = "tableOfContents";
 
 /** The node type of a Question Block. Its content is the User's text (inline). */
 export const QUESTION_BLOCK = "question";
@@ -1424,6 +1445,15 @@ export const WORD_BLOCK_NODE = "wordBlock";
 export const IMAGE_NODE = "image";
 
 /**
+ * A picture the User pasted or dropped into a Note (#1937): a Block of its
+ * own, kept as a `data:` URL of the Note's data (the app's
+ * Content-Security-Policy allows no other kind), resized to fit, with the alt
+ * text the User writes for it. Unlike an `IMAGE_NODE` it sits between Blocks,
+ * never inside a paragraph's text.
+ */
+export const PICTURE_NODE = "picture";
+
+/**
  * What a kept-as-is atom is. Bookmarks, other ranges (a comment's, an
  * editing permission's, a move's) and column breaks are invisible; a section
  * break is a line across the text; the rest show their text, or a mark of
@@ -1495,6 +1525,12 @@ export interface WordAtomInfo {
   display?: boolean;
   /** A bookmark's name. */
   name?: string;
+  /**
+   * For a Block kept as is that the file draws as paragraphs (a table of
+   * contents, a field over several paragraphs): each line's paragraph look,
+   * by its key in the Mind's Word look, so the look draws it at the file's height.
+   */
+  looks?: string[];
 }
 
 /**
@@ -1722,6 +1758,15 @@ export interface WordLook {
    * left cell margin into the margin, so the cells' text lines up with the page's.
    */
   tablesHang?: true;
+  /**
+   * The document grid's line pitch, in points, when the first section puts
+   * lines on it (`w:docGrid` of type "lines", "linesAndChars" or
+   * "snapToChars"), as Chinese and Japanese files do: each line then takes a
+   * whole number of pitches.
+   */
+  linePitch?: number;
+  /** The file's text has Chinese, Japanese or Korean in it, so its East Asian fonts are drawn. */
+  eastAsian?: true;
   paragraphs: Record<string, WordParagraphLook>;
   runs: Record<string, WordRunLook>;
   tables: Record<string, WordTableLook>;
@@ -1802,6 +1847,8 @@ export interface WordParagraphLook {
   keepLines?: true;
   pageBreakBefore?: true;
   widowControl?: boolean;
+  /** Off: the paragraph's lines keep their own height on a document grid (`w:snapToGrid`). */
+  snapToGrid?: false;
 }
 
 export interface WordWidth {
@@ -4714,6 +4761,11 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /**
+   * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
+   * the Run had spent when it stopped.
+   */
+  budget?: { most: Money; spent: Money };
 }
 
 /**
@@ -5274,6 +5326,14 @@ export type RunEstimate =
       tokens: number;
       /** Null for a model with no known price. */
       cost: Money | null;
+      /**
+       * The most it may come to, with the requests it sends only when what it reads asks for
+       * them: in a whole read (#1554), every other call each check's Run may make, what a check
+       * may ask after its Run, the looks at a quote a window's judgement gives, and a judgement
+       * its sentence's last check said it wouldn't need. A whole read's `cost` here is its
+       * budget, which the meter holds it to (../shared/readBudget).
+       */
+      upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;
       setAsideTowardCap: Money | null;
       cap: MonthlyCap | null;
@@ -5637,6 +5697,7 @@ export const claimCheckActions = [
   "find-support",
   "check-against-documents",
   "contradiction-watch",
+  "check-against-document",
 ] as const;
 export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
@@ -5660,6 +5721,11 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
+ *   but a look at its quote found it doesn't state that (#1554).
+ * - "read-budget": a whole read reached the most it may spend before this part was judged, so
+ *   nothing more was sent (`detail`: that most and what it had spent, as JSON of
+ *   `{ most: Money; spent: Money }`).
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5677,8 +5743,10 @@ export type ClaimCheckFailure =
   | "consent-revoked"
   | "local-mode"
   | "absence-read-limit"
+  | "absence-unconfirmed"
   | "kept-inside"
-  | "cut-short";
+  | "cut-short"
+  | "read-budget";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -5792,6 +5860,11 @@ export interface ClaimCheckPart extends ClaimPartPlan {
   coverage?: ClaimPartCoverage;
   /** The Documents read whole to decide this part's absence (#1443): what backs it in place of a quote. */
   readDocuments?: readonly ClaimReadDocument[];
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the part is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string;
 }
 
 export type ClaimPartJudgment = (
@@ -6000,12 +6073,32 @@ export interface FigureSchedule {
   progress: { done: number; total: number } | null;
 }
 
+/**
+ * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
+ * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
+ */
+export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
+  /** Names this schedule, for asking for the next as a change to it. */
+  token: string;
+  since: string | null;
+  from: number;
+  to: number;
+  /** How many paragraphs the rows after `to` moved down; their numbers move with `rows`. */
+  shift: number;
+  rows: FigureScheduleRow[];
+}
+
 export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
 
 export type ClaimCheckResult = ClaimJudgment & {
   figures?: FigureCheckResult[];
   /** Undefined is a missing decomposition; null explicitly means no other assertion. */
   remainder?: ClaimJudgment | null;
+  /**
+   * For "supported": the Document's own line that says which currency a bare "$" in the claim is,
+   * and where it is (#2226).
+   */
+  currencyClause?: string | null;
 };
 
 /**
@@ -6112,6 +6205,14 @@ export interface ClaimCheckBasis {
    * stay as they were checked, it isn't shown, counted or checked again.
    */
   kept?: true;
+  /** "check-against-document": how much of the picked Document or Folder was read. */
+  read?: WholeRead;
+}
+
+/** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
+export interface WholeRead {
+  pages: number;
+  of: number;
 }
 
 export interface FigureCheckAttributes extends ClaimCheckBasis, FigureFinding {}
@@ -6134,8 +6235,67 @@ export interface CheckSentencesInput {
   action: ClaimCheckAction;
   /** Search every Document, not the Mind's Folder ("Search all Documents"). */
   allDocuments?: boolean;
+  /**
+   * "check-against-document": the Document or Folder to read whole, on the Note's side of any
+   * Folder wall. With `part`, only that part is read; without, each part not yet Supported or
+   * Contradicted is.
+   */
+  within?: SearchScope;
+  /**
+   * With `within`, required: the `planDocumentCheck` it was asked from. Refused, sending nothing,
+   * unless it is still the Note's latest plan and was made for this pick and these sentences; a
+   * newer plan stops a read already running.
+   */
+  plan?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
+}
+
+/** What `checkSentences` will read whole: its sentences, or one part, and its pick. */
+export interface PlanDocumentCheckInput {
+  mindId: string;
+  from: TextPlace;
+  to: TextPlace;
+  more?: TextStretch[];
+  part?: { id: string; span: ClaimPartSpan };
+  within: SearchScope;
+  model?: ChatModelChoice | null;
+}
+
+export interface DocumentToRead {
+  documentId: string;
+  name: string;
+  pages: number;
+  readable: number;
+}
+
+/** What an explicit whole read takes; planning never sends text to a model. */
+export type DocumentCheckPlan =
+  | {
+      kind: "ready";
+      /** What a read of this plan names as its `plan`. */
+      id: string;
+      /**
+       * The parts the read checks against the pick, each through every window: the estimate's
+       * count. Null when a sentence's parts are sorted only as it is read: then at least one.
+       */
+      parts: number | null;
+      documents: DocumentToRead[];
+      pages: number;
+      readable: number;
+      tokens: number;
+      estimate: RunEstimate | null;
+    }
+  | { kind: "too-large"; tokens: number; most: number }
+  | { kind: "too-many"; documents: number; most: number }
+  | { kind: "nothing-to-read" };
+
+/** Progress through an explicit whole read, sent as it goes and never persisted. */
+export interface DocumentCheckProgress {
+  requestId: string;
+  mindId: string;
+  pages: number;
+  of: number;
 }
 
 /** What `checkSentences` did. */
@@ -6177,7 +6337,9 @@ export type CheckSentencesResult =
   /** Contradiction watch, nothing sent: the Mind is in no Folder, so there is none to check against. */
   | { kind: "no-folder" }
   /** Contradiction watch, nothing sent: the Folder holds no Documents but those its claims cite. */
-  | { kind: "only-cited"; folderId: string };
+  | { kind: "only-cited"; folderId: string }
+  /** "check-against-document": the pick cannot be read whole, and the plan says why. */
+  | { kind: "cannot-read"; plan: Exclude<DocumentCheckPlan, { kind: "ready" }> };
 
 /** Contradiction watch (#112) on a whole Mind, on demand. */
 export interface CheckContradictionsInput {
@@ -6218,7 +6380,7 @@ export interface ContradictionCheckOutcome {
 /** What `checkContradictions` did. */
 export type CheckContradictionsResult =
   | ({ kind: "checked" } & ContradictionCheckOutcome)
-  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" }>;
+  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" | "cannot-read" }>;
 
 /**
  * The last check for contradictions a new version of a Document in the Mind's
@@ -6330,7 +6492,10 @@ export type CheckMindResult =
   | { kind: "failed"; error: ProviderError }
   /** A Check of this Note is running already, asked from this window or another: none started. */
   | { kind: "running" }
-  | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" | "no-folder" | "only-cited" | "waiting" | "cannot-read" }
+    >;
 
 /**
  * The last whole-Mind check (#737), in the Mind's settings
@@ -6395,7 +6560,10 @@ export interface TextStretch {
 
 /** Why finding or checking a document's claims sent nothing. */
 type VerifyRefusal =
-  | Exclude<CheckSentencesResult, { kind: "checked" } | { kind: "waiting" }>
+  | Exclude<
+      CheckSentencesResult,
+      { kind: "checked" } | { kind: "waiting" } | { kind: "cannot-read" }
+    >
   /** Another document's claims are being found or checked, in that Mind: one run at a time. */
   | { kind: "busy"; mindId: string };
 
@@ -6774,6 +6942,11 @@ export interface MindFocus {
   /** The selected text as the editor reads it; "" with nothing selected. */
   selection: string;
   blockIds: string[];
+  /**
+   * The pictures the User selected in the Note to ask about (#1937), by Block
+   * id: only these go to the model, and only with this Question.
+   */
+  pictures?: string[];
 }
 
 /** The Mind an Answer in a conversation read (#544), as it was then: what the Answer is based on. */
@@ -7628,12 +7801,14 @@ export const dataKinds = [
   "answers",
   "web-searches",
   "verified-document",
+  "whole-document",
   "references",
   "connector-search",
   "meeting-audio",
   "document-names",
   "other-minds",
   "live-transcript",
+  "pictures",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -7695,6 +7870,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   else the image model's). Not allowed by choosing the provider (#1613):
  *   the User allows it here, in Settings › Privacy, and without it the scan
  *   stays unsorted. A model on this computer needs no consent.
+ * - "document-check": when the User asks Check against a Document… (#1554),
+ *   the sentence with its paragraph and the whole text of the Document or
+ *   Folder they pick, to the chat model's provider. Asked where it is used;
+ *   none in local mode.
  */
 export const dataFlowIds = [
   "chat",
@@ -7714,6 +7893,7 @@ export const dataFlowIds = [
   "connector-registry",
   "transcription",
   "scan-images",
+  "document-check",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -9097,6 +9277,12 @@ export interface SentenceChecksExported {
   comments: number;
 }
 
+/** A file an export writes beside its main file, e.g. a picture a Markdown export links (#1937). */
+export interface ExportFile {
+  name: string;
+  data: Uint8Array;
+}
+
 /** What a Mind's web page to share would hold, for the sheet to show before it is made. */
 export interface SharePagePreview {
   /** Every Document the Mind cites, in the order it is first cited. */
@@ -9122,6 +9308,12 @@ export interface SharedDocument {
 export interface MindExport extends MindExportPreview {
   /** The file's contents: UTF-8 text for Markdown and HTML, a ZIP package for .docx, a PDF for PDF and a source pack. */
   data: Uint8Array;
+  /**
+   * Files the export writes beside its main file, in the same folder: the
+   * pictures a Markdown export links (#1937). Empty or absent for a format
+   * that holds its pictures itself.
+   */
+  files?: readonly ExportFile[];
   /** For a Mind imported from a Word file, exported back into it: what it kept and couldn't keep. */
   word: WordExportReport | null;
   sentenceChecks: SentenceChecksExported;
@@ -10098,6 +10290,11 @@ export interface CoreApi {
   /** Makes a Mind, in a Folder if given (it must exist), and returns it. */
   createMind(input?: CreateMindInput): Promise<Mind>;
   /**
+   * Makes a copy of a Mind, "{name} (copy)", with its Blocks, Citations, checks and sign-offs:
+   * the copy is the User's own to change, and the Mind it came from is untouched.
+   */
+  duplicateMind(mindId: string): Promise<Mind>;
+  /**
    * Reads a Word file for the import screen (#104): whether it can be imported, whose
    * document it looks like, and an earlier draft of it imported into the Folder (none, or
    * null: Not in a Folder). Keeps nothing, and changes nothing.
@@ -10119,6 +10316,12 @@ export interface CoreApi {
    * InvalidInputError for one not imported from Word.
    */
   addWordOriginal(mindId: string, path: string): Promise<boolean>;
+  /**
+   * The fonts a Mind imported from Word draws its text in, as its Word look names them
+   * (#746), for Get info to say which aren't installed; none for any other Mind. Throws
+   * NotFoundError for an unknown Mind.
+   */
+  wordFonts(mindId: string): Promise<string[]>;
   /** Minds that are not deleted, most recently updated first. Editing a Mind's content updates it. */
   listMinds(): Promise<Mind[]>;
   /** Changes a Mind's title (trimmed; empty means "Untitled") and returns the Mind. */
@@ -11041,8 +11244,18 @@ export interface CoreApi {
    * "checking", then its result, pushed as a "mind.update" like any edit.
    * Sends on the "checks" flow once the User allows it for the model's
    * service; in local mode only a model on this computer is used.
+   *
+   * `check-against-document` instead reads the picked `within` scope in ordered
+   * windows on the separate "document-check" flow. It keeps the previous mark
+   * unchanged until the read settles, so stopping leaves no partial result.
    */
   checkSentences(input: CheckSentencesInput): Promise<CheckSentencesResult>;
+  /**
+   * Sizes Check against a Document… for its sentences, or one part, before anything is sent; the
+   * read is `checkSentences` with `within` and this plan's `id`. It becomes the Note's latest plan
+   * and stops a whole read already running there.
+   */
+  planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -11137,6 +11350,12 @@ export interface CoreApi {
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  /**
+   * `getFigureSchedule` as a change to the schedule `since` names, one this call gave before:
+   * the rows that differ, so the window asks again after every change without the whole
+   * schedule crossing over. The whole schedule once the core no longer keeps that one.
+   */
+  getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -11601,6 +11820,11 @@ export interface CoreApi {
    */
   exportMind(mindId: string, options: ExportMindOptions): Promise<MindExport>;
   /**
+   * Prints a Mind as its PDF export lays it out, with each footnote at the foot of its page, in
+   * the printer the User chooses. Nothing is saved, and the Mind doesn't change.
+   */
+  printMind(mindId: string): Promise<void>;
+  /**
    * What the Mind's web page to share would hold with these options (Questions, someone's changes
    * waiting): its Documents, their quotes and pictures.
    */
@@ -11978,6 +12202,8 @@ export interface CoreEvents {
    * "document.status". Carries each Document whole.
    */
   "references.changed": Document[];
+  /** How far a whole read of Check against a Document… is (#1554). */
+  "documentCheck.progress": DocumentCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */
@@ -12083,9 +12309,11 @@ export type CoreApiMethod = keyof CoreApi;
 // A Record over every method name: adding a method to CoreApi without listing it here fails the type-check.
 const methods: Record<CoreApiMethod, true> = {
   createMind: true,
+  duplicateMind: true,
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
+  wordFonts: true,
   listMinds: true,
   renameMind: true,
   deleteMind: true,
@@ -12247,6 +12475,7 @@ const methods: Record<CoreApiMethod, true> = {
   regenerateProposal: true,
   cancelEdit: true,
   checkSentences: true,
+  planDocumentCheck: true,
   cancelCheck: true,
   checkClaim: true,
   chooseRecordCiteSource: true,
@@ -12261,6 +12490,7 @@ const methods: Record<CoreApiMethod, true> = {
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
+  getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
@@ -12396,6 +12626,7 @@ const methods: Record<CoreApiMethod, true> = {
   restoreBuiltInSkills: true,
   previewMindExport: true,
   exportMind: true,
+  printMind: true,
   previewSharePage: true,
   setSharePageTextOnly: true,
   saveMindExport: true,

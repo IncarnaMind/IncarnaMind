@@ -37,8 +37,18 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
 }
 
-/** The editor's popovers that are open, in the order they opened. */
+/** Native popovers that are open, in the order they opened. */
 const openPopovers: HTMLElement[] = [];
+
+/** A native picker portaled out of an editor Popover joins the stack for outside presses and Esc. */
+export function registerNativePopover(element: HTMLElement): void {
+  if (!openPopovers.includes(element)) openPopovers.push(element);
+}
+
+export function unregisterNativePopover(element: HTMLElement): void {
+  const index = openPopovers.indexOf(element);
+  if (index !== -1) openPopovers.splice(index, 1);
+}
 
 /**
  * A native popover in the top layer, next to `anchor`, for the editor's small
@@ -114,7 +124,7 @@ export function Popover({
     const followed = following.current?.();
     const resized = followed ? new ResizeObserver(place) : null;
     if (followed) resized?.observe(followed);
-    openPopovers.push(element);
+    registerNativePopover(element);
     /**
      * Whether an event happened in a popover opened after this one, such as
      * the card of a Citation in a footnote's text: from inside this one, so
@@ -127,6 +137,8 @@ export function Popover({
       const target = event.target;
       if (!(target instanceof Node) || element.contains(target) || inLater(target)) return;
       if (anchor instanceof Element && anchor.contains(target)) return;
+      const dialog = target instanceof Element ? target.closest("dialog[open]") : null;
+      if (dialog && !dialog.contains(element)) return;
       dismiss.current("outside");
     };
     // Esc while the focus is elsewhere, e.g. still in the editor or on the
@@ -144,7 +156,7 @@ export function Popover({
     document.addEventListener("pointerdown", dismissOnPressOutside, true);
     document.addEventListener("keydown", dismissOnEscape, true);
     return () => {
-      openPopovers.splice(openPopovers.indexOf(element), 1);
+      unregisterNativePopover(element);
       stopFollowing();
       resized?.disconnect();
       document.removeEventListener("pointerdown", dismissOnPressOutside, true);

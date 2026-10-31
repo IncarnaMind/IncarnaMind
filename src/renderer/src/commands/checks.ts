@@ -3,6 +3,7 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
+  requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
@@ -180,6 +181,20 @@ export const checkCommands: readonly Command[] = [
   },
   checkAgainstDocuments,
   {
+    id: "check.againstDocument",
+    label: "claim.checkAgainstDocument",
+    keywords: ["claim.checkAgainstDocument.keywords"],
+    group: "main",
+    reversible: true,
+    when: () => withCuttable() !== null,
+    run() {
+      const at = withCuttable();
+      if (!at) return;
+      showClaimCard(at);
+      requestDocumentPicker(at.claim.check.id);
+    },
+  },
+  {
     id: "check.addedDocuments",
     label: "checks.added.command",
     group: "main",
@@ -271,7 +286,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withClaim(figureAt) !== null,
     run() {
       const at = withClaim(figureAt);
-      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim, () => showClaimCard(at));
     },
   },
 ];

@@ -1277,10 +1277,30 @@ class Reader {
     ];
     const content = child(sdt, "w:sdtContent") ?? sdt;
     const toc = gallery === "Table of Contents";
+    const text = blockText(content);
+    const looks = toc ? this.lineLooks(content, text) : null;
     return this.blockAtom("control", this.place(sdt), {
-      text: blockText(content),
-      ...(toc && { info: { field: "TOC" } }),
+      text,
+      ...(toc && { info: { field: "TOC", ...(looks && { looks }) } }),
     });
+  }
+
+  /** The look of each line of a container's text, as `blockText` writes it, when all are paragraphs. */
+  private lineLooks(container: XmlElement, text: string): string[] | null {
+    if (descendants(container, "w:tbl").length > 0) return null;
+    const lines = descendants(container, "w:p").filter((p) => textIn(p).trim());
+    const looks = lines.map((p) => this.keptLook(p));
+    return looks.length === text.split("\n").length && looks.every((key) => key !== null)
+      ? looks.filter((key): key is string => key !== null)
+      : null;
+  }
+
+  /** The look a paragraph kept as is is drawn in: its own, with its first text's run. */
+  private keptLook(p: XmlElement): string | null {
+    const context = this.look.paragraph(p, this.tableLook);
+    const first = descendants(p, "w:r").find((r) => descendants(r, "w:t").length > 0);
+    const run = this.look.run(first && child(first, "w:rPr"), context, 0).key;
+    return this.look.paragraphKey(context, run && this.look.canBeParagraphRun(run) ? run : null);
   }
 
   /** A paragraph's own outline level wins over its style's; level 9 is body text. */
@@ -1351,8 +1371,12 @@ class Reader {
     this.carry = endDepth;
     if (startDepth > 0 || endDepth > 0) {
       // Part of a field over several paragraphs, such as a table of contents not in a control.
+      const look = this.keptLook(p);
       return {
-        node: this.blockAtom("field", this.place(p), { text: textIn(p).trim() }),
+        node: this.blockAtom("field", this.place(p), {
+          text: textIn(p).trim(),
+          ...(look && { info: { looks: [look] } }),
+        }),
         list: null,
       };
     }

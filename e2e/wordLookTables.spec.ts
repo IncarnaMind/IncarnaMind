@@ -3,6 +3,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import { contractFile, resumeFile } from "../tests/helpers/wordLookFiles";
 import {
+  chooseLook,
   createDataFolder,
   dismissChatSetup,
   importWordFile,
@@ -212,6 +213,12 @@ test("the contract's tables: the bordered definitions with a shaded heading row 
     expect([sides.top, sides.left, sides.right]).toEqual([0, 0, 0]);
   }
   await shot(window, "word-look-tables-contract-1440");
+  if (SCREENSHOTS) {
+    await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("page-menu")).toHaveAttribute("aria-label", /的更多操作$/);
+    await shot(window, "word-look-tables-contract-zh-1440");
+    await setLanguage(window, "en");
+  }
   await window.getByTestId("assistant-fold").click();
   await setWindowSize(app, window, 1100, 900);
   await expect.poll(() => fitsItsFrame(definitions)).toBe(true);
@@ -220,12 +227,10 @@ test("the contract's tables: the bordered definitions with a shaded heading row 
   await expect(window.getByTestId("page-menu")).toHaveAttribute("aria-label", /的更多操作$/);
   await shot(window, "word-look-tables-contract-zh-1100");
 
-  await window.getByTestId("group-menu").click();
-  await window.getByTestId("look-plain").click();
+  await chooseLook(window, "plain");
   await expect(definitions).toHaveCSS("border-top-left-radius", "8px");
   await expect(signatures.locator("td").first()).toHaveCSS("min-width", "96px");
-  await window.getByTestId("group-menu").click();
-  await window.getByTestId("look-word").click();
+  await chooseLook(window, "word");
   await expect(definitions).toHaveCSS("border-top-left-radius", "0px");
   await app.close();
 });

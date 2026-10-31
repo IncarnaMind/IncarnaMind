@@ -9,6 +9,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
 import { optionsFor } from "../shared/exportOptions";
+import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
@@ -27,6 +28,7 @@ import {
 } from "../shared/mindCitationStyle";
 import { mindModelOf } from "../shared/mindModel";
 import { mindScopeIn } from "../shared/mindScope";
+import { fingerprintOfBlocks } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
   exportedFamily,
@@ -38,7 +40,7 @@ import {
 } from "../shared/mindStyle";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised, targetHash } from "../shared/proposals";
+import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -54,6 +56,7 @@ import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { setUnreadFileNames } from "../shared/unreadFiles";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
+import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
@@ -106,9 +109,11 @@ import {
   type DocumentStatus,
   type EmbeddingModelStatus,
   type EmbeddingSettings,
+  type ExportFile,
   type ExportFormat,
   type ExportMindOptions,
   type ExternalService,
+  type FigureSchedule,
   type MarkAiTextChoice,
   type Meeting,
   type MeetingHelpKind,
@@ -236,7 +241,7 @@ import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
-import { accessFor, isKnownKind } from "./mindAccess";
+import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
 import {
@@ -1458,6 +1463,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
+  /**
+   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
+   * inside a wall only those behind it, from outside never one a wall keeps inside.
+   */
+  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
+    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
+    const picked = resolveSearchScope(scope, {
+      folderTree: (folderId) => folders.subtree(folderId),
+      organizedFolderDocuments: (folderId) => library.documentIds(folderId),
+      documentIds: (filter) => documents.ids(filter),
+    });
+    return (picked ?? []).filter((id) => searched.has(id));
+  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
@@ -1812,6 +1830,17 @@ export function createCore(adapters: CoreAdapters): Core {
         fromFolder: folderOfNote(mindId),
         ...(folder !== null && { folder, approved }),
       });
+      try {
+        await saveExportFiles(
+          exported.files,
+          folder ?? file.folder,
+          typeof mindId === "string" ? mindId : null,
+        );
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(file.path, fingerprintOf(exported.data)).catch(() => undefined);
+        throw error;
+      }
       await rememberExportChoices(exported, oneOff);
       recordExport(written);
       return { file, marking: settled };
@@ -1842,6 +1871,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     providerExists: (providerId) => chat.exists(providerId),
     defaultModel: () => settings.get().user.chatModel,
+    readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
     writesThenCites: ({ provider, modelId }, flow) =>
@@ -2052,7 +2082,7 @@ export function createCore(adapters: CoreAdapters): Core {
       },
     },
     resolveScope,
-    workingCopyOf: (mindId) => wordImports.originalOf(mindId)?.documentIds?.[0] ?? null,
+    workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     walledFolder,
@@ -2438,6 +2468,29 @@ export function createCore(adapters: CoreAdapters): Core {
     return mind;
   };
 
+  /** The schedules last given as changes, by token, for the next to be given as what differs. */
+  const givenSchedules = new Map<string, { mindId: string; rows: FigureSchedule["rows"] }>();
+  let scheduleTokens = 0;
+  function figureScheduleChangeFor(mindId: string, since: unknown) {
+    const schedule = readFigureSchedule(mindId);
+    // A token this core didn't give, or no longer keeps, gets the whole schedule.
+    const given = typeof since === "string" ? givenSchedules.get(since) : undefined;
+    const token = String(++scheduleTokens);
+    givenSchedules.set(token, { mindId: schedule.mindId, rows: schedule.rows });
+    // A window keeps one schedule per Note it shows, so a few are enough.
+    for (const old of givenSchedules.keys()) {
+      if (givenSchedules.size <= 8) break;
+      givenSchedules.delete(old);
+    }
+    return figureScheduleChange(
+      schedule,
+      token,
+      given && typeof since === "string" && given.mindId === schedule.mindId
+        ? { token: since, rows: given.rows }
+        : null,
+    );
+  }
+
   function readFigureSchedule(mindId: string) {
     const mind = minds.get(mindId);
     const scope = content.readSettings(mind.id, mindScopeIn);
@@ -2445,7 +2498,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return figureSchedule({
         mindId: mind.id,
         name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        basis: targetHash(blocks.toString()),
+        basis: fingerprintOfBlocks(blocks),
         blocks,
         versions: new Map(documents.list().map((document) => [document.id, document.contentHash])),
         folderId: mind.folderId,
@@ -2533,6 +2586,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledDocument,
     walledFolderName,
     searchedScope,
+    pickedDocuments,
     originalOf: (mindId) => wordImports.originalOf(mindId),
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),
@@ -2551,6 +2605,8 @@ export function createCore(adapters: CoreAdapters): Core {
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
       names: () => documents.names(),
+      live: (documentIds) => documents.getMany(documentIds),
+      passages: (documentId) => documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
       batesHolders: (prefix, identifier) => documents.batesHolders(prefix, identifier),
       searchableLanguages: (documentIds) => documents.searchableLanguages(documentIds ?? undefined),
       savedBySearch: (documentId) => documents.getMany([documentId])[0]?.web?.origin === "search",
@@ -2564,6 +2620,12 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    estimateRead(model, read) {
+      const metered = chat.metered(model ?? undefined);
+      return metered && meter.estimateRead(metered, read);
+    },
+    readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
+    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
@@ -2850,6 +2912,29 @@ export function createCore(adapters: CoreAdapters): Core {
     linkedFolders: () => documents.linkedFolders.list(),
     recordOwnFile,
   });
+  /**
+   * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
+   * export's pictures. The User let that folder take the export, so it takes these too.
+   */
+  const saveExportFiles = async (
+    files: readonly ExportFile[] | undefined,
+    folder: string,
+    from: string | null,
+  ): Promise<void> => {
+    for (const file of files ?? []) {
+      // A picture named after its content: the file there already holds these bytes, so it is
+      // linked, not copied again as "picture-… 2.png" (#1937).
+      if (await outputs.holds(folder, file.name, file.data)) continue;
+      await outputs.save({
+        name: file.name,
+        data: file.data,
+        ownFile: "export",
+        fromFolder: folderOfNote(from),
+        folder,
+        approved: true,
+      });
+    }
+  };
   /**
    * Saves an export in the Output location, as the window's save: what went wrong is a result, not
    * an error. `from`: the Note it was written from, whose Folder wall it stays behind; null for none.
@@ -4232,7 +4317,9 @@ export function createCore(adapters: CoreAdapters): Core {
               : {}),
           }),
         );
-        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language));
+        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language), {
+          pictures: false,
+        }).text;
       },
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
@@ -4287,11 +4374,39 @@ export function createCore(adapters: CoreAdapters): Core {
   api = {
     createMind: async (input) =>
       makeMind(parseCreateMindInput(input), { headed: isRecord(input) && input.headed === true }),
+    duplicateMind: async (mindId) => {
+      const source = minds.get(mindId);
+      const name = mindName(source) || translate(settings.get().language, "mind.untitled");
+      const settingsOfSource = content.readSettings(source.id, (mindSettings) => [
+        ...mindSettings.entries(),
+      ]);
+      const copy = makeMind({
+        title: translate(settings.get().language, "mind.copyName", { name }),
+        kind: parseKind(source.kind) ?? DEFAULT_MIND_KIND,
+        folderId: source.folderId,
+      });
+      content.apply(copy.id, content.state(source.id));
+      // The copy is the source's, choices included: the new-Mind defaults makeMind wrote would
+      // otherwise race the source's in the merge, and one of the two would win by client id.
+      content.editSettings(copy.id, (mindSettings) => {
+        for (const key of [...mindSettings.keys()]) mindSettings.delete(key);
+        for (const [key, value] of settingsOfSource) mindSettings.set(key, value);
+      });
+      wordImports.copyPackage(source.id, copy.id);
+      return minds.get(copy.id);
+    },
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
     importWordFile: async (input) => wordImports.import(input),
     addWordOriginal: async (mindId, path) => {
       const mind = writableMind(mindId);
       return wordImports.addOriginal(mind.id, path);
+    },
+    wordFonts: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => {
+        const look = fragment.doc && wordLookOf(fragment.doc);
+        return look ? wordFontsOf(look) : [];
+      });
     },
     listMinds: async () => minds.list(),
     renameMind: async (mindId, title) => {
@@ -4906,6 +5021,7 @@ export function createCore(adapters: CoreAdapters): Core {
     regenerateProposal: (input) => edits.regenerateProposal(input),
     cancelEdit: async (requestId) => edits.cancel(requestId),
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
+    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
     chooseRecordCiteSource: (input) =>
@@ -4922,6 +5038,7 @@ export function createCore(adapters: CoreAdapters): Core {
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
+    getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -5465,6 +5582,8 @@ export function createCore(adapters: CoreAdapters): Core {
         setTextOnlyDocuments(mindSettings, documentIds),
       );
     },
+    printMind: async (mindId) =>
+      mindExports.print(mindId, optionsFor("pdf", settings.get().user.exportOptions)),
     exportMind: async (mindId, options) => {
       const exported = await mindExports.export(mindId, options);
       // The host saves these bytes as a file: IncarnaMind's, wherever it goes. Noting so is
@@ -5499,11 +5618,15 @@ export function createCore(adapters: CoreAdapters): Core {
           theirChanges: _waiting,
           data,
           word,
+          files,
           ...counts
         } = await mindExports.export(known.mindId, options, checkComments);
         const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
         if (word?.notKept.some((loss) => !accepted.has(loss.key)))
           return { status: "review", word };
+        // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
+        // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
+        await saveExportFiles(files, dirname(known.path), known.mindId);
         const ownFile = { kind: ownFileOf(options), fromFolder: folderOfNote(known.mindId) };
         const written = await outputs.rewrite(known.path, data, known.wrote, ownFile);
         let file: SavedFile;
@@ -5595,6 +5718,7 @@ export function createCore(adapters: CoreAdapters): Core {
         theirChanges: _waiting,
         data,
         word,
+        files,
         ...counts
       } = await mindExports.export(mindId, options);
       // What a Word file can't keep is said before anything is saved (#105).
@@ -5608,6 +5732,13 @@ export function createCore(adapters: CoreAdapters): Core {
         ownFileOf(options),
       );
       if (saved.status !== "saved") return saved;
+      try {
+        await saveExportFiles(files, saved.file.folder, typeof mindId === "string" ? mindId : null);
+      } catch (error) {
+        // A file that would link pictures none can see is taken back: the export didn't happen.
+        await outputs.remove(saved.file.path, fingerprintOf(data)).catch(() => undefined);
+        throw error;
+      }
       exportFiles.set(saved.file.path, {
         mindId,
         path: saved.file.path,

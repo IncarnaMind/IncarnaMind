@@ -127,8 +127,15 @@ describe("where a strip of tabs comes to rest", () => {
     expect(restOf(widths, 104 + END_GAP, -1, shown.scrollLeft)).toEqual(shown);
   });
 
-  test("shows a tab wider than the room, and no more", () => {
-    expect(restOf([300, 300], 200, 1)).toMatchObject({ first: 1, last: 1, run: 200, gap: 0 });
+  test("shows a tab wider than the room, and no more, narrowed to it", () => {
+    // The shown tab has no named hidden tab to give way, so it narrows to the room itself.
+    expect(restOf([300, 300], 200, 1)).toMatchObject({
+      first: 1,
+      last: 1,
+      run: 200,
+      gap: 0,
+      squeezed: true,
+    });
   });
 
   test("shows whole tabs, and part of a hidden one's name at a side that hides tabs, for any tabs, room, scroll or shown tab", () => {

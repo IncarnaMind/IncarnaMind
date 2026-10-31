@@ -9,6 +9,7 @@ import { join, relative, sep } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core, SaveChatProviderInput } from "../../src/core";
+import { type AnswerTools, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import {
   type ModelCallKind,
   OUTPUT_LIMITS,
@@ -210,24 +211,53 @@ describe("Every model call's output limit", () => {
     return text.slice(from);
   };
 
-  // protects=no model call in the core is left to its provider's default output (128,000 tokens on Claude), and none sets a number of its own; fails_when=a call to the AI SDK sets no maxOutputTokens, or one not read from the table (#2275).
+  // protects=no model call in the core is left to its provider's default output (128,000 tokens on Claude), and none sets a number of its own, written in place, through a variable or in options built elsewhere; fails_when=a call to the AI SDK sets no maxOutputTokens, one not read from the table, or passes its options in a way this can't read (#2275).
   test("every call to the model layer in the core sets one, read from the table", () => {
-    const fromTable =
-      /^(?:outputTokens\(|outputOf\(|request\.outputTokens\.|call\.maxOutputTokens)/;
+    const CALLS = "generateText|streamText|generateObject|streamObject";
+    const fromTable = /^(?:Math\.min\(\s*)?(?:outputTokens\(|outputOf\(|request\.outputTokens\.)/;
+    /** Whether `value`, or every value given to the variable it names in `text`, reads the table. */
+    const readsTable = (value: string, text: string): boolean => {
+      if (fromTable.test(value)) return true;
+      const name = /^[\w.]+$/.test(value) ? value.split(".").at(-1) : undefined;
+      if (!name) return false;
+      const given = [
+        ...text.matchAll(new RegExp(`(?<![\\w.])${name}\\s*([-+*/%]?)=(?!=)\\s*([^;]+)`, "g")),
+      ];
+      return (
+        given.length > 0 &&
+        given.every((each) => each[1] === "" && fromTable.test((each[2] ?? "").trim()))
+      );
+    };
     const found: string[] = [];
     const missing: string[] = [];
     for (const file of sources(join(ROOT, "src/core"))) {
-      for (const match of file.text.matchAll(
-        /\b(?:generateText|streamText|generateObject|streamObject)\(\{/g,
-      )) {
-        const line = file.text.slice(0, match.index).split("\n").length;
-        found.push(`${file.path}:${line}`);
-        const limit = /\bmaxOutputTokens\b(?:\s*:\s*([^,\n]+))?/.exec(
-          literalAt(file.text, match.index + match[0].length - 1),
+      const code = file.text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      const lineOf = (index: number) =>
+        `${file.path}:${file.text.slice(0, file.text.indexOf(code.slice(index, index + 40))).split("\n").length}`;
+      // A call is only seen by name: imported as it is, never renamed, passed on or exported again.
+      for (const match of code.matchAll(new RegExp(`\\b(?:${CALLS})\\b`, "g"))) {
+        const after = code.slice(match.index + match[0].length);
+        const imported = /^import\s*(?:type\s*)?\{[^}]*$/.test(
+          code.slice(code.lastIndexOf("import", match.index), match.index),
         );
-        const read = limit && (limit[1] === undefined || fromTable.test(limit[1].trim()));
-        if (!read || !/outputLimits|request\.outputTokens/.test(file.text)) {
-          missing.push(`${file.path}:${line}`);
+        if (imported ? /^\s+as\b/.test(after) : !/^\s*(?:<[^>(]*>)?\(/.test(after)) {
+          missing.push(`${lineOf(match.index)} (not called by its own name)`);
+        }
+      }
+      for (const match of code.matchAll(
+        new RegExp(`\\b(?:${CALLS})\\s*(?:<[^>(]*>)?\\((\\{)?`, "g"),
+      )) {
+        const at = lineOf(match.index);
+        found.push(at);
+        if (!match[1]) {
+          missing.push(`${at} (options not written in place)`);
+          continue;
+        }
+        const limit = /\bmaxOutputTokens\b(?:\s*:\s*([^,\n]+))?/.exec(
+          literalAt(code, match.index + match[0].length - 1),
+        );
+        if (!limit || !readsTable((limit[1] ?? "maxOutputTokens").trim(), code)) {
+          missing.push(at);
         }
       }
     }
@@ -243,7 +273,8 @@ describe("Every model call's output limit", () => {
     await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(model.doStreamCalls.length).toBeGreaterThanOrEqual(3);
-    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(outputTokens("answer-step"));
+    // 32,000: Claude Haiku 5.5 wrote 11,701 tokens in one step for a 4,000-word essay (#2275).
+    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(32_000);
     expect(unlimited(model)).toEqual([]);
   });
 
@@ -260,8 +291,8 @@ describe("Every model call's output limit", () => {
     await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     const limits = model.doStreamCalls.map((call) => call.maxOutputTokens);
-    expect(limits.at(-1)).toBe(outputTokens("answer"));
-    expect(limits.slice(0, -1)).toEqual(limits.slice(0, -1).map(() => outputTokens("answer-step")));
+    expect(limits.at(-1)).toBe(8_000);
+    expect(limits.slice(0, -1)).toEqual(limits.slice(0, -1).map(() => 32_000));
     expect(unlimited(model)).toEqual([]);
   });
 
@@ -278,6 +309,47 @@ describe("Every model call's output limit", () => {
 
     expect(model.doGenerateCalls.length).toBeGreaterThanOrEqual(2);
     expect(unlimited(model)).toEqual([]);
+  });
+
+  // protects=a step never asks for more than the room its window keeps for a reply, so prompt and reply fit the model's window; fails_when=a step asks the table's 16,000 of a window that keeps 1,024 for the reply, and the provider refuses it (#2275).
+  test("each step of a Run, and an Answer without Tools, within the room the window keeps for a reply", async () => {
+    const asked = async (support: "tools" | "structured-output") => {
+      const model = scriptedModel((call) =>
+        call.tools.includes("search_documents") && call.results.length === 0
+          ? { calls: [{ tool: "search_documents", input: { query: "tides" } }] }
+          : support === "tools"
+            ? { text: "Spring tides come at new and full moon." }
+            : { text: JSON.stringify({ answer: "At new and full moon.", citations: [] }) },
+      );
+      const documents: AnswerTools = {
+        documentCount: 1,
+        async searchDocuments() {
+          return {
+            text: `<passage id="P1" document="Tides" pages="1">\n${SPRING}\n</passage>`,
+            passageCount: 1,
+          };
+        },
+        cite: () => "Recorded [^1].",
+      };
+      for await (const _ of createAiSdkAnswerEngine().generate({
+        instructions: () => "Answer from the Passages.",
+        messages: [{ role: "user", content: "When are spring tides?" }],
+        question: "When are spring tides?",
+        model,
+        documents,
+        tools: [],
+        support,
+        window: { tokens: 8_192, outputTokens: 1_024 },
+        signal: new AbortController().signal,
+      }));
+      return model.doStreamCalls.map((call) => call.maxOutputTokens);
+    };
+
+    for (const support of ["tools", "structured-output"] as const) {
+      const limits = await asked(support);
+      expect(limits.length, support).toBeGreaterThan(0);
+      expect(limits, support).toEqual(limits.map(() => 1_024));
+    }
   });
 
   test("a check of a sentence with a figure, of one with none, and of an absence, with its whole read", async () => {

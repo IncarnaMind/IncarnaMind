@@ -473,7 +473,11 @@ function parseFocus(value: unknown): MindFocus | null {
     return null;
   }
   const blockIds = value.blockIds.filter((id): id is string => typeof id === "string" && id !== "");
-  return { selection: value.selection, blockIds };
+  // The pictures the User selected to ask about (#1937): their Block ids, read again with a remake.
+  const pictures = Array.isArray(value.pictures)
+    ? value.pictures.filter((id): id is string => typeof id === "string" && id !== "")
+    : [];
+  return { selection: value.selection, blockIds, ...(pictures.length > 0 && { pictures }) };
 }
 
 function toQuestion(row: MessageRow): ConversationQuestion {

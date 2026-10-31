@@ -630,7 +630,7 @@ export function SelectionMenu({
               role="menuitem"
               aria-disabled={!state.footnote}
               data-testid="format-footnote"
-              title={`${t("editor.format.footnote")} (${shortcutLabel("footnote.insert")})`}
+              title={t("editor.format.footnote")}
               aria-label={t("editor.format.footnote")}
               onMouseDown={keepSelection}
               onClick={() => {

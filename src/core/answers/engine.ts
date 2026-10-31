@@ -110,7 +110,7 @@ import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
-import { earlierContext, type RequestMind, withLineBefore } from "./context";
+import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import {
   NOTHING_SHOWN_YET,
@@ -120,7 +120,7 @@ import {
   translateQueryPrompt,
   withPassageNotes,
 } from "./prompt";
-import { retryQuotes } from "./quoteRetry";
+import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
@@ -138,6 +138,11 @@ export interface AnswerMessage {
    * cache keeps (see ../providers/promptCache).
    */
   stablePrefix?: number;
+  /**
+   * Pictures the User selected in the Note to ask about (#1937), which only the
+   * Answer's own Run reads: the calls that search send the text alone.
+   */
+  pictures?: readonly AskedPicture[];
 }
 
 /** A Citation record, as the model gives it for one marker. */
@@ -401,6 +406,8 @@ export interface AnswerRequest {
   quickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
   documents: AnswerTools;
+  /** The Passage ids a search actually fitted into the model's request, for exact whole-read coverage. */
+  fitted?(passageIds: readonly string[]): void;
   /**
    * The other Tools a model that can call Tools is offered, from their
    * providers: the Skills' and the Connectors' (see ../tools). Within a
@@ -603,6 +610,8 @@ export interface AiSdkAnswerEngineOptions {
 
 /** Model calls per Answer: a few searches, the records, and the Answer, with room to spare. */
 const MAX_STEPS = 10;
+/** The most model calls one Answer's Tool loop sends: its steps, and one more that writes after a call on the last. */
+export const MOST_TOOL_LOOP_CALLS = MAX_STEPS + 1;
 /** More model calls for an Answer offered `run_analysis` (#447): its runs, and fixing their code. */
 const ANALYSIS_STEPS = 6;
 
@@ -632,8 +641,13 @@ export function answerTemperature(takesTemperature: boolean | undefined): number
 const writingKind = (request: AnswerRequest): ModelCallKind =>
   request.toolSet === "check" ? "check-step" : "answer";
 
+/** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
-  Math.min(outputTokens(kind), request.maxOutput ?? Number.POSITIVE_INFINITY);
+  Math.min(
+    outputTokens(kind),
+    request.maxOutput ?? Number.POSITIVE_INFINITY,
+    request.window?.outputTokens ?? Number.POSITIVE_INFINITY,
+  );
 
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };
@@ -786,7 +800,10 @@ export function parseRecords(value: unknown): CitationRecordInput[] {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence. */
+/**
+ * The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence: only
+ * to show as it streams. What is recorded comes from the reply parsed whole (#2275).
+ */
 const parseAnswerJson = (raw: string) =>
   parsePartialJson(raw.replace(/^\s*```(?:json)?[ \t]*\n?/i, "").replace(/\n?```\s*$/, ""));
 
@@ -935,22 +952,32 @@ const PASSAGE_BLOCK = /<passage id="([^"]+)"[^>]*>[\s\S]*?<\/passage>/g;
  * the best of each. With no Passages in any, the first's text.
  */
 export function mergeSearches(results: readonly SearchResultForModel[]): SearchResultForModel {
-  const passages: { id: string; text: string; rank: number }[] = [];
+  const passages: { id: string; text: string; rank: number; passageId?: string }[] = [];
   results.forEach((result, which) => {
     [...result.text.matchAll(PASSAGE_BLOCK)].forEach((match, index) => {
       const rank = (result.ranks?.[index] ?? index) * results.length + which;
       const seen = passages.find((passage) => passage.id === match[1]);
       if (seen) seen.rank = Math.min(seen.rank, rank);
-      else passages.push({ id: match[1] as string, text: match[0], rank });
+      else {
+        const passageId = result.passageIds?.[index];
+        passages.push({
+          id: match[1] as string,
+          text: match[0],
+          rank,
+          ...(passageId && { passageId }),
+        });
+      }
     });
   });
   const [first] = results;
   if (passages.length === 0 || !first) return first ?? { text: "", passageCount: 0 };
   if (results.length === 1) return first;
+  const passageIds = passages.flatMap(({ passageId }) => (passageId ? [passageId] : []));
   return {
     text: passages.map((passage) => passage.text).join("\n\n"),
     passageCount: passages.length,
     ranks: passages.map((passage) => passage.rank),
+    ...(passageIds.length === passages.length && { passageIds }),
   };
 }
 
@@ -1011,9 +1038,15 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
 
   return {
     async *generate(asked) {
+      // A request the model refuses as too long goes again with fewer Passages: only the Passages
+      // of the attempt it takes were read (#1554).
+      const accepted = asked.fitted;
+      let attemptRead: string[] = [];
       // Only an ordinary Answer is offered the Tools the request brings (see `ToolSet`).
-      const request: AnswerRequest =
-        asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked;
+      const request: AnswerRequest = {
+        ...(asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked),
+        ...(accepted && { fitted: (passageIds) => attemptRead.push(...passageIds) }),
+      };
       const failed = (error: unknown): AnswerEngineEvent => ({
         type: "failed",
         error: classifyProviderError(error),
@@ -1059,6 +1092,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       async function* fitted(make: () => TemperedAttempt): FittedAttempt {
         for (let tries = 0; ; tries++) {
           let overflow: Overflow | null = null;
+          attemptRead = [];
           for await (const event of make()) {
             if (event.type === "overflow") {
               overflow = event;
@@ -1066,6 +1100,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             }
             yield event;
           }
+          if (!overflow && attemptRead.length > 0) accepted?.(attemptRead);
           // Only a request sized to a window can overflow.
           if (!overflow || !budget || signal.aborted) return;
           if (tries === 0 && overflow.promptTokens) {
@@ -1085,6 +1120,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       const onePass = (mode: CitationSupport | "no-documents", found?: SearchResultForModel) =>
         fitted(async function* () {
           if (!budget) {
+            if (found) request.fitted?.(fittedPassageIds(found, found.text));
             const instructions = request.instructions(mode, { passages: found?.text });
             yield* tempered((sent) =>
               mode === "structured-output"
@@ -1102,6 +1138,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
                   request.question,
                   found.ranks,
                 );
+          if (found && kept !== undefined) request.fitted?.(fittedPassageIds(found, kept));
           const instructions = request.instructions(mode, { passages: kept });
           const fit = budget.fit({
             instructions,
@@ -1342,6 +1379,8 @@ export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}):
 interface DocumentToolsHooks {
   /** A search's result as the model gets it: within a window, the Passages that fit (see ./window). */
   fit(found: SearchResultForModel): SearchResultForModel;
+  /** The Passage ids that survived that fit. */
+  fitted?(passageIds: readonly string[]): void;
   /** A search gave the model `count` Passages, of those it found (`passageIds`): its Tool-call card says so. */
   searched(toolCallId: string, count: number, passageIds?: readonly string[]): void;
   /** A search failed: its card says why. */
@@ -1356,6 +1395,15 @@ interface DocumentToolsHooks {
  * A search's result as the model reads it: the Passages that fit, then what every search's
  * result says beside them (Documents not read, dates, the Answer's language).
  */
+function fittedPassageIds(found: SearchResultForModel, fitted: string): readonly string[] {
+  if (fitted === found.text) return found.passageIds ?? [];
+  const handles = (text: string) =>
+    [...text.matchAll(/<passage id="([^"]+)"/g)].map((match) => match[1] ?? "");
+  const original = handles(found.text);
+  const kept = new Set(handles(fitted));
+  return (found.passageIds ?? []).filter((_, index) => kept.has(original[index] ?? ""));
+}
+
 function searchResultText(
   fitted: string,
   documents: AnswerTools,
@@ -1440,6 +1488,7 @@ export function documentTools(
         }
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
+        hooks.fitted?.(fittedPassageIds(found, result.text));
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
         return fittedResultText(found, result, documents, hooks.languageNote);
       },
@@ -1568,6 +1617,7 @@ const runMessage = (message: AnswerMessage): RunMessage =>
         role: "user",
         text: message.content,
         ...(message.stablePrefix && { stablePrefix: message.stablePrefix }),
+        ...(message.pictures?.length && { pictures: message.pictures }),
       }
     : { role: "assistant", text: message.content, toolCalls: [] };
 
@@ -1605,10 +1655,39 @@ function presearchMessages(
         read(passages),
       ])
     : result;
+  request.fitted?.(fittedPassageIds(result, fitted.text));
   return [
     { role: "assistant", text: "", toolCalls: [{ id, tool, input }] },
     { role: "tool", id, tool, result: read(fitted.text), ok: true },
   ];
+}
+
+/** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
+function offeredWith(
+  documents: ReturnType<typeof documentTools> | null,
+  others: readonly Tool[],
+): Tool[] {
+  const offered = new Map(
+    offeredTools([
+      ...(documents
+        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        : []),
+      ...(documents?.calculate ? [documents.calculate] : []),
+      ...others,
+    ]).map((each) => [each.name, each]),
+  );
+  return [...offered.values()];
+}
+
+const MEASURING: DocumentToolsHooks = {
+  fit: (found) => found,
+  searched: () => undefined,
+  cited: () => undefined,
+};
+
+/** The Tools' definitions each request of a Run on these Documents sends, as its Tool loop offers them. */
+export function documentToolDefinitions(documents: AnswerTools, toolSet: ToolSet): string {
+  return definitions(offeredWith(documentTools(documents, MEASURING, toolSet), []));
 }
 
 /**
@@ -1662,6 +1741,7 @@ async function* toolLoop(
           {
             fit: (found) =>
               loop ? loop.passages(found.text, found.passageCount, found.ranks) : found,
+            ...(request.fitted && { fitted: request.fitted }),
             searched: (toolCallId, count, passageIds) => {
               results.set(toolCallId, count);
               if (passageIds) found.set(toolCallId, passageIds);
@@ -1737,16 +1817,8 @@ async function* toolLoop(
       return result;
     },
   });
-  /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
-  const offered = new Map(
-    offeredTools([
-      ...(documents
-        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
-        : []),
-      ...(calculate ? [calculate] : []),
-      ...request.tools,
-    ]).map((each) => [each.name, each]),
-  );
+  /** The Tools offered, by the name the model calls them. */
+  const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);
@@ -2252,11 +2324,19 @@ async function* structured(
     return;
   }
   if (signal.aborted) return;
-  const { value } = await parseAnswerJson(raw);
+  const value = await replyJson(raw);
   const answer = (value as { answer?: unknown } | undefined)?.answer;
   // The model didn't answer in JSON after all: it can't do structured output.
   if (typeof answer !== "string" && !emitted) {
     yield { type: "unsupported" };
+    return;
+  }
+  if (value === undefined) {
+    yield { type: "text-retracted", length: emitted.length };
+    yield {
+      type: "failed",
+      error: { kind: "no-answer", message: "The model's reply ended before its JSON was whole." },
+    };
     return;
   }
   const records = parseRecords((value as { citations?: unknown } | undefined)?.citations);

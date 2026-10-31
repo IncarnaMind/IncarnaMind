@@ -289,7 +289,7 @@ export function createContradictionWatch(options: WatchOptions) {
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
-        currentTask.run(runId, async () => {
+        currentTask.run({ id: runId }, async () => {
           const result = await options.claimCheck({
             claim: claim.projection?.text ?? comparableSentence(claim.text),
             ...(claim.projection && { projection: claim.projection }),
@@ -427,7 +427,7 @@ export function createContradictionWatch(options: WatchOptions) {
             const givenUp = new Promise<null>((resolve) =>
               ended.addEventListener("abort", () => resolve(null), { once: true }),
             );
-            const checking = currentTask.run(runId, () =>
+            const checking = currentTask.run({ id: runId }, () =>
               options.claimCheck({
                 claim: claim.projection?.text ?? comparableSentence(claim.text),
                 ...(claim.projection && { projection: claim.projection }),

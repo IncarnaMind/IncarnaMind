@@ -82,6 +82,7 @@ import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from ".
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
+import { PictureChip } from "./PictureChip";
 import { SkillChip } from "./QuestionView";
 import { QuoteChip } from "./QuoteChip";
 import { ScopeChips } from "./ScopeChips";
@@ -892,6 +893,7 @@ export function Composer({
             }}
           />
         )}
+        <PictureChip editor={mind?.editor ?? null} doc={mind?.doc ?? null} />
         <AskedQuoteChips
           quotes={draft.quotes ?? []}
           onRemove={(quote) => {

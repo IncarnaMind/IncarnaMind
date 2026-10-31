@@ -1128,6 +1128,81 @@ describe("sentences whose check isn't good, in an imported file (#900)", () => {
 });
 
 describe("Blocks added, deleted and moved", () => {
+  test("a table of contents added to a Word file's Note is written back as Word's field (#1935)", async () => {
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Scope", { style: "Heading1" }) + paragraph("Body."),
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { document } = await exported(core, mindId);
+    expect(document).toContain('TOC \\o "1-6" \\h \\z \\u');
+    expect(document).toContain("Scope");
+    expect(document).toContain("Body.");
+  });
+
+  test("a table of contents links each heading to its own new bookmark, clear of the file's, and asks Word to update the field (#1935)", async () => {
+    const heading = (text: string, bookmark?: string) =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${
+        bookmark
+          ? `<w:bookmarkStart w:id="7" w:name="${bookmark}"/><w:r><w:t>${text}</w:t></w:r><w:bookmarkEnd w:id="7"/>`
+          : `<w:r><w:t>${text}</w:t></w:r>`
+      }</w:p>`;
+    const { core, mindId, client } = await setUp({
+      body: heading("Scope") + heading("Terms", "_Toc90000001") + paragraph("Body."),
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { document, part } = await exported(core, mindId);
+    const anchors = [...document.matchAll(/<w:hyperlink w:anchor="([^"]+)"/g)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(anchors).toHaveLength(2);
+    expect(new Set(anchors).size).toBe(2);
+    expect(anchors).not.toContain("_Toc90000001");
+    for (const anchor of anchors) expect(document).toContain(`w:name="${anchor}"`);
+
+    const headingParagraph = (text: string) =>
+      paragraphsIn(document).find(
+        (each) => each.includes('w:val="Heading1"') && textOf(each) === text,
+      );
+    const bookmarkIn = (xml: string | undefined) =>
+      /<w:bookmarkStart[^>]*w:name="([^"]+)"/.exec(xml ?? "")?.[1];
+    const scope = headingParagraph("Scope");
+    const terms = headingParagraph("Terms");
+    expect(anchors).toContain(bookmarkIn(scope));
+    expect(anchors).toContain(bookmarkIn(terms));
+    expect(bookmarkIn(terms)).not.toBe("_Toc90000001");
+    expect(terms).toContain('w:name="_Toc90000001"');
+    expect(part("word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+    expect(part("word/_rels/document.xml.rels")).toContain("settings.xml");
+    expect(part("[Content_Types].xml")).toContain("/word/settings.xml");
+  });
+
+  test("w:updateFields is written in its schema position in an existing settings part, not at the end (#1935)", async () => {
+    const settings = `<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:alwaysMergeEmptyNamespace/><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:compat/></w:settings>`;
+    const { core, mindId, client } = await setUp({
+      body: paragraph("Scope", { style: "Heading1" }) + paragraph("Body."),
+      parts: [
+        {
+          name: "word/settings.xml",
+          data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${settings}`,
+        },
+      ],
+      rels: '<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>',
+    });
+    editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
+    await client.settled();
+
+    const { part } = await exported(core, mindId);
+    const written = part("word/settings.xml");
+    const at = written.indexOf('<w:updateFields w:val="true"/>');
+    expect(at).toBeGreaterThan(written.indexOf("w:alwaysMergeEmptyNamespace"));
+    expect(at).toBeLessThan(written.indexOf("w:footnotePr"));
+    expect(at).toBeLessThan(written.indexOf("w:compat"));
+  });
+
   test("a new paragraph with a Citation goes after the one before it, in its look; the Citation is a footnote", async () => {
     const { core, mindId, client } = await setUp({
       body: paragraph(run("Intro.", { font: "Georgia" })) + paragraph("Outro."),

@@ -7,7 +7,7 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /**
  * What a check for contradictions found, in parts of a line: "2 of 12 cited
- * claims contradicted", "3 not checked", "Monthly cap reached". A claim that
+ * claims contradicted", "3 not checked", "Could pass your monthly cap". A claim that
  * wasn't checked is never counted as free of contradictions (#112).
  */
 export function contradictionOutcomeParts(

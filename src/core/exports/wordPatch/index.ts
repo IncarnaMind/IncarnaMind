@@ -28,6 +28,7 @@ import {
   type FormattedCitations,
   IMAGE_NODE,
   PAGE_BREAK_NODE,
+  TABLE_OF_CONTENTS_NODE,
   WORD_ATOM_NODE,
   type WordExportLoss,
   type WordExportReport,
@@ -44,7 +45,7 @@ import {
   readBlock,
   readInlineNodes,
 } from "../../mindText";
-import { DocxWriter } from "../docx";
+import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { Review, type ReviewChoices } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
@@ -218,7 +219,52 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await reserveIds(writer, target.ids, bookmarks);
   target.reserveBookmarks(bookmarks);
   const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
-  const docxWriter = new DocxWriter(input.labels, textWidthOf(base.root), target, review);
+  // The headings the file now holds, an added table of contents' entries. Each gets a bookmark
+  // in its paragraph, with a name that can't take one the file already has; the field's links
+  // name those bookmarks, and Word is asked to update the field as it opens.
+  const headingOf = (node: NodeJSON) => {
+    if (node.type !== "heading") return null;
+    const text = (node.content ?? [])
+      .flatMap((each) => (each.type === "text" ? [each.text ?? ""] : []))
+      .join("")
+      .trim();
+    if (text === "") return null;
+    const level = Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6);
+    return { level, text };
+  };
+  const hasContents = (nodes: readonly NodeJSON[]): boolean =>
+    nodes.some(
+      (node) =>
+        node.type === TABLE_OF_CONTENTS_NODE ||
+        (Array.isArray(node.content) && hasContents(node.content)),
+    );
+  let nextToc = 90000001;
+  const contents: ContentsEntry[] = [];
+  const bookmarksOf = new Map<string, { id: number; name: string }>();
+  for (const node of hasContents(current) ? current : []) {
+    const heading = headingOf(node);
+    if (!heading) continue;
+    let name = "";
+    do name = `_Toc${nextToc++}`;
+    while (bookmarks.has(name));
+    bookmarks.add(name);
+    const bookmark = { id: target.ids.take("annotation"), name };
+    const id = node.attrs?.id;
+    if (typeof id === "string") bookmarksOf.set(id, bookmark);
+    contents.push({ ...heading, name });
+  }
+  const docxWriter = new DocxWriter(
+    input.labels,
+    textWidthOf(base.root),
+    target,
+    review,
+    [],
+    contents,
+  );
+  const bookmarkOf = (node: NodeJSON) => {
+    const id = node.attrs?.id;
+    return typeof id === "string" ? (bookmarksOf.get(id) ?? null) : null;
+  };
 
   // What is written new, read as the native export reads it, then its Citations styled together.
   const options = input.readOptions;
@@ -320,6 +366,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       return element ? readBlock(element, options) : [];
     },
     writer: docxWriter,
+    bookmarkOf,
     target,
     styles,
     relationships: await relationshipsOf(pkg.zip, pkg.part),
@@ -380,6 +427,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await footnotes.flush();
   await comments.flush(review.comments);
   await target.flush();
+  if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 
   const report: WordExportReport = {
     notKept: [...plan.losses, ...patch.losses],
@@ -407,6 +455,67 @@ function spreadRowSentence(row: Token[]): void {
   const sentence = row.find((each) => each.sentence?.row)?.sentence;
   if (!sentence) return;
   for (const each of row) each.sentence ??= sentence;
+}
+
+const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/**
+ * The settings that come after `w:updateFields` in WordprocessingML's order (CT_Settings), where
+ * Word reads it: the field request goes before them, never at the end of the part.
+ */
+const SETTINGS_AFTER_UPDATE_FIELDS = [
+  "hdrShapeDefaults",
+  "footnotePr",
+  "endnotePr",
+  "compat",
+  "docVars",
+  "rsids",
+  "mathPr",
+  "attachedSchema",
+  "themeFontLang",
+  "clrSchemeMapping",
+  "doNotIncludeSubdocsInStats",
+  "doNotAutoCompressPictures",
+  "forceUpgrade",
+  "captions",
+  "readModeInkLockDown",
+  "smartTagType",
+  "schemaLibrary",
+  "shapeDefaults",
+  "doNotEmbedSmartTags",
+  "decimalSymbol",
+  "listSeparator",
+] as const;
+
+/** Asks Word to update the fields, so a table of contents' cached result is rebuilt as it opens. */
+async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): Promise<void> {
+  const settings = await writer.part("word/settings.xml");
+  if (settings) {
+    // An older export may have put the request at the end: it is removed and written where it
+    // belongs, before the first setting the schema places after it.
+    const without = settings.text
+      .replace(/<w:updateFields\b[^>]*\/>/, "")
+      .replace(/<w:updateFields\b[^>]*>.*?<\/w:updateFields>/, "");
+    const before = new RegExp(`<(?:w|m):(?:${SETTINGS_AFTER_UPDATE_FIELDS.join("|")})\\b`);
+    const text = before.test(without)
+      ? without.replace(before, '<w:updateFields w:val="true"/>$&')
+      : without.replace(/<\/w:settings>/, '<w:updateFields w:val="true"/></w:settings>');
+    if (text !== settings.text) writer.set("word/settings.xml", text);
+    return;
+  }
+  writer.add(
+    "word/settings.xml",
+    `${XML_DECLARATION}<w:settings xmlns:w="${WORD_NS}"><w:updateFields w:val="true"/></w:settings>`,
+  );
+  const relationships = await writer.relationshipsOf(mainPart);
+  relationships.add(`${REL_NS}/settings`, "settings.xml");
+  relationships.flush();
+  await writer.addContentType(
+    "word/settings.xml",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
+  );
 }
 
 const signatureLoss: WordExportLoss = {

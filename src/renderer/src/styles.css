@@ -993,6 +993,26 @@
   .tab-split {
     display: contents;
   }
+  /* The ⌄ after "+", shown only while a tab is hidden: round, as "+" is. */
+  .tab-show-all {
+    display: none;
+    width: 28px;
+    padding: 0;
+    border-radius: 9999px;
+  }
+  .tab-strip:where([data-fit="cut"]) .tab-show-all {
+    display: flex;
+  }
+  /*
+   * The room a full strip makes for its tabs, each step only while the one before isn't enough
+   * (#2244, set by useTabStripFit): Export's label first, then Split, which stays in every menu.
+   */
+  .tab-strip:where([data-fit]) .tab-export > span {
+    display: none;
+  }
+  .tab-strip:where([data-fit="split"], [data-fit="cut"]) .tab-split {
+    display: none;
+  }
   /* A narrow group keeps Split in its ⋯ menu. */
   @container group (width < 420px) {
     .tab-split {
@@ -1911,6 +1931,8 @@
   .check-card-ask-title {
     font-weight: 600;
     color: var(--color-ink);
+    /* A Chinese question would otherwise leave one character alone on its last line. */
+    text-wrap: pretty;
   }
   .check-card-ask-actions {
     display: flex;
@@ -5025,6 +5047,45 @@
   }
 
   /*
+   * A picture pasted into a Note (#1937): a Block of its own, at the size the
+   * Note keeps it, never wider than the text, with its alt text as a quiet
+   * line under it (PictureView).
+   */
+  .mind-picture-block {
+    margin: 16px 0;
+
+    &.ProseMirror-selectednode .mind-picture-block-image {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+  .mind-picture-block-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+  .mind-picture-alt {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
+
+    &::placeholder {
+      color: var(--color-ink-placeholder);
+    }
+    &:focus {
+      outline: none;
+      color: var(--color-ink);
+    }
+  }
+
+  /*
    * A footnote the User wrote: its marker is a raised number, as in print, in
    * the same numbering as the Citations' markers. Quieter than they are: no
    * chip, only the number, which takes the pointer.
@@ -5247,8 +5308,8 @@
   }
   .margin-check {
     position: absolute;
-    /* The check column: each mark's left edge `--check-gap` after the measure's right edge. */
-    left: var(--check-gap);
+    /* `MarginChecks` places each mark from `--check-gap`, side by side with the marks of the
+       sentences that start on its line (DESIGN.md, Check marks). */
     display: flex;
     align-items: center;
     gap: 2px;
@@ -6285,7 +6346,7 @@
     position: fixed;
     z-index: 40;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 2px;
     max-width: calc(100vw - 32px);
     padding: 4px;
@@ -6297,6 +6358,11 @@
     line-height: var(--text-ui--line-height);
     color: var(--color-ink);
 
+    .find-row {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
     input {
       width: 160px;
       min-width: 0;
@@ -6338,6 +6404,80 @@
       &:disabled {
         opacity: 0.4;
       }
+    }
+    .find-option {
+      width: 26px;
+      font-size: var(--text-meta);
+      font-weight: 600;
+
+      &[aria-pressed="true"] {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .find-action {
+      width: auto;
+      padding: 0 8px;
+      font-size: var(--text-ui);
+      white-space: nowrap;
+    }
+    .find-replaced {
+      width: 100%;
+      justify-content: flex-start;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: var(--text-meta);
+      text-align: left;
+      color: var(--color-ink-secondary);
+
+      &:hover,
+      &:focus-visible {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .find-read-only {
+      margin: 0;
+      padding: 2px 8px;
+      font-size: var(--text-meta);
+      color: var(--color-ink-meta);
+    }
+  }
+  /* A table of contents: the Note's headings, each jumping to its own. */
+  .table-of-contents {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-left: 2px solid var(--color-rule-strong);
+    color: var(--color-ink-secondary);
+
+    .table-of-contents-title {
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+    .table-of-contents-list {
+      margin: 4px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .table-of-contents-entry {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      padding: 1px 4px;
+      border-radius: 4px;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--color-ink-secondary);
+
+      &:hover,
+      &:focus-visible {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .table-of-contents-empty {
+      color: var(--color-ink-meta);
     }
   }
   /* A Document chip: a name in the text that opens the Document. */

@@ -9,7 +9,13 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
-import { type FigureContext, readFigures } from "../../../shared/figures";
+import {
+  type FigureContext,
+  type FigureFacts,
+  figureFactsOf,
+  readFigures,
+} from "../../../shared/figures";
+import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
   CALCULATED_FIGURE_NODE,
@@ -19,10 +25,10 @@ import {
   type TextStretch,
 } from "../../api";
 import { plainText } from "../../mindText";
-import { layout, textBlocks } from "../../proposals/write";
+import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
-import { documentFigureContext } from "../calculations";
+import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
 import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
 
 export interface FigureOccurrence extends CheckFigure {
@@ -276,20 +282,46 @@ export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] 
   );
 }
 
-export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
+/** A top-level Block's paragraphs' words, and what they tell of the Note's numbers in a language. */
+const paragraphsOf = perBlock((block): NoteParagraphs => {
+  const words = textBlocksOf(block, { charts: true }).flatMap(({ element }) =>
+    element.nodeName === "paragraph" ? [wordsOf(element)] : [],
+  );
+  const read = new Map<string | null, readonly FigureFacts[]>();
+  return {
+    words,
+    facts(language) {
+      const known = read.get(language) ?? words.map((text) => figureFactsOf(text, language));
+      read.set(language, known);
+      return known;
+    },
+  };
+});
+
+/** A top-level Block's figures, and what they were read with: the Note's numbers and a caption. */
+const readFiguresOf = perBlock(
+  (): { readWith: string | null; figures: readonly FigureOccurrence[] } => ({
+    readWith: null,
+    figures: [],
+  }),
+);
+
+function figuresOfBlock(
+  block: Y.XmlElement,
+  note: FigureContext,
+  noteKey: string,
+): readonly FigureOccurrence[] {
+  // A table's cells are read with the caption before it, which is a Block of its own.
+  const before = block.prevSibling;
+  const key =
+    block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
+      ? `${noteKey}\u0000${plainText(before)}`
+      : noteKey;
+  const read = readFiguresOf(block);
+  if (read.readWith === key) return read.figures;
   const grids = new Map<Y.XmlElement, SourceGrid>();
   const found: FigureOccurrence[] = [];
-  const read = textBlocks(blocks, { charts: true });
-  // A Note's numbers are read as a Document's are: its separators and language from all its text,
-  // so "2,160" alone in a table cell reads as the memo around it writes numbers.
-  const note = documentFigureContext([
-    {
-      text: read
-        .flatMap(({ element }) => (element.nodeName === "paragraph" ? [wordsOf(element)] : []))
-        .join("\n"),
-    },
-  ]);
-  for (const { element, busy } of read) {
+  for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
     else if (element.nodeName === "paragraph") {
@@ -314,5 +346,22 @@ export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
       );
     }
   }
+  read.readWith = key;
+  read.figures = found;
   return found;
+}
+
+/**
+ * Every figure the one Check reads in the Note, in order. It is read again with every change to
+ * the Note, so each Block is read again only once a change touches it.
+ */
+export function figuresInMind(blocks: Y.XmlFragment): FigureOccurrence[] {
+  const elements = blocks
+    .toArray()
+    .filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
+  // A Note's numbers are read as a Document's are: its separators and language from all its text,
+  // so "2,160" alone in a table cell reads as the memo around it writes numbers.
+  const note = partsFigureContext(elements.map(paragraphsOf));
+  const noteKey = JSON.stringify(note);
+  return elements.flatMap((block) => figuresOfBlock(block, note, noteKey));
 }

@@ -19,6 +19,7 @@ import {
   type RecordCiteResult,
   type SearchScope,
   type UnsupportedReason,
+  type WholeRead,
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import {
@@ -39,7 +40,7 @@ import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figur
 import type { MessageKey } from "./i18n";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
-import { comparableSentence, isClaim } from "./sentences";
+import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
 
 /** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
 export const SENTENCES_CHECKED_AT_MOST = 12;
@@ -56,6 +57,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+function readOf(value: unknown): WholeRead | null {
+  if (!isRecord(value)) return null;
+  const { pages, of } = value;
+  return typeof pages === "number" && typeof of === "number" && pages >= 0 && of >= pages
+    ? { pages, of }
+    : null;
+}
 
 /** Where a check looked: the Mind's chosen scope, else its Folder; null for every Document. */
 export function checkedScope(scope: ClaimCheckScope): SearchScope | null {
@@ -174,6 +183,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   if (!id || !state) return null;
   const action: ClaimCheckAction =
     claimCheckActions.find((each) => each === value.action) ?? "find-support";
+  const read = readOf(value.read);
   const recordCites = recordCitesOf(value.recordCites);
   const check: ClaimCheckAttributes = {
     id,
@@ -200,6 +210,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(recordCites && { recordCites }),
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
+    ...(read && { read }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);
@@ -442,7 +453,7 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   if (
     check.parts !== undefined
       ? now.text !== check.text
-      : comparableSentence(now.text) !== comparableSentence(check.text)
+      : comparableCheckSentence(now.text) !== comparableCheckSentence(check.text)
   ) {
     return { state: "needs-recheck", why: "edited" };
   }
@@ -467,10 +478,11 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
   if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
     return { state: "needs-recheck", why: "scope" };
   }
-  // Contradiction watch looks in the Mind's Folder whatever the Mind's own scope is.
+  // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.
   if (
     !check.scope.widened &&
     check.action !== "contradiction-watch" &&
+    check.action !== "check-against-document" &&
     scopeChanged(check.scope, now)
   ) {
     return { state: "needs-recheck", why: "search-scope" };
@@ -515,7 +527,7 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
       : shown;
   }
   if (
-    comparableSentence(now.text) === comparableSentence(check.text) &&
+    comparableCheckSentence(now.text) === comparableCheckSentence(check.text) &&
     referentsMoved(check, now)
   ) {
     return { state: "needs-recheck", why: "referent" };
@@ -556,10 +568,12 @@ export function figureCheckShown(
 /**
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
- * has its evidence, and contradiction watch makes its own checks again.
+ * has its evidence, contradiction watch makes its own checks again, and a
+ * whole read covered only the User's pick.
  */
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
   check.action !== "contradiction-watch" &&
+  check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" ||
     shown.state === "not-checked" ||
