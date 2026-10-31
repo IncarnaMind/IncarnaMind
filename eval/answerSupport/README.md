@@ -37,10 +37,10 @@ Claude Haiku 5.5 and Sonnet 5.5 on a direct Anthropic key, before (main at `a317
 | Held-out, green in the Answer | 66 of 66 | 7 of 66 | 44 of 44 | 2 of 44 |
 | Held-out, check alone says supported | 5 of 66 | 3 of 66 | 2 of 44 | 2 of 44 |
 | Controls, marked | 0 of 36 | 1 of 36 | 0 of 12 | 0 of 12 |
-| Supported set, marked | 2 of 35 | 3 of 70 | not run | 2 of 35 |
+| Supported set, marked | 2 of 35 | 3 of 70 | 1 of 35 | 2 of 35 |
 
 - The fixtures the check alone called supported before were "dated 2026" (12 of 18 on Haiku, from the year beside the contract's Passage) and, on Sonnet, the Chinese "已安装好" once in 2.
 - Every held-out sentence still called supported, in both arms and on both models, is "窑炉升级的费用为 £185,000，即两台 K9 窑炉的安装费用": the Answer's own wording in a reproduction, which calls the price of two kilns installed their installation fee. The other held-out greens after are Haiku's not checked (4 of 66).
-- The control marked once is "根据供货协议，交货从 2027 年 1 月开始", which two Documents answer differently. The supported set's marks after are 万千瓦时 against a bare 126 (fs-129, marked before too), fs-017 once in 7 and fs-049 on Sonnet.
+- The control marked once is "根据供货协议，交货从 2027 年 1 月开始", which two Documents answer differently. The supported set's marks after are 万千瓦时 against a bare 126 (fs-129, marked before too, on both models), fs-017 once in 7 on Haiku (never in 7 before) and fs-049 on Sonnet, "rose every quarter", which the check calls contradicted on both models and, before, more often couldn't back with a quote, leaving it not checked.
 - With the date gone from a check's Passages but before the Time field, Haiku called "包括两台 K9 窑炉并已安装好" supported in 5 of 8 checks: the deck's year had been telling it the installation was still to come. With the Time field it refused all 18.
 - The walk's two Questions, asked in the app's Answers path over the walk's two files: on Haiku an Answer took 4.2 s before and 9.5 s after for the kiln Question, and 5.2 s and 10.8 s for the contract, three of each; on Sonnet, 4.1 s and 8.6 s, 5.2 s and 12.6 s, one of each. The checks cost about $0.004 an Answer on Haiku and $0.04 on Sonnet.
