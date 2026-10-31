@@ -750,7 +750,9 @@ export const LIBRARY_CHECKERS = {
                     await core.deleteDocuments(refs.map((ref) => ref.id));
                     return null;
                   },
-                  redo: () => core.restore(refs),
+                  redo: async () => {
+                    await core.restore(refs);
+                  },
                 },
           said: `Added ${plural(added.length, "Document")} from ${folder}.${already > 0 ? ` ${plural(already, "was", "were")} in the Library already.` : ""}${result.skipped.length > 0 ? ` ${plural(result.skipped.length, "file")} couldn't be added.` : ""}`,
         };
