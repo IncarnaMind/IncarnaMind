@@ -1,0 +1,158 @@
+{
+  "format": 1,
+  "calls": [
+    {
+      "id": "en-renewal",
+      "language": "en",
+      "voices": {
+        "me": "Flo (English (US))",
+        "them": "Daniel"
+      },
+      "names": [
+        "Marcus",
+        "Priya Raman",
+        "Lumen Foods",
+        "Harbor Logistics",
+        "Rotterdam",
+        "Sofia Lindqvist",
+        "Daniel Weiss"
+      ],
+      "said": [
+        "Marcus",
+        "Priya Raman",
+        "Priya",
+        "Lumen Foods",
+        "Harbor Logistics",
+        "Rotterdam",
+        "Sofia Lindqvist",
+        "Sofia",
+        "Daniel Weiss",
+        "Daniel",
+        "European Union",
+        "United Kingdom"
+      ],
+      "lines": [
+        {
+          "side": "me",
+          "text": "Hi Marcus, thanks for joining. This is Priya Raman from Lumen Foods. I want to go over the Harbor Logistics renewal today."
+        },
+        {
+          "side": "them",
+          "text": "Hi Priya, happy to. Our proposal for next year is forty-eight thousand five hundred dollars a year, for three hundred and forty seats."
+        },
+        {
+          "side": "me",
+          "text": "Last year we paid forty-two thousand dollars. That is a big jump. Can you do a twelve percent discount if we sign for two years?"
+        },
+        {
+          "side": "them",
+          "text": "I can offer ten percent on a two-year term. So the annual price would be forty-three thousand six hundred and fifty dollars."
+        },
+        {
+          "side": "me",
+          "text": "Okay. The other topic is the Rotterdam warehouse. We need it to handle two point five million units by the end of the second quarter."
+        },
+        {
+          "side": "them",
+          "text": "Rotterdam can handle that. Our operations lead, Sofia Lindqvist, will send you a capacity plan by Friday, November sixth."
+        },
+        {
+          "side": "me",
+          "text": "Great. What about late deliveries? In September we had seventeen late shipments out of nine hundred."
+        },
+        {
+          "side": "them",
+          "text": "That was a carrier problem. We have switched carriers, and our on-time rate in October was ninety-eight point four percent."
+        },
+        {
+          "side": "me",
+          "text": "Good. Then let's set the go-live date for the new contract to March fourteenth, twenty twenty-seven."
+        },
+        {
+          "side": "them",
+          "text": "March fourteenth works. I will send the revised contract to you and to your finance director, Daniel Weiss, by next Wednesday."
+        },
+        {
+          "side": "me",
+          "text": "One more question. Is customs clearance included in the price?"
+        },
+        {
+          "side": "them",
+          "text": "Customs clearance is included for the European Union. For the United Kingdom there is an extra fee of eighty-five dollars per shipment."
+        },
+        {
+          "side": "me",
+          "text": "Understood. So the action items are: Sofia sends the capacity plan by November sixth, you send the contract by Wednesday, and I confirm the two-year term with Daniel."
+        },
+        {
+          "side": "them",
+          "text": "That's right. Thanks Priya, talk soon."
+        }
+      ]
+    },
+    {
+      "id": "zh-office",
+      "language": "zh",
+      "voices": {
+        "me": "Flo (Chinese (China mainland))",
+        "them": "Eddy (Chinese (China mainland))"
+      },
+      "names": [
+        "陈经理",
+        "星河科技",
+        "王丽",
+        "王总",
+        "李明"
+      ],
+      "said": [
+        "陈经理",
+        "星河科技",
+        "王丽",
+        "王总",
+        "李明"
+      ],
+      "lines": [
+        {
+          "side": "me",
+          "text": "陈经理你好，我是星河科技的王丽。今天想确认一下新办公室的装修方案。"
+        },
+        {
+          "side": "them",
+          "text": "王总你好。我们的报价是八十六万元，工期四十五天。"
+        },
+        {
+          "side": "me",
+          "text": "我们的预算只有七十五万。能不能降到七十八万？"
+        },
+        {
+          "side": "them",
+          "text": "如果材料换成国产品牌，可以做到七十九万五千元。"
+        },
+        {
+          "side": "me",
+          "text": "好的。开工日期定在十一月十八日，可以吗？"
+        },
+        {
+          "side": "them",
+          "text": "可以。我们的项目经理李明，会在下周三之前把施工图发给你。"
+        },
+        {
+          "side": "me",
+          "text": "还有，会议室需要能坐二十四个人。"
+        },
+        {
+          "side": "them",
+          "text": "没问题。会议室面积是六十平方米，坐二十四个人足够。"
+        },
+        {
+          "side": "me",
+          "text": "那就这样。我下周一把盖章的合同寄给你们。"
+        },
+        {
+          "side": "them",
+          "text": "好的，谢谢王总，再见。"
+        }
+      ]
+    }
+  ]
+}
