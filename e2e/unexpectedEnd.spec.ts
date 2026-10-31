@@ -58,6 +58,24 @@ const appWindowProcess = (app: ElectronApplication) =>
     return main.webContents.getOSProcessId();
   });
 
+/**
+ * Runs `script` in the app's window. Playwright keeps a page that crashed as crashed, though the
+ * window loaded it again, so the page loaded after a crash is reached through Electron.
+ */
+const inWindow = (app: ElectronApplication, script: string) =>
+  app.evaluate(({ BrowserWindow }, code) => {
+    const main = BrowserWindow.getAllWindows().find((each) =>
+      each.webContents.getURL().includes("window=main"),
+    );
+    if (!main) throw new Error("The app's window isn't there.");
+    // A script sent to a page that is gone, or still loading, waits for a page that never runs it.
+    if (main.webContents.isCrashed() || main.webContents.isLoading()) return undefined;
+    return main.webContents.executeJavaScript(code) as Promise<unknown>;
+  }, script);
+
+const textOf = (app: ElectronApplication, selector: string) =>
+  inWindow(app, `document.querySelector(${JSON.stringify(selector)})?.innerText ?? null`);
+
 /** Chooses Quit in the app's menu, or with its keys, and waits until the app has closed. */
 async function quitFromMenu(app: ElectronApplication, byKeys: boolean): Promise<void> {
   const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
@@ -74,26 +92,24 @@ test("a window whose page crashes loads it again, says so once, and the log name
   await dismissChatSetup(window);
   await newMind(window);
   await nameMind(window, "Kept through the crash");
-  const notice = window.getByTestId("unexpected-end");
   await expect(window.getByTestId("plus-menu")).toBeVisible();
-  await expect(notice).toHaveCount(0);
+  await expect(window.getByTestId("unexpected-end")).toHaveCount(0);
 
   process.kill(await appWindowProcess(app), "SIGKILL");
 
-  await expect(notice.locator("p")).toHaveText(
-    "This window stopped unexpectedly and reopened. Everything was kept.",
-  );
-  await expect(window.getByTestId("sidebar")).toContainText("Kept through the crash");
-  await screenshot(window, "window-reopened-en");
+  await expect
+    .poll(() => textOf(app, '[data-testid="unexpected-end"] p'))
+    .toBe("This window stopped unexpectedly and reopened. Everything was kept.");
+  expect(await textOf(app, '[data-testid="sidebar"]')).toContain("Kept through the crash");
   const log = await logOf();
   expect(log).toMatch(/ ERROR window\.crashed page=index\.html reason=killed exitCode=-?\d+\n/);
   expect(log).toMatch(/ INFO {2}window\.reopened reason=killed\n/);
   expect(log).not.toContain("window.notReopened");
-
-  await window.getByTestId("unsaved-lost-dismiss").click();
-  await expect(notice).toHaveCount(0);
-  await expect(window.getByTestId("sidebar")).toContainText("Kept through the crash");
-  expect(await takenAgain(window)).toBeNull();
+  // Said once: the window has taken it, and Dismiss takes the line away.
+  expect(await inWindow(app, "globalThis.incarnamindFiles.takeUnexpectedEnd()")).toBeNull();
+  await inWindow(app, `document.querySelector('[data-testid="unsaved-lost-dismiss"]').click()`);
+  await expect.poll(() => textOf(app, '[data-testid="unexpected-end"]')).toBeNull();
+  expect(await textOf(app, '[data-testid="sidebar"]')).toContain("Kept through the crash");
 
   await quitFromMenu(app, false);
   expect(await lastRunOf()).toMatch(
