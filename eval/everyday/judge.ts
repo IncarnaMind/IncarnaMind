@@ -109,6 +109,7 @@ export async function judgeDocumentAbsence(
       `The requested metric is ${requestedMetric}.`,
       "Flag only a sentence that itself claims that metric is absent from the Documents: it has no such figure, value, information or specific disclosure.",
       "Never flag a sentence that gives the metric or its value, excludes a different item (for example other income), limits a calculation's basis, or reports a search miss without claiming absence.",
+      'A search miss is about the search: "I didn\'t find X in the report", "I found no X", "未在报告中找到 X", "没有找到 X". Never flag such a sentence, even when it names the Document; flag a clause beside it only when that clause itself says the Document lacks the metric.',
       "A sentence that excludes another item is not absence even when it uses without, without including, 不含 or 不包括. A sentence that says the metric is missing, unspecified, undisclosed or lacks information is absence even when it also gives a value and a Citation.",
       'Copy each flagged sentence exactly, then reply with one JSON object: {"absence": ["…"]}, with an empty list when no sentence claims absence.',
     ].join("\n"),
