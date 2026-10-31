@@ -2147,10 +2147,31 @@ function writtenAt(
     : written;
 }
 
+const isDigit = (char: string | undefined) => char !== undefined && /\p{Nd}/u.test(char);
+
+/**
+ * The written number `start`–`end` is part of, its digits and what joins them taken whole: "10"
+ * of "10–12", which the figure reader doesn't read as a range.
+ */
+function numberAround(text: string, start: number, end: number): string {
+  const joins = (at: number, beyond: number) =>
+    /[–—\-/.,~～]/u.test(text[at] ?? "") && isDigit(text[beyond]);
+  let from = start;
+  if (isDigit(text[from])) {
+    while (from > 0 && (isDigit(text[from - 1]) || joins(from - 1, from - 2))) from--;
+  }
+  let to = end;
+  if (isDigit(text[to - 1])) {
+    while (to < text.length && (isDigit(text[to]) || joins(to, to + 1))) to++;
+  }
+  return text.slice(from, to);
+}
+
 /**
  * Whether the corrected sentence reads, where the old words stood, the very numbers the quote
- * reads in the same words, with their scale and sign: "1.5" of "$1.5m" written as "1,200,000"
- * reads $1,200,000m, and "4,620.00" is not the quote's "(4,620.00)" (#1481).
+ * reads in the same words, with their scale and sign, written as the quote writes them: "1.5" of
+ * "$1.5m" written as "1,200,000" reads $1,200,000m, "4,620.00" is not the quote's "(4,620.00)",
+ * "$1.2m" over "$1.5" of "$1.5m" reads $1.2mm, and "8" over "10" of "10–12" reads 8–12 (#1481).
  */
 function readsAsQuote(
   claim: string,
@@ -2163,6 +2184,10 @@ function readsAsQuote(
   const written = writtenAt(claim, first, from, wording, context);
   const at = quote.indexOf(wording);
   if (written === null || at < 0) return false;
+  const corrected = claim.slice(0, first) + wording + claim.slice(first + from.length);
+  const end = first + wording.length;
+  if (numberAround(corrected, first, end) !== numberAround(quote, at, at + wording.length))
+    return false;
   const quoted = readFigures(quote, documentFigureContext([{ text: quote }])).filter(
     (each) => each.start < at + wording.length && each.end > at,
   );
@@ -2170,7 +2195,7 @@ function readsAsQuote(
     written.length === quoted.length &&
     written.every((each, index) => {
       const same = quoted[index];
-      return same !== undefined && sameNumber(each, same);
+      return same !== undefined && sameNumber(each, same) && quote.includes(each.chars);
     })
   );
 }
