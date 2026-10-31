@@ -177,8 +177,7 @@ export type RequestFailure =
   | { kind: "changed-unasked" }
   /** The piece went elsewhere than `Expected.into`. */
   | { kind: "wrong-place"; wanted: "asked-from" | "new" }
-  /** `flagged`: the app's own net said so under the reply. */
-  | { kind: "unbacked"; sentences: string[]; flagged: boolean }
+  | { kind: "unbacked"; sentences: string[] }
   /** The app's own check found actions the reply claims that the Mind's change log doesn't back. */
   | { kind: "claimed-action"; claims: ClaimedChange[] }
   /** `flagged`: the app's own line says under the reply that no calculation or search ran. */
@@ -556,14 +555,12 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     if (!landed) failures.push({ kind: "wrong-place", wanted: expected.into });
   }
   const appClaims = answer.steps?.unbackedClaims ?? [];
+  // The judge's sentences and the app's kinds can't be matched to each other, so each finding is
+  // reported on its own: a false positive of either is visible.
   if (outcome.verdict.unbacked.length > 0) {
-    failures.push({
-      kind: "unbacked",
-      sentences: outcome.verdict.unbacked,
-      flagged: appClaims.length > 0,
-    });
-  } else if (appClaims.length > 0) {
-    // A claim the judge also found keeps its one `unbacked` failure, which carries `flagged`.
+    failures.push({ kind: "unbacked", sentences: outcome.verdict.unbacked });
+  }
+  if (appClaims.length > 0) {
     failures.push({ kind: "claimed-action", claims: [...appClaims] });
   }
   const lined = (answer.steps?.unrunTools ?? []).length > 0;
@@ -781,7 +778,7 @@ export function failureLine(failure: RequestFailure): string {
         ? "wrote the piece somewhere other than a new Mind"
         : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
-      return `claims a change no call made${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+      return `claims a change no call made: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
     case "claimed-action":
       return `claims actions the Mind's change log doesn't back: ${failure.claims.join(", ")}`;
     case "unbacked-tool":

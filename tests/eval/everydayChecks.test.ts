@@ -278,9 +278,9 @@ describe("The everyday request guards", () => {
     ).toEqual([]);
   });
 
-  // protects=a claim the judge finds fails, marked when the app flagged it too; fails_when=it passes; no_claim=none beyond protects.
-  test("a claim the judge finds fails, flagged or not", () => {
-    const flagged = outcome({
+  // protects=the judge's finding and the app's own finding are reported on their own lines, even when they may concern different claims; fails_when=either finding is dropped or folded into the other, or the request passes; no_claim=none beyond protects.
+  test("the judge's finding and the app's own finding are both reported", () => {
+    const both = outcome({
       expected: { write: false, cite: false, coverAll: false },
       answer: {
         text: "I added it.",
@@ -296,8 +296,9 @@ describe("The everyday request guards", () => {
       },
       verdict: { unbacked: ["I added it."] },
     });
-    expect(requestFailures(flagged)).toEqual([
-      { kind: "unbacked", sentences: ["I added it."], flagged: true },
+    expect(requestFailures(both)).toEqual([
+      { kind: "unbacked", sentences: ["I added it."] },
+      { kind: "claimed-action", claims: ["added"] },
     ]);
   });
 
