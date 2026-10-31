@@ -2089,15 +2089,47 @@ export const migrations: readonly Migration[] = [
         WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 118,
+    description:
+      "A Meeting knows its Transcript Document, and when its files went with its deleted note (#1253)",
+    sql: `
+      -- The Document that is the Meeting's Transcript, so it goes to Recently deleted, comes back
+      -- and is deleted permanently with the Meeting's note even when the Transcript's working
+      -- file is missing. Meetings recorded before this find theirs where IncarnaMind keeps it.
+      ALTER TABLE meetings ADD COLUMN transcript_document_id TEXT;
+      -- One pass over the Documents, each Transcript keyed to its Meeting by its file's name, so
+      -- it takes milliseconds before the window opens however many Documents there are.
+      UPDATE meetings SET transcript_document_id = linked.id
+      FROM (
+        SELECT substr(d.relative_path, 13, length(d.relative_path) - 16) AS meeting_id, d.id,
+          row_number() OVER (PARTITION BY d.relative_path ORDER BY d.created_at DESC, d.rowid DESC)
+            AS newest
+        FROM documents d
+        WHERE d.kind = 'transcript' AND d.source_kind = 'data-folder'
+          AND substr(d.relative_path, 1, 12) = 'Transcripts/'
+          AND substr(d.relative_path, -4) = '.vtt'
+      ) AS linked
+      WHERE linked.meeting_id = meetings.id AND linked.newest = 1;
+      -- When the audio, the Transcript's working file and the recording details of a Meeting
+      -- whose note was deleted permanently were removed: each start looks only at those left.
+      ALTER TABLE meetings ADD COLUMN purged_at TEXT;
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
  * isn't recorded as applied runs, in version order, in one transaction. A database
  * recording a migration this build doesn't know was written by a newer version of
- * IncarnaMind, and is refused.
+ * IncarnaMind, and is refused. `ran` hears each version as it runs, before the
+ * transaction commits.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(
+  db: Database,
+  list: readonly Migration[] = migrations,
+  ran?: (version: number) => void,
+): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -2124,6 +2156,7 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
         migration.version,
         new Date().toISOString(),
       ]);
+      ran?.(migration.version);
     }
     // Kept for tools that read it: the highest migration applied.
     const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;

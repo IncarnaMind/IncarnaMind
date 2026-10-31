@@ -49,7 +49,9 @@ export async function mergeTags(tagId: string, intoTagId: string): Promise<void>
   push({
     said: (t) => t("undo.tagsMerged", { name, into }),
     name: (t) => t("undo.name.mergeTags"),
-    undo: () => core.restore([merge.merged]),
+    undo: async () => {
+      await core.restore([merge.merged]);
+    },
     redo: async () => {
       merge = await core.mergeTags(tagId, intoTagId);
     },

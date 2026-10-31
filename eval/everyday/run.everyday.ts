@@ -248,6 +248,7 @@ function report(
     (each) => CASES.find((request) => request.id === each.id)?.library === "dated",
   );
   const summaries = answered.flatMap((each) => (each.claims ? [each] : []));
+  const covering = answered.filter((each) => each.covered !== undefined);
   const checked = researched.flatMap((each) =>
     (each.support ?? []).map((sentence) => ({ id: each.id, model: each.model, ...sentence })),
   );
@@ -311,6 +312,27 @@ function report(
                 "",
               ]
             : []),
+        ]
+      : []),
+    ...(covering.length > 0
+      ? [
+          "## Each Document covered",
+          "",
+          "The requests about every Document in scope, summed over their runs: the Documents each Answer cited, those its reply named as not covered, those it left out without saying so, and the Documents outside its scope it cited (the example's).",
+          "",
+          "| Request | Model | Runs | Cited | Named as not covered | Left out unsaid | Outside its scope cited |",
+          "|---|---|---|---|---|---|---|",
+          ...[...new Set(covering.map((each) => `${each.id}\n${each.model}`))].map((key) => {
+            const [id = "", model = ""] = key.split("\n");
+            const some = covering.filter((each) => each.id === id && each.model === model);
+            const total = (pick: (covered: NonNullable<CaseResult["covered"]>) => number) =>
+              some.reduce((sum, each) => sum + (each.covered ? pick(each.covered) : 0), 0);
+            const documents = total(
+              (covered) => covered.cited.length + covered.named.length + covered.unsaid.length,
+            );
+            return `| ${id} | ${model} | ${some.length} | ${total((covered) => covered.cited.length)} of ${documents} | ${total((covered) => covered.named.length)} | ${total((covered) => covered.unsaid.length)} | ${total((covered) => covered.outside)} |`;
+          }),
+          "",
         ]
       : []),
     "## By language",

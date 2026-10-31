@@ -304,3 +304,18 @@ test.each([6_000, 6_001])(
     });
   },
 );
+
+test.each([
+  ["a WAL error it doesn't retry", (sql: string) => sql === WAL, sqliteError(26)],
+  ["Windows error 1546 that outlasts the retries", (sql: string) => sql === WAL, sqliteError(1546)],
+  ["a later pragma", (sql: string) => sql === "PRAGMA foreign_keys = ON", sqliteError(1)],
+])(
+  "a setup that fails on %s closes its connection before it throws (#2067)",
+  (_case, fails, error) => {
+    sqlite.exec.mockImplementation((sql) => {
+      if (fails(sql)) throw error;
+    });
+    expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+    expect(sqlite.close).toHaveBeenCalledTimes(1);
+  },
+);

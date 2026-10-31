@@ -111,7 +111,12 @@ export const useReferenceImport = create<ReferenceImportState>()((set, get) => {
       set({ addingFiles: true, error: null });
       try {
         await core.addImportedReferenceFiles(result.importId);
-        set({ result: { ...result, files: 0 } });
+        // Dismissed, undone or replaced by another import meanwhile: the panel shows that (#2302).
+        set((state) =>
+          state.result?.importId === result.importId
+            ? { result: { ...state.result, files: 0 } }
+            : {},
+        );
         await refreshUnmatched();
       } catch (error) {
         set({ error: errorMessage(error, translateNow) });

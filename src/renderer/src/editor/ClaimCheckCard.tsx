@@ -486,43 +486,53 @@ function Working({ calculation, onOpen }: { calculation: ClaimCalculation; onOpe
         </p>
       )}
       <ul aria-label={t("claim.calculated.inputs")} className="claim-card-inputs">
-        {figure.inputs.map((input) => {
-          const location = citationLocation(input.citation);
-          const where = location ? formatLocation(location, t) : null;
-          const source = [
-            shownDocumentName(input.citation, documents),
-            where,
-            input.number.value < 0 ? t("claim.calculated.negative") : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <li key={input.name}>
-              <button
-                type="button"
-                data-testid="claim-input"
-                className="claim-card-input"
-                title={input.citation.quote}
-                onClick={() => {
-                  void openCited(input.citation, {
-                    check: "found",
-                    withQuote: true,
-                    label: where,
-                  });
-                  onOpen();
-                }}
-              >
-                <span className="claim-card-input-figure">
-                  {input.label ? `${input.label}: ` : ""}
-                  {input.number.chars}
-                </span>
-                <span className="claim-card-input-source">{source}</span>
-              </button>
-            </li>
-          );
-        })}
+        {figure.inputs.map((input) => (
+          <li key={input.name}>
+            <WorkingInput input={input} documents={documents} onOpen={onOpen} />
+          </li>
+        ))}
       </ul>
     </div>
+  );
+}
+
+function WorkingInput({
+  input,
+  documents,
+  onOpen,
+}: {
+  input: ClaimCalculation["figure"]["inputs"][number];
+  documents: ReturnType<typeof useAppStore.getState>["documents"];
+  onOpen(): void;
+}) {
+  const t = useT();
+  const quote = useReadableQuote(input.citation);
+  const location = citationLocation(input.citation);
+  const where = location ? formatLocation(location, t) : null;
+  const source = [
+    shownDocumentName(input.citation, documents),
+    where,
+    input.number.value < 0 ? t("claim.calculated.negative") : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      data-testid="claim-input"
+      className="claim-card-input"
+      title={quote}
+      onClick={() => {
+        void openCited(input.citation, { check: "found", withQuote: true, label: where });
+        onOpen();
+      }}
+    >
+      <span className="claim-card-input-figure">
+        {input.label ? `${input.label}: ` : ""}
+        {input.number.chars}
+      </span>
+      <span className="claim-card-input-source">{source}</span>
+    </button>
   );
 }
 

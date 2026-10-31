@@ -13,6 +13,8 @@ import {
 import { dirname, join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, type FileWriteRequest, InvalidInputError, NotFoundError } from "../../src/core";
+import { silentLogger } from "../../src/core/activityLog";
+import type { Logger } from "../../src/core/adapters";
 import { createOwnFiles } from "../../src/core/documents/ownFiles";
 import { createEventHub } from "../../src/core/events";
 import {
@@ -537,7 +539,13 @@ test("Show in Finder shows only a file IncarnaMind saved", async () => {
 
 describe("Saving next to an original (the call other features use)", () => {
   /** The module over an empty database, with one Linked folder holding one original. */
-  async function outputsWith(record?: OutputFilesOptions["recordOwnFile"]) {
+  async function outputsWith(
+    options: {
+      log?: Logger;
+      suggested?: string;
+      record?: OutputFilesOptions["recordOwnFile"];
+    } = {},
+  ) {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
@@ -548,9 +556,10 @@ describe("Saving next to an original (the call other features use)", () => {
       events: createEventHub(),
       now,
       settings: createSettings(db, now, () => ["en-US"], "none"),
-      suggested: join(await createSourceFolder(), "IncarnaMind"),
+      suggested: options.suggested ?? join(await createSourceFolder(), "IncarnaMind"),
       linkedFolders: () => [{ id: "linked-1", path: linked }],
-      recordOwnFile: record ?? createOwnFiles(db, now).record,
+      recordOwnFile: options.record ?? createOwnFiles(db, now).record,
+      log: options.log ?? silentLogger,
     });
     outputs.setLinkedFolderWriting("linked-1", true);
     const fingerprints = () =>
@@ -612,12 +621,43 @@ describe("Saving next to an original (the call other features use)", () => {
     expect(fingerprints()).toHaveLength(1);
   });
 
+  test("the default Output location not made yet is not a fault, and any other fault there is logged (#964)", async () => {
+    const warn = vi.fn();
+    const log: Logger = { ...silentLogger, warn };
+    const notYet = await outputsWith({ log });
+    await notYet.outputs.save({
+      name: "Lease.md",
+      data,
+      folder: join(notYet.linked, "Leases"),
+      ownFile: "export",
+      fromFolder: null,
+    });
+    expect(warn).not.toHaveBeenCalled();
+
+    const inTheWay = await writeSourceFile(await createSourceFolder(), "In the way.txt", "A file.");
+    const blocked = await outputsWith({ log, suggested: join(inTheWay, "IncarnaMind") });
+    expect(
+      await blocked.outputs.save({
+        name: "Lease.md",
+        data,
+        folder: join(blocked.linked, "Leases"),
+        ownFile: "export",
+        fromFolder: null,
+      }),
+    ).toMatchObject({ inDefaultFolder: false });
+    expect(warn).toHaveBeenCalledWith("output.defaultFolder", {
+      error: expect.stringContaining("ENOTDIR"),
+    });
+  });
+
   test("a file written again stays as the User saved it while the new bytes were being written (#110)", async () => {
     const theirs = "Saved by the User meanwhile.";
     let into: string | null = null;
     // Called between the first look at the file and the rename: the User's save lands then.
-    const { outputs, linked } = await outputsWith(() => {
-      if (into) writeFileSync(into, theirs);
+    const { outputs, linked } = await outputsWith({
+      record: () => {
+        if (into) writeFileSync(into, theirs);
+      },
     });
     const folder = join(linked, "Leases");
     const file = await outputs.save({

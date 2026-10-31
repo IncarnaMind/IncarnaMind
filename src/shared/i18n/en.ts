@@ -447,6 +447,7 @@ export const en = {
   "object.restoredTo": "Restored “{name}” to {folder}",
   "object.restored.count": "Restored {count} items",
   "undo.name.restore": "Restore",
+  "undo.notes": "{first} {then}",
   "deleted.title": "Recently deleted",
   "deleted.command": "Show Recently deleted",
   "deleted.intro": "Kept here for 30 days, then deleted for good. Files on disk aren’t touched.",
@@ -493,6 +494,12 @@ export const en = {
     "IncarnaMind forgets the text it read from {count} Documents and their Tags.",
   "deleted.lost.mind.one": "Your text in “{name}” is gone.",
   "deleted.lost.mind": "Your text in {count} notes is gone.",
+  "deleted.lost.meeting.one": "Its recording and Transcript are deleted too.",
+  "deleted.lost.meeting": "Their meetings’ recordings and Transcripts are deleted too.",
+  "deleted.lost.recording.one": "Its recording is deleted too.",
+  "deleted.lost.recording": "Their meetings’ recordings are deleted too.",
+  "deleted.lost.transcript.one": "Its Transcript is deleted too.",
+  "deleted.lost.transcript": "Their meetings’ Transcripts are deleted too.",
   "deleted.lost.conversation.one": "The messages in “{name}” are gone.",
   "deleted.lost.conversation": "The messages in {count} conversations are gone.",
   "deleted.lost.folder.one": "“{name}” is gone. Its Documents and notes stay, in no Folder.",
@@ -2433,7 +2440,10 @@ export const en = {
   "setup.step.laterRecord": "Set up when I record",
   "setup.step.skip": "Skip",
   "setup.step.skipped": "Skipped",
+  "setup.steps.line": "{count} more to set up: {steps} · Set up",
+  "setup.steps.skip": "Skip these steps",
   "setup.services.failed": "Couldn’t read the transcription services",
+  "setup.services.reading": "Reading the transcription services…",
   "setup.sorting.failed": "Couldn’t read the models that can sort",
   "read.tryAgain": "Try again",
   "setup.step.addKey": "Add a key\u2026",
@@ -3831,7 +3841,7 @@ export const en = {
   "skills.settings.actions": "Actions for {name}",
   "skills.settings.edit": "Edit",
   "skills.settings.export": "Export as zip",
-  "skills.settings.exported": "Saved {name}",
+  "skills.settings.exported": "Saved “{name}” in {folder}",
   "skills.settings.exportFailed": "Couldn’t save the zip: {reason}",
   "skills.settings.exportNotAllowed":
     "You haven’t allowed new files in “{folder}”, a Linked folder.",
@@ -4982,6 +4992,8 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
+  "error.meeting.purgeFailed":
+    "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
   "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.cantDiscard": "Only a Meeting that hasn’t started can be discarded.",
@@ -5694,6 +5706,20 @@ export const en = {
   "meetings.audio.keep": "Keep it",
   "meetings.audio.deleted": "Audio deleted",
   "meetings.audio.none": "No audio was recorded",
+  "meetings.audio.notRestored":
+    "Restored “{name}” without its audio: it was no longer on this computer.",
+  "meetings.audio.someNotRestored":
+    "Restored {count} items without some meeting audio: it was no longer on this computer.",
+  "meetings.audio.expired":
+    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after the call.",
+  "meetings.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after the call.",
+  "memos.audio.expired":
+    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after it was recorded.",
+  "memos.audio.expiredAlone":
+    "Restored “{name}”. Its audio was deleted 24 hours after it was recorded.",
+  "meetings.audio.someExpired":
+    "Restored {count} items. Some audio was deleted 24 hours after it was recorded.",
   "meetings.health.label": "Recording details",
   "meetings.health.show": "Show recording details",
   "meetings.health.hide": "Hide recording details",
