@@ -27,21 +27,17 @@ export interface CopilotProfile {
   experimental?: boolean;
 }
 
-/** IncarnaMind's own GitHub OAuth App; until its client ID is set, this way isn't offered. */
-const OWN_CLIENT_ID: string | null = null;
+const OWN_CLIENT_ID = "Ov23liF4c8fKcl0K4ziJ";
 
-const OWN: Readonly<CopilotProfile> | null = OWN_CLIENT_ID
-  ? {
-      clientId: OWN_CLIENT_ID,
-      deviceCodeUrl: "https://github.com/login/device/code",
-      tokenUrl: "https://github.com/login/oauth/access_token",
-      // `offline_access` asks for a token that expires, with a refresh token.
-      scopes: ["read:user", "offline_access"],
-      format: "json",
-      apiBaseUrl: "https://api.githubcopilot.com",
-      accountUrl: "https://api.github.com/user",
-    }
-  : null;
+const OWN: Readonly<CopilotProfile> = {
+  clientId: OWN_CLIENT_ID,
+  deviceCodeUrl: "https://github.com/login/device/code",
+  tokenUrl: "https://github.com/login/oauth/access_token",
+  scopes: ["read:user"],
+  format: "json",
+  apiBaseUrl: "https://api.githubcopilot.com",
+  accountUrl: "https://api.github.com/user",
+};
 
 const EDITOR_HEADERS = {
   "User-Agent": "GitHubCopilotChat/0.26.7",
@@ -72,6 +68,6 @@ const EDITOR: Readonly<CopilotProfile> | null = EXPERIMENTAL_SIGN_IN_ROUTES
 export const COPILOT_PROFILES: Readonly<
   Partial<Record<CopilotProfileId, Readonly<CopilotProfile>>>
 > = {
-  ...(OWN && { own: OWN }),
+  own: OWN,
   ...(EDITOR && { editor: EDITOR }),
 };

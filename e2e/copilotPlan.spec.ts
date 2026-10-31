@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   createFakeGitHub,
@@ -26,21 +26,29 @@ import {
   urlsOpened,
 } from "./app";
 
-/*
- * Using a GitHub Copilot plan (#876): first run's Other ways and Settings › Models list it, off
- * until the User signs in; its notice, the usage line first, is said before anything is sent;
- * GitHub's code waits in large type with Copy code; an organization's block says so with its ways
- * back. A local stand-in for GitHub signs in and answers. Set INCARNAMIND_SCREENSHOTS to a folder
- * to also save screenshots there.
- */
-
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function screenshot(target: Page | Locator, name: string): Promise<void> {
   if (SCREENSHOTS) await target.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
-/** Nothing listens here: as if Ollama weren't on this computer. */
 const NO_OLLAMA = "http://127.0.0.1:9";
+
+async function checkWidths(app: ElectronApplication, window: Page, target: Locator, name: string) {
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    for (const width of [900, 1600]) {
+      await setWindowSize(app, window, width, 900);
+      await target.scrollIntoViewIfNeeded();
+      await expect(target).toBeInViewport();
+      expect(await target.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await screenshot(window, `${name}-${language}-${width}`);
+    }
+  }
+  await setLanguage(window, "en");
+  await setWindowSize(app, window, 900, 900);
+}
 
 let dataDir: string;
 let github: FakeGitHub;
@@ -78,35 +86,35 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
     ollama: NO_OLLAMA,
   });
   await interceptOpenExternal(app);
-  await setWindowSize(app, window, 1100, 900);
+  await setWindowSize(app, window, 900, 900);
   await acceptPlainTextKeys(window);
   await catchCopies(window);
   const card = await askFirstQuestion(window);
 
   const row = card.getByTestId("way-copilot");
+  await checkWidths(app, window, row, "setup-copilot-row");
   await expect(row).toContainText("Use my Copilot plan");
   await expect(row).toContainText("Pro, Pro+ or Business");
-  await expect(row).toContainText("Experimental");
+  await expect(row).not.toContainText("Experimental");
   await expect(row).toHaveAttribute("aria-expanded", "false");
   await pointAndClick(window, row);
 
   const notice = card.getByTestId("copilot-notice");
   await expect(notice.getByRole("listitem")).toHaveText([
     "Answers count toward your Copilot plan’s usage limits.",
-    "Experimental: GitHub may block this sign-in.",
     "Sends your questions and document text to GitHub. · Details",
   ]);
-  // The experimental way starts on the safe choice.
-  await expect(notice.getByTestId("copilot-cancel")).toBeFocused();
+  await expect(notice.getByTestId("copilot-sign-in")).toBeFocused();
   expect(github.requests).toEqual([]);
-  await screenshot(card, "setup-copilot-notice");
+  await checkWidths(app, window, notice, "setup-copilot-notice");
 
   await notice.getByTestId("copilot-notice-sends-details").click();
   await expect(notice.getByTestId("copilot-notice-sends-list")).toHaveText(
     "Your Questions, the note you’re in, passages from your Documents, and Document text for Tags go to GitHub under your account.",
   );
 
-  await pointAndClick(window, notice.getByTestId("copilot-sign-in"));
+  await notice.getByTestId("copilot-sign-in").focus();
+  await window.keyboard.press("Enter");
   const waiting = card.getByTestId("copilot-waiting");
   await expect(waiting.getByTestId("copilot-code")).toHaveText(USER_CODE);
   await expect(waiting.getByTestId("copilot-copy-code")).toBeFocused();
@@ -118,9 +126,14 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   expect(await copied(window)).toBe(USER_CODE);
   await pointAndClick(window, waiting.getByTestId("copilot-reopen"));
   await expect.poll(() => urlsOpened(app)).toHaveLength(2);
-  await screenshot(card, "setup-copilot-code");
+  expect(github.requests[0]?.body).toEqual({
+    client_id: "Ov23liF4c8fKcl0K4ziJ",
+    scope: "read:user",
+  });
+  await checkWidths(app, window, waiting, "setup-copilot-code");
 
-  await pointAndClick(window, waiting.getByTestId("copilot-cancel"));
+  await waiting.getByTestId("copilot-cancel").focus();
+  await window.keyboard.press("Enter");
   await expect(card.getByTestId("copilot-notice")).toBeVisible();
   expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
 
@@ -131,41 +144,40 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
     timeout: 15_000,
   });
-  expect(await copilotAccount(window)).toMatchObject({ state: "signed-in", login: LOGIN });
+  expect(await copilotAccount(window)).toMatchObject({
+    state: "signed-in",
+    profile: "own",
+    login: LOGIN,
+  });
   await app.close();
 });
 
-test("first run: an organization's block says so, with an API key or another way, in English and Chinese", async () => {
-  github.exchangePolicy = true;
+test("first run: declining GitHub approval offers retry and an API key, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
-  await setWindowSize(app, window, 1100, 900);
+  await setWindowSize(app, window, 900, 900);
   await acceptPlainTextKeys(window);
   const card = await askFirstQuestion(window);
   await pointAndClick(window, card.getByTestId("way-copilot"));
-  await pointAndClick(window, card.getByTestId("copilot-sign-in"));
+  await window.keyboard.press("Enter");
   await expect(card.getByTestId("copilot-code")).toBeVisible();
-  github.approve();
+  github.deny();
 
   const failure = card.getByTestId("copilot-failure");
-  await expect(failure).toContainText("Your organization doesn’t allow this app");
-  await expect(failure).toContainText(
-    "Your organization’s Copilot policy blocks IncarnaMind. Ask an admin.",
-  );
-  await expect(failure.getByRole("button")).toHaveText([
-    "Use an API key instead",
-    "Choose another way",
-  ]);
-  await expect(failure.getByTestId("copilot-way-back-paste-api-key")).toBeFocused();
+  await expect(failure).toContainText("You declined on GitHub’s page");
+  await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
+  await expect(failure.getByTestId("copilot-way-back-try-again")).toBeFocused();
   expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
-  await screenshot(card, "setup-copilot-blocked");
-
+  await checkWidths(app, window, failure, "setup-copilot-declined");
   await setLanguage(window, "zh-CN");
-  await expect(failure).toContainText("你所在的组织不允许使用此应用");
-  await expect(failure.getByRole("button")).toHaveText(["改用 API 密钥", "换一种方式"]);
-  await screenshot(card, "setup-copilot-blocked-zh");
+  await expect(failure).toContainText("你在 GitHub 页面上拒绝了授权");
+  await expect(failure.getByRole("button")).toHaveText(["重试", "改用 API 密钥"]);
   await setLanguage(window, "en");
-
+  await failure.getByTestId("copilot-way-back-try-again").focus();
+  await window.keyboard.press("Enter");
+  await expect(card.getByTestId("copilot-code")).toBeVisible();
+  github.deny();
+  await expect(failure).toBeVisible();
   await pointAndClick(window, failure.getByTestId("copilot-way-back-paste-api-key"));
   await expect(card.getByTestId("setup-key")).toBeFocused();
   await app.close();
@@ -180,7 +192,15 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "models");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("> Settings Models");
+  await expect(window.getByTestId("palette").getByTestId("palette-item").first()).toContainText(
+    "Models",
+  );
+  await window.keyboard.press("Enter");
+  const settings = window.getByTestId("settings");
+  await expect(settings).toHaveAttribute("data-page", "models");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
@@ -195,7 +215,7 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   github.approve();
 
   const account = row.getByTestId("plans-copilot-account");
-  await expect(account).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+  await expect(account).toHaveText(`GitHub Copilot · ${LOGIN}`);
   await expect(row.getByTestId("plans-copilot-sign-out")).toBeFocused();
   await expect(row).toContainText("Answers count toward your plan’s usage limits.");
   const signOut = row.getByTestId("plans-copilot-sign-out");
@@ -205,8 +225,8 @@ test("Settings › Models: the Copilot plan opens its notice before signing in, 
   ]);
   if (!accountBox || !signOutBox) throw new Error("The row isn't laid out.");
   expect(signOutBox.x).toBeGreaterThan(accountBox.x + accountBox.width);
-  await screenshot(row, "settings-copilot-signed-in");
-  await setWindowSize(app, window, 1440, 900);
+  await checkWidths(app, window, row, "settings-copilot-signed-in");
+  await setWindowSize(app, window, 1600, 900);
   await expect(signOut).toBeInViewport();
   await screenshot(row, "settings-copilot-signed-in-wide");
 
@@ -236,11 +256,8 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   const settings = await openSettings(window, "models");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
-  // By keyboard: the Models page above the row is still settling, which moves a pointer's target.
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
-  await expect(row.getByTestId("copilot-cancel")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
   await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(row.getByTestId("copilot-code")).toBeVisible();
@@ -249,7 +266,7 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   const failure = row.getByTestId("copilot-failure");
   await expect(failure).toContainText("GitHub Copilot listed no models for this account");
   await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
-  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
   await expect(row).not.toContainText("Answers count toward your plan’s usage limits.");
   await screenshot(row, "settings-copilot-no-models");
 
@@ -268,7 +285,7 @@ test("Settings › Models: signed in but with no model listed, the row says so w
   await app.close();
 });
 
-test("signed in, an Answer GitHub refuses offers Sign in again: a new code even while signed in, Cancel keeps the sign-in and asks nothing, and once signed in the Answer is asked again", async () => {
+test("own sign-in: refusal, cancel and retry; the API-selected experimental profile still answers", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
@@ -276,11 +293,8 @@ test("signed in, an Answer GitHub refuses offers Sign in again: a new code even 
   const settings = await openSettings(window, "models");
   const row = settings.getByTestId("plans-copilot");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
-  // By keyboard: the Models page above the row is still settling, which moves a pointer's target.
   await row.getByTestId("plans-copilot-sign-in").focus();
   await window.keyboard.press("Enter");
-  await expect(row.getByTestId("copilot-cancel")).toBeFocused();
-  await window.keyboard.press("Shift+Tab");
   await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(row.getByTestId("copilot-code")).toBeVisible();
@@ -307,9 +321,15 @@ test("signed in, an Answer GitHub refuses offers Sign in again: a new code even 
     "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
   );
 
-  await pointAndClick(window, line.getByTestId("answer-error-action"));
+  await checkWidths(app, window, line, "answer-copilot-refused");
+  await setLanguage(window, "zh-CN");
+  await expect(line).toContainText("GitHub 不允许 IncarnaMind 使用你的 Copilot 订阅");
+  await expect(line).toContainText("改用 API 密钥");
+  await setLanguage(window, "en");
+  await line.getByTestId("answer-error-action").focus();
+  await window.keyboard.press("Enter");
   await expect(settings).toHaveAttribute("data-page", "models");
-  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`GitHub Copilot · ${LOGIN}`);
   await pointAndClick(window, row.getByTestId("copilot-sign-in"));
   await expect(row.getByTestId("copilot-code")).toHaveText(USER_CODE);
   await screenshot(row, "settings-copilot-sign-in-again");
@@ -329,5 +349,23 @@ test("signed in, an Answer GitHub refuses offers Sign in again: a new code even 
   github.approve();
   await expect(row.getByTestId("copilot-notice")).toBeHidden();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+
+  const fallback = window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return bridge.signInToCopilot({ profile: "editor" });
+  });
+  await expect(row.getByTestId("copilot-code")).toHaveText(USER_CODE);
+  github.approve();
+  expect(await fallback).toMatchObject({ ok: true, status: { account: { profile: "editor" } } });
+  await expect(row.getByTestId("plans-copilot-account")).toHaveText(`Copilot Pro+ · ${LOGIN}`);
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("Can my plan still answer?");
+  await window.keyboard.press("Enter");
+  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
+  expect(
+    github.requests.filter((request) => request.path === "/chat/completions").at(-1)?.headers,
+  ).toMatchObject({ "editor-version": "vscode/1.99.3", "copilot-integration-id": "vscode-chat" });
   await app.close();
 });

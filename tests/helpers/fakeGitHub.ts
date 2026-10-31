@@ -155,7 +155,7 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
       clientId: id === "own" ? "test-own-app" : "test-editor-app",
       deviceCodeUrl: `${origin}/login/device/code`,
       tokenUrl: `${origin}/login/oauth/access_token`,
-      scopes: id === "own" ? ["read:user", "offline_access"] : ["read:user"],
+      scopes: ["read:user"],
       format: "json",
       apiBaseUrl: origin,
       accountUrl: `${origin}/user`,
