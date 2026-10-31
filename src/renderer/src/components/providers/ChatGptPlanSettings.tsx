@@ -68,8 +68,10 @@ export function ChatGptPlanRow() {
   const signIn = () => {
     setTest(null);
     setUnconfirmed(false);
-    // A record that can't be read is replaced only by the sign-in the User chose to make.
-    void sign.run(sign.failure?.kind === "record-unreadable" ? { replaceUnreadable: true } : {});
+    // The row already says the record can't be read, so this click is the User's answer.
+    const replaceUnreadable =
+      status?.account.state === "unreadable" || sign.failure?.kind === "record-unreadable";
+    void sign.run(replaceUnreadable ? { replaceUnreadable: true } : {});
   };
 
   const signOut = () =>
@@ -104,6 +106,7 @@ export function ChatGptPlanRow() {
             <p className={rowTextClass}>{t("chatgpt.description")}</p>
             <SendsLine provider={CHATGPT_RECIPIENT} />
             {status &&
+              !sign.failure &&
               (status.account.state === "expired" || status.account.state === "unreadable") && (
                 <p data-testid="chatgpt-account" className={rowTextClass}>
                   <AccountLine account={status.account} />

@@ -1,9 +1,10 @@
 import { describe, expect, onTestFinished, test, vi } from "vitest";
-import type { Browser } from "../../src/core";
+import { type Browser, SecretsFileDamagedError } from "../../src/core";
 import {
   createOAuthAccount,
   type OAuthAccountRecord,
   SignInRecordUnreadableError,
+  SignInStoreUnreadableError,
 } from "../../src/core/oauthAccount";
 import type { Secrets } from "../../src/core/secrets";
 
@@ -82,6 +83,26 @@ describe("A kept sign-in's record", () => {
 
     await expect(account.load()).rejects.toBeInstanceOf(SignInRecordUnreadableError);
     expect(await account.loadOrNull()).toBeNull();
+    expect(store.written()).toBeNull();
+  });
+
+  test("a store that can't be read is its own error, not a record one, and still has nothing to end", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onTestFinished(() => log.mockRestore());
+    const store = secretStore(async () => {
+      throw new SecretsFileDamagedError("/tmp/secrets.json");
+    });
+    const account = accountStoredIn(store.secrets);
+
+    const failure = account.load();
+    await expect(failure).rejects.toBeInstanceOf(SignInStoreUnreadableError);
+    await expect(failure).rejects.toMatchObject({
+      provider: "ChatGPT",
+      wording: { key: "error.signIn.storeUnreadable", values: { provider: "ChatGPT" } },
+    });
+    await expect(account.credentials.access()).rejects.toBeInstanceOf(SignInStoreUnreadableError);
+    expect(await account.loadOrNull()).toBeNull();
+    expect(await account.signOut()).toEqual({ revoked: true });
     expect(store.written()).toBeNull();
   });
 

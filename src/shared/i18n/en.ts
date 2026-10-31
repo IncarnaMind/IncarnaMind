@@ -2643,6 +2643,8 @@ export const en = {
     "That’s not the ChatGPT account used here before. Sign in with that one.",
   "chatgpt.signIn.error.record-unreadable":
     "This computer’s saved ChatGPT sign-in can’t be read. Sign in again to replace it.",
+  "chatgpt.signIn.error.store-unreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the ChatGPT sign-in can’t be read. Signing in again won’t fix it.",
   "chatgpt.signIn.error.failed": "The sign-in didn’t work. Try again.",
   "chatgpt.test.not-signed-in":
     "You’re not signed in to ChatGPT. Continue with ChatGPT, then try again.",
@@ -4876,6 +4878,8 @@ export const en = {
   "error.secrets.unencrypted": "This system can’t encrypt API keys, so they can’t be saved.",
   "error.signIn.unreadable":
     "The {provider} sign-in saved on this computer can’t be read. Sign in again to replace it.",
+  "error.signIn.storeUnreadable":
+    "The file that keeps saved sign-ins on this computer is damaged, so the {provider} sign-in can’t be read. Signing in again won’t fix it.",
   "error.consent.declined": "You declined sending data to {service}, so nothing was sent.",
   "error.consent.needed": "Waiting until you allow sending data to {service}. Nothing was sent.",
   "error.consent.revoked": "Stopped: you turned off sending to {service}",

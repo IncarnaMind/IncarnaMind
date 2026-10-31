@@ -7498,6 +7498,8 @@ export type ChatGptSignInErrorKind =
   | "other-account"
   /** A sign-in is kept here but can't be read; signing in again replaces it once it completes. */
   | "record-unreadable"
+  /** The file that keeps sign-ins can't be read at all; signing in again can't fix it. */
+  | "store-unreadable"
   | "failed";
 
 export type ChatGptSignInResult =

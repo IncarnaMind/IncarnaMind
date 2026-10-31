@@ -15,12 +15,13 @@ import type {
   ChatGptSignOutResult,
   PastedAddressResult,
 } from "../../api";
-import { SecretStorageError } from "../../errors";
+import { SecretStorageError, SecretsFileDamagedError } from "../../errors";
 import { DEFAULT_SIGN_IN_TIMEOUT_MS, OAuthFlowError } from "../../oauth";
 import {
   pastedAddressResult,
   type RefreshLock,
   SignInRecordUnreadableError,
+  SignInStoreUnreadableError,
 } from "../../oauthAccount";
 import type { Secrets } from "../../secrets";
 import type { SettingsStore } from "../../settings";
@@ -55,6 +56,9 @@ function signInError(error: unknown): { kind: ChatGptSignInErrorKind; message: s
     return { kind: error.reason === "port-in-use" ? "failed" : error.reason, message };
   }
   if (error instanceof SecretStorageError) return { kind: "secret-storage", message };
+  if (error instanceof SignInStoreUnreadableError || error instanceof SecretsFileDamagedError) {
+    return { kind: "store-unreadable", message };
+  }
   if (error instanceof SignInRecordUnreadableError) return { kind: "record-unreadable", message };
   if (error instanceof ChatGptPlanNotAllowedError) return { kind: "plan-not-allowed", message };
   if (error instanceof ChatGptOtherAccountError) return { kind: "other-account", message };

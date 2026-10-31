@@ -25,6 +25,7 @@ import type { Browser } from "../../adapters";
 import { nonEmptyText, type OAuthPage, refreshOAuthTokens } from "../../oauth";
 import {
   createOAuthAccount,
+  isSignInUnreadable,
   type OAuthAccountRecord,
   parseAccountRecord,
   type RefreshLock,
@@ -179,25 +180,32 @@ export function createChatGptSignIn(options: {
   /**
    * What to sign in with: the record kept here, or a fresh one held in memory
    * until a sign-in completes. A record that can't be read is not replaced,
-   * unless the User signs in again to replace it (`replaceUnreadable`).
+   * unless the User signs in again to replace it (`replaceUnreadable`). A store
+   * that can't be read at all is not replaceable, so its error always stops.
    */
-  const prepare = async (replaceUnreadable: boolean): Promise<StoredAccount> => {
+  const prepare = async (
+    replaceUnreadable: boolean,
+  ): Promise<{ stored: StoredAccount; hadRecord: boolean }> => {
     let existing: StoredAccount | null = null;
+    let hadRecord = true;
     try {
       existing = await account.load();
+      hadRecord = existing !== null;
     } catch (error) {
       if (!(error instanceof SignInRecordUnreadableError) || !replaceUnreadable) throw error;
     }
-    if (existing) return existing;
     return {
-      hostId: `urn:uuid:${randomUUID()}`,
-      clientId: null,
-      subject: null,
-      email: null,
-      idToken: null,
-      tokens: null,
-      ended: null,
-      planRefused: false,
+      stored: existing ?? {
+        hostId: `urn:uuid:${randomUUID()}`,
+        clientId: null,
+        subject: null,
+        email: null,
+        idToken: null,
+        tokens: null,
+        ended: null,
+        planRefused: false,
+      },
+      hadRecord,
     };
   };
 
@@ -207,7 +215,7 @@ export function createChatGptSignIn(options: {
     anotherAccount: boolean,
     replaceUnreadable: boolean,
   ) => {
-    const stored = await prepare(replaceUnreadable);
+    const { stored, hadRecord } = await prepare(replaceUnreadable);
     const registered = anotherAccount ? null : stored.clientId;
     const nonce = randomBytes(24).toString("base64url");
     /** The client the code is for: the registered one, or the one OpenAI issues now. */
@@ -281,7 +289,9 @@ export function createChatGptSignIn(options: {
     if (!scopes.includes(PLAN_SCOPE)) {
       // Signed in, but not allowed to use the plan: nothing IncarnaMind could use is kept.
       await abandon();
-      await account.commit({ ...signedIn, planRefused: true });
+      // A record that was here before is the User's and stays as it was; only a first
+      // sign-in keeps why it asked again, so the next page asks for consent.
+      if (!hadRecord) await account.commit({ ...signedIn, planRefused: true });
       throw new ChatGptPlanNotAllowedError();
     }
     await account.commit({ ...signedIn, tokens: account.storedTokens(tokens, null), ended: null });
@@ -296,7 +306,7 @@ export function createChatGptSignIn(options: {
       try {
         stored = await account.load();
       } catch (error) {
-        if (error instanceof SignInRecordUnreadableError) return { state: "unreadable" };
+        if (isSignInUnreadable(error)) return { state: "unreadable" };
         throw error;
       }
       if (stored?.tokens) return { state: "signed-in", email: stored.email };

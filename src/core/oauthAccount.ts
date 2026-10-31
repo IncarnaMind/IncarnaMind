@@ -7,7 +7,7 @@
  */
 import type { Browser } from "./adapters";
 import type { PastedAddressProblem, PastedAddressResult } from "./api";
-import { isRecord, SecretStorageError, TranslatableError } from "./errors";
+import { isRecord, SecretStorageError, SecretsFileDamagedError, TranslatableError } from "./errors";
 import {
   authorizeInBrowser,
   authorizeWithDevice,
@@ -59,6 +59,27 @@ export class SignInRecordUnreadableError extends TranslatableError {
     super({ key: "error.signIn.unreadable", values: { provider } }, options);
   }
 }
+
+/**
+ * The file that keeps sign-ins exists but can't be read at all, so no record can
+ * be found in it and a new sign-in could not be saved either. Signing in again
+ * cannot fix this, so it is not offered as the way out.
+ */
+export class SignInStoreUnreadableError extends TranslatableError {
+  override name = "SignInStoreUnreadableError";
+  constructor(
+    readonly provider: string,
+    options?: ErrorOptions,
+  ) {
+    super({ key: "error.signIn.storeUnreadable", values: { provider } }, options);
+  }
+}
+
+/** A record, or the whole store, that can't be read: no sign-in can be used from it. */
+export const isSignInUnreadable = (
+  error: unknown,
+): error is SignInRecordUnreadableError | SignInStoreUnreadableError =>
+  error instanceof SignInRecordUnreadableError || error instanceof SignInStoreUnreadableError;
 
 export interface StoredTokens {
   accessToken: string;
@@ -224,6 +245,9 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
     try {
       json = await secrets.get(options.secretName);
     } catch (error) {
+      if (error instanceof SecretsFileDamagedError) {
+        throw new SignInStoreUnreadableError(options.provider, { cause: error });
+      }
       throw new SignInRecordUnreadableError(options.provider, { cause: error });
     }
     if (json === null) return null;
@@ -248,7 +272,7 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
     try {
       return await load();
     } catch (error) {
-      if (error instanceof SignInRecordUnreadableError) {
+      if (isSignInUnreadable(error)) {
         if (!toldUnreadable) {
           toldUnreadable = true;
           console.error(
@@ -355,7 +379,14 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
     /** Saves what a sign-in ended with: a refresh that finishes afterwards changes nothing. */
     async commit(account: A): Promise<void> {
       generation += 1;
-      await save(account);
+      try {
+        await save(account);
+      } catch (error) {
+        // The sign-in finished but can't be kept: end the session it opened rather than leave it loose.
+        const refreshToken = account.tokens?.refreshToken;
+        if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
+        throw error;
+      }
     },
     /** Tokens to keep from a token endpoint's answer, keeping the refresh token it didn't rotate. */
     storedTokens,

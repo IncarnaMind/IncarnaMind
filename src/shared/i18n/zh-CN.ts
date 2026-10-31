@@ -2525,6 +2525,8 @@ export const zhCN = {
   "chatgpt.signIn.error.other-account": "这不是之前使用的 ChatGPT 账号。请用原来的账号登录。",
   "chatgpt.signIn.error.record-unreadable":
     "无法读取保存在这台电脑上的 ChatGPT 登录信息。重新登录会写入新的登录信息。",
+  "chatgpt.signIn.error.store-unreadable":
+    "保存登录信息的文件已损坏，无法读取 ChatGPT 登录信息。重新登录也无法修复。",
   "chatgpt.signIn.error.failed": "未能登录，请重试。",
   "chatgpt.test.not-signed-in": "你尚未登录 ChatGPT。请选择“使用 ChatGPT 继续”，然后重试。",
   "chatgpt.test.plan-limit": "订阅用量或你为 IncarnaMind 设置的上限已达到。",
@@ -4653,6 +4655,8 @@ export const zhCN = {
   "error.secrets.unencrypted": "此系统无法加密 API 密钥，因此无法保存密钥。",
   "error.signIn.unreadable":
     "无法读取保存在这台电脑上的 {provider} 登录信息。重新登录会写入新的登录信息。",
+  "error.signIn.storeUnreadable":
+    "保存登录信息的文件已损坏，无法读取 {provider} 登录信息。重新登录也无法修复。",
   "error.consent.declined": "你已拒绝向 {service} 发送数据，因此没有发送任何内容。",
   "error.consent.needed": "等你允许向 {service} 发送数据后再继续，目前没有发送任何内容。",
   "error.consent.revoked": "已停止：你关闭了向 {service} 发送内容",

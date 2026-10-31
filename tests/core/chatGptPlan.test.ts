@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateText, jsonSchema, streamText, tool } from "ai";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
@@ -965,6 +965,34 @@ describe("A ChatGPT profile whose sign-in can't be read", () => {
     return { core, fake, browser, file };
   }
 
+  /** A core whose profile's secrets file is left by `damage` before it starts. */
+  async function setUpDamagedProfile(damage: (file: string) => Promise<void>) {
+    const clock = manualClock();
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const browser = createFakeBrowser(fake);
+    const profile = await createTempDataFolder();
+    const file = join(profile, SECRETS_FILE);
+    await damage(file);
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain(),
+      browser,
+      now: clock.now,
+      createChatModel: createAiSdkChatModel,
+      chatGptPlan: fake.endpoints,
+      chatGptStore: {
+        keychain: createFileKeychain(file, createFakeCipher()),
+        lockFile: join(profile, "refresh.lock"),
+      },
+    });
+    return { core, fake, browser, file };
+  }
+
+  /** What a profile's secrets file is now: its bytes, or a folder where the file belongs. */
+  async function storeState(file: string) {
+    const info = await lstat(file);
+    return info.isDirectory() ? { directory: true } : { bytes: await readFile(file) };
+  }
+
   /** What a profile's stored record says now, read the way the app reads it. */
   async function readRecord(file: string) {
     const entries = JSON.parse(await readFile(file, "utf8")) as Record<string, string>;
@@ -1037,6 +1065,102 @@ describe("A ChatGPT profile whose sign-in can't be read", () => {
       state: "signed-in",
       email: EMAIL,
     });
+  });
+
+  test.each([
+    {
+      name: "empty",
+      damage: async (file: string) => {
+        await writeFile(file, "");
+      },
+    },
+    {
+      name: "truncated JSON",
+      damage: async (file: string) => {
+        await writeFile(file, '{"chatgpt:account":"half');
+      },
+    },
+    {
+      name: "a folder where its file belongs",
+      damage: async (file: string) => {
+        await mkdir(file);
+      },
+    },
+  ])(
+    "a secrets file that is $name is reported and can't be replaced by signing in",
+    async ({ damage }) => {
+      const { core, browser, file } = await setUpDamagedProfile(damage);
+      const before = await storeState(file);
+
+      for (const input of [undefined, { replaceUnreadable: true }]) {
+        expect(await core.signInToChatGpt(input)).toMatchObject({
+          ok: false,
+          error: { kind: "store-unreadable" },
+        });
+      }
+
+      expect(browser.opened).toEqual([]);
+      expect(await storeState(file)).toEqual(before);
+      expect((await core.getChatGptPlan()).account).toEqual({ state: "unreadable" });
+      expect(await core.signOutOfChatGpt()).toMatchObject({ revoked: true });
+      expect(await storeState(file)).toEqual(before);
+    },
+  );
+
+  test("a record that can't be saved after the sign-in revokes the tokens it got", async () => {
+    const clock = manualClock();
+    const fake = await startFakeOpenAI({ now: () => clock.now().getTime() });
+    const profile = await createTempDataFolder();
+    const keychain = createFileKeychain(join(profile, SECRETS_FILE), createFakeCipher());
+    const core = startCore(await createTempDataFolder(), {
+      keychain: createMemoryKeychain(),
+      browser: createFakeBrowser(fake),
+      now: clock.now,
+      createChatModel: createAiSdkChatModel,
+      chatGptPlan: fake.endpoints,
+      chatGptStore: {
+        keychain: {
+          ...keychain,
+          set: async () => {
+            throw new Error("The disk is full.");
+          },
+        },
+        lockFile: join(profile, "refresh.lock"),
+      },
+    });
+
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: false, error: { kind: "failed" } });
+
+    expect(fake.revocations).toEqual([
+      {
+        token: fake.issued[0]?.refreshToken,
+        token_type_hint: "refresh_token",
+        client_id: "oaiapp_test_1",
+      },
+    ]);
+    expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-out" });
+  });
+
+  test("a sign-in that doesn't allow plan use leaves a signed-in record as it was", async () => {
+    const { core, fake, browser, file } = await setUpProfile();
+    expect(await core.signInToChatGpt()).toMatchObject({ ok: true, firstTime: true });
+    const before = await readFile(file);
+    browser.approval = { allowPlan: false };
+
+    expect(await core.signInToChatGpt()).toMatchObject({
+      ok: false,
+      error: { kind: "plan-not-allowed" },
+    });
+
+    expect((await readFile(file)).equals(before)).toBe(true);
+    expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-in", email: EMAIL });
+    expect(fake.revocations).toEqual([
+      {
+        token: fake.issued[1]?.refreshToken,
+        token_type_hint: "refresh_token",
+        client_id: "oaiapp_test_1",
+      },
+    ]);
   });
 });
 

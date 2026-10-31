@@ -224,7 +224,7 @@ export function ChatGptSignInState({
             label: t("chatgpt.signInAgain"),
             run: { replaceUnreadable: true },
           }
-        : retry && failure.kind !== "secret-storage"
+        : retry && failure.kind !== "secret-storage" && failure.kind !== "store-unreadable"
           ? { testId: "chatgpt-retry", label: t("chatgpt.signInAgain"), run: {} }
           : null;
   return (
