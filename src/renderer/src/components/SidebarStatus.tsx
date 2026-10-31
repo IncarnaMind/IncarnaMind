@@ -410,6 +410,8 @@ function useStatuses(): Status[] {
   const skipped = useAppStore((state) => state.skippedFiles);
   const cantRecord = useMeetings((state) => state.cantRecord);
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
+  const savedOutside = useAppStore((state) => state.savedOutside);
+  const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
@@ -800,6 +802,22 @@ function useStatuses(): Status[] {
           : t("status.alreadyAdded.other", { count: alreadyAdded.length }),
       full: t("documents.alreadyAdded", { names: alreadyAdded.join(", ") }),
       dismiss: dismissAlreadyAdded,
+    });
+  }
+
+  if (savedOutside.length > 0) {
+    const names = savedOutside.map((each) =>
+      each.folder === "" ? each.name : `${each.name} (${each.folder})`,
+    );
+    statuses.push({
+      testId: "saved-outside",
+      tone: "waiting",
+      short:
+        savedOutside.length === 1
+          ? t("status.savedOutside.one")
+          : t("status.savedOutside.other", { count: savedOutside.length }),
+      full: t("documents.savedOutside", { names: names.join(", ") }),
+      dismiss: dismissSavedOutside,
     });
   }
 

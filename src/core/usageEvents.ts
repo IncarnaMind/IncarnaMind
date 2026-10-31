@@ -136,6 +136,7 @@ const ANSWER_ERRORS = [
   "too-long",
   "cost-cap",
   "no-answer",
+  "cut-short",
   "unknown",
 ] as const;
 const DOCUMENT_ERRORS = [

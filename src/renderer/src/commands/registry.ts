@@ -92,6 +92,8 @@ export interface CommandContext {
    * no ids (To review's Accept all): it acts on these alone, never on what is in view (#2243).
    */
   checked?: WindowCommandRequest["targets"];
+  /** The Folder wall the core checked them behind; null: outside every wall (#2250). */
+  checkedWall?: string | null;
 }
 
 export interface Command {

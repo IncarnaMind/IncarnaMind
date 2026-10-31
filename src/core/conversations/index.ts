@@ -211,6 +211,7 @@ const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "too-long": true,
   "cost-cap": true,
   "no-answer": true,
+  "cut-short": true,
   unknown: true,
 };
 const isErrorKind = (value: string | null): value is ProviderErrorKind =>

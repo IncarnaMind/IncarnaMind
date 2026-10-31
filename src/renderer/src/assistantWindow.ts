@@ -85,13 +85,24 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor(command: Command, { targets, mindId }: WindowCommandRequest): CommandContext {
-  if (!command.appliesTo) return { ...inFront(mindId), checked: targets };
+function contextFor(
+  command: Command,
+  { targets, mindId, wall }: WindowCommandRequest,
+): CommandContext {
+  // An accept files what it names in the Folders the core checked: it acts on those alone.
+  const checkedIn: Pick<CommandContext, "checked" | "checkedWall"> = targets.some(
+    (each) => each.into !== undefined,
+  )
+    ? { checked: targets, checkedWall: wall }
+    : {};
+  if (!command.appliesTo) {
+    return { ...inFront(mindId), checked: targets, checkedWall: wall };
+  }
   const [one] = targets;
   if (!one) return inFront(mindId);
   return targets.length === 1
-    ? { selection: [], focus: one, surface: "palette" }
-    : { selection: targets, focus: null, surface: "palette" };
+    ? { selection: [], focus: one, surface: "palette", ...checkedIn }
+    : { selection: targets, focus: null, surface: "palette", ...checkedIn };
 }
 
 /** How a command the assistant asked for ended: why it didn't, or the change it made, for the Undo. */

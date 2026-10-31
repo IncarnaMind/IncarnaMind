@@ -324,6 +324,12 @@ export interface FolderMoveInput {
   documentIds?: string[];
   conversationIds?: string[];
   folderId: string | null;
+  /**
+   * The Folder wall the assistant moves for, given by its commands (null: outside every wall). The
+   * walls are judged again here, at the move, so a Folder that gained a wall since the command was
+   * checked takes nothing; left out, the User moves anywhere (#2250).
+   */
+  wall?: string | null;
 }
 
 /** One thing a move moved, and the Folder it was in before (null: none), so the move can be undone. */
@@ -3351,6 +3357,11 @@ export type WebPageResult =
       document: Document;
       /** The address was saved already: `saveWebPage` returns its Document as it is. */
       existing: boolean;
+      /**
+       * `saveWebPage` only: the page was saved, but not into `folderId`, which gained a wall
+       * meanwhile, so it is in the Library outside it (#2250).
+       */
+      notFiled?: true;
     }
   | { outcome: "failed"; address: string; failure: WebPageFailure };
 
@@ -4651,6 +4662,8 @@ export type ProviderErrorKind =
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
+  /** The model's reply reached its call's output limit and was cut off (#2275). */
+  | "cut-short"
   | "unknown";
 
 export interface ProviderError {
@@ -5631,7 +5644,8 @@ export type ClaimCheckFailure =
   | "consent-revoked"
   | "local-mode"
   | "absence-read-limit"
-  | "kept-inside";
+  | "kept-inside"
+  | "cut-short";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -8762,6 +8776,11 @@ export interface WindowCommandRequest {
    * the core checked it against (null: none): it is accepted only while it waits for that one.
    */
   targets: { kind: CommandTarget; id: string; into?: string | null }[];
+  /**
+   * The Folder wall the core checked it behind (null: outside every wall): what it files is filed
+   * by the walls judged again when it is filed, never across this one (#2250).
+   */
+  wall: string | null;
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
@@ -9995,10 +10014,15 @@ export interface CoreApi {
    * unknown Document throws and changes nothing. Returns what changed.
    * `checked` gives the Suggested Folder each was checked against (null: none): when one waits
    * for another Folder now, nothing is accepted and it throws InvalidInputError (#2243).
+   * `wall` is the Folder wall the assistant checked them behind, given with `checked` (null:
+   * outside every wall): the walls are judged again here, when they are filed, so one that gained
+   * a wall since takes nothing (#2250). Without it, as To review accepts for the User, the User
+   * files anywhere.
    */
   acceptAssignments(
     documentIds: string[],
     checked?: Record<string, string | null>,
+    wall?: string | null,
   ): Promise<AssignmentChange[]>;
   /**
    * Turns down these Documents' Suggested Folders: each is left Not in a
