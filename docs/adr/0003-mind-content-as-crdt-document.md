@@ -220,6 +220,7 @@ A Note imported from Word kept its footnotes and endnotes as read-only atoms who
 - **A note's text is the note's, not its paragraph's.** A paragraph's fingerprint (`wordFingerprint`) leaves out the text of a footnote in it; the footnote has a source and a fingerprint of its own in `wordSources`, by its id. Editing a note's text leaves its paragraph as imported, so export writes the paragraph's own bytes and only the note again.
 - **How the file numbers its notes** (the number format and start of footnotes and of endnotes, from its settings or its last section) is kept in the `word` map beside the Blocks (`notes`), one whole value, which an older version ignores.
 - **Notes imported before are converted when opened,** from the kept package, in one change of the core's, which is no Undo step in the editor: each old atom is replaced where it is by what an import reads there now, and a Block that was still as imported is fingerprinted again, so export still finds it unchanged; one the User edited stays edited. A Note whose package is missing keeps its read-only notes. The start-up look backfill converts first too, so it plans the look on the same nodes as an import makes.
+- **No SQL table, no migration.** Nothing outside the Mind's Yjs document changes.
 
 ## Amendment: a chart keeps its calculated figures (2026-10-31, #2307)
 
