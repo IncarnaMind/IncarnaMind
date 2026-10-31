@@ -49,6 +49,7 @@ import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
+import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -182,7 +183,9 @@ export function ClaimMark({
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
-  const corrections = correctionsFor(editor, claim);
+  const editing = useEdits((store) => store.pending[mindId] !== undefined);
+  // A check or an Edit with AI under way would write over the words a correction changes.
+  const corrections = running || editing ? [] : correctionsFor(editor, claim);
   const label = t("claim.mark.label", {
     state: reading ? t("claim.state.checking") : heading,
   });

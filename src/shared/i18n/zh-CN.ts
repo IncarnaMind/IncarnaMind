@@ -922,7 +922,7 @@ export const zhCN = {
   "claim.correction.doneMany": "已按文档更正 {count} 处",
   "claim.correction.badge": "按文档更正 {count} 处",
   "claim.correction.conflict":
-    "较新的{newerDocument}写的是{newerWording}；{olderDocument}写的是{olderWording}。",
+    "较新的“{newerDocument}”写的是 {newerWording}；“{olderDocument}”写的是 {olderWording}。",
   "claim.unsupported.notFound": "未在“{scope}”中找到。",
   "claim.unsupported.notFound.more": "未在“{scope}”等 {total} 项中找到。",
   "claim.readAll.notFound": "我已通读“{scope}”，没有找到。",

@@ -24,7 +24,8 @@ import {
 import { encodeGif, encodeMp4, FILMED, Film, Hand, installOverlay, renderPills } from "./film";
 
 const OUT = process.env.CORRECTION_OUT ?? resolve(__dirname, "claimCorrections-out");
-const PROTO = "/Users/joeyxiong/Desktop/code/IncarnaMind/internal/prototypes/simplified/index.html";
+/** The interactive prototype's index.html; its recording is skipped without one. */
+const PROTO = process.env.CORRECTION_PROTOTYPE;
 const GIF = { fps: 12, width: 1100, colors: 128 };
 const PARK = { x: 640, y: 560 };
 const CAPTIONS = {
@@ -205,6 +206,7 @@ test("records the built correction flow", async () => {
 });
 
 test("records the prototype's correction flow", async () => {
+  test.skip(!PROTO, "Set CORRECTION_PROTOTYPE to the prototype's index.html.");
   test.setTimeout(600_000);
   await mkdir(OUT, { recursive: true });
   const browser = await chromium.launch();

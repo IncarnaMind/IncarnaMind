@@ -41,7 +41,7 @@ import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { figurePlace, writeSentenceCheck } from "./editor/figurePlaces";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
-import { sentenceFigureContext } from "./unsupportedFixes";
+import { fixesFree, sentenceFigureContext } from "./unsupportedFixes";
 
 /** One part's old words and the Document's wording for them. */
 interface Edit {
@@ -463,6 +463,7 @@ export function applyCorrection(
   claim: ShownClaim,
   span?: ClaimPartSpan | null,
 ): boolean {
+  if (!fixesFree(mindId)) return false;
   const plan = editor.isEditable ? planCorrection(editor.state, claim, span) : null;
   if (plan && apply(editor, mindId, [plan]) > 0) return true;
   useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
@@ -471,6 +472,7 @@ export function applyCorrection(
 
 /** Changes every contradicted part the Documents correct, in one transaction and one Undo. */
 export function correctContradictions(editor: Editor, mindId: string): number {
+  if (!fixesFree(mindId)) return 0;
   const plans = shownClaims(editor.state).flatMap((claim) => {
     const plan = editor.isEditable ? planCorrection(editor.state, claim) : null;
     return plan ? [plan] : [];
