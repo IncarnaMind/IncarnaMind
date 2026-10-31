@@ -6234,7 +6234,7 @@
     position: fixed;
     z-index: 40;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 2px;
     max-width: calc(100vw - 32px);
     padding: 4px;
@@ -6246,6 +6246,11 @@
     line-height: var(--text-ui--line-height);
     color: var(--color-ink);
 
+    .find-row {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
     input {
       width: 160px;
       min-width: 0;
@@ -6287,6 +6292,80 @@
       &:disabled {
         opacity: 0.4;
       }
+    }
+    .find-option {
+      width: 26px;
+      font-size: var(--text-meta);
+      font-weight: 600;
+
+      &[aria-pressed="true"] {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .find-action {
+      width: auto;
+      padding: 0 8px;
+      font-size: var(--text-ui);
+      white-space: nowrap;
+    }
+    .find-replaced {
+      width: 100%;
+      justify-content: flex-start;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: var(--text-meta);
+      text-align: left;
+      color: var(--color-ink-secondary);
+
+      &:hover,
+      &:focus-visible {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .find-read-only {
+      margin: 0;
+      padding: 2px 8px;
+      font-size: var(--text-meta);
+      color: var(--color-ink-meta);
+    }
+  }
+  /* A table of contents: the Note's headings, each jumping to its own. */
+  .table-of-contents {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-left: 2px solid var(--color-rule-strong);
+    color: var(--color-ink-secondary);
+
+    .table-of-contents-title {
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+    .table-of-contents-list {
+      margin: 4px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .table-of-contents-entry {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      padding: 1px 4px;
+      border-radius: 4px;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--color-ink-secondary);
+
+      &:hover,
+      &:focus-visible {
+        background: var(--color-hover);
+        color: var(--color-ink);
+      }
+    }
+    .table-of-contents-empty {
+      color: var(--color-ink-meta);
     }
   }
   /* A Document chip: a name in the text that opens the Document. */

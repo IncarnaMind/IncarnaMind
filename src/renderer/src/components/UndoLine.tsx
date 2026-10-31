@@ -13,7 +13,7 @@ import { shortcutLabel } from "../commands/keymap";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
-import { useFade } from "../motion";
+import { useBreathing, useFade } from "../motion";
 import { useAppStore } from "../store";
 import { type LineAction, lineShownAt, UNDO_SHOWN_MS, type UndoLineState, useUndo } from "../undo";
 import { showsUndoPill } from "../undoPill";
@@ -80,7 +80,9 @@ export function UndoLineBody({
 }) {
   const t = useT();
   const shown = useRef<HTMLDivElement>(null);
+  const working = useRef<HTMLSpanElement>(null);
   useFade(shown, fade);
+  useBreathing(working, Boolean(line.note && line.busy));
 
   useGoesBy(line.change || line.told || (line.note && !line.busy) ? line.id : null, held);
   useDismissOnEscape(true, () => useUndo.getState().dismiss());
@@ -109,7 +111,19 @@ export function UndoLineBody({
 
   if (line.note) {
     return (
-      <div ref={shown} data-testid="undo-note" className={lineClass(inPill)}>
+      <div
+        ref={shown}
+        data-testid="undo-note"
+        aria-busy={line.busy || undefined}
+        className={`${lineClass(inPill)} items-center`}
+      >
+        {line.busy && (
+          <span
+            ref={working}
+            aria-hidden="true"
+            className="size-1.5 shrink-0 rounded-full bg-ink-secondary"
+          />
+        )}
         <span className="min-w-0 break-words">{line.note(t)}</span>
       </div>
     );

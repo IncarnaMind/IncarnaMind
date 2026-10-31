@@ -57,6 +57,7 @@ const request = (command: WindowCommandRequest["command"]): WindowCommandRequest
   run: "run",
   command,
   targets: [],
+  wall: null,
   mindId: null,
   clientId,
 });
@@ -165,9 +166,57 @@ describe("The window says a command started, then how it ended (#1421)", () => {
       heard.handlers.get("command.windowRun")?.({
         ...request(ACCEPT_SUGGESTIONS),
         targets: [{ kind: "document", id: "memo", into: "general" }],
+        wall: "a",
       });
       await vi.waitFor(() => expect(heard.accepted).toHaveLength(1));
-      expect(heard.accepted[0]).toEqual([["memo"], { memo: "general" }]);
+      expect(heard.accepted[0]).toEqual([["memo"], { memo: "general" }, "a"]);
+    } finally {
+      remove();
+      heard.answers.length = 0;
+      heard.accepted.length = 0;
+    }
+  });
+
+  // protects=the assistant's Accept, run for it on named Documents, accepts for the Folders and wall the core checked (#2250); fails_when=it accepts the window's own waiting list instead; no_claim=the core's own check.
+  test("Accept accepts only the Documents the core checked, for the Folders and wall it checked", async () => {
+    const { suggestionCommands } = await import("../../src/renderer/src/commands/suggestions");
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const accept = suggestionCommands.find((each) => each.id === "document.accept");
+    if (!accept) throw new Error("Accept isn't a command.");
+    useAppStore.setState({
+      documents: [
+        { id: "memo", name: "Memo", tagging: null },
+        { id: "late", name: "Late", tagging: null },
+      ],
+      library: {
+        groups: [],
+        assignments: [
+          {
+            documentId: "memo",
+            groupId: "general",
+            source: "automatic",
+            suggested: true,
+            status: "classified",
+          },
+          {
+            documentId: "late",
+            groupId: "a",
+            source: "automatic",
+            suggested: true,
+            status: "classified",
+          },
+        ],
+      },
+    } as never);
+    const remove = registry.commands.register(accept);
+    try {
+      heard.handlers.get("command.windowRun")?.({
+        ...request("document.accept"),
+        targets: [{ kind: "document", id: "memo", into: "general" }],
+        wall: "a",
+      });
+      await vi.waitFor(() => expect(heard.accepted).toHaveLength(1));
+      expect(heard.accepted[0]).toEqual([["memo"], { memo: "general" }, "a"]);
     } finally {
       remove();
       heard.answers.length = 0;

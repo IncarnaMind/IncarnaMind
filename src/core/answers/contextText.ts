@@ -229,6 +229,8 @@ function plainBlockMarkdown(block: Block, naming: Naming): string {
     case "image":
     // Only an export writes a Bibliography; a Mind's own Blocks never hold one.
     case "bibliography":
+    // A table of contents is for the page, not for a Question.
+    case "toc":
       return "";
   }
 }

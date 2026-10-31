@@ -198,6 +198,11 @@ export interface OllamaApp {
  */
 export interface Printer {
   print(document: PrintDocument): Promise<Uint8Array>;
+  /**
+   * Lays the document out as `print` does, then prints it on a printer the User chooses.
+   * Absent (a host that can only make PDFs): printing on a printer is refused.
+   */
+  printToPrinter?(document: PrintDocument): Promise<void>;
 }
 
 /**
