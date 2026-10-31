@@ -521,17 +521,18 @@ export function readEvidence(
   }
 }
 
+/** A contradicted reply's old words, and each Document's words for them with its quote's marker. */
+export interface ReadCorrection {
+  from: string;
+  choices: { wording: string; marker: number }[];
+}
+
 /**
  * What a reply says: its verdict, what the Document says (or, for unsupported,
  * what no Passage states), and, for unsupported, short phrases for what the
  * Passages state of the sentence and what they don't; null when there is no
  * verdict to read.
  */
-export interface ReadCorrection {
-  from: string;
-  choices: { wording: string; marker: number }[];
-}
-
 export interface ReadVerdict {
   verdict: ClaimVerdict;
   correction?: ReadCorrection;

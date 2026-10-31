@@ -168,7 +168,6 @@ export function correctableCount(editor: Editor): number {
     : 0;
 }
 
-/** A text figure of the sentence where the edits left it: its place, reading, id and context. */
 /** The edit that writes over some of a text figure's words, if one does. */
 function replacing(before: ProseMirrorNode, plan: CorrectionPlan, figure: FigureFinding) {
   const old = figure.locator.kind === "text" ? figurePlace(before, figure) : null;

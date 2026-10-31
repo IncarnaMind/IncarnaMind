@@ -1231,8 +1231,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           result.verdict === "supported"
           ? await withSentenceVerdict(result, async () => unchecked("malformed"))
           : result;
-      // A correction is kept only on the one result it changes: the contradicted figure, its
-      // number read the same in the old words and the Document's, or else the rest of the words.
+      // A correction is kept only on the one result it changes, the contradicted figure or else the
+      // rest of the words, and only when every other result stands or is a figure it writes over.
       const withCorrection = (checked: ClaimCheckResult): ClaimCheckResult => {
         if (checked.verdict !== "contradicted" || checked.remainder === undefined) return checked;
         const figures = checked.figures ?? [];
@@ -1255,31 +1255,22 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           )
         )
           return checked;
+        const context = documentFigureContext([{ text: sentence }]);
         const corrected = (
           read: ReadCorrection | undefined,
           citation: (marker: number) => Citation | null,
-        ) =>
-          correctionFor(
-            sentence,
-            request.claim,
-            read,
-            citation,
-            scoped.documentDate,
-            documentFigureContext([{ text: sentence }]),
-          );
+        ) => correctionFor(sentence, request.claim, read, citation, scoped.documentDate, context);
         const stated = corrected(said?.correction, session.finalCitation);
         const owner = figures.find((figure) => figure.result.verdict === "contradicted");
-        // The sentence's figures as its check read them.
-        const language = documentFigureContext([{ text: sentence }]);
         let found = stated;
         // Figures the old words write over, all or some of their words ("1,500" of "1,500 units").
         const writesOver = (from: string, chars: string) =>
-          readFigures(from, language).some((old) => chars.includes(old.chars));
+          readFigures(from, context).some((old) => chars.includes(old.chars));
         if (owner) {
           const deciding = owner.sourceInput;
           const changes = (from: string, to: string) => {
-            const old = readFigures(from, language);
-            const replacement = readFigures(to, language);
+            const old = readFigures(from, context);
+            const replacement = readFigures(to, context);
             const [written] = replacement;
             return (
               old.length === 1 &&
