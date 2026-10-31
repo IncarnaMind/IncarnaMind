@@ -35,6 +35,7 @@ const atomAttributes = () => ({
   label: dataAttribute("label", ""),
   text: dataAttribute("text", ""),
   source: dataAttribute("source", null),
+  hash: dataAttribute("hash", null),
   info: {
     default: null,
     parseHTML: (element: HTMLElement) => {

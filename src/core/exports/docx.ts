@@ -201,7 +201,13 @@ export function renderDocx(
 
   const data = writeZip(
     [
-      { name: "[Content_Types].xml", data: contentTypes(comments.length > 0) },
+      {
+        name: "[Content_Types].xml",
+        data: contentTypes(
+          comments.length > 0,
+          target.media.map((file) => file.name.slice(file.name.lastIndexOf(".") + 1)),
+        ),
+      },
       {
         name: "_rels/.rels",
         data: relationshipsXml([
@@ -467,7 +473,7 @@ export class DocxWriter {
   }
 
   /** Inline content in a paragraph of the text: runs, and a footnote's reference for each Citation. */
-  inlineXml(content: readonly Inline[]): string {
+  inlineXml(content: readonly Inline[], { note = false } = {}): string {
     return this.inline(content, {
       indent: 0,
       style: null,
@@ -475,6 +481,7 @@ export class DocxWriter {
       bold: false,
       width: this.textWidth,
       align: null,
+      ...(note && { note: true }),
     });
   }
 
@@ -953,6 +960,9 @@ export class DocxWriter {
         case "break":
           xml += "<w:r><w:br/></w:r>";
           break;
+        case "pageBreak":
+          if (!context.note) xml += '<w:r><w:br w:type="page"/></w:r>';
+          break;
         case "figure":
           xml += run(item.figure.shown, { bold: context.bold });
           break;
@@ -1093,10 +1103,16 @@ export class DocxWriter {
     if (!decoded) return run(image.alt || image.src);
     const { id, name } = this.target.picture(decoded);
 
-    // Its size in pixels, shrunk to fit the width available.
+    // The size the Note shows it at, else its pixels', shrunk to fit the width available.
     const maxWidth = Math.max(context.width - context.indent, INDENT) * EMU_PER_TWIP;
-    let cx = decoded.width * EMU_PER_PIXEL;
-    let cy = decoded.height * EMU_PER_PIXEL;
+    const width =
+      image.width ??
+      (image.height ? (decoded.width * image.height) / decoded.height : decoded.width);
+    const height =
+      image.height ??
+      (image.width ? (decoded.height * image.width) / decoded.width : decoded.height);
+    let cx = Math.round(width * EMU_PER_PIXEL);
+    let cy = Math.round(height * EMU_PER_PIXEL);
     if (cx > maxWidth) {
       cy = Math.round((cy * maxWidth) / cx);
       cx = maxWidth;
@@ -1222,15 +1238,24 @@ function formatOf(marks: Marks, context: Context, styles: DocxStyles, style?: st
 
 export interface DecodedImage {
   data: Uint8Array;
-  extension: "png" | "jpeg" | "gif";
+  extension: "png" | "jpeg" | "gif" | "webp" | "bmp";
   /** In pixels. */
   width: number;
   height: number;
 }
 
+/** What each picture's part is, in a package's content types. */
+export const PICTURE_TYPES: Readonly<Record<DecodedImage["extension"], string>> = {
+  png: "image/png",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
 /**
- * A PNG, JPEG or GIF given as a data: URL, with its size. Images elsewhere
- * (on the web) aren't fetched: the export never goes online.
+ * A PNG, JPEG, GIF, WebP or BMP given as a data: URL, with its size. Images
+ * elsewhere (on the web) aren't fetched: the export never goes online.
  */
 export function decodeImage(src: string): DecodedImage | null {
   const match = /^data:image\/[\w.+-]+;base64,([\s\S]*)$/i.exec(src);
@@ -1265,19 +1290,65 @@ function imageSize(data: Buffer): Omit<DecodedImage, "data"> | null {
       offset += 2 + data.readUInt16BE(offset + 2);
     }
   }
+  if (data.length >= 30 && data.toString("latin1", 0, 4) === "RIFF") {
+    if (data.toString("latin1", 8, 12) !== "WEBP") return null;
+    const chunk = data.toString("latin1", 12, 16);
+    if (chunk === "VP8 ") {
+      const width = data.readUInt16LE(26) & 0x3fff;
+      return { extension: "webp", width, height: data.readUInt16LE(28) & 0x3fff };
+    }
+    if (chunk === "VP8L") {
+      const bits = data.readUInt32LE(21);
+      return {
+        extension: "webp",
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+      };
+    }
+    if (chunk === "VP8X") {
+      return {
+        extension: "webp",
+        width: data.readUIntLE(24, 3) + 1,
+        height: data.readUIntLE(27, 3) + 1,
+      };
+    }
+    return null;
+  }
+  if (data.length >= 26 && data.toString("latin1", 0, 2) === "BM") {
+    // A header of 12 bytes is OS/2's, with 16-bit sizes; a height below 0 is drawn top down.
+    if (data.readUInt32LE(14) === 12) {
+      return { extension: "bmp", width: data.readUInt16LE(18), height: data.readUInt16LE(20) };
+    }
+    return {
+      extension: "bmp",
+      width: data.readInt32LE(18),
+      height: Math.abs(data.readInt32LE(22)),
+    };
+  }
   return null;
 }
 
 // ---------------------------------------------------------------------------
 // The package's other parts
 
-function contentTypes(comments: boolean): string {
+/** Pictures every export lists, used or not, as it always has. */
+const LISTED_PICTURES: ReadonlySet<string> = new Set(["png", "jpeg", "gif"]);
+
+function contentTypes(comments: boolean, pictures: readonly string[]): string {
+  const more = [...new Set(pictures)].filter(
+    (extension): extension is DecodedImage["extension"] =>
+      !LISTED_PICTURES.has(extension) && extension in PICTURE_TYPES,
+  );
   const types = [
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`,
     `<Default Extension="png" ContentType="image/png"/>`,
     `<Default Extension="jpeg" ContentType="image/jpeg"/>`,
     `<Default Extension="gif" ContentType="image/gif"/>`,
+    ...more.map(
+      (extension) =>
+        `<Default Extension="${extension}" ContentType="${PICTURE_TYPES[extension]}"/>`,
+    ),
     `<Override PartName="/word/document.xml" ContentType="${MAIN_CONTENT_TYPE}.document.main+xml"/>`,
     `<Override PartName="/word/styles.xml" ContentType="${MAIN_CONTENT_TYPE}.styles+xml"/>`,
     `<Override PartName="/word/settings.xml" ContentType="${MAIN_CONTENT_TYPE}.settings+xml"/>`,

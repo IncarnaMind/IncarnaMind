@@ -323,7 +323,9 @@ test("in Chinese: footnotes typed with an input method number together with an A
   await expect(markers).toHaveText(["1", "2"]);
   await expect(markers.nth(1)).toHaveAttribute("aria-label", "脚注 2：小潮在上下弦月");
   const area = window.getByTestId("footnote-area");
-  await expect(area.getByRole("heading")).toHaveText("脚注");
+  // Footnotes alone are headed only by their rule; the area is named for them.
+  await expect(area.getByRole("heading")).toHaveCount(0);
+  await expect(area).toHaveAttribute("aria-label", "脚注");
   await expect(areaTexts(window)).toHaveText(["每月两次。", "小潮在上下弦月"]);
 
   // An Answer's Citation, added to the note after them, is 3, in the text and the area.
