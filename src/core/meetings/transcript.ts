@@ -127,6 +127,11 @@ interface Saved {
   voices?: Record<string, number>;
   /** The speaker pass (#138): it runs after the save, again after a quit cut it short. */
   speakers?: "due" | "done" | "failed";
+  /**
+   * The computer's sound has had sound in it: it is being recorded, so the microphone is the
+   * User's alone. Until then a macOS that isn't allowing it can't be told from a quiet call.
+   */
+  callHeard?: boolean;
 }
 
 interface LiveStream {
@@ -339,6 +344,11 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     const state: State = {
       ...saved,
+      // A Transcript begun before #2305 has no mark: its Me and Them lines, or a voice the service
+      // told apart on the computer's sound, say the call was heard.
+      callHeard:
+        saved.callHeard ??
+        (isCall(cues) || Object.keys(saved.voices ?? {}).some((key) => key.includes(":system:"))),
       meetingId,
       cues,
       gaps,
@@ -390,6 +400,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       ...(state.state === "empty" && { empty: true }),
       ...(state.voices && { voices: state.voices }),
       ...(state.speakers && { speakers: state.speakers }),
+      ...(state.callHeard && { callHeard: true }),
     };
     try {
       writeWhole(jsonPath(state.meetingId), JSON.stringify(saved));
@@ -476,8 +487,8 @@ export function createTranscripts(options: TranscriptsOptions) {
             baseMs: own.baseMs,
             live: true,
             source,
-            speaker: speakerOf(source, live.callSound(), state.memo),
-            callSound: live.callSound(),
+            speaker: speakerOf(source, state.callHeard === true, state.memo),
+            callSound: state.callHeard === true,
           };
         }
       }
@@ -496,6 +507,21 @@ export function createTranscripts(options: TranscriptsOptions) {
       }
     }
     return null;
+  }
+
+  /**
+   * The computer's sound has had sound in it: the microphone is the User's. Until now it gave no
+   * line, so every line so far is the microphone's, whatever the engine or a cloud service called
+   * it, those read back from the file after a restart too (#2305).
+   */
+  function heardCall(state: State): void {
+    if (state.callHeard || state.memo) return;
+    state.callHeard = true;
+    for (const cue of state.cues) cue.speaker = SPEAKER_ME;
+    for (const heard of state.partials.values()) heard.speaker = SPEAKER_ME;
+    persist(state);
+    writeLines(state);
+    options.changed();
   }
 
   // The words of DESIGN.md › Speakers, as the speaker pass (./speakerPass) writes them after
@@ -913,11 +939,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       state.pending = addRange(state.pending, { fromMs: own.baseMs, toMs: atMs });
       return;
     }
-    const callSound = live.callSound();
     const reading: Reading = {
       baseMs: own.baseMs,
       source: "microphone",
-      speaker: () => speakerOf("microphone", callSound, state.memo),
+      speaker: () => speakerOf("microphone", state.callHeard === true, state.memo),
     };
     state.catchUps.set(own.stream, reading);
     let drop = () => {};
@@ -1070,7 +1095,6 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     if (parts.length === 0) return;
     const prefix = `${state.meetingId}:catch-up:${++streams}`;
-    let callSound = false;
     const opened: string[] = [];
     let microphoneStreams = 0;
     let microphoneOpen = false;
@@ -1100,7 +1124,7 @@ export function createTranscripts(options: TranscriptsOptions) {
           }
         }
         const audio = tracks.flush();
-        callSound ||= audio?.system?.some((sample) => sample !== 0) ?? false;
+        if (audio?.system?.some((sample) => sample !== 0)) heardCall(state);
         for (const source of SOURCES) {
           const track = audio?.[source];
           if (!audio || !track) continue;
@@ -1119,7 +1143,7 @@ export function createTranscripts(options: TranscriptsOptions) {
             state.catchUps.set(stream, {
               baseMs: audio.atMs,
               source,
-              speaker: () => speakerOf(source, callSound, state.memo),
+              speaker: () => speakerOf(source, state.callHeard === true, state.memo),
             });
             opened.push(stream);
           }
@@ -1292,7 +1316,6 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   function finishStreams(state: State, live: Live, endMs: number): void {
-    const callSound = live.callSound();
     const fromMs = live.doneMs;
     // A cloud stream that never opened has sent nothing: this computer transcribes its stretch.
     let unopened = false;
@@ -1313,7 +1336,7 @@ export function createTranscripts(options: TranscriptsOptions) {
               reading: {
                 baseMs: own.baseMs,
                 source,
-                speaker: () => speakerOf(source, callSound, state.memo),
+                speaker: () => speakerOf(source, state.callHeard === true, state.memo),
               } as Reading,
             },
           ]
@@ -1495,7 +1518,9 @@ export function createTranscripts(options: TranscriptsOptions) {
     /** Samples from a source, starting at `atMs` in the Meeting's time. */
     hear(meetingId: string, source: AudioSource, samples: Int16Array, atMs: number): void {
       const state = states.get(meetingId);
-      if (state?.live) feed(state, state.live.tracks.add(source, samples, atMs));
+      if (!state?.live) return;
+      feed(state, state.live.tracks.add(source, samples, atMs));
+      if (state.live?.callSound()) heardCall(state);
     },
 
     /**

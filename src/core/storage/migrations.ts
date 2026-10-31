@@ -2116,15 +2116,29 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE meetings ADD COLUMN purged_at TEXT;
     `,
   },
+  {
+    version: 119,
+    description: "A workbook is read with its hidden sheets when the User asks (#740)",
+    sql: `
+      -- A workbook's hidden and very hidden sheets are left out of its text by default (#740).
+      -- Set, it is read again with them, and every later version of it too.
+      ALTER TABLE documents ADD COLUMN read_hidden_sheets INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**
  * Brings the database up to the latest schema: every migration in the list that
  * isn't recorded as applied runs, in version order, in one transaction. A database
  * recording a migration this build doesn't know was written by a newer version of
- * IncarnaMind, and is refused.
+ * IncarnaMind, and is refused. `ran` hears each version as it runs, before the
+ * transaction commits.
  */
-export function migrate(db: Database, list: readonly Migration[] = migrations): void {
+export function migrate(
+  db: Database,
+  list: readonly Migration[] = migrations,
+  ran?: (version: number) => void,
+): void {
   list.forEach((migration, index) => {
     const previous = list[index - 1];
     if (previous && migration.version <= previous.version) {
@@ -2151,6 +2165,7 @@ export function migrate(db: Database, list: readonly Migration[] = migrations): 
         migration.version,
         new Date().toISOString(),
       ]);
+      ran?.(migration.version);
     }
     // Kept for tools that read it: the highest migration applied.
     const highest = db.get<{ v: number }>("SELECT max(version) AS v FROM schema_migrations")?.v;

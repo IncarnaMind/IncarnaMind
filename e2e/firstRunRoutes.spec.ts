@@ -11,6 +11,7 @@ import {
   createDataFolder,
   interceptOpenExternal,
   launchApp,
+  openSetupSteps,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -83,16 +84,13 @@ for (const { language, width, height } of COMBINATIONS) {
 
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
-      await expect(card.getByTestId("setup-ready-title")).toHaveText(
-        translate(language, "setup.ready", { name: "Anthropic" }),
-        { timeout: 15_000 },
-      );
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-step-transcription")).toContainText(
         translate(language, "setup.step.transcription"),
+        { timeout: 15_000 },
       );
       await expect(card.getByTestId("setup-step-sorting")).toContainText(
         translate(language, "setup.step.sorting"),
@@ -161,10 +159,7 @@ for (const { language, width, height } of COMBINATIONS) {
       const [authorize] = await urlsOpened(app);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      await expect(card.getByTestId("setup-ready-title")).toHaveText(
-        translate(language, "setup.ready", { name: translate(language, "chatgpt.title") }),
-        { timeout: 15_000 },
-      );
+      await openSetupSteps(window);
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
@@ -247,7 +242,7 @@ for (const { language, width, height } of COMBINATIONS) {
       expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
 
       await setLocalChatModel(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
         translate(language, "meetings.route.local"),
       ]);
