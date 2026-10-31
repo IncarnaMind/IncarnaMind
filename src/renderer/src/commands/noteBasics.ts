@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { flushSync } from "react-dom";
 import { core } from "../core";
 import { mindEditor } from "../editor/openEditors";
 import { tidyNote } from "../editor/tidyNote";
@@ -74,7 +75,12 @@ export const noteBasicsCommands: readonly Command[] = [
     async run(ctx) {
       const editor = openNote(ctx);
       if (!editor) return;
-      const done = showWorking((t) => t("editor.tidy.working"));
+      // The line is committed before the click's task ends, so a busy machine cannot hold it
+      // back past the 100 ms the User is owed.
+      let done = () => {};
+      flushSync(() => {
+        done = showWorking((t) => t("editor.tidy.working"));
+      });
       await afterPaint();
       try {
         tidyNote(editor);
