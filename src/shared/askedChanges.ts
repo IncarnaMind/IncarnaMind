@@ -120,9 +120,9 @@ export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean
 }
 
 /**
- * Whether the window applies `change` at once, with Undo, or it waits for the User: its request
- * was asked for in `calls` (the Answer's Tool calls), and it doesn't take out most of the User's own
- * text. The core says so to the model, and the evaluations read the same answer.
+ * Whether the window applies `change` at once, with Undo, or it waits for the User: a call in
+ * `calls` asked for it in that Mind, and it doesn't take out most of the User's own text. The core
+ * says so to the model, and the evaluations read the same answer.
  */
 export function appliedAsAsked(
   doc: Y.Doc,
@@ -134,5 +134,6 @@ export function appliedAsAsked(
       call.mindChange?.mindId === change.mindId ? [call.mindChange.request] : [],
     ),
   );
-  return askedFor(doc, change.request) && !waitsForUser(doc, requestedRequests(doc, asked));
+  const requested = requestedRequests(doc, asked);
+  return requested.has(change.request) && !waitsForUser(doc, requested);
 }

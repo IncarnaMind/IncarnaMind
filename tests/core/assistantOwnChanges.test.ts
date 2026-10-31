@@ -1014,6 +1014,44 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
 
+  // protects=a change that takes out most of the User's text reads as waiting to the claim check, so its claim is flagged and the model is asked again; fails_when=the record marks it applied (a `return true` in appliedAsAsked) and the claim stands; no_claim=how a real model words it.
+  test("a held change isn't read as applied when its claim is checked", async () => {
+    const claim = "I've shortened the summary in “Q3 review”.";
+    const waiting = "The shortened summary waits for you to apply it.";
+    let askedAgain = false;
+    let sawWaiting = false;
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const passage = editPassage(call);
+        if (passage !== null) return { text: "## Summary\n\nThe quarter was good." };
+        if (call.prompt.includes(ASKED_AGAIN)) {
+          askedAgain = true;
+          return { text: waiting };
+        }
+        if (called(call, "edit_mind")) return { text: claim };
+        return {
+          calls: [{ tool: "edit_mind", input: { part: "Summary", instruction: "Shorten it" } }],
+        };
+      },
+      {
+        generate: (call) => {
+          if (call.prompt.includes('"state": null')) sawWaiting = true;
+          return claimCheckReply(call, (prompt) =>
+            prompt.includes('"applied": true') ? [] : [{ sentence: claim, kind: "changed" }],
+          );
+        },
+      },
+    );
+    const { core, mind } = await setUp(model);
+
+    const answer = await askAssistant(core, { text: "shorten the summary", mindId: mind.id });
+
+    expect(sawWaiting).toBe(true);
+    expect(askedAgain).toBe(true);
+    expect(answer.text).toBe(waiting);
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+
   // protects=the judge the core asks is sent the instructions that decide what counts and what it calls a Note, and the honest second reply is what the User reads; fails_when=the core stops sending one of those rules, or the claim stands; no_claim=how a real model judges.
   test("the judge is sent the instructions, through the core", async () => {
     let instructions = "";
