@@ -109,7 +109,10 @@ for (const definition of definitions) {
     ? ofLanguage(other)[ofLanguage(definition.language).indexOf(definition)]
     : undefined;
   const notSaid = pair ? (own.get(pair.id) ?? []).slice(0, DECOYS) : [];
-  const told = said.flatMap((word, at) => (notSaid[at] ? [word, notSaid[at]] : [word]));
+  const told = [
+    ...said.flatMap((word, at) => (notSaid[at] ? [word, notSaid[at]] : [word])),
+    ...notSaid.slice(said.length),
+  ];
   words[definition.id] = { said, notSaid, told };
 }
 writeFileSync(out, `${JSON.stringify({ format: 1, words }, null, 2)}\n`);
