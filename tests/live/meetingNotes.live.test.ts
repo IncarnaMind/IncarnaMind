@@ -30,11 +30,12 @@ type StreamPart =
 type Usage = Extract<StreamPart, { type: "finish" }>["usage"];
 
 /** Every request's tokens, as the provider reported them, for the report's cost. */
-const tokens = { requests: 0, input: 0, cachedInput: 0, output: 0 };
+const tokens = { requests: 0, input: 0, cachedInput: 0, cacheWrite: 0, output: 0 };
 const count = (usage: Usage) => {
   tokens.requests++;
   tokens.input += usage.inputTokens.total ?? 0;
   tokens.cachedInput += usage.inputTokens.cacheRead ?? 0;
+  tokens.cacheWrite += usage.inputTokens.cacheWrite ?? 0;
   tokens.output += usage.outputTokens.total ?? 0;
 };
 const counted: ChatModelFactory = (spec) =>
@@ -138,16 +139,30 @@ function shown(client: MindClient): string[] {
 const aiText = (lines: readonly string[]) =>
   lines.flatMap((line) => [...line.matchAll(/«([^»]*)»/g)].map((match) => match[1])).join("\n");
 
+/** The Chinese titles the notes give their generated sections, in order. */
+const SECTION_TITLES = ["摘要", "决定", "待办事项", "待定问题", "会上说了、你的文档里没有的"];
+
 /** What the notes do wrong, for the call's language. */
-function problems(call: Call, lines: readonly string[]): string[] {
+function problems(call: Call, lines: readonly string[], withNotes: boolean): string[] {
   const text = aiText(lines);
   const found: string[] = [];
   if (text.trim() === "") found.push("no notes");
   if (lines[0]?.trim() === "") found.push("a blank line first");
   if (/用户/.test(text)) found.push("用户");
   if (/\bthe User\b/.test(text)) found.push('"the User"');
-  if (call.language === "zh-CN" && /\b(?:Me|Them|Speaker)\b/.test(text))
-    found.push("English labels");
+  if (call.language === "zh-CN") {
+    if (/\b(?:Me|Them|Speaker)\b/.test(text)) found.push("English labels");
+    // In the sections written when the User took no notes, each action names who it is for.
+    const title = (line: string) => aiText([line]).trim();
+    const at = withNotes ? -1 : lines.findIndex((line) => title(line) === "待办事项");
+    if (at >= 0) {
+      const rest = lines.slice(at + 1);
+      const next = rest.findIndex((line) => SECTION_TITLES.includes(title(line)));
+      const actions = (next < 0 ? rest : rest.slice(0, next)).filter((line) => title(line) !== "");
+      if (actions.some((line) => !/我|对方/.test(title(line))))
+        found.push("an action without an owner");
+    }
+  }
   return found;
 }
 
@@ -195,7 +210,7 @@ describe.skipIf(!KEY)("A Meeting's notes, on a real model", { timeout: 1_800_000
         for (const withNotes of [false, true]) {
           const { lines, cost } = await filled(call, withNotes);
           spent += cost.reduce((sum, each) => sum + (each.currency === "USD" ? each.amount : 0), 0);
-          const wrong = problems(call, lines);
+          const wrong = problems(call, lines, withNotes);
           if (wrong.length > 0)
             failed.push(`${call.name}, ${withNotes ? "notes" : "sections"}: ${wrong.join(", ")}`);
           if (REPORT) {
@@ -210,7 +225,7 @@ describe.skipIf(!KEY)("A Meeting's notes, on a real model", { timeout: 1_800_000
     if (REPORT) {
       await appendFile(
         REPORT,
-        `# ${MODEL}: ${failed.length} of ${RUNS * CALLS.length * 2} notes wrong, $${spent.toFixed(4)}; ${tokens.requests} requests, ${tokens.input} input tokens (${tokens.cachedInput} from the cache), ${tokens.output} output tokens\n\n${failed.join("\n")}\n\n`,
+        `# ${MODEL}: ${failed.length} of ${RUNS * CALLS.length * 2} notes wrong, $${spent.toFixed(4)}; ${tokens.requests} requests, ${tokens.input} input tokens (${tokens.cachedInput} from the cache, ${tokens.cacheWrite} written to it), ${tokens.output} output tokens\n\n${failed.join("\n")}\n\n`,
       );
     }
     expect(failed).toEqual([]);

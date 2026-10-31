@@ -1,8 +1,9 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { readVtt } from "../../src/core/documents/formats/vtt";
+import { hashBytes } from "../../src/core/documents/files";
+import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { InvalidInputError } from "../../src/core/errors";
 import { FAKE_LINES } from "../../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
@@ -17,6 +18,21 @@ const SONIOX_KEY = "soniox-test-key-0123456789";
 async function chooseSoniox(core: Core) {
   await core.setTranscriptionKey({ route: "soniox", apiKey: SONIOX_KEY });
   await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
+}
+
+/** The Transcript's lines as its Document shows them, once the saved file's text is indexed: the first's start, and each line's speaker. */
+function shownSpeakers(core: Core, documentId: string | null, savedPath: string | null) {
+  if (!documentId || !savedPath) throw new Error("The saved Transcript has no Document.");
+  const hash = hashBytes(readFileSync(savedPath));
+  return vi.waitFor(async () => {
+    const { pages, contentHash } = await core.readDocumentText(documentId);
+    if (contentHash !== hash || pages.length === 0)
+      throw new Error("The saved Transcript's text isn't indexed yet.");
+    return {
+      from: pages[0]?.label?.from ?? null,
+      speakers: pages.flatMap((page) => page.label?.speakers ?? []),
+    };
+  });
 }
 
 /** Every file under a folder, with what it holds. */
@@ -71,10 +87,11 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
     await core.stopMeeting(meeting.id);
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
-    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
+    const { from, speakers } = await shownSpeakers(core, saved.documentId, saved.savedPath);
     // Only the microphone was heard for the first four seconds: the first line is the User's.
-    expect(cues[0]).toMatchObject({ startMs: 0, speaker: "Me" });
-    expect(cues.some((cue) => cue.speaker !== "Me")).toBe(true);
+    expect(from).toBe(0);
+    expect(speakers[0]).toBe("Me");
+    expect(speakers.some((speaker) => speaker !== "Me")).toBe(true);
   });
 
   // protects=the same across a quit: the service numbered the User's first line as a room's voice before the others made a sound, IncarnaMind closed, and once the resumed Meeting hears the call, that line read back from the file becomes Me too (#2305); fails_when=the saved first line keeps "Speaker 1"; no_claim=a macOS that never allows the computer's sound.
@@ -107,9 +124,79 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       meeting.id,
       (transcript) => transcript.state === "saved",
     );
-    const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
-    expect(cues[0]).toMatchObject({ startMs: 0, speaker: "Me" });
-    expect(cues.some((cue) => cue.speaker !== "Me")).toBe(true);
+    const { from, speakers } = await shownSpeakers(second.core, saved.documentId, saved.savedPath);
+    expect(from).toBe(0);
+    expect(speakers[0]).toBe("Me");
+    expect(speakers.some((speaker) => speaker !== "Me")).toBe(true);
+    second.core.close();
+  });
+
+  // protects=a Transcript saved by an older version, with no callHeard mark and only numbered voices, loads as a call that was heard, so the resumed Meeting keeps the other side's labels instead of making every saved line Me, and only the microphone's new lines are Me (#2305); fails_when=the old numbered lines become Me when the resumed Meeting hears the computer's sound; no_claim=a Transcript saved before the voices map, which has no :system: key to tell it by.
+  test("a legacy Transcript with only numbered voices keeps them when the resumed Meeting hears the call", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = await transcribingCore(dataDir);
+    await chooseSoniox(first.core);
+    const meeting = await first.core.createMeeting();
+    await first.core.startMeeting({ meetingId: meeting.id });
+    await until(first.core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    first.record(9 * SECOND);
+    await until(first.core, meeting.id, (transcript) => transcript.lines >= 4);
+    const live = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    await vi.waitFor(() =>
+      expect(readVtt(readFileSync(live, "utf8")).cues.some((cue) => cue.speaker !== "Me")).toBe(
+        true,
+      ),
+    );
+    first.core.close();
+
+    // The files an older version left: no callHeard mark, and cues whose voices are numbered only.
+    const jsonPath = join(dataDir, "Transcripts", `${meeting.id}.json`);
+    const saved = JSON.parse(readFileSync(jsonPath, "utf8")) as Record<string, unknown>;
+    delete saved.callHeard;
+    // The older version had transcribed all it recorded: the resumed stop catches nothing up.
+    saved.doneMs = 9 * SECOND;
+    saved.pending = [];
+    writeFileSync(jsonPath, JSON.stringify(saved));
+    const vttPath = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    const legacy = readVtt(readFileSync(vttPath, "utf8"));
+    writeFileSync(
+      vttPath,
+      writeVtt({
+        cues: legacy.cues.map((cue) => ({ ...cue, speaker: "Speaker 2" })),
+        gaps: legacy.gaps,
+      }),
+    );
+    expect(saved).not.toHaveProperty("callHeard");
+    expect(Object.keys((saved.voices ?? {}) as Record<string, number>)).toContainEqual(
+      expect.stringContaining(":system:"),
+    );
+
+    const second = await transcribingCore(dataDir);
+    await chooseSoniox(second.core);
+    await second.core.resumeMeeting(meeting.id);
+    await until(second.core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    second.record(8 * SECOND);
+    await until(
+      second.core,
+      meeting.id,
+      (transcript) => transcript.lines >= legacy.cues.length + 2,
+    );
+    await second.core.stopMeeting(meeting.id);
+    const stopped = await until(
+      second.core,
+      meeting.id,
+      (transcript) => transcript.state === "saved",
+    );
+    const { speakers } = await shownSpeakers(second.core, stopped.documentId, stopped.savedPath);
+    // The saved lines keep the labels the older version gave them; the microphone's new lines are
+    // the only Me, and the other side's are still its own voices.
+    expect(speakers.slice(0, legacy.cues.length)).toEqual(legacy.cues.map(() => "Speaker 2"));
+    const resumed = speakers.slice(legacy.cues.length);
+    expect(resumed).toContain("Me");
+    expect(resumed.some((speaker) => speaker !== "Me")).toBe(true);
+    expect(
+      resumed.every((speaker) => speaker === "Me" || /^(Them|Speaker \d+)$/.test(speaker ?? "")),
+    ).toBe(true);
     second.core.close();
   });
 

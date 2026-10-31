@@ -340,8 +340,11 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     const state: State = {
       ...saved,
-      // A Transcript begun before #2305 has no mark: its Me and Them lines say the call was heard.
-      callHeard: saved.callHeard ?? isCall(cues),
+      // A Transcript begun before #2305 has no mark: its Me and Them lines, or a voice the service
+      // told apart on the computer's sound, say the call was heard.
+      callHeard:
+        saved.callHeard ??
+        (isCall(cues) || Object.keys(saved.voices ?? {}).some((key) => key.includes(":system:"))),
       meetingId,
       cues,
       gaps,
