@@ -47,9 +47,6 @@ export type Presence =
   | { kind: "there" | "not" | "malformed" | "stopped" }
   | { failed: ProviderError };
 
-/** The most a whole read's judgement writes. */
-export const ABSENCE_OUTPUT_TOKENS = 400;
-
 /** What a whole read's judgement is asked about: the sentence, then the text it reads. */
 export const absencePrompt = (claim: string, whole: string): string =>
   `<sentence>\n${claim}\n</sentence>\n\n${whole}`;

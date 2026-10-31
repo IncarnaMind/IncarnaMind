@@ -21,6 +21,24 @@ export function formatMoney({ amount, currency }: Money, language: Language): st
   }).format(amount);
 }
 
+/**
+ * What a check's reason says beside it (`detail`): the most a whole read may spend, which the core
+ * keeps as Money's JSON, as an amount; any other reason's detail as it is.
+ */
+export function reasonDetail(reason: string | null, detail: string | null, language: Language) {
+  if (reason !== "read-budget" || !detail) return detail ?? "";
+  let budget: unknown;
+  try {
+    budget = JSON.parse(detail);
+  } catch {
+    return "";
+  }
+  const { amount, currency } = (budget ?? {}) as Partial<Money>;
+  return typeof amount === "number" && (currency === "USD" || currency === "CNY")
+    ? formatMoney({ amount, currency }, language)
+    : "";
+}
+
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */
 export function formatSpent(
   spent: readonly Money[],

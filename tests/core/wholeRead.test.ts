@@ -10,7 +10,6 @@ import type {
   PlanDocumentCheckInput,
   SearchScope,
 } from "../../src/core";
-import { ABSENCE_OUTPUT_TOKENS } from "../../src/core/answers/checks/absence";
 import {
   SEARCH_OUTPUT_TOKENS,
   VERDICT_OUTPUT_TOKENS,
@@ -463,8 +462,11 @@ describe("Check against a Document, read whole", () => {
     await client.settled();
 
     expect(reports - 1).toBeGreaterThan(1);
-    // A search and a verdict for each window's check, and the absence judgement it may need.
-    expect(plan.estimate.calls).toBe((reports - 1) * 3);
+    // A search and a verdict for each window's check, and the absence judgement it may need, and a
+    // quarter more, as Claude Haiku 5.5's reads sent. At the most, 23 for each window: twenty, and
+    // three more comparisons for the sentence's figure (15 kg).
+    expect(plan.estimate.calls).toBe(Math.round((reports - 1) * 3 * 1.25));
+    expect(plan.estimate.upTo?.calls).toBe((reports - 1) * 23);
   });
 
   test("keeps an earlier on-topic result when a later window finds nothing", async () => {
@@ -1059,14 +1061,14 @@ describe("The cost a whole read asks", () => {
       if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
         throw new Error("The read has no per-token estimate.");
       }
-      return { plan, calls: plan.estimate.calls };
+      return { plan, calls: plan.estimate.calls, most: plan.estimate.upTo?.calls ?? 0 };
     };
     const one = await callsOf({ id: before.id, span });
     const open = await callsOf();
 
     expect(one.plan.parts).toBe(1);
     expect(open.plan.parts).toBe(2);
-    expect(open.calls).toBe(2 * one.calls);
+    expect(open.most).toBe(2 * one.most);
     const sent = calls.length;
     await core.checkSentences({
       ...checkInput(mind.id, block, sentence, picked),
@@ -1505,8 +1507,9 @@ describe("Check against a Document, on a sentence that says something is absent"
       const { check, calls, judged, estimate } = await readAbsence(example, 12, null);
       expect(check.state).toBe("supported");
       expect(judged).toHaveLength(1);
-      expect(estimate).toBe(3);
-      expect(calls.length + judged.length).toBe(estimate);
+      expect(calls.length + judged.length).toBe(3);
+      // A read sends 1.25 times the requests it plans, as Claude Haiku 5.5's did.
+      expect(estimate).toBe(4);
     },
   );
 });
@@ -1924,7 +1927,8 @@ describe("A whole read's windows, on a sentence that says something is absent", 
         expect(read.judged).toHaveLength(options.ordinary ? 0 : runs);
         const { estimate } = read;
         if (estimate?.billing !== "per-token") throw new Error("No per-token estimate.");
-        expect(estimate.calls).toBe(read.runs.length + read.judged.length);
+        // A read sends 1.25 times the requests it plans, as Claude Haiku 5.5's did.
+        expect(estimate.calls).toBe(Math.round(1.25 * (read.runs.length + read.judged.length)));
         // Each request is billed for all of its prompt: its instructions, Tools and messages.
         const sent =
           read.runs.reduce((sum, call) => sum + sentTokens(call), 0) +
@@ -1933,25 +1937,21 @@ describe("A whole read's windows, on a sentence that says something is absent", 
             0,
           );
         const written =
-          runs * (SEARCH_OUTPUT_TOKENS + VERDICT_OUTPUT_TOKENS) +
-          read.judged.length * ABSENCE_OUTPUT_TOKENS;
+          runs * (SEARCH_OUTPUT_TOKENS + VERDICT_OUTPUT_TOKENS) + read.judged.length * 400;
         // Claude Haiku 5.5 counted up to 1.41 tokens for each of this computer's; a provider not
         // measured is counted at 1.5.
         const counted = (options.priced?.kind === "anthropic" ? 1.45 : 1.5) * sent;
         expect(Math.abs(estimate.tokens - written - counted)).toBeLessThanOrEqual(0.02 * counted);
-        // Each window a part reads may also take nine more calls of its Run (eleven in all), two
-        // asks for its evidence, four comparisons of a quote and two looks at one; and a sentence
-        // found not stated a judgement it shouldn't need.
-        expect(estimate.upTo?.calls).toBe(
-          estimate.calls + 17 * runs + (options.ordinary ? runs : 0),
-        );
+        // At its most, each window a part reads takes the eleven calls of its Run, two asks for
+        // its evidence, the judgement, four comparisons of a quote and two looks at one.
+        expect(estimate.upTo?.calls).toBe(20 * runs);
       }
     },
   );
 });
 
 describe("The estimate a whole read's cost question shows", () => {
-  test("prices the requests a read sends as its provider counts them, and what it may also send only as the most", async () => {
+  test("prices what a read likely sends as its provider counts it, and every request it may send only as the most", async () => {
     const db = openDatabase(join(await createTempDataFolder(), DATABASE_FILE));
     const meter = createMeter({ db, now: () => new Date(), cap: () => null });
     const model: MeteredModel = {
@@ -1964,35 +1964,35 @@ describe("The estimate a whole read's cost question shows", () => {
       maxOutput: undefined,
       ollamaCloud: false,
     };
-    const sent = [
+    const likely = [
       { inputTokens: 10_000, outputTokens: 100 },
       { inputTokens: 58_000, outputTokens: 500 },
       { inputTokens: 48_500, outputTokens: 400 },
     ];
-    const looks = [
+    const most = [
+      { inputTokens: 10_000, outputTokens: 8_000 },
+      { inputTokens: 58_000, outputTokens: 8_000 },
       { inputTokens: 1_200, outputTokens: 300 },
-      { inputTokens: 1_300, outputTokens: 300 },
     ];
 
-    const estimate = meter.estimateRead(model, sent, looks);
+    const estimate = meter.estimateRead(model, { likely, calls: 4, most });
 
     if (estimate.billing !== "per-token") throw new Error("No per-token estimate.");
     // A provider with no measured count: 1.5 tokens for each of this computer's.
-    expect(estimate).toMatchObject({ calls: 3, tokens: 175_750 });
+    expect(estimate).toMatchObject({ calls: 4, tokens: 175_750 });
     expect(estimate.cost?.amount).toBeCloseTo((174_750 + 1_000 * 5) / 1e6, 10);
-    expect(estimate.upTo).toMatchObject({ calls: 5, tokens: 180_100 });
-    expect(estimate.upTo?.cost?.amount).toBeCloseTo((178_500 + 1_600 * 5) / 1e6, 10);
-    expect(meter.estimateRead(model, sent)).not.toHaveProperty("upTo");
+    expect(estimate.upTo).toMatchObject({ calls: 3, tokens: 120_100 });
+    expect(estimate.upTo?.cost?.amount).toBeCloseTo((103_800 + 16_300 * 5) / 1e6, 10);
 
     // Anthropic: 1.45 tokens for each, and the most with all of its input written to the cache.
-    const anthropic = meter.estimateRead({ ...model, kind: "anthropic" }, sent, looks);
-    if (anthropic.billing !== "per-token") throw new Error("No per-token estimate.");
-    expect(anthropic).toMatchObject({ calls: 3, tokens: 169_925 });
-    expect(anthropic.cost?.amount).toBeCloseTo((168_925 + 1_000 * 5) / 1e6, 10);
-    expect(anthropic.upTo).toMatchObject({ calls: 5, tokens: 174_150 });
-    expect(anthropic.upTo?.cost?.amount).toBeCloseTo(
-      ((168_925 + 3_625) * 1.25 + 1_600 * 5) / 1e6,
-      10,
+    const anthropic = meter.estimateRead(
+      { ...model, kind: "anthropic" },
+      { likely, calls: 4, most },
     );
+    if (anthropic.billing !== "per-token") throw new Error("No per-token estimate.");
+    expect(anthropic).toMatchObject({ calls: 4, tokens: 169_925 });
+    expect(anthropic.cost?.amount).toBeCloseTo((168_925 + 1_000 * 5) / 1e6, 10);
+    expect(anthropic.upTo).toMatchObject({ calls: 3, tokens: 116_640 });
+    expect(anthropic.upTo?.cost?.amount).toBeCloseTo((100_340 * 1.25 + 16_300 * 5) / 1e6, 10);
   });
 });

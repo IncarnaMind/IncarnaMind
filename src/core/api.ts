@@ -4660,6 +4660,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /** "cost-cap" from a Run's own budget rather than the monthly cap: that budget (#1554). */
+  budget?: Money;
 }
 
 /**
@@ -5616,6 +5618,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read's window said what the sentence calls absent is there,
  *   but a look at its quote found it doesn't state that (#1554).
+ * - "read-budget": a whole read reached the most it may spend before this part was judged, so
+ *   nothing more was sent (`detail`: that most, as Money's JSON).
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -5635,7 +5639,8 @@ export type ClaimCheckFailure =
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "kept-inside"
-  | "cut-short";
+  | "cut-short"
+  | "read-budget";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {

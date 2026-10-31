@@ -259,53 +259,31 @@ test("a read whose parts aren't sorted yet asks its cost, however small", async 
   expect(read.mock.calls[0]?.[4]).toMatchObject({ within: scope("A"), plan: "plan-unsorted" });
 });
 
-test("a read whose second looks may take it over $0.50 asks its cost; one that stays under reads", async () => {
-  const upTo = (amount: number, most: number): DocumentCheckPlan => {
-    const plan = ready(3, amount, `plan-${most}`);
-    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") return plan;
-    return {
-      ...plan,
-      estimate: {
-        ...plan.estimate,
-        upTo: { calls: 5, tokens: 2000, cost: { amount: most, currency: "USD" } },
-      },
-    };
+// The most is the budget the read is held to, so only what it costs about decides whether it asks.
+const priced = (parts: number | null, about: number, most: number): DocumentCheckPlan => {
+  const plan = ready(3, about, `plan-${parts}-${about}-${most}`, parts);
+  if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") return plan;
+  return {
+    ...plan,
+    estimate: {
+      ...plan.estimate,
+      upTo: { calls: 40, tokens: 9000, cost: { amount: most, currency: "USD" } },
+    },
   };
-  bridge.planDocumentCheck.mockResolvedValue(upTo(0.4, 0.6));
-  await click("claim-check-document");
-  await click("pick-A");
+};
 
-  expect(read).not.toHaveBeenCalled();
-  expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull();
-  await click("document-check-read");
-  expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: "plan-0.6" });
-
-  read.mockClear();
-  bridge.planDocumentCheck.mockResolvedValue(upTo(0.4, 0.45));
-  await click("claim-check-document");
-  await click("pick-B");
-  await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
-  expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: "plan-0.45" });
-});
-
-// An unsorted sentence's parts, and so its most, aren't known before a model call.
+// An unsorted sentence's parts, and so its cost, aren't known before a model call.
 test.each([
-  { sorted: "sorted", parts: 1, most: 0.6, reads: false },
-  { sorted: "unsorted", parts: null, most: 0.6, reads: false },
-  { sorted: "sorted", parts: 1, most: 0.4, reads: true },
-  { sorted: "unsorted", parts: null, most: 0.4, reads: false },
+  { sorted: "sorted", parts: 1, about: 0.12, most: 0.5, reads: true },
+  { sorted: "sorted", parts: 1, about: 0.5, most: 3, reads: true },
+  { sorted: "sorted", parts: 1, about: 0.6, most: 3, reads: false },
+  { sorted: "unsorted", parts: null, about: 0.12, most: 0.5, reads: false },
+  { sorted: "unsorted", parts: null, about: 0.6, most: 3, reads: false },
 ])(
-  "a read of $sorted parts, about 0.12 and at most $most dollars, starts unasked: $reads",
-  async ({ parts, most, reads }) => {
-    const plan = ready(3, 0.12, `plan-${parts}-${most}`, parts);
-    if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") return;
-    bridge.planDocumentCheck.mockResolvedValue({
-      ...plan,
-      estimate: {
-        ...plan.estimate,
-        upTo: { calls: 40, tokens: 9000, cost: { amount: most, currency: "USD" } },
-      },
-    });
+  "a read of $sorted parts, about $about and at most $most dollars, starts unasked: $reads",
+  async ({ parts, about, most, reads }) => {
+    const plan = priced(parts, about, most);
+    bridge.planDocumentCheck.mockResolvedValue(plan);
     await click("claim-check-document");
     await click("pick-A");
 
@@ -317,7 +295,7 @@ test.each([
     expect(read).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="document-check-ask"]')).not.toBeNull();
     await click("document-check-read");
-    expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: plan.id });
+    expect(read.mock.calls[0]?.[4]).toMatchObject({ plan: plan.kind === "ready" ? plan.id : "" });
   },
 );
 

@@ -2542,9 +2542,9 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
-    estimateRead(model, sent, mayAlsoSend) {
+    estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
-      return metered && meter.estimateRead(metered, sent, mayAlsoSend);
+      return metered && meter.estimateRead(metered, read);
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),

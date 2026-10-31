@@ -37,6 +37,7 @@ const STOPS: readonly ClaimCheckFailure[] = [
   "failed",
   "rate-limit",
   "cost-cap",
+  "read-budget",
   "plan-limit",
   "out-of-credit",
   "consent-revoked",

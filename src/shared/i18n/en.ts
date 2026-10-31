@@ -921,8 +921,8 @@ export const en = {
   "claim.readNotNow": "Not now",
   "claim.readAsk": "Read {pages} pages of “{scope}” to check this sentence?",
   "claim.readAsk.one": "Read 1 page of “{scope}” to check this sentence?",
-  "claim.readAsk.atLeast":
-    "This is the least it costs: the sentence’s parts are found as it reads.",
+  "claim.readAsk.unsorted":
+    "This is about what it costs: the sentence’s parts are found as it reads.",
   "claim.readCannot": "This can’t be read whole. Choose a smaller Document.",
   "claim.readCannot.many": "That’s more than {most} Documents. Choose fewer.",
   "claim.readNothing": "No text to read in this pick.",
@@ -1027,6 +1027,8 @@ export const en = {
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
   "claim.reason.kept-inside": "Kept inside {detail}",
+  "claim.reason.read-budget": "Stopped at {detail}, the most this read may spend.",
+  "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",

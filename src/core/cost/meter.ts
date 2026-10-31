@@ -7,8 +7,11 @@
  * - A request billed per token (catalog/billing) with a known price is first
  *   reserved at its most: its prompt (estimated high) and its output limit.
  *   A reservation that would pass the monthly cap is refused with
- *   `CostCapError`, and nothing is sent. Reserving is one synchronous
- *   transaction, so requests made at once never pass the cap together.
+ *   `CostCapError`, and nothing is sent; so is one that would take its Run
+ *   past the Run's own budget (`currentTask`), counting what the Run's
+ *   requests settled at and what its open ones reserved (`RunBudgetError`).
+ *   Reserving is one synchronous transaction, so requests made at once never
+ *   pass the cap or the budget together.
  * - It settles at what the provider reported. With nothing reported (a
  *   provider that doesn't say, a stop, a failure halfway), at the prompt's
  *   estimate and the output that came, never above the reservation. One the
@@ -49,7 +52,7 @@ import type { Price } from "../providers/catalog/types";
 import { ChatGptPlanError } from "../providers/chatgpt/errors";
 import type { ChatLanguageModel } from "../providers/models";
 import { tokenUsageOf } from "../providers/promptCache";
-import { CostCapError, PlanLimitError } from "../providers/providerErrors";
+import { CostCapError, PlanLimitError, RunBudgetError } from "../providers/providerErrors";
 import { retryAfterMs } from "../providers/retryAfter";
 import { searchFee, searchFeeOf } from "../providers/webSearch";
 import { currentTask } from "../runs/current";
@@ -173,10 +176,20 @@ const writesCache = (model: MeteredModel) => model.kind === "anthropic";
  */
 const SEARCH_INPUT_TOKENS = 30_000;
 
-/** One request an estimate counts: what it sends, and the most it writes. */
+/** One request an estimate counts: what it sends, and what it writes. */
 export interface EstimatedRequest {
   inputTokens: number;
   outputTokens: number;
+}
+
+/**
+ * A whole read's requests: those it likely sends, as many in all as `calls` says reads were
+ * measured to send, and every request it may send, each writing all it may.
+ */
+export interface EstimatedRead {
+  likely: readonly EstimatedRequest[];
+  calls: number;
+  most: readonly EstimatedRequest[];
 }
 
 /**
@@ -338,6 +351,19 @@ export function createMeter(options: {
     return settled + setAside;
   };
 
+  /** What a Run's requests billed per token have cost, settled, and set aside by those still open. */
+  const runIn = (runId: string, currency: Currency) =>
+    db
+      .all<{ currency: Currency; amount: number }>(
+        `SELECT currency, coalesce(sum(CASE WHEN status <> 'reserved' THEN cost ELSE reserved END), 0)
+           AS amount
+         FROM model_requests
+         WHERE run_id = ? AND deleted_at IS NULL AND billing = 'per-token' AND currency IS NOT NULL
+         GROUP BY currency`,
+        [runId],
+      )
+      .reduce((sum, row) => sum + inCurrency(row.amount, row.currency, currency), 0);
+
   const towardCap = (cap: MonthlyCap | null, since: string) => {
     if (!cap) return { spentTowardCap: null, setAsideTowardCap: null };
     const { settled, setAside } = monthIn(cap.currency, since);
@@ -385,6 +411,7 @@ export function createMeter(options: {
         ) + feesOf(offered.keys())
       : null;
     const created = at.toISOString();
+    const task = currentTask.getStore();
     db.transaction(() => {
       const cap = options.cap();
       if (cap && price && reserved !== null) {
@@ -392,6 +419,12 @@ export function createMeter(options: {
           againstCap(cap.currency, monthStart(at)) +
           inCurrency(reserved, price.currency, cap.currency);
         if (after > cap.amount) throw new CostCapError();
+      }
+      const budget = task?.budget;
+      if (task && budget && price && reserved !== null) {
+        const after =
+          runIn(task.id, budget.currency) + inCurrency(reserved, price.currency, budget.currency);
+        if (after > budget.amount) throw new RunBudgetError(budget);
       }
       db.run(
         `INSERT INTO model_requests (id, provider_id, model_id, flow, billing, status, currency,
@@ -405,7 +438,7 @@ export function createMeter(options: {
           model.billing,
           priced ? price.currency : null,
           reserved,
-          currentTask.getStore() ?? null,
+          task?.id ?? null,
           created,
           created,
         ],
@@ -786,16 +819,12 @@ export function createMeter(options: {
     },
 
     /**
-     * A whole read's cost (../answers/checks/wholeRead): the requests it sends, and the most it
-     * costs with those it sends only when what it reads asks for them (`mayAlsoSend`), all of
-     * their input written to the prompt cache where the provider bills that higher. Input comes
-     * as `estimateTokens` counts it, and is priced as the provider counts it.
+     * A whole read's cost (../answers/checks/wholeRead): about what it likely sends, and the most
+     * every request it may send costs, all of their input written to the prompt cache where the
+     * provider bills that higher. Input comes as `estimateTokens` counts it, and is priced as the
+     * provider counts it.
      */
-    estimateRead(
-      model: MeteredModel,
-      sent: readonly EstimatedRequest[],
-      mayAlsoSend: readonly EstimatedRequest[] = [],
-    ): RunEstimate {
+    estimateRead(model: MeteredModel, read: EstimatedRead): RunEstimate {
       if (model.billing !== "per-token") return { billing: model.billing };
       const at = now();
       const cap = options.cap();
@@ -819,19 +848,17 @@ export function createMeter(options: {
             }
           : null,
       });
-      const likely = counted(sent);
       return {
         billing: "per-token",
-        ...priced(likely, (each, known) => costOf(each, known, at, { cacheWrites })),
-        ...(mayAlsoSend.length > 0 && {
-          upTo: priced([...likely, ...counted(mayAlsoSend)], (each, known) =>
-            reservationOf(
-              { promptTokens: each.inputTokens, outputTokens: each.outputTokens, cacheWrites },
-              known,
-              at,
-            ),
+        ...priced(counted(read.likely), (each, known) => costOf(each, known, at, { cacheWrites })),
+        calls: read.calls,
+        upTo: priced(counted(read.most), (each, known) =>
+          reservationOf(
+            { promptTokens: each.inputTokens, outputTokens: each.outputTokens, cacheWrites },
+            known,
+            at,
           ),
-        }),
+        ),
         ...towardCap(cap, monthStart(at)),
         cap,
       };

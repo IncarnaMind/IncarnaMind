@@ -4,6 +4,7 @@
  * search. Planning sends nothing. Each part's check reads the windows in order and stops at the
  * first that decides it. Consent uses the separate "document-check" flow (ADR-0022).
  */
+import { readBudget } from "../../../shared/readBudget";
 import { sameScope } from "../../../shared/searchScope";
 import type {
   ChatModelChoice,
@@ -14,24 +15,25 @@ import type {
   DocumentCheckProgress,
   DocumentToRead,
   LeftOutDocument,
+  Money,
   RunEstimate,
   SearchScope,
 } from "../../api";
-import type { EstimatedRequest } from "../../cost/meter";
+import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import type { PreparedChatModel } from "../../providers/chat";
+import { outputTokens } from "../../providers/outputLimits";
 import { type AnswerDocuments, createCitationSession } from "../citations";
 import { estimateTokens } from "../context";
 import { withoutOverlap } from "../documentText";
 import { MOST_TOOL_LOOP_CALLS } from "../engine";
-import { ABSENCE_OUTPUT_TOKENS, absencePrompt, WHOLE_READ } from "./absence";
+import { absencePrompt, WHOLE_READ } from "./absence";
 import {
   type AtomicClaimCheckResult,
   afterRun,
   type CheckStart,
   type ClaimCheckRequest,
-  CONFIRM_OUTPUT_TOKENS,
   runFailureOf,
 } from "./claimCheck";
 import {
@@ -46,9 +48,15 @@ export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as cons
 
 const WINDOW_TOKENS = 48_000;
 const CARRIED_TOKENS = 1_000;
-/** What a check Run writes to search, and then to give its verdict. */
+/** What a check Run writes to search, and then to give its verdict, about. */
 export const SEARCH_OUTPUT_TOKENS = 100;
 export const VERDICT_OUTPUT_TOKENS = 500;
+/**
+ * The requests a read sends for each it is planned to, on average: Claude Haiku 5.5 sent 7 and 8
+ * where a two-window read planned 6, a turn more to cite or a look at a quote
+ * (tests/fixtures/cost/recorded-whole-read.json).
+ */
+const REQUESTS_PER_PLANNED = 1.25;
 export const MOST_READ_TOKENS = 500_000;
 export const MOST_READ_DOCUMENTS = 25;
 
@@ -77,11 +85,7 @@ export interface WholeReadOptions {
     check: CheckStart & { scope: EvidenceScope },
     model: ModelShape,
   ): { instructions: string; prompt: string; tools: string };
-  estimate(
-    model: ChatModelChoice | null,
-    sent: readonly EstimatedRequest[],
-    mayAlsoSend: readonly EstimatedRequest[],
-  ): RunEstimate | null;
+  estimate(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   progress(event: DocumentCheckProgress): void;
   newId(): string;
 }
@@ -130,7 +134,7 @@ const coverageOf = (passages: ToRead["passages"], received: ReadonlySet<string>)
     .length;
 };
 
-const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode"]);
+const ENDS_READ = new Set(["failed", "consent-revoked", "local-mode", "read-budget"]);
 
 /** The Documents the windows of a read read whole, each once with every Location read. */
 function readDocumentsOf(results: readonly AtomicClaimCheckResult[]): ClaimReadDocument[] {
@@ -211,19 +215,19 @@ export function createWholeRead(options: WholeReadOptions) {
   };
 
   /**
-   * The requests a read of `windows` sends for each of its checks, as their Runs build them: a
-   * search, the verdict with the window's Passages, and the absence judgement that follows for a
-   * sentence that says something is absent; and the most it may also send when what it reads asks
-   * for more: every other call its Run may make, each with the window and what the calls before it
-   * wrote, the requests its check may send after the Run (`afterRun`), a judgement its last check
-   * said it wouldn't need, and the two looks at a quote a window's judgement gives.
+   * The requests a read of `windows` sends for each of its checks, as their Runs build them: the
+   * ones it likely sends, a search, the verdict with the window's Passages, and the absence
+   * judgement that follows for a sentence that says something is absent; and every request it may
+   * send, each writing all its call may (../../providers/outputLimits): every call its Run may
+   * make, each with the window and all the calls before it wrote, the requests its check may send
+   * after the Run (`afterRun`), the judgement, and the two looks at a quote a judgement gives.
    */
   function readRequests(
     windows: readonly { passages: WindowedPassage[] }[],
     checks: readonly PlannedCheck[],
     scope: EvidenceScope,
     model: ModelShape,
-  ): { sent: EstimatedRequest[]; mayAlsoSend: EstimatedRequest[] } {
+  ): EstimatedRead {
     const shown = measuring();
     const sized = windows.map(({ passages }) => ({
       tokens: estimateTokens(shown.measure(passages)),
@@ -233,9 +237,11 @@ export function createWholeRead(options: WholeReadOptions) {
       ),
     }));
     const searches = (model.support ?? "tools") === "tools";
-    const runCalls = searches ? MOST_TOOL_LOOP_CALLS : 1;
-    const sent: EstimatedRequest[] = [];
-    const mayAlsoSend: EstimatedRequest[] = [];
+    const step = outputTokens("check-step");
+    const judging = outputTokens("absence-read");
+    const comparing = outputTokens("comparison");
+    const likely: EstimatedRequest[] = [];
+    const most: EstimatedRequest[] = [];
     for (const check of checks) {
       const start = options.runStart({ ...check, scope }, model);
       const fixed =
@@ -247,42 +253,46 @@ export function createWholeRead(options: WholeReadOptions) {
       const after = afterRun(check.figures?.length ?? 0);
       for (const window of sized) {
         const verdict = fixed + (searches ? query : 0) + window.tokens;
-        if (searches) sent.push({ inputTokens: fixed, outputTokens: SEARCH_OUTPUT_TOKENS });
-        sent.push({ inputTokens: verdict, outputTokens: VERDICT_OUTPUT_TOKENS });
-        for (let call = 2; call < runCalls; call++) {
-          mayAlsoSend.push({
-            inputTokens: verdict + (call - 1) * VERDICT_OUTPUT_TOKENS,
-            outputTokens: VERDICT_OUTPUT_TOKENS,
-          });
+        const judgement = judged + window.tokens;
+        if (searches) likely.push({ inputTokens: fixed, outputTokens: SEARCH_OUTPUT_TOKENS });
+        likely.push({ inputTokens: verdict, outputTokens: VERDICT_OUTPUT_TOKENS });
+        if (check.judgesAbsence) likely.push({ inputTokens: judgement, outputTokens: judging });
+
+        if (searches) most.push({ inputTokens: fixed, outputTokens: step });
+        const calls = searches ? MOST_TOOL_LOOP_CALLS : 1;
+        for (let call = searches ? 1 : 0; call < calls; call++) {
+          most.push({ inputTokens: verdict + call * step, outputTokens: step });
         }
-        for (const writes of after.writes) {
-          mayAlsoSend.push({ inputTokens: verdict, outputTokens: writes });
+        for (const writes of after.evidence) {
+          most.push({ inputTokens: verdict, outputTokens: writes });
         }
-        const judgement = {
-          inputTokens: judged + window.tokens,
-          outputTokens: ABSENCE_OUTPUT_TOKENS,
-        };
-        (check.judgesAbsence ? sent : mayAlsoSend).push(judgement);
+        most.push({ inputTokens: judgement, outputTokens: judging });
         const quoted = { claim: check.claim, quote: window.longest, passage: window.longest };
         const compared =
           estimateTokens(STRICT_INSTRUCTIONS) + estimateTokens(confirmPrompt(quoted));
         for (let each = 0; each < after.comparisons; each++) {
-          mayAlsoSend.push({ inputTokens: compared, outputTokens: CONFIRM_OUTPUT_TOKENS });
+          most.push({ inputTokens: compared, outputTokens: comparing });
         }
         const looked = estimateTokens(presencePrompt({ ...quoted, absent: check.claim }));
         for (const instructions of [PRESENCE_INSTRUCTIONS, STRICT_PRESENCE_INSTRUCTIONS]) {
-          mayAlsoSend.push({
+          most.push({
             inputTokens: estimateTokens(instructions) + looked,
-            outputTokens: CONFIRM_OUTPUT_TOKENS,
+            outputTokens: comparing,
           });
         }
       }
     }
-    return { sent, mayAlsoSend };
+    return { likely, calls: Math.round(likely.length * REQUESTS_PER_PLANNED), most };
   }
 
-  /** The latest plan in each Note, by Note: a read asked from an earlier one sends nothing. */
-  const plans = new Map<string, { id: string; within: SearchScope; sentences: string }>();
+  /**
+   * The latest plan in each Note, by Note: a read asked from an earlier one sends nothing. `budget`:
+   * the most its read may spend, which the meter never lets it pass.
+   */
+  const plans = new Map<
+    string,
+    { id: string; within: SearchScope; sentences: string; budget: Money | null }
+  >();
   /** The latest whole read of each sentence, by `sentenceKey`: an earlier one never writes. */
   const owners = new Map<string, string>();
 
@@ -456,7 +466,8 @@ export function createWholeRead(options: WholeReadOptions) {
       target: { sentences: string; parts: number | null; checks: readonly PlannedCheck[] },
     ): Promise<DocumentCheckPlan> {
       const id = options.newId();
-      plans.set(mindId, { id, within, sentences: target.sentences });
+      const planned = { id, within, sentences: target.sentences, budget: null as Money | null };
+      plans.set(mindId, planned);
       const read = toRead(mindId, within);
       if ("kind" in read) return read;
       const chosen = model ?? options.defaultModel();
@@ -464,6 +475,8 @@ export function createWholeRead(options: WholeReadOptions) {
       const requests =
         shape &&
         readRequests(windowsOf(read, windowTokens(shape)), target.checks, read.scope, shape);
+      const estimate = requests && options.estimate(chosen, requests);
+      planned.budget = readBudget(estimate, target.parts !== null);
       return {
         kind: "ready",
         id,
@@ -472,7 +485,11 @@ export function createWholeRead(options: WholeReadOptions) {
         pages: read.pages,
         readable: read.readable,
         tokens: read.tokens,
-        estimate: requests && options.estimate(chosen, requests.sent, requests.mayAlsoSend),
+        // The most the card shows is the budget the read is held to.
+        estimate:
+          estimate?.billing === "per-token" && estimate.upTo && planned.budget
+            ? { ...estimate, upTo: { ...estimate.upTo, cost: planned.budget } }
+            : estimate,
       };
     },
 
@@ -481,6 +498,12 @@ export function createWholeRead(options: WholeReadOptions) {
       return (
         latest?.id === plan && sameScope(latest.within, within) && latest.sentences === sentences
       );
+    },
+
+    /** The most the read of the Note's latest plan may spend; null with no price to hold it to. */
+    budget(mindId: string, plan: string): Money | null {
+      const latest = plans.get(mindId);
+      return latest?.id === plan ? latest.budget : null;
     },
 
     claim(sentence: string, requestId: string): void {

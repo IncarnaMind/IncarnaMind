@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import type { DocumentCheckPlan, SearchScope } from "../../../core/api";
+import { readsUnasked } from "../../../shared/readBudget";
 import {
   checkSentences,
   dismissDocumentPicker,
@@ -24,11 +25,7 @@ import { AskBlock } from "./MindCheckLine";
 type ReadyPlan = Extract<DocumentCheckPlan, { kind: "ready" }>;
 
 // Unknown parts could cost more than the estimate says, so that read always asks.
-const readsAtOnce = ({ estimate, parts }: ReadyPlan) => {
-  if (parts === null || estimate?.billing !== "per-token") return false;
-  const most = estimate.upTo?.cost ?? estimate.cost;
-  return most !== null && most.amount <= 0.5;
-};
+const readsAtOnce = ({ estimate, parts }: ReadyPlan) => readsUnasked(estimate, parts !== null);
 
 /**
  * Check against a Document…, and a whole read asked again (`requestDocumentRead`): each sized
@@ -170,7 +167,7 @@ export function DocumentCheckAction({
               scope: asking?.name ?? "",
               pages: plan.pages,
             }),
-            ...(plan.parts === null ? [t("claim.readAsk.atLeast")] : []),
+            ...(plan.parts === null ? [t("claim.readAsk.unsorted")] : []),
           ].join(language === "zh-CN" ? "" : " ")}
           estimate={
             plan.estimate ? estimateLine(plan.estimate, t, language, { always: true }) : null

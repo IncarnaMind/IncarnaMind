@@ -4,6 +4,7 @@ import {
   formatMoney,
   formatSpent,
   notCheckedKey,
+  reasonDetail,
   runStopParts,
   runStopText,
   setAsideText,
@@ -210,5 +211,26 @@ describe("Cost in words", () => {
         /model calls?|模型调用/,
       );
     }
+  });
+});
+
+describe("A whole read stopped at the most it may spend", () => {
+  test.each([
+    ["en", "Stopped at $0.41, the most this read may spend.", "Continue"],
+    ["zh-CN", "已在 $0.41 停止，这是这次读取最多可花的费用。", "继续"],
+  ] as const)("says where it stopped, with Continue (%s)", (language, line, action) => {
+    const detail = reasonDetail(
+      "read-budget",
+      JSON.stringify({ amount: 0.41, currency: "USD" }),
+      language,
+    );
+    expect(t(language)("claim.reason.read-budget", { detail })).toBe(line);
+    expect(t(language)("claim.readBudget.continue")).toBe(action);
+  });
+
+  test("another reason's detail is as it is, and a budget that can't be read says no amount", () => {
+    expect(reasonDetail("failed", "The service failed.", "en")).toBe("The service failed.");
+    expect(reasonDetail("read-budget", "not money", "en")).toBe("");
+    expect(reasonDetail("read-budget", JSON.stringify({ amount: "0.41" }), "en")).toBe("");
   });
 });

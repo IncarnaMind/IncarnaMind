@@ -45,6 +45,7 @@ import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
+import { reasonDetail } from "../cost";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
@@ -692,10 +693,12 @@ function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
+  // A whole read stopped at its budget: Continue sizes what is left and asks again.
+  const spentAll = shown.state === "not-checked" && shown.reason === "read-budget";
   const reason =
     shown.state === "not-checked"
       ? t(`claim.reason.${shown.reason}`, {
-          detail: check.detail ?? "",
+          detail: reasonDetail(shown.reason, check.detail, language),
           cap: SENTENCES_CHECKED_AT_MOST,
         })
       : shown.state === "needs-recheck"
@@ -927,7 +930,7 @@ function ClaimCard({
           </button>
         </p>
       )}
-      {reason && pastCap && (
+      {reason && (pastCap || spentAll) && (
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-reason"
@@ -935,17 +938,25 @@ function ClaimCard({
               reason,
               <LineAction
                 key="now"
-                action={{
-                  label: t("claim.checkNow"),
-                  testId: "claim-check-now",
-                  onClick: () => onCheckAgain(),
-                }}
+                action={
+                  pastCap
+                    ? {
+                        label: t("claim.checkNow"),
+                        testId: "claim-check-now",
+                        onClick: () => onCheckAgain(),
+                      }
+                    : {
+                        label: t("claim.readBudget.continue"),
+                        testId: "claim-read-continue",
+                        onClick: () => onCheckAgain(),
+                      }
+                }
               />,
             ]}
           />
         </div>
       )}
-      {reason && !pastCap && (
+      {reason && !pastCap && !spentAll && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>

@@ -57,7 +57,7 @@ import { isRecord } from "../../errors";
 import type { Language } from "../../language";
 import { calculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
-import { outputTokens } from "../../providers/outputLimits";
+import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
@@ -205,7 +205,10 @@ export function failureOf(error: ProviderError): {
     case "rate-limit":
       return { reason: "rate-limit", detail: null };
     case "cost-cap":
-      return { reason: "cost-cap", detail: null };
+      // The budget, as Money's JSON, for the card to say in the User's currency format.
+      return error.budget
+        ? { reason: "read-budget", detail: JSON.stringify(error.budget) }
+        : { reason: "cost-cap", detail: null };
     case "plan-limit":
       return { reason: "plan-limit", detail: null };
     case "out-of-credit":
@@ -1522,20 +1525,16 @@ function calculated(
   return checked;
 }
 
-/** The most a request for one record writes, and for several. */
-const EVIDENCE_OUTPUT_TOKENS = 600;
-const MOST_EVIDENCE_OUTPUT_TOKENS = 4000;
-
 /**
  * The most requests a check sends once its Run has ended, beside a whole read's absence judgement
  * and looks: its evidence asked for twice with every Passage it read, once for the records it
- * named and once for the one it rests on (`writes`, what each may write); and its quotes compared
- * with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the nearest
- * line, and for a sentence with figures the rest's two looks and one for each figure.
+ * named and once for the one it rests on (`evidence`, the most each may write); and its quotes
+ * compared with the sentence alone (`comparisons`): a contradiction's two looks, its parts and the
+ * nearest line, and for a sentence with figures the rest's two looks and one for each figure.
  */
-export function afterRun(figures: number): { writes: number[]; comparisons: number } {
+export function afterRun(figures: number): { evidence: number[]; comparisons: number } {
   return {
-    writes: [MOST_EVIDENCE_OUTPUT_TOKENS, EVIDENCE_OUTPUT_TOKENS],
+    evidence: [OUTPUT_LIMITS.evidence.most, outputTokens("evidence")],
     comparisons: 4 + (figures > 0 ? 2 + figures : 0),
   };
 }
@@ -1607,9 +1606,6 @@ async function askForEvidence(
   const citations = records.map((record) => session.finalCitation(record.marker));
   return citations.every((citation) => citation?.check === "found") ? (citations[0] ?? null) : null;
 }
-
-/** The most a second look at a quote writes. */
-export const CONFIRM_OUTPUT_TOKENS = 300;
 
 // In a whole check a model leant to "contradicted" for near misses: a figure for a related thing,
 // another site in a parallel Document (#97). Judged alone, the sentence beside its quote, it didn't.
@@ -1703,7 +1699,7 @@ async function lookForPresence(
         instructions,
         prompt: presencePrompt({ claim: request.claim, absent, quote: quoted.quote, passage }),
         temperature: answerTemperature(model.capabilities.facts.temperature),
-        maxOutputTokens: CONFIRM_OUTPUT_TOKENS,
+        maxOutputTokens: outputTokens("comparison"),
         maxRetries: 1,
         abortSignal: signal,
       }));

@@ -80,7 +80,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { Consent } from "../../consent";
-import type { EstimatedRequest } from "../../cost/meter";
+import type { EstimatedRead } from "../../cost/meter";
 import { depositionMapper } from "../../documents/deposition";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import { parseCheckedDocument } from "../../documents/evidence";
@@ -102,6 +102,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
+import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import {
@@ -228,12 +229,8 @@ export interface ChecksOptions
       /** A live Document's Passages, in reading order. */
       passages(documentId: string): WindowedPassage[];
     };
-  /** The estimate of a whole read that sends these requests, and may send those too. */
-  estimateRead(
-    model: ChatModelChoice | null,
-    sent: readonly EstimatedRequest[],
-    mayAlsoSend: readonly EstimatedRequest[],
-  ): RunEstimate | null;
+  /** The estimate of a whole read's requests. */
+  estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** How far a whole read is, as it goes (#1554). */
   documentCheckProgress(event: DocumentCheckProgress): void;
   engine: AnswerEngine;
@@ -1138,16 +1135,21 @@ export function createChecks(options: ChecksOptions) {
       return waiting.sentences.length > 0 ? { kind: "waiting", waiting } : { kind: "nothing" };
     }
 
+    // Every request of the read counts toward the most it may spend, which it never passes.
+    const budget = wholeRead.budget(mindId, input.plan ?? "");
+    const task = { id: input.requestId, ...(budget && { budget }) };
     let checked = 0;
     for (const { key, marks, queued } of started.sentences) {
       if (!current()) break;
       wholeRead.claim(key, input.requestId);
       try {
         const reading = wholeRead.reader(input, read, prepared, atomicCheck, current);
-        const result = await withCites(createPartCheck(options, reading.readPart))({
-          ...checkRequest(queued, read.scope, prepared, mindId, signal),
-          undecidedOnly: true,
-        });
+        const result = await currentTask.run(task, () =>
+          withCites(createPartCheck(options, reading.readPart))({
+            ...checkRequest(queued, read.scope, prepared, mindId, signal),
+            undecidedOnly: true,
+          }),
+        );
         if (!current()) break;
         const at = options.now().toISOString();
         recordJudged(options.recordAiUse, mindId, prepared, result, at);

@@ -1,12 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "vitest";
-import { checkGenerate, checkReply } from "../helpers/checks";
+import { describe, expect, test } from "vitest";
+import type { ClaimCheckAttributes } from "../../src/core";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { checkGenerate, checkReply, isCheckRun, sentenceOf } from "../helpers/checks";
+import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { note, writeMind } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { note, readMind, writeMind } from "../helpers/minds";
+import {
+  type ModelCall,
+  type ReportedUsage,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 
 interface RecordedRead {
   sentence: string;
@@ -17,6 +25,8 @@ interface RecordedRead {
   usd: number;
   /** What the app's own meter recorded, with the prompt cache's reads and writes. */
   meteredUsd: number;
+  /** Recorded once each window reached the model once in each request. */
+  windowOnce: boolean;
 }
 
 interface Recorded {
@@ -200,7 +210,7 @@ async function readPlans(recorded: Recorded) {
   return plans;
 }
 
-test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded", async () => {
+test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded, and its calls are theirs", async () => {
   const recorded: Recorded = JSON.parse(
     await readFile(join(import.meta.dirname, "../fixtures/cost/recorded-whole-read.json"), "utf8"),
   );
@@ -212,8 +222,147 @@ test("the most a whole read may cost covers every read Claude Haiku 5.5 recorded
     }
     expect(plan.tokens).toBe(recorded.lease.tokens);
     const most = plan.estimate.upTo;
+    // Each of a Run's eleven calls may write its 8,000-token limit, and the calls after it carry
+    // that: about 2.7M tokens on this lease, where 500 a call would make it about 1.3M.
+    expect(most?.tokens).toBeGreaterThan(2_400_000);
     expect(most?.calls).toBeGreaterThanOrEqual(read.requests);
     expect(most?.tokens).toBeGreaterThanOrEqual(read.inputTokens + read.outputTokens);
     expect(most?.cost?.amount).toBeGreaterThanOrEqual(Math.max(read.usd, read.meteredUsd));
   }
+  // About as many requests as the reads made once each window reached the model once: 7 and 8.
+  const sent = recorded.reads.filter((read) => read.windowOnce).map((read) => read.requests);
+  const mean = sent.reduce((sum, each) => sum + each, 0) / sent.length;
+  for (const plan of plans.values()) {
+    expect(
+      plan.kind === "ready" && plan.estimate?.billing === "per-token" && plan.estimate.calls,
+    ).toBe(Math.round(mean));
+  }
+});
+
+describe("A whole read held to the most it may spend", () => {
+  const KEEP = "The tenant may keep a cat.";
+  const RENT = "Rent is due on the first of each month.";
+  const LEASE = [
+    ...Array.from(
+      { length: 30 },
+      (_, index) => `Clause ${index + 1} covers the upkeep of the flat.`,
+    ),
+    "The tenant may keep a cat.",
+    "Rent is due on the first of each month.",
+  ].join("\n\n");
+  const plans = {
+    [KEEP]: { verdict: "supported" as const, quote: "The tenant may keep a cat" },
+    [RENT]: { verdict: "supported" as const, quote: "Rent is due on the first of each month" },
+  };
+  // Twenty million input tokens of Claude Haiku 5.5 cost $2: far past any small read's most.
+  const SPENT: ReportedUsage = {
+    inputTokens: { total: 20_000_000, noCache: 20_000_000, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 10, text: 10, reasoning: undefined },
+  };
+
+  async function readTwice(language: "en" | "zh-CN", modelId = "claude-haiku-5-5") {
+    const calls: ModelCall[] = [];
+    let spend = true;
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, plans);
+      },
+      {
+        generate(call) {
+          const reply = checkGenerate(plans)(call);
+          // The first sentence's parts are sorted after its Run: that request spends the budget.
+          if (!spend || !call.system.startsWith("You sort the sentences") || !("text" in reply)) {
+            return reply;
+          }
+          spend = false;
+          return { ...reply, usage: SPENT };
+        },
+      },
+    );
+    const { core, client, mind, documents } = await setUpWithDocuments(model, [
+      { name: "Lease.md", contents: LEASE },
+    ]);
+    await core.updateSettings({ user: { language } });
+    const provider = await core.saveChatProvider({ kind: "anthropic", apiKey: "sk-test", modelId });
+    if (!provider.service) throw new Error("The test provider has no service.");
+    await core.allowDataFlow("document-check", provider.service.id);
+    const chosen = { providerId: provider.id, modelId };
+    const block = note(`${KEEP} ${RENT}`);
+    writeMind(client, [block]);
+    await client.settled();
+    const blockId = String(block.attrs?.id);
+    const place = {
+      from: { blockId, offset: 0 },
+      to: { blockId, offset: KEEP.length + 1 + RENT.length },
+    };
+    const within = { folderIds: [], tagIds: [], documentIds: [documents[0]?.id ?? ""] };
+    const read = async () => {
+      const plan = await core.planDocumentCheck({
+        mindId: mind.id,
+        ...place,
+        within,
+        model: chosen,
+      });
+      if (plan.kind !== "ready" || plan.estimate?.billing !== "per-token") {
+        throw new Error("The read has no per-token estimate.");
+      }
+      const sent = calls.length;
+      await core.checkSentences({
+        requestId: crypto.randomUUID(),
+        mindId: mind.id,
+        action: "check-against-document",
+        ...place,
+        within,
+        plan: plan.id,
+        model: chosen,
+      });
+      await client.settled();
+      const marks = new Map<string, ClaimCheckAttributes>(
+        claimSpans(readMind(client)).map((span) => [span.check.text, span.check]),
+      );
+      return {
+        plan,
+        most: plan.estimate.upTo?.cost,
+        marks,
+        runs: calls.slice(sent).filter(isCheckRun),
+      };
+    };
+    return { first: await read(), again: await read() };
+  }
+
+  test.each(["en", "zh-CN"] as const)(
+    "stops at its most: what was judged stays, the rest is Not checked, and Continue reads the rest (%s)",
+    async (language) => {
+      const { first, again } = await readTwice(language);
+
+      expect(first.marks.get(KEEP)?.state).toBe("supported");
+      const stopped = first.marks.get(RENT);
+      expect(stopped).toMatchObject({ state: "not-checked", reason: "read-budget" });
+      expect(JSON.parse(stopped?.detail ?? "null")).toEqual(first.most);
+      // Refused before it was sent: the model never heard of the second sentence.
+      expect(first.runs.some((call) => sentenceOf(call) === RENT)).toBe(false);
+
+      // Continue sizes the rest again, and its read stays under that most.
+      expect(again.plan.parts).toBe(1);
+      expect(again.marks.get(KEEP)?.state).toBe("supported");
+      expect(again.marks.get(RENT)?.state).toBe("supported");
+      expect(again.runs.length).toBeGreaterThan(0);
+      expect(again.runs.every((call) => sentenceOf(call) === RENT)).toBe(true);
+    },
+  );
+
+  test("one that would start unasked, at about $0.50 or less, is held to $0.50 where it may cost more, and its card says so", async () => {
+    const { first, again } = await readTwice("en", "claude-sonnet-5-5");
+
+    // Not sorted yet, the first read asks, and is held to all it may cost.
+    expect(first.plan.parts).toBeNull();
+    expect(first.most?.amount).toBeGreaterThan(0.5);
+    expect(again.plan.parts).toBe(1);
+    expect(
+      again.plan.estimate?.billing === "per-token" && again.plan.estimate.cost?.amount,
+    ).toBeLessThan(0.5);
+    expect(again.most).toEqual({ amount: 0.5, currency: "USD" });
+    expect(again.marks.get(RENT)?.state).toBe("supported");
+  });
 });
