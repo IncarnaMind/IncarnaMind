@@ -2593,9 +2593,22 @@
     max-width: max-content;
   }
   /* The stand-in's words carry the reset time, longer than a model's name: the chip takes the room
-     the scope gave up rather than the 14rem cap cutting the time off, and still shrinks last (#400). */
+     the scope gave up and wraps to a second line rather than the cap cutting the time off, so the
+     row grows as it needs; the chip still shrinks last (#400). */
+  .composer-controls:has([data-stand-in]) {
+    height: auto;
+    min-height: 28px;
+  }
   .composer-controls:has([data-stand-in]) .composer-model {
     max-width: none;
+    height: auto;
+    min-height: 22px;
+    padding-block: 3px;
+    white-space: normal;
+  }
+  .composer-controls:has([data-stand-in]) .composer-model > span {
+    white-space: normal;
+    overflow: visible;
   }
   .composer-model-anchor {
     display: flex;
