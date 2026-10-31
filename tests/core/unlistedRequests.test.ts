@@ -11,6 +11,8 @@
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { DRAFT_INSTRUCTIONS } from "../../src/core/skills/draft";
 import { askAssistant } from "../helpers/assistant";
 import {
   answerEnded,
@@ -25,6 +27,7 @@ import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/d
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, question, readMind, writeMind } from "../helpers/minds";
 import {
+  claimCheckReply,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -214,7 +217,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
 
     const checked = fixingModel(
       "Tides says spring tides follow new and full moons [^1].",
-      "Verdict: supported",
+      "Verdict: supported\nAbsence: no",
     );
     const checking = await setUpWithDocuments(checked, [TIDES]);
     expect(
@@ -233,5 +236,81 @@ describe("A model no list names, or one in a flow no list admits it to", {
         haikuMeetingNotes: await notesFilled(),
       }),
     ).toMatchFileSnapshot("../fixtures/answers/unlisted-requests.json.snap");
+  });
+
+  test("an assistant turn, its offered Tools and the notes it is asked again by never call a Note a Mind", async () => {
+    const model = tidesModel();
+    const panel = await setUpWithDocuments(model, [TIDES]);
+    const first = await panel.core.askInConversation({ text: FIRST, mindId: panel.mind.id });
+    if (!first.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(panel.core, first.answerId);
+
+    const retried = scriptedModel((call: ModelCall): ScriptedReply => {
+      const passage =
+        call.system === EDIT_INSTRUCTIONS
+          ? /<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1]
+          : undefined;
+      if (passage !== undefined) return { text: passage.replace("visted", "visited") };
+      if (!call.results.some((result) => result.tool === "edit_mind")) {
+        return { calls: [{ tool: "edit_mind", input: { instruction: "Fix the typos" } }] };
+      }
+      return call.prompt.includes("your edits left")
+        ? { text: "Fixed “compleatly”." }
+        : { text: "Fixed “visted” and “compleatly”." };
+    });
+    const fixing = await setUpWithDocuments(retried, [TIDES]);
+    writeMind(fixing.client, [
+      heading(2, "Trip notes"),
+      note("We visted the harbour, and the tide went out compleatly."),
+    ]);
+    await fixing.client.settled();
+    const turn = await fixing.core.askInConversation({
+      text: "Fix the typos in this",
+      mindId: fixing.mind.id,
+    });
+    if (!turn.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(fixing.core, turn.answerId);
+
+    const claiming = "I've added the summary to the note.";
+    // Every kind the judge can return, so each phrase of the note it is asked again by is checked.
+    const kinds = ["made", "added", "changed", "removed"] as const;
+    const reasked = scriptedModel(
+      (call: ModelCall): ScriptedReply => ({
+        text: call.prompt.includes("but no Tool did that") ? "I didn't add it." : claiming,
+      }),
+      {
+        generate: (call) =>
+          claimCheckReply(
+            call,
+            kinds.map((kind) => ({ sentence: claiming, kind })),
+          ),
+      },
+    );
+    const asking = await setUpWithDocuments(reasked, [TIDES]);
+    const claimed = await asking.core.askInConversation({
+      text: "add a summary",
+      mindId: asking.mind.id,
+    });
+    if (!claimed.asked) throw new Error("The Question wasn't asked.");
+    await answerEnded(asking.core, claimed.answerId);
+
+    expect(JSON.stringify(requests(model))).not.toMatch(/\bMinds?\b/);
+    expect(JSON.stringify(requests(retried))).not.toMatch(/\bMinds?\b/);
+    expect(JSON.stringify(requests(reasked))).not.toMatch(/\bMinds?\b/);
+    expect(DRAFT_INSTRUCTIONS).not.toMatch(/\bMinds?\b/);
+    // The request that asks again must carry every phrase, so a judge that names nothing can't pass.
+    const again = requests(reasked).find((request) =>
+      JSON.stringify(request).includes("but no Tool did that"),
+    );
+    expect(again).toBeDefined();
+    const said = JSON.stringify(again);
+    for (const phrase of [
+      "made a Note",
+      "added text to a Note",
+      "changed a Note",
+      "removed or replaced text in a Note",
+    ]) {
+      expect(said, phrase).toContain(phrase);
+    }
   });
 });

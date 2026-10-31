@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { LinkedFolder } from "../../../core/api";
+import { sidebarHandle } from "../commands/handles";
 import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { sourceRequest } from "../libraryPage";
@@ -116,6 +117,7 @@ function LinkedFolderRow({
   // Its row, once it shows: in sight, washed for a moment, then as any other (#763).
   useEffect(() => {
     if (!justLinked) return;
+    if (sidebarHandle.current?.hidden) sidebarHandle.current.toggle();
     document
       .querySelector(`[data-linked-folder-id="${linked.id}"][data-root]`)
       ?.scrollIntoView({ block: "nearest" });
@@ -124,7 +126,7 @@ function LinkedFolderRow({
   }, [justLinked, linked.id]);
 
   return (
-    <li role="none">
+    <li role="none" data-testid="linked-folder-row">
       <div
         data-testid="folder-item"
         data-depth={0}
@@ -214,6 +216,16 @@ function LinkedFolderRow({
           <ObjectMenu target={object} label={t("linkedFolders.more", { name })} tabIndex={-1} />
         </div>
       </div>
+      {state.kind === "empty" && (
+        // Under its row, never in its place: the row says its state, and this says why (#763).
+        <p
+          role="status"
+          data-testid="linked-folder-nothing-to-read"
+          className="pr-2 pb-1 pl-8 text-[12px] leading-[18px] text-ink-meta"
+        >
+          {t("linkedFolders.nothingToRead.notice", { folder: name })}
+        </p>
+      )}
     </li>
   );
 }

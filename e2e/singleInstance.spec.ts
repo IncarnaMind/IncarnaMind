@@ -307,6 +307,19 @@ try {
         ready: true,
       },
     ]);
+    const walOpen = (await logOf(dataDir))
+      .split("\n")
+      .filter((line) => line.includes(" storage.walOpen."));
+    expect(walOpen.length).toBeGreaterThan(1);
+    for (const [index, line] of walOpen.slice(0, -1).entries())
+      expect(line).toMatch(
+        new RegExp(
+          `WARN +storage\\.walOpen\\.failed attempt=${index + 1} elapsedMs=\\d+ errcode=1546$`,
+        ),
+      );
+    expect(walOpen.at(-1)).toMatch(
+      new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
+    );
     expect(copiesWith(tag)).toEqual([]);
     expect(
       heldByAnotherCopy(dataDir, (what, error) => {

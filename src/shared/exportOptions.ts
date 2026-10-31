@@ -29,7 +29,10 @@ export function citedCountText(t: Translate, { citations, documents }: CitedCoun
 
 /** What a file was written with, as its Saved line says it: Citations as footnotes or in a list (#1945). */
 export interface ChosenPlaces {
+  /** The Citations in a list at the end: one entry for each. */
   citations: number;
+  /** The footnotes in the file, the User's own included: a source and place once (#1381). */
+  footnotes: number;
   place: CitationPlace;
 }
 
@@ -47,12 +50,15 @@ export interface ExportChosen {
  */
 export function chosenParts(t: Translate, { places, markAiText }: ExportChosen): string[] {
   const parts: string[] = [];
-  if (places && places.citations > 0) {
-    const [one, other] =
-      places.place === "list"
-        ? (["export.saved.list.one", "export.saved.list.other"] as const)
-        : (["export.saved.footnotes.one", "export.saved.footnotes.other"] as const);
-    parts.push(places.citations === 1 ? t(one) : t(other, { count: places.citations }));
+  if (places) {
+    const count = places.place === "list" ? places.citations : places.footnotes;
+    if (count > 0) {
+      const [one, other] =
+        places.place === "list"
+          ? (["export.saved.list.one", "export.saved.list.other"] as const)
+          : (["export.saved.footnotes.one", "export.saved.footnotes.other"] as const);
+      parts.push(count === 1 ? t(one) : t(other, { count }));
+    }
   }
   if (markAiText !== null) {
     parts.push(t(markAiText ? "export.saved.marked" : "export.saved.unmarked"));
@@ -87,7 +93,12 @@ export const optionsFor = (
 ): ExportMindOptions => {
   if (format === "docx") {
     const { markAiText, ...choices } = preferences.docx;
-    return { format, ...choices, markAiText: markAiText !== "leave", ...placeOf(preferences) };
+    return {
+      format,
+      ...choices,
+      markAiText: markAiText !== "leave",
+      ...placeOf(preferences),
+    };
   }
   if (format === "source-pack") return { format };
   if (format === "share-page") {

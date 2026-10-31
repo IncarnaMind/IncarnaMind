@@ -19,6 +19,7 @@
  * route, and Tev1 4B filed 71 of 75 text Documents to qwen3.5:4b's 59.
  */
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
+import { priceFor } from "../cost/price";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
@@ -28,6 +29,7 @@ import type {
   LibraryClassifier,
   TaggingClassifier,
   TaggingCost,
+  TaggingDestination,
   TaggingModelGroup,
   TaggingModelOption,
   TaggingModels,
@@ -120,8 +122,9 @@ export function automaticTagging(input: {
 /** About what 100 Documents cost at a price per million tokens. */
 export function costPer100(price: DescribedModel["price"]): TaggingCost {
   if (!price) return { kind: "unknown" };
+  const paid = priceFor(price, TYPICAL_REQUEST.input);
   const amount =
-    ((TYPICAL_REQUEST.input * price.input + TYPICAL_REQUEST.output * price.output) * 100) / 1e6;
+    ((TYPICAL_REQUEST.input * paid.input + TYPICAL_REQUEST.output * paid.output) * 100) / 1e6;
   return { kind: "estimate", currency: price.currency, amount };
 }
 
@@ -313,6 +316,22 @@ export function createTagging(options: TaggingOptions) {
     }
   }
 
+  const serviceOf = (classifier: TaggingClassifier): ExternalService | null => {
+    if (classifier.kind === "jev") return jev.service();
+    if (classifier.kind === "chat") return chat.describeModel(classifier.choice)?.service ?? null;
+    return serviceForUrl(classifier.baseUrl);
+  };
+
+  /** Where a saved choice sends its requests; unknown when what it names isn't there. */
+  function destinationOf(classifier: TaggingClassifier): TaggingDestination {
+    if (classifier.kind === "chat" && !chat.describeModel(classifier.choice)) {
+      return { kind: "unknown" };
+    }
+    if (classifier.kind === "jev" && !jev.enabled()) return { kind: "unknown" };
+    const service = serviceOf(classifier);
+    return service ? { kind: "service", service } : { kind: "here" };
+  }
+
   return {
     resolve,
 
@@ -333,11 +352,7 @@ export function createTagging(options: TaggingOptions) {
     },
 
     /** Where a model that tags sends its requests; null for one on this computer. */
-    service(classifier: TaggingClassifier): ExternalService | null {
-      if (classifier.kind === "jev") return jev.service();
-      if (classifier.kind === "chat") return chat.describeModel(classifier.choice)?.service ?? null;
-      return serviceForUrl(classifier.baseUrl);
-    },
+    service: serviceOf,
 
     /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
     async models(): Promise<TaggingModels> {
@@ -398,13 +413,18 @@ export function createTagging(options: TaggingOptions) {
         (a, b) =>
           order[a.group] - order[b.group] || Number(b.goodForTagging) - Number(a.goodForTagging),
       );
-      if (options.setting().kind === "automatic") last = picked?.classifier ?? null;
+      const saved = options.setting();
+      if (saved.kind === "automatic") last = picked?.classifier ?? null;
       const option = picked && optionOf(picked.classifier, PICKED_FOR_TAGGING.has(picked.reason));
       return {
         automatic: option && picked ? { ...option, reason: picked.reason } : null,
         options: list,
         localMode: options.localOnly(),
         planPausedUntil: options.planPausedUntil(),
+        saved:
+          saved.kind === "automatic"
+            ? null
+            : { classifier: saved, destination: destinationOf(saved) },
       };
     },
   };

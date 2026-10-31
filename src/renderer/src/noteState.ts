@@ -6,10 +6,16 @@
  * `noteHealth`, the one count (#1909). A sentence kept as the User's view counts as handled
  * and is named in the card.
  */
+
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { type KeptCitationText, MIND_CONTENT_FIELD, type UnreadFile } from "../../core/api";
+import {
+  type CellFigurePlace,
+  type KeptCitationText,
+  MIND_CONTENT_FIELD,
+  type UnreadFile,
+} from "../../core/api";
 import type { Language } from "../../core/language";
 import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
@@ -19,9 +25,10 @@ import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
-import { claimsOf, type ShownClaim } from "./editor/claimChecks";
+import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks";
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
+import { opinionSentenceRanges } from "./editor/opinionLocations";
 
 export type NoteStateKind = "not-checked" | "needs-look" | "checked";
 
@@ -177,11 +184,14 @@ let schema: ReturnType<typeof getSchema> | undefined;
  */
 export function readNoteState({
   doc,
+  cellFigures,
   documents,
   keptCitationTexts,
   folderId,
 }: {
   doc: Y.Doc;
+  /** Where its table cells hold figures, as the core reads them (`MindContentSnapshot`). */
+  cellFigures: readonly CellFigurePlace[];
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
@@ -195,11 +205,13 @@ export function readNoteState({
         : new Map(documents.map((document) => [document.id, document.contentHash])),
     folderId,
     scope: mindScopeOf(doc),
+    figurePlaces: figurePlacesOf(cellFigures),
   });
   const health = noteHealth(root, {
     claims,
     kept,
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
+    omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
   });
   const requests = new Set(

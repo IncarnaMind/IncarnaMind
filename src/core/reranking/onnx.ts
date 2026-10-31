@@ -20,6 +20,7 @@
  * check before it reranks, and the model runs on the CPU when no adapter is
  * found, the GPU session fails, or the check's scores are off.
  */
+
 import { readFile } from "node:fs/promises";
 import type {
   CpuFallbackReason,
@@ -28,6 +29,7 @@ import type {
   RerankingDevice,
   RerankingModelFiles,
 } from "../adapters";
+import { ONNX_RUNTIME, TOKENIZERS } from "../engineModules";
 import { isRecord } from "../errors";
 
 type Tokenizer = import("@huggingface/tokenizers").Tokenizer;
@@ -109,8 +111,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 /** onnxruntime-node's sessions. */
 const createOrtSession: PairSessionFactory = async (model, device) => {
-  // Loaded only when needed: the native runtime is large.
-  const ort = await import("onnxruntime-node");
+  const ort = await ONNX_RUNTIME.load();
   const options: import("onnxruntime-node").InferenceSession.SessionOptions = {
     executionProviders: [device === "gpu" ? "webgpu" : "cpu"],
     graphOptimizationLevel: "all",
@@ -239,7 +240,7 @@ export function createOnnxCrossEncoder(options: OnnxCrossEncoderOptions = {}): C
   }
 
   async function load(files: RerankingModelFiles): Promise<Loaded> {
-    const { Tokenizer } = await import("@huggingface/tokenizers");
+    const { Tokenizer } = await TOKENIZERS.load();
     const [tokenizerJson, tokenizerConfigJson] = await Promise.all([
       readFile(files.tokenizer, "utf8"),
       readFile(files.tokenizerConfig, "utf8"),

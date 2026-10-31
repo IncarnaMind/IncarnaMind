@@ -13,7 +13,9 @@
  * Answer, and only when a figure is in error and its marker is in the text.
  */
 import { jsonSchema, Output, streamText } from "ai";
+import { outputTokens } from "../providers/outputLimits";
 import { givenList, whole } from "./calculations";
+import { calculationsSchema } from "./calculationsSchema";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
 import { FIGURE_RETRY_INSTRUCTIONS, type FigureToRetry, figureRetryPrompt } from "./prompt";
 import { nearestExcerpt, replyJson } from "./quoteRetry";
@@ -25,12 +27,10 @@ export const MAX_RETRIED_FIGURES = 6;
 const EXCERPT_TOKENS = 400;
 /** Less than this of a Passage isn't worth asking with: no request is made. */
 const MIN_EXCERPT_TOKENS = 96;
-/** The output cap, per figure: its inputs, quotes and formula, as JSON. */
-const OUTPUT_TOKENS_PER_FIGURE = 300;
 
 const figuresSchema = jsonSchema<{ calculations: unknown }>({
   type: "object",
-  properties: { calculations: { type: "array", items: { type: "object" } } },
+  properties: { calculations: calculationsSchema },
   required: ["calculations"],
 });
 
@@ -55,7 +55,7 @@ export async function* retryFigures(
     .slice(0, MAX_RETRIED_FIGURES);
   if (problems.length === 0) return;
   const passages = problems.reduce((count, problem) => count + problem.passages.length, 0);
-  const maxOutputTokens = OUTPUT_TOKENS_PER_FIGURE * problems.length;
+  const maxOutputTokens = outputTokens("figure-retry", problems.length);
   const framing = figureRetryPrompt(
     problems.map((problem) => ({
       ...problem,
@@ -99,6 +99,8 @@ export async function* retryFigures(
     console.error(
       `The figures couldn't be asked for again: ${error instanceof Error ? error.message : String(error)}`,
     );
+    // What came before the failure may be cut off (#2275): none of it is read.
+    raw = "";
   }
   if (signal.aborted) return;
   const markers = new Set(asked.map((figure) => figure.marker));

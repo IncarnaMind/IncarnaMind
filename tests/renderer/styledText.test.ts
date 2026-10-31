@@ -7,6 +7,7 @@ describe("References on the clipboard", () => {
       [
         {
           documentId: "a",
+          workDocumentId: "a",
           label: [{ text: "[1]" }],
           runs: [
             { text: "KAHNEMAN D. Prospect theory[J]. " },
@@ -17,12 +18,14 @@ describe("References on the clipboard", () => {
         },
         {
           documentId: "b",
+          workDocumentId: "b",
           label: [{ text: "[2]" }],
           runs: [{ text: "钱学森. 工程控制论[M]. 1958." }],
           needsDetails: false,
         },
         {
           documentId: "c",
+          workDocumentId: "c",
           label: [{ text: "[3]" }],
           runs: [{ text: "城市绿地调查笔记." }],
           needsDetails: true,

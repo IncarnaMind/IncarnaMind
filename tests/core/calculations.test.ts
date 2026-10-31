@@ -20,6 +20,7 @@ import {
 import { migrate, migrations, openDatabase } from "../../src/core/storage";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { translate } from "../../src/shared/i18n";
 import {
   answerEnded,
@@ -154,7 +155,11 @@ function told(model: MockLanguageModelV4, tool: string): string[] {
 /** Blocks' text as a reader sees it: a line per paragraph, a table's cells between bars. */
 function shown(blocks: readonly NodeJSON[]): string {
   const inline = (node: NodeJSON): string =>
-    node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(inline).join("");
+    node.type === "text"
+      ? (node.text ?? "")
+      : node.type === "calculatedFigure"
+        ? (readCalculatedFigureAttributes(node.attrs)?.figure.shown ?? "")
+        : (node.content ?? []).map(inline).join("");
   return blocks
     .map((block) =>
       block.type === "table"
@@ -294,6 +299,11 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     expect(steer).toMatch(/call calculate/);
     expect(steer.length).toBeLessThan(1000);
     expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toContain("calculate");
+    const tool = model.doStreamCalls[0]?.tools?.find((each) => each.name === "calculate");
+    if (tool?.type !== "function") throw new Error("The calculate Tool is not a function tool.");
+    expect(tool.description).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // The model is told what each came to, with the numbers it read, in one line each.
     expect(told(model, "calculate")).toEqual([
       [
@@ -850,7 +860,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       '- [=10] share: "2–3%" is a range; give reading: 1 for 2%, 2 for 3%.',
       '- [=11]: formula: unexpected ")" at character 8.',
       "- [=12]: the formula uses rev2026, which isn't one of its inputs (a).",
-      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, ROUND, RRI, SQRT.",
+      "- [=13]: VLOOKUP isn't available; use + - * / ^, SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT.",
       "- [=14]: losses is 0, so the formula divides by zero.",
     ]);
     expect(second).toBe(

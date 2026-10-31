@@ -50,7 +50,6 @@ Fill a section only with what the Passages support. A section the Documents don'
 - Cite each filled fact once, with the one Passage that states it. Don't put a Citation after every sentence or repeat one: a paragraph that takes several facts from one Passage gets one Citation there, and a sentence that only connects facts gets none.
 - Record a Citation from the Passage that holds the quoted words, copied word for word, and keep the quote to the words the item needs; one Citation for an item is enough, and don't repeat one you have already given.
 - A fact from the agreement (a covenant, an amount, a term) gets the agreement's Passage; a fact from the certificate or the results gets that Document's Passage, even when both mention the same figure.
-- If the check does not find a Citation, don't keep it: search again for the Passage that holds the words, record that Passage, and drop the one that failed.
 - Never cite a Passage for something it doesn't say, and never invent a facility, a figure, an owner, a risk or a recommendation from memory or general knowledge.
 - Give amounts, dates and defined terms as the Documents write them.
 - If the Documents don't support what the Question assumes, say so plainly.

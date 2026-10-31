@@ -25,6 +25,7 @@ import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
+import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
@@ -45,6 +46,10 @@ import {
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { CheckedWhen, RunningText } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { OpinionsLine } from "./OpinionsLine";
+import { useOpinionChecks } from "./opinionChecks";
+import { opinionSentenceRanges } from "./opinionLocations";
+import { useSignOffCounts } from "./signOffActions";
 import { UncoveredLine } from "./UncoveredLine";
 import { COUNT_IDLE_MS } from "./WordCount";
 
@@ -65,6 +70,7 @@ const NO_HEALTH: Health = {
   checkable: 0,
   supported: 0,
   checkedAt: null,
+  unexamined: [],
 };
 
 /** A count's words with the number in bold, as the badge shows it: "**3** claims not checked yet". */
@@ -174,7 +180,12 @@ export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
 }
 
 /** The Mind's health, worked out a moment after it last changed, as the word count is. */
-export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health {
+export function useHealth(
+  editor: Editor,
+  skipped: ReadonlySet<string>,
+  unexamined: ReadonlySet<string>,
+  doc: Y.Doc,
+): Health {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -191,6 +202,8 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
           skipped,
+          unexamined,
+          omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
         }),
       );
@@ -201,11 +214,13 @@ export function useHealth(editor: Editor, skipped: ReadonlySet<string>): Health 
     };
     count();
     editor.on("transaction", later);
+    doc.on("afterTransaction", later);
     return () => {
       clearTimeout(timer);
       editor.off("transaction", later);
+      doc.off("afterTransaction", later);
     };
-  }, [editor, documents, kept, skipped]);
+  }, [editor, doc, documents, kept, skipped, unexamined]);
   return health;
 }
 
@@ -223,17 +238,20 @@ export function HealthCard({
   mindId,
   health,
   state,
+  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   health: Health;
   state: NoteState | null;
+  figures: number;
 }) {
   const t = useT();
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const checkedAll = useMindCheckRun(doc);
+  const opinions = useOpinionChecks(editor, doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   const asking = useMindCheck((state) => state.asking[mindId] !== undefined);
@@ -244,6 +262,8 @@ export function HealthCard({
   });
   const runModel = useRunModel(doc);
   const running = useChecks((state) => state.running[mindId]);
+  // The opinions left out show once in the card: on the last check's line when it shows.
+  const opinionsHere = opinions.length > 0 && (Boolean(running) || !checkedAll);
   const [ranHere, setRanHere] = useState(false);
   useEffect(() => {
     if (running !== undefined) setRanHere(true);
@@ -262,6 +282,7 @@ export function HealthCard({
     problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const signedOff = useSignOffCounts(editor);
 
   const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
 
@@ -293,6 +314,10 @@ export function HealthCard({
       : shownClaims(editor.state).find((each) => each.sentence.from <= at && at < each.sentence.to);
     if (!claim) return;
     setCheckCardOpen(place, false);
+    if (claim.kind === "chart") {
+      void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
     setOpenClaim(place, claim.check.id);
   };
 
@@ -356,16 +381,51 @@ export function HealthCard({
             it, so nothing under it moves when the run ends (#1312). */}
         {health.checking.length > 0 && row("checking")}
       </div>
-      {health.kept.length > 0 && (
+      {(health.kept.length > 0 || opinionsHere) && (
         <p data-testid="health-kept" className="mind-health-line">
-          {t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
-            count: format(health.kept.length),
-          })}
+          {health.kept.length > 0 &&
+            t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+              count: format(health.kept.length),
+            })}
+          {health.kept.length > 0 && opinionsHere && " · "}
+          {opinionsHere && <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />}
         </p>
       )}
       {health.tableCells.length > 0 && (
         <p data-testid="health-table-cells" className="mind-health-line">
           {t("health.tableCells", { count: format(health.tableCells.length) })}
+        </p>
+      )}
+      {figures > 0 && (
+        <p data-testid="health-figures" className="mind-health-line">
+          {figures === 1 ? t("figures.count.one") : t("figures.count", { count: format(figures) })}
+          <span className="mind-health-sep" aria-hidden="true">
+            {" · "}
+          </span>
+          <button
+            type="button"
+            className="mind-health-link"
+            data-testid="health-open-schedule"
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
+            }}
+          >
+            {t("figures.openSchedule")}
+          </button>
+        </p>
+      )}
+      {/* The User's own checks (#1933), on a line of their own: never a check result. */}
+      {(signedOff.checked > 0 || signedOff.changed > 0) && (
+        <p data-testid="health-sign-offs" className="mind-health-line">
+          {signedOff.checked > 0 && t("signOff.count.mine", { count: format(signedOff.checked) })}
+          {signedOff.checked > 0 && signedOff.changed > 0 && (
+            <span className="mind-health-sep" aria-hidden="true">
+              {" · "}
+            </span>
+          )}
+          {signedOff.changed > 0 &&
+            t("signOff.count.changed", { count: format(signedOff.changed) })}
         </p>
       )}
       {summary?.kind === "all" && (
@@ -390,7 +450,15 @@ export function HealthCard({
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && <CheckedWhen run={checkedAll} />
+            checkedAll && (
+              <CheckedWhen
+                run={checkedAll}
+                editor={editor}
+                doc={doc}
+                mindId={mindId}
+                unexamined={health.unexamined.length}
+              />
+            )
           )}
         </div>
       )}
@@ -504,7 +572,10 @@ export function HealthCard({
             testId: "checks-accept-and-check",
             onClick: () => {
               dismissCheckProblem(mindId);
-              void acceptAndCheck(editor, mindId, doc, problem);
+              void acceptAndCheck(editor, mindId, doc, problem, (checkId) => {
+                setCheckCardOpen(place, false);
+                setOpenClaim(place, checkId);
+              });
             },
           }}
           also={close}
@@ -522,9 +593,7 @@ export function HealthCard({
           resetsAt={problem.error.resetsAt ?? null}
           signInRoute={problem.error.signInRoute ?? null}
           details={problem.error.message}
-          onRetry={() =>
-            void startMindCheck(mindId, problem.mode, { allDocuments: problem.allDocuments })
-          }
+          onRetry={problem.retry}
           onOpenSettings={openSettings}
         />
       )}
@@ -542,7 +611,9 @@ export function HealthCard({
           <ProblemLine testId="checks-problem" className="mind-health-line" action={close}>
             {problem.kind === "only-cited"
               ? t("checks.problem.only-cited.folder", { folder: folderName ?? "" })
-              : t(`checks.problem.${problem.kind}`)}
+              : problem.kind === "running"
+                ? t("mindCheck.alreadyChecking")
+                : t(`checks.problem.${problem.kind}`)}
           </ProblemLine>
         )}
       <UnreadFilesLine

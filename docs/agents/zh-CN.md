@@ -68,7 +68,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Reference record | 引用信息 | The "Cite as" panel's title too. Its fields: 类型、标题、作者、日期、期刊（出处）、卷、期、页码、出版者、DOI、网址、语言. |
 | Needs details (a reference record) | 信息待补充 | |
 | Look up (a reference record) | 查询 | "按 DOI 从 Crossref 补全空白字段". |
-| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索. As Kimi, Doubao, Yuanbao and DeepSeek show it. |
+| Web search | 联网搜索 | Searching the web from an Answer: "允许回答联网搜索", "已联网搜索“…”", and the Unsupported card's action. Never 网页搜索 for the act; the results a card names are 网页搜索结果 (#2240). As Kimi, Doubao, Yuanbao and DeepSeek show it. |
 | Find sources | 查找资料 | "查找资料…". One name for the panel, its menu items and the button on a claim's card, never 查找来源. 资料 matches 资料库 (Library): what is found is added to it. |
 | Source provider | 资料来源 | "资料来源：OpenAlex arXiv PubMed". Not 服务, which is an AI model's company. |
 | Open access | 开放获取 | As CNKI and publishers say it. "仅开放获取", "无开放全文". |
@@ -99,6 +99,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
+| Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
 | Citation check | 核对 | "正在核对引文…", "无法核对". |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
@@ -106,12 +107,17 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
+| Part (of a sentence) | 处 | A fact or opinion piece of a sentence a check keeps on its own row. Counted with 处, for the rows and the opinions alike: "正在核对这一处…", "另外 3 处", "1 处观点未纳入核对". Not 条, which counts Claims (说法). |
+| Opinion left out | 视为观点，未纳入核对 | A row's result; the line under a check says "{count} 处观点未纳入核对 · 查看". Not 未核对, which is a claim whose check failed. |
+| Check anyway | 仍然核对 | Checks one opinion part alone. |
+| Covers (a quantified part) | 覆盖 {total} 项中的 {covered} 项 | No unit: its measure word would change with the unit, and the rows name each member. Counted with 项, never a fixed 个. |
+| Not examined | 未能判断是否为说法 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否为说法". Not 未核对, which is a claim whose check failed or hasn't run. |
 | Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Note's checks left. |
 | Check against Documents | 对照文档核对 | Gives a verdict: 有依据, 无依据 or 与文档矛盾. |
-| Check someone else's PDF | 核对别人的 PDF | The + menu and ⌘K command (#1941). The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
+| Check someone else's file | 核对别人的文件 | The + menu and ⌘K command (#1941, #110), for a PDF or a Word file; its ⌘K keywords keep PDF and Word. The verb is 核对, as for a Citation; the card it opens still says 核对这个文档. |
 | Need a look | 需要留意 | The claims that are unsupported or contradicted: "3 条需要留意" in Verify. The Note's health counts its unsupported sentences with 处: "2 处需要留意". |
 | Mark | 标记 | |
 | Run | 运行 | |
@@ -155,6 +161,12 @@ A figure in an Answer is written as reports write it, with no space between the 
 | about (an approximate figure) | 约 | "约1.2亿元". |
 | times (a multiple) | 倍 | "4.00倍". |
 | yes / no (what a comparison gives) | 是 / 否 | |
+| Tie out figures | 核对数字 | The command in ⌘K and the page menu: every figure in a Note against its source. |
+| Figure schedule | 数字核对表 | The tab beside the Note, and its export: "导出核对表…", "{name} – 数字核对表". Counts as the header does: "18 个数字 · 15 个有依据 · 3 个需要留意 · 0 个未核对". |
+| Source value | 来源数值 | The number as the source gives it. |
+| Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
+| Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |
+| Treat as a total / Not a total | 将此行当作合计 / 将此列当作合计 / 不是合计 | The table menu and the schedule's row menu. 合计 is a total, 小计 a subtotal, 总计 a grand total, as statements label them. |
 
 ### Finance and law
 

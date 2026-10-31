@@ -17,6 +17,7 @@ import {
   turnOnAutomaticTagging,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { fakeProvider } from "../helpers/fakeProvider";
 import { startFakeJev } from "../helpers/jev";
 import { connectToMind } from "../helpers/mindClient";
 import { note, question, writeMind } from "../helpers/minds";
@@ -332,6 +333,81 @@ describe("Automatic picks the model that tags", () => {
     expect(haiku.cost.amount).toBeCloseTo(0.016, 3);
     expect(sonnet.cost.amount).toBeGreaterThan(10 * haiku.cost.amount);
     expect(options.filter((option) => option.decisionModel)).toHaveLength(3);
+  });
+});
+
+describe("The core says where the saved choice goes", () => {
+  const saveChoice = async (core: Core, choice: { providerId: string; modelId: string }) =>
+    core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: { kind: "chat", choice },
+    });
+  const savedAnswer = async (core: Core) => (await core.getTaggingModels()).saved;
+
+  test("none while Automatic is the setting", async () => {
+    const { core } = await start();
+    await core.saveChatProvider({ kind: "anthropic", apiKey: "key", modelId: "claude-sonnet-5-5" });
+    expect(await savedAnswer(core)).toBeNull();
+  });
+
+  // The destination is the saved model's own route, not its provider's: one Ollama server holds
+  // a model on this computer and a cloud model that Ollama forwards to ollama.com.
+  const models = [
+    { name: "a model on this computer", modelId: "qwen3.5:4b", goes: { kind: "here" } },
+    {
+      name: "an Ollama cloud model the User typed",
+      modelId: "gpt-oss:120b-cloud",
+      goes: { kind: "service", service: { id: "https://ollama.com" } },
+    },
+  ] as const;
+  for (const { name, modelId, goes } of models) {
+    for (const chatDefault of ["the same", "another"] as const) {
+      test(`${name} on an Ollama server, with ${chatDefault} chat default: ${goes.kind === "here" ? "here" : "ollama.com"}`, async () => {
+        const { core } = await start({ localModels: async () => ["qwen3.5:4b"] });
+        const ollama = await core.saveChatProvider({ kind: "ollama", modelId });
+        await saveChoice(core, { providerId: ollama.id, modelId });
+        if (chatDefault === "another") {
+          await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+        }
+        expect(await savedAnswer(core)).toMatchObject({
+          classifier: { kind: "chat", choice: { providerId: ollama.id, modelId } },
+          destination: goes,
+        });
+        // What the core registers for tagging names the same service.
+        const flows = await core.listRegisteredDataFlows();
+        const tagging = flows.find((flow) => flow.id === "tagging");
+        if (goes.kind === "service") {
+          expect(tagging?.services.map((each) => each.flow.service.id)).toContain(goes.service.id);
+        }
+      });
+    }
+  }
+
+  test("a model on a cloud provider that isn't a role or the default goes to that provider", async () => {
+    const { core } = await start();
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+    await saveChoice(core, { providerId: anthropic.id, modelId: "claude-sonnet-5-5" });
+    await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+    expect(await savedAnswer(core)).toMatchObject({
+      destination: { kind: "service", service: { id: ANTHROPIC } },
+    });
+  });
+
+  test("unknown when its provider is gone", async () => {
+    const { core } = await start();
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "key",
+      modelId: "claude-sonnet-5-5",
+    });
+    await saveChoice(core, { providerId: anthropic.id, modelId: "claude-sonnet-5-5" });
+    await core.saveChatProvider({ kind: "openai", apiKey: "key", modelId: "gpt-6-luna" });
+    await core.deleteChatProvider(anthropic.id);
+    expect(await savedAnswer(core)).toMatchObject({ destination: { kind: "unknown" } });
   });
 });
 
@@ -766,4 +842,163 @@ describe("Moving to one Tagging setting", () => {
       taggingStopped: [],
     });
   });
+});
+
+describe("Where tagging sends, before the flows are read", () => {
+  test("no model at all: nowhere", async () => {
+    const { core } = await start();
+    expect(await core.getTaggingRoute()).toEqual({ where: "none" });
+  });
+
+  test("a cloud model: its service", async () => {
+    const { core } = await start();
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-sonnet-5-5",
+    });
+    expect(await core.getTaggingRoute()).toEqual({
+      where: "cloud",
+      service: { id: ANTHROPIC, name: "Anthropic" },
+    });
+  });
+
+  test("a model on this computer: local", async () => {
+    const { core } = await start({ localModels: async () => ["qwen3.5:4b"] });
+    await core.saveChatProvider({ kind: "ollama", modelId: "qwen3.5:4b" });
+    expect(await core.getTaggingRoute()).toEqual({ where: "local" });
+  });
+});
+
+describe("Where Organize sends text and scans", () => {
+  test.each([
+    { textLocal: false, imagesLocal: false },
+    { textLocal: true, imagesLocal: false },
+    { textLocal: false, imagesLocal: true },
+    { textLocal: true, imagesLocal: true },
+  ])(
+    "current destinations are separate ($textLocal, $imagesLocal)",
+    async ({ textLocal, imagesLocal }) => {
+      const { core, calls } = await start();
+      const local = await core.saveChatProvider({
+        kind: "openai-compatible",
+        catalogId: "lmstudio",
+        modelId: "local-text",
+      });
+      fakeProvider("127.0.0.1:1234", {
+        protocol: "chat",
+        models: {
+          models: [
+            { type: "llm", key: "local-text", capabilities: { vision: false } },
+            { type: "llm", key: "local-images", capabilities: { vision: true } },
+          ],
+        },
+        query: "",
+        records: () => [],
+        answer: "",
+      });
+      await core.listChatModels();
+      vi.unstubAllGlobals();
+      const text = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "key",
+        modelId: "o3-mini",
+      });
+      const images = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "key",
+        modelId: "claude-haiku-5-5",
+      });
+      await core.updateSettings({
+        user: {
+          imageModel: {
+            providerId: imagesLocal ? local.id : images.id,
+            modelId: imagesLocal ? "local-images" : "claude-haiku-5-5",
+          },
+        },
+      });
+      if (textLocal)
+        await core.saveLibrarySettings({
+          classifier: {
+            kind: "chat",
+            choice: {
+              providerId: text.id,
+              modelId: "o3-mini",
+            },
+          },
+          automatic: false,
+        });
+      await core.saveLibrarySettings({
+        classifier: {
+          kind: "chat",
+          choice: {
+            providerId: textLocal ? local.id : text.id,
+            modelId: textLocal ? "local-text" : "o3-mini",
+          },
+        },
+        automatic: false,
+      });
+      const before = await core.listRegisteredDataFlows();
+      if (textLocal)
+        expect(before.find((each) => each.id === "classification")?.services).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              flow: expect.objectContaining({
+                service: { id: "https://api.openai.com", name: "OpenAI" },
+              }),
+            }),
+          ]),
+        );
+      expect(await core.getTaggingRoute("classification")).toEqual(
+        textLocal
+          ? { where: "local" }
+          : { where: "cloud", service: { id: "https://api.openai.com", name: "OpenAI" } },
+      );
+      expect(await core.getTaggingRoute("scan-images")).toEqual(
+        imagesLocal
+          ? { where: "local" }
+          : { where: "cloud", service: { id: ANTHROPIC, name: "Anthropic" } },
+      );
+      expect(await core.listRegisteredDataFlows()).toEqual(before);
+      expect(calls).toEqual([]);
+      if (!imagesLocal) {
+        await core.setLocalOnly(true);
+        expect(await core.getTaggingRoute("scan-images")).toEqual({ where: "none" });
+      }
+    },
+  );
+
+  test("a tagging model is not an Organize model until one is chosen", async () => {
+    const { core } = await start();
+    await core.saveChatProvider({ kind: "anthropic", apiKey: "key", modelId: "claude-haiku-5-5" });
+    expect(await core.getTaggingRoute("classification")).toEqual({ where: "none" });
+    expect(await core.getTaggingRoute("scan-images")).toEqual({ where: "none" });
+  });
+
+  test.each(["auto", "ollama"] as const)(
+    "a legacy remote %s reader is never described as local",
+    async (kind) => {
+      const { core, dataDir } = await start();
+      const classifier =
+        kind === "auto"
+          ? { kind, baseUrl: "http://127.0.0.1:11434" }
+          : { kind, baseUrl: "http://127.0.0.1:11434", modelId: "clef-flash", usePageImages: true };
+      await core.saveLibrarySettings({ classifier, automatic: false });
+      expect(await core.getTaggingRoute("scan-images")).toEqual({ where: "local" });
+      const settings = (await core.getLibrary()).settings;
+      core.close();
+      const legacy = {
+        ...settings,
+        classifier: { ...classifier, baseUrl: "https://reader.example.test" },
+      };
+      queryDatabase(
+        dataDir,
+        "UPDATE device_settings SET value = ? WHERE key = 'library' AND deleted_at IS NULL RETURNING key",
+        [JSON.stringify(legacy)],
+      );
+      const reopened = startCore(dataDir);
+      expect((await reopened.getLibrary()).settings.classifier).toEqual(legacy.classifier);
+      expect(await reopened.getTaggingRoute("scan-images")).toEqual({ where: "none" });
+    },
+  );
 });

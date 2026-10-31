@@ -11,7 +11,8 @@
  * and a rate limit (429) do, and as a request that never reaches the provider does. A model whose id ends
  * "-not-found" fails as one its provider doesn't know when it answers; one ending "-claims-not-found"
  * does when it finds or checks claims; one ending "-claims-offline" can't reach its provider the
- * first time it finds claims. A key with "refused" in it is refused,
+ * first time it finds claims; one ending "-claims-undecided" says nothing of the last sentence
+ * it is shown when it finds claims, however often it is asked. A key with "refused" in it is refused,
  * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
  * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations.
@@ -26,6 +27,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
+import { fakeAbsence } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -86,6 +88,7 @@ const overloadedOnce = new Set<string>();
  * doesn't return null answers it.
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
+  fakeAbsence,
   fakePlan,
   fakeResearchTags,
   fakeClaims,
@@ -133,6 +136,14 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           requestBodyValues: {},
           isRetryable: false,
         });
+      }
+      if (spec.modelId.endsWith("-claims-undecided") && findsClaims(options)) {
+        return {
+          content: [{ type: "text", text: fakeClaims(options, { undecidedLast: true }) ?? "" }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage: USAGE,
+          warnings: [],
+        };
       }
       if (tagsSlowly(options)) await new Promise((resolve) => setTimeout(resolve, SLOW_TAGGING_MS));
       if (tagsUnreachable(options)) {

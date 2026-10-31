@@ -87,7 +87,7 @@ const SOURCE_REQUEST = /^source:(.+)$/;
 export function LibraryPane() {
   const t = useT();
   const language = useLanguage();
-  const documents = useLibraryDocuments();
+  const libraryDocuments = useLibraryDocuments();
   const snapshot = useAppStore((state) => state.library);
   const tags = useAppStore((state) => state.tags);
   const linkedFolders = useAppStore((state) => state.linkedFolders);
@@ -97,6 +97,11 @@ export function LibraryPane() {
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
   const [facetFilter, setFacetFilter] = useState<FilterSelection>({});
+  // A source's view lists that source's Documents even when they are the examples': the examples
+  // leave the Library once the User has a Document of their own, but their Linked folder's row
+  // stays the way back to them (#1944).
+  const everyDocument = useAppStore((state) => state.documents);
+  const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const page = useRef<HTMLDivElement>(null);
@@ -118,6 +123,7 @@ export function LibraryPane() {
   );
   // Tags are named only once a Document of the User's own carries one (#1942), then they are a filter.
   const tagsShown = useAppStore(ownsATag);
+  const sourceFacetOf = useMemo(() => sourceFacet(linkedFolders), [linkedFolders]);
   const facets = useMemo<LibraryFacet<Document>[]>(
     () => [
       ...(tagsShown ? [tagFacet(tags)] : []),
@@ -125,9 +131,9 @@ export function LibraryPane() {
       yearFacet,
       statusFacet,
       folderFacet(folders, folderOf),
-      sourceFacet(linkedFolders),
+      sourceFacetOf,
     ],
-    [tags, tagsShown, folders, folderOf, linkedFolders],
+    [tags, tagsShown, folders, folderOf, sourceFacetOf],
   );
   const selection = useMemo<FilterSelection>(
     () => (tagFilter.length ? { ...facetFilter, tag: tagFilter } : facetFilter),
@@ -158,6 +164,18 @@ export function LibraryPane() {
     () => sorted(filtered, chosenSort, documentFields(t), language),
     [filtered, chosenSort, t, language],
   );
+  // A source's view counts that source's Documents before the search and the other filters, so
+  // its header holds while they narrow the rows; the page otherwise counts the Library's own, as
+  // the sidebar does (#1944).
+  const sourceCount = useMemo(
+    () =>
+      facetFilter.source?.length
+        ? filterLibrary<Document>(documents, [sourceFacetOf], { source: facetFilter.source }).shown
+            .length
+        : 0,
+    [documents, sourceFacetOf, facetFilter.source],
+  );
+  const headerCount = facetFilter.source?.length ? sourceCount : libraryDocuments.length;
   const narrowing = words.length > 0 || isFiltering(selection);
   const sections = useMemo(
     () => sectionsOf(folders, ordered, folderOf, narrowing),
@@ -332,7 +350,7 @@ export function LibraryPane() {
       <div ref={page} className="group/page @container/page min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1084px] pt-5 pr-8 pb-24 pl-11 @max-[680px]/page:pr-4 @max-[680px]/page:pl-9">
           <LibraryHeader
-            count={documents.length}
+            count={headerCount}
             notSorted={notSortedCount}
             sorted={allSorted}
             onReview={() => useAppStore.getState().openLibrary("review")}

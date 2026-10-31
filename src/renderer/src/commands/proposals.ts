@@ -313,6 +313,7 @@ export const proposalCommands: readonly Command[] = [
   {
     id: "edit.markAsMine",
     label: "editor.ai.markAsMine",
+    assistant: { never: "authorship" },
     group: "main",
     // ⌘Z, or Undo on its line, takes it back.
     reversible: true,

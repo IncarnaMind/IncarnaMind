@@ -111,7 +111,7 @@ export function OpenCitation({
       title={quote ?? undefined}
       aria-label={label ?? t("claim.openCitation", { number })}
       onClick={() => {
-        openCited(
+        void openCited(
           { ...attributes, documentId },
           { check: attributes.check, withQuote: quoteSaysSo(attributes.check), number },
         );

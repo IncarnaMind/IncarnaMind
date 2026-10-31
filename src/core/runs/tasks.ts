@@ -535,7 +535,7 @@ export function createTasks(options: TasksOptions) {
           end = "asked";
         } else {
           const current = journal.get(record.id) ?? record;
-          end = await currentTask.run(record.id, () =>
+          end = await currentTask.run({ id: record.id }, () =>
             kind.run(context(current, controller.signal)),
           );
         }

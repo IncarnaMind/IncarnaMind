@@ -149,7 +149,7 @@ test("each Folder lists its Minds above its Documents and opens in place; a Mind
     const answers = assistantAnswers(window);
     await expect(answers.first()).toHaveAttribute("data-status", "done", { timeout: 15_000 });
     await expect(answers.first().getByTestId("answer-steps")).toContainText(
-      "Searched Ocean research ·",
+      "Searched “Ocean research” ·",
     );
     await expect(answers.first().getByTestId("citation-chip")).toHaveAttribute(
       "aria-label",
@@ -227,17 +227,20 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Open$/,
       /^Open in new tab$/,
       /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
+      /^Duplicate$/,
       /^Export…$/,
       /^Export AI use statement$/,
       /^Export check record…$/,
       /^History$/,
       /^Check$/,
+      /^Tie out figures$/,
       /^Check for contradictions$/,
       /^Citation style…$/,
       /^Style…$/,
       /^Make this a Skill$/,
       /^Move to…(⇧⌘M|Ctrl\+Shift\+M)$/,
       /^New Folder with this note(⌃⌘N)?$/,
+      /^Tidy Chinese text$/,
       /^RenameF2$/,
       /^Delete$/,
     ]);
@@ -264,9 +267,8 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(notInAFolder(window).getByTestId("mind-list-item")).toHaveText("Shortlist");
     await expect(undoLine.getByTestId("undo-message")).toHaveCount(0);
 
-    // By the keyboard alone: Shift+F10 on the row, down past Outline, the exports, the AI use
-    // statement, History, Check, Check for contradictions, Citation style…, Style… and
-    // Make this a Skill to Move to…, type, Enter. The row's ⋯ is not a Tab stop.
+    // By the keyboard alone: Shift+F10 on the row, down its items to Move to…, type, Enter. The
+    // row's ⋯ is not a Tab stop.
     await shortlist.getByTestId("mind-list-item").focus();
     await window.keyboard.press("Tab");
     await expect(shortlist.getByTestId("mind-menu")).not.toBeFocused();
@@ -274,8 +276,12 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(shortlist.getByTestId("mind-list-item")).toBeFocused();
     await window.keyboard.press("Shift+F10");
     await expect(actions.getByTestId("mind.open")).toBeFocused();
-    for (let step = 0; step < 12; step++) await window.keyboard.press("ArrowDown");
-    await expect(actions.getByTestId("mind.moveTo")).toBeFocused();
+    const moveTo = actions.getByTestId("mind.moveTo");
+    for (let step = 0; step < 30; step++) {
+      if (await moveTo.evaluate((item) => item === document.activeElement)) break;
+      await window.keyboard.press("ArrowDown");
+    }
+    await expect(moveTo).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(picker.getByTestId("move-to-search")).toBeFocused();
     await window.keyboard.type("res");

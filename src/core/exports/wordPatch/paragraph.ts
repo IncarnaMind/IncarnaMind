@@ -21,7 +21,15 @@
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { readWordAtom } from "../../../shared/wordFiles";
-import { CLAIM_CHECK_MARK, GENERATED_MARK, IMAGE_NODE, WORD_ATOM_NODE } from "../../api";
+import {
+  CLAIM_CHECK_MARK,
+  FOOTNOTE_NODE,
+  GENERATED_MARK,
+  IMAGE_NODE,
+  PAGE_BREAK_NODE,
+  WORD_ATOM_NODE,
+  type WordAtomKind,
+} from "../../api";
 import type { Places } from "../../documents/formats/docxImport";
 import { elements, type XmlElement } from "../../documents/formats/xml";
 import {
@@ -68,6 +76,8 @@ export interface Token {
   run: XmlElement | null;
   /** An atom's source: "w:bookmarkStart#3", "w:r#40..w:r#44". */
   source: string | null;
+  /** An atom of the Note's text now: its node, which `AtomPlan` may choose to write the XML. */
+  node?: NodeJSON;
   /** A special's content, for the native writer: a Citation's footnote, maths, a new picture. */
   inline: Inline | null;
   /** What changes still waiting do to it (#107). */
@@ -123,6 +133,24 @@ export const special = (inline: Inline): Token => ({
 const textTokens = (text: string, marks: TextMarks, run: XmlElement | null) =>
   Array.from(text, (each) => char(each, marks, run));
 
+/** An atom's token written as `text` instead, with what is waiting on it. */
+export const asCharacters = (token: Token, text: string): Token[] =>
+  Array.from(text, (each) => ({
+    ...token,
+    kind: "char" as const,
+    key: each,
+    char: each,
+    marks: NO_MARKS,
+    source: null,
+  }));
+
+/** A line break, as one in the text or where a note's paragraph ends (#746). */
+export const lineBreak = (run: XmlElement | null = null): Token => ({
+  ...char("\n", NO_MARKS, run),
+  kind: "break",
+  key: BREAK,
+});
+
 /**
  * A paragraph's text as the import read it, each character with the run it
  * came from, and someone's changes to it in the file (`reading`, #108).
@@ -144,12 +172,7 @@ export function baseTokens(
         })),
       );
     } else if (node.type === "hardBreak")
-      tokens.push({
-        ...char("\n", NO_MARKS, run),
-        kind: "break",
-        key: BREAK,
-        pending: nodePendings(node, reading),
-      });
+      tokens.push({ ...lineBreak(run), pending: nodePendings(node, reading) });
     else {
       const source = sourceOf(node);
       if (source) tokens.push(atom(source));
@@ -158,14 +181,25 @@ export function baseTokens(
   return tokens;
 }
 
-/** Where a node kept from the document came from: an atom's or an imported picture's source. */
+/** Nodes the document had that keep their XML in a `source`, as atoms do. */
+const SOURCED: ReadonlySet<string> = new Set([IMAGE_NODE, FOOTNOTE_NODE, PAGE_BREAK_NODE]);
+
+/** Where a node kept from the document came from: an atom's, an imported picture's, note's or page break's. */
 export function sourceOf(node: NodeJSON): string | null {
   if (node.type === WORD_ATOM_NODE) return readWordAtom(node.attrs ?? {}).source;
-  if (node.type === IMAGE_NODE) {
+  if (SOURCED.has(node.type)) {
     const source = node.attrs?.source;
     return typeof source === "string" && source !== "" ? source : null;
   }
   return null;
+}
+
+/** What a node with a source is, as what is kept as is is written once (`AtomPlan`). */
+export function keptKindOf(node: NodeJSON): WordAtomKind {
+  if (node.type === IMAGE_NODE) return "picture";
+  if (node.type === PAGE_BREAK_NODE) return "pageBreak";
+  if (node.type === FOOTNOTE_NODE) return node.attrs?.endnote === true ? "endnote" : "footnote";
+  return readWordAtom(node.attrs ?? {}).kind;
 }
 
 /**
@@ -220,8 +254,11 @@ export function currentTokens(
     } else {
       const pending = nodePendings(node, reading);
       const source = sourceOf(node);
-      if (source) tokens.push(...marked([atom(source)], node, pending));
-      else {
+      if (source) {
+        // A copy of a note, a page break or a picture, or one from another file, is written new.
+        const inline = specialOf(node)[0] ?? null;
+        tokens.push(...marked([{ ...atom(source), inline, node }], node, pending));
+      } else {
         const inlines = specialOf(node);
         if (inlines.length > 0) tokens.push(...inlines.map(special));
         else tokens.push(...marked(textTokens(textOf(node), NO_MARKS, null), node, pending));

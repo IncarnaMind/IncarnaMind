@@ -13,6 +13,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   type WritingPlace,
 } from "../../src/core";
+import { translate } from "../../src/shared/i18n";
 import {
   aiUseOfAccepted,
   outOfDateProposals,
@@ -117,6 +118,15 @@ function citation(tides: Document, check: "found" | "not-found" = "found"): JSON
       checkReason: check === "found" ? null : "quote-not-on-pages",
     },
   };
+}
+
+/** The ids of the Mind's Citations, in order. */
+function citationIdsOf(client: MindClient): unknown[] {
+  const ids: unknown[] = [];
+  readMind(client).descendants((node) => {
+    if (node.type.name === "citation") ids.push(node.attrs.id);
+  });
+  return ids;
 }
 
 /** The editor's reading of a paragraph's text (an inline node as U+FFFC), for `EditWithAiInput.text`. */
@@ -331,6 +341,139 @@ describe("Edit with AI", () => {
     });
     expect(after).toEqual([
       expect.objectContaining({ contentHash: "an-older-version", keptOver: tides.contentHash }),
+    ]);
+  });
+
+  // protects=a rewrite that moves a marked Citation, or deletes the sentence it is in, keeps the Citation's id: accepted, the moved Citation is the one the mark names; rejected, the Citation stays as it was; and one the accepted deletion took out comes back marked from a version kept before (#1933), in English and Chinese; fails_when=the Citation the rewrite writes, or the restored one, has another id; no_claim=how the model words the rewrite.
+  test.each([
+    {
+      language: "en",
+      before: "Spring tides happen at new moon and at full moon ",
+      moved: "[1] Spring tides come at new and full moon.",
+      without: "Tides vary.",
+    },
+    {
+      language: "zh-CN",
+      before: "大潮出现在新月和满月前后",
+      moved: "[1] 大潮在新月和满月时出现。",
+      without: "潮汐有变化。",
+    },
+  ])(
+    "the assistant's rewrite and deletion keep a marked Citation's id ($language)",
+    async ({ before, moved, without }) => {
+      let reply = moved;
+      const { core, mind, client, tides } = await setUp(editingModel(() => reply));
+      const marked = citation(tides);
+      marked.attrs = { ...marked.attrs, id: "marked-citation" };
+      const note = paragraph(text(before), marked, text("."));
+      const idsNow = () => citationIdsOf(client);
+
+      for (const outcome of ["reject", "accept"] as const) {
+        writeMind(client, [note]);
+        await client.settled();
+        await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+        await resolveChanges(client, outcome);
+        expect(idsNow()).toEqual(["marked-citation"]);
+      }
+
+      writeMind(client, [note]);
+      await client.settled();
+      const kept = await core.saveCheckpoint(mind.id, "accept");
+      reply = without;
+      await core.editWithAi(
+        wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Delete it"),
+      );
+      await resolveChanges(client, "accept");
+      expect(idsNow()).toEqual([]);
+      await core.restoreCheckpoint(mind.id, kept.id);
+      await client.settled();
+      expect(idsNow()).toEqual(["marked-citation"]);
+    },
+  );
+
+  // protects=a rewrite that cites a marked Citation twice writes one Citation that is it and one copy with an id of its own, so the mark stays on one (#1933), in English and Chinese, streamed or not; fails_when=the two share the id, or neither has it; no_claim=where the model puts the markers.
+  test.each([
+    {
+      language: "en",
+      before: "Spring tides happen at new moon and at full moon ",
+      twice: "[1] Spring tides occur at new and full moon [1].",
+    },
+    {
+      language: "zh-CN",
+      before: "大潮出现在新月和满月前后",
+      twice: "[1] 大潮在新月和满月时出现 [1]。",
+    },
+  ])(
+    "a rewrite that cites a marked Citation twice writes it once and a copy ($language)",
+    async ({ before, twice }) => {
+      const { core, mind, client, tides } = await setUp(editingModel(() => twice));
+      const marked = citation(tides);
+      marked.attrs = { ...marked.attrs, id: "marked-citation" };
+      const note = paragraph(text(before), marked, text("."));
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+      await resolveChanges(client, "accept");
+
+      const ids = citationIdsOf(client);
+      expect(ids).toHaveLength(2);
+      expect(ids.filter((id) => id === "marked-citation")).toHaveLength(1);
+      expect(new Set(ids).size).toBe(2);
+      expect(ids.every((id) => typeof id === "string")).toBe(true);
+    },
+  );
+
+  // protects=an older Citation, written before Citations had ids, that the assistant's rewrite moves goes by the id the versions kept before give it, so a mark made on it after the rewrite finds it when one of them is restored (#1933); fails_when=the moved Citation has no id, or the restored one another; no_claim=Citations written since, which have their own.
+  test("an older Citation the assistant's rewrite moves keeps its identity through a restore", async () => {
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "[1] Spring tides come at new and full moon."),
+    );
+    const note = paragraph(
+      text("Spring tides happen at new moon and at full moon "),
+      citation(tides),
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+    const kept = await core.saveCheckpoint(mind.id, "accept");
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+    await resolveChanges(client, "accept");
+    const [moved] = citationIdsOf(client);
+    expect(typeof moved).toBe("string");
+
+    await core.restoreCheckpoint(mind.id, kept.id);
+    await client.settled();
+    expect(citationIdsOf(client)).toEqual([moved]);
+  });
+
+  // protects=following a Citation's new version asks the model to make the sentence agree with the words its Citation now quotes, which the prompt gives as quoted context beside the marker, needs no instruction, keeps the Citation, and the words it replaces go (#99); fails_when=the Citation's words are not in the request, the request needs the caller's words, or the old words stay; no_claim=what a real model writes (tests/live/editWithAi.live.test.ts).
+  test("follow-citation: the Citation's words go in as context, the old words are replaced and the Citation stays", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "Spring tides happen at new moon and at full moon [1].", calls),
+    );
+    const note = paragraph(
+      text("Spring tides happen at the new moon only "),
+      citation(tides),
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "follow-citation"),
+    );
+
+    expect(result.kind).toBe("proposed");
+    expect(calls[0]?.action).toBe("follow-citation");
+    expect(calls[0]?.prompt).toContain(
+      "Its markers' Documents now say only this: [1] “Spring tides happen at new moon and at full moon”.",
+    );
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Spring tides happen at new moon and at full moon ⟨found⟩.",
     ]);
   });
 
@@ -677,6 +820,34 @@ describe("Edit with AI", () => {
     expect(await quitting).toEqual({ kind: "cancelled" });
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
+
+  test.each([
+    "Remove the whole part about hours (full time, Monday to Friday) and leave the rest",
+    "Delete the list item about hours",
+    "删去整个“工作安排”部分（全职、周一至周五、核心工作时间），其他部分保持不变。",
+    "删去这一条关于工时的列表项（全职工作，周一至周五）。",
+  ])(
+    "a part named in a longer request is removed by a reply of no text but why: %s",
+    async (asked) => {
+      const { core, mind, client } = await setUp(
+        editingModel(() => "<why>Removed, as asked.</why>"),
+      );
+      const hours = paragraph(text("Work is full time, Monday to Friday."));
+      const pay = paragraph(text("Pay is monthly."));
+      writeMind(client, [hours, pay]);
+      await client.settled();
+
+      const result = await core.editWithAi(
+        wholeParagraph(client, mind.id, hours.attrs.id, "instruction", asked),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(shownWithChanges(client)).toEqual([
+        "- Work is full time, Monday to Friday.",
+        "Pay is monthly.",
+      ]);
+    },
+  );
 
   test("asked to remove a paragraph, a reply of no text but why removes it; any other empty reply fails with its reason", async () => {
     const { core, mind, client } = await setUp(
@@ -1810,6 +1981,38 @@ describe("Edit with AI and the model's service", () => {
     expect(calls).toHaveLength(1);
   });
 
+  // protects=a selection whose rewrite can't fit Edit with AI's output limit is turned away before anything is sent, with the shared "too much text" line in English and Chinese, while a long one that fits is sent; fails_when=it is sent and its rewrite comes back cut short (#2275).
+  test("a selection whose rewrite would pass the output limit isn't sent; a long one that fits is", async () => {
+    const calls: EditCall[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(editingModel(() => "潮汐。", calls)).createChatModel,
+    });
+    await saveProviderUnasked(core, { kind: "openai", apiKey: "sk-test", modelId: "gpt-test" });
+    await core.allowDataFlow("edits", "https://api.openai.com");
+    const mind = await core.createMind({ title: "Long" });
+    const client = await connectToMind(core, mind.id);
+    // 9,000 Chinese characters rewrite in about 13,500 tokens; 11,000 in about 16,500, over 16,000.
+    const fits = paragraph(text("潮".repeat(9_000)));
+    const over = paragraph(text("汐".repeat(11_000)));
+    writeMind(client, [fits, over]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, fits.attrs.id, "improve")),
+    ).toMatchObject({ kind: "proposed" });
+    expect(calls).toHaveLength(1);
+    await resolveChanges(client, "reject");
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, over.attrs.id, "improve")),
+    ).toEqual({ kind: "too-long" });
+    expect(calls).toHaveLength(1);
+    expect(translate("en", "edit.problem.too-long")).toBe(
+      "Too much text for the model: select less.",
+    );
+    expect(translate("zh-CN", "edit.problem.too-long")).toBe("选中的文字太长，请少选一些。");
+  });
+
   test("Local mode turned on while the edit waits for consent: the prompt closes, nothing is sent, and the edit says Local mode (#1120)", async () => {
     const calls: EditCall[] = [];
     const model = editingModel(() => "合成私密段落：已改写。", calls);
@@ -2354,5 +2557,212 @@ describe("How a change reads (#1028)", () => {
       "[-2017.05—2017.04-]{+2017.05—2018.09+} 某咨询公司 分析师",
       `[-${before[1]}-]{+${after[1]}+}`,
     ]);
+  });
+});
+
+describe("Edit with AI keeps bold and italic (#1897)", () => {
+  /** Each text node of the Mind's first paragraph with the names of its marks. */
+  const runsOf = (client: MindClient, at = 0) =>
+    (readMind(client).child(at).toJSON().content as JSONContent[]).map((node) => ({
+      text: node.text,
+      marks: (node.marks ?? []).map((mark: { type: string }) => mark.type),
+    }));
+
+  test("the model sees what is bold, and a reply that keeps the label bold changes only the words it changed", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(
+      editingModel(
+        () => "**Role.** The post is senior and well paid. **Hours.** Full time, with Fridays off.",
+        calls,
+      ),
+    );
+    const note = paragraph(
+      text("Role.", "bold"),
+      text(" The post is senior. "),
+      text("Hours.", "bold"),
+      text(" Full time."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Make it longer."),
+    );
+
+    expect(calls[0]?.passage).toBe("**Role.** The post is senior. **Hours.** Full time.");
+    expect(calls[0]?.system).toContain("between ** and ** or * and *");
+    expect(result).toMatchObject({ kind: "proposed", proposals: 2 });
+    expect(shownWithChanges(client)).toEqual([
+      "Role. The post is senior{+ and well paid+}. Hours. Full time{+, with Fridays off+}.",
+    ]);
+    await resolveChanges(client, "accept");
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).not.toContain("*");
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "Role.",
+      "Hours.",
+    ]);
+  });
+
+  test("bold and italic the model adds are bold and italic, with no asterisks left", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Spring tides are strong. The harbour is **busy** and *calm*."),
+    );
+    const note = paragraph(text("Spring tides are strong."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Add the harbour."),
+    );
+    await resolveChanges(client, "accept");
+
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "Spring tides are strong. The harbour is busy and calm.",
+    );
+    expect(runs.find((run) => run.text?.includes("busy"))?.marks).toContain("bold");
+    expect(runs.find((run) => run.text?.includes("calm"))?.marks).toContain("italic");
+    expect(runs.find((run) => run.text?.includes("harbour"))?.marks).not.toContain("bold");
+    expect(runs.find((run) => run.text?.includes("Spring"))?.marks).not.toContain("bold");
+  });
+
+  test("a bold label next to Chinese punctuation stays bold, and what the model adds is read the same", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "**角色：**该职位为高级职位，薪酬较高。**工时：**全职。"),
+    );
+    const note = paragraph(text("角色：", "bold"), text("该职位为高级职位。"));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "写长一点。"),
+    );
+    await resolveChanges(client, "accept");
+
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "角色：该职位为高级职位，薪酬较高。工时：全职。",
+    );
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "角色：",
+      "工时：",
+    ]);
+  });
+
+  test.each([
+    [
+      "Total = price*volume*margin, see note.",
+      "Total = price\\*volume\\*margin, see note.",
+      "Total = price\\*volume\\*margin.",
+      "Total = price*volume*margin.",
+    ],
+    [
+      "Multiply 2*3*4 and add 1.",
+      "Multiply 2\\*3\\*4 and add 1.",
+      "Multiply 2\\*3\\*4 and add one.",
+      "Multiply 2*3*4 and add one.",
+    ],
+    [
+      "Use a_b_c as the key here.",
+      "Use a\\_b\\_c as the key here.",
+      "Use a\\_b\\_c as the key.",
+      "Use a_b_c as the key.",
+    ],
+    [
+      "Strike ~~ is two tildes.",
+      "Strike \\~\\~ is two tildes.",
+      "Strike \\~\\~ is two tildes, no more.",
+      "Strike ~~ is two tildes, no more.",
+    ],
+    [
+      "第3*4项是总额，另见说明。",
+      "第3\\*4项是总额，另见说明。",
+      "第3\\*4项是总额。",
+      "第3*4项是总额。",
+    ],
+  ])(
+    "a * _ or ~ the User typed is shown to the model escaped and comes back as itself: %s",
+    async (typed, shown, reply, written) => {
+      const calls: EditCall[] = [];
+      const { core, mind, client } = await setUp(editingModel(() => reply, calls));
+      const note = paragraph(text(typed));
+      writeMind(client, [note]);
+      await client.settled();
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "shorten"));
+      await resolveChanges(client, "accept");
+
+      expect(calls[0]?.passage).toBe(shown);
+      const runs = runsOf(client);
+      expect(runs.map((run) => run.text).join("")).toBe(written);
+      expect(
+        runs.every((run) => !run.marks.includes("italic") && !run.marks.includes("bold")),
+      ).toBe(true);
+    },
+  );
+
+  test("a model that writes the escapes back keeps the typed characters", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Total = price\\*volume\\*margin, see the note."),
+    );
+    const note = paragraph(text("Total = price*volume*margin, see note."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+
+    expect(shownWithChanges(client)).toEqual(["Total = price*volume*margin, see {+the +}note."]);
+  });
+
+  test("an instruction to make words bold is applied to those words and leaves the others as they were", async () => {
+    const { core, mind, client } = await setUp(
+      editingModel(() => "Spring tides are **strong** and neap tides are **weak**."),
+    );
+    const note = paragraph(text("Spring tides are strong and neap tides are weak."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "instruction", "Make the key terms bold."),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed", proposals: 2 });
+    expect(shownWithChanges(client)).toEqual([
+      "Spring tides are [-strong-]{+strong+} and neap tides are [-weak-]{+weak+}.",
+    ]);
+    await resolveChanges(client, "accept");
+    const runs = runsOf(client);
+    expect(runs.map((run) => run.text).join("")).toBe(
+      "Spring tides are strong and neap tides are weak.",
+    );
+    expect(runs.filter((run) => run.marks.includes("bold")).map((run) => run.text)).toEqual([
+      "strong",
+      "weak",
+    ]);
+  });
+
+  test("a model that drops the bold of a label without changing a word gives nothing to review, and the label stays bold", async () => {
+    const { core, mind, client } = await setUp(editingModel(() => "Role. The post is senior."));
+    const note = paragraph(text("Role.", "bold"), text(" The post is senior."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
+    ).toEqual({ kind: "unchanged" });
+    expect(runsOf(client)[0]).toMatchObject({ text: "Role.", marks: ["bold"] });
+  });
+
+  test("a reply that only changes the look gives nothing to review", async () => {
+    const { core, mind, client } = await setUp(editingModel(() => "Role. The post is senior."));
+    const note = paragraph(text("Role.", "bold"), text(" The post is senior."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
+    ).toEqual({ kind: "unchanged" });
+    expect(pendingProposals(client.blocks)).toEqual([]);
   });
 });

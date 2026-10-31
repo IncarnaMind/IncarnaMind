@@ -53,7 +53,7 @@ describe("The quick model's verdict", () => {
     "已在新的 Mind 中整理好总结。",
   ])("an unmade claim is returned unbacked: %s", async (reply) => {
     const result = await check(
-      judge({ claims: [{ sentence: reply, kind: "changed", backed: false }] }),
+      judge({ claims: [{ sentence: reply, kind: "changed", about: "mind", backed: false }] }),
       reply,
     );
 
@@ -66,7 +66,7 @@ describe("The quick model's verdict", () => {
     const reply = "I've renamed the page to “Q3 summary”.";
     const sentence = 'I\'ve renamed the page to "Q3 summary".';
     const result = await check(
-      judge({ claims: [{ sentence, kind: "changed", backed: false }] }),
+      judge({ claims: [{ sentence, kind: "changed", about: "mind", backed: false }] }),
       reply,
     );
     expect(result.claims).toEqual(["changed"]);
@@ -85,8 +85,12 @@ describe("The quick model's verdict", () => {
 
   test("the record, not the old wording patterns, decides", async () => {
     const reply = "I added a risks section to “Q3 review”.";
-    const backed = judge({ claims: [{ sentence: reply, kind: "added", backed: true }] });
-    const unbacked = judge({ claims: [{ sentence: reply, kind: "added", backed: false }] });
+    const backed = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: true }],
+    });
+    const unbacked = judge({
+      claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }],
+    });
 
     expect((await check(backed, reply, [mindCall("add_to_mind", {})])).claims).toEqual([]);
     expect((await check(unbacked, reply, [mindCall("add_to_mind", null)])).claims).toEqual([
@@ -171,5 +175,47 @@ describe("The quick model's verdict", () => {
 
   test("an unreadable verdict finds nothing", async () => {
     expect((await check(judge("not JSON"), "An honest Answer.")).claims).toEqual([]);
+  });
+});
+
+describe("What the judge says the sentence is about (#2194)", () => {
+  const english = "I've sorted out what the Volunteer Handbook says.";
+  const chinese = "我整理了手册的要点。";
+
+  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
+    "about %s finds nothing",
+    async (about) => {
+      for (const reply of [english, chinese]) {
+        const result = await check(
+          judge({ claims: [{ sentence: reply, kind: "added", about, backed: false }] }),
+          reply,
+        );
+        expect(result.claims).toEqual([]);
+      }
+    },
+  );
+
+  // protects=a claim the judge calls a change to a Mind flags, backed false; fails_when=the line goes missing for a real claim; no_claim=none beyond protects.
+  test("about mind flags", async () => {
+    for (const reply of [english, chinese]) {
+      const result = await check(
+        judge({ claims: [{ sentence: reply, kind: "added", about: "mind", backed: false }] }),
+        reply,
+      );
+      expect(result.claims).toEqual(["added"]);
+    }
+  });
+
+  // protects=a provider that ignores the schema, and a judge that omits or invents about, cannot silently drop a real claim: no about, and an unknown one, flag as they did before the field, in English and Chinese; fails_when=a claim is lost because the field is missing or unknown; no_claim=how a provider ignores the schema.
+  test.each(["omitted", "unknown"] as const)("about %s flags", async (how) => {
+    for (const reply of [english, chinese]) {
+      const claim =
+        how === "omitted"
+          ? { sentence: reply, kind: "added", backed: false }
+          : { sentence: reply, kind: "added", about: "Mind", backed: false };
+      const result = await check(judge({ claims: [claim] }), reply);
+      expect(result.claims).toEqual(["added"]);
+    }
   });
 });

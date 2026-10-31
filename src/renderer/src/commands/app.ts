@@ -1,6 +1,7 @@
 import type { BlockOrigin } from "../../../core/api";
 import { MENU_COMMANDS } from "../../../shared/commands";
 import { signInAgain } from "../chatGptSignIn";
+import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
@@ -9,11 +10,12 @@ import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
+import { tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
 import { startSkillFromMind } from "../makeSkill";
-import { showCheckCard, startCheck, startMindCheck } from "../mindCheck";
+import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { citationStepOpen } from "../nudges";
@@ -35,11 +37,13 @@ import { evidenceCommands } from "./evidence";
 import { exampleCommands } from "./examples";
 import { exportCommands } from "./exports";
 import { feedbackCommands } from "./feedback";
+import { figureCommands, figureScheduleCommands } from "./figures";
 import { fileCommands } from "./fileInfo";
 import { footnoteCommands } from "./footnotes";
 import { formatCommands } from "./format";
 import {
   citationHandle,
+  citedVersionInUse,
   findHandle,
   homeNextHandle,
   readMindHandle,
@@ -51,6 +55,7 @@ import { linkCommands } from "./links";
 import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
 import { newFolderCommands } from "./newFolder";
+import { noteBasicsCommands } from "./noteBasics";
 import {
   answerCommands,
   citationCommands,
@@ -62,8 +67,10 @@ import {
   tagCommands,
 } from "./objects";
 import { pageCommands } from "./page";
+import { pageBreakCommands } from "./pageBreaks";
 import { paletteCommands } from "./palette";
 import { peekCommands } from "./peek";
+import { pictureCommands } from "./pictures";
 import { proposalCommands } from "./proposals";
 import { researchCommands } from "./research";
 import { reviewCommands } from "./review";
@@ -136,6 +143,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "word.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "wordImport.command",
     group: "main",
     reversible: true,
@@ -143,6 +152,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "verify.document",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "verify.command",
     purpose: "verify.command.purpose",
     keywords: ["verify.command.keywords"],
@@ -169,6 +180,8 @@ const appCommands: readonly Command[] = [
   ...languageCommands,
   ...answerCommands,
   ...citationCommands,
+  ...figureCommands,
+  ...figureScheduleCommands,
   ...tabCommands,
   ...meetingCommands,
   ...meetingHelpCommands,
@@ -197,6 +210,7 @@ const appCommands: readonly Command[] = [
   ...paletteCommands,
   {
     id: "chatgpt.continue",
+    assistant: { never: "keys" },
     label: "chatgpt.continue",
     group: "main",
     reversible: true,
@@ -208,6 +222,7 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "claude.signIn",
+    assistant: { never: "keys" },
     label: "claudePlan.signIn",
     group: "main",
     reversible: true,
@@ -242,6 +257,14 @@ const appCommands: readonly Command[] = [
     // While a Citation's card shows (hovered, focused or clicked), or from its menu.
     when: (ctx) => ctx.here?.["citation.open"] !== undefined || citationHandle.current !== null,
     run: (ctx) => (ctx.here?.["citation.open"] ?? citationHandle.current?.open)?.(),
+  },
+  {
+    id: "viewer.openCurrentVersion",
+    label: "command.viewer.openCurrentVersion",
+    group: "open",
+    reversible: true,
+    when: () => citedVersionInUse(useAppStore.getState().layout) !== null,
+    run: () => citedVersionInUse(useAppStore.getState().layout)?.openCurrent(),
   },
   // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
   ...(["update", "keepOld"] as const).map(
@@ -302,6 +325,17 @@ const appCommands: readonly Command[] = [
     run: () => homeNextHandle.current?.run(),
   },
   {
+    id: "mind.tieOut",
+    label: "figures.command",
+    group: "main",
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindShown(ctx);
+      if (mindId) return tieOutFigures(mindId);
+    },
+  },
+  {
     id: "mind.check",
     label: "mindCheck.command",
     purpose: "mindCheck.command.purpose",
@@ -311,9 +345,15 @@ const appCommands: readonly Command[] = [
     // It changes no words: its marks go with Check again, or when the sentence is edited.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    enabled: (ctx) => {
+      const mindId = mindShown(ctx);
+      return mindId && useChecks.getState().running[mindId]
+        ? { reason: "mindCheck.alreadyChecking" }
+        : true;
+    },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startCheck(mindId);
+      if (mindId) return checkFromAssistant(mindId);
     },
   },
   {
@@ -325,7 +365,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return startMindCheck(mindId, "all");
+      if (mindId) return checkFromAssistant(mindId, true);
     },
   },
   {
@@ -372,6 +412,8 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "references.import",
+    // It waits for the User's choice in a file picker.
+    assistant: false,
     label: "references.import.menu",
     group: "file",
     // The import is taken back with Undo.
@@ -385,6 +427,7 @@ const appCommands: readonly Command[] = [
   {
     // Suggest as I write (#282): on asks for consent first, as the switch in Settings does.
     id: "suggestions.toggle",
+    assistant: { never: "privacy" },
     label: (_ctx, t) =>
       t(
         useAppStore.getState().settings?.user.suggestWhileWriting
@@ -470,6 +513,18 @@ const appCommands: readonly Command[] = [
     },
   },
   {
+    id: "mind.replace",
+    label: "editor.replace.label",
+    shortcut: { keys: "CmdOrCtrl+Alt+F" },
+    group: "main",
+    reversible: true,
+    when: () => mindInFront() !== null,
+    run: () => {
+      const mindId = mindInFront();
+      if (mindId) useMindTools.getState().showFind(mindId, { replace: true });
+    },
+  },
+  {
     id: "mind.findNext",
     label: "command.mind.findNext",
     shortcut: { keys: "CmdOrCtrl+G" },
@@ -488,6 +543,9 @@ const appCommands: readonly Command[] = [
     run: () => findHandle.current?.previous(),
   },
   ...footnoteCommands,
+  ...noteBasicsCommands,
+  ...pageBreakCommands,
+  ...pictureCommands,
   ...formatCommands,
   ...linkCommands,
   ...bibliographyCommands,

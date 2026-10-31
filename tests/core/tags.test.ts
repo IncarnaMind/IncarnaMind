@@ -675,6 +675,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
       ["suggestions", "accepted"],
       ["edits", "accepted"],
       ["checks", "accepted"],
+      ["document-check", "not-asked"],
     ]);
   });
 

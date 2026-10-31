@@ -8,11 +8,16 @@
  * atom (`WORD_ATOM_NODE` in the text, `WORD_BLOCK_NODE` as a Block) that
  * names where its XML is in the package, so export can write the original
  * back (#105): fields, content controls, text boxes, shapes, SmartArt,
- * charts, equations, footnote marks, comments and other people's tracked
- * changes (read-only for now), and, invisible, bookmarks, ranges, section
- * breaks and page breaks. The first header and footer its sections name are
- * Blocks at the top and the foot. Typed numbering ("1.", "一、") and bold lines
- * stay text.
+ * charts, equations, comments and other people's tracked changes
+ * (read-only for now), section breaks, and, invisible, bookmarks, ranges and
+ * column breaks. The first header and footer its sections name are Blocks at
+ * the top and the foot. Typed numbering ("1.", "一、") and bold lines stay text.
+ *
+ * Footnotes and endnotes are the Note's own footnotes (#746), their text read
+ * from their part as a paragraph's is, a line per paragraph, and their marker
+ * where the file has it; one whose text a footnote can't hold (a table, a
+ * picture, someone's tracked change) or with a mark of its own instead of a
+ * number is kept as is. Page breaks are the Note's own too.
  *
  * Every node mapped from a paragraph or a table records where it came from
  * (`WordSource`, without its fingerprint, which the importer adds once the
@@ -27,13 +32,17 @@
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
 import { type NumberingScheme, schemeOfWordLevels } from "../../../shared/numbering";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
+import { MAX_NOTE_START, readWordAtom } from "../../../shared/wordFiles";
 import { groupWordLists } from "../../../shared/wordLists";
 import { runLookOf } from "../../../shared/wordLook";
+import { DEFAULT_NOTE_NUMBERING } from "../../../shared/wordNotes";
 import { mindHeadingLevel } from "../../../shared/wordStyles";
 import {
   BLOCK_ID_ATTRIBUTE,
+  FOOTNOTE_NODE,
   IMAGE_NODE,
   type KeptChangeKind,
+  PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -50,6 +59,7 @@ import {
   type WordChangeRequest,
   type WordImportReport,
   type WordLook,
+  type WordNoteNumbering,
   type WordRunLook,
   type WordSource,
 } from "../../api";
@@ -97,6 +107,7 @@ export interface WordStructure {
   look: WordLook;
   /** Parts the look couldn't read (a broken `settings.xml`): it went on without them. */
   lookUnreadable: string[];
+  noteNumbering: WordNoteNumbering;
 }
 
 /** Reads a Word package's main document as Blocks. Throws `WordRefusedError` for one that can't be read. */
@@ -135,12 +146,116 @@ export interface WordDocument {
   places: Places;
   origins: ReadonlyMap<NodeJSON, XmlElement>;
   merged: ReadonlyMap<NodeJSON, readonly XmlElement[]>;
+  notes: Record<NoteKind, WordNotesPart | null>;
+}
+
+export type NoteKind = "footnote" | "endnote";
+
+/** A paragraph of a note, as the Note's footnote holds it. */
+export interface NoteParagraph {
+  element: XmlElement;
+  content: NodeJSON[];
+}
+
+/**
+ * The footnotes or endnotes part as the import reads it (#746), for export to
+ * write into as the main document is: its text as stored, each note by its
+ * id with the paragraphs the Note's footnote holds (none for one kept as is),
+ * where each text was read from, and what is kept as is in them, by place.
+ */
+export interface WordNotesPart {
+  name: string;
+  text: string;
+  root: XmlElement;
+  places: Places;
+  origins: ReadonlyMap<NodeJSON, XmlElement>;
+  notes: ReadonlyMap<string, { element: XmlElement; paragraphs: NoteParagraph[] | null }>;
+  /** Where one of its hyperlinks leads, as the import reads it. */
+  hrefOf(hyperlink: XmlElement): string | null;
 }
 
 /** Elements by their place ("w:p#12"), and each element's place. */
 export interface Places {
   get(place: string): XmlElement | undefined;
   placeOf(element: XmlElement): string | null;
+}
+
+/** A part of the package as the file has it: its text, what is at each place, and its notes. */
+export interface PlaceFile {
+  text: string;
+  places: Places;
+  /** The XML of the note a mark refers to, in its part. */
+  noteXml?(kind: NoteKind, id: string): string | undefined;
+}
+
+/** The XML of a note in its part, by its id, whatever its type: as the file has it. */
+export function noteXmlIn(part: { text: string; root: XmlElement }, kind: NoteKind, id: string) {
+  const note = elements(part.root).find(
+    (each) => each.name === `w:${kind}` && each.attrs["w:id"] === id,
+  );
+  return note ? part.text.slice(note.start ?? 0, note.end ?? 0) : undefined;
+}
+
+const NOTE_MARKS: Readonly<Record<string, NoteKind>> = {
+  "w:footnoteReference": "footnote",
+  "w:endnoteReference": "endnote",
+};
+
+/** The elements a place names in its part: one, or a field's first and last run; null where it has none. */
+function endsAt(file: PlaceFile, source: string): [XmlElement, XmlElement] | null {
+  const ends = source.split("..").map((place) => file.places.get(place));
+  const first = ends[0];
+  const last = ends.at(-1);
+  return first && last && !ends.includes(undefined) ? [first, last] : null;
+}
+
+/**
+ * A hash of the XML a place names in its part (#746): the element, a field's
+ * runs from the first to the last, a note's mark with its note; null where
+ * the part has none. Taken from the file's own bytes, so no import reads it
+ * otherwise.
+ */
+export function placeHash(file: PlaceFile, source: string): string | null {
+  const ends = endsAt(file, source);
+  if (!ends) return null;
+  const [first, last] = ends;
+  const xml = file.text.slice(first.start ?? 0, last.end ?? 0);
+  const kind = first === last ? NOTE_MARKS[first.name] : undefined;
+  const note = kind ? file.noteXml?.(kind, first.attrs["w:id"] ?? "") : undefined;
+  return targetHash(note === undefined ? xml : `${xml}${note}`);
+}
+
+/** Where an import puts a field that isn't one run of runs: its own element, a page number, a date's part, a paragraph. */
+const FIELD_ELEMENTS: ReadonlySet<string> = new Set(["w:fldSimple", "w:pgNum", "w:p"]);
+const PICTURE_ELEMENTS: ReadonlySet<string> = new Set([
+  "w:drawing",
+  "w:pict",
+  "mc:AlternateContent",
+]);
+const holdsFieldChar = (run: XmlElement) => elements(run).some((each) => each.name === "w:fldChar");
+
+/**
+ * Whether the file has, at a place, what an import puts there for an atom of
+ * this kind (#746): a note's mark for a note, a field's runs or element for a
+ * field, a drawing for a picture; anything for another kind.
+ */
+export function kindAt(file: PlaceFile, source: string, kind: WordAtomKind): boolean {
+  const ends = endsAt(file, source);
+  if (!ends) return false;
+  const [first, last] = ends;
+  switch (kind) {
+    case "footnote":
+    case "endnote":
+      return NOTE_MARKS[first.name] === kind;
+    case "field":
+      return first.name === "w:r"
+        ? holdsFieldChar(first) && holdsFieldChar(last)
+        : first === last && (FIELD_ELEMENTS.has(first.name) || DATE_PARTS.has(first.name));
+    case "picture":
+      return first === last && PICTURE_ELEMENTS.has(first.name);
+    default:
+      return true;
+  }
 }
 
 export async function readWordDocument(
@@ -453,12 +568,8 @@ const PROPERTIES = new Set([
 /** Inline containers that are only wrappers: their content is read as if they weren't there. */
 const TRANSPARENT = new Set(["w:smartTag", "w:customXml", "w:dir", "w:bdo"]);
 
-/** Marks that keep a place for something that spans text: a comment's range, a permission's, a move's. */
-const RANGES = new Set([
-  "w:commentRangeStart",
-  "w:commentRangeEnd",
-  "w:permStart",
-  "w:permEnd",
+/** Where someone's tracked change spans text: a move's range, a custom XML element's insertion, deletion or move. */
+const CHANGE_RANGES = new Set([
   "w:moveFromRangeStart",
   "w:moveFromRangeEnd",
   "w:moveToRangeStart",
@@ -471,6 +582,15 @@ const RANGES = new Set([
   "w:customXmlMoveFromRangeEnd",
   "w:customXmlMoveToRangeStart",
   "w:customXmlMoveToRangeEnd",
+]);
+
+/** Marks that keep a place for something that spans text: a comment's range, a permission's, a tracked change's. */
+const RANGES = new Set([
+  "w:commentRangeStart",
+  "w:commentRangeEnd",
+  "w:permStart",
+  "w:permEnd",
+  ...CHANGE_RANGES,
 ]);
 
 /** Tracked changes, which are kept as is: their fields don't open or close one outside them. */
@@ -512,6 +632,122 @@ interface Item {
 
 const newId = () => crypto.randomUUID();
 
+/** The marks a footnote's text keeps (its editor's): the file's other formatting stays in the file. */
+const FOOTNOTE_MARKS: ReadonlySet<string> = new Set([
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "highlight",
+  "link",
+]);
+
+/**
+ * What makes a note stay kept as is: a box on a line of its own, which a
+ * footnote's text can't hold, or someone's tracked change the import couldn't
+ * make a change to accept or reject (a move, an insertion holding a field).
+ */
+const KEPT_IN_NOTE: ReadonlySet<WordAtomKind> = new Set([
+  "textBox",
+  "shape",
+  "smartArt",
+  "chart",
+  "picture",
+  "object",
+  "insertion",
+  "deletion",
+]);
+
+/** Whether a node read from a note can be in the Note's footnote's text; drops the marks it can't hold. */
+function holdsInFootnote(node: NodeJSON): boolean {
+  if (node.type === "text") {
+    if (
+      node.marks?.some(
+        (mark) => mark.type === PROPOSAL_INSERT_MARK || mark.type === PROPOSAL_DELETE_MARK,
+      )
+    )
+      return false;
+    const marks = node.marks?.filter((mark) => FOOTNOTE_MARKS.has(mark.type)) ?? [];
+    if (marks.length > 0) node.marks = marks;
+    else delete node.marks;
+    return true;
+  }
+  if (node.type === "hardBreak") return node.attrs?.[PROPOSAL_ATTRIBUTE] === undefined;
+  if (node.type !== WORD_ATOM_NODE) return false;
+  const atom = readWordAtom(node.attrs ?? {});
+  return !KEPT_IN_NOTE.has(atom.kind) && atom.info?.display !== true;
+}
+
+/**
+ * The space Word puts after a note's own number, before its text: kept in the
+ * file, but not part of the text the Note's footnote shows.
+ */
+export function noteLead(content: readonly NodeJSON[]): string {
+  const first = content.find((node) => node.type === "text");
+  return /^\s*/.exec(first?.text ?? "")?.[0] ?? "";
+}
+
+function withoutLead(content: NodeJSON[]): NodeJSON[] {
+  const lead = noteLead(content).length;
+  if (lead === 0) return content;
+  const at = content.findIndex((node) => node.type === "text");
+  const first = content[at] as NodeJSON;
+  const rest = (first.text ?? "").slice(lead);
+  return [
+    ...content.slice(0, at),
+    ...(rest ? [{ ...first, text: rest }] : []),
+    ...content.slice(at + 1),
+  ];
+}
+
+/** A notes part being read along with the document: its reader, its notes by id, and those read. */
+interface NotesReading {
+  name: string;
+  text: string;
+  root: XmlElement;
+  reader: Reader;
+  notes: Map<string, XmlElement>;
+  read: Map<string, NoteParagraphs>;
+}
+
+type NoteParagraphs = NoteParagraph[] | null;
+
+/** A part that may be broken, as the look reads it: one that can't be read is left out (`lookUnreadable`). */
+function readableXml(xml: string | undefined): XmlElement | null {
+  if (xml === undefined) return null;
+  try {
+    return parseXml(xml);
+  } catch {
+    return null;
+  }
+}
+
+/** How the file numbers its notes: its settings, or the last section's own. */
+function noteNumberingOf(
+  settings: XmlElement | null,
+  body: XmlElement | undefined,
+): WordNoteNumbering {
+  const section =
+    body &&
+    elements(body)
+      .filter((each) => each.name === "w:sectPr")
+      .at(-1);
+  const read = (kind: NoteKind) => {
+    const fallback = DEFAULT_NOTE_NUMBERING[kind];
+    const own = [section, settings].map((each) => each && child(each, `w:${kind}Pr`));
+    const format = own.map((each) => each && child(each, "w:numFmt")?.attrs["w:val"]).find(Boolean);
+    const start = Number(
+      own.map((each) => each && child(each, "w:numStart")?.attrs["w:val"]).find(Boolean),
+    );
+    return {
+      format: format ?? fallback.format,
+      start:
+        Number.isInteger(start) && start >= 0 && start <= MAX_NOTE_START ? start : fallback.start,
+    };
+  };
+  return { footnote: read("footnote"), endnote: read("endnote") };
+}
+
 /** Who made a change, and when, as the file says. */
 const changeRequestOf = (element: XmlElement): WordChangeRequest => ({
   source: "word-change",
@@ -543,7 +779,7 @@ class Reader {
   private readonly ordinals = new Map<XmlElement, number>();
   /** Each element name's elements, in document order: a place's element is at its number. */
   private readonly byName = new Map<string, XmlElement[]>();
-  private readonly origins = new Map<NodeJSON, XmlElement>();
+  readonly origins = new Map<NodeJSON, XmlElement>();
   private readonly merged = new Map<NodeJSON, XmlElement[]>();
   /** The run whose content is being read. */
   private currentRun: XmlElement | null = null;
@@ -574,6 +810,7 @@ class Reader {
   /** Someone's changes kept as is, by kind. */
   private readonly kept: Partial<Record<KeptChangeKind, number>> = {};
   private paragraphLook: ParagraphLookContext = { look: {}, format: {}, runs: [] };
+  private placeFile: PlaceFile | null = null;
   private tableLook: TableLookContext | null = null;
 
   private constructor(
@@ -583,12 +820,15 @@ class Reader {
     private readonly styles: Styles,
     private readonly numbering: Numbering,
     private readonly comments: Map<string, Comment>,
-    private readonly notes: { footnote: Map<string, string>; endnote: Map<string, string> },
+    private readonly noteParts: Record<NoteKind, NotesReading | null>,
     private readonly images: Map<string, string>,
     /** The text of each header and footer part. */
     private readonly partTexts: Map<string, string>,
     review: WordReview,
     private readonly look: LookReader,
+    private readonly noteNumbering: WordNoteNumbering,
+    /** What a notes part's places start with, so one is never taken for the document's. */
+    private readonly prefix = "",
   ) {
     this.report = {
       paragraphs: 0,
@@ -629,13 +869,15 @@ class Reader {
     const numbering = readNumbering(numberingXml, styles);
     const themeXml = await read("/theme");
     const settingsXml = await read("/settings");
-    const look = new LookReader({
-      ...(stylesXml !== undefined && { styles: stylesXml }),
-      ...(numberingXml !== undefined && { numbering: numberingXml }),
-      ...(themeXml !== undefined && { theme: themeXml }),
-      ...(settingsXml !== undefined && { settings: settingsXml }),
-      document,
-    });
+    const lookReader = () =>
+      new LookReader({
+        ...(stylesXml !== undefined && { styles: stylesXml }),
+        ...(numberingXml !== undefined && { numbering: numberingXml }),
+        ...(themeXml !== undefined && { theme: themeXml }),
+        ...(settingsXml !== undefined && { settings: settingsXml }),
+        document,
+      });
+    const look = lookReader();
     const comments = new Map<string, Comment>();
     const commentsXml = await read("/comments");
     for (const comment of commentsXml ? elements(parseXml(commentsXml)) : []) {
@@ -647,14 +889,40 @@ class Reader {
         text: blockText(comment),
       });
     }
-    const notes = { footnote: new Map<string, string>(), endnote: new Map<string, string>() };
+    const noteNumbering = noteNumberingOf(readableXml(settingsXml), child(document, "w:body"));
+    const noteParts: Record<NoteKind, NotesReading | null> = { footnote: null, endnote: null };
+    // A note's runs are read with the file's styles, but the Mind's look draws only its body.
+    const noteLook = lookReader();
     for (const kind of ["footnote", "endnote"] as const) {
-      const xml = await read(`/${kind}s`);
-      for (const note of xml ? elements(parseXml(xml)) : []) {
+      const name = partOf(`/${kind}s`);
+      const bytes = name && zip.has(name) ? await zip.read(name) : undefined;
+      if (!name || !bytes) continue;
+      const text = decodePart(bytes);
+      const root = parseXml(text);
+      const reader = new Reader(
+        text,
+        root,
+        await relationshipsOf(zip, name),
+        styles,
+        numbering,
+        comments,
+        { footnote: null, endnote: null },
+        new Map(),
+        new Map(),
+        review,
+        noteLook,
+        noteNumbering,
+        `${name}!`,
+      );
+      const notes = new Map<string, XmlElement>();
+      for (const note of elements(root)) {
         const id = note.attrs["w:id"];
-        if (note.name !== `w:${kind}` || id === undefined || note.attrs["w:type"]) continue;
-        notes[kind].set(id, blockText(note));
+        // "normal" is the type of an ordinary note: the others are the part's separators.
+        const type = note.attrs["w:type"] ?? "normal";
+        if (note.name !== `w:${kind}` || id === undefined || type !== "normal") continue;
+        notes.set(id, note);
       }
+      noteParts[kind] = { name, text, root, reader, notes, read: new Map() };
     }
     const images = new Map<string, string>();
     let budget = MAX_IMAGES_BYTES;
@@ -681,11 +949,12 @@ class Reader {
       styles,
       numbering,
       comments,
-      notes,
+      noteParts,
       images,
       partTexts,
       review,
       look,
+      noteNumbering,
     );
   }
 
@@ -706,7 +975,7 @@ class Reader {
   }
 
   private place(element: XmlElement): string {
-    return `${element.name}#${this.ordinals.get(element) ?? 0}`;
+    return `${this.prefix}${element.name}#${this.ordinals.get(element) ?? 0}`;
   }
 
   private sourceOf(element: XmlElement): Omit<WordSource, "f"> {
@@ -728,7 +997,7 @@ class Reader {
     this.count(kind);
     return {
       type: WORD_ATOM_NODE,
-      attrs: { kind, label, text, source, ...(info && { info }) },
+      attrs: { kind, label, text, source, hash: this.hashOf(source), ...(info && { info }) },
     };
   }
 
@@ -746,30 +1015,68 @@ class Reader {
         label,
         text,
         source,
+        hash: this.hashOf(source),
         ...(info && { info }),
       },
     };
   }
 
+  private hashOf(source: string): string | null {
+    this.placeFile ??= {
+      text: this.documentText,
+      places: this.places(),
+      noteXml: (kind, id) => {
+        const part = this.noteParts[kind];
+        return part ? noteXmlIn(part, kind, id) : undefined;
+      },
+    };
+    return placeHash(this.placeFile, source);
+  }
+
   readDocument(): WordDocument {
+    const structure = this.read();
+    const notes = (kind: NoteKind): WordNotesPart | null => {
+      const part = this.noteParts[kind];
+      if (!part) return null;
+      return {
+        name: part.name,
+        text: part.text,
+        root: part.root,
+        places: part.reader.places(),
+        origins: part.reader.origins,
+        notes: new Map(
+          [...part.notes].map(([id, element]) => [
+            id,
+            { element, paragraphs: part.read.get(id) ?? null },
+          ]),
+        ),
+        hrefOf: (hyperlink) => part.reader.hrefOf(hyperlink),
+      };
+    };
     return {
-      structure: this.read(),
+      structure,
       text: this.documentText,
       root: this.document,
-      places: {
-        get: (place) => {
-          const at = place.lastIndexOf("#");
-          return at < 0
-            ? undefined
-            : this.byName.get(place.slice(0, at))?.[Number(place.slice(at + 1))];
-        },
-        placeOf: (element) => {
-          const ordinal = this.ordinals.get(element);
-          return ordinal === undefined ? null : `${element.name}#${ordinal}`;
-        },
-      },
+      places: this.places(),
       origins: this.origins,
       merged: this.merged,
+      notes: { footnote: notes("footnote"), endnote: notes("endnote") },
+    };
+  }
+
+  private places(): Places {
+    return {
+      get: (place) => {
+        if (!place.startsWith(this.prefix)) return undefined;
+        const at = place.lastIndexOf("#");
+        return at < this.prefix.length
+          ? undefined
+          : this.byName.get(place.slice(this.prefix.length, at))?.[Number(place.slice(at + 1))];
+      },
+      placeOf: (element) => {
+        const ordinal = this.ordinals.get(element);
+        return ordinal === undefined ? null : `${this.prefix}${element.name}#${ordinal}`;
+      },
     };
   }
 
@@ -792,6 +1099,7 @@ class Reader {
       changes: this.changes,
       look: this.look.look(),
       lookUnreadable: this.look.unreadable,
+      noteNumbering: this.noteNumbering,
     };
   }
 
@@ -1034,10 +1342,30 @@ class Reader {
     ];
     const content = child(sdt, "w:sdtContent") ?? sdt;
     const toc = gallery === "Table of Contents";
+    const text = blockText(content);
+    const looks = toc ? this.lineLooks(content, text) : null;
     return this.blockAtom("control", this.place(sdt), {
-      text: blockText(content),
-      ...(toc && { info: { field: "TOC" } }),
+      text,
+      ...(toc && { info: { field: "TOC", ...(looks && { looks }) } }),
     });
+  }
+
+  /** The look of each line of a container's text, as `blockText` writes it, when all are paragraphs. */
+  private lineLooks(container: XmlElement, text: string): string[] | null {
+    if (descendants(container, "w:tbl").length > 0) return null;
+    const lines = descendants(container, "w:p").filter((p) => textIn(p).trim());
+    const looks = lines.map((p) => this.keptLook(p));
+    return looks.length === text.split("\n").length && looks.every((key) => key !== null)
+      ? looks.filter((key): key is string => key !== null)
+      : null;
+  }
+
+  /** The look a paragraph kept as is is drawn in: its own, with its first text's run. */
+  private keptLook(p: XmlElement): string | null {
+    const context = this.look.paragraph(p, this.tableLook);
+    const first = descendants(p, "w:r").find((r) => descendants(r, "w:t").length > 0);
+    const run = this.look.run(first && child(first, "w:rPr"), context, 0).key;
+    return this.look.paragraphKey(context, run && this.look.canBeParagraphRun(run) ? run : null);
   }
 
   /** A paragraph's own outline level wins over its style's; level 9 is body text. */
@@ -1108,8 +1436,12 @@ class Reader {
     this.carry = endDepth;
     if (startDepth > 0 || endDepth > 0) {
       // Part of a field over several paragraphs, such as a table of contents not in a control.
+      const look = this.keptLook(p);
       return {
-        node: this.blockAtom("field", this.place(p), { text: textIn(p).trim() }),
+        node: this.blockAtom("field", this.place(p), {
+          text: textIn(p).trim(),
+          ...(look && { info: { looks: [look] } }),
+        }),
         list: null,
       };
     }
@@ -1406,7 +1738,7 @@ class Reader {
     }
   }
 
-  private hrefOf(hyperlink: XmlElement): string | null {
+  hrefOf(hyperlink: XmlElement): string | null {
     const id = hyperlink.attrs["r:id"];
     const target = id ? this.rels.get(id) : undefined;
     if (target?.external) {
@@ -1548,8 +1880,11 @@ class Reader {
         break;
       case "w:br": {
         const type = element.attrs["w:type"];
-        if (type === "page" || type === "column") {
-          out.push(this.atom("pageBreak", this.place(element), {}));
+        if (type === "page") {
+          this.report.pageBreaks = (this.report.pageBreaks ?? 0) + 1;
+          out.push({ type: PAGE_BREAK_NODE, attrs: { source: this.place(element) } });
+        } else if (type === "column") {
+          out.push(this.atom("columnBreak", this.place(element), {}));
         } else this.fromRun({ type: "hardBreak" }, out);
         break;
       }
@@ -1574,17 +1909,14 @@ class Reader {
         break;
       }
       case "w:footnoteReference":
-      case "w:endnoteReference": {
-        const kind = element.name === "w:footnoteReference" ? "footnote" : "endnote";
-        const number = ++this.noteNumbers[kind];
+      case "w:endnoteReference":
         out.push(
-          this.atom(kind, this.place(element), {
-            label: String(number),
-            text: this.notes[kind].get(element.attrs["w:id"] ?? "") ?? "",
-          }),
+          this.noteReference(
+            element.name === "w:footnoteReference" ? "footnote" : "endnote",
+            element,
+          ),
         );
         break;
-      }
       case "w:commentReference": {
         const comment = this.comments.get(element.attrs["w:id"] ?? "");
         out.push(
@@ -1620,6 +1952,87 @@ class Reader {
           out.push(this.atom("other", this.place(element), { label: textIn(element) }));
         }
     }
+  }
+
+  /**
+   * A note's mark (#746): the Note's own footnote, holding the note's text, or kept
+   * as is when a footnote can't hold it, its mark is its own (not a number),
+   * or another mark already took it.
+   */
+  private noteReference(kind: NoteKind, element: XmlElement): NodeJSON {
+    const number = ++this.noteNumbers[kind];
+    const source = this.place(element);
+    const id = element.attrs["w:id"] ?? "";
+    const part = this.noteParts[kind];
+    const note = part?.notes.get(id);
+    const custom = ["1", "true", "on"].includes(element.attrs["w:customMarkFollows"] ?? "");
+    if (part && note && !custom && !part.read.has(id)) {
+      const paragraphs = part.reader.noteParagraphs(note);
+      part.read.set(id, paragraphs);
+      if (paragraphs) {
+        const nodeId = newId();
+        this.sources.set(nodeId, { n: source });
+        if (kind === "footnote") this.report.footnotes = (this.report.footnotes ?? 0) + 1;
+        else this.report.endnotes = (this.report.endnotes ?? 0) + 1;
+        return {
+          type: FOOTNOTE_NODE,
+          attrs: {
+            [BLOCK_ID_ATTRIBUTE]: nodeId,
+            source,
+            ...(kind === "endnote" && { endnote: true }),
+          },
+          content: withoutLead(
+            paragraphs.flatMap((paragraph, index) =>
+              index === 0 ? paragraph.content : [{ type: "hardBreak" }, ...paragraph.content],
+            ),
+          ),
+        };
+      }
+    }
+    return this.atom(kind, source, {
+      label: String(number),
+      text: note ? blockText(note) : "",
+    });
+  }
+
+  /**
+   * A note's paragraphs as the Note's footnote holds its text, each read as a
+   * paragraph of the document is; null when a footnote can't hold it, or
+   * someone's tracked change is in it (their words, a move's or a custom XML
+   * element's range, a paragraph's mark or properties, a format), which the
+   * note keeps as is.
+   */
+  noteParagraphs(note: XmlElement): NoteParagraph[] | null {
+    for (const element of walk(note)) {
+      const { name } = element;
+      if (CHANGES.has(name) || CHANGE_RANGES.has(name) || name in KEPT_CHANGES) return null;
+    }
+    const paragraphs: NoteParagraph[] = [];
+    let waiting: NodeJSON[] = [];
+    for (const element of elements(note)) {
+      if (element.name === "w:p") {
+        if (fieldBalance(element, 0) !== 0) return null;
+        this.field = null;
+        this.fieldDepth = 0;
+        this.paragraphLook = this.look.paragraph(element, null);
+        const content = waiting;
+        waiting = [];
+        this.inline(element, [], content);
+        paragraphs.push({ element, content });
+      } else if (element.name === "w:bookmarkStart" || element.name === "w:bookmarkEnd") {
+        waiting.push(this.bookmark(element));
+      } else if (RANGES.has(element.name)) {
+        waiting.push(this.atom("range", this.place(element), {}));
+      } else if (!IGNORED.has(element.name) && !PROPERTIES.has(element.name)) {
+        return null;
+      }
+    }
+    const last = paragraphs.at(-1);
+    if (!last) return null;
+    last.content.push(...waiting);
+    return paragraphs.every((paragraph) => paragraph.content.every(holdsInFootnote))
+      ? paragraphs
+      : null;
   }
 
   // -------------------------------------------------------------------------

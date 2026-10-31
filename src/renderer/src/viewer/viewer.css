@@ -473,6 +473,17 @@
     border-start-end-radius: 0;
     border-end-end-radius: 0;
   }
+  /*
+   * The same wash over a cited page's picture, which is behind it rather than
+   * under it: multiplied, so the words the wash covers stay as they were drawn
+   * (#2159).
+   */
+  .quote-highlight--picture {
+    @apply pointer-events-none absolute;
+    padding: 0;
+    margin: 0;
+    mix-blend-mode: multiply;
+  }
 
   /* The Citation's check mark, in the page's margin beside its quote: the Mind's 18px mark. */
   .quote-mark {

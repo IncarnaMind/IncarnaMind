@@ -23,6 +23,8 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   placement?: Placement;
   /** Where it goes, if not under (or over) `anchor`, called each time it is placed: a chart's value card (`chartCardPlace`). */
   middleware?: () => Middleware[];
+  /** Something else it keeps clear of, placed again as that changes size: a page's check badge. */
+  follows?: () => Element | null | undefined;
   /**
    * Called on Esc, wherever the focus is, or on a press outside both the
    * popover and `anchor`.
@@ -35,8 +37,18 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
 }
 
-/** The editor's popovers that are open, in the order they opened. */
+/** Native popovers that are open, in the order they opened. */
 const openPopovers: HTMLElement[] = [];
+
+/** A native picker portaled out of an editor Popover joins the stack for outside presses and Esc. */
+export function registerNativePopover(element: HTMLElement): void {
+  if (!openPopovers.includes(element)) openPopovers.push(element);
+}
+
+export function unregisterNativePopover(element: HTMLElement): void {
+  const index = openPopovers.indexOf(element);
+  if (index !== -1) openPopovers.splice(index, 1);
+}
 
 /**
  * A native popover in the top layer, next to `anchor`, for the editor's small
@@ -48,6 +60,7 @@ export function Popover({
   anchor,
   placement = "bottom-start",
   middleware,
+  follows,
   onDismiss,
   initialFocus,
   returnFocus = false,
@@ -64,6 +77,8 @@ export function Popover({
   focusFirst.current = initialFocus;
   const placing = useRef(middleware);
   placing.current = middleware;
+  const following = useRef(follows);
+  following.current = follows;
   const returning = useRef(returnFocus);
   returning.current = returnFocus;
   const dismissByEscape = useRef((from: Element | VirtualElement) => {
@@ -106,7 +121,10 @@ export function Popover({
       });
     };
     const stopFollowing = autoUpdate(anchor, element, place);
-    openPopovers.push(element);
+    const followed = following.current?.();
+    const resized = followed ? new ResizeObserver(place) : null;
+    if (followed) resized?.observe(followed);
+    registerNativePopover(element);
     /**
      * Whether an event happened in a popover opened after this one, such as
      * the card of a Citation in a footnote's text: from inside this one, so
@@ -119,6 +137,8 @@ export function Popover({
       const target = event.target;
       if (!(target instanceof Node) || element.contains(target) || inLater(target)) return;
       if (anchor instanceof Element && anchor.contains(target)) return;
+      const dialog = target instanceof Element ? target.closest("dialog[open]") : null;
+      if (dialog && !dialog.contains(element)) return;
       dismiss.current("outside");
     };
     // Esc while the focus is elsewhere, e.g. still in the editor or on the
@@ -136,8 +156,9 @@ export function Popover({
     document.addEventListener("pointerdown", dismissOnPressOutside, true);
     document.addEventListener("keydown", dismissOnEscape, true);
     return () => {
-      openPopovers.splice(openPopovers.indexOf(element), 1);
+      unregisterNativePopover(element);
       stopFollowing();
+      resized?.disconnect();
       document.removeEventListener("pointerdown", dismissOnPressOutside, true);
       document.removeEventListener("keydown", dismissOnEscape, true);
       if (element.matches(":popover-open")) element.hidePopover();

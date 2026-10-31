@@ -30,6 +30,7 @@ export const settingsPageCommands: readonly Command[] = [
   },
   {
     id: "settings.localMode",
+    assistant: { never: "privacy" },
     label: "embeddingProviders.localOnly.label",
     keywords: ["settings.title", "command.settings.localMode.keywords"],
     group: "open",
@@ -38,6 +39,7 @@ export const settingsPageCommands: readonly Command[] = [
   },
   {
     id: "settings.addProvider",
+    assistant: { never: "keys" },
     label: "command.settings.addProvider",
     keywords: ["settings.title", "settings.pages.models"],
     group: "open",

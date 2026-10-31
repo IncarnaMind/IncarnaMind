@@ -741,7 +741,7 @@ describe("One claim check", () => {
             calls: [cite("Spring tides happen every week")],
           };
         }
-        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported" };
+        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported\nAbsence: no" };
       },
       { generate: checkGenerate(PLANS) },
     );
@@ -958,6 +958,29 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     },
   );
 
+  test("a figure that disagrees contradicts the sentence even when the reply after it gives no verdict", async () => {
+    const claim = "Revenue grew 15% in 2025.";
+    const plans: Record<string, Plan> = {
+      [claim]: { verdict: "supported", calculation: { ...GROWTH, stated: "15%" } },
+    };
+    const model = scriptedModel(
+      (call) => {
+        const reply = checkReply(call, plans);
+        return "text" in reply ? { text: "The growth is worked out above." } : reply;
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const { core, board } = await calculatingCheck(model);
+
+    const result = await core.checkClaim({ claim });
+
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      evidence: { documentId: board.id, check: "found" },
+      calculation: { stated: "15%", figure: { shown: "11.6%" } },
+    });
+  });
+
   test("a model that calculates is offered calculate, with the sentence's number to name, and told when to use it; one that doesn't isn't", async () => {
     const calls: ModelCall[] = [];
     const claim = "Net debt to EBITDA fell to 1.1x.";
@@ -969,8 +992,25 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
 
     expect(calls[0]?.tools.sort()).toEqual(["calculate", "cite", "search_documents"]);
     expect(calls[0]?.system).toContain("isn't judged in your head");
-    const offered = JSON.stringify(calls[0]?.options.tools);
-    expect(offered).toContain("The number as the sentence to check writes it");
+    const offered = calls[0]?.options.tools?.find(
+      (tool) => tool.type === "function" && tool.name === "calculate",
+    );
+    expect(offered).toMatchObject({
+      inputSchema: {
+        properties: {
+          figures: {
+            items: {
+              properties: {
+                stated: {
+                  type: "string",
+                  description: expect.stringContaining("original language"),
+                },
+              },
+            },
+          },
+        },
+      },
+    });
 
     const localCalls: ModelCall[] = [];
     const local = await setUpWithDocuments(checkingModel(plans, localCalls), [BOARD]);
@@ -1096,12 +1136,12 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     } as const;
     const { core } = await calculatingCheck(checkingModel(plans));
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 
-  test("a figure for a number the sentence doesn't have decides nothing: the model's own verdict stands", async () => {
+  test("a figure for a number the sentence doesn't have leaves the arithmetic Not checked", async () => {
     const claim = "Net debt to EBITDA fell to 1.1x.";
     const plans = {
       [claim]: { verdict: "unsupported", calculation: { ...RATIO, stated: "2.5x" } },
@@ -1109,8 +1149,8 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     const { core } = await calculatingCheck(checkingModel(plans));
 
     expect(await core.checkClaim({ claim })).toMatchObject({
-      verdict: "unsupported",
-      calculation: null,
+      verdict: "not-checked",
+      reason: "no-evidence",
     });
   });
 });
@@ -1228,7 +1268,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     says?: string,
     language?: "en" | "zh-CN",
   ) {
-    const plans = { [claim]: { verdict: said, calculation, ...(says && { says }) } } as const;
+    const plans = {
+      [claim]: { verdict: said, calculation, strict: { text: "same" }, ...(says && { says }) },
+    } as const;
     const calls: ModelCall[] = [];
     const setup = await setUpWithDocuments(checkingModel(plans, calls), [document]);
     const saved = await setup.core.saveChatProvider({
@@ -1292,10 +1334,10 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       unsupported: {
         covered: "the amount, 528.9",
         uncovered: "the currency, unit or scale in £528.9m",
-        quoted: { check: "found" },
       },
       calculation: { agrees: true },
     });
+    if (result.verdict === "unsupported") expect(result.unsupported?.quoted).toBeUndefined();
   });
 
   test("an unstated scale is named in Chinese", async () => {
@@ -1477,7 +1519,9 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     async (kind) => {
       const claim = COVERED("4.55x");
       const calculation = { ...COVER, stated: "4.55x" };
-      const plans = { [claim]: { verdict: "unsupported" as const, calculation } };
+      const plans = {
+        [claim]: { verdict: "unsupported" as const, calculation, strict: { text: "same" } },
+      };
       const model = scriptedModel(
         (call) => {
           if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
@@ -1664,12 +1708,12 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
           stated: zh ? "3.25倍" : "3.25x",
           relation: "at most" as const,
         },
-        "unsupported",
+        "not-checked",
       ],
     ] as const;
   };
 
-  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=what the model's own verdict is when the calculation decides nothing, which stays as it said.
+  // protects=brackets on a loss keep its sign, a sum in any form (SUM, a product added) keeps the sign of a cost in it, every number the model names must hold whatever their order, and a negative figure is never inside a positive limit, in English and Chinese (review of #1908); fails_when="Operating margin was 3%" against an operating loss "(12.0)", "Net cash flow was 5.0" against SUM(10.0, (15.0)), or "Leverage of 2.5x is inside the 3.25x covenant" at 2.77x is Supported, or a loss-making EBITDA's negative leverage is inside a covenant; no_claim=the meaning of a covenant against loss-making EBITDA; an incomparable result leaves its arithmetic Not checked.
   test.each(
     [...cases("en"), ...cases("zh")].map(
       ([document, claim, calculation, verdict]) => [claim, verdict, document, calculation] as const,
@@ -2188,7 +2232,8 @@ describe("When the model can't check a sentence", () => {
 describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
-  const LINES = "Verdict: supported\nScope: none, same\nTopic: found\nRoles: none, same";
+  const LINES =
+    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: none, same";
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:
@@ -2495,6 +2540,21 @@ describe("Needs re-check", () => {
     ]);
   });
 
+  test("Tidy's spaces and comma widths alone keep a check without parts' verdict", () => {
+    const check: ClaimCheckAttributes = {
+      ...LEFT_CHECKING,
+      state: "supported",
+      text: "导出为Word文件,你好。",
+    };
+    const now = {
+      text: "导出为 Word 文件，你好。",
+      versions: null,
+      folderId: null,
+      scope: null,
+    };
+    expect(claimCheckShown(check, now)).toEqual({ state: "supported" });
+  });
+
   test("a new version of its evidence Document makes its check need a re-check", async () => {
     const { core, client, check, tides, dataDir } = await mindWith([SUPPORTED]);
     await check();
@@ -2598,8 +2658,8 @@ describe("Stopping", () => {
         return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
       }
       if (sentenceOf(call) === UNSUPPORTED)
-        return { text: "Verdict: unsupported", pause: { after: 0, until: held } };
-      return { text: "Verdict: unsupported" };
+        return { text: "Verdict: unsupported\nAbsence: no", pause: { after: 0, until: held } };
+      return { text: "Verdict: unsupported\nAbsence: no" };
     });
     const { core, client, mind, block, body } = await mindWith([SUPPORTED, UNSUPPORTED], model);
     const running = core.checkSentences({
@@ -2750,9 +2810,13 @@ describe("A quote that starts with a figure (#1969)", () => {
     ].join("\n"),
   };
   const H1 = "88.0 和 91.5（2025年上半年、2026年上半年）";
+  const WINDOW = "近十二个月指截至2026年6月30日的十二个月。";
 
   // protects=a check whose input quotes "88.0 和 91.5（…）" from the middle of a line reads 88.0 as a figure, so a right Chinese ratio sentence is Supported by calculate; fails_when=calculate says the quote has no 88.0 and the model's own Unsupported stands; no_claim=none beyond protects.
-  test("is Supported by calculate when the sentence is right", async () => {
+  test.each([
+    { name: "is Supported by calculate when the sentence is right", scopeQuote: true },
+    { name: "keeps an unquoted duration Not checked despite the valid ratio", scopeQuote: false },
+  ])("$name", async ({ scopeQuote }) => {
     const claim = "2026年6月30日净负债为528.9，是近十二个月调整后EBITDA的2.77倍。";
     const calculation = {
       inputs: [
@@ -2766,8 +2830,20 @@ describe("A quote that starts with a figure (#1969)", () => {
       stated: "2.77倍",
     };
     const calls: ModelCall[] = [];
-    const plans = { [claim]: { verdict: "unsupported", calculation } } as const;
-    const setup = await setUpWithDocuments(checkingModel(plans, calls), [RESULTS_ZH]);
+    const plans = {
+      [claim]: {
+        verdict: "unsupported",
+        calculation,
+        strict: { text: "same" },
+        ...(scopeQuote && { quote: WINDOW }),
+      },
+    } as const;
+    const setup = await setUpWithDocuments(checkingModel(plans, calls), [
+      {
+        ...RESULTS_ZH,
+        contents: scopeQuote ? `${RESULTS_ZH.contents}\n\n${WINDOW}` : RESULTS_ZH.contents,
+      },
+    ]);
     const saved = await setup.core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-test",
@@ -2780,7 +2856,11 @@ describe("A quote that starts with a figure (#1969)", () => {
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(/^Recorded \[=1\] = 2\.77倍/);
-    expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    if (scopeQuote) {
+      expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    } else {
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    }
   });
 
   // protects=a quote that is a list's line reads 5% as its figure, not the list's "1.", so a right sentence is Supported by calculate; fails_when=the list's number is read as the figure and 5% is refused; no_claim=none beyond protects.
@@ -2889,7 +2969,7 @@ describe("A quote whose page mentions it before its Passage (#1981)", () => {
       .flatMap((call) => call.results)
       .filter((each) => each.tool === "calculate");
     expect(replies.at(-1)?.text).toMatch(problem);
-    expect(result).toMatchObject({ verdict: "unsupported" });
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
   };
 
   test("a unique quote of the heading still refuses its section number", async () => {

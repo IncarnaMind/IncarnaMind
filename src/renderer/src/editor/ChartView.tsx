@@ -349,7 +349,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
     const documentId = state.documentId ?? value.citation.documentId;
     if (!documentId) return;
     const location = citationLocation(value.citation);
-    openCited(
+    void openCited(
       { ...value.citation, documentId },
       {
         check: state.check,

@@ -131,7 +131,8 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       check: "found",
       checkReason: null,
     };
-    expect(onlyCitation(client, answerId)).toEqual(expected);
+    // Its own id, which "Checked by me" names it by (#1933).
+    expect(onlyCitation(client, answerId)).toEqual({ ...expected, id: expect.any(String) });
     expect(finished).toMatchObject({
       status: "done",
       citations: [expected],
@@ -222,14 +223,17 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
 
     const system = promptOf(model)[0]?.text ?? "";
     expect(system).toMatch(/Cite every claim you draw from a Passage/);
-    expect(system).toMatch(/If the Documents don't cover the Question, say so/);
+    expect(system).toMatch(/If the Documents don't cover the Question, say "I didn't find/);
     expect(system).toMatch(/\[\^1\]/);
     expect(system).toMatch(
       /one unbroken stretch of the Passage: don't leave words out with an ellipsis/,
     );
     expect(system).toMatch(/The User has added 1 Document /);
+    expect(system).toContain(
+      "Revision worksheets need every item row and its revision, no bare values.",
+    );
     // Short: it is sent with every Question.
-    expect(system.length).toBeLessThan(5000);
+    expect(system.length).toBeLessThan(5100);
   });
 
   // protects=what the model is sent tells it a cited sentence says only what its quote supports, with an inference in a sentence of its own; fails_when=the rule is left out of the answering prompt or loses its examples in either language; no_claim=whether a model follows it (eval/everyday).
@@ -337,7 +341,7 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
       pages: { pageFrom: 1, pageTo: 3 },
       reason: "too-many-pages",
     },
-  ])("a Citation of $name is 'not found', with the reason", async ({ pages, reason }) => {
+  ])("a unique Citation with $name is placed at its quote", async ({ pages, reason }) => {
     // Three short pages: one Passage covers them all.
     const threePages = buildPdf([
       { lines: ["Tides rise and fall twice a day."] },
@@ -356,11 +360,12 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(onlyCitation(client, answerId)).toMatchObject({
-      ...pages,
-      check: "not-found",
-      checkReason: reason,
+      pageFrom: 2,
+      pageTo: 2,
+      check: "found",
+      checkReason: null,
     });
-    expect(citeFeedback(model)).toMatch(/cite one page, or two consecutive pages/);
+    expect(citeFeedback(model)).not.toMatch(/cite one page, or two consecutive pages/);
   });
 
   test("a record that names no page, for a Passage over three pages, cites the page its quote is on", async () => {
@@ -394,7 +399,7 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     });
   });
 
-  test("a quote from another page than the one cited is 'not found'", async () => {
+  test("a unique quote from another page than the one cited is placed and found", async () => {
     const model = citingModel({
       query: "spring tides",
       records: (passages) => [
@@ -409,12 +414,12 @@ describe("The page-range rule", { timeout: 30_000 }, () => {
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
     expect(onlyCitation(client, answerId)).toMatchObject({
-      pageFrom: 1,
-      pageTo: 1,
-      check: "not-found",
-      checkReason: "quote-not-on-pages",
+      pageFrom: 2,
+      pageTo: 2,
+      check: "found",
+      checkReason: null,
     });
-    expect(citeFeedback(model)).toMatch(/\[\^1\]: the quote isn't word for word on p\. 1/);
+    expect(citeFeedback(model)).not.toMatch(/\[\^1\]: the quote isn't word for word on p\. 1/);
   });
 });
 
@@ -1048,7 +1053,9 @@ describe("Citations in the Mind", { timeout: 30_000 }, () => {
     const pasted = readMind(reader).lastChild;
     expect(pasted?.type.name).toBe("paragraph");
     expect(pasted?.textContent).toBe("Spring tides come at new and full moon .");
-    expect(pasted?.child(1).attrs).toEqual({ ...cited, proposal: null });
+    // A copy of the Answer's Citation, with an id of its own (#1933).
+    expect(pasted?.child(1).attrs).toEqual({ ...cited, id: expect.any(String), proposal: null });
+    expect(pasted?.child(1).attrs.id).not.toBe(cited.id);
     // The Answer keeps its own.
     expect(onlyCitation(reader, answerId)).toEqual(cited);
 
@@ -1194,5 +1201,15 @@ describe("Searching across languages without Tools", { timeout: 30_000 }, () => 
       passageCount: 0,
     };
     expect(mergeSearches([none, none])).toBe(none);
+  });
+
+  test("merged searches keep which Passage each is, so a whole read counts what it was given", () => {
+    const shown = (id: string) =>
+      `<passage id="${id}" document="Tides" pages="1">\nText ${id}\n</passage>`;
+    const merged = mergeSearches([
+      { text: [shown("P1"), shown("P2")].join("\n\n"), passageCount: 2, passageIds: ["a", "b"] },
+      { text: [shown("P2"), shown("P3")].join("\n\n"), passageCount: 2, passageIds: ["b", "c"] },
+    ]);
+    expect(merged.passageIds).toEqual(["a", "b", "c"]);
   });
 });

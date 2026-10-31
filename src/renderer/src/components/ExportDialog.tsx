@@ -17,6 +17,7 @@ import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
+import { commentsHint } from "../exportChecks";
 import { exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
@@ -123,11 +124,16 @@ function TrackedAsHint({ name }: { name: string }) {
 function WordReviewRows({
   draft,
   fromWord,
+  othersFile,
   onChange,
+  onOthersChange,
 }: {
   draft: WordExportPreferences;
   fromWord: boolean;
+  /** A Note made by Verify from someone else's file: this Note's own comment switch (#110); null for the User's own. */
+  othersFile: { checked: boolean } | null;
   onChange(next: WordExportPreferences): void;
+  onOthersChange(checked: boolean): void;
 }) {
   const t = useT();
   const author = useAppStore((state) => state.settings?.author ?? "");
@@ -146,13 +152,23 @@ function WordReviewRows({
         value={draft.markAiText}
         onChange={(markAiText) => onChange({ ...draft, markAiText })}
       />
-      <SwitchRow
-        label={t("export.commentFailedChecks")}
-        hint={t("export.commentFailedChecks.hint")}
-        checked={draft.commentFailedChecks}
-        onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
-        testId="export-comment-failed-checks"
-      />
+      {othersFile ? (
+        <SwitchRow
+          label={t("export.commentFailedChecks")}
+          hint={t(commentsHint(othersFile.checked))}
+          checked={othersFile.checked}
+          onChange={onOthersChange}
+          testId="export-comment-failed-checks"
+        />
+      ) : (
+        <SwitchRow
+          label={t("export.commentFailedChecks")}
+          hint={t(commentsHint(null))}
+          checked={draft.commentFailedChecks}
+          onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
+          testId="export-comment-failed-checks"
+        />
+      )}
     </>
   );
 }
@@ -399,11 +415,16 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     questions: number;
     packCitations: number;
     fromWord: boolean;
+    othersFile: boolean;
+    othersComments: boolean;
     theirChanges: number;
     unreadFiles: number;
     unreadFileNames: boolean;
+    hiddenColumns: number;
   } | null>(null);
   const [nameUnreadFiles, setNameUnreadFiles] = useState<boolean | null>(null);
+  /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
+  const [othersComments, setOthersComments] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const { format } = draft;
@@ -449,9 +470,12 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           questions: preview.questions,
           packCitations: preview.citations,
           fromWord: preview.fromWord,
+          othersFile: preview.othersFile,
+          othersComments: preview.othersComments,
           theirChanges: preview.theirChanges,
           unreadFiles: preview.unreadFiles,
           unreadFileNames: preview.unreadFileNames,
+          hiddenColumns: preview.hiddenColumns,
         });
         setNameUnreadFiles((chosen) => chosen ?? preview.unreadFileNames);
       },
@@ -475,6 +499,9 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
         nameUnreadFiles !== counts.unreadFileNames
       ) {
         await core.setMindUnreadFileNames(mind.id, nameUnreadFiles);
+      }
+      if (othersComments !== null && othersComments !== counts?.othersComments) {
+        await core.setCheckComments(mind.id, othersComments);
       }
       const before = shared?.documents
         .filter((each) => each.textOnly)
@@ -555,6 +582,13 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             {t("export.pack.empty")}
           </p>
         )}
+        {(counts?.hiddenColumns ?? 0) > 0 && (
+          <p data-testid="export-hidden-columns" className={`-mt-1 pb-2 ${hintClass}`}>
+            {(counts?.hiddenColumns ?? 0) === 1
+              ? t("export.hiddenColumns.one")
+              : t("export.hiddenColumns.other", { count: counts?.hiddenColumns ?? 0 })}
+          </p>
+        )}
 
         {format === "share-page" && (
           <SharePageRows
@@ -614,7 +648,11 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           <WordReviewRows
             draft={draft.docx}
             fromWord={counts?.fromWord ?? false}
+            othersFile={
+              counts?.othersFile ? { checked: othersComments ?? counts.othersComments } : null
+            }
             onChange={(docx) => setDraft({ ...draft, docx })}
+            onOthersChange={setOthersComments}
           />
         )}
 

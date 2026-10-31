@@ -10,19 +10,25 @@ import { TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
-  type CheckMindMode,
   type CheckSentencesResult,
   CITATION_NODE,
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAction,
+  type ClaimCheckPart,
+  type ClaimPartSpan,
+  type DocumentCheckPlan,
+  type DocumentCheckProgress,
   type ProviderError,
+  type SearchScope,
 } from "../../core/api";
+import { overlapsCitation } from "../../shared/citationOverlap";
 import { quotedWordsFoundIn } from "../../shared/citations";
 import { core } from "./core";
-import { citationDecision } from "./editor/alreadyCited";
+import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import type { ShownClaim } from "./editor/claimChecks";
+import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChecks";
+import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
 import { resolveProposalsIn } from "./editWithAi";
@@ -44,11 +50,15 @@ export type CheckProblem =
   /** Check this Mind (#737), in a Mind with no sentence to check. */
   | { kind: "no-claims" }
   /** Check this Mind (#737): the model couldn't name the claims. */
-  | { kind: "find-failed"; error: ProviderError; mode: CheckMindMode; allDocuments: boolean };
+  | { kind: "find-failed"; error: ProviderError; retry(): void }
+  /** This Note's Check runs, or is being planned, in another window. */
+  | { kind: "running" };
 
 export interface CheckRunning {
   requestId: string;
   action: Exclude<ClaimCheckAction, "find-support"> | "whole-mind";
+  /** A whole read (#1554): the sentence check whose card it reads for, and its pick. */
+  read?: { checkId: string; within: SearchScope };
 }
 
 /**
@@ -62,6 +72,8 @@ export interface LeftOut {
   count: number;
   action: ClaimCheckAction;
   allDocuments: boolean;
+  within?: SearchScope;
+  part?: { id: string; span: ClaimPartSpan };
 }
 
 interface ChecksState {
@@ -77,6 +89,15 @@ interface ChecksState {
   openClaim: Readonly<Record<string, string>>;
   /** By tab, else by Mind: the card the keyboard opened, whose first action takes the focus (#1762). */
   focusClaim: Readonly<Record<string, string>>;
+  /** By claim: Check against a Document's picker was requested (⌘K), or a read of this pick. */
+  pickDocument: Readonly<Record<string, true | SearchScope>>;
+  /** By whole-read request: its latest page count. */
+  documentProgress: Readonly<Record<string, DocumentCheckProgress>>;
+  /**
+   * By claim: the whole read its card asks the User about, sized for its pick. Kept here rather
+   * than in the card, which draws the question in a view of its own.
+   */
+  documentAsk: Readonly<Record<string, { within: SearchScope; plan: DocumentCheckPlan }>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -86,6 +107,9 @@ export const useChecks = create<ChecksState>()(() => ({
   cardOpen: {},
   openClaim: {},
   focusClaim: {},
+  pickDocument: {},
+  documentProgress: {},
+  documentAsk: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -119,6 +143,57 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
+export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+/** Asks the claim's card to read `within` again: it sizes the read and asks before reading. */
+export const requestDocumentRead = (id: string, within: SearchScope) =>
+  setFor("pickDocument", id, within);
+
+/**
+ * Sizes a whole read of the sentences `ranges` touch, or of one `part`, against `within`: what
+ * its cost question shows, and the plan its read must name. Null when the ranges hold no text.
+ */
+export function planDocumentRead(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  {
+    ranges,
+    within,
+    part,
+  }: {
+    ranges: readonly { from: number; to: number }[];
+    within: SearchScope;
+    part?: { id: string; span: ClaimPartSpan };
+  },
+): Promise<DocumentCheckPlan> | null {
+  const [first, ...more] = ranges.flatMap((range) => {
+    const read = selectionForEdit(editor.state, range);
+    return read ? [read] : [];
+  });
+  if (!first) return null;
+  return core.planDocumentCheck({
+    mindId,
+    from: first.from,
+    to: first.to,
+    ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
+    ...(part && { part }),
+    within,
+    model: modelInUseOf(doc),
+  });
+}
+
+export const dismissDocumentPicker = (id: string) => setFor("pickDocument", id, null);
+
+export const setDocumentProgress = (progress: DocumentCheckProgress) =>
+  setFor("documentProgress", progress.requestId, progress);
+
+/** The whole read a claim's card asks about, or none (null). */
+export const setDocumentAsk = (
+  id: string,
+  ask: { within: SearchScope; plan: DocumentCheckPlan } | null,
+) => setFor("documentAsk", id, ask);
+
 /** Only if `id` is still the open one: a card that closes late must not close its successor. */
 export function closeOpenClaim(place: string, id: string): void {
   if (useChecks.getState().openClaim[place] === id) setOpenClaim(place, null);
@@ -146,10 +221,28 @@ export async function checkSentences(
   {
     ranges,
     allDocuments = false,
-  }: { ranges?: readonly { from: number; to: number }[]; allDocuments?: boolean } = {},
+    within,
+    plan,
+    part,
+    checkId,
+  }: {
+    ranges?: readonly { from: number; to: number }[];
+    allDocuments?: boolean;
+    within?: SearchScope;
+    /** With `within`: the `planDocumentCheck` the User confirmed, so a replaced pick sends nothing. */
+    plan?: string;
+    part?: { id: string; span: ClaimPartSpan };
+    /** With `within`: the sentence check whose card the read is for. */
+    checkId?: string;
+  } = {},
 ): Promise<void> {
-  // An older version's mark says "find-support": it is Check against Documents now.
-  const action = asked === "find-support" ? "check-against-documents" : asked;
+  // An older version's mark says "find-support": it is Check against Documents now. A whole
+  // read's action with no pick, as the health line's Check against all Documents sends it, is
+  // the ordinary check.
+  const action =
+    asked === "find-support" || (asked === "check-against-document" && !within)
+      ? "check-against-documents"
+      : asked;
   if (editor.isDestroyed || useChecks.getState().running[mindId]) return;
   const stretches = (ranges ?? [editor.state.selection]).flatMap((range) => {
     const read = selectionForEdit(editor.state, range);
@@ -159,14 +252,18 @@ export async function checkSentences(
   if (!selection) return;
   // The selection closes at its end, as for Edit with AI: its sentences show their marks, and the User writes on.
   const { selection: now } = editor.state;
-  if (now.from === selection.range.from && now.to === selection.range.to) {
+  if (!part && now.from === selection.range.from && now.to === selection.range.to) {
     editor.view.dispatch(
       editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
     );
   }
   const requestId = crypto.randomUUID();
   setFor("problems", mindId, null);
-  setFor("running", mindId, { requestId, action });
+  setFor("running", mindId, {
+    requestId,
+    action,
+    ...(within && checkId && { read: { checkId, within } }),
+  });
   let result: CheckSentencesResult | Extract<CheckProblem, { kind: "failed" }>;
   try {
     result = await core.checkSentences({
@@ -177,6 +274,9 @@ export async function checkSentences(
       ...(more.length > 0 && { more: more.map(({ from, to }) => ({ from, to })) }),
       action,
       allDocuments,
+      ...(within && { within }),
+      ...(within && plan && { plan }),
+      ...(part && { part }),
       model: modelInUseOf(doc),
     });
   } catch (error) {
@@ -187,6 +287,9 @@ export async function checkSentences(
         void checkSentences(editor, mindId, doc, action, {
           ranges: stretches.map((each) => each.range),
           allDocuments,
+          within,
+          plan,
+          part,
         }),
     };
   } finally {
@@ -207,6 +310,8 @@ export async function checkSentences(
       count: waiting.sentences.length,
       action,
       allDocuments,
+      ...(within && { within }),
+      ...(part && { part }),
     });
   } else if (
     result.kind !== "checked" &&
@@ -219,9 +324,10 @@ export async function checkSentences(
       withCheckAll(
         result,
         () =>
-          void checkSentences(editor, mindId, doc, action, {
+          void checkSentences(editor, mindId, doc, "check-against-documents", {
             ranges: stretches.map((each) => each.range),
             allDocuments: true,
+            part,
           }),
       ),
     );
@@ -232,13 +338,16 @@ export async function checkSentences(
 /**
  * Accept all and check: accepts the changes a check left out that are still
  * waiting, then checks the sentences they were in, as they read now. One out
- * of date can't be accepted, so its sentence is left out again.
+ * of date can't be accepted, so its sentence is left out again. A whole read
+ * is asked again in its sentence's card (`showCard`), which sizes it and asks
+ * its cost first.
  */
 export function acceptAndCheck(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
   leftOut: LeftOut,
+  showCard: (checkId: string) => void,
 ): Promise<void> {
   if (editor.isDestroyed) return Promise.resolve();
   const waiting = pendingIn(editor.state)
@@ -251,9 +360,20 @@ export function acceptAndCheck(
     return start !== null && end !== null && start < end ? [{ from: start, to: end }] : [];
   });
   if (ranges.length === 0) return Promise.resolve();
+  if (leftOut.within) {
+    const claim = claimSpans(editor.state.doc).find((each) =>
+      ranges.some((range) => each.sentence.from < range.to && range.from < each.sentence.to),
+    );
+    if (claim) {
+      requestDocumentRead(claim.check.id, leftOut.within);
+      showCard(claim.check.id);
+    }
+    return Promise.resolve();
+  }
   return checkSentences(editor, mindId, doc, leftOut.action, {
     ranges,
     allDocuments: leftOut.allDocuments,
+    part: leftOut.part,
   });
 }
 
@@ -263,18 +383,35 @@ export function stopCheck(mindId: string): void {
   if (running) void core.cancelCheck(running.requestId);
 }
 
-/** Checks a sentence again, as it was checked, or in every Document. */
+/**
+ * Checks a sentence again, as it was checked, or in every Document. A whole read is asked again
+ * in the sentence's card, which `showCard` opens when it isn't open already.
+ */
 export function checkAgain(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
   claim: ShownClaim,
   allDocuments = claim.check.scope.widened,
+  showCard?: (checkId: string) => void,
 ): Promise<void> {
-  return checkSentences(editor, mindId, doc, claim.check.action, {
-    ranges: [{ from: claim.from, to: claim.to }],
-    allDocuments,
-  });
+  const { action } = claim.check;
+  const chosen = claim.check.scope.chosen;
+  // The sentence's own read is running: its card offers nothing until it ends.
+  const reading = useChecks.getState().running[mindId]?.read;
+  if (reading && reading.checkId === claim.check.id) return Promise.resolve();
+  if (action === "check-against-document" && !allDocuments && chosen) {
+    requestDocumentRead(claim.check.id, chosen);
+    showCard?.(claim.check.id);
+    return Promise.resolve();
+  }
+  return checkSentences(
+    editor,
+    mindId,
+    doc,
+    action === "check-against-document" ? "check-against-documents" : action,
+    { ranges: [{ from: claim.from, to: claim.to }], allDocuments },
+  );
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */
@@ -284,9 +421,8 @@ export function removeClaimMark(editor: Editor, claim: ShownClaim): void {
   editor.view.dispatch(editor.state.tr.removeMark(claim.from, claim.to, mark));
 }
 
-/** Closing punctuation a Citation goes before: "…in the quarter [1]." */
+/** Closing punctuation a Citation goes before: "…in the quarter[1]." */
 const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
-const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u;
 
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
@@ -303,13 +439,56 @@ export function addAsCitation(editor: Editor, claim: ShownClaim): boolean {
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = CLOSING.exec(words)?.[0].length ?? 0;
   const at = claim.sentence.to - closing;
-  const before = words.slice(0, words.length - closing);
-  const spaced = before !== "" && !/\s$/u.test(before) && !CJK.test(before);
   const citation = type.create({ ...evidence, check: "found", checkReason: null });
   const tr = state.tr.removeMark(claim.from, claim.to, mark);
-  tr.insert(at, spaced ? [state.schema.text(" "), citation] : citation);
+  tr.insert(at, citation);
   editor.view.dispatch(tr);
   return true;
+}
+
+/**
+ * Adds each part's Passages that the sentence doesn't cite yet as Citations
+ * right after that part's words, never on the whole sentence (#2002), as one
+ * step of Undo. The sentence keeps its check: a Citation isn't part of the
+ * words a check reads, so its parts stay where they were. "changed" when the
+ * sentence no longer reads as the card showed it, and nothing was added.
+ */
+export function addPartCitations(
+  editor: Editor,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+): "added" | "nothing" | "changed" {
+  const { state } = editor;
+  const type = state.schema.nodes[CITATION_NODE];
+  if (!type) return "nothing";
+  const added: CitationAttributes[] = [];
+  const inserts: { at: number; citations: CitationAttributes[] }[] = [];
+  for (const part of parts) {
+    // A Passage cited after one part is already cited for the next, as a second add would find.
+    const citations = partDecisions(state, claim, part).flatMap(({ evidence, decision }) =>
+      decision.kind === "add" &&
+      !added.some(
+        (each) => each.documentId === evidence.documentId && overlapsCitation(each, evidence),
+      )
+        ? [evidence]
+        : [],
+    );
+    if (citations.length === 0) continue;
+    const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
+    if (!place) return "changed";
+    added.push(...citations);
+    inserts.push({ at: place.to, citations });
+  }
+  if (inserts.length === 0) return "nothing";
+  const tr = state.tr;
+  for (const { at, citations } of inserts.toSorted((a, b) => b.at - a.at)) {
+    tr.insert(
+      at,
+      citations.map((citation) => type.create({ ...citation, check: "found", checkReason: null })),
+    );
+  }
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  return "added";
 }
 
 function rewriteCitation(

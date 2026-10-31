@@ -47,9 +47,11 @@ import type { DocumentPageImage } from "./pdfImages";
 import { reachedPlanLimit } from "./planPace";
 import type {
   AssignmentChange,
+  AssignmentState,
   ClassificationModel,
   ClassificationStatus,
   DocumentGroupAssignment,
+  DocumentTagging,
   LibraryClassifier,
   LibraryGroup,
   LibrarySettings,
@@ -97,14 +99,18 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, counts_own_files, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
 
-/** A stored Folder: its switch is 0 or 1. */
-type GroupRow = Omit<LibraryGroup, "countsOwnFiles"> & { counts_own_files: number };
+/** A stored Folder: its switches are 0 or 1. */
+type GroupRow = Omit<LibraryGroup, "countsOwnFiles" | "keepInside"> & {
+  counts_own_files: number;
+  keep_inside: number;
+};
 
-const toGroup = ({ counts_own_files, ...row }: GroupRow): LibraryGroup => ({
+const toGroup = ({ counts_own_files, keep_inside, ...row }: GroupRow): LibraryGroup => ({
   ...row,
   countsOwnFiles: counts_own_files === 1,
+  keepInside: keep_inside === 1,
 });
 
 const errorOf = (row: AssignmentRow): ProviderError => {
@@ -116,9 +122,8 @@ const errorOf = (row: AssignmentRow): ProviderError => {
   };
 };
 
-/** A stored assignment as the API gives it. */
-const assignmentOf = (row: AssignmentRow): DocumentGroupAssignment => ({
-  documentId: row.document_id,
+/** An assignment's own fields as the API gives them, without its Document id. */
+const assignmentFields = (row: AssignmentRow): Omit<DocumentGroupAssignment, "documentId"> => ({
   groupId: row.group_id,
   filedAt: row.filed_at ?? row.created_at,
   source: row.source,
@@ -130,6 +135,13 @@ const assignmentOf = (row: AssignmentRow): DocumentGroupAssignment => ({
     : null,
 });
 
+/** A stored assignment as the API gives it, with the Document's tagging row it was read with. */
+const assignmentOf = (row: AssignmentRow, tagging?: DocumentTagging): DocumentGroupAssignment => ({
+  documentId: row.document_id,
+  ...assignmentFields(row),
+  ...(tagging && { tagging }),
+});
+
 const CLASSIFICATION_STATUSES: readonly ClassificationStatus[] = [
   "pending",
   "classifying",
@@ -138,11 +150,73 @@ const CLASSIFICATION_STATUSES: readonly ClassificationStatus[] = [
   "failed",
 ];
 
-function parsePreviousAssignment(
+const STORED_TAGGING_STATES: readonly DocumentTagging["status"][] = [
+  "pending",
+  "waiting-for-provider",
+  "tagging",
+  "tagged",
+  "no-tags",
+  "failed",
+  "stopped",
+  "off",
+];
+
+/** The documents row's tagging columns, as the Library's queries read them with an assignment. */
+interface TaggingColumns {
+  tagging_status: string;
+  tagging_error_kind: ProviderError["kind"] | null;
+  tagging_error_message: string | null;
+  tagging_error_resets_at: string | null;
+  tagging_row_updated_at: string;
+}
+
+const taggingOf = (row: TaggingColumns): DocumentTagging | null => {
+  const status = STORED_TAGGING_STATES.find((each) => each === row.tagging_status);
+  if (status === undefined) return null;
+  return {
+    status,
+    error:
+      row.tagging_error_kind === null
+        ? null
+        : {
+            kind: row.tagging_error_kind,
+            message: row.tagging_error_message ?? "",
+            ...(row.tagging_error_resets_at !== null && {
+              resetsAt: row.tagging_error_resets_at,
+            }),
+          },
+    updatedAt: row.tagging_row_updated_at,
+  };
+};
+
+/** What Undo compares: the assignment's own fields, and the tagging row's. */
+const assignmentKey = (item: Omit<DocumentGroupAssignment, "documentId">): string =>
+  JSON.stringify([
+    item.groupId,
+    item.source,
+    item.suggested,
+    item.status,
+    item.error,
+    item.model,
+    item.filedAt ?? null,
+  ]);
+
+const taggingKey = (tagging: DocumentTagging | null): string =>
+  JSON.stringify([tagging?.status ?? null, tagging?.error ?? null, tagging?.updatedAt ?? null]);
+
+const sameAssignment = (
+  current: Omit<DocumentGroupAssignment, "documentId"> | null,
+  expected: Omit<DocumentGroupAssignment, "documentId"> | null,
+): boolean =>
+  expected === null
+    ? current === null
+    : current !== null && assignmentKey(current) === assignmentKey(expected);
+
+function parseAssignmentFields(
   input: unknown,
+  invalid: InvalidInputError,
 ): Omit<DocumentGroupAssignment, "documentId"> | null {
   if (input === null) return null;
-  const invalid = new InvalidInputError("A previous assignment is an assignment, or null.");
   if (!isRecord(input)) throw invalid;
   const { groupId, filedAt, source, suggested, status, error, model } = input;
   if (groupId !== null && (typeof groupId !== "string" || groupId === "")) throw invalid;
@@ -171,6 +245,30 @@ function parsePreviousAssignment(
     status: known,
     error: error as ProviderError | null,
     model: model as ClassificationModel | null,
+  };
+}
+
+function parseTagging(input: unknown, invalid: InvalidInputError): DocumentTagging | null {
+  if (input === null) return null;
+  if (!isRecord(input)) throw invalid;
+  const status = STORED_TAGGING_STATES.find((each) => each === input.status);
+  const { error, updatedAt } = input;
+  if (
+    status === undefined ||
+    typeof updatedAt !== "string" ||
+    (error !== null &&
+      !(isRecord(error) && typeof error.kind === "string" && typeof error.message === "string"))
+  )
+    throw invalid;
+  return { status, error: error as ProviderError | null, updatedAt };
+}
+
+function parseAssignmentState(input: unknown): AssignmentState {
+  const invalid = new InvalidInputError("A change says the Document's assignment and its tagging.");
+  if (!isRecord(input)) throw invalid;
+  return {
+    assignment: parseAssignmentFields(input.assignment, invalid),
+    tagging: parseTagging(input.tagging, invalid),
   };
 }
 
@@ -350,11 +448,11 @@ export function createLibrary(options: {
    */
   const announce = (ids: readonly string[]) => {
     const changed = db
-      .all<AssignmentRow>(
-        "SELECT g.* FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.document_id IN (SELECT value FROM json_each(?))",
+      .all<AssignmentRow & TaggingColumns>(
+        "SELECT g.*, d.tagging_status AS tagging_status, d.tagging_error_kind AS tagging_error_kind, d.tagging_error_message AS tagging_error_message, d.tagging_error_resets_at AS tagging_error_resets_at, d.updated_at AS tagging_row_updated_at FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.document_id IN (SELECT value FROM json_each(?))",
         [JSON.stringify(ids)],
       )
-      .map(assignmentOf);
+      .map((row) => assignmentOf(row, taggingOf(row) ?? undefined));
     if (changed.length > 0) options.assigned(changed);
   };
   const hasContent = (doc: DocumentRow) => {
@@ -414,6 +512,13 @@ export function createLibrary(options: {
       "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, tagging_error_resets_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [tagging, error?.kind ?? null, error?.message ?? null, error?.resetsAt ?? null, now(), id],
     );
+  };
+  const taggingSnapshot = (id: string): DocumentTagging | null => {
+    const row = db.get<TaggingColumns>(
+      "SELECT tagging_status, tagging_error_kind, tagging_error_message, tagging_error_resets_at, updated_at AS tagging_row_updated_at FROM documents WHERE id = ? AND deleted_at IS NULL",
+      [id],
+    );
+    return row ? taggingOf(row) : null;
   };
   const state = (id: string, status: ClassificationStatus, error?: ProviderError) => {
     db.run(
@@ -491,6 +596,60 @@ export function createLibrary(options: {
     }
   };
 
+  /** Puts a Document's assignment back as a change found it, or removes it when it had none. */
+  const restoreAssignmentRow = (
+    doc: DocumentRow,
+    target: Omit<DocumentGroupAssignment, "documentId"> | null,
+  ) => {
+    if (!target) {
+      const at = now();
+      db.run(
+        "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+        [at, at, doc.id],
+      );
+      return;
+    }
+    // The move cancelled its classification: it waits its turn again.
+    const status = target.status === "classifying" ? "pending" : target.status;
+    write(doc, target.groupId, target.source, status, target.model, target.suggested);
+    // Taking back a rejection brings the Folder back among those Organize may offer again.
+    if (target.suggested && target.groupId) {
+      const at = now();
+      db.run(
+        "UPDATE document_group_rejections SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND group_id = ? AND deleted_at IS NULL",
+        [at, at, doc.id, target.groupId],
+      );
+    }
+    if (target.filedAt !== undefined)
+      db.run(
+        "UPDATE document_groups SET filed_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+        [target.filedAt, doc.id],
+      );
+    if (target.error)
+      db.run(
+        "UPDATE document_groups SET error_kind = ?, error_message = ?, error_wording = ? WHERE document_id = ? AND deleted_at IS NULL",
+        [
+          target.error.kind,
+          target.error.message,
+          target.error.wording ? JSON.stringify(target.error.wording) : null,
+          doc.id,
+        ],
+      );
+  };
+  const restoreTaggingRow = (id: string, tagging: DocumentTagging) => {
+    db.run(
+      "UPDATE documents SET tagging_status = ?, tagging_error_kind = ?, tagging_error_message = ?, tagging_error_resets_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+      [
+        tagging.status,
+        tagging.error?.kind ?? null,
+        tagging.error?.message ?? null,
+        tagging.error?.resetsAt ?? null,
+        now(),
+        id,
+      ],
+    );
+  };
+
   const review = (input: unknown, change: (row: AssignmentRow) => void): AssignmentChange[] => {
     if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
       throw new InvalidInputError("Choose valid Documents.");
@@ -499,12 +658,27 @@ export function createLibrary(options: {
       docs.flatMap((doc) => {
         const before = assignment(doc.id);
         if (!before?.suggested) return [];
+        const taggingBefore = taggingSnapshot(doc.id);
         change(before);
         const after = assignment(doc.id);
-        return after ? [{ before: assignmentOf(before), after: assignmentOf(after) }] : [];
+        const taggingAfter = taggingSnapshot(doc.id);
+        const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
+        return [
+          {
+            documentId: doc.id,
+            before: {
+              assignment: assignmentFields(before),
+              tagging: taggingMoved ? taggingBefore : null,
+            },
+            after: {
+              assignment: after ? assignmentFields(after) : null,
+              tagging: taggingMoved ? taggingAfter : null,
+            },
+          },
+        ];
       }),
     );
-    announce(changes.map((each) => each.after.documentId));
+    announce(changes.map((each) => each.documentId));
     return changes;
   };
 
@@ -697,9 +871,17 @@ export function createLibrary(options: {
     const at = now();
     const id = randomUUID();
     db.run(
-      `INSERT INTO library_groups (id, name, description, counts_own_files, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, value.name, value.description, value.countsOwnFiles ? 1 : 0, at, at],
+      `INSERT INTO library_groups (id, name, description, counts_own_files, keep_inside, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        value.name,
+        value.description,
+        value.countsOwnFiles ? 1 : 0,
+        value.keepInside ? 1 : 0,
+        at,
+        at,
+      ],
     );
     revision++;
     changed();
@@ -718,10 +900,12 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.nameTaken" });
     if (!exceptId && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
-    const { countsOwnFiles } = input;
+    const { countsOwnFiles, keepInside } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
       throw new InvalidInputError("countsOwnFiles must be true or false.");
-    return { name, description, countsOwnFiles };
+    if (keepInside !== undefined && typeof keepInside !== "boolean")
+      throw new InvalidInputError({ key: "error.folder.keepInside" });
+    return { name, description, countsOwnFiles, keepInside };
   }
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
@@ -788,6 +972,14 @@ export function createLibrary(options: {
     documentIds(folderId: string): string[] {
       return db
         .all<{ document_id: string }>(
+          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL AND (g.keep_inside = 0 OR a.source = 'user')",
+          [folderId],
+        )
+        .map((row) => row.document_id);
+    },
+    allDocumentIds(folderId: string): string[] {
+      return db
+        .all<{ document_id: string }>(
           "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
           [folderId],
         )
@@ -809,10 +1001,10 @@ export function createLibrary(options: {
     },
     snapshot(): LibrarySnapshot {
       const assignments = db
-        .all<AssignmentRow>(
-          "SELECT g.* FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL",
+        .all<AssignmentRow & TaggingColumns>(
+          "SELECT g.*, d.tagging_status AS tagging_status, d.tagging_error_kind AS tagging_error_kind, d.tagging_error_message AS tagging_error_message, d.tagging_error_resets_at AS tagging_error_resets_at, d.updated_at AS tagging_row_updated_at FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL",
         )
-        .map(assignmentOf);
+        .map((row) => assignmentOf(row, taggingOf(row) ?? undefined));
       const deletedGroups = db
         .all<GroupRow>(
           `SELECT ${GROUP_COLUMNS} FROM library_groups WHERE deleted_at IS NOT NULL ORDER BY name COLLATE NOCASE, id`,
@@ -848,16 +1040,30 @@ export function createLibrary(options: {
       const moved = db.transaction(() =>
         docs.map((doc) => {
           const before = assignment(doc.id);
+          const taggingBefore = taggingSnapshot(doc.id);
           write(doc, groupId, "user", "classified");
           // A manual choice cancels an in-flight suggestion, including its busy indicator.
           db.run(
             "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
             [doc.id],
           );
+          const after = assignment(doc.id);
+          const taggingAfter = taggingSnapshot(doc.id);
+          const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
           return {
             id: doc.id,
             from: before?.group_id ?? null,
-            previous: before ? assignmentOf(before) : null,
+            change: {
+              documentId: doc.id,
+              before: {
+                assignment: before ? assignmentFields(before) : null,
+                tagging: taggingMoved ? taggingBefore : null,
+              },
+              after: {
+                assignment: after ? assignmentFields(after) : null,
+                tagging: taggingMoved ? taggingAfter : null,
+              },
+            },
           };
         }),
       );
@@ -874,10 +1080,11 @@ export function createLibrary(options: {
       const existing = group(id);
       const value = parseGroup(input, existing.id);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
+      const keepInside = value.keepInside ?? existing.keepInside;
       db.run(
-        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, updated_at = ?
+        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
          WHERE id = ?`,
-        [value.name, value.description, counts ? 1 : 0, now(), existing.id],
+        [value.name, value.description, counts ? 1 : 0, keepInside ? 1 : 0, now(), existing.id],
       );
       revision++;
       changed();
@@ -902,13 +1109,14 @@ export function createLibrary(options: {
     /**
      * Deletes a Folder: its Documents go to Not in a Folder, as the Minds and conversations
      * the caller took out of it did, and all are recorded so that restoring it puts them back.
+     * `at`: when Undo of a Restore deletes it again.
      */
     delete(
       id: unknown,
       taken: { minds?: readonly string[]; conversations?: readonly string[] } = {},
+      at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
-      const at = now();
       const record = (kind: "document" | "mind" | "conversation", itemId: string, suggested = 0) =>
         db.run(
           `INSERT INTO deleted_folder_items
@@ -937,7 +1145,7 @@ export function createLibrary(options: {
           "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id = ? AND deleted_at IS NULL",
           [at, existing.id],
         );
-        return rows.filter((row) => row.live).map(assignmentOf);
+        return rows.filter((row) => row.live).map((row) => assignmentOf(row));
       });
       revision++;
       changed();
@@ -1071,23 +1279,38 @@ export function createLibrary(options: {
       announce(docs.map((doc) => doc.id));
       resume();
     },
-    assign(id: unknown, groupId: unknown): DocumentGroupAssignment | null {
+    assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = document(id);
       if (groupId !== null) group(groupId);
-      const previous = assignment(doc.id);
+      const before = assignment(doc.id);
+      const taggingBefore = taggingSnapshot(doc.id);
       write(doc, groupId as string | null, "user", "classified");
       // A manual correction cancels an in-flight suggestion, including its busy indicator.
       db.run(
         "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
         [doc.id],
       );
+      const after = assignment(doc.id);
+      const taggingAfter = taggingSnapshot(doc.id);
+      const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
       options.tagged([doc.id]);
       announce([doc.id]);
-      return previous ? assignmentOf(previous) : null;
+      return {
+        documentId: doc.id,
+        before: {
+          assignment: before ? assignmentFields(before) : null,
+          tagging: taggingMoved ? taggingBefore : null,
+        },
+        after: {
+          assignment: after ? assignmentFields(after) : null,
+          tagging: taggingMoved ? taggingAfter : null,
+        },
+      };
     },
     /** See `CoreApi.restoreAssignment`. */
-    restoreAssignment(id: unknown, input: unknown) {
-      const previous = parsePreviousAssignment(input);
+    restoreAssignment(id: unknown, beforeInput: unknown, afterInput: unknown) {
+      const target = parseAssignmentState(beforeInput);
+      const after = parseAssignmentState(afterInput);
       let doc: DocumentRow;
       try {
         doc = document(id);
@@ -1095,61 +1318,74 @@ export function createLibrary(options: {
         if (!(error instanceof NotFoundError)) throw error;
         throw new NotFoundError({ key: "error.restore.documentGone" });
       }
-      if (previous?.groupId) {
+      if (target.assignment?.groupId) {
         const name = db.get<{ name: string }>(
           "SELECT name FROM library_groups WHERE id = ? AND deleted_at IS NOT NULL",
-          [previous.groupId],
+          [target.assignment.groupId],
         )?.name;
         if (name !== undefined)
           throw new NotFoundError({ key: "error.restore.folderGone", values: { name } });
-        group(previous.groupId);
+        group(target.assignment.groupId);
       }
-      if (!previous) {
-        const at = now();
-        db.run(
-          "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-          [at, at, doc.id],
-        );
-        revision++;
-        changed();
-        return;
-      }
-      // The move cancelled its classification: it waits its turn again.
-      const status = previous.status === "classifying" ? "pending" : previous.status;
+      const current = assignment(doc.id);
+      const currentAssignment = current ? assignmentFields(current) : null;
+      const currentTagging = taggingSnapshot(doc.id);
+      // Each row goes back only while it is still as the change left it: a move, a run or a re-tag
+      // since is later work, and it wins (#1928).
+      const assignmentFits = sameAssignment(currentAssignment, after.assignment);
+      const restoreTagging =
+        target.tagging !== null &&
+        after.tagging !== null &&
+        taggingKey(currentTagging) === taggingKey(after.tagging);
+      if (!assignmentFits && !restoreTagging) return null;
       db.transaction(() => {
-        write(doc, previous.groupId, previous.source, status, previous.model, previous.suggested);
-        // Taking back a rejection brings the Folder back among those Organize may offer again.
-        if (previous.suggested && previous.groupId) {
-          const at = now();
-          db.run(
-            "UPDATE document_group_rejections SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND group_id = ? AND deleted_at IS NULL",
-            [at, at, doc.id, previous.groupId],
-          );
-        }
-        if (previous.filedAt !== undefined)
-          db.run(
-            "UPDATE document_groups SET filed_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-            [previous.filedAt, doc.id],
-          );
-        if (previous.error)
-          db.run(
-            "UPDATE document_groups SET error_kind = ?, error_message = ?, error_wording = ? WHERE document_id = ? AND deleted_at IS NULL",
-            [
-              previous.error.kind,
-              previous.error.message,
-              previous.error.wording ? JSON.stringify(previous.error.wording) : null,
-              doc.id,
-            ],
-          );
-        if (status === "pending" || status === "waiting") tagState(doc.id, status);
+        if (assignmentFits) restoreAssignmentRow(doc, target.assignment);
+        if (restoreTagging && target.tagging) restoreTaggingRow(doc.id, target.tagging);
       });
+      const restored = assignment(doc.id);
+      const restoredAssignment = restored ? assignmentFields(restored) : null;
+      const restoredTagging = restoreTagging ? taggingSnapshot(doc.id) : null;
+      const assignmentMoved = !sameAssignment(currentAssignment, restoredAssignment);
+      const taggingMoved =
+        restoreTagging && taggingKey(currentTagging) !== taggingKey(restoredTagging);
+      if (!assignmentMoved && !taggingMoved) return null;
+      // A Document that had no assignment goes back to none: no event can say so, the snapshot does.
+      if (!restoredAssignment) {
+        revision++;
+        options.changed();
+      }
       options.tagged([doc.id]);
       announce([doc.id]);
       // A Document put back as waiting waits as it did: resuming now would organize it again at once (#1391).
-      if (status === "pending") resume();
+      if (target.assignment?.status === "pending" || target.assignment?.status === "classifying")
+        resume();
+      return {
+        documentId: doc.id,
+        before: {
+          assignment: currentAssignment,
+          tagging: taggingMoved ? currentTagging : null,
+        },
+        after: {
+          assignment: restoredAssignment,
+          tagging: taggingMoved ? restoredTagging : null,
+        },
+      };
     },
     // A new request id makes a run already under way for these Documents stale.
-    accept(input: unknown): AssignmentChange[] {
+    accept(input: unknown, checked?: unknown): AssignmentChange[] {
+      if (checked !== undefined) {
+        if (!isRecord(checked))
+          throw new InvalidInputError({ key: "error.library.checkedFolders" });
+        // Checked in the same turn as the accepting, with nothing awaited between: a suggestion
+        // that moved to another Folder since it was checked is never accepted unchecked.
+        const ids: readonly unknown[] = Array.isArray(input) ? input : [];
+        const moved = ids.some((id) => {
+          if (typeof id !== "string") return false;
+          const now = assignment(id);
+          return now?.suggested === 1 && now.group_id !== (checked[id] ?? null);
+        });
+        if (moved) throw new InvalidInputError({ key: "error.folder.suggestionMoved" });
+      }
       return review(input, (row) =>
         db.run(
           "UPDATE document_groups SET source = 'user', suggested = 0, request_id = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -1158,7 +1394,7 @@ export function createLibrary(options: {
       );
     },
     reject(input: unknown): AssignmentChange[] {
-      const settled = new Set<string>();
+      const settled: string[] = [];
       const changes = review(input, (row) => {
         // Only the tagging Organize held is the Reject's to settle; a state the tagger set, for a
         // retag the User asked for, stays the tagger's (#1955).
@@ -1172,7 +1408,7 @@ export function createLibrary(options: {
         );
         if (organizing) {
           tagState(row.document_id, "classified");
-          settled.add(row.document_id);
+          settled.push(row.document_id);
         }
         if (row.group_id && !rejected(row.document_id).has(row.group_id))
           db.run(
@@ -1180,7 +1416,7 @@ export function createLibrary(options: {
             [randomUUID(), row.document_id, row.group_id, at, at],
           );
       });
-      if (settled.size > 0) options.tagged([...settled]);
+      if (settled.length > 0) options.tagged(settled);
       return changes;
     },
     target(input: unknown): string | null {

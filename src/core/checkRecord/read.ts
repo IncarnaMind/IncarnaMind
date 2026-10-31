@@ -1,6 +1,6 @@
 /**
  * What a Mind's checks left on it, read for the check record (#738): each
- * checked sentence and each Citation with its result, the Document version it
+ * checked sentence, Citation and record cite with its result, the Document version it
  * rests on, who checked it and when, and whose text it is. What the Mind's own
  * marks and Citations and the Documents as they are now don't hold is left
  * empty, never guessed.
@@ -17,9 +17,22 @@ import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../sh
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
+import {
+  citationSignOffBasis,
+  signOffNow,
+  signOffOn,
+  signOffShown,
+  signOffsOf,
+} from "../../shared/signOffs";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
-import { checkedSentences } from "../answers/checks/sentences";
+import {
+  checkedSentences,
+  citationSentences,
+  figuresNow,
+  noteTextOfMarked,
+  recordCiteNote,
+} from "../answers/checks/sentences";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
@@ -30,6 +43,8 @@ import {
   GENERATED_MARK,
   type KeptCitationText,
   QUESTION_BLOCK,
+  type RecordCiteResult,
+  type SignOffNow,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
@@ -71,10 +86,44 @@ export type SentenceItem = RecordItemFields & {
   check: SentenceCheck | null;
 };
 
-/** IncarnaMind checks a Citation's quote against the Document's text without a model, and keeps no time. */
-export type CitationItem = RecordItemFields & { kind: "citation"; result: CitationCheck };
+/**
+ * IncarnaMind checks a Citation's quote against the Document's text without a model, and keeps no
+ * time. `signOff` is a person's own check of it (#1933), which isn't IncarnaMind's.
+ */
+export type CitationItem =
+  | (RecordItemFields & {
+      kind: "citation";
+      result: CitationCheck;
+      signOff: SignOffNow | null;
+    })
+  | {
+      /** A person's check of a Citation the Note doesn't hold now, kept as a row (#1933). */
+      kind: "citation";
+      result: "gone";
+      text: "";
+      origin: null;
+      says: null;
+      evidence: null;
+      signOff: SignOffNow;
+    };
 
 export type RecordItem = SentenceItem | CitationItem;
+
+export interface RecordCiteItem {
+  kind: "record-cite";
+  sentence: string;
+  raw: string;
+  from: number | null;
+  to: number | null;
+  outcome: RecordCiteResult["outcome"];
+  origin: TextOrigin;
+  evidence: RecordDocument | null;
+  covered: string | null;
+  uncovered: string | null;
+  candidates: { id: string; name: string }[];
+  nearby: { location: string | null; passage: string } | null;
+  check: SentenceCheck | null;
+}
 
 export interface RecordSources {
   fragment: Y.XmlFragment;
@@ -84,6 +133,8 @@ export interface RecordSources {
   t: Translate;
   model(providerId: string | null, modelId: string | null): ModelDescription | null;
   readQuote(attributes: Partial<CitationAttributes>): string | null;
+  /** The User, whose own check marks are theirs (#1933); null before they make one. */
+  personId: string | null;
 }
 
 interface Run {
@@ -108,6 +159,33 @@ function documentOf(
     sha256,
     location: citedLocation(attributes, t),
     quote: readQuote(attributes),
+  };
+}
+
+/** A record cite's resolved source is its stable id, never a same-content replacement. */
+function recordCiteDocumentOf(
+  cite: RecordCiteResult,
+  { documents, t }: Pick<RecordSources, "documents" | "t">,
+): RecordDocument | null {
+  const hasEvidence =
+    cite.documentId !== undefined ||
+    cite.documentName !== undefined ||
+    cite.contentHash !== undefined ||
+    cite.location !== undefined ||
+    cite.pageFrom !== undefined ||
+    cite.passage !== undefined;
+  if (!hasEvidence) return null;
+  const live = documents.find((each) => each.id === cite.documentId);
+  const hasDocument = cite.documentId !== undefined || cite.documentName !== undefined;
+  const sha256 = cite.contentHash ?? null;
+  return {
+    name: live?.name ?? cite.documentName ?? (hasDocument ? t("export.unnamedDocument") : ""),
+    file: live ? (live.web?.address ?? fileNameOf(live.path)) : null,
+    deleted: cite.documentId !== undefined && live === undefined,
+    size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,
+    sha256,
+    location: citedLocation(cite, t),
+    quote: cite.passage ?? null,
   };
 }
 
@@ -145,64 +223,149 @@ function holdsAiText(element: Y.XmlElement, from: number, to: number): boolean {
 export function readRecord(sources: RecordSources): {
   sentences: SentenceItem[];
   citations: CitationItem[];
+  recordCites: RecordCiteItem[];
   /** The requests the sentences were checked with: what each check's unread files are kept by. */
   requests: string[];
 } {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const { figureContexts, figured } = figuresNow(fragment);
+  const note = recordCiteNote(fragment);
 
   const sentences: SentenceItem[] = [];
+  const recordCites: RecordCiteItem[] = [];
   const requests: string[] = [];
-  for (const { element, from, to, check, sentence, cited } of checkedSentences(fragment)) {
+  for (const { element, from, to, check, sentence, cited, place, noteText } of checkedSentences(
+    fragment,
+  )) {
     requests.push(check.request);
     const result = sentenceResultOf(
-      claimCheckShown(check, { text: sentence, versions, folderId, scope }),
+      claimCheckShown(check, {
+        text: sentence,
+        versions,
+        folderId,
+        scope,
+        figureContexts,
+        figured: figured({ element, from, to }),
+        note: note(place),
+        ...noteTextOfMarked({ noteText }),
+      }),
       check,
       cited.length,
     );
     if (!result) continue;
+    const origin =
+      blockOrigin(fragment, topOf(fragment, element)) ??
+      (holdsAiText(element, from, to) ? "ai" : "user");
+    const checked = {
+      model: model(check.providerId, check.modelId),
+      at: check.checkedAt === "" ? null : check.checkedAt,
+      scope: check.scope,
+    };
     sentences.push({
       kind: "sentence",
       text: comparableSentence(sentence),
       result,
-      origin:
-        blockOrigin(fragment, topOf(fragment, element)) ??
-        (holdsAiText(element, from, to) ? "ai" : "user"),
+      origin,
       says: check.says,
       evidence: check.evidence ? documentOf(check.evidence, sources) : null,
-      check:
-        result === "notChecked"
-          ? null
-          : {
-              model: model(check.providerId, check.modelId),
-              at: check.checkedAt === "" ? null : check.checkedAt,
-              scope: check.scope,
-            },
+      check: result === "notChecked" ? null : checked,
     });
+    for (const cite of check.recordCites ?? []) {
+      recordCites.push({
+        kind: "record-cite",
+        sentence: comparableSentence(sentence),
+        raw: cite.raw,
+        from: cite.from ?? null,
+        to: cite.to ?? null,
+        outcome: cite.outcome,
+        origin,
+        evidence: recordCiteDocumentOf(cite, sources),
+        covered: cite.covered ?? null,
+        uncovered: cite.uncovered ?? null,
+        candidates: (cite.candidates ?? []).map((candidate) => ({
+          id: candidate.id,
+          name: documents.find((each) => each.id === candidate.id)?.name ?? candidate.name,
+        })),
+        nearby: cite.nearby
+          ? { location: citedLocation(cite.nearby, sources.t), passage: cite.nearby.passage }
+          : null,
+        check: checked,
+      });
+    }
   }
 
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
+  const idOf = new Map<Footnote, string>();
   const readOptions = {
     includeQuestions: false,
     footnote: (attributes: Record<string, unknown>): Footnote => {
       const note: Footnote = { source: "", unverified: false };
       attributesOf.set(note, citationAttributesOf(attributes));
+      const id = attributes[BLOCK_ID_ATTRIBUTE];
+      if (typeof id === "string") idOf.set(note, id);
       return note;
     },
     trimBeforeCitation: false,
     review: reviewReading(fragment),
   };
+  const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
+  const signedOff = citationSentences(fragment);
+  const signOffOfCitation = (
+    id: string | undefined,
+    attributes: Partial<CitationAttributes> | undefined,
+  ): SignOffNow | null => {
+    const sentence = id === undefined ? undefined : signedOff.get(id)?.sentence;
+    const mark =
+      id === undefined ? null : signOffOn(marks, { kind: "citation", id }, sources.personId);
+    if (!mark || !attributes || sentence === undefined) return null;
+    const cited = {
+      documentId: attributes.documentId ?? null,
+      contentHash: attributes.contentHash ?? null,
+      quote: attributes.quote ?? null,
+    };
+    return signOffNow(
+      signOffShown(mark, citationSignOffBasis(sentence, cited), [cited], versions),
+      sources.personId,
+    );
+  };
+  const signOffOf = (note: Footnote) => signOffOfCitation(idOf.get(note), attributesOf.get(note));
   const citations: CitationItem[] = [];
   for (const child of fragment.toArray()) {
     if (!(child instanceof Y.XmlElement) || child.nodeName === QUESTION_BLOCK) continue;
     if (isProposed(child)) continue;
     const origin = blockOrigin(fragment, child);
     for (const group of groupsOf(readBlock(child, readOptions))) {
-      citations.push(...citationsIn(group, { attributesOf, origin, sources }));
+      citations.push(...citationsIn(group, { attributesOf, origin, sources, signOffOf }));
     }
   }
-  return { sentences, citations, requests };
+  const inlineIds = new Set(idOf.values());
+  for (const [id, { sentence, citation, element }] of signedOff) {
+    if (inlineIds.has(id) || isProposed(topOf(fragment, element))) continue;
+    citations.push({
+      kind: "citation",
+      text: comparableSentence(sentence),
+      result: citationState(citation, sources.documents, sources.kept).check,
+      origin: blockOrigin(fragment, element) ?? "user",
+      says: citation.verdict ?? null,
+      evidence: documentOf(citation, sources),
+      signOff: signOffOfCitation(id, citation),
+    });
+  }
+  for (const mark of marks) {
+    if (mark.target.kind !== "citation" || signedOff.has(mark.target.id)) continue;
+    citations.push({
+      kind: "citation",
+      result: "gone",
+      text: "",
+      origin: null,
+      says: null,
+      evidence: null,
+      signOff: signOffNow({ state: "checked", record: mark }, sources.personId),
+    });
+  }
+  return { sentences, citations, recordCites, requests };
 }
 
 function citationsIn(
@@ -211,12 +374,17 @@ function citationsIn(
     attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
     origin: TextOrigin | null;
     sources: RecordSources;
+    signOffOf(note: Footnote): SignOffNow | null;
   },
 ): CitationItem[] {
-  const { attributesOf, origin, sources } = context;
+  const { attributesOf, origin, sources, signOffOf } = context;
   let plain = "";
   const aiAt: boolean[] = [];
-  const placed: { offset: number; attributes: Partial<CitationAttributes> }[] = [];
+  const placed: {
+    offset: number;
+    attributes: Partial<CitationAttributes>;
+    signOff: SignOffNow | null;
+  }[] = [];
   const add = (text: string, ai: boolean) => {
     for (const character of text) {
       plain += character;
@@ -227,16 +395,19 @@ function citationsIn(
     if (inline.inserted) continue;
     if (inline.kind === "text") {
       add(inline.text, inline.ai === true);
+    } else if (inline.kind === "figure") {
+      add(inline.figure.shown, false);
     } else if (inline.kind === "citation") {
       const attributes = attributesOf.get(inline.footnote);
-      if (attributes) placed.push({ offset: aiAt.length, attributes });
+      if (attributes)
+        placed.push({ offset: aiAt.length, attributes, signOff: signOffOf(inline.footnote) });
       add(INLINE_NODE, false);
     } else if (inline.kind === "break") {
       add("\n", false);
     }
   }
   const spans = sentenceSpans(plain);
-  return placed.map(({ offset, attributes }): CitationItem => {
+  return placed.map(({ offset, attributes, signOff }): CitationItem => {
     const span = spans.find((each) => each.from <= offset && offset < each.to) ??
       spans.filter((each) => each.from <= offset).at(-1) ?? { from: 0, to: aiAt.length };
     return {
@@ -246,6 +417,7 @@ function citationsIn(
       origin: origin ?? (aiAt.slice(span.from, span.to).some(Boolean) ? "ai" : "user"),
       says: attributes.verdict ?? null,
       evidence: documentOf(attributes, sources),
+      signOff,
     };
   });
 }

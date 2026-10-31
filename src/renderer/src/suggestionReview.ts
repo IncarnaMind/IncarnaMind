@@ -9,8 +9,9 @@ import { makeInTurn, type Undoable, useUndo } from "./undo";
 type Decision = "accept" | "reject";
 
 /** What a step leaves a Document as, so that Undo spares one the User has changed since. */
-const placeOf = (item: DocumentGroupAssignment | undefined) =>
-  item ? `${item.groupId ?? ""}|${item.source}|${item.suggested}` : "";
+const placeOf = (
+  item: Pick<DocumentGroupAssignment, "groupId" | "source" | "suggested"> | null | undefined,
+) => (item ? `${item.groupId ?? ""}|${item.source}|${item.suggested}` : "");
 
 const assignmentsNow = () =>
   new Map(
@@ -46,11 +47,17 @@ function showDecided(decision: Decision, ids: readonly string[]): void {
   }));
 }
 
-async function apply(decision: Decision, ids: readonly string[]): Promise<AssignmentChange[]> {
+/** `checked`: for an accept, the Suggested Folder each was checked against (see `acceptAssignments`). */
+async function apply(
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+  wall?: string | null,
+): Promise<AssignmentChange[]> {
   showDecided(decision, ids);
   try {
     return decision === "accept"
-      ? await core.acceptAssignments([...ids])
+      ? await core.acceptAssignments([...ids], checked, wall)
       : await core.rejectAssignments([...ids]);
   } catch (error) {
     await useAppStore.getState().refreshLibrary();
@@ -63,41 +70,50 @@ function stepOf(
   changes: readonly AssignmentChange[],
   said: Undoable["said"],
 ): Undoable {
+  let held = [...changes];
   return {
     said,
     name: (t) => t(decision === "accept" ? "undo.name.accept" : "undo.name.reject"),
     async undo() {
       const now = assignmentsNow();
       // A Document the User has moved since is theirs now: it stays where they put it.
-      const mine = changes.filter(
-        (each) => placeOf(now.get(each.after.documentId)) === placeOf(each.after),
+      const mine = held.filter(
+        (each) => placeOf(now.get(each.documentId)) === placeOf(each.after.assignment),
       );
-      await Promise.all(
-        mine.map(({ before: { documentId, ...previous } }) =>
-          core.restoreAssignment(documentId, previous),
-        ),
+      const fresh = await Promise.all(
+        mine.map((each) => core.restoreAssignment(each.documentId, each.before, each.after)),
       );
+      held = fresh.filter((each): each is AssignmentChange => each !== null);
       await useAppStore.getState().refreshLibrary();
     },
     async redo() {
       const now = assignmentsNow();
-      const mine = changes.filter(
-        (each) => placeOf(now.get(each.before.documentId)) === placeOf(each.before),
+      const mine = held.filter(
+        (each) => placeOf(now.get(each.documentId)) === placeOf(each.after.assignment),
       );
       if (mine.length === 0) return;
-      await apply(
+      held = await apply(
         decision,
-        mine.map((each) => each.before.documentId),
+        mine.map((each) => each.documentId),
       );
     },
   };
 }
 
 // A ⌘Z pressed while it runs waits for it, then takes it back.
-const decide = (decision: Decision, ids: readonly string[]): Promise<Undoable | null> =>
-  makeInTurn(() => decideNow(decision, ids));
+const decide = (
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+  wall?: string | null,
+): Promise<Undoable | null> => makeInTurn(() => decideNow(decision, ids, checked, wall));
 
-async function decideNow(decision: Decision, ids: readonly string[]): Promise<Undoable | null> {
+async function decideNow(
+  decision: Decision,
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+  wall?: string | null,
+): Promise<Undoable | null> {
   const waiting = new Set(waitingIds());
   const chosen = [...new Set(ids)].filter((id) => waiting.has(id));
   if (chosen.length === 0) return null;
@@ -107,7 +123,7 @@ async function decideNow(decision: Decision, ids: readonly string[]): Promise<Un
   const name = only ? displayName(only) : "";
   const folderId = only ? assignmentsNow().get(only.id)?.groupId : null;
   const folder = library?.groups.find((each) => each.id === folderId)?.name ?? "";
-  const changes = await apply(decision, chosen);
+  const changes = await apply(decision, chosen, checked, wall);
   if (changes.length === 0) {
     await useAppStore.getState().refreshLibrary();
     return null;
@@ -127,6 +143,10 @@ async function decideNow(decision: Decision, ids: readonly string[]): Promise<Un
   return step;
 }
 
-export const acceptSuggestions = (ids: readonly string[]) => decide("accept", ids);
+export const acceptSuggestions = (
+  ids: readonly string[],
+  checked?: Record<string, string | null>,
+  wall?: string | null,
+) => decide("accept", ids, checked, wall);
 
 export const rejectSuggestions = (ids: readonly string[]) => decide("reject", ids);

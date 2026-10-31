@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { CANVAS } from "../engineModules";
 import type { PictureDrawn, PictureJob } from "./sharedPictures";
 
 const WASH = "#dcf3e4";
@@ -7,6 +7,7 @@ const ERROR = "#b42318";
 const QUALITY = 80;
 
 async function draw({ image, area, width, height, marks, tone }: PictureJob): Promise<Uint8Array> {
+  const { createCanvas, loadImage } = await CANVAS.load();
   const source = await loadImage(Buffer.from(image));
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");

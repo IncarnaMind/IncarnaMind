@@ -4,6 +4,7 @@ import {
   type AnswerToolCall,
   type ApprovalRequest,
   BLOCK_ID_ATTRIBUTE,
+  type ChatModelChoice,
   type ProviderErrorKind,
   type SignInRouteProblem,
   SKILL_SCRIPT_LIMITS,
@@ -16,6 +17,7 @@ import { asksAfterThirdParty } from "../../../shared/approvalRules";
 import { toolCallsOf } from "../../../shared/toolCalls";
 import { AnswerWriting } from "../answerPhase";
 import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
+import { documentReadText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
@@ -45,7 +47,7 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
-import { requestModelMenu } from "../modelMenu";
+import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
@@ -309,6 +311,9 @@ export function AnswerError({
   details,
   failedAt = null,
   onRetry,
+  onRetryWith,
+  modelNow = null,
+  chooseHere = false,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -324,6 +329,12 @@ export function AnswerError({
    */
   failedAt?: string | null;
   onRetry?: (() => void) | undefined;
+  /** Asks again with the model the composer shows now, when it isn't the one that failed (#1848). */
+  onRetryWith?: ((model: ChatModelChoice) => void) | undefined;
+  /** The model the composer's chip shows now. */
+  modelNow?: ChatModelChoice | null;
+  /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
+  chooseHere?: boolean;
   onOpenSettings(page: SettingsPage): void;
 }) {
   const t = useT();
@@ -337,6 +348,7 @@ export function AnswerError({
   const [shownAt] = useState(() => new Date().toISOString());
   const billingOpened = useBillingOpenedSince(providerId, failedAt ?? shownAt);
   const keySaved = useKeySavedSince(providerId, failedAt ?? shownAt);
+  const pickedModel = retryModel({ providerId, modelId }, modelNow);
   const declineEnded = useDeclineEnded(
     providerInUse?.service?.id ?? null,
     kind === "consent-declined" && onRetry !== undefined,
@@ -398,39 +410,47 @@ export function AnswerError({
       />
     );
   }
-  const action = removeFromMenu
-    ? { label: t("answer.error.removeFromMenu"), onClick: removeFromMenu }
-    : kind === "auth" && keySaved && onRetry
-      ? { label: t("answer.error.askAgain"), onClick: onRetry }
-      : kind === "auth"
-        ? {
-            label: t("answer.error.checkKey"),
-            onClick: () =>
-              void useKeyRefusals.getState().check(providerId, modelId ?? "", failedAt),
-          }
-        : fix.kind === "settings"
-          ? { label: t(fix.label), onClick: () => onOpenSettings(fix.page) }
-          : fix.kind === "sign-in"
+  const chooseModel = fix.kind === "settings" && fix.page === "models";
+  const action =
+    chooseModel && pickedModel && onRetryWith
+      ? { label: t("answer.error.askAgain"), onClick: () => onRetryWith(pickedModel) }
+      : removeFromMenu
+        ? { label: t("answer.error.removeFromMenu"), onClick: removeFromMenu }
+        : kind === "auth" && keySaved && onRetry
+          ? { label: t("answer.error.askAgain"), onClick: onRetry }
+          : kind === "auth"
             ? {
-                label: t(fix.label),
+                label: t("answer.error.checkKey"),
                 onClick: () =>
-                  void signInAgain(onOpenSettings).then((signedIn) => {
-                    if (signedIn) onRetry?.();
-                  }),
+                  void useKeyRefusals.getState().check(providerId, modelId ?? "", failedAt),
               }
-            : fix.kind === "link"
-              ? // The main process opens it in the User's browser.
-                {
-                  label: `${t(fix.label)} ↗`,
-                  onClick: () => {
-                    if (kind === "out-of-credit")
-                      useKeyRefusals.getState().openBilling(providerId, fix.url);
-                    else window.open(fix.url, "_blank", "noreferrer");
-                  },
+            : fix.kind === "settings"
+              ? {
+                  label: t(fix.label),
+                  onClick: () =>
+                    chooseModel && chooseHere ? requestModelMenu() : onOpenSettings(fix.page),
                 }
-              : fix.kind === "retry" && onRetry
-                ? { label: t(fix.label), onClick: onRetry }
-                : undefined;
+              : fix.kind === "sign-in"
+                ? {
+                    label: t(fix.label),
+                    onClick: () =>
+                      void signInAgain(onOpenSettings).then((signedIn) => {
+                        if (signedIn) onRetry?.();
+                      }),
+                  }
+                : fix.kind === "link"
+                  ? // The main process opens it in the User's browser.
+                    {
+                      label: `${t(fix.label)} ↗`,
+                      onClick: () => {
+                        if (kind === "out-of-credit")
+                          useKeyRefusals.getState().openBilling(providerId, fix.url);
+                        else window.open(fix.url, "_blank", "noreferrer");
+                      },
+                    }
+                  : fix.kind === "retry" && onRetry
+                    ? { label: t(fix.label), onClick: onRetry }
+                    : undefined;
   return (
     <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
       <ProblemLine
@@ -487,6 +507,7 @@ export function CallRows({
           call.source === "sources" ||
           call.source === "web" ||
           call.source === "analysis" ||
+          call.tool === "read_document" ||
           (call.source === "skill" && call.tool === RUN_SCRIPT)),
     )
     .map((call) => <CallRow key={call.id} call={call} />);
@@ -507,10 +528,21 @@ export function CallRow({ call }: { call: AnswerToolCall }) {
   if (call.source === "minds") return <MindCall call={call} />;
   if (call.source === "analysis") return <AnalysisCall call={call} />;
   if (call.source === "commands") return <CommandCall call={call} />;
+  if (call.tool === "read_document") return <DocumentReadCall call={call} />;
   if (call.source === "connector") return <ConnectorCall call={call} />;
   if (call.source === "sources") return <SourcesCall call={call} />;
   if (call.source === "web") return <WebCall call={call} />;
   return <ScriptCall call={call} />;
+}
+
+function DocumentReadCall({ call }: { call: AnswerToolCall }) {
+  const t = useT();
+  return (
+    <div contentEditable={false} data-testid="answer-document-read" className="answer-call">
+      <DocumentLineIcon kind="text" className="answer-call-icon" />
+      <span className="answer-call-text">{documentReadText(t, call)}</span>
+    </div>
+  );
 }
 
 /**

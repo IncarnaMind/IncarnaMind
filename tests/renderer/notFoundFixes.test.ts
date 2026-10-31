@@ -2,12 +2,21 @@ import { type Editor, getSchema, type JSONContent } from "@tiptap/core";
 import { EditorState, Plugin, type Transaction } from "@tiptap/pm/state";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { CITATION_NODE, CLAIM_CHECK_MARK, FOOTNOTE_NODE, GENERATED_MARK } from "../../src/core/api";
+import {
+  CITATION_NODE,
+  CLAIM_CHECK_MARK,
+  type ClaimCheckPart,
+  FOOTNOTE_NODE,
+  GENERATED_MARK,
+} from "../../src/core/api";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
-import { claimSpans, type ShownClaim } from "../../src/renderer/src/editor/claimChecks";
+import {
+  claimPlaces,
+  claimSpans,
+  type ShownClaim,
+} from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
-import { sentenceSpans } from "../../src/shared/sentences";
 
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
@@ -21,11 +30,13 @@ vi.mock("../../src/renderer/src/i18n", () => ({ translateNow: (key: string) => k
 const {
   checkStateKey,
   cutSentence,
+  applyDocumentWording,
   keepAsView,
   offersFindSources,
   offersKeepAsView,
   offersNotFound,
   searchedLess,
+  sentenceOf,
 } = await import("../../src/renderer/src/unsupportedFixes");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { useUndo } = await import("../../src/renderer/src/undo");
@@ -120,11 +131,9 @@ function claimOn(
   let start = 0;
   for (let i = 0; i < block; i++) start += editor.state.doc.child(i).nodeSize;
   const node = editor.state.doc.child(block);
-  const text = node.textBetween(0, node.content.size, "\n", "￼");
-  const span = sentenceSpans(text)[index];
+  const span = claimPlaces(node, start).sentences[index];
   if (!span) throw new Error("No such sentence.");
-  const from = start + 1 + span.from;
-  const to = start + 1 + span.to;
+  const { from, to } = span;
   return {
     check: {
       citedCaseUnchecked: false,
@@ -136,7 +145,7 @@ function claimOn(
     },
     from,
     to,
-    sentence: { from, to, text: text.slice(span.from, span.to) },
+    sentence: { from, to, text: span.text },
     shown: { state: over.state ?? "unsupported" },
   } as unknown as ShownClaim;
 }
@@ -144,6 +153,50 @@ function claimOn(
 const textsOf = (editor: Editor) => editor.state.doc.children.map((each) => each.textContent);
 
 describe("Cut it", () => {
+  test.each(["inside", "end"])(
+    "uses the canonical cited sentence for searches and Cut it (%s)",
+    (place) => {
+      const content =
+        place === "inside"
+          ? paragraph(
+              "Revenue ",
+              citation,
+              { type: "text", text: "rose 8%. Next stays." },
+              citation,
+            )
+          : paragraph(
+              "Revenue rose 8%.",
+              citation,
+              { type: "text", text: " Next stays." },
+              citation,
+            );
+      const { editor, dispatched } = editorHolding([content]);
+      const before = editor.state.doc.toJSON();
+      const claim = claimOn(editor, 0, 0);
+      expect(sentenceOf(editor, claim)).toBe("Revenue rose 8%.");
+      cutSentence(editor, claim);
+      expect(dispatched).toHaveLength(1);
+      expect(textsOf(editor)).toEqual(["Next stays."]);
+      expect(editor.state.doc.textContent).not.toContain("Revenue");
+      let citations = 0;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === CITATION_NODE) citations++;
+      });
+      expect(citations).toBe(1);
+      editor.commands.undo();
+      expect(editor.state.doc.toJSON()).toEqual(before);
+    },
+  );
+  test("cuts a whole final cited paragraph and its Citation, with Undo", () => {
+    const { editor, dispatched } = editorHolding([paragraph("Revenue rose 8%.", citation)]);
+    const before = editor.state.doc.toJSON();
+    cutSentence(editor, claimOn(editor, 0, 0));
+    expect(dispatched).toHaveLength(1);
+    expect(textsOf(editor)).toEqual([""]);
+    expect(editor.state.doc.toJSON()).not.toEqual(before);
+    editor.commands.undo();
+    expect(editor.state.doc.toJSON()).toEqual(before);
+  });
   test.each([
     ["the first sentence", 0, ["Two dogs. Three birds."]],
     ["a sentence in the middle", 1, ["One cat. Three birds."]],
@@ -579,5 +632,114 @@ describe("Cut it in a paragraph with footnotes", () => {
     expect(shapeOf(editor)).toEqual(["One cat. ", "Two dogs."]);
     expect(useNotices.getState().errors).toHaveLength(before + 1);
     expect(useNotices.getState().errors.at(-1)?.message).toBe("claim.cutSentence.moved");
+  });
+});
+
+describe("Use the Document's wording for one forecast part", () => {
+  function forecast(end: number): ClaimCheckPart {
+    return {
+      span: { start: 0, end },
+      kind: "fact",
+      verdict: "unsupported",
+      evidence: [],
+      says: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      unsupported: {
+        kind: "forecast-certainty",
+        reason: "forecast",
+        covered: null,
+        uncovered: null,
+        quoted: {
+          passageId: "p",
+          documentId: "d",
+          documentName: "Forecast",
+          contentHash: "v1",
+          quote: "Revenue is forecast to reach £10m",
+          pageFrom: 1,
+          pageTo: 1,
+          location: null,
+          check: "found",
+          checkReason: null,
+        },
+      },
+    };
+  }
+
+  test("changes the second identical fact only, keeps its adjacent Citation and opinion, and Undo restores all", () => {
+    const fact = "Revenue will reach £10m";
+    const holding = editorHolding([
+      paragraph(`${fact}. ${fact}`, citation, {
+        type: "text",
+        text: ", and we think the deal is risky.",
+      }),
+    ]);
+    const { editor, dispatched } = holding;
+    const before = editor.state.doc;
+    const claim = claimOn(editor, 0, 1, { state: "unsupported" });
+    claim.check.text = claim.sentence.text;
+    applyDocumentWording(editor, claim, forecast(fact.length));
+    expect(dispatched).toHaveLength(1);
+    expect(editor.state.doc.textContent).toBe(
+      `${fact}. Revenue is forecast to reach £10m, and we think the deal is risky.`,
+    );
+    let citations = 0;
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === CITATION_NODE) citations++;
+    });
+    expect(citations).toBe(1);
+    expect(editor.state.doc.toJSON()).not.toEqual(before.toJSON());
+    editor.commands.undo();
+    expect(editor.state.doc.toJSON()).toEqual(before.toJSON());
+  });
+
+  test("retains the old check as needing a recheck after replacing all its text", () => {
+    const sentence = "Revenue will reach £10m.";
+    const { editor } = editorHolding([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: sentence, marks: [checkMark("forecast", sentence, "unsupported")] },
+        ],
+      },
+    ]);
+    const span = claimSpans(editor.state.doc)[0];
+    if (!span) throw new Error("The forecast check was not read.");
+    applyDocumentWording(
+      editor,
+      { ...span, shown: { state: "unsupported" } },
+      forecast(sentence.length),
+    );
+    const retained = claimSpans(editor.state.doc)[0]?.check;
+    expect(retained?.id).toBe("forecast");
+    expect(
+      retained &&
+        claimCheckShown(retained, {
+          text: editor.state.doc.textContent,
+          versions: null,
+          folderId: null,
+          scope: null,
+        }),
+    ).toEqual({ state: "needs-recheck", why: "edited" });
+    editor.commands.undo();
+    expect(editor.state.doc.textContent).toBe(sentence);
+  });
+
+  test("does nothing if the sentence moved or changed", () => {
+    const { editor, dispatched } = editorHolding([paragraph("Revenue will reach £10m.")]);
+    const claim = claimOn(editor, 0, 0, { state: "unsupported" });
+    claim.check.text = claim.sentence.text;
+    applyDocumentWording(
+      editor,
+      { ...claim, sentence: { ...claim.sentence, text: "Revenue will reach £12m." } },
+      forecast(22),
+    );
+    expect(dispatched).toHaveLength(0);
+    expect(useNotices.getState().errors.at(-1)?.message).toBe("error.check.partChanged");
   });
 });

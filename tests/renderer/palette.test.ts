@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { ConversationMatch, Mind } from "../../src/core/api";
 import type { FindableKind, FoundObject } from "../../src/renderer/src/finding";
 import type { ObjectKind, ObjectRef } from "../../src/renderer/src/objects";
@@ -137,6 +137,55 @@ describe("⌘K's names", () => {
   });
 });
 
+describe("an open card's own actions in ⌘K", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // protects=⌘K reaches Checked by me on a calculated figure's card and a Citation's card while it shows, ticked as it is, from the actions the card offers (#1933), in English and Chinese; fails_when=⌘K lists no Checked by me for an open card; no_claim=the card's own button.
+  test.each(["en", "zh-CN"] as const)("are listed, ticked as they are (%s)", async (language) => {
+    const { figureHandle } = await import("../../src/renderer/src/editor/figureHandle");
+    const { citationHandle } = await import("../../src/renderer/src/commands/handles");
+    // ⌘K opened with the focus nowhere in the page: what it acts on is the card that shows.
+    vi.stubGlobal("Element", class {});
+    vi.stubGlobal("HTMLElement", class {});
+    const run = () => undefined;
+    const keys = () =>
+      palette
+        .actionGroup(
+          palette.readQuery(translate(language, "signOff.action")).words,
+          palette.contextAt(null),
+          language,
+          found.names,
+        )
+        .flatMap((group) => group.items.map((item) => item.key));
+    figureHandle.current = {
+      id: "figure",
+      editable: () => true,
+      open: run,
+      copyFormula: run,
+      convertToText: run,
+      remove: run,
+      here: () => ({ "figure.signOff": run }),
+    };
+    try {
+      expect(keys()).toContain("command:figure.signOff");
+    } finally {
+      figureHandle.current = null;
+    }
+    citationHandle.current = {
+      open: run,
+      choices: () => ({ update: null, keepOld: null }),
+      here: () => ({ "citation.signOffRemove": run }),
+    };
+    try {
+      expect(keys()).toContain("command:citation.signOffRemove");
+    } finally {
+      citationHandle.current = null;
+    }
+  });
+});
+
 describe("⌘K's actions", () => {
   const actions = (query: string, language: "en" | "zh-CN" = "en") =>
     shown(
@@ -169,10 +218,10 @@ describe("⌘K's actions", () => {
         ?.items.find((item) => item.key === key);
 
     expect(itemOf("command:verify.document", "en")).toMatchObject({
-      purpose: "Check the claims in a PDF someone else wrote",
+      purpose: "Check the claims in a file someone else wrote",
     });
     expect(itemOf("command:verify.document", "zh-CN")).toMatchObject({
-      purpose: "核对别人写的 PDF 里的说法",
+      purpose: "核对别人所写文件中的说法",
     });
     const [list] = palette.actionGroup(
       [],

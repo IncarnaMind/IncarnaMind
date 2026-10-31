@@ -1,11 +1,12 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { chosenParts } from "../../../shared/exportOptions";
 import { nameInLine } from "../../../shared/naming";
+import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { commentedChecks, trackedChanges, unmarkedChecks } from "../exportChecks";
+import { checkComments, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
   COMPARISON_EXCEL,
@@ -15,6 +16,7 @@ import {
   type ExportResult,
   exportAgain,
   exportMind,
+  FIGURE_SCHEDULE_EXCEL,
   FORMAT_LABELS,
   isCheckRecord,
   revealNeedsDetails,
@@ -32,7 +34,6 @@ import {
   defaultFolderLabel,
   showOutputLocationSetting,
 } from "../outputFiles";
-import { saveFailureReason } from "../problems";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
@@ -53,7 +54,10 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
   result.failures.length === 0 &&
+  result.sentKept &&
   unmarkedChecks(result.checks, t) === null;
+
+const othersWord = (result: SavedResult) => result.format === "docx" && result.othersFile;
 
 /**
  * How the last export of this Mind went, floating at the foot of its tab (#100), as problems
@@ -105,11 +109,24 @@ function ResultBody({
   const dismiss = useExports((state) => state.dismiss);
   const [error, setError] = useState<string | null>(null);
   const held = useHeld(line);
-  const unmarked = result.state === "saved" ? unmarkedChecks(result.checks, t) : null;
+  // Someone else's Word file with no comments says so quietly, before Change, not as a warning (#110).
+  const unmarked =
+    result.state === "saved" && !othersWord(result) ? unmarkedChecks(result.checks, t) : null;
   const withFile =
     result.state === "saved"
       ? [
-          { testId: "export-comments", text: commentedChecks(result.checks, t) },
+          {
+            testId: "export-hidden-columns",
+            text:
+              result.hiddenColumns === 0
+                ? ""
+                : t(
+                    result.hiddenColumns === 1
+                      ? "export.hiddenColumns.one"
+                      : "export.hiddenColumns.other",
+                    { count: result.hiddenColumns },
+                  ),
+          },
           { testId: "export-tracked", text: trackedChanges(result.tracked, t) },
         ].flatMap(({ testId, text }) => (text ? [{ testId, text }] : []))
       : [];
@@ -123,12 +140,11 @@ function ResultBody({
     return () => clearTimeout(timer);
   }, [plain, held, dismiss]);
 
-  const saving =
-    result.format === COMPARISON_EXCEL
-      ? t("export.excel.saving")
-      : isCheckRecord(result.format)
-        ? t("checkRecord.saving")
-        : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
+  const saving = isWorkbook(result.format)
+    ? t("export.excel.saving")
+    : isCheckRecord(result.format)
+      ? t("checkRecord.saving")
+      : t("export.saving.line", { format: t(FORMAT_LABELS[result.format]) });
   const fix = (): ProblemAction | undefined => {
     if (result.state === "failed") {
       return {
@@ -136,6 +152,13 @@ function ResultBody({
         testId: "export-change-location",
         onClick: () =>
           void exportAgain(result, async () => (await chooseOutputLocation()) !== null),
+      };
+    }
+    if (result.state === "not-laid-out") {
+      return {
+        label: t("export.tryAgain"),
+        testId: "export-try-again",
+        onClick: () => void exportAgain(result, async () => true),
       };
     }
     if (result.state === "not-allowed") {
@@ -271,6 +294,11 @@ function ResultBody({
                     )}
               </ProblemLine>
             )}
+            {!result.sentKept && (
+              <ProblemLine role="status" testId="export-sent-not-kept">
+                {t("export.sentNotKept")}
+              </ProblemLine>
+            )}
             {result.failures.map(({ format, reason }) => (
               <ProblemLine key={format} role="status" testId={`export-failed-${format}`}>
                 {t(`checkRecord.failed.${format}`, { reason: reasonOf(reason, t) })}
@@ -284,6 +312,10 @@ function ResultBody({
           </ProblemLine>
         ) : result.state === "review" ? (
           <WordExportReview result={result} />
+        ) : result.state === "not-laid-out" ? (
+          <ProblemLine testId="export-problem" action={fix()} className="py-1">
+            {t("export.notLaidOut")}
+          </ProblemLine>
         ) : (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
             {t("export.failed.save", {
@@ -341,6 +373,12 @@ function NeedsDetailsLine({ mindId, documentIds }: { mindId: string; documentIds
 }
 
 /** Where the note's checks stand (#1915), read as the corner badge reads it; null for a line that isn't the note's own export, or until its Mind is known. */
+/** A workbook the app writes from a note, the comparison or the figure schedule: not the note's own file. */
+const isWorkbook = (
+  format: SavedResult["format"],
+): format is typeof COMPARISON_EXCEL | typeof FIGURE_SCHEDULE_EXCEL =>
+  format === COMPARISON_EXCEL || format === FIGURE_SCHEDULE_EXCEL;
+
 function useExportNoteState(mindId: string | null): NoteState | null {
   const mind = useAppStore((state) =>
     mindId === null ? null : (state.minds.find((each) => each.id === mindId) ?? null),
@@ -350,33 +388,40 @@ function useExportNoteState(mindId: string | null): NoteState | null {
 }
 
 /**
- * What the file was written with (#1945), and how far the note's checks reach (#1915): the parts
- * after its name in the Saved line, in that order, then Change when either choice can still be
- * made. Everything after the name is one part after another, each after a "·".
+ * What the file was written with (#1945), how far the note's checks reach (#1915), and how many
+ * check comments it holds (#110): the parts after its name in the Saved line, in that order,
+ * then Change when either choice can still be made. Everything after the name is one part after
+ * another, each after a "·".
  */
 function SavedSentence({ result, withFile }: { result: SavedResult; withFile: SavedWithFile }) {
   const t = useT();
   const language = useLanguage();
   const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
   const name = nameInLine(result.name);
-  // The check record and the workbook aren't the note's file: their lines say what they are, not how the note stands.
-  const noteExport = !isCheckRecord(result.format) && result.format !== COMPARISON_EXCEL;
+  // The check record and the workbooks aren't the note's file: their lines say what they are, not how the note stands.
+  const noteExport = !isCheckRecord(result.format) && !isWorkbook(result.format);
   const state = useExportNoteState(noteExport ? result.mindId : null);
   const chosen = chosenParts(t, {
     places:
       result.citationPlace === null
         ? null
-        : { citations: result.citations, place: result.citationPlace },
+        : {
+            citations: result.citations,
+            footnotes: result.footnotes,
+            place: result.citationPlace,
+          },
     markAiText: result.markAiText,
   });
   const unchecked =
     state === null || (state.kind === "checked" && state.unread === 0)
       ? []
       : noteStateParts(state, t, language);
+  const comments = checkComments(result.checks, t, othersWord(result));
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
     ...withFile,
     ...unchecked.map((text) => ({ testId: "export-unchecked", text })),
+    ...(comments ? [{ testId: "export-comments", text: comments }] : []),
   ];
   // Only Word and PDF have a choice to change: a Word file always has the marking, a Numbered PDF
   // the place of its Citations. Markdown, HTML, a share page and a source pack have neither.
@@ -411,7 +456,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
 /**
  * "Saved “Tides.pdf” in Documents › IncarnaMind", the file's name in the ink; then what went
  * into the file, each part after a "·" that a wrapped line leaves off its start:
- * "Saved “Tides.docx” in Exports · 2 Contradicted, as comments". The first part has no "·" and
+ * "Saved “Tides.docx” in Exports · 2 check comments". The first part has no "·" and
  * the room for it instead, so none of its wrapped lines starts in the clipped margin.
  */
 function SavedName({
@@ -498,6 +543,6 @@ function CheckIcon() {
 
 /** Why a file couldn't be written or opened, in a few words: ours when we know, else the system's. */
 function reasonOf(message: string, t: ReturnType<typeof useT>): string {
-  const key = saveFailureReason(message);
-  return key ? t(key) : message;
+  const reason = saveFailureReason(message);
+  return reason ? t(reason.key, reason.values) : message;
 }

@@ -440,7 +440,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await pointAndClick(window, exportButton);
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^Word \(\.docx\)(⇧⌘E|Ctrl\+Shift\+E)$/,
-    "Not checked since your last edit · Check first",
+    "1 claim not checked yet · Check first",
     "PDF",
     "More formats",
     /^Citation style/,
@@ -524,7 +524,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^PDF(⇧⌘E|Ctrl\+Shift\+E)$/,
     "Word（.docx）",
-    "上次编辑后未核对 · 先核对",
+    "1 条说法待核对 · 先核对",
     "更多格式",
     /^引用格式/,
     "导出选项…",

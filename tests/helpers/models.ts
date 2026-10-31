@@ -3,6 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import { listedSentences } from "./claimSentences";
 
 /** A chat model that answers "OK" to every request. */
 export function replyingModel(text = "OK"): MockLanguageModelV4 {
@@ -268,7 +269,7 @@ export function claimCheckReply(
     text: JSON.stringify({
       claims: candidates
         .filter((claim) => reply.includes(claim.sentence))
-        .map((claim) => ({ ...claim, backed: false })),
+        .map((claim) => ({ about: "mind", ...claim, backed: false })),
     }),
   };
 }
@@ -279,13 +280,21 @@ export type ScriptedReply =
       /** What the model reasons before it replies, as its provider streams it. */
       reasoning?: string;
       text?: string;
-      /** With `streamInput`, the call's input streams in chunks first, as a provider that streams Tool inputs sends it. */
-      calls?: { tool: string; input: unknown; streamInput?: boolean }[];
+      /**
+       * With `streamInput`, the call's input streams in chunks first, as a provider that streams
+       * Tool inputs sends it. `raw` is the input's JSON text as the model writes it, which may not
+       * be valid JSON: in place of `input`'s.
+       */
+      calls?: { tool: string; input: unknown; streamInput?: boolean; raw?: string }[];
       /**
        * Stops streaming once `after` characters of the text, or of a streamed
        * input, are out, until `until` resolves.
        */
       pause?: { after: number; until: Promise<void> };
+      /** The reply reached the request's output limit: it ends there, cut off. */
+      cutOff?: boolean;
+      /** The tokens this reply reports instead of the model's. */
+      usage?: ReportedUsage;
     }
   /** The provider refuses the request with an HTTP error. */
   | { error: { status: number; message: string } };
@@ -365,6 +374,18 @@ export function scriptedModel(
   return new MockLanguageModelV4({
     modelId,
     doGenerate: async (options) => {
+      if (!generate && systemOf(options.prompt).startsWith("You sort the sentences")) {
+        const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
+          number,
+          parts: [{ kind: "fact", text }],
+        }));
+        return {
+          content: [{ type: "text", text: JSON.stringify({ sentences }) }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
       if (!generate && systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS)) {
         return {
           content: [{ type: "text", text: '{"claims":[]}' }],
@@ -421,7 +442,7 @@ export function scriptedModel(
       }
       (reply.calls ?? []).forEach((each, number) => {
         const toolCallId = `call-${call.index}-${number}`;
-        const input = JSON.stringify(each.input);
+        const input = each.raw ?? JSON.stringify(each.input);
         if (each.streamInput) {
           parts.push({ type: "tool-input-start", id: toolCallId, toolName: each.tool });
           for (let at = 0; at < input.length; at += chunkSize) {
@@ -438,10 +459,10 @@ export function scriptedModel(
       parts.push({
         type: "finish",
         finishReason: {
-          unified: reply.calls?.length ? "tool-calls" : "stop",
+          unified: reply.cutOff ? "length" : reply.calls?.length ? "tool-calls" : "stop",
           raw: undefined,
         },
-        usage,
+        usage: reply.usage ?? usage,
       });
       const { pause } = reply;
       let streamed = 0;

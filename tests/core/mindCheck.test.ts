@@ -7,6 +7,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { CheckMindInput, Core } from "../../src/core";
+import { documentFigureContext } from "../../src/core/answers/calculations";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
 import {
   CLAIM_CHECK_MARK,
@@ -15,9 +16,20 @@ import {
 } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
-import { mindCheckOf, writeMindCheck } from "../../src/shared/mindCheck";
+import { keepCheckAsView } from "../../src/shared/claimParts";
+import { readFigures } from "../../src/shared/figures";
+import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
-import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { readOpinionSentences } from "../../src/shared/opinions";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  requestedFigures,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, waitForDocuments, writeSourceFile } from "../helpers/documents";
@@ -57,9 +69,46 @@ const PLANS: Record<string, Plan> = {
     says: "The harbour office says every week, not every year.",
   },
   [PENGUINS]: { verdict: "unsupported" },
+  [`Big ${MOON}`]: { verdict: "unsupported" },
+  [`Some ${PENGUINS}`]: { verdict: "unsupported" },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
+
+const unbackedFigures = (call: ModelCall) =>
+  `Figures: ${JSON.stringify({
+    items: requestedFigures(call).map(({ id }) => ({
+      id,
+      verdict: "unsupported",
+      scope: "same",
+      topic: "not found",
+      roles: "same",
+      says: null,
+      reading: null,
+      relation: "equals",
+      source: null,
+      calculation: null,
+    })),
+    remainder: null,
+  })}`;
+
+interface SortDecisions {
+  sentences: { number: number; parts: { kind: "fact" | "opinion"; text: string }[] }[];
+}
+
+/** The numbers a request listed `sentence` under. */
+const numbersOf = (call: GenerateCall, sentence: string): number[] =>
+  listedSentences(call.prompt).flatMap((listed) =>
+    listed.text === sentence ? [listed.number] : [],
+  );
+
+/** A reply's decisions without those of `sentences`. */
+const withoutDecisions =
+  (sentences: readonly string[]) =>
+  (call: GenerateCall, decisions: SortDecisions): SortDecisions => {
+    const missing = new Set(sentences.flatMap((sentence) => numbersOf(call, sentence)));
+    return { sentences: decisions.sentences.filter((sentence) => !missing.has(sentence.number)) };
+  };
 
 /** The check Runs made: each starts with a call that has no Tool results yet. */
 const runsIn = (calls: readonly ModelCall[]) =>
@@ -70,18 +119,41 @@ const runsIn = (calls: readonly ModelCall[]) =>
  * `billed`, one billed per token, each request reporting its tokens), and
  * every call to it kept.
  */
-async function setUp(billed?: { usage: ReportedUsage; judged?: ReportedUsage }) {
+async function setUp(
+  billed?: { usage: ReportedUsage; judged?: ReportedUsage },
+  /** How a reply naming the claims differs from the plans' decisions, by how many were asked. */
+  decide?: (asked: number, call: GenerateCall, decisions: SortDecisions) => SortDecisions,
+) {
   const checks: ModelCall[] = [];
   const finds: GenerateCall[] = [];
   const model = scriptedModel(
     (call) => {
       checks.push(call);
-      return checkReply(call, PLANS);
+      const reply = checkReply(call, PLANS);
+      return requestedFigures(call).length > 0 &&
+        call.results.some((result) => result.tool === "search_documents") &&
+        "text" in reply &&
+        reply.text?.startsWith("Verdict: unsupported")
+        ? { text: unbackedFigures(call) }
+        : reply;
     },
     {
       generate: (call) => {
-        if (call.system.startsWith("You sort the sentences")) finds.push(call);
+        const sorting = call.system.startsWith("You sort the sentences");
+        if (sorting) finds.push(call);
         const reply = checkGenerate(PLANS)(call);
+        if (sorting && "text" in reply) {
+          const decisions = JSON.parse(reply.text) as SortDecisions;
+          const views = new Set(numbersOf(call, OPINION));
+          const explicit = {
+            sentences: decisions.sentences.map((sentence) =>
+              views.has(sentence.number)
+                ? { ...sentence, parts: [{ kind: "opinion" as const, text: OPINION }] }
+                : sentence,
+            ),
+          };
+          return { text: JSON.stringify(decide ? decide(finds.length, call, explicit) : explicit) };
+        }
         return billed?.judged && "text" in reply && call.system.startsWith("Compare a sentence")
           ? { ...reply, usage: billed.judged }
           : reply;
@@ -143,9 +215,20 @@ const request = (mindId: string, mode: CheckMindInput["mode"], id = "run"): Chec
 });
 
 /** Each check's mark in the Mind, as the editor shows it now. */
-async function shownChecks(core: Core, client: MindClient, folderId: string | null) {
+async function shownChecks(
+  core: Core,
+  client: MindClient,
+  mindId: string,
+  folderId: string | null,
+) {
   await client.settled();
   const versions = new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
+  const figureContexts = new Map(
+    (await core.getFigureSchedule(mindId)).rows.map((figure) => {
+      if (typeof figure.context !== "string") throw new Error("A figure has no current context.");
+      return [figure.id, figure.context];
+    }),
+  );
   return claimSpans(readMind(client)).map((span) => ({
     sentence: span.sentence.text.trim(),
     shown: claimCheckShown(span.check, {
@@ -153,6 +236,7 @@ async function shownChecks(core: Core, client: MindClient, folderId: string | nu
       versions,
       folderId,
       scope: null,
+      figureContexts,
     }),
   }));
 }
@@ -218,6 +302,134 @@ test.each([
 });
 
 describe("Check this note", () => {
+  // protects=a second Check of a Note while one runs starts none, whichever window or request asks, and says one is running; the first goes on to its end; fails_when=two runs check the same Note at once; no_claim=a Check of another Note, which runs beside it.
+  test("one Check of a Note at a time: a second, from anywhere, starts none", async () => {
+    const { core, mindId, finds } = await setUp();
+
+    const first = core.checkMind(request(mindId, "all", "first-window"));
+    const second = core.checkMind(request(mindId, "all", "second-window"));
+
+    expect(await second).toEqual({ kind: "running" });
+    expect(await first).toMatchObject({ kind: "checked", sentences: 3 });
+    expect(finds).toHaveLength(1);
+    expect(await core.checkMind(request(mindId, "all", "after"))).toMatchObject({
+      kind: "checked",
+    });
+  });
+
+  // protects=two Check requests that begin planning at once: the second is refused before it names any claim, so no second question is asked and one run starts; fails_when=both plan and both may ask; no_claim=which request the model names claims for.
+  test("two Checks in the planning window: the second is refused, and one runs", async () => {
+    const { core, mindId, finds } = await setUp();
+
+    const first = core.findMindClaims(request(mindId, "all", "first-window"));
+    const second = core.findMindClaims(request(mindId, "all", "second-window"));
+
+    expect(await second).toEqual({ kind: "running" });
+    expect(await first).toMatchObject({ kind: "found" });
+    expect(finds).toHaveLength(1);
+    expect(await core.checkMind(request(mindId, "all", "first-window"))).toMatchObject({
+      kind: "checked",
+      sentences: 3,
+    });
+  });
+
+  // protects=a stopped Check keeps its Note until it has unwound: a Check asked the moment it is stopped starts none, and the Note is free after; fails_when=the next Check starts over the stopped one's work; no_claim=what the stopped Check writes.
+  test("a stopped Check keeps its Note until it unwinds", async () => {
+    const { core, mindId } = await setUp();
+
+    const first = core.checkMind(request(mindId, "all", "stopped"));
+    await core.cancelCheck("stopped-all");
+    expect(await core.checkMind(request(mindId, "all", "over"))).toEqual({ kind: "running" });
+    expect(await first).toEqual({ kind: "cancelled" });
+    expect(await core.checkMind(request(mindId, "all", "after"))).toMatchObject({
+      kind: "checked",
+    });
+  });
+
+  // protects=a window's Check keeps its Note from planning until it runs: a second window's Check is refused before it plans, and the Note is free once the Check runs, is dropped, or its window goes; fails_when=another window plans or runs meanwhile, or the Note stays kept; no_claim=what the Check finds.
+  test("a planned Check keeps its Note until it runs, is dropped, or its window goes", async () => {
+    const { core, mindId, finds } = await setUp();
+    const planned = request(mindId, "all", "planned");
+
+    expect(
+      await core.holdMindCheck({
+        requestId: planned.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(false);
+
+    // A window gone frees a Check still being planned, never one that is running.
+    const running = core.checkMind(planned);
+    await core.forgetCheckWindow({ clientId: "first-window" });
+    expect(await core.checkMind(request(mindId, "all", "while-running"))).toEqual({
+      kind: "running",
+    });
+    expect(await running).toMatchObject({ kind: "checked", sentences: 3 });
+    expect(
+      await core.holdMindCheck({ requestId: "after", mindId, clientId: "second-window" }),
+    ).toBe(true);
+    await core.cancelCheck("after");
+    expect(await core.holdMindCheck({ requestId: "third", mindId, clientId: "first-window" })).toBe(
+      true,
+    );
+    await core.forgetCheckWindow({ clientId: "first-window" });
+    expect(
+      await core.holdMindCheck({ requestId: "later", mindId, clientId: "second-window" }),
+    ).toBe(true);
+    expect(finds).toHaveLength(1);
+  });
+
+  // protects=a planning run stopped while a window held its Note frees it; fails_when=the Note stays held until the window goes; no_claim=what the model would name.
+  test("a planning run stopped while a window held its Note frees it", async () => {
+    const { core, mindId } = await setUp();
+    const planned = request(mindId, "all", "planning");
+    expect(
+      await core.holdMindCheck({
+        requestId: planned.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+
+    const planning = core.findMindClaims(planned);
+    await core.cancelCheck(planned.requestId);
+
+    expect(await planning).toEqual({ kind: "cancelled" });
+    expect(await core.holdMindCheck({ requestId: "next", mindId, clientId: "second-window" })).toBe(
+      true,
+    );
+  });
+
+  // protects=one Check is two parts: the claims run hands the window its Note back for the watch that follows, so a second window's Check is refused until the renderer frees it at the end; fails_when=the Note is free between the two parts; no_claim=what the watch checks.
+  test("a window's Check keeps its Note through the watch, and the next Check starts after it", async () => {
+    const { core, mindId } = await setUp();
+    const first = request(mindId, "all", "first");
+    expect(
+      await core.holdMindCheck({
+        requestId: first.requestId,
+        mindId,
+        clientId: "first-window",
+      }),
+    ).toBe(true);
+
+    expect(await core.checkMind(first)).toMatchObject({ kind: "checked", sentences: 3 });
+    // The claims ended, the watch has not: the Note is still the window's.
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(false);
+    expect(await core.checkMind(request(mindId, "all", "second"))).toEqual({ kind: "running" });
+
+    // `runCheck`'s finally, after the watch: the Note is free, and the next Check starts.
+    await core.cancelCheck(first.requestId);
+    expect(
+      await core.holdMindCheck({ requestId: "second", mindId, clientId: "second-window" }),
+    ).toBe(true);
+  });
+
   test("the model it names is the one in use: an older Mind follows a new last pick, its own pick wins, and a removed provider falls back", async () => {
     const { core, client, mindId } = await setUp();
     const named = async () => {
@@ -277,7 +489,10 @@ describe("Check this note", () => {
       stop: null,
     });
     expect(
-      (await shownChecks(core, client, folderId)).map(({ sentence, shown }) => [sentence, shown]),
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence, shown }) => [
+        sentence,
+        shown,
+      ]),
     ).toEqual([
       [MOON, { state: "supported" }],
       [YEARLY, { state: "contradicted" }],
@@ -299,6 +514,150 @@ describe("Check this note", () => {
       kind: "unchanged",
       since: "2026-10-02T14:20:00.000Z",
     });
+  });
+
+  test("a sentence the reply leaves undecided is asked about once more, with its own number, and checked once decided (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (asked, call, decisions) =>
+        asked === 1 ? withoutDecisions([PENGUINS])(call, decisions) : decisions,
+    );
+
+    expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+      kind: "checked",
+      sentences: 3,
+    });
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 5, text: PENGUINS }] }));
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    expect(mindCheckOf(client.doc)).toMatchObject({ unexamined: [] });
+    expect(mindCheckOf(client.doc)?.skipped).toHaveLength(2);
+  });
+
+  test.each([
+    ["Spring tides come at new and full moon.", "Penguins nest on the cliffs above the harbour."],
+    ["大潮发生在新月和满月时。", "企鹅在港口上方的悬崖筑巢。"],
+  ])(
+    "a readable reply missing every sentence leaves them unexamined: %s",
+    async (first, second) => {
+      const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({
+        sentences: [],
+      }));
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "all-missing" }, content: [text(`${first} ${second}`)] },
+      ]);
+      await client.settled();
+      expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+        kind: "checked",
+        sentences: 0,
+        checked: 0,
+        stop: null,
+      });
+      expect(finds).toHaveLength(2);
+      expect(finds[1]?.prompt).toBe(finds[0]?.prompt);
+      expect(mindCheckOf(client.doc)).toMatchObject({
+        skipped: [],
+        unexamined: [sentenceKey(first), sentenceKey(second)],
+      });
+      expect(await shownChecks(core, client, mindId, folderId)).toEqual([]);
+      expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+        kind: "ready",
+        sentences: 2,
+        findsClaims: true,
+      });
+    },
+  );
+
+  test("a sentence no reply decides isn't examined: no mark, not left out as no claim, and the next Check asks about it again (#1682)", async () => {
+    let silent = true;
+    const { core, client, mindId, folderId, finds } = await setUp(
+      undefined,
+      (_, call, decisions) => (silent ? withoutDecisions([PENGUINS])(call, decisions) : decisions),
+    );
+
+    expect(await core.checkMind(request(mindId, "all"))).toMatchObject({
+      kind: "checked",
+      sentences: 2,
+    });
+    expect(finds).toHaveLength(2);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY]);
+    const run = mindCheckOf(client.doc);
+    expect(run?.unexamined).toHaveLength(1);
+    expect(run?.skipped).toHaveLength(2);
+    expect(run?.skipped).not.toContain(run?.unexamined[0]);
+    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+      findsClaims: true,
+    });
+
+    silent = false;
+    expect(await core.checkMind(request(mindId, "changed", "again"))).toMatchObject({
+      kind: "checked",
+      sentences: 1,
+    });
+    expect(finds).toHaveLength(3);
+    expect(finds[2]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: PENGUINS }] }));
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
+  });
+
+  test("a Note checked before every sentence got a decision has its sentences that made no claim sorted once more (#1682)", async () => {
+    const { core, client, mindId, folderId, finds } = await setUp();
+    // A run before #1682 took a sentence its reply didn't list for one that makes no claim.
+    client.doc.getMap(MIND_SETTINGS_FIELD).set("mindCheck", {
+      at: "2026-10-01T09:00:00.000Z",
+      sentences: 0,
+      stop: null,
+      skipped: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+    await client.settled();
+    expect(mindCheckOf(client.doc)).toMatchObject({
+      skipped: [],
+      unexamined: [sentenceKey(PENGUINS), sentenceKey(QUESTION)],
+    });
+
+    await core.checkMind(request(mindId, "changed"));
+    expect(finds[0]?.prompt).toContain(PENGUINS);
+    expect(finds[0]?.prompt).toContain(QUESTION);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([MOON, YEARLY, PENGUINS]);
+    const run = mindCheckOf(client.doc);
+    expect(run?.unexamined).toEqual([]);
+    expect(run?.skipped).toContain(sentenceKey(QUESTION));
+    expect(run?.skipped).not.toContain(sentenceKey(PENGUINS));
+  });
+
+  test("the same words twice, named a claim once and left out once, are checked and not left out (#1682)", async () => {
+    const { core, client, mindId, folderId } = await setUp(undefined, (_, call, decisions) => {
+      const [, second] = numbersOf(call, MOON);
+      return second === undefined
+        ? decisions
+        : {
+            sentences: decisions.sentences.map((sentence) =>
+              sentence.number === second ? { ...sentence, parts: [] } : sentence,
+            ),
+          };
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", attrs: { id: "again" }, content: [text(MOON)] },
+    ]);
+    await client.settled();
+
+    await core.checkMind(request(mindId, "all"));
+    const marked = (await shownChecks(core, client, mindId, folderId)).map(
+      ({ sentence }) => sentence,
+    );
+    expect(marked.filter((sentence) => sentence === MOON)).toHaveLength(2);
+    expect(mindCheckOf(client.doc)?.skipped).not.toContain(sentenceKey(MOON));
   });
 
   test("a short sentence with a shown check counts and is checked, though it makes no claim (#1909)", async () => {
@@ -357,7 +716,7 @@ describe("Check this note", () => {
     });
     expect(runsIn(checks).length).toBe(runsBefore + 2);
     expect(
-      (await shownChecks(core, client, folderId))
+      (await shownChecks(core, client, mindId, folderId))
         .map(({ sentence, shown }) => [sentence, shown.state])
         .filter(([sentence]) => sentence === "100" || sentence === "200"),
     ).toEqual([
@@ -368,23 +727,21 @@ describe("Check this note", () => {
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
-  test("Check again after two claims are edited checks those two only, without naming the claims again", async () => {
+  test("Check again renews only the edited sentences' parts, then checks them", async () => {
     const { core, client, mindId, folderId, checks, finds } = await setUp();
     await core.checkMind(request(mindId, "all"));
     const runsBefore = runsIn(checks).length;
 
     typeInto(client, 1, 0, "Big ");
     typeInto(client, 2, OPINION.length + 1, "Some ");
-    expect((await shownChecks(core, client, folderId)).map(({ shown }) => shown.state)).toEqual([
-      "needs-recheck",
-      "contradicted",
-      "needs-recheck",
-    ]);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
+    ).toEqual(["needs-recheck", "contradicted", "needs-recheck"]);
 
     expect(await core.planMindCheck(mindId, "changed")).toEqual({
       kind: "ready",
       sentences: 2,
-      findsClaims: false,
+      findsClaims: true,
       inFolder: true,
       model: (await core.getSettings()).user.chatModel,
     });
@@ -392,14 +749,19 @@ describe("Check this note", () => {
       kind: "checked",
       sentences: 2,
     });
-    // Two check Runs, and the model wasn't asked again which sentences claim something.
     expect(runsIn(checks).length - runsBefore).toBe(2);
-    expect(finds).toHaveLength(1);
-    expect((await shownChecks(core, client, folderId)).map(({ shown }) => shown.state)).toEqual([
-      "unsupported",
-      "contradicted",
-      "unsupported",
-    ]);
+    expect(finds).toHaveLength(2);
+    expect(finds[1]?.prompt).toBe(
+      JSON.stringify({
+        sentences: [
+          { number: 1, text: `Big ${MOON}` },
+          { number: 2, text: `Some ${PENGUINS}` },
+        ],
+      }),
+    );
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
+    ).toEqual(["unsupported", "contradicted", "unsupported"]);
   });
 
   // protects=a sentence the User keeps as their own view (#1111) isn't checked again, in any mode, until its words change; fails_when=a run sends it, or an edit of it doesn't bring it back; no_claim=how the card sets it.
@@ -413,11 +775,9 @@ describe("Check this note", () => {
       updateCheck(client.blocks, penguins?.check.id ?? "", (check) => ({ ...check, kept: true }));
     }, "editor");
     await client.settled();
-    expect((await shownChecks(core, client, folderId)).map(({ shown }) => shown.state)).toEqual([
-      "supported",
-      "contradicted",
-      "kept",
-    ]);
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
+    ).toEqual(["supported", "contradicted", "kept"]);
 
     expect(await core.planMindCheck(mindId, "all")).toMatchObject({
       kind: "ready",
@@ -446,7 +806,7 @@ describe("Check this note", () => {
     });
     await core.checkMind(request(mindId, "changed"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("the monthly cap stops the run: the claims left say “not checked: cost cap”", async () => {
@@ -490,7 +850,7 @@ describe("Check this note", () => {
       smallModel: false,
       stop: { reason: "cost-cap" },
     });
-    expect((await shownChecks(core, client, null)).map(({ shown }) => shown)).toEqual(
+    expect((await shownChecks(core, client, mind.id, null)).map(({ shown }) => shown)).toEqual(
       [MOON, YEARLY, PENGUINS].map(() => ({ state: "not-checked", reason: "cost-cap" })),
     );
     expect(runsIn(checks)).toEqual([]);
@@ -536,7 +896,9 @@ describe("Check this note", () => {
       sentences: 3,
     });
     expect(finds).toHaveLength(1);
-    expect(mindCheckOf(client.doc)?.skipped).toHaveLength(3);
+    expect(mindCheckOf(client.doc)?.skipped).toEqual([sentenceKey(QUESTION), sentenceKey(memo)]);
+    expect(readOpinionSentences(client.doc).map((sentence) => sentence.text)).toEqual([OPINION]);
+    expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
 
@@ -703,7 +1065,7 @@ describe("Check this note", () => {
     });
     await restarted.core.checkMind(request(mindId, "all", "third"));
     expect(finds).toHaveLength(2);
-    expect(finds[1]?.prompt).toBe(`[1] ${added}`);
+    expect(finds[1]?.prompt).toBe(JSON.stringify({ sentences: [{ number: 1, text: added }] }));
   });
 
   test("says why there is nothing to check: no sentences; a Mind in a Folder with no Documents checks every Document (#1359)", async () => {
@@ -748,7 +1110,7 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
         const itself = shown.find((each) => each.text.includes(sentenceOf(call)));
         const bank = shown.find((each) => each.text.includes(BANK));
         const decided = itself ?? bank;
-        if (!decided) return { text: "Verdict: unsupported" };
+        if (!decided) return { text: unbackedFigures(call) };
         const quote = itself ? sentenceOf(call) : BANK;
         if (!call.results.some((result) => result.tool === "cite")) {
           return {
@@ -757,10 +1119,29 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
             ],
           };
         }
+        const sourceNumbers = readFigures(quote, documentFigureContext([{ text: quote }]));
         return {
-          text: itself
-            ? "Verdict: supported"
-            : "Verdict: contradicted\nThe bank says £212,480.00. [^1]",
+          text: `Figures: ${JSON.stringify({
+            items: requestedFigures(call).map(({ id, shown }) => {
+              const amount = shown === "£214,480.00";
+              const at = quote.indexOf(!itself && amount ? "GBP" : shown);
+              const position = sourceNumbers.findIndex((figure) => figure.start === at) + 1;
+              if (position < 1) throw new Error(`Missing source occurrence for ${shown}.`);
+              return {
+                id,
+                verdict: !itself && amount ? "contradicted" : "supported",
+                scope: "same",
+                topic: "found",
+                roles: "same",
+                says: !itself && amount ? "The bank says £212,480.00." : null,
+                reading: null,
+                relation: "equals",
+                source: { citation: 1, position, reading: null, unitQuote: null },
+                calculation: null,
+              };
+            }),
+            remainder: null,
+          })}`,
         };
       },
       { generate: checkGenerate(plans) },
@@ -868,5 +1249,221 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
     await core.checkMind(request(mindId, "all"));
     expect(loanCheck()).toMatchObject({ state: "not-checked", reason: "unread" });
     expect(runs).toHaveLength(STEPS);
+  });
+});
+
+describe("Checking selected figures in one sentence", () => {
+  const sentence = "Revenue was £20, costs were £5 and cash was £7, and the audit was complete.";
+  const source = "Revenue was £20, costs were £9 and cash was £7.";
+
+  async function fixture() {
+    let barrier: { entered(): void; until: Promise<void> } | null = null;
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!call.results.some((result) => result.tool === "search_documents"))
+          return { calls: [{ tool: "search_documents", input: { query: "revenue costs cash" } }] };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const shown = call.results
+            .filter((result) => result.tool === "search_documents")
+            .flatMap((result) => shownPassages(result.text));
+          const passage = shown.find((passage) => passage.text.includes(source));
+          if (!passage) throw new Error("Missing fixture source.");
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: { citations: [{ marker: 1, passage: passage.id, quote: source }] },
+              },
+            ],
+          };
+        }
+        const requested = requestedFigures(call);
+        const positions: Record<string, number> = { "£20": 1, "£5": 2, "£7": 3 };
+        const reply = {
+          text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
+            items: requested.map(({ id, shown }) => {
+              const position = positions[shown];
+              if (!position) throw new Error(`Unknown fixture figure ${shown}.`);
+              return {
+                id,
+                verdict: shown === "£5" ? "contradicted" : "supported",
+                scope: "same",
+                topic: "found",
+                roles: "same",
+                says: shown === "£5" ? "The source gives costs of £9." : null,
+                reading: null,
+                relation: "equals",
+                source: { citation: 1, position, reading: null, unitQuote: null },
+                calculation: null,
+              };
+            }),
+            remainder:
+              requested.length === 3
+                ? {
+                    text: "the audit was complete",
+                    verdict: "unsupported",
+                    scope: "same",
+                    topic: "not found",
+                    roles: "same",
+                    says: "The source gives no audit conclusion.",
+                    citation: null,
+                  }
+                : null,
+          })}`,
+        };
+        const held = barrier;
+        if (!held) return reply;
+        barrier = null;
+        held.entered();
+        return { ...reply, pause: { after: 0, until: held.until } };
+      },
+      { generate: checkGenerate({ [sentence]: { verdict: "unsupported" } }) },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const folder = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(folder, "Accounts.md", source)]);
+    const mind = await core.createMind({ title: "Figures", folderId: null });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [{ type: "paragraph", attrs: { id: "amounts" }, content: [text(sentence)] }]);
+    await client.settled();
+    const rows = async () => {
+      await client.settled();
+      return (await core.getFigureSchedule(mind.id)).rows;
+    };
+    const owner = () => {
+      const check = claimSpans(readMind(client))[0]?.check;
+      if (!check) throw new Error("No owner check was written.");
+      return check;
+    };
+    const keep = async (id?: string) => {
+      const check = owner();
+      client.doc.transact(() => {
+        updateCheck(client.blocks, check.id, (current) =>
+          keepCheckAsView(current, id === undefined ? undefined : new Set([id])),
+        );
+      }, "editor");
+      await client.settled();
+    };
+    const holdNext = () => {
+      let entered = () => {};
+      let release = () => {};
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const until = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      barrier = { entered, until };
+      return { started, release };
+    };
+    return { core, client, mindId: mind.id, model, calls, rows, owner, keep, holdNext };
+  }
+
+  test("a selected recheck preserves a kept sibling, a bad sibling and the independent remainder", async () => {
+    const { core, mindId, rows, owner, keep, calls } = await fixture();
+    await core.checkMind(request(mindId, "all", "initial"));
+    const [revenue, costs, cash] = await rows();
+    if (!revenue || !costs || !cash) throw new Error("Missing fixture figures.");
+    expect([revenue, costs, cash].map((row) => row.shown.state)).toEqual([
+      "supported",
+      "contradicted",
+      "supported",
+    ]);
+    await keep(revenue.id);
+    const before = structuredClone(owner());
+    const count = runsIn(calls).length;
+
+    await core.checkMind({ ...request(mindId, "all", "cash"), figureIds: [cash.id] });
+
+    expect((await rows()).map((row) => row.shown.state)).toEqual([
+      "kept",
+      "contradicted",
+      "supported",
+    ]);
+    const after = owner();
+    expect(after.figures?.find((figure) => figure.id === revenue.id)).toEqual(
+      before.figures?.find((figure) => figure.id === revenue.id),
+    );
+    expect(after.figures?.find((figure) => figure.id === costs.id)).toEqual(
+      before.figures?.find((figure) => figure.id === costs.id),
+    );
+    expect(after.remainder).toEqual(before.remainder);
+    expect(after.remainder).toMatchObject({ state: "unsupported" });
+    expect(
+      runsIn(calls)
+        .slice(count)
+        .map((call) => requestedFigures(call).map(({ id }) => id)),
+    ).toEqual([[cash.id]]);
+  });
+
+  test("checking one figure after whole-sentence Keep leaves its siblings and remainder kept", async () => {
+    const { core, mindId, rows, owner, keep } = await fixture();
+    await core.checkMind(request(mindId, "all", "initial"));
+    const cash = (await rows())[2];
+    if (!cash) throw new Error("Missing cash figure.");
+    await keep();
+    expect((await rows()).map((row) => row.shown.state)).toEqual(["kept", "kept", "kept"]);
+
+    await core.checkMind({ ...request(mindId, "all", "cash"), figureIds: [cash.id] });
+
+    expect((await rows()).map((row) => row.shown.state)).toEqual(["kept", "kept", "supported"]);
+    expect(owner().remainder).toMatchObject({ kept: true });
+    expect(owner().figures?.find((figure) => figure.id === cash.id)?.kept).not.toBe(true);
+  });
+
+  test("empty, unknown and duplicate figure ids are rejected before a model call", async () => {
+    const { core, mindId, rows, model } = await fixture();
+    const first = (await rows())[0];
+    if (!first) throw new Error("Missing figure.");
+    for (const ids of [[], ["unknown-figure"], [first.id, first.id]])
+      await expect(
+        core.checkMind({ ...request(mindId, "all", "invalid"), figureIds: ids }),
+      ).rejects.toThrow();
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(model.doGenerateCalls).toHaveLength(0);
+  });
+
+  test("stopping a selected recheck settles only its pending child", async () => {
+    const { core, client, mindId, rows, owner, keep, holdNext } = await fixture();
+    await core.checkMind(request(mindId, "all", "initial"));
+    const [revenue, , cash] = await rows();
+    if (!revenue || !cash) throw new Error("Missing fixture figures.");
+    await keep(revenue.id);
+    const before = structuredClone(owner());
+    const held = holdNext();
+    const input = { ...request(mindId, "all", "stop"), figureIds: [cash.id] };
+    const running = core.checkMind(input);
+    try {
+      await held.started;
+      await client.settled();
+      expect((await rows()).map((row) => row.shown.state)).toEqual([
+        "kept",
+        "contradicted",
+        "checking",
+      ]);
+    } finally {
+      await core.cancelCheck(input.requestId);
+      held.release();
+    }
+    expect(await running).toEqual({ kind: "cancelled" });
+    expect((await rows()).map((row) => row.shown.state)).toEqual([
+      "kept",
+      "contradicted",
+      "not-checked",
+    ]);
+    const after = owner();
+    expect(after.figures?.find((figure) => figure.id === cash.id)).toMatchObject({
+      state: "not-checked",
+      reason: "stopped",
+    });
+    expect(after.figures?.filter((figure) => figure.id !== cash.id)).toEqual(
+      before.figures?.filter((figure) => figure.id !== cash.id),
+    );
+    expect(after.remainder).toEqual(before.remainder);
   });
 });

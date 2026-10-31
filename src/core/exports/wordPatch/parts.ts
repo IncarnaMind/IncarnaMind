@@ -14,6 +14,7 @@ import {
   listInstance,
   NEW_DOCUMENT_STYLE_IDS,
   type NewPicture,
+  PICTURE_TYPES,
   STYLE_DEFINITIONS,
   type StyleBases,
   type StyleRole,
@@ -32,6 +33,7 @@ import {
   type PartText,
   RELATIONSHIP_TYPES,
   type WordPackageWriter,
+  WordPartError,
 } from "./package";
 import {
   appendInside,
@@ -301,6 +303,7 @@ export class DocumentNumbering {
 /** The document's footnotes part, and the footnotes added for new Citations. */
 export class DocumentFootnotes {
   private readonly added: string[] = [];
+  private readonly edits: Splice[] = [];
 
   private constructor(
     private readonly pkg: WordPackageWriter,
@@ -337,12 +340,22 @@ export class DocumentFootnotes {
     this.added.push(...footnotes);
   }
 
+  /** Changes to the footnotes the part has (#746), made to its text as `text` read it. */
+  edit(text: string, splices: readonly Splice[]): void {
+    if (splices.length === 0) return;
+    if (this.part?.text !== text) {
+      throw new WordPartError(this.name, "changed while its footnotes were written.");
+    }
+    this.edits.push(...splices);
+  }
+
   /** Writes the footnotes added into the footnotes part, or makes one with Word's separators. */
   async flush(): Promise<void> {
-    if (this.added.length === 0) return;
+    if (this.added.length === 0 && this.edits.length === 0) return;
     if (this.part) {
       const { text, root } = this.part;
-      this.pkg.set(this.name, applySplices(text, [appendInside(text, root, this.added.join(""))]));
+      const added = this.added.length > 0 ? [appendInside(text, root, this.added.join(""))] : [];
+      this.pkg.set(this.name, applySplices(text, [...this.edits, ...added]));
       return;
     }
     this.pkg.add(this.name, footnotesPart(this.added));
@@ -423,12 +436,6 @@ export async function reserveIds(
 
 // ---------------------------------------------------------------------------
 // The target
-
-const PICTURE_TYPES: Readonly<Record<NewPicture["extension"], string>> = {
-  png: "image/png",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-};
 
 /** An imported document as the native writer's target: new Blocks go into its own parts. */
 export class PatchTarget implements DocxTarget {

@@ -1,0 +1,70 @@
+import type { Editor } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
+import { useEditorState } from "@tiptap/react";
+import { useEffect } from "react";
+import type * as Y from "yjs";
+import { INCLUDE_IN_CONTEXT_ATTRIBUTE, PICTURE_NODE } from "../../../core/api";
+import { useAnswers } from "../answers";
+import { ImageLineIcon } from "../components/lineIcons";
+import { useT } from "../i18n";
+import { useModelInUse } from "../modelInUse";
+import { useServiceName } from "../modelNames";
+
+/** The picture the Editor's selection is, and whether its Block is switched out of Question context. */
+function useSelectedPicture(editor: Editor | null): { leftOut: boolean } | null {
+  return (
+    useEditorState({
+      editor,
+      selector: ({ editor: current }) => {
+        if (!current || current.isDestroyed) return null;
+        const { selection } = current.state;
+        if (!(selection instanceof NodeSelection) || selection.node.type.name !== PICTURE_NODE) {
+          return null;
+        }
+        return { leftOut: selection.node.attrs[INCLUDE_IN_CONTEXT_ATTRIBUTE] === false };
+      },
+    }) ?? null
+  );
+}
+
+/**
+ * What asking with a picture selected does with it (#1937): the line above the
+ * composer that names where the picture goes, before the User sends it, or
+ * says the model can't read pictures, so no picture goes and the Question is
+ * answered from the Note's words alone. It shows only while a picture is
+ * selected in the Note.
+ */
+export function PictureChip({ editor, doc }: { editor: Editor | null; doc: Y.Doc | null }) {
+  const t = useT();
+  const selected = useSelectedPicture(editor);
+  const model = useModelInUse(doc);
+  const service = useServiceName(model?.providerId ?? null);
+  const groups = useAnswers((state) => state.models);
+  // The models say what they read; the chip asks for them the first time a picture is selected.
+  useEffect(() => {
+    if (selected) useAnswers.getState().loadModels();
+  }, [selected]);
+  if (!selected) return null;
+  const group = model ? groups?.find((each) => each.provider.id === model.providerId) : undefined;
+  const reads = model ? group?.about[model.modelId]?.readsImages : undefined;
+  const onThisComputer = group?.provider.service === null;
+  const words = selected.leftOut
+    ? t("composer.picture.leftOut")
+    : !model || groups === null
+      ? t("composer.picture.about")
+      : reads === true
+        ? onThisComputer
+          ? t("composer.picture.onThisComputer")
+          : t("composer.picture.sends", { provider: service })
+        : t("composer.picture.unreadableModel");
+  return (
+    <span
+      data-testid="composer-picture"
+      title={t("composer.picture.chip")}
+      className="question-skill composer-quote"
+    >
+      <ImageLineIcon className="question-skill-icon" />
+      <span className="truncate">{words}</span>
+    </span>
+  );
+}
