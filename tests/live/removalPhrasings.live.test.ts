@@ -1,7 +1,8 @@
 /**
- * Removal requests in the User's own words, against real models (#2180): a Note of four
+ * Removal requests in the User's own words, against real models (#2180): a Note of five
  * sections, one of them a list, and requests worded many ways in each language to take out a
- * section, a paragraph, a list item or "the part about …", to take one out and change the rest,
+ * section, a paragraph, a list item, a sentence of a paragraph or "the part about …", to take one
+ * out and change the rest,
  * to replace one, or to take out all of a selection. Once the changes are accepted the Note is
  * checked: what was asked to go is gone, everything else is as it was, and no other text came in.
  * Each model runs only when its key is in the environment, as in ./editWithAi.live.test.ts.
@@ -24,7 +25,7 @@ import type { ChatProviderKind, Core } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { proposalRequestOf, resolveProposals } from "../../src/shared/proposals";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -51,17 +52,18 @@ type Block = ["heading" | "paragraph" | "bullet", string];
 interface Case {
   ask: string;
   /**
-   * remove: only `gone` goes; edit: `gone` goes and the rest may be reworded; replace: `gone`
-   * gives way to one new paragraph that `says` these words; whole: the selection is `only`, and
-   * all of it goes.
+   * remove: only `gone` goes; part: `gone` loses one sentence and reads `becomes`, and nothing
+   * else changes; edit: `gone` goes and the rest may be reworded; replace: `gone` gives way to
+   * one new paragraph that `says` these words; whole: the selection is `only`, and all of it goes.
    */
-  kind: "remove" | "edit" | "replace" | "whole";
+  kind: "remove" | "part" | "edit" | "replace" | "whole";
   /** The Note's Blocks that must go, by index. */
   gone: number[];
   /** Blocks that may go or stay: the heading of a section whose text was asked to go. */
   optional?: number[];
   says?: string[];
   only?: number[];
+  becomes?: string;
 }
 
 interface Language {
@@ -86,6 +88,11 @@ const EN: Language = {
     ["bullet", "Free parking at the north site."],
     ["heading", "Pay"],
     ["paragraph", "The salary is set by grade 7 and paid monthly."],
+    ["heading", "Office"],
+    [
+      "paragraph",
+      "The office is on the third floor. The lift is out of service every Thursday. Visitors sign in at reception.",
+    ],
   ],
   keys: [
     "Role",
@@ -99,6 +106,8 @@ const EN: Language = {
     "north",
     "Pay",
     "grade 7",
+    "Office",
+    "third floor",
   ],
   cases: [
     { kind: "remove", ask: "Remove the Hours section.", gone: [2, 3, 4] },
@@ -118,6 +127,18 @@ const EN: Language = {
     },
     { kind: "remove", ask: "Take out the part about the pension.", gone: [6] },
     { kind: "remove", ask: "Please remove the line about 9:30 to 15:30.", gone: [4] },
+    {
+      kind: "part",
+      ask: "Delete the sentence about the lift.",
+      gone: [12],
+      becomes: "The office is on the third floor. Visitors sign in at reception.",
+    },
+    {
+      kind: "part",
+      ask: "Remove the bit about visitors signing in.",
+      gone: [12],
+      becomes: "The office is on the third floor. The lift is out of service every Thursday.",
+    },
     {
       kind: "edit",
       ask: "Remove the Hours section and make the rest more formal.",
@@ -155,8 +176,24 @@ const ZH: Language = {
     ["bullet", "北区免费停车。"],
     ["heading", "薪酬"],
     ["paragraph", "薪酬按7级确定，按月发放。"],
+    ["heading", "办公室"],
+    ["paragraph", "办公室在三楼。电梯每周四停用。访客需在前台登记。"],
   ],
-  keys: ["职位", "高级分析", "工时", "周一", "9:30", "福利", "5%", "25", "北区", "薪酬", "7级"],
+  keys: [
+    "职位",
+    "高级分析",
+    "工时",
+    "周一",
+    "9:30",
+    "福利",
+    "5%",
+    "25",
+    "北区",
+    "薪酬",
+    "7级",
+    "办公室",
+    "三楼",
+  ],
   cases: [
     { kind: "remove", ask: "删掉工时那一节。", gone: [2, 3, 4] },
     { kind: "remove", ask: "薪酬部分不需要了，直接删掉。", gone: [9, 10] },
@@ -170,6 +207,18 @@ const ZH: Language = {
     { kind: "remove", ask: "工时相关的内容都不要了。", gone: [3, 4], optional: [2] },
     { kind: "remove", ask: "养老金那部分不要了。", gone: [6] },
     { kind: "remove", ask: "请移除9:30至15:30那一行。", gone: [4] },
+    {
+      kind: "part",
+      ask: "删掉关于电梯的那句话。",
+      gone: [12],
+      becomes: "办公室在三楼。访客需在前台登记。",
+    },
+    {
+      kind: "part",
+      ask: "把访客登记那句去掉。",
+      gone: [12],
+      becomes: "办公室在三楼。电梯每周四停用。",
+    },
     { kind: "edit", ask: "删掉工时那一节，其余的改得更正式。", gone: [2, 3, 4] },
     { kind: "edit", ask: "去掉停车那一条，顺便改正错别字。", gone: [8] },
     {
@@ -216,6 +265,10 @@ function verdict(each: Language, asked: Case, after: string[]): string | null {
     (text, index) => !gone.has(index) && (!optional.has(index) || after.includes(text)),
   );
   const news = after.filter((text) => !before.includes(text));
+  if (asked.kind === "part") {
+    const reduced = before.map((text, index) => (gone.has(index) ? asked.becomes : text));
+    return JSON.stringify(after) === JSON.stringify(reduced) ? null : "not as asked";
+  }
   if (asked.kind === "remove" || asked.kind === "whole") {
     if (news.length > 0) return `text came in: ${JSON.stringify(news)}`;
     return JSON.stringify(after) === JSON.stringify(expected) ? null : "not as asked";
@@ -302,7 +355,8 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
       const report: string[] = [`## ${live.name} · ${live.model} (#2180, removal phrasings)`];
       // What the model wrote for each request, kept on the run it was for.
       const replies = new AsyncLocalStorage<{ raw: string }>();
-      const core = startCore(await createTempDataFolder(), {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir, {
         createChatModel: (spec) =>
           wrapLanguageModel({
             model: createAiSdkChatModel(spec),
@@ -456,10 +510,9 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
           report.push(`  ${each.language} ${asked.kind} “${asked.ask}”: exact ${got}/${ran}`);
         }
       }
-      const cost = await core.getCostSummary();
       report.push(
         `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}`,
-        `  requests ${cost.providers.reduce((sum, each) => sum + each.requests, 0)}, spent ${cost.spent.map((money) => `${money.amount.toFixed(4)} ${money.currency}`).join(", ") || "0"}`,
+        ...spentBy(dataDir),
         ...misses,
       );
       core.close();

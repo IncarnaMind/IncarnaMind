@@ -17,7 +17,7 @@ import type { ChatProviderKind } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { resolveProposals } from "../../src/shared/proposals";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
@@ -93,7 +93,8 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
       const report: string[] = [`## ${live.name} · ${live.model} (#2180, over-removal)`];
       // What the model wrote for the request being run: requests here run one at a time.
       let raw = "";
-      const core = startCore(await createTempDataFolder(), {
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir, {
         createChatModel: (spec) =>
           wrapLanguageModel({
             model: createAiSdkChatModel(spec),
@@ -231,11 +232,10 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
           );
         }
       }
-      const cost = await core.getCostSummary();
       report.push(
         `  all: words lost ${lostTotal}, paragraphs fewer ${blocksLost}, more ${blocksMore} in ${runsTotal} runs`,
         ...losses,
-        `  requests ${cost.providers.reduce((sum, each) => sum + each.requests, 0)}, spent ${cost.spent.map((money) => `${money.amount.toFixed(4)} ${money.currency}`).join(", ") || "0"}`,
+        ...spentBy(dataDir),
       );
       core.close();
       if (process.env.INCARNAMIND_LIVE_REPORT) {
