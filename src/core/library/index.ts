@@ -325,6 +325,8 @@ export function createLibrary(options: {
   }): ExternalService[];
   /** Whether the User allowed tagging or Organize to send to this service (../consent). */
   allowed(service: ExternalService): boolean;
+  /** Holds automatic tagging's Documents "off" (`holdExisting` in ../tags/tagger). */
+  holdTagging(): void;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -967,6 +969,45 @@ export function createLibrary(options: {
       };
     });
 
+  /**
+   * Tagging and sorting were turned on, or where they send changed: what Organize waits to file
+   * by itself is held "off", as automatic tagging's Documents are (`holdExisting` in
+   * ../tags/tagger), so none goes to where it sends now (#2308). One in a request is held too:
+   * the save made its answer stale, and it would otherwise be sent again. Organize, or a re-tag,
+   * which the User starts, still sends them. One it had filed stays in its Folder.
+   */
+  function holdWaiting(): void {
+    const rows = db
+      .all<{ document_id: string; group_id: string | null }>(
+        `SELECT document_id, group_id FROM document_groups WHERE deleted_at IS NULL
+           AND source = 'automatic' AND status IN ('pending', 'classifying', 'waiting')`,
+      )
+      .filter(
+        (row) => !asked.has(row.document_id) && !options.isExampleDocument?.(row.document_id),
+      );
+    if (rows.length === 0) return;
+    const at = now();
+    db.transaction(() => {
+      for (const { document_id: id, group_id: groupId } of rows) {
+        if (groupId === null) {
+          db.run(
+            "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+            [at, at, id],
+          );
+        } else {
+          state(id, "classified");
+        }
+        db.run(
+          "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+          [at, id],
+        );
+      }
+    });
+    const ids = rows.map((row) => row.document_id);
+    options.tagged(ids);
+    announce(ids);
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -976,8 +1017,6 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
-    /** The ids of the services tagging and organizing by themselves send to now, Local mode aside. */
-    sendsTo: () => options.sendsTo(savedSettings()).map((service) => service.id),
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -1310,12 +1349,24 @@ export function createLibrary(options: {
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
-      settings.writeDeviceValue("library", {
-        classifier: automaticChosen ? AUTOMATIC : chosen,
-        ...(automatic !== null && { automatic }),
-        organizeWith,
-        automaticFor,
-        taggingStopped: before.taggingStopped,
+      const sentTo = options.sendsTo(before).map((service) => service.id);
+      const sends = options.sendsTo(next).map((service) => service.id);
+      // The line says only new Documents go (#2308): turned on, or sending somewhere new, every
+      // Document already here is held in the same write as the switch, so no quit in between
+      // leaves one to be sent at the next start.
+      const holds = sends.length > 0 && (turnOn || sends.some((id) => !sentTo.includes(id)));
+      db.transaction(() => {
+        settings.writeDeviceValue("library", {
+          classifier: automaticChosen ? AUTOMATIC : chosen,
+          ...(automatic !== null && { automatic }),
+          organizeWith,
+          automaticFor,
+          taggingStopped: before.taggingStopped,
+        });
+        if (holds) {
+          options.holdTagging();
+          holdWaiting();
+        }
       });
       revision++;
       changed();
@@ -1535,44 +1586,6 @@ export function createLibrary(options: {
       write(document(id), groupId, "user", automatic ? "pending" : "classified");
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
-    },
-    /**
-     * Tagging and sorting were turned on, or where they send changed: what Organize waits to file
-     * by itself is held "off", as automatic tagging's Documents are (`holdExisting` in
-     * ../tags/tagger), so none goes to where it sends now (#2308). One in a request is held too:
-     * the save made its answer stale, and it would otherwise be sent again. Organize, or a re-tag,
-     * which the User starts, still sends them. One it had filed stays in its Folder.
-     */
-    holdExisting() {
-      const rows = db
-        .all<{ document_id: string; group_id: string | null }>(
-          `SELECT document_id, group_id FROM document_groups WHERE deleted_at IS NULL
-             AND source = 'automatic' AND status IN ('pending', 'classifying', 'waiting')`,
-        )
-        .filter(
-          (row) => !asked.has(row.document_id) && !options.isExampleDocument?.(row.document_id),
-        );
-      if (rows.length === 0) return;
-      const at = now();
-      db.transaction(() => {
-        for (const { document_id: id, group_id: groupId } of rows) {
-          if (groupId === null) {
-            db.run(
-              "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
-              [at, at, id],
-            );
-          } else {
-            state(id, "classified");
-          }
-          db.run(
-            "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-            [at, id],
-          );
-        }
-      });
-      const ids = rows.map((row) => row.document_id);
-      options.tagged(ids);
-      announce(ids);
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;

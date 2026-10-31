@@ -505,14 +505,14 @@ export function createTagger(options: TaggerOptions) {
     },
 
     /**
-     * A model for Tags on another computer was just chosen: the Documents already here that
-     * wait to be tagged are "off", so choosing it sends none of them (#2308). Organize, or a
-     * re-tag, which the User starts, still does.
+     * Tagging was turned on, or where it sends changed: every Document already here that isn't
+     * tagged is "off", read or not (no text, failed, still being read), so it isn't sent when its
+     * text comes later either (#2308). Organize, or a re-tag, which the User starts, still sends it.
      */
     holdExisting(): void {
       const ids = db
         .all<{ id: string }>(
-          `SELECT id FROM documents WHERE deleted_at IS NULL AND status = 'ready'
+          `SELECT id FROM documents WHERE deleted_at IS NULL
              AND tagging_status IN ('pending', 'waiting-for-provider', 'failed', 'no-tags')`,
         )
         .map((row) => row.id)

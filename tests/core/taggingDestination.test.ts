@@ -6,6 +6,7 @@
  * again, until Organize or a re-tag. Through the core's public interface, counting the requests
  * each provider gets.
  */
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
@@ -16,11 +17,13 @@ import {
   type SaveChatProviderInput,
 } from "../../src/core";
 import { PROCESSING_VERSION } from "../../src/core/documents/processing";
+import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { openDatabase } from "../../src/core/storage";
 import {
   createMemoryKeychain,
   createTempDataFolder,
+  NO_MODEL_FILES,
   queryDatabase,
   startCore,
 } from "../helpers/core";
@@ -30,9 +33,11 @@ import {
   documentAt,
   linkAndProcess,
   sha256,
+  waitForDocuments,
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { buildPdf } from "../helpers/pdf";
 import { tagNamesOf, waitForTagging } from "../helpers/tags";
 
 const OLLAMA: SaveChatProviderInput = { kind: "ollama", modelId: "local-model" };
@@ -307,5 +312,128 @@ describe("A Document held off stays off, for every sender", () => {
     await core.classifyDocuments([waiting.id]);
     await waitForTagging(core, [waiting.id]);
     expect(providers.sent("openai")).toBe(1);
+  });
+});
+
+describe("Every Document already here is held, whatever its state", () => {
+  test.each([
+    { where: "with a Folder there", folderFirst: true },
+    { where: "with no Folder", folderFirst: false },
+  ])(
+    "$where: an empty file filled later and a broken file mended are sent by nobody, while one added after is",
+    async ({ folderFirst }) => {
+      const providers = perProvider();
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: providers.createChatModel,
+      });
+      const anthropic = await core.saveChatProvider(ANTHROPIC);
+      if (folderFirst) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+      const folder = await createSourceFolder();
+      await writeSourceFile(folder, "Report 1.txt", "Quarterly report 1.");
+      const blankPath = await writeSourceFile(folder, "Blank.txt", "");
+      const brokenPath = await writeSourceFile(folder, "Broken.pdf", "not a PDF at all");
+      const linked = await linkAndProcess(core, folder);
+      const blank = documentAt(linked, blankPath);
+      const broken = documentAt(linked, brokenPath);
+      expect([blank.status, broken.status]).not.toContain("ready");
+
+      await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+      await writeSourceFile(folder, "Blank.txt", "Quarterly report 2, written in later.");
+      await writeSourceFile(folder, "Broken.pdf", buildPdf([{ lines: ["Quarterly report 3."] }]));
+      await core.reconcileDocuments();
+      const read = await waitForDocuments(core, (documents) => {
+        expect(documentAt(documents, blankPath).status).toBe("ready");
+        expect(documentAt(documents, brokenPath).status).toBe("ready");
+      });
+
+      expect(read.map((each) => each.tagging)).toEqual(["off", "off", "off"]);
+      expect(await unassigned(core, [blank.id, broken.id])).toEqual([]);
+      expect(providers.sent("anthropic")).toBe(0);
+
+      const added = await add(core, "Added after.txt");
+      await waitForTagging(core, [added.id]);
+      expect(providers.sent("anthropic")).toBe(1);
+
+      if (!folderFirst) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
+      await core.classifyDocuments(linked.map((each) => each.id));
+      await waitForTagging(
+        core,
+        linked.map((each) => each.id),
+      );
+      expect(providers.sent("anthropic")).toBe(4);
+    },
+  );
+
+  test("a scan read again once the text recognition model is there is sent by nobody", async () => {
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const providers = perProvider();
+    let core = startCore(dataDir, { keychain, createChatModel: providers.createChatModel });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    const scan = readFileSync(join(import.meta.dirname, "../fixtures/scans/en-clean.jpg"));
+    const [unread] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "Scan.pdf", buildPdf([{ scan }])),
+    ]);
+    if (!unread) throw new Error("Nothing was added.");
+    expect(unread.status).toBe("no-text");
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE documents SET processing_version = 1");
+    } finally {
+      db.close();
+    }
+
+    core = startCore(dataDir, {
+      keychain,
+      createChatModel: providers.createChatModel,
+      textRecognizer: createFakeTextRecognizer({
+        script: { pages: { "1": { lines: ["Quarterly report on sales."] } } },
+      }),
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    const [read] = await waitForDocuments(core, (documents) => {
+      expect(documents[0]?.status).toBe("ready");
+    });
+
+    expect(read?.tagging).toBe("off");
+    expect(providers.sent("anthropic")).toBe(0);
+    core.close();
+  });
+
+  test("a quit right after tagging is turned on leaves no Document unheld: the next start sends none", async () => {
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const providers = perProvider();
+    let core = startCore(dataDir, { keychain, createChatModel: providers.createChatModel });
+    // Turned on for Anthropic once, so its consent is there; then tagging on this computer fails.
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    const ollama = await core.saveChatProvider(OLLAMA);
+    await chooseInModels(core, chatModel(ollama.id, "local-model"));
+    providers.fail("ollama", true);
+    const failed = await add(core, "Failed.txt");
+    await waitForTagging(core, [failed.id], (each) => each.tagging === "failed");
+
+    const { settings } = await core.getLibrary();
+    const saving = core.saveLibrarySettings({
+      ...settings,
+      classifier: chatModel(anthropic.id, ANTHROPIC.modelId),
+      automatic: true,
+      turnOn: true,
+    });
+    core.close();
+    await saving.catch(() => undefined);
+
+    core = startCore(dataDir, { keychain, createChatModel: providers.createChatModel });
+    expect((await core.getLibrary()).settings.automatic).toBe(true);
+    const [held] = await waitForTagging(core, [failed.id], (each) => each.tagging === "off");
+    const added = await add(core, "Added after.txt");
+    await waitForTagging(core, [added.id]);
+
+    expect(held?.tagging).toBe("off");
+    expect(providers.sent("anthropic")).toBe(1);
+    core.close();
   });
 });
