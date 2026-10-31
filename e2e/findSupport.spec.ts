@@ -131,12 +131,21 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(supported).toHaveAttribute("data-addable", "true");
   await expect(supported).toHaveAccessibleName("Sentence check: Supported");
   await expect(unsupported).toHaveAccessibleName("Sentence check: Needs a look · Not found");
-  // Each mark sits in the margin, right of the text, the first above the second.
+  // Each mark sits in the margin, right of the text. The two sentences start on one line, so
+  // their marks stand side by side on it, the second 4px after the first (#2277).
+  // A mark's entrance slides it 4px in, so its box holds still only once that ends.
+  await window.waitForFunction(() =>
+    document.getAnimations().every((animation) => animation.playState !== "running"),
+  );
   const lineBox = await line.boundingBox();
   const supportedBox = await supported.boundingBox();
   const unsupportedBox = await unsupported.boundingBox();
   expect(supportedBox?.x ?? 0).toBeGreaterThan((lineBox?.x ?? 0) + (lineBox?.width ?? 0));
-  expect(unsupportedBox?.y ?? 0).toBeGreaterThan(supportedBox?.y ?? 0);
+  expect(Math.abs((unsupportedBox?.y ?? 0) - (supportedBox?.y ?? 0))).toBeLessThanOrEqual(1);
+  expect(unsupportedBox?.x ?? 0).toBeGreaterThan(supportedBox?.x ?? 0);
+  const gap = (unsupportedBox?.x ?? 0) - ((supportedBox?.x ?? 0) + (supportedBox?.width ?? 0));
+  expect(gap).toBeGreaterThanOrEqual(4 - 1.5);
+  expect(gap).toBeLessThanOrEqual(4 + 1.5);
   // The unsupported sentence is washed; the badge's card counts both.
   expect((await line.locator(".claim-wash--unsupported").allInnerTexts()).join("")).toBe(
     UNSUPPORTED,

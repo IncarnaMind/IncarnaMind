@@ -5216,8 +5216,8 @@
   }
   .margin-check {
     position: absolute;
-    /* The check column: each mark's left edge `--check-gap` after the measure's right edge. */
-    left: var(--check-gap);
+    /* `MarginChecks` places each mark from `--check-gap`, side by side with the marks of the
+       sentences that start on its line (DESIGN.md, Check marks). */
     display: flex;
     align-items: center;
     gap: 2px;
