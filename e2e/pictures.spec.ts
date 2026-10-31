@@ -178,6 +178,8 @@ test("a screenshot pasted becomes a picture; its description is written in place
 });
 
 test("a photo of about 20 MB dropped is made small enough to keep", async () => {
+  // Making a 24-megapixel photo in the page, and reading it, takes a while on CI's runners.
+  test.setTimeout(90_000);
   const { app, window, editor } = await startNote("zh-CN", 1600);
   try {
     const size = await window.evaluate(async () => {
