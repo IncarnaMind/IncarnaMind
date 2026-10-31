@@ -376,17 +376,43 @@ export function createOAuthAccount<A extends OAuthAccountRecord>(options: {
     credentials,
     load,
     loadOrNull,
-    /** Saves what a sign-in ended with: a refresh that finishes afterwards changes nothing. */
+    /**
+     * Saves what a sign-in ended with, under the shared lock so a write from
+     * another process can't interleave; a refresh that finishes afterwards
+     * changes nothing.
+     */
     async commit(account: A): Promise<void> {
-      generation += 1;
-      try {
-        await save(account);
-      } catch (error) {
-        // The sign-in finished but can't be kept: end the session it opened rather than leave it loose.
-        const refreshToken = account.tokens?.refreshToken;
-        if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
-        throw error;
-      }
+      await lock.run(async () => {
+        generation += 1;
+        try {
+          await save(account);
+        } catch (error) {
+          // The sign-in finished but can't be kept: end the session it opened rather than leave it loose.
+          const refreshToken = account.tokens?.refreshToken;
+          if (refreshToken && options.revoke) await options.revoke(account, refreshToken);
+          throw error;
+        }
+      });
+    },
+
+    /**
+     * Under the shared lock, writes `next` from the record as it is now, unless
+     * a sign-in is there now or the record can't be read: another process
+     * sharing the store may have completed one while this sign-in waited.
+     */
+    async commitUnlessSignedIn(next: (current: A | null) => A): Promise<void> {
+      await lock.run(async () => {
+        let current: A | null;
+        try {
+          current = await load();
+        } catch (error) {
+          if (isSignInUnreadable(error)) return;
+          throw error;
+        }
+        if (current?.tokens) return;
+        generation += 1;
+        await save(next(current));
+      });
     },
     /** Tokens to keep from a token endpoint's answer, keeping the refresh token it didn't rotate. */
     storedTokens,

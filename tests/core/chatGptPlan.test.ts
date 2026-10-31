@@ -251,12 +251,35 @@ describe("Continue with ChatGPT", () => {
         ok: false,
         error: { kind: "plan-not-allowed" },
       });
+      // The record keeps its own state and registration, only the refusal is added.
+      expect((await core.getChatGptPlan()).account).toEqual(
+        state === "expired" ? { state: "expired" } : { state: "signed-out" },
+      );
 
       browser.approval = {};
       expect((await core.signInToChatGpt()).ok).toBe(true);
       expect(fake.authorizations.at(-1)).toMatchObject({ prompt: "consent" });
     },
   );
+
+  test("a refusal as another account keeps the old registration", async () => {
+    const { core, fake, browser } = await signedIn();
+    await core.signOutOfChatGpt();
+    browser.approval = { allowPlan: false, subject: "user-0002", email: "other@example.com" };
+
+    expect(await core.signInToChatGpt({ anotherAccount: true })).toMatchObject({
+      ok: false,
+      error: { kind: "plan-not-allowed" },
+    });
+    expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-out" });
+
+    browser.approval = {};
+    expect((await core.signInToChatGpt()).ok).toBe(true);
+    expect(fake.authorizations.at(-1)).toMatchObject({
+      client_id: "oaiapp_test_1",
+      prompt: "consent",
+    });
+  });
 
   test.each([
     { name: "another nonce", tamper: (c: Record<string, unknown>) => ({ ...c, nonce: "other" }) },

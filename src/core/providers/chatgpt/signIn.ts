@@ -183,20 +183,15 @@ export function createChatGptSignIn(options: {
    * unless the User signs in again to replace it (`replaceUnreadable`). A store
    * that can't be read at all is not replaceable, so its error always stops.
    */
-  const prepare = async (
-    replaceUnreadable: boolean,
-  ): Promise<{ stored: StoredAccount; keepRecord: boolean }> => {
+  const prepare = async (replaceUnreadable: boolean): Promise<StoredAccount> => {
     let existing: StoredAccount | null = null;
-    // A record that holds a sign-in, or can't be read, is left as it is by a refused attempt.
-    let keepRecord = true;
     try {
       existing = await account.load();
-      keepRecord = existing?.tokens != null;
     } catch (error) {
       if (!(error instanceof SignInRecordUnreadableError) || !replaceUnreadable) throw error;
     }
-    return {
-      stored: existing ?? {
+    return (
+      existing ?? {
         hostId: `urn:uuid:${randomUUID()}`,
         clientId: null,
         subject: null,
@@ -205,9 +200,8 @@ export function createChatGptSignIn(options: {
         tokens: null,
         ended: null,
         planRefused: false,
-      },
-      keepRecord,
-    };
+      }
+    );
   };
 
   const signInOnce = async (
@@ -216,7 +210,7 @@ export function createChatGptSignIn(options: {
     anotherAccount: boolean,
     replaceUnreadable: boolean,
   ) => {
-    const { stored, keepRecord } = await prepare(replaceUnreadable);
+    const stored = await prepare(replaceUnreadable);
     const registered = anotherAccount ? null : stored.clientId;
     const nonce = randomBytes(24).toString("base64url");
     /** The client the code is for: the registered one, or the one OpenAI issues now. */
@@ -290,9 +284,12 @@ export function createChatGptSignIn(options: {
     if (!scopes.includes(PLAN_SCOPE)) {
       // Signed in, but not allowed to use the plan: nothing IncarnaMind could use is kept.
       await abandon();
-      // Keep why it asked again, so the next page asks for consent: only a record
-      // that holds a sign-in, or can't be read, is left as it was.
-      if (!keepRecord) await account.commit({ ...signedIn, planRefused: true });
+      // A tokenless record keeps why it asked again, so the next page asks for
+      // consent; one that holds a sign-in, or can't be read, is left as it was.
+      await account.commitUnlessSignedIn((current) => ({
+        ...(current ?? signedIn),
+        planRefused: true,
+      }));
       throw new ChatGptPlanNotAllowedError();
     }
     await account.commit({ ...signedIn, tokens: account.storedTokens(tokens, null), ended: null });

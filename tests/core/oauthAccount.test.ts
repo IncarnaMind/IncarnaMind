@@ -3,6 +3,7 @@ import { type Browser, SecretsFileDamagedError } from "../../src/core";
 import {
   createOAuthAccount,
   type OAuthAccountRecord,
+  parseAccountRecord,
   SignInRecordUnreadableError,
   SignInStoreUnreadableError,
 } from "../../src/core/oauthAccount";
@@ -40,7 +41,7 @@ function accountStoredIn(secrets: Secrets) {
     secrets,
     parse: (record) =>
       typeof record.profile === "string"
-        ? { tokens: null, ended: null, profile: record.profile }
+        ? { ...parseAccountRecord(record), profile: record.profile }
         : null,
     browser: { open: async () => undefined } satisfies Browser,
     now: () => Date.parse("2026-10-31T00:00:00.000Z"),
@@ -113,6 +114,26 @@ describe("A kept sign-in's record", () => {
     const account = accountStoredIn(store.secrets);
 
     expect(await account.signOut()).toEqual({ revoked: true });
+    expect(store.written()).toBeNull();
+  });
+
+  test("a refusal writes nothing over a sign-in another process finished while it waited", async () => {
+    const tokenless = JSON.stringify({ tokens: null, ended: null, profile: "own" });
+    const finished = JSON.stringify({
+      tokens: { accessToken: "access", refreshToken: "refresh", expiresAt: 1 },
+      ended: null,
+      profile: "own",
+    });
+    let reads = 0;
+    const store = secretStore(async () => (reads++ === 0 ? tokenless : finished));
+    const account = accountStoredIn(store.secrets);
+
+    expect((await account.load())?.tokens).toBeNull();
+    await account.commitUnlessSignedIn((current) => ({
+      ...(current ?? { tokens: null, ended: null, profile: "own" }),
+      ended: "signed-out",
+    }));
+
     expect(store.written()).toBeNull();
   });
 
