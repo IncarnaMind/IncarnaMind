@@ -68,7 +68,10 @@ export function ChatGptPlanRow() {
   const signIn = () => {
     setTest(null);
     setUnconfirmed(false);
-    void sign.run();
+    // The row already says the record can't be read, so this click is the User's answer.
+    const replaceUnreadable =
+      status?.account.state === "unreadable" || sign.failure?.kind === "record-unreadable";
+    void sign.run(replaceUnreadable ? { replaceUnreadable: true } : {});
   };
 
   const signOut = () =>
@@ -102,11 +105,13 @@ export function ChatGptPlanRow() {
           <>
             <p className={rowTextClass}>{t("chatgpt.description")}</p>
             <SendsLine provider={CHATGPT_RECIPIENT} />
-            {status && status.account.state === "expired" && (
-              <p data-testid="chatgpt-account" className={rowTextClass}>
-                <AccountLine account={status.account} />
-              </p>
-            )}
+            {status &&
+              !sign.failure &&
+              (status.account.state === "expired" || status.account.state === "unreadable") && (
+                <p data-testid="chatgpt-account" className={rowTextClass}>
+                  <AccountLine account={status.account} />
+                </p>
+              )}
           </>
         )}
         {signedIn && inUse && (
@@ -187,6 +192,7 @@ function AccountLine({ account }: { account: ChatGptAccount }) {
   const t = useT();
   if (account.state === "signed-out") return <>{t("chatgpt.account.signedOut")}</>;
   if (account.state === "expired") return <>{t("chatgpt.account.expired")}</>;
+  if (account.state === "unreadable") return <>{t("chatgpt.account.unreadable")}</>;
   return (
     <>{t("chatgpt.account.signedIn", { account: account.email ?? t("chatgpt.account.unknown") })}</>
   );
