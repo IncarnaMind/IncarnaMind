@@ -3,15 +3,15 @@ import type { ConversationAnswer, ConversationQuestion } from "../../../../core/
 import { mindName } from "../../../../shared/naming";
 import { useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, inNoteText, keptText, leftText } from "../../changeFacts";
+import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
 import { askInAssistant } from "../../conversations";
 import { useT } from "../../i18n";
 import {
   resolveAllChanges,
   showChanges,
   showNoteWaiting,
+  useWaitingBesidesApplied,
   useWaitingChanges,
-  useWaitingIn,
   type Waiting,
 } from "../../mindChanges";
 import type { Translate } from "../../objects";
@@ -49,7 +49,7 @@ export function MindChangesCard({
   const t = useT();
   const rows = useMemo(() => changedMinds(answer), [answer]);
   const waiting = useWaitingChanges(rows);
-  const noteTotal = useWaitingIn(rows.length === 1 ? (rows[0]?.mindId ?? null) : null);
+  const noteTotal = useWaitingBesidesApplied(rows.length === 1 ? (rows[0]?.mindId ?? null) : null);
   const minds = useAppStore((state) => state.minds);
   const asked = useAskedChanges((state) => state.outcomes[answer.id]);
   if (rows.length === 0) return null;
@@ -84,7 +84,7 @@ export function MindChangesCard({
       : t("mindChanges.minds", { count: rows.length });
   const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
-  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, waiting[0]?.count) : null;
+  const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
 
   return (
     <section
