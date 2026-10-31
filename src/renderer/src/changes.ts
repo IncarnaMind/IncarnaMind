@@ -5,7 +5,7 @@
  * links back as they were. Each says what happened in the words of the undo
  * line, and what it was, for the Edit menu.
  */
-import type { RestoreRef, TagLinkState } from "../../core/api";
+import type { RestoreRef, RestoreResult, TagLinkState } from "../../core/api";
 import { core } from "./core";
 import { languageNow } from "./i18n";
 import type { Words } from "./lineNames";
@@ -48,12 +48,12 @@ export function deleted(
 ): Undoable {
   const count = refs.length;
   const counted = () => formatCount(count, languageNow());
-  /** Whether the last Undo brought a Meeting back without its audio (#1253). */
-  let audioLost = false;
+  /** Whether the last Undo brought a Meeting back without its audio, and why (#1253). */
+  let audio: RestoreResult = { audioLost: [], audioExpired: [] };
   // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
   // Recently deleted leaves the window as it is.
   const restore = async () => {
-    audioLost = (await core.restore(refs, { reopen: true })).audioLost.length > 0;
+    audio = await core.restore(refs, { reopen: true });
   };
   return {
     said: (t) =>
@@ -75,8 +75,15 @@ export function deleted(
         throw error;
       }
     },
-    undoneNote: () =>
-      audioLost ? (t) => t("meetings.audio.notRestored", { name: shownIn(t, shown) }) : null,
+    undoneNote: () => {
+      const key =
+        audio.audioLost.length > 0
+          ? "meetings.audio.notRestored"
+          : audio.audioExpired.length > 0
+            ? "meetings.audio.expired"
+            : null;
+      return key ? (t) => t(key, { name: shownIn(t, shown) }) : null;
+    },
     redo: async () => {
       await remove();
     },

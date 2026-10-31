@@ -116,12 +116,14 @@ interface MeetingRow {
   audio_expires_at: string | null;
   audio_deleted_at: string | null;
   fill: string | null;
+  transcript_document_id: string | null;
+  purged_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_deleted_at, fill, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -194,6 +196,12 @@ export interface MeetingsOptions {
 
 export type Meetings = ReturnType<typeof createMeetings>;
 
+/** A Meeting brought back with its Mind, and when the two were deleted. */
+export interface RestoredMeeting {
+  meetingId: string;
+  deletedAt: string;
+}
+
 /** Why a part couldn't be saved, from the error's code. */
 function lossCauseOf(code: string): AudioLossCause {
   if (code === "ENOSPC" || code === "EDQUOT") return "full";
@@ -204,6 +212,42 @@ function lossCauseOf(code: string): AudioLossCause {
 export const isMemo = (db: Database, meetingId: string): boolean =>
   db.get<Pick<MeetingRow, "kind">>("SELECT kind FROM meetings WHERE id = ?", [meetingId])?.kind ===
   "memo";
+
+/** A Meeting's note, kind and times, in Recently deleted too: what its Transcript is named from. */
+export function meetingRecord(
+  db: Database,
+  meetingId: string,
+): {
+  mindId: string;
+  kind: MeetingKind;
+  startedAt: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+} | null {
+  const row = db.get<
+    Pick<MeetingRow, "mind_id" | "kind" | "started_at" | "created_at"> & {
+      deleted_at: string | null;
+    }
+  >("SELECT mind_id, kind, started_at, created_at, deleted_at FROM meetings WHERE id = ?", [
+    meetingId,
+  ]);
+  return row
+    ? {
+        mindId: row.mind_id,
+        kind: row.kind,
+        startedAt: row.started_at,
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at,
+      }
+    : null;
+}
+
+/** Records which Document is the Meeting's Transcript, in the transaction that makes it. */
+export function linkTranscript(db: Database, meetingId: string, documentId: string): void {
+  db.run("UPDATE meetings SET transcript_document_id = ? WHERE id = ?", [documentId, meetingId]);
+}
+
+const codeOf = (error: unknown) => (error as NodeJS.ErrnoException).code ?? "unknown";
 
 export function createMeetings(options: MeetingsOptions) {
   const { db, now, capture, transcripts, health, log } = options;
@@ -637,7 +681,13 @@ export function createMeetings(options: MeetingsOptions) {
     );
     if (due.length === 0) return;
     for (const { id } of due) {
-      deleteAudio(id, "expired");
+      try {
+        deleteAudio(id, "expired");
+      } catch (error) {
+        // Tried again at the next sweep: a file that can't be removed now never stops the rest.
+        log.error("meeting.expireFailed", { meetingId: id, code: codeOf(error) });
+        continue;
+      }
       save(id, { audio_deleted_at: at, audio_expires_at: null });
     }
     changed();
@@ -645,27 +695,40 @@ export function createMeetings(options: MeetingsOptions) {
 
   /**
    * Deletes the audio, the Transcript's working state and the health record of Meetings whose
-   * Mind was deleted permanently; again at each start, for a quit that cut it short. Audio whose
-   * day had ended is gone already, but its Meeting's other files still go.
+   * Mind was deleted permanently, each once (`purged_at`). One whose files can't be removed now
+   * stays for the next start, which tries again; never throws. Returns those Meetings' Minds.
    */
-  function dropPurged(): void {
-    const purged = db.all<Pick<MeetingRow, "id" | "audio_deleted_at">>(
-      `SELECT id, audio_deleted_at FROM meetings
-       WHERE mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
+  function dropPurged(): string[] {
+    const purged = db.all<Pick<MeetingRow, "id" | "mind_id" | "audio_deleted_at">>(
+      `SELECT id, mind_id, audio_deleted_at FROM meetings WHERE purged_at IS NULL
+         AND mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
     );
-    const at = now();
-    for (const { id, audio_deleted_at } of purged) {
-      transcripts?.forget(id);
-      health.forget(id);
-      if (audio_deleted_at !== null) continue;
-      deleteAudio(id, "purged");
-      save(id, { audio_deleted_at: at, audio_expires_at: null });
+    const failed: string[] = [];
+    for (const { id, mind_id, audio_deleted_at } of purged) {
+      try {
+        transcripts?.forget(id);
+        health.forget(id);
+        if (audio_deleted_at === null) deleteAudio(id, "purged");
+      } catch (error) {
+        log.error("meeting.purgeFailed", { meetingId: id, code: codeOf(error) });
+        failed.push(mind_id);
+        continue;
+      }
+      const at = now();
+      save(id, {
+        purged_at: at,
+        ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
+      });
     }
+    return failed;
   }
 
-  /** The Transcript Documents of these Meetings, those that have one. */
-  const transcriptsOf = (meetingIds: readonly string[]): string[] =>
-    meetingIds.flatMap((id) => transcripts?.documentOf(id) ?? []);
+  /**
+   * The Transcript Documents of these Meetings, those that have one: as recorded, else as its
+   * working file says, for one made before the record was kept.
+   */
+  const transcriptsOf = (rows: readonly Pick<MeetingRow, "id" | "transcript_document_id">[]) =>
+    rows.flatMap((row) => row.transcript_document_id ?? transcripts?.documentOf(row.id) ?? []);
 
   // ---- After a crash or a quit ----
 
@@ -1022,18 +1085,16 @@ export function createMeetings(options: MeetingsOptions) {
       );
       for (const meetingId of ids) log.info("meeting.deleted", { meetingId });
       changed();
-      return { meetingIds: ids, transcripts: transcriptsOf(ids) };
+      return { meetingIds: ids, transcripts: transcriptsOf(rows) };
     },
 
     /** The Transcript Documents of the Mind's Meetings deleted with it at `deletedAt`. */
     transcriptsDeletedWith(mindId: string, deletedAt: string): string[] {
       return transcriptsOf(
-        db
-          .all<{ id: string }>("SELECT id FROM meetings WHERE mind_id = ? AND deleted_at = ?", [
-            mindId,
-            deletedAt,
-          ])
-          .map((row) => row.id),
+        db.all<Pick<MeetingRow, "id" | "transcript_document_id">>(
+          "SELECT id, transcript_document_id FROM meetings WHERE mind_id = ? AND deleted_at = ?",
+          [mindId, deletedAt],
+        ),
       );
     },
 
@@ -1051,9 +1112,9 @@ export function createMeetings(options: MeetingsOptions) {
     /**
      * Brings back the Mind's Meetings deleted with it at `deletedAt`, in the restore's
      * transaction, then `restored`. One an earlier version left recording when it deleted the
-     * Mind stays deleted: its audio and its Transcript's state went then. Returns their ids.
+     * Mind stays deleted: its audio and its Transcript's state went then.
      */
-    restoreWith(mindId: string, deletedAt: string): string[] {
+    restoreWith(mindId: string, deletedAt: string): RestoredMeeting[] {
       const where = "mind_id = ? AND deleted_at = ? AND status IN ('ready', 'stopped')";
       const ids = db
         .all<{ id: string }>(`SELECT id FROM meetings WHERE ${where}`, [mindId, deletedAt])
@@ -1065,38 +1126,51 @@ export function createMeetings(options: MeetingsOptions) {
           deletedAt,
         ]);
       }
-      return ids;
+      return ids.map((meetingId) => ({ meetingId, deletedAt }));
     },
 
     /**
      * Meetings `restoreWith` brought back: audio whose day ended meanwhile goes now, and their
-     * Transcripts are read again. Returns the Minds whose Meeting came back without the audio it
-     * kept, which was no longer on this computer.
+     * Transcripts are read again. Says which Minds' Meetings came back without their audio: lost,
+     * no longer on this computer though its day hadn't ended, or expired, its day having ended
+     * while the Mind waited in Recently deleted.
      */
-    restored(meetingIds: readonly string[]): string[] {
-      if (meetingIds.length === 0) return [];
-      for (const meetingId of meetingIds) kept.delete(meetingId);
+    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: string[] } {
+      if (meetings.length === 0) return { lost: [], expired: [] };
+      for (const { meetingId } of meetings) kept.delete(meetingId);
       sweep();
       const at = now();
       const lost: string[] = [];
-      for (const meetingId of meetingIds) {
+      const expired: string[] = [];
+      for (const { meetingId, deletedAt } of meetings) {
         const row = rowOf(meetingId);
         log.info("meeting.restored", { meetingId });
         transcripts?.restored(meetingId);
-        if (row.audio_expires_at === null || row.audio_deleted_at !== null || hasAudio(meetingId)) {
+        if (row.audio_deleted_at !== null) {
+          if (row.audio_deleted_at > deletedAt) expired.push(row.mind_id);
           continue;
         }
+        if (row.audio_expires_at === null || hasAudio(meetingId)) continue;
         // An earlier version deleted it with the Mind, or something outside IncarnaMind did.
         log.warn("meeting.audioNotRestored", { meetingId });
         save(meetingId, { audio_deleted_at: at, audio_expires_at: null });
         lost.push(row.mind_id);
       }
       changed();
-      return lost;
+      return { lost, expired };
     },
 
     /** Deletes what Meetings of Minds deleted permanently kept; see `dropPurged`. */
     dropPurged,
+
+    /** The Meeting's Transcript Document, if it has one, in Recently deleted too. */
+    transcriptOf(meetingId: string): string | null {
+      const row = db.get<Pick<MeetingRow, "id" | "transcript_document_id">>(
+        "SELECT id, transcript_document_id FROM meetings WHERE id = ?",
+        [meetingId],
+      );
+      return (row && transcriptsOf([row])[0]) ?? null;
+    },
 
     /** Whether the Meeting waits in Recently deleted with its Mind. */
     isDeleted: (meetingId: string): boolean =>

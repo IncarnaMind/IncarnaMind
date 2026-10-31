@@ -9033,6 +9033,11 @@ export interface RestoreResult {
    * computer, deleted by an earlier version with the Note, or by something outside IncarnaMind.
    */
   audioLost: string[];
+  /**
+   * The Notes whose Meeting came back without its audio because its day ended while the Note
+   * waited in Recently deleted, and it was deleted then, as any Meeting's audio is (#1253).
+   */
+  audioExpired: string[];
 }
 
 /** What Undo of a Restore puts back in Recently deleted: an item, at the time it was deleted before it came back. */
@@ -10299,12 +10304,15 @@ export interface CoreApi {
   /** What can be restored: the Minds, conversations, Documents, Folders and Tags deleted in the last `RECENTLY_DELETED_DAYS`, newest first. */
   listDeleted(): Promise<DeletedItem[]>;
   /**
-   * Drops deleted things' content (a Mind's notes, a conversation's messages and titles, a
+   * Drops deleted things' content (a Mind's notes and its Meeting's audio, Transcript and
+   * recording details, a conversation's messages and titles, a
    * Document's Passages and text, a Tag's links), keeping each one's id and when it was
    * deleted, so a later sync can pass the
    * deletion on. They can't be restored afterwards. Throws for one not deleted. Never
    * touches the User's files; a copy the old layout made in the data folder (ADR-0010) goes
-   * with its Document. Done by itself at start-up `RECENTLY_DELETED_DAYS` after.
+   * with its Document. Done by itself at start-up `RECENTLY_DELETED_DAYS` after. When a Meeting's
+   * file can't be removed yet, the rest is done and it rejects saying so; the file goes at a later
+   * start.
    */
   deletePermanently(refs: DeletedRef[]): Promise<void>;
 

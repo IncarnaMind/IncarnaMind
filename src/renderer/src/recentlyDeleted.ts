@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DeletedItem } from "../../core/api";
+import type { DeletedItem, RestoreResult } from "../../core/api";
 import { core } from "./core";
 import { languageNow, translateNow as t } from "./i18n";
 import type { Words, WordsInLine } from "./lineNames";
@@ -49,20 +49,34 @@ async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
 
 /**
  * What the undo line says a restore did: where one item went back to, if it was in a Folder still
- * there, and when a Meeting came back without its audio (#1253), as `audioLost` says.
+ * there, and when a Meeting came back without its audio, and why (#1253), as `audio` says.
  */
-function restoredMessage(items: readonly DeletedItem[], audioLost: () => boolean): WordsInLine {
+function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResult): WordsInLine {
+  const without = () => {
+    const { audioLost, audioExpired } = audio();
+    return audioLost.length > 0 ? "lost" : audioExpired.length > 0 ? "expired" : null;
+  };
   const [only] = items;
   if (!only || items.length > 1) {
     return (t) => {
       const count = formatCount(items.length, languageNow());
-      return t(audioLost() ? "meetings.audio.someNotRestored" : "object.restored.count", { count });
+      const why = without();
+      return t(
+        why === "lost"
+          ? "meetings.audio.someNotRestored"
+          : why === "expired"
+            ? "meetings.audio.someExpired"
+            : "object.restored.count",
+        { count },
+      );
     };
   }
   const folder = useAppStore.getState().library?.groups.find((group) => group.id === only.groupId);
   return (t) => {
     const name = deletedName(only);
-    if (audioLost()) return t("meetings.audio.notRestored", { name });
+    const why = without();
+    if (why === "lost") return t("meetings.audio.notRestored", { name });
+    if (why === "expired") return t("meetings.audio.expired", { name });
     return folder
       ? t("object.restoredTo", { name, folder: folder.name })
       : t("object.restored", { name });
@@ -75,18 +89,18 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
   const count = () => formatCount(items.length, languageNow());
   const slow = (said: Words, work: () => Promise<void>) =>
     items.length > 1 ? sayWhileSlow(said, work) : work();
-  let audioLost = false;
+  let audio: RestoreResult = { audioLost: [], audioExpired: [] };
   const restore = () =>
     slow(
       (t) => t("object.restoring.count", { count: count() }),
       async () => {
-        audioLost = (await core.restore(refsOf(items))).audioLost.length > 0;
+        audio = await core.restore(refsOf(items));
         await refresh();
       },
     );
   await restore();
   useUndo.getState().push({
-    said: restoredMessage(items, () => audioLost),
+    said: restoredMessage(items, () => audio),
     name: (t) => t("undo.name.restore"),
     undo: () =>
       slow(
@@ -103,8 +117,12 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
 /** Drops what each holds for good: they can't be restored afterwards. */
 export async function deleteItemsPermanently(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
-  await core.deletePermanently(refsOf(items));
-  await refresh();
+  try {
+    await core.deletePermanently(refsOf(items));
+  } finally {
+    // Gone even when a file of theirs couldn't be removed yet, which the problem then says.
+    await refresh();
+  }
 }
 
 /** The events and changes that may add to or take from the list. */

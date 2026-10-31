@@ -4963,6 +4963,8 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
+  "error.meeting.purgeFailed":
+    "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
   "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.cantDiscard": "Only a Meeting that hasn’t started can be discarded.",
@@ -5679,6 +5681,10 @@ export const en = {
     "Restored “{name}” without its audio: it was no longer on this computer.",
   "meetings.audio.someNotRestored":
     "Restored {count} items without some meeting audio: it was no longer on this computer.",
+  "meetings.audio.expired":
+    "Restored “{name}”. Its recording was removed a day after the meeting, as audio is only kept that long.",
+  "meetings.audio.someExpired":
+    "Restored {count} items. Some recordings were removed a day after their meeting, as audio is only kept that long.",
   "meetings.health.label": "Recording details",
   "meetings.health.show": "Show recording details",
   "meetings.health.hide": "Hide recording details",

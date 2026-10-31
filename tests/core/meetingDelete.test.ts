@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { CitationAttributes, Core, Meeting } from "../../src/core";
@@ -8,7 +8,7 @@ import { FAKE_LINES, type FakeTranscriberOptions } from "../../src/core/transcri
 import { lostSentences } from "../../src/renderer/src/deletedItems";
 import { citationState } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { transcribingCore, until } from "../helpers/transcription";
 
 /*
@@ -156,7 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Undo, as the Undo line and ⌘Z do.
       const restored = await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
 
-      expect(restored).toEqual({ audioLost: [] });
+      expect(restored).toEqual({ audioLost: [], audioExpired: [] });
       expect(await meetingOf(core, meeting.id)).toMatchObject({
         mindId: meeting.mindId,
         status: "stopped",
@@ -212,6 +212,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Restore, as Recently deleted's own button does: the window stays as it is.
       expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({
         audioLost: [],
+        audioExpired: [],
       });
 
       const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
@@ -255,7 +256,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
-  test("is kept for its day in Recently deleted, then deleted as it would be, which Restore doesn't call a failure", async () => {
+  test("is kept for its day in Recently deleted, then deleted as it would be, and Restore says why it is gone", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     // A line the engine couldn't read gives the Meeting a health record, its recording details.
     const { core, clock, dataDir, meeting } = await recordedMeeting("en", { failing: [1] });
@@ -276,11 +277,23 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
       "Its Transcript is deleted too.",
     ]);
 
-    expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({ audioLost: [] });
+    // Its day ended while it waited: not a failure, but said, not as audio that was lost.
+    expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({
+      audioLost: [],
+      audioExpired: [meeting.mindId],
+    });
     expect((await meetingOf(core, meeting.id))?.audio).toEqual({
       kept: false,
       expiresAt: null,
       deletedAt: "2026-10-07T10:00:09.000Z",
+    });
+    expect((await meetingOf(core, meeting.id))?.transcript?.state).toBe("saved");
+    // Deleted again with its audio already gone, Undo has nothing more to say.
+    clock.advance(SECOND);
+    await core.deleteMind(meeting.mindId);
+    expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({
+      audioLost: [],
+      audioExpired: [],
     });
     expect((await meetingOf(core, meeting.id))?.transcript?.state).toBe("saved");
 
@@ -320,11 +333,172 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
 
     expect(await core.restore([{ kind: "mind", id: meeting.mindId }])).toEqual({
       audioLost: [meeting.mindId],
+      audioExpired: [],
     });
     expect(await meetingOf(core, meeting.id)).toMatchObject({
       status: "stopped",
       audio: { kept: false, expiresAt: null, deletedAt: "2026-10-06T10:00:09.000Z" },
       transcript: { state: "saved" },
     });
+  });
+});
+
+describe("A deleted Meeting's Transcript", { timeout: 60_000 }, () => {
+  const transcriptsIn = async (core: Core) =>
+    (await core.listDocuments()).filter((document) => document.kind === "transcript");
+
+  test("made after its note was deleted waits with the note, comes back named for it, and goes with it for good", async () => {
+    let release = () => {};
+    const loads = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, { loads });
+    const folder = await core.createLibraryGroup({ name: "Clients", description: "" });
+    const meeting = await core.createMeeting({ folderId: folder.id });
+    await core.startMeeting({ meetingId: meeting.id });
+    // The engine is still starting: no line, so no Transcript Document, before Delete.
+    record(9 * SECOND);
+    await core.deleteMind(meeting.mindId);
+    release();
+    const working = join(dataDir, "Transcripts", `${meeting.id}.json`);
+    await vi.waitFor(
+      () =>
+        expect(JSON.parse(readFileSync(working, "utf8"))).toMatchObject({
+          documentId: expect.any(String),
+          savedPath: expect.any(String),
+        }),
+      { timeout: 20_000, interval: 50 },
+    );
+
+    // Its words are in no live Document: the Transcript waits with the note, which is all that
+    // Recently deleted lists, and Delete Permanently's question says it goes.
+    expect(await transcriptsIn(core)).toEqual([]);
+    expect((await core.listDeleted()).map((item) => item.kind)).toEqual(["mind"]);
+    expect(await questionOf(core, "en", [meeting.mindId])).toEqual([
+      "Your text in “Meeting, 6 October” is gone.",
+      "Its recording and Transcript are deleted too.",
+    ]);
+
+    await core.restore([{ kind: "mind", id: meeting.mindId }]);
+    const back = await vi.waitFor(
+      async () => {
+        const [only, ...more] = await transcriptsIn(core);
+        expect(more).toEqual([]);
+        expect(only).toMatchObject({ name: "Transcript · Meeting, 6 October", status: "ready" });
+        return only as NonNullable<typeof only>;
+      },
+      { timeout: 20_000, interval: 50 },
+    );
+    expect((await meetingOf(core, meeting.id))?.transcript?.documentId).toBe(back.id);
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === back.id)?.groupId,
+    ).toBe(folder.id);
+
+    await core.deleteMind(meeting.mindId);
+    await core.deletePermanently([{ kind: "mind", id: meeting.mindId }]);
+    expect(await transcriptsIn(core)).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(existsSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`))).toBe(false);
+  });
+
+  test("goes and comes back with its note even when its working file is missing", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stopped(core, dataDir, meeting.id);
+    core.close();
+    rmSync(join(dataDir, "Transcripts", `${meeting.id}.json`));
+    const { core: again } = await transcribingCore(dataDir);
+
+    await again.deleteMind(meeting.mindId);
+    expect(await transcriptsIn(again)).toEqual([]);
+    expect((await again.listDeleted()).map((item) => item.kind)).toEqual(["mind"]);
+    await again.restore([{ kind: "mind", id: meeting.mindId }]);
+    expect((await transcriptsIn(again)).map((each) => each.id)).toEqual([document.id]);
+
+    await again.deleteMind(meeting.mindId);
+    await again.deletePermanently([{ kind: "mind", id: meeting.mindId }]);
+    expect(await transcriptsIn(again)).toEqual([]);
+    expect(existsSync(join(dataDir, "Transcripts", `${meeting.id}.vtt`))).toBe(false);
+    again.close();
+  });
+});
+
+describe("A deleted Meeting's files that can't be removed", { timeout: 60_000 }, () => {
+  test("are said in plain words at Delete permanently, never stop IncarnaMind from opening, and go once they can, once", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    await stopped(core, dataDir, meeting.id);
+    const parts = partsOf(dataDir, meeting.id);
+    await core.deleteMind(meeting.mindId);
+    const audio = meetingFolder(dataDir, meeting.id);
+    chmodSync(audio, 0o555);
+    try {
+      await expect(
+        core.deletePermanently([{ kind: "mind", id: meeting.mindId }]),
+      ).rejects.toMatchObject({
+        message:
+          "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
+        wording: { key: "error.meeting.purgeFailed" },
+      });
+      expect(translate("zh-CN", "error.meeting.purgeFailed")).toBe(
+        "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
+      );
+      expect(await core.listDeleted()).toEqual([]);
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+      // Deleting something else for good says nothing of it: it is retried quietly, as at start.
+      const plain = await core.createMind({ title: "Tide tables" });
+      await core.deleteMind(plain.id);
+      await expect(
+        core.deletePermanently([{ kind: "mind", id: plain.id }]),
+      ).resolves.toBeUndefined();
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+      core.close();
+
+      // The next start opens all the same, and leaves the audio for a start that can remove it.
+      const opened = startCore(dataDir);
+      expect(await opened.listMinds()).toEqual([]);
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+      opened.close();
+    } finally {
+      chmodSync(audio, 0o755);
+    }
+
+    const cleaned = startCore(dataDir);
+    expect(existsSync(audio)).toBe(false);
+    expect(
+      queryDatabase<{ purged: number }>(
+        dataDir,
+        "SELECT purged_at IS NOT NULL AS purged FROM meetings WHERE id = ?",
+        [meeting.id],
+      ),
+    ).toEqual([{ purged: 1 }]);
+    cleaned.close();
+  });
+
+  test("past their day never stop IncarnaMind from opening, and go at a start that can remove them", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await core.stopMeeting(meeting.id);
+    const parts = partsOf(dataDir, meeting.id);
+    core.close();
+    const audio = meetingFolder(dataDir, meeting.id);
+    const clock = manualClock("2026-10-08T09:00:00.000Z");
+    chmodSync(audio, 0o555);
+    try {
+      const opened = startCore(dataDir, { now: clock.now });
+      expect((await opened.listMeetings()).map((each) => each.audio.deletedAt)).toEqual([null]);
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+      opened.close();
+    } finally {
+      chmodSync(audio, 0o755);
+    }
+    const again = startCore(dataDir, { now: clock.now });
+    expect((await again.listMeetings()).map((each) => each.audio.deletedAt)).toEqual([
+      "2026-10-08T09:00:00.000Z",
+    ]);
+    expect(existsSync(audio)).toBe(false);
+    again.close();
   });
 });

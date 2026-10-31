@@ -2089,6 +2089,26 @@ export const migrations: readonly Migration[] = [
         WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 118,
+    description:
+      "A Meeting knows its Transcript Document, and when its files went with its deleted note (#1253)",
+    sql: `
+      -- The Document that is the Meeting's Transcript, so it goes to Recently deleted, comes back
+      -- and is deleted permanently with the Meeting's note even when the Transcript's working
+      -- file is missing. Meetings recorded before this find theirs where IncarnaMind keeps it.
+      ALTER TABLE meetings ADD COLUMN transcript_document_id TEXT;
+      UPDATE meetings SET transcript_document_id = (
+        SELECT d.id FROM documents d
+        WHERE d.kind = 'transcript' AND d.source_kind = 'data-folder'
+          AND d.relative_path = 'Transcripts/' || meetings.id || '.vtt'
+        ORDER BY d.created_at DESC LIMIT 1
+      );
+      -- When the audio, the Transcript's working file and the recording details of a Meeting
+      -- whose note was deleted permanently were removed: each start looks only at those left.
+      ALTER TABLE meetings ADD COLUMN purged_at TEXT;
+    `,
+  },
 ];
 
 /**

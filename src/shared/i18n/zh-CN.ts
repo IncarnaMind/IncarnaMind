@@ -4728,6 +4728,8 @@ export const zhCN = {
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
+  "error.meeting.purgeFailed":
+    "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
   "error.meeting.otherRecording": "正在录制另一个会议。先停止它。",
   "error.meeting.noticeUnread": "录制会议前，先阅读录制提示。",
   "error.meeting.cantDiscard": "只有尚未开始的会议才能删除。",
@@ -5386,6 +5388,8 @@ export const zhCN = {
   "meetings.audio.none": "没有录到音频",
   "meetings.audio.notRestored": "已恢复“{name}”，但音频已不在这台电脑上，无法恢复。",
   "meetings.audio.someNotRestored": "已恢复 {count} 项，但部分会议音频已不在这台电脑上，无法恢复。",
+  "meetings.audio.expired": "已恢复“{name}”。音频只在会议结束后保存一天，录音已删除。",
+  "meetings.audio.someExpired": "已恢复 {count} 项。音频只在会议结束后保存一天，部分录音已删除。",
   "meetings.health.label": "录制详情",
   "meetings.health.show": "显示录制详情",
   "meetings.health.hide": "隐藏录制详情",

@@ -26,6 +26,7 @@ import type { createDocuments } from "./documents";
 import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
 import { InvalidInputError, isRecord, NotFoundError } from "./errors";
 import type { createLibrary } from "./library";
+import type { RestoredMeeting } from "./meetings";
 import type { createMindContent } from "./mindContent";
 import { forgetMindBlocks } from "./mindIndex";
 import type { createMinds } from "./minds";
@@ -193,9 +194,9 @@ export function createRecentlyDeleted(options: {
   meetings: {
     transcriptsDeletedWith(mindId: string, deletedAt: string): string[];
     recordingDeletedWith(mindId: string, deletedAt: string): boolean;
-    restoreWith(mindId: string, deletedAt: string): string[];
-    /** After the restore and its events: returns the Minds whose Meeting came back without its audio. */
-    restored(meetingIds: readonly string[]): string[];
+    restoreWith(mindId: string, deletedAt: string): RestoredMeeting[];
+    /** After the restore and its events: the Minds whose Meeting came back without its audio. */
+    restored(meetings: readonly RestoredMeeting[]): { lost: string[]; expired: string[] };
   };
   /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
   mindsRestored(mindIds: readonly string[], reopen: boolean): void;
@@ -363,7 +364,7 @@ export function createRecentlyDeleted(options: {
           minds: false,
           mindIds: [] as string[],
           mindsDeletedAt: [] as { id: string; deletedAt: string }[],
-          meetings: [] as string[],
+          meetings: [] as RestoredMeeting[],
           conversations: false,
           documents: [] as string[],
           folders: false,
@@ -456,7 +457,8 @@ export function createRecentlyDeleted(options: {
       if (done.folders) library.restored();
       if (done.tags) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
-      return { audioLost: options.meetings.restored(done.meetings) };
+      const audio = options.meetings.restored(done.meetings);
+      return { audioLost: audio.lost, audioExpired: audio.expired };
     },
 
     /**
@@ -476,8 +478,8 @@ export function createRecentlyDeleted(options: {
       });
     },
 
-    /** See `CoreApi.deletePermanently`. */
-    deletePermanently(input: unknown): void {
+    /** See `CoreApi.deletePermanently`. Returns the Minds it deleted permanently. */
+    deletePermanently(input: unknown): string[] {
       const refs: DeletedRef[] = parseRefs(input, "deletePermanently");
       const at = now();
       db.transaction(() => {
@@ -500,6 +502,7 @@ export function createRecentlyDeleted(options: {
       const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
       for (const mindId of minds) content.forget(mindId);
       if (minds.length > 0) options.mindsForgotten(minds);
+      return minds;
     },
   };
 }

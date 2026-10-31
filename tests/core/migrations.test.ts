@@ -97,6 +97,46 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("a Meeting recorded before keeps its Transcript Document, found where IncarnaMind keeps it (#1253)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 118),
+    );
+    const at = "2026-10-29T09:00:00.000Z";
+    const mind = "00000000-0000-4000-8000-000000000001";
+    const transcribed = "00000000-0000-4000-8000-000000000002";
+    const silent = "00000000-0000-4000-8000-000000000003";
+    const document = "00000000-0000-4000-8000-000000000004";
+    db.run("INSERT INTO minds (id, created_at, updated_at) VALUES (?, ?, ?)", [mind, at, at]);
+    for (const id of [transcribed, silent]) {
+      db.run(
+        `INSERT INTO meetings (id, mind_id, status, created_at, updated_at)
+         VALUES (?, ?, 'stopped', ?, ?)`,
+        [id, mind, at, at],
+      );
+    }
+    db.run(
+      `INSERT INTO documents (id, content_hash, name, kind, size, status, path, source_kind,
+         relative_path, created_at, updated_at)
+       VALUES (?, 'hash', 'Transcript · Weekly call', 'transcript', 1, 'ready', ?, 'data-folder',
+         ?, ?, ?)`,
+      [document, `/data/Transcripts/${transcribed}.vtt`, `Transcripts/${transcribed}.vtt`, at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      db.all<{ id: string; transcript_document_id: string | null; purged_at: string | null }>(
+        "SELECT id, transcript_document_id, purged_at FROM meetings ORDER BY id",
+      ),
+    ).toEqual([
+      { id: transcribed, transcript_document_id: document, purged_at: null },
+      { id: silent, transcript_document_id: null, purged_at: null },
+    ]);
+    db.close();
+  });
+
   test("a migration with a lower number that lands later still runs", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
     const one = { version: 1, description: "one", sql: "CREATE TABLE one (id TEXT) STRICT;" };

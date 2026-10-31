@@ -157,7 +157,7 @@ beforeEach(() => {
   // A quiet spell, so each test starts with nothing waiting.
   vi.advanceTimersByTime(1000);
   for (const each of methods.values()) each.mockReset();
-  method("restore").mockResolvedValue({ audioLost: [] });
+  method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
   useAppStore.setState({
     documents: [doc("a"), doc("b"), doc("c")],
     library: snapshot([assignment("a", "pending"), assignment("b", "pending")]),
@@ -486,7 +486,9 @@ describe("changes the User can take back", () => {
     expect(ids()).toEqual(["c"]);
 
     const restoring = slow();
-    method("restore").mockReturnValue(restoring.done.then(() => ({ audioLost: [] })));
+    method("restore").mockReturnValue(
+      restoring.done.then(() => ({ audioLost: [], audioExpired: [] })),
+    );
     const undone = useUndo.getState().undo();
     await vi.advanceTimersByTimeAsync(0);
     expect(ids()).toEqual(["a", "b", "c"]);
@@ -624,7 +626,7 @@ describe("changes the User can take back", () => {
     expect(useUndo.getState().line).toBeNull();
 
     await useUndo.getState().redo();
-    method("restore").mockResolvedValue({ audioLost: ["m"] });
+    method("restore").mockResolvedValue({ audioLost: ["m"], audioExpired: [] });
     await useUndo.getState().undo();
     const note = useUndo.getState().line?.note;
     expect(note?.(words)).toBe(
@@ -639,6 +641,7 @@ describe("changes the User can take back", () => {
   test("Undo of a selection deleted together says when a Meeting's audio couldn't come back", async () => {
     method("restore").mockImplementation(async (refs: { kind: string }[]) => ({
       audioLost: refs.some((ref) => ref.kind === "mind") ? ["m"] : [],
+      audioExpired: [],
     }));
     await useAppStore.getState().deleteSelection([
       { kind: "mind", id: "m" },
@@ -650,6 +653,61 @@ describe("changes the User can take back", () => {
     expect(useUndo.getState().line?.note?.(words)).toBe(
       "Restored “Plan” without its audio: it was no longer on this computer.",
     );
+  });
+
+  // protects=a Meeting whose audio's day ended while its Note waited in Recently deleted comes back saying why its recording is gone, from Undo and from Restore, in English and Chinese (#1253); fails_when=nothing is said, or it is said as a failure; no_claim=how the core times the audio's day.
+  test("Undo and Restore say when a Meeting's recording was removed after its day, and why", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const zh = (key: Parameters<Translate>[0], params?: Parameters<Translate>[1]) =>
+      translate("zh-CN", key, params);
+    method("restore").mockResolvedValue({ audioLost: [], audioExpired: ["m"] });
+    method("listDeleted").mockResolvedValue([]);
+
+    await useAppStore.getState().deleteMind("m");
+    await useUndo.getState().undo();
+    const note = useUndo.getState().line?.note;
+    expect(note?.(words)).toBe(
+      "Restored “Plan”. Its recording was removed a day after the meeting, as audio is only kept that long.",
+    );
+    expect(note?.(zh)).toBe("已恢复“Plan”。音频只在会议结束后保存一天，录音已删除。");
+
+    const item = {
+      kind: "mind",
+      id: "m",
+      name: "Plan",
+      deletedAt: "2026-10-06T09:00:00.000Z",
+      documentKind: null,
+      groupId: null,
+      linkedFolderId: null,
+    } as const;
+    await restoreItems([item, { ...item, id: "n", name: "Budget" }]);
+    expect(said(top())).toBe(
+      "Restored 2 items. Some recordings were removed a day after their meeting, as audio is only kept that long.",
+    );
+    expect(undoLines(zh).said(top())).toBe(
+      "已恢复 2 项。音频只在会议结束后保存一天，部分录音已删除。",
+    );
+  });
+
+  // protects=Delete permanently that couldn't remove a file of a Meeting's still refreshes Recently deleted, and passes the plain-words problem on (#1253); fails_when=the list keeps showing what was deleted, or the problem is swallowed; no_claim=the problem's own wording, which the core test reads.
+  test("Delete permanently that couldn't remove a recording still shows what is left, and says why", async () => {
+    const { deleteItemsPermanently } = await import("../../src/renderer/src/recentlyDeleted");
+    const problem = new Error(
+      "Deleted permanently, but a meeting’s recording couldn’t be removed.",
+    );
+    method("deletePermanently").mockRejectedValue(problem);
+    method("listDeleted").mockResolvedValue([]);
+    const item = {
+      kind: "mind",
+      id: "m",
+      name: "Plan",
+      deletedAt: "2026-10-06T09:00:00.000Z",
+      documentKind: null,
+      groupId: null,
+      linkedFolderId: null,
+    } as const;
+    await expect(deleteItemsPermanently([item])).rejects.toBe(problem);
+    expect(method("listDeleted")).toHaveBeenCalled();
   });
 
   // protects=Restore from Recently deleted says so when a Note's Meeting came back without its audio, for one item or several, and only then, in English and Chinese (#1253); fails_when=lost audio goes unsaid, or a whole restore says audio was lost; no_claim=how the core finds the audio gone.
@@ -670,7 +728,7 @@ describe("changes the User can take back", () => {
     await restoreItems([item("m", "Plan")]);
     expect(said(top())).toBe("Restored “Plan”");
 
-    method("restore").mockResolvedValue({ audioLost: ["m"] });
+    method("restore").mockResolvedValue({ audioLost: ["m"], audioExpired: [] });
     await restoreItems([item("m", "Plan")]);
     expect(said(top())).toBe(
       "Restored “Plan” without its audio: it was no longer on this computer.",
