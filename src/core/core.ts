@@ -89,6 +89,7 @@ import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
 import {
   type AddDocumentsResult,
+  type AnswerPlace,
   type ChatModelChoice,
   type ChatProviderKind,
   type CheckRecordFailure,
@@ -1497,6 +1498,17 @@ export function createCore(adapters: CoreAdapters): Core {
     wallOfDocument(documentId)?.name ?? null;
   const folderOfNote = (mindId: string | null): string | null =>
     mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
+  /** The Folder of a Question's place, as the web tools take it; null once the place is deleted. */
+  const folderOfPlace = (place: AnswerPlace): string | null => {
+    try {
+      if (place.mindId !== null) return minds.get(place.mindId).folderId;
+      return place.conversationId ? conversations.get(place.conversationId).folderId : null;
+    } catch (error) {
+      // Deleted while the Answer was written: the page stays in no Folder.
+      if (error instanceof NotFoundError) return null;
+      throw error;
+    }
+  };
   /** A Note and a conversation as the API takes them: an id or null each, neither left out. */
   const parseTurnPlace = (input: unknown): TurnPlace => {
     const idOf = (value: unknown) => {
@@ -1532,8 +1544,41 @@ export function createCore(adapters: CoreAdapters): Core {
     wallId: string | null,
     asked: string | null,
   ): { folderId: string | null } | null => {
-    if (wallId === null) return { folderId: walledFolderId(asked) === null ? asked : null };
+    if (wallId === null) {
+      if (asked === null) return { folderId: null };
+      // A Folder that gained a wall takes nothing from outside it; one that is gone takes nothing.
+      if (walledFolderId(asked) !== null) return { folderId: null };
+      return library.folders().some((folder) => folder.id === asked) ? { folderId: asked } : null;
+    }
     return library.folders().some((folder) => folder.id === wallId) ? { folderId: wallId } : null;
+  };
+  /**
+   * Whether work on the wall `wallId`'s side (null: outside every wall) may be filed in `folderId`
+   * now: the walls are read here, and a Document behind another wall (`behind`) never crosses it
+   * (#2250). One door for a page, a paste and a move alike.
+   */
+  const mayFileWithin = (
+    wallId: string | null,
+    folderId: string | null,
+    behind: string | null,
+  ): boolean =>
+    (behind === null || behind === wallId) && filedWithin(wallId, folderId)?.folderId === folderId;
+  /**
+   * Files a Document by the walls as they are at this moment (#2250): a wall switched on while the
+   * work was under way is judged here, never where it was before. A Document behind another wall
+   * stays where it is, and a Folder that gained a wall takes nothing from outside it. Null: it
+   * isn't filed, because `filedWithin` gives this side no Folder or the Document is on another side.
+   */
+  const fileWithin = (
+    documentId: string,
+    wallId: string | null,
+    asked: string | null,
+  ): { folderId: string | null } | null => {
+    const filed = filedWithin(wallId, asked);
+    if (filed === null) return null;
+    if (!mayFileWithin(wallId, filed.folderId, walledDocument(documentId))) return null;
+    if (filed.folderId !== null) library.assign(documentId, filed.folderId);
+    return filed;
   };
   const unscopedDocuments = (mindId: string | null): string[] | null => {
     const made = examples.made();
@@ -1657,21 +1702,14 @@ export function createCore(adapters: CoreAdapters): Core {
     readiness: (model) => chat.readiness(model),
     prepare: (model) => chat.prepareModel(model, "web-search", "off"),
     // A page an Answer saves is never loaded whole: that is for the User to ask for, page by page.
-    savePage: (address, fetch, reuse) =>
-      webPages.save({ address, keepLook: false }, undefined, fetch, "search", reuse),
-    folderOf: (place) => {
-      try {
-        if (place.mindId !== null) return minds.get(place.mindId).folderId;
-        return place.conversationId ? conversations.get(place.conversationId).folderId : null;
-      } catch (error) {
-        // Deleted while the Answer was written: the page stays in no Folder.
-        if (error instanceof NotFoundError) return null;
-        throw error;
-      }
-    },
+    savePage: (address, fetch, reuse, added) =>
+      webPages.save({ address, keepLook: false }, added, fetch, "search", reuse),
+    folderOf: (place) => folderOfPlace(place),
     filedWithin: (wallId, asked) => filedWithin(wallId, asked),
     walledDocument,
-    file: (documentId, folderId) => library.assign(documentId, folderId),
+    file: (documentId, wallId, asked) => {
+      fileWithin(documentId, wallId, asked);
+    },
     document: (id) => documents.get(id),
     onStatus: (listener) => events.on("document.status", listener),
     ...(adapters.web && { fetch: adapters.web }),
@@ -4506,19 +4544,36 @@ export function createCore(adapters: CoreAdapters): Core {
       // A save under way for the other side of a wall is never joined: the User's Folder would
       // take a turn's page across it, or never get its own (#2243).
       const into = typeof folderId === "string" ? walledFolderId(folderId) : null;
-      const result = await webPages.save(input, undefined, undefined, "user", {
-        key: wallKey(into),
-      });
+      let made = false;
+      const result = await webPages.save(
+        input,
+        () => {
+          made = true;
+        },
+        undefined,
+        "user",
+        { key: wallKey(into) },
+      );
+      let filed = false;
       if (result.outcome === "saved" && !result.existing && typeof folderId === "string") {
-        library.assign(result.document.id, folderId);
+        // Judged at the filing (#2250): a page this save only joined another's goes nowhere its
+        // Folder moved to a wall meanwhile, and the User's own page goes where that wall now is.
+        const now = walledFolderId(folderId);
+        if (made || now === into) filed = fileWithin(result.document.id, now, folderId) !== null;
       }
+      const notFiled =
+        result.outcome === "saved" && !result.existing && typeof folderId === "string" && !filed;
       const added: Pick<AddDocumentsResult, "documents" | "skipped"> =
         result.outcome === "saved"
           ? { documents: [result.document], skipped: [] }
           : { documents: [], skipped: [{ path: result.address, reason: "unreadable" }] };
       usageData.record({ event: "documents_added", fields: addedCounts(added, since) });
       return result.outcome === "saved"
-        ? { ...result, document: documents.get(result.document.id) }
+        ? {
+            ...result,
+            document: documents.get(result.document.id),
+            ...(notFiled ? { notFiled: true as const } : {}),
+          }
         : result;
     },
     keepWebPageLook: async (documentId) => webPages.keepLook(documentId),
@@ -4537,8 +4592,9 @@ export function createCore(adapters: CoreAdapters): Core {
         const key = place.mindId !== null ? "error.paste.noteGone" : "error.paste.conversationGone";
         throw new NotFoundError({ key });
       }
-      const filed = filedWithin(wall, null);
-      if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
+      if (filedWithin(wall, null) === null) {
+        throw new InvalidInputError({ key: "error.folder.notFiled" });
+      }
       const title = typeof input.name === "string" ? input.name : "";
       const folder = join(dataDir, "Saved text");
       mkdirSync(folder, { recursive: true });
@@ -4551,7 +4607,16 @@ export function createCore(adapters: CoreAdapters): Core {
       const { documents: added } = await documents.add([join(folder, name)]);
       const saved = added[0];
       if (!saved) throw new InvalidInputError("The text couldn't be saved.");
-      if (filed.folderId !== null) library.assign(saved.id, filed.folderId);
+      // Judged again at the filing (#2250): a Folder that gained a wall between the paste and the
+      // Save, or while it was written, takes the paste by the wall it has now.
+      let atFiling: string | null = null;
+      try {
+        atFiling = turnWall(place);
+      } catch (error) {
+        // Deleted while it was written: nothing more is filed, and the text stays saved.
+        if (!(error instanceof NotFoundError)) throw error;
+      }
+      fileWithin(saved.id, atFiling, null);
       return saved;
     },
     listDocuments: async (options) => {
@@ -5133,7 +5198,29 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
       transcripts?.dropPurged();
     },
-    acceptAssignments: async (ids, checked) => library.accept(ids, checked),
+    acceptAssignments: async (ids, checked, wall) => {
+      if (checked !== undefined && wall !== undefined) {
+        // Judged here, at the filing (#2250): a Folder that gained a wall since the check, or a
+        // Document that left it, accepts nothing. One that now waits for another Folder is the
+        // move check's to refuse, with its own words (#2243).
+        const side = wall;
+        const suggested = new Map(
+          library.snapshot().assignments.map((each) => [each.documentId, each]),
+        );
+        const crossing = ids.some((id) => {
+          const into = checked[id] ?? null;
+          const waiting = suggested.get(id);
+          if (!waiting?.suggested || waiting.groupId !== into) return false;
+          return !mayFileWithin(side, into, walledDocument(id));
+        });
+        if (crossing) {
+          throw new InvalidInputError({
+            key: side === null ? "error.folder.wallAccept" : "error.folder.wallAcceptInside",
+          });
+        }
+      }
+      return library.accept(ids, checked);
+    },
     rejectAssignments: async (ids) => library.reject(ids),
     moveToFolder: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError("moveToFolder expects an object.");
@@ -5141,10 +5228,22 @@ export function createCore(adapters: CoreAdapters): Core {
       const mindIds = parseIds(input.mindIds, "The Notes to move");
       const documentIds = parseIds(input.documentIds, "The Documents to move");
       const conversationIds = parseIds(input.conversationIds, "The conversations to move");
+      const wall = input.wall;
+      if (wall !== undefined && wall !== null && typeof wall !== "string") {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      }
       // All or none: every one is checked before anything moves.
       if (folderId !== null) library.folder(folderId);
       for (const id of mindIds) minds.get(id);
       for (const id of conversationIds) conversations.get(id);
+      // The assistant's move judges the walls again here, when it moves (#2250): the one door.
+      if (wall !== undefined) {
+        const side = typeof wall === "string" ? wall : null;
+        const crossing =
+          documentIds.some((id) => !mayFileWithin(side, folderId, walledDocument(id))) ||
+          mindIds.some((id) => !mayFileWithin(side, folderId, walledFolder(id)));
+        if (crossing) throw new InvalidInputError({ key: "error.folder.wallMove" });
+      }
       const move = db.transaction(() => ({
         folderId,
         minds: minds.move(mindIds, folderId),

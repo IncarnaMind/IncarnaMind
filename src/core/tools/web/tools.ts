@@ -25,7 +25,13 @@ const PROVIDER: ToolProviderInfo = { kind: "web", id: "web", name: "Web search" 
 
 /** What saving a page came to: its Document, which can be searched now, or why it wasn't saved. */
 export type SavedPage =
-  | { outcome: "saved"; documentId: string; name: string }
+  | {
+      outcome: "saved";
+      documentId: string;
+      name: string;
+      /** Saved in no Folder: the place's Folder gained a wall ("walled") or was deleted ("gone"). */
+      notFiled?: "walled" | "gone";
+    }
   | { outcome: "failed"; reason: WebPageFailureReason };
 
 export interface WebToolsOptions {
@@ -42,6 +48,8 @@ export interface WebToolsOptions {
     query: string,
     signal: AbortSignal,
   ): Promise<{ text: string; passageCount: number }>;
+  /** The walls changed while the Answer was written, so the page this call saved in no Folder. */
+  notFiled?(reason: "walled" | "gone"): void;
   /** Hears what a call of `read_web_page` came to, for its card. */
   read(toolCallId: string, call: WebPageCall): void;
 }
@@ -156,6 +164,7 @@ export function webTools(options: WebToolsOptions): Tool[] {
       if (!returned.has(address)) return refuse("not-from-search");
       const saved = await options.save(address, context.signal);
       if (saved.outcome === "failed") return refuse(saved.reason);
+      if (saved.notFiled) options.notFiled?.(saved.notFiled);
       const query =
         typeof input.query === "string" && input.query.trim() ? input.query : options.question;
       let found = await options.passages(saved.documentId, query, context.signal);

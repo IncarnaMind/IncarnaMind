@@ -185,6 +185,7 @@ export const YOURS_SETTINGS: Readonly<Record<string, Yours>> = {
   approvals: "approvals",
   skillScripts: "approvals",
   monthlyCap: "spending",
+  deleteForGood: "permanent",
 };
 
 /** The settings' names and values, as `run_command`'s description gives them. */

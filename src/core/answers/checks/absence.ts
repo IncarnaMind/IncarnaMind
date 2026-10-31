@@ -12,6 +12,7 @@ import type {
   ProviderError,
 } from "../../api";
 import { isRecord } from "../../errors";
+import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import { answerTemperature, parseRecords } from "../engine";
@@ -150,7 +151,7 @@ export async function checkAbsence({
       instructions: WHOLE_READ,
       prompt: `<sentence>\n${request.claim}\n</sentence>\n\n${whole}`,
       temperature: answerTemperature(model.capabilities.facts.temperature),
-      maxOutputTokens: 400,
+      maxOutputTokens: outputTokens("absence-read"),
       maxRetries: 1,
       abortSignal: signal,
     });

@@ -141,6 +141,15 @@ export const useWebPages = create<WebPagesState>()((set, get) => {
           alreadyAdded: [...new Set([...state.alreadyAdded, result.document.name])],
         }));
       }
+      if (result.notFiled && folderId !== null) {
+        const folder = useAppStore.getState().library?.groups.find((g) => g.id === folderId);
+        useAppStore.setState((state) => ({
+          savedOutside: [
+            ...state.savedOutside.filter((each) => each.id !== result.document.id),
+            { id: result.document.id, name: result.document.name, folder: folder?.name ?? "" },
+          ],
+        }));
+      }
     } catch (error) {
       finish(address, null);
       failedAction(error);
