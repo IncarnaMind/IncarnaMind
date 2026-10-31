@@ -185,12 +185,13 @@ export function createChatGptSignIn(options: {
    */
   const prepare = async (
     replaceUnreadable: boolean,
-  ): Promise<{ stored: StoredAccount; hadRecord: boolean }> => {
+  ): Promise<{ stored: StoredAccount; keepRecord: boolean }> => {
     let existing: StoredAccount | null = null;
-    let hadRecord = true;
+    // A record that holds a sign-in, or can't be read, is left as it is by a refused attempt.
+    let keepRecord = true;
     try {
       existing = await account.load();
-      hadRecord = existing !== null;
+      keepRecord = existing?.tokens != null;
     } catch (error) {
       if (!(error instanceof SignInRecordUnreadableError) || !replaceUnreadable) throw error;
     }
@@ -205,7 +206,7 @@ export function createChatGptSignIn(options: {
         ended: null,
         planRefused: false,
       },
-      hadRecord,
+      keepRecord,
     };
   };
 
@@ -215,7 +216,7 @@ export function createChatGptSignIn(options: {
     anotherAccount: boolean,
     replaceUnreadable: boolean,
   ) => {
-    const { stored, hadRecord } = await prepare(replaceUnreadable);
+    const { stored, keepRecord } = await prepare(replaceUnreadable);
     const registered = anotherAccount ? null : stored.clientId;
     const nonce = randomBytes(24).toString("base64url");
     /** The client the code is for: the registered one, or the one OpenAI issues now. */
@@ -289,9 +290,9 @@ export function createChatGptSignIn(options: {
     if (!scopes.includes(PLAN_SCOPE)) {
       // Signed in, but not allowed to use the plan: nothing IncarnaMind could use is kept.
       await abandon();
-      // A record that was here before is the User's and stays as it was; only a first
-      // sign-in keeps why it asked again, so the next page asks for consent.
-      if (!hadRecord) await account.commit({ ...signedIn, planRefused: true });
+      // Keep why it asked again, so the next page asks for consent: only a record
+      // that holds a sign-in, or can't be read, is left as it was.
+      if (!keepRecord) await account.commit({ ...signedIn, planRefused: true });
       throw new ChatGptPlanNotAllowedError();
     }
     await account.commit({ ...signedIn, tokens: account.storedTokens(tokens, null), ended: null });

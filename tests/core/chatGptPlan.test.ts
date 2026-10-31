@@ -231,6 +231,33 @@ describe("Continue with ChatGPT", () => {
     expect(fake.authorizations[1]).not.toHaveProperty("id_token_hint");
   });
 
+  test.each(["signed out", "expired"] as const)(
+    "a refusal after the sign-in is %s is remembered, so the next one asks for consent",
+    async (state) => {
+      const { core, fake, browser, clock } = await signedIn();
+      if (state === "expired") {
+        fake.refreshRefusal = { status: 400, body: { error: "refresh_token_expired" } };
+        clock.advance(fake.expiresIn * 1000);
+        await core.testChatConnection({ kind: "chatgpt", modelId: MODEL });
+        fake.refreshRefusal = null;
+        expect((await core.getChatGptPlan()).account).toEqual({ state: "expired" });
+      } else {
+        await core.signOutOfChatGpt();
+        expect((await core.getChatGptPlan()).account).toEqual({ state: "signed-out" });
+      }
+
+      browser.approval = { allowPlan: false };
+      expect(await core.signInToChatGpt()).toMatchObject({
+        ok: false,
+        error: { kind: "plan-not-allowed" },
+      });
+
+      browser.approval = {};
+      expect((await core.signInToChatGpt()).ok).toBe(true);
+      expect(fake.authorizations.at(-1)).toMatchObject({ prompt: "consent" });
+    },
+  );
+
   test.each([
     { name: "another nonce", tamper: (c: Record<string, unknown>) => ({ ...c, nonce: "other" }) },
     { name: "another audience", tamper: (c: Record<string, unknown>) => ({ ...c, aud: "app_x" }) },
