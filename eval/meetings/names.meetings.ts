@@ -53,7 +53,7 @@ async function lineAudio(call: Call, at: number): Promise<Float32Array> {
     await mkdir(folder, { recursive: true });
     const line = call.lines[at] as Call["lines"][number];
     const aiff = `${wav}.aiff`;
-    execFileSync("say", ["-v", call.voices[line.side], "-o", aiff, line.text]);
+    execFileSync("say", ["-v", call.voices[line.side], "-r", "165", "-o", aiff, line.text]);
     execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff, wav]);
   }
   return monoSamples(await readFile(wav), wav);

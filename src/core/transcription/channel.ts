@@ -6,11 +6,12 @@
  *
  * Requests: { type: "load", id, model }, { type: "open", stream, cloud },
  * { type: "words", stream, words }, { type: "audio", stream, samples },
- * { type: "finish", id, stream } and { type: "drop", stream }. The other end answers a load or a finish with
- * { type: "done", id } or { type: "error", id, message }, and reports
- * { type: "segment", segment }, { type: "progress", stream, doneMs },
- * { type: "failed", stream, message }, { type: "switched", change },
- * { type: "lost", stream, loss } and { type: "opened", stream } as they happen.
+ * { type: "finish", id, stream } and { type: "drop", stream }. The other end
+ * answers a load or a finish with { type: "done", id } or { type: "error", id,
+ * message }, and reports { type: "segment", segment }, { type: "progress",
+ * stream, doneMs }, { type: "failed", stream, message }, { type: "switched",
+ * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
+ * they happen.
  *
  * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
  * process: OpenAI's live model needs Silero VAD, which runs here.
