@@ -34,7 +34,6 @@ const selection = (window: Page) =>
     return {
       text: String(chosen?.toString()),
       covers: citation !== null && (chosen?.containsNode(citation, true) ?? false),
-      cards: document.querySelectorAll('[data-testid="citation-card"]').length,
     };
   });
 
@@ -64,19 +63,24 @@ for (const language of ["en", "zh-CN"] as const) {
       const box = await chip.boundingBox();
       if (!box) throw new Error("The Citation isn't on screen.");
       const y = box.y + box.height / 2;
-      // The last character of the word before the Citation, as the User sees it.
+      // The word before the Citation, as the User sees it, at the left of its first letter: a
+      // double-click in its middle can land on a word's end (one Han character has no middle), and
+      // the browser takes the space after it instead.
       const word = await window.evaluate(() => {
         const citation = document.querySelector('[data-testid="citation"]');
         const before = citation?.closest(".node-citation")?.previousSibling;
         if (!(before instanceof Text)) return null;
-        let index = before.data.length - 1;
-        while (index >= 0 && /\s/.test(before.data[index] ?? "")) index--;
-        if (index < 0) return null;
+        const text = before.data;
+        let end = text.length;
+        while (end > 0 && /\s/.test(text[end - 1] ?? "")) end--;
+        let start = end;
+        while (start > 0 && !/\s/.test(text[start - 1] ?? "")) start--;
+        if (start === end) return null;
         const range = document.createRange();
-        range.setStart(before, index);
-        range.setEnd(before, index + 1);
+        range.setStart(before, start);
+        range.setEnd(before, start + 1);
         const rect = range.getBoundingClientRect();
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        return { x: rect.x + rect.width / 4, y: rect.y + rect.height / 2 };
       });
       if (!word) throw new Error("No word before the Citation.");
 
@@ -86,7 +90,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const worded = await selection(window);
       expect(worded.covers).toBe(false);
       const typed = worded.text.trim();
-      expect(typed).not.toBe("");
+      expect(typed, `The double-click at ${JSON.stringify(word)} selected nothing.`).not.toBe("");
 
       // A Shift-press just after the Citation takes the word, the Citation and the text
       // after it, every time.
@@ -106,6 +110,22 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.mouse.move(box.x - 15, box.y - 120);
       await expect(window.getByTestId("citation-card")).toHaveCount(0);
       await expect(window.getByTestId("viewer")).toHaveCount(0);
+
+      // Dragging across it does the same.
+      await window.keyboard.press("Escape");
+      await window.mouse.move(word.x, word.y, { steps: 3 });
+      await window.mouse.down();
+      await window.mouse.move(box.x + box.width + 4, y, { steps: 6 });
+      await window.mouse.up();
+      expect((await selection(window)).covers).toBe(true);
+
+      // With no selection to extend (a caret), a Shift-press on the Citation acts on it, as
+      // before: its card stays after the pointer leaves.
+      await window.keyboard.press("Escape");
+      await window.mouse.click(word.x, word.y);
+      await shiftClick(window, box.x + box.width - 2, y);
+      await window.mouse.move(box.x - 15, box.y - 120);
+      await expect(window.getByTestId("citation-card")).toHaveCount(1);
     } finally {
       await app.close();
     }
