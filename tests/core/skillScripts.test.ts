@@ -133,14 +133,14 @@ interface SetUpOptions {
   scriptRuntimes?: CoreAdapters["scriptRuntimes"];
 }
 
+/** What scripts left in the temporary folder: all of it but the core's own count of changes waiting (#2309). */
+const scriptsLeftIn = async (folder: string) =>
+  (await readdir(folder)).filter((name) => !/^incarnamind-unsaved-[0-9a-f]{16}\.json$/.test(name));
+
 /**
  * A core with a local chat model (no consent asked), the toolbox Skill, a
  * folder for the scripts' working folders, and a Mind with a client.
  */
-
-/** What scripts left in the temporary folder: all of it but the core's own count of changes waiting (#2309). */
-const scriptsLeftIn = async (folder: string) =>
-  (await readdir(folder)).filter((name) => !/^incarnamind-unsaved-[0-9a-f]{16}\.json$/.test(name));
 async function setUp(model: MockLanguageModelV4, options: SetUpOptions = {}) {
   const dataDir = await createTempDataFolder();
   const tempDir = await createTempDataFolder();

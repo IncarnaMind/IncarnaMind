@@ -53,7 +53,7 @@ if (instance.kind === "owner" && mode !== "take") {
       console.log(JSON.stringify({ kind: "quitting" }));
     } else if (input.trim() === "ready") ready();
     else if (input.trim() === "session-ended") {
-      instance.owner.sessionEnded(2);
+      instance.owner.sessionEnded({ count: 2, minds: [{ mindId: "mind-1", count: 2 }] });
       console.log(JSON.stringify({ kind: "session-ended" }));
     } else if (input.trim() === "exit") process.exit(0);
   });

@@ -7,7 +7,11 @@
  * bridge (./files).
  */
 import { arch, release } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { app } from "electron";
+import { ANALYSIS_ORIGIN } from "../shared/analysisWindow";
+import { pageName } from "./appEnd";
 import { createScrubber } from "./crashScrubber";
 import { createFileLogger, createLogFile, type FileLogger, logConsole, logsFolder } from "./log";
 
@@ -23,6 +27,12 @@ export function startLogging(dataDir: string): FileLogger {
     appPath: app.getAppPath(),
   });
   const printError = console.error.bind(console);
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const ownPages = [
+    pathToFileURL(join(__dirname, "../renderer/")).href,
+    `${ANALYSIS_ORIGIN}/`,
+    ...(rendererUrl ? [`${new URL(rendererUrl).origin}/`] : []),
+  ];
   logConsole(logger);
 
   // A monitor, so Electron still handles the error as it would have.
@@ -43,7 +53,7 @@ export function startLogging(dataDir: string): FileLogger {
   });
   app.on("render-process-gone", (_event, contents, details) => {
     const fields = {
-      page: pageName(contents.getURL()),
+      page: pageName(contents.getURL(), ownPages),
       reason: details.reason,
       exitCode: details.exitCode,
     };
@@ -71,11 +81,4 @@ export function startLogging(dataDir: string): FileLogger {
     pid: process.pid,
   });
   return logger;
-}
-
-/** A page's file, which says which window it is: "index.html" is the app's, the rest hidden ones. */
-function pageName(url: string): string {
-  if (!URL.canParse(url)) return "";
-  const { protocol, pathname } = new URL(url);
-  return pathname.split("/").at(-1) || protocol.replace(/:$/, "");
 }

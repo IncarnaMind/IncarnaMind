@@ -5,6 +5,7 @@
  * as a plain quit. A run that ends with none of this (a crash, a force quit) is told at the next start.
  */
 import type { LogFields, Logger } from "../core";
+import type { UnsavedAtEnd } from "../core/api";
 import type { UnexpectedEnd } from "../shared/bridge";
 
 /** What asked the app to quit, as the log names it. */
@@ -52,10 +53,10 @@ interface SessionWindow {
 
 /** What the app does as Windows ends the session, besides quitting. */
 export interface SessionEnding {
-  /** Stores the changes that wait, at once; says how many still wait. */
-  store(): number;
+  /** Stores the changes that wait, at once; says how many still wait, and where. */
+  store(): UnsavedAtEnd;
   /** Records the run as ended by the system, with the changes it couldn't store. */
-  record(unsaved: number): void;
+  record(unsaved: UnsavedAtEnd): void;
 }
 
 /** The process: its exit and its signals. */
@@ -94,7 +95,7 @@ export function logAppEnd(
       // Not at `query-session-end`, which another program can still cancel.
       window.on("session-end", () => {
         const unsaved = ending.store();
-        quit("os", unsaved > 0 ? { unsaved } : undefined);
+        quit("os", unsaved.count > 0 ? { unsaved: unsaved.count } : undefined);
         ending.record(unsaved);
       });
     },
@@ -150,4 +151,13 @@ export function crashReloads(now: () => number = () => performance.now()) {
       return true;
     },
   };
+}
+
+/**
+ * Which page a window shows, for the log: the file name of one of the app's own pages (under one
+ * of `ownPages`), else `web`, as a cited website's address is the User's.
+ */
+export function pageName(url: string, ownPages: readonly string[]): string {
+  if (!URL.canParse(url) || !ownPages.some((own) => url.startsWith(own))) return "web";
+  return new URL(url).pathname.split("/").at(-1) || "index.html";
 }

@@ -1,5 +1,5 @@
 /** Names shared by the main process and the preload script for the typed core bridge. */
-import type { AudioSource, CoreApiMethod } from "../core/api";
+import type { AudioSource, CoreApiMethod, UnsavedAtEnd } from "../core/api";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
 import type { PanelCommand, PanelState } from "./meetingPanel";
@@ -30,11 +30,12 @@ export const FILES_BRIDGE_KEY = "incarnamindFiles";
 
 /**
  * What ended unexpectedly (`FilesBridge.takeUnexpectedEnd`): the app's last run, with no quit;
- * the last run, ended by the system with `unsaved` changes it couldn't store; or this window's page.
+ * the last run, ended by the system with `unsaved` changes it couldn't store, in `minds`; or this
+ * window's page.
  */
 export type UnexpectedEnd =
   | { kind: "app" }
-  | { kind: "session"; unsaved: number }
+  | { kind: "session"; unsaved: number; minds: UnsavedAtEnd["minds"] }
   | { kind: "window" };
 
 export interface FilesBridge {

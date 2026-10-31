@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { expect, test } from "vitest";
-import { crashReloads, logAppEnd, unexpectedEnds } from "../../src/main/appEnd";
+import { crashReloads, logAppEnd, pageName, unexpectedEnds } from "../../src/main/appEnd";
 
 /** Electron's quit as the log sees it: `before-quit`, then `will-quit` unless held back. */
 function fakeApp() {
@@ -85,10 +85,14 @@ function endSession(waiting: number, held: boolean) {
   run.end.watchSessionEnd(window, {
     store: () => {
       steps.push("store");
-      return waiting;
+      return { count: waiting, minds: waiting > 0 ? [{ mindId: "mind-1", count: waiting }] : [] };
     },
-    record: (unsaved) =>
-      steps.push(unsaved > 0 ? `phase=quitting unsaved=${unsaved}` : "phase=quitting"),
+    record: ({ count, minds }) =>
+      steps.push(
+        count > 0
+          ? `phase=quitting unsaved=${count} in=${minds.map((each) => each.mindId).join(",")}`
+          : "phase=quitting",
+      ),
   });
   window.emit("query-session-end");
   const beforeEnd = [...steps];
@@ -106,7 +110,7 @@ test("Windows ending the session stores what waits, quits as the system's and re
 
 test("a session end with changes it couldn't store records them last, after the held quit marked the run in use", () => {
   const { app, lines, steps } = endSession(2, true);
-  expect(steps).toEqual(["store", "phase=ready", "phase=quitting unsaved=2"]);
+  expect(steps).toEqual(["store", "phase=ready", "phase=quitting unsaved=2 in=mind-1"]);
   expect(app.quits).toBe(1);
   expect(lines).toEqual(["app.quitAsked by=os unsaved=2"]);
 });
@@ -147,8 +151,9 @@ test("an unexpected end is told once: the run's to the first window that asks, a
   expect(ends.take(7)).toEqual({ kind: "window" });
   expect(ends.take(7)).toBeNull();
 
-  const session = unexpectedEnds({ kind: "session", unsaved: 2 });
-  expect(session.take(5)).toEqual({ kind: "session", unsaved: 2 });
+  const minds = [{ mindId: "mind-1", count: 2 }];
+  const session = unexpectedEnds({ kind: "session", unsaved: 2, minds });
+  expect(session.take(5)).toEqual({ kind: "session", unsaved: 2, minds });
   expect(session.take(5)).toBeNull();
 
   const quiet = unexpectedEnds(null);
@@ -182,4 +187,27 @@ test("a page that crashes again before it has loaded is left", () => {
   reloads.loaded();
   now = 90_000;
   expect(reloads.crashed()).toBe(true);
+});
+
+// protects=a crashed window's log line names only the app's own pages, never a cited website's address (#2309); fails_when=a website's path segment, or a page outside the app's folders, reaches the log; no_claim=the scrubber's own rules.
+test("a crashed page is named in the log only when it is one of the app's own, else as web", () => {
+  const own = [
+    "file:///Applications/IncarnaMind.app/Contents/Resources/app.asar/out/renderer/",
+    "incarnamind-analysis://app/",
+    "http://localhost:5173/",
+  ];
+  expect(
+    pageName(
+      "file:///Applications/IncarnaMind.app/Contents/Resources/app.asar/out/renderer/index.html?window=main",
+      own,
+    ),
+  ).toBe("index.html");
+  expect(pageName("incarnamind-analysis://app/analysis.html", own)).toBe("analysis.html");
+  expect(pageName("http://localhost:5173/meetingPanel.html", own)).toBe("meetingPanel.html");
+  expect(pageName("http://localhost:5173/?window=main", own)).toBe("index.html");
+  expect(pageName("https://example.org/reports/tide-gauges-2024", own)).toBe("web");
+  expect(pageName("http://localhost:5174/secret-path", own)).toBe("web");
+  expect(pageName("file:///Users/someone/Documents/lease.html", own)).toBe("web");
+  expect(pageName("about:blank", own)).toBe("web");
+  expect(pageName("", own)).toBe("web");
 });

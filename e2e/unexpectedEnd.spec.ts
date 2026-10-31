@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   forceQuit,
+  frontMind,
   launchApp,
   nameMind,
   newMind,
@@ -16,9 +17,12 @@ import {
 /*
  * How the app ends (#2309): the log says what asked it to quit (its menu, a signal, something
  * outside) and how a window's page crashed. A page that crashed loads again and says so; after a
- * run that ended without quitting, the next start says IncarnaMind closed unexpectedly, and what
- * was kept. A quit says nothing at the next start.
+ * run that ended without quitting, the next start says IncarnaMind closed unexpectedly, and that
+ * its last changes may not have been saved: changes sent while it wasn't answering are never
+ * counted. A quit says nothing at the next start.
  */
+
+const CLOSED = "IncarnaMind closed unexpectedly. Your last changes may not have been saved.";
 
 /** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -116,7 +120,9 @@ test("a window whose page crashes loads it again, says so once, and the log name
 
   await expect
     .poll(() => textOf(app, '[data-testid="unexpected-end"] p'))
-    .toBe("This window stopped unexpectedly and reopened. Everything was kept.");
+    .toBe(
+      "This window stopped unexpectedly and reopened. Your last changes may not have been saved.",
+    );
   expect(await textOf(app, '[data-testid="sidebar"]')).toContain("Kept through the crash");
   const log = await logOf();
   expect(log).toMatch(/ ERROR window\.crashed page=index\.html reason=killed exitCode=-?\d+\n/);
@@ -142,9 +148,7 @@ test("after a run is killed the next start says IncarnaMind closed, in English a
   await forceQuit(english.app);
 
   const first = await launchApp(dataDir);
-  await expect(first.window.getByTestId("unexpected-end").locator("p")).toHaveText(
-    "IncarnaMind closed unexpectedly. Everything up to then was kept.",
-  );
+  await expect(first.window.getByTestId("unexpected-end").locator("p")).toHaveText(CLOSED);
   await expect(first.window.getByTestId("sidebar")).toContainText("Written before it closed");
   await (
     await first.window.evaluateHandle(
@@ -157,7 +161,7 @@ test("after a run is killed the next start says IncarnaMind closed, in English a
 
   const second = await launchApp(dataDir);
   const notice = second.window.getByTestId("unexpected-end");
-  await expect(notice.locator("p")).toHaveText("IncarnaMind 意外关闭，关闭前的内容都已保留。");
+  await expect(notice.locator("p")).toHaveText("IncarnaMind 意外关闭，你最后的改动可能没有保存。");
   await expect(second.window.getByTestId("sidebar")).toContainText("关闭前的笔记");
   await screenshot(second.window, "closed-unexpectedly-zh");
   expect(await lastRunOf()).toMatch(
@@ -190,6 +194,50 @@ test("after a run is killed the next start says IncarnaMind closed, in English a
   const fourth = await launchApp(dataDir);
   await fourth.app.close();
   expect(await lastRunOf()).toMatch(/ INFO {2}app\.quitAsked by=outside\n.* INFO {2}app\.quit\n/s);
+});
+
+test("a run killed while it hangs, with typing it never took, never says everything was kept", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await newMind(window);
+  await nameMind(window, "Written before it hung");
+  await frontMind(window).locator(".mind-editor > :last-child").click();
+  const hung = join(dataDir, "main-hung");
+
+  // The main process stops answering, as in a long job, while the window's page goes on: what the
+  // page types now waits for the main process, which never takes it. The page types as the main
+  // process blocks, as its script arrives on its own, and the file says the block has begun.
+  const hanging = app
+    .evaluate(({ BrowserWindow }, flag) => {
+      const main = BrowserWindow.getAllWindows().find((each) =>
+        each.webContents.getURL().includes("window=main"),
+      );
+      if (!main) throw new Error("The app's window isn't there.");
+      void main.webContents.executeJavaScript(
+        `document.execCommand("insertText", false, " typed while it hung")`,
+      );
+      process.getBuiltinModule("node:fs").writeFileSync(flag, "");
+      for (;;);
+    }, hung)
+    .then(
+      () => "answered",
+      () => "killed",
+    );
+  await expect
+    .poll(() =>
+      access(hung).then(
+        () => true,
+        () => false,
+      ),
+    )
+    .toBe(true);
+  await forceQuit(app);
+  expect(await hanging).toBe("killed");
+
+  const next = await launchApp(dataDir);
+  await expect(next.window.getByTestId("unexpected-end").locator("p")).toHaveText(CLOSED);
+  await expect(next.window.getByTestId("sidebar")).toContainText("Written before it hung");
+  await expect(next.window.getByText("Everything up to then was kept")).toHaveCount(0);
 });
 
 test("a page that crashes a third time in a minute is left, and the log says so", async () => {

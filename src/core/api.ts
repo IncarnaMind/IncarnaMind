@@ -12138,6 +12138,13 @@ export interface UnsavedChanges {
   detail: string;
 }
 
+/** The changes that still wait as the system ends the session (#2309): how many, and in which Minds. */
+export interface UnsavedAtEnd {
+  count: number;
+  /** Each Mind's share of `count`, deleted Minds left out. */
+  minds: { mindId: string; count: number }[];
+}
+
 export interface CoreEvents {
   /** The settings in effect changed, e.g. the interface language. */
   "settings.changed": Settings;

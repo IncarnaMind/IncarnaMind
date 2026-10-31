@@ -351,7 +351,12 @@ test("the next start names a run that ended while in use, or that the system end
   const afterSession = start(folder, "take");
   expect(await afterSession.done()).toBe(0);
   expect(await afterSession.message("owner")).toMatchObject({
-    lastRunEnd: { ...(endedOwner?.identity as object), kind: "session", unsaved: 2 },
+    lastRunEnd: {
+      ...(endedOwner?.identity as object),
+      kind: "session",
+      unsaved: 2,
+      minds: [{ mindId: "mind-1", count: 2 }],
+    },
   });
 
   const quitter = start(folder);

@@ -112,7 +112,9 @@ if (lastRun?.kind === "app") {
 }
 const endsToTell = unexpectedEnds(
   lastRun &&
-    (lastRun.kind === "app" ? { kind: "app" } : { kind: "session", unsaved: lastRun.unsaved }),
+    (lastRun.kind === "app"
+      ? { kind: "app" }
+      : { kind: "session", unsaved: lastRun.unsaved, minds: lastRun.minds }),
 );
 if (instance.kind === "update") {
   app.whenReady().then(async () => {
@@ -445,10 +447,10 @@ function createWindow(): BrowserWindow {
   });
   reopenAfterCrash(window);
   appEnd.watchSessionEnd(window, {
-    store: () => core?.sessionEnding() ?? 0,
+    store: () => core?.sessionEnding() ?? { count: 0, minds: [] },
     record: (unsaved) => {
       if (instance.kind !== "owner") return;
-      if (unsaved > 0) instance.owner.sessionEnded(unsaved);
+      if (unsaved.count > 0) instance.owner.sessionEnded(unsaved);
       else instance.owner.quitting();
     },
   });

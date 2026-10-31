@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, renameSync, watch } from "node:fs";
 import { join } from "node:path";
+import type { UnsavedAtEnd } from "../core/api";
 import { isRecord } from "../core/errors";
 import {
   type Identity,
@@ -57,7 +58,7 @@ export class InstanceOwner {
    * "ready"; or ended by the system with changes it couldn't store (`sessionEnded`).
    */
   readonly lastRunEnd: LastRunEnd | null;
-  private unsavedAtEnd = 0;
+  private unsavedAtEnd: UnsavedAtEnd = { count: 0, minds: [] };
 
   constructor(
     private readonly folder: string,
@@ -93,9 +94,14 @@ export class InstanceOwner {
     const run = { pid: last.pid, startedAt: last.startedAt };
     if (last.phase === "ready") return { ...run, kind: "app" };
     const unsaved = last.unsavedAtEnd;
-    return last.phase === "quitting" && Number.isSafeInteger(unsaved) && Number(unsaved) > 0
-      ? { ...run, kind: "session", unsaved: Number(unsaved) }
-      : null;
+    if (last.phase !== "quitting" || !isCount(unsaved) || unsaved === 0) return null;
+    const minds = Array.isArray(last.unsavedMindsAtEnd)
+      ? last.unsavedMindsAtEnd.filter(
+          (each): each is UnsavedAtEnd["minds"][number] =>
+            isRecord(each) && typeof each.mindId === "string" && isCount(each.count),
+        )
+      : [];
+    return { ...run, kind: "session", unsaved, minds };
   }
 
   get pendingUpdate(): string | null {
@@ -133,7 +139,7 @@ export class InstanceOwner {
   }
 
   /** The system ends the session, and the process with it, with `unsaved` changes not stored. */
-  sessionEnded(unsaved: number): void {
+  sessionEnded(unsaved: UnsavedAtEnd): void {
     if (this.phase === "installing") return;
     this.phase = "quitting";
     this.unsavedAtEnd = unsaved;
@@ -153,7 +159,10 @@ export class InstanceOwner {
       progress: this.progress,
       ...(this.phase === "installing" && { reopens: this.installReopens }),
       ...(this.phase === "quitting" &&
-        this.unsavedAtEnd > 0 && { unsavedAtEnd: this.unsavedAtEnd }),
+        this.unsavedAtEnd.count > 0 && {
+          unsavedAtEnd: this.unsavedAtEnd.count,
+          unsavedMindsAtEnd: this.unsavedAtEnd.minds,
+        }),
     });
   }
 
@@ -205,7 +214,11 @@ export class InstanceOwner {
 }
 
 /** How the run before ended, for the next start to say (`InstanceOwner.lastRunEnd`). */
-export type LastRunEnd = Identity & ({ kind: "app" } | { kind: "session"; unsaved: number });
+export type LastRunEnd = Identity &
+  ({ kind: "app" } | { kind: "session"; unsaved: number; minds: UnsavedAtEnd["minds"] });
+
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 export type Instance =
   | { kind: "owner"; owner: InstanceOwner }

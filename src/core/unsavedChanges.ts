@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SaveFailureReason, UnsavedChanges } from "./api";
+import type { SaveFailureReason, UnsavedAtEnd, UnsavedChanges } from "./api";
 import { isRecord } from "./errors";
 
 /** SQLite's primary result codes for a write the disk or another program refused. */
@@ -88,6 +88,16 @@ export function createUnsavedChanges({
     },
 
     summary,
+
+    /** What waits, by Mind, deleted ones left out: what the session's end records (`Core.sessionEnding`). */
+    atEnd(): UnsavedAtEnd {
+      return {
+        count: summary()?.count ?? 0,
+        minds: [...waiting].flatMap(([mindId, each]) =>
+          each.deleted ? [] : [{ mindId, count: each.count }],
+        ),
+      };
+    },
 
     takeLost(): number | null {
       const count = lost;
