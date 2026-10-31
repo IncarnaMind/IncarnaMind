@@ -388,20 +388,26 @@ for (const [language, width] of [
       const point = await editor(window)
         .locator(":scope > p")
         .first()
-        .evaluate((paragraph, target) => {
-          const walker = paragraph.ownerDocument.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            const text = node as Text;
-            const at = text.data.indexOf(target);
-            if (at < 0) continue;
-            const range = paragraph.ownerDocument.createRange();
-            range.setStart(text, at + 1);
-            range.collapse(true);
-            const rect = range.getBoundingClientRect();
-            return { x: rect.left, y: rect.top + rect.height / 2 };
-          }
-          return null;
-        }, language === "en" ? "earlier" : "上年");
+        .evaluate(
+          (paragraph, target) => {
+            const walker = paragraph.ownerDocument.createTreeWalker(
+              paragraph,
+              NodeFilter.SHOW_TEXT,
+            );
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const text = node as Text;
+              const at = text.data.indexOf(target);
+              if (at < 0) continue;
+              const range = paragraph.ownerDocument.createRange();
+              range.setStart(text, at + 1);
+              range.collapse(true);
+              const rect = range.getBoundingClientRect();
+              return { x: rect.left, y: rect.top + rect.height / 2 };
+            }
+            return null;
+          },
+          language === "en" ? "earlier" : "上年",
+        );
       if (!point) throw new Error("The figure's sentence isn't on screen.");
       await window.mouse.click(point.x, point.y);
       await window.keyboard.type(language === "en" ? "own " : "上下");
