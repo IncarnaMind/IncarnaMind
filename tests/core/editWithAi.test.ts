@@ -4044,6 +4044,7 @@ describe("An edit never loses the User's words (#2333)", () => {
         '- Free parking at the north site.\n\nChanged to: "Parking at the north site is no longer free." Hmm, the bullet should replace the free parking line.\n\n- Parking at the north site is no longer free.',
         '- Free parking at the north site.\n\nChanged to: "Parking at the north site is no longer free."\n\nLet me write the new bullet:\n\n- Parking at the north site is no longer free.',
         "Wait, I must write the new bullet. Here it is:\n\nChanged to:\n\n- Parking at the north site is no longer free.",
+        "- Free parking at the north site.\n\nChanging it to say parking is no longer free:\n\n- Parking at the north site is no longer free.",
       ],
     },
     {
@@ -4065,6 +4066,7 @@ describe("An edit never loses the User's words (#2333)", () => {
         "- 北区免费停车。\n\n改为：“北区停车不再免费。”嗯，这一条应该替换免费停车那一行。\n\n- 北区停车不再免费。",
         "- 北区免费停车。\n\n改为：“北区停车不再免费。”\n\n我来写新的要点：\n\n- 北区停车不再免费。",
         "等等，我得写出新的要点，如下：\n\n改为：\n\n- 北区停车不再免费。",
+        "- 北区免费停车。\n\n把它改成停车不再免费：\n\n- 北区停车不再免费。",
       ],
     },
   ])("real stray-line replies lose none of the Note: $blocks.0.1", async ({ blocks, replies }) => {

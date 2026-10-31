@@ -1958,8 +1958,9 @@ export function createRewriteStream(
     nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
   /**
    * A new paragraph reads as this one of the selection's: like it by `least`, and clearly more
-   * like it than like any other whose place it could take, unless it says words only each of
-   * them has, as two joined in one do. One that would `standIn` for a Block of another kind,
+   * like it than like any other, of whatever kind (a line more like a bullet than a paragraph is
+   * no rewrite of the paragraph), unless it says words only each of them has, as two joined in
+   * one do. One that would `standIn` for a Block of another kind,
    * which it can't pair with, must also say no word only another paragraph has: a summary, or a
    * table, that names several takes none of them out.
    */
@@ -1974,10 +1975,9 @@ export function createRewriteStream(
     const clearly = (at: number) => (alike[at] ?? 0) <= mine - CLEARLY_MORE;
     return (
       mine >= least &&
-      segments.every((other, at) => {
+      segments.every((_, at) => {
         if (at === index) return true;
         if (standIn) return own[at] !== true && clearly(at);
-        if (paragraph.kind !== null && paragraph.kind !== other.kind) return true;
         return clearly(at) || (own[index] === true && own[at] === true);
       })
     );
