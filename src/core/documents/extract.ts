@@ -70,6 +70,8 @@ export interface ExtractedText {
  * `password`: what opens a locked PDF, from ./pdfPasswords (#763).
  * `readPicture`: a saved web page's picture, by its path in the snapshot,
  * whose text is read when `reading` is given.
+ * `readHiddenSheets`: a workbook's hidden and very hidden sheets are read too,
+ * when the User asked for them (#740).
  */
 export async function extractText(
   kind: DocumentKind,
@@ -77,6 +79,7 @@ export async function extractText(
   reading: PageReading | null = null,
   password?: string,
   readPicture: ((src: string) => Promise<Uint8Array>) | null = null,
+  readHiddenSheets = false,
 ): Promise<ExtractedText> {
   if (kind === "pdf") return extractPdf(bytes, reading, password);
   if (kind === "web" && reading && readPicture) {
@@ -88,7 +91,7 @@ export async function extractText(
     };
   }
   if (kind === "xlsx") {
-    const { units, workbook } = await extractXlsx(bytes);
+    const { units, workbook } = await extractXlsx(bytes, readHiddenSheets);
     return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
