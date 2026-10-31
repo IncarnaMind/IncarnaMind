@@ -200,6 +200,14 @@ const NOTE_MARKS: Readonly<Record<string, NoteKind>> = {
   "w:endnoteReference": "endnote",
 };
 
+/** The elements a place names in its part: one, or a field's first and last run; null where it has none. */
+function endsAt(file: PlaceFile, source: string): [XmlElement, XmlElement] | null {
+  const ends = source.split("..").map((place) => file.places.get(place));
+  const first = ends[0];
+  const last = ends.at(-1);
+  return first && last && !ends.includes(undefined) ? [first, last] : null;
+}
+
 /**
  * A hash of the XML a place names in its part (#746): the element, a field's
  * runs from the first to the last, a note's mark with its note; null where
@@ -207,14 +215,46 @@ const NOTE_MARKS: Readonly<Record<string, NoteKind>> = {
  * otherwise.
  */
 export function placeHash(file: PlaceFile, source: string): string | null {
-  const ends = source.split("..").map((place) => file.places.get(place));
-  const first = ends[0];
-  const last = ends.at(-1);
-  if (!first || !last || ends.includes(undefined)) return null;
+  const ends = endsAt(file, source);
+  if (!ends) return null;
+  const [first, last] = ends;
   const xml = file.text.slice(first.start ?? 0, last.end ?? 0);
-  const kind = ends.length === 1 ? NOTE_MARKS[first.name] : undefined;
+  const kind = first === last ? NOTE_MARKS[first.name] : undefined;
   const note = kind ? file.noteXml?.(kind, first.attrs["w:id"] ?? "") : undefined;
   return targetHash(note === undefined ? xml : `${xml}${note}`);
+}
+
+/** Where an import puts a field that isn't one run of runs: its own element, a page number, a date's part, a paragraph. */
+const FIELD_ELEMENTS: ReadonlySet<string> = new Set(["w:fldSimple", "w:pgNum", "w:p"]);
+const PICTURE_ELEMENTS: ReadonlySet<string> = new Set([
+  "w:drawing",
+  "w:pict",
+  "mc:AlternateContent",
+]);
+const holdsFieldChar = (run: XmlElement) => elements(run).some((each) => each.name === "w:fldChar");
+
+/**
+ * Whether the file has, at a place, what an import puts there for an atom of
+ * this kind (#746): a note's mark for a note, a field's runs or element for a
+ * field, a drawing for a picture; anything for another kind.
+ */
+export function kindAt(file: PlaceFile, source: string, kind: WordAtomKind): boolean {
+  const ends = endsAt(file, source);
+  if (!ends) return false;
+  const [first, last] = ends;
+  switch (kind) {
+    case "footnote":
+    case "endnote":
+      return NOTE_MARKS[first.name] === kind;
+    case "field":
+      return first.name === "w:r"
+        ? holdsFieldChar(first) && holdsFieldChar(last)
+        : first === last && (FIELD_ELEMENTS.has(first.name) || DATE_PARTS.has(first.name));
+    case "picture":
+      return first === last && PICTURE_ELEMENTS.has(first.name);
+    default:
+      return true;
+  }
 }
 
 export async function readWordDocument(

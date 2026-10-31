@@ -34,7 +34,7 @@ import {
   type WordAtomKind,
   type WordExportLoss,
 } from "../../api";
-import { type PlaceFile, placeHash } from "../../documents/formats/docxImport";
+import { kindAt, type PlaceFile, placeHash } from "../../documents/formats/docxImport";
 import { type Counterpart, counterpartsOf } from "./mind";
 import { sourceOf } from "./paragraph";
 
@@ -235,18 +235,14 @@ function isAt(node: NodeJSON, file: PlaceFile, imported: NodeJSON | undefined): 
  * (#746), judged by what the file has there, never by the text an import
  * read, which another version reads otherwise: the file's XML there hashes as
  * it did when the atom was imported. One imported before the hash was
- * recorded is the file's where the file has something there, a note's mark
- * for a note.
+ * recorded is the file's where the file has what an import puts there for
+ * its kind (a note's mark, a field's runs, a drawing).
  */
 export function isFilesAtom(node: NodeJSON, file: PlaceFile): boolean {
   const { kind, source, hash } = readWordAtom(node.attrs ?? {});
   if (!source) return false;
-  const now = placeHash(file, source);
-  if (hash !== null || now === null) return now !== null && now === hash;
-  const mark = file.places.get(source)?.name;
-  if (kind === "footnote") return mark === "w:footnoteReference";
-  if (kind === "endnote") return mark === "w:endnoteReference";
-  return true;
+  if (hash === null) return kindAt(file, source, kind);
+  return placeHash(file, source) === hash;
 }
 
 /** What a copy of an atom written as its text reads: a note's text for a note kept as is. */

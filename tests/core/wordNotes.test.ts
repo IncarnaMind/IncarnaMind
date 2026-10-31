@@ -735,6 +735,60 @@ describe("what another file's import kept as is: a field, a note and a picture (
     },
   );
 
+  test.each(LANGUAGES)(
+    "a field imported before the hash, pasted naming B's plain runs, is A's text; B's own field from before the hash is still B's (%s)",
+    async (_, a) => {
+      const dated = paragraph(`${run("Dated ")}${field("DATE", "2025-12-31")}`);
+      const plainRuns = paragraph(["B1", "B2", "B3", "B4", "B5"].map((each) => run(each)).join(""));
+      const { core, bytes, mindId, client } = await setUp({
+        body: [paragraph("Target here."), plainRuns, dated].join(""),
+      });
+      // As an import before the hash recorded B's own field: no hash, its paragraph unedited.
+      client.doc.transact(() => {
+        for (const block of client.blocks.toArray()) {
+          if (!(block instanceof Y.XmlElement)) continue;
+          for (const child of block.toArray()) {
+            if (!(child instanceof Y.XmlElement) || child.nodeName !== WORD_ATOM_NODE) continue;
+            child.removeAttribute("hash");
+            const id = block.getAttribute("id");
+            const source = typeof id === "string" ? wordSourceOf(client.doc, id) : null;
+            if (typeof id === "string" && source) {
+              setWordSource(client.doc, id, { ...source, f: wordFingerprint(block) });
+            }
+          }
+        }
+      });
+      // B's runs 2 to 4 are B2, B3 and B4.
+      pasteInto(client, [
+        {
+          type: WORD_ATOM_NODE,
+          attrs: {
+            kind: "field",
+            label: a.field,
+            text: "",
+            source: "w:r#2..w:r#4",
+            info: { field: "DATE" },
+          },
+        },
+      ]);
+      await client.settled();
+
+      const result = await core.exportMind(mindId, { format: "docx" });
+      const document = unzip(result.data).get("word/document.xml")?.toString("utf8") ?? "";
+      const target = paragraphWith(document, "Target here.");
+      expect(target).toContain(a.field);
+      expect(target).not.toContain("B3");
+      for (const own of ["B2", "B3", "B4"]) expect(document.split(own)).toHaveLength(2);
+      expect(document).toContain(plainRuns);
+      const was = unzip(bytes).get("word/document.xml")?.toString("utf8") ?? "";
+      expect(paragraphWith(document, "Dated ")).toBe(paragraphWith(was, "Dated "));
+      expect(paragraphWith(document, "Dated ")).toContain("fldChar");
+      expect(result.word?.notKept).toEqual([
+        expect.objectContaining({ kind: "copy", text: a.field }),
+      ]);
+    },
+  );
+
   test.each([
     ["English", "Target here."],
     ["Chinese", "此处粘贴。"],
