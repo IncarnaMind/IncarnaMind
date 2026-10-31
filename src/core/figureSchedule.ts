@@ -399,7 +399,6 @@ const placesOfBlock = perBlock((block) => {
   return { entries, tables, figures, paragraphs: paragraph, heading };
 });
 
-/** Where the Citations in an element's text start, when it is asked. */
 function citationsIn(element: Y.XmlElement): () => ReadonlySet<number> {
   let starts: ReadonlySet<number> | undefined;
   return () => {

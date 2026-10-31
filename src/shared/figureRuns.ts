@@ -315,7 +315,6 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
   for (const [key, value] of planned) runs.set(key, value);
 }
 
-/** The attributes of each calculated figure in a top-level Block, in order. */
 const figuresOfBlock = perBlock((block) => {
   const found: Record<string, unknown>[] = [];
   const visit = (element: Y.XmlElement) => {

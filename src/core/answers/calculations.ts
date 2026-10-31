@@ -113,7 +113,6 @@ export function answerLanguage(question: string): Language {
   return detectLanguage(question) === "Chinese" ? "zh-CN" : "en";
 }
 
-/** How much of a text its language is told from. */
 const LANGUAGE_SAMPLE = 20_000;
 
 /**

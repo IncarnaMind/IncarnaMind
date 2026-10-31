@@ -315,6 +315,5 @@ export function fontInstalled(name: string): boolean {
   return result;
 }
 
-/** The fonts of `fonts` this computer doesn't have, in their order. */
 export const missingFonts = (fonts: readonly string[]): string[] =>
   fonts.filter((font) => !fontInstalled(font));
