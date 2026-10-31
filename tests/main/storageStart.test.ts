@@ -50,12 +50,11 @@ function startedWith(dataDir: string, thread: FakeThread) {
 }
 
 describe("migrateOffThread", () => {
-  it("migrates a fresh data folder on a worker, up to 118, and reports progress", async () => {
+  it("migrates a fresh data folder on a worker, to the newest migration, and reports progress", async () => {
     const dataDir = await createTempDataFolder();
     let progressed = 0;
     await expect(migrateOffThread(dataDir, quiet, () => progressed++)).resolves.toBe("migrated");
     expect(versions(dataDir)).toEqual(migrations.map((migration) => migration.version));
-    expect(versions(dataDir).at(-1)).toBe(118);
     expect(progressed).toBeGreaterThan(0);
   });
 
@@ -87,7 +86,7 @@ describe("migrateOffThread", () => {
     await expect(migrateOffThread(dataDir, quiet, () => undefined)).resolves.toBe("migrated");
     const after = applied(dataDir);
     expect(after.slice(0, before.length)).toEqual(before);
-    expect(after.slice(before.length).map((row) => row.version)).toEqual([118]);
+    expect(versions(dataDir)).toEqual(migrations.map((migration) => migration.version));
   });
 
   it("leaves a newer version's data to the core, which refuses it", async () => {
@@ -117,7 +116,7 @@ describe("migrateOffThread", () => {
     holder.exec("COMMIT");
     holder.close();
     await expect(migrating).resolves.toBe("migrated");
-    expect(versions(dataDir).at(-1)).toBe(118);
+    expect(versions(dataDir)).toEqual(migrations.map((migration) => migration.version));
   });
 
   it("rejects with SQLite's words when the database can't be opened", async () => {
