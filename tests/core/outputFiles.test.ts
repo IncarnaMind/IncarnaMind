@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -15,7 +15,11 @@ import { describe, expect, test, vi } from "vitest";
 import { type Core, type FileWriteRequest, InvalidInputError, NotFoundError } from "../../src/core";
 import { createOwnFiles } from "../../src/core/documents/ownFiles";
 import { createEventHub } from "../../src/core/events";
-import { createOutputFiles } from "../../src/core/outputFiles";
+import {
+  createOutputFiles,
+  fingerprintOf,
+  type OutputFilesOptions,
+} from "../../src/core/outputFiles";
 import { createSettings } from "../../src/core/settings";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
@@ -150,6 +154,7 @@ describe("The Output location", () => {
         unsupported: 0,
         needsRecheck: 0,
         commented: false,
+        comments: 0,
       },
       trackedChanges: 0,
       unreadFiles: 0,
@@ -160,6 +165,8 @@ describe("The Output location", () => {
       numbered: true,
       citationPlace: null,
       markAiText: null,
+      othersFile: false,
+      othersComments: false,
       sentKept: true,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(
@@ -530,7 +537,7 @@ test("Show in Finder shows only a file IncarnaMind saved", async () => {
 
 describe("Saving next to an original (the call other features use)", () => {
   /** The module over an empty database, with one Linked folder holding one original. */
-  async function outputsWith() {
+  async function outputsWith(record?: OutputFilesOptions["recordOwnFile"]) {
     const db = openDatabase(":memory:");
     migrate(db);
     const now = () => new Date().toISOString();
@@ -543,7 +550,7 @@ describe("Saving next to an original (the call other features use)", () => {
       settings: createSettings(db, now, () => ["en-US"], "none"),
       suggested: join(await createSourceFolder(), "IncarnaMind"),
       linkedFolders: () => [{ id: "linked-1", path: linked }],
-      recordOwnFile: createOwnFiles(db, now).record,
+      recordOwnFile: record ?? createOwnFiles(db, now).record,
     });
     outputs.setLinkedFolderWriting("linked-1", true);
     const fingerprints = () =>
@@ -557,7 +564,9 @@ describe("Saving next to an original (the call other features use)", () => {
     const { outputs, linked, original } = await outputsWith();
     const before = sha256(await readFile(original));
     const folder = join(linked, "Leases");
-    expect(await outputs.save({ name: "Lease.docx", data, folder, ownFile: "export" })).toEqual({
+    expect(
+      await outputs.save({ name: "Lease.docx", data, folder, ownFile: "export", fromFolder: null }),
+    ).toEqual({
       path: join(folder, "Lease 2.docx"),
       name: "Lease 2.docx",
       folder,
@@ -571,6 +580,7 @@ describe("Saving next to an original (the call other features use)", () => {
       data,
       folder,
       ownFile: "export",
+      fromFolder: null,
     });
     expect(dirname(escaping.path)).toBe(folder);
     expect(escaping.name).toMatch(/Escape\.md$/);
@@ -580,25 +590,77 @@ describe("Saving next to an original (the call other features use)", () => {
   test("a file IncarnaMind wrote has its fingerprint recorded, once; an empty one, or a source it saved, has none (#80)", async () => {
     const { outputs, linked, fingerprints } = await outputsWith();
     const folder = join(linked, "Leases");
-    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export" });
-    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export" });
+    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export", fromFolder: null });
+    await outputs.save({ name: "Lease.md", data, folder, ownFile: "export", fromFolder: null });
     expect(fingerprints()).toEqual([{ content_hash: sha256(data), kind: "export" }]);
 
-    await outputs.save({ name: "Empty.md", data: new Uint8Array(), folder, ownFile: "export" });
+    await outputs.save({
+      name: "Empty.md",
+      data: new Uint8Array(),
+      folder,
+      ownFile: "export",
+      fromFolder: null,
+    });
     const transcript = new TextEncoder().encode("[00:01] The tide turned at noon.");
-    await outputs.save({ name: "Meeting.vtt", data: transcript, folder, ownFile: null });
+    await outputs.save({
+      name: "Meeting.vtt",
+      data: transcript,
+      folder,
+      ownFile: null,
+      fromFolder: null,
+    });
     expect(fingerprints()).toHaveLength(1);
+  });
+
+  test("a file written again stays as the User saved it while the new bytes were being written (#110)", async () => {
+    const theirs = "Saved by the User meanwhile.";
+    let into: string | null = null;
+    // Called between the first look at the file and the rename: the User's save lands then.
+    const { outputs, linked } = await outputsWith(() => {
+      if (into) writeFileSync(into, theirs);
+    });
+    const folder = join(linked, "Leases");
+    const file = await outputs.save({
+      name: "Lease.md",
+      data,
+      folder,
+      ownFile: null,
+      fromFolder: null,
+    });
+    into = file.path;
+
+    const again = new TextEncoder().encode("Written again.");
+    expect(
+      await outputs.rewrite(file.path, again, fingerprintOf(data), {
+        kind: "export",
+        fromFolder: null,
+      }),
+    ).toEqual({ kind: "changed" });
+    expect(await readFile(file.path, "utf8")).toBe(theirs);
+    expect(await readdir(folder)).toEqual(["Lease.docx", "Lease.md"]);
   });
 
   test("a folder outside the Output location and every Linked folder, or a link leading out of one, is refused", async () => {
     const { outputs, linked } = await outputsWith();
     const elsewhere = await createSourceFolder();
     await expect(
-      outputs.save({ name: "Out.md", data, folder: elsewhere, ownFile: "export" }),
+      outputs.save({
+        name: "Out.md",
+        data,
+        folder: elsewhere,
+        ownFile: "export",
+        fromFolder: null,
+      }),
     ).rejects.toThrow(InvalidInputError);
     await symlink(elsewhere, join(linked, "Shortcut"), "dir");
     await expect(
-      outputs.save({ name: "Out.md", data, folder: join(linked, "Shortcut"), ownFile: "export" }),
+      outputs.save({
+        name: "Out.md",
+        data,
+        folder: join(linked, "Shortcut"),
+        ownFile: "export",
+        fromFolder: null,
+      }),
     ).rejects.toThrow(/only in the output location/);
     expect(await readdir(elsewhere)).toEqual([]);
   });

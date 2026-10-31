@@ -1,26 +1,42 @@
 /**
  * What a Word import kept as is (#104) and where export writes it (#105).
- * Each atom's XML is written once, by the paragraph it came from while that
- * paragraph is in the Mind, else by the first that holds it. A copy is
- * written as its text, except what has no id to clash (a field, an
- * equation, a symbol, a page break). Marks that come in pairs (a bookmark's
- * start and end, a comment's range and its mark) are left out when their
- * other half is gone, as Word would repair the file. What can't be kept,
- * someone's comment or tracked change on deleted text, is said.
+ * Each atom's XML is written once, by one occurrence: the node the import
+ * read it into, wherever it is now, else the first in the paragraph it came
+ * from while that paragraph is in the Mind, else the first anywhere. A copy
+ * is written as its text, or a note's mark, a page break or a picture as a
+ * new one (#746), except what has no id to clash (a field, an equation, a
+ * symbol, a page break). So is a node whose place this file doesn't have, or
+ * has as something else (another picture, another field or note), which was
+ * pasted from another file's Note, and one with no place at all.
+ * Marks that come in pairs (a bookmark's start and end, a comment's range
+ * and its mark) are left out when their other half is gone, as Word would
+ * repair the file. What can't be kept, someone's comment or tracked change
+ * on deleted text, is said.
  *
  * When the User's edits are tracked (#107), what they deleted stays in the
  * file as their deletion, with whatever is kept as is in it: nothing is left
  * out, and every pair stays whole.
  */
 import type { NodeJSON } from "../../../shared/blockJson";
-import { readWordAtom, wordAtomText } from "../../../shared/wordFiles";
-import type { WordAtomKind, WordExportLoss } from "../../api";
-import type { Places } from "../../documents/formats/docxImport";
+import {
+  BREAK_WORD_ATOMS,
+  COPYABLE_WORD_ATOMS,
+  INVISIBLE_WORD_ATOMS,
+  readWordAtom,
+  wordAtomText,
+} from "../../../shared/wordFiles";
+import {
+  FOOTNOTE_NODE,
+  IMAGE_NODE,
+  PAGE_BREAK_NODE,
+  WORD_ATOM_NODE,
+  WORD_BLOCK_NODE,
+  type WordAtomKind,
+  type WordExportLoss,
+} from "../../api";
+import { kindAt, type PlaceFile, placeHash } from "../../documents/formats/docxImport";
 import { type Counterpart, counterpartsOf } from "./mind";
 import { sourceOf } from "./paragraph";
-
-/** What an atom's copy can be written as again, having no id that would clash. */
-const COPYABLE: ReadonlySet<WordAtomKind> = new Set(["field", "equation", "symbol", "pageBreak"]);
 
 /** Marks that come in pairs, by element: which pair, and which half. */
 const PAIRED: Readonly<Record<string, { family: string; half: "start" | "end" | "mark" }>> = {
@@ -50,18 +66,19 @@ const QUOTED = 120;
 
 interface Occurrence {
   node: NodeJSON;
-  /** The paragraph or Block it is in, or is. */
-  owner: NodeJSON;
+  /** The key of the paragraph or Block it is in, or is. */
   ownerKey: string | null;
 }
 
 export class AtomPlan {
-  /** The node that writes each atom's XML. */
+  /** The occurrence that writes each atom's XML. */
   private readonly writer = new Map<string, NodeJSON>();
   /** Atoms nothing writes: deleted, or the other half of their pair is. */
   private readonly unwritten = new Set<string>();
   /** Atoms written where they were, in what the User deleted, as their deletion. */
   private readonly removed = new Set<string>();
+  /** Nodes naming a place this file doesn't have as what they are: from another file. */
+  private readonly foreign = new Set<NodeJSON>();
   readonly losses: WordExportLoss[] = [];
 
   constructor(
@@ -69,20 +86,31 @@ export class AtomPlan {
     current: readonly NodeJSON[],
     baseKey: (node: NodeJSON) => string | null,
     currentKey: (node: NodeJSON) => string | null,
-    places: Places,
+    /** The document part as the file has it. */
+    file: PlaceFile,
     /** The User's edits are tracked: what they deleted stays, as deleted. */
     track = false,
+    /** Whether a node is the one the import read its atom into, not a copy with a new id. */
+    imported: (node: NodeJSON) => boolean = () => false,
   ) {
     const baseAtoms = occurrences(base, baseKey);
-    const now = occurrences(current, currentKey);
+    const placeless: NodeJSON[] = [];
+    const now = occurrences(current, currentKey, placeless);
+    for (const node of placeless) this.copied(node);
     const presentKeys = new Set(
       [...now.values()].flat().flatMap((each) => (each.ownerKey ? [each.ownerKey] : [])),
     );
-    for (const [source, found] of now) {
+    for (const [source, all] of now) {
+      const found = all.filter((each) => {
+        const fits = isAt(each.node, file, baseAtoms.get(source)?.[0]?.node);
+        if (!fits) this.foreign.add(each.node);
+        return fits;
+      });
       const home = baseAtoms.get(source)?.[0]?.ownerKey ?? null;
       const atHome =
         home && presentKeys.has(home) ? found.find((each) => each.ownerKey === home) : undefined;
-      this.writer.set(source, (atHome ?? (found[0] as Occurrence)).owner);
+      const chosen = found.find((each) => imported(each.node)) ?? atHome ?? found[0];
+      if (chosen) this.writer.set(source, chosen.node);
     }
     for (const source of baseAtoms.keys()) {
       if (!this.writer.has(source)) (track ? this.removed : this.unwritten).add(source);
@@ -91,7 +119,7 @@ export class AtomPlan {
     // Pairs: a half whose other half isn't written goes too.
     const halves = new Map<string, Map<"start" | "end" | "mark", string>>();
     for (const source of baseAtoms.keys()) {
-      const element = places.get(source);
+      const element = file.places.get(source);
       const pair = element && PAIRED[element.name];
       const id = element?.attrs["w:id"];
       if (!pair || id === undefined) continue;
@@ -141,12 +169,18 @@ export class AtomPlan {
   }
 
   /**
-   * Whether `owner` writes the atom's XML: the one chosen, or anyone for one
-   * that can be copied, unless nothing may.
+   * Whether `node` (the atom in a paragraph, or a kept Block) writes the
+   * atom's XML: the occurrence chosen, or any for one that can be copied,
+   * unless nothing may.
    */
-  writes(source: string, owner: NodeJSON, kind: WordAtomKind): boolean {
-    if (this.unwritten.has(source)) return false;
-    return this.writer.get(source) === owner || COPYABLE.has(kind);
+  writes(source: string, node: NodeJSON, kind: WordAtomKind): boolean {
+    if (this.unwritten.has(source) || this.foreign.has(node)) return false;
+    return this.writer.get(source) === node || COPYABLE_WORD_ATOMS.has(kind);
+  }
+
+  /** Whether the node names a place this file doesn't have as what it is: it is written new. */
+  isForeign(node: NodeJSON): boolean {
+    return this.foreign.has(node);
   }
 
   /** Whether the atom is written somewhere. */
@@ -159,22 +193,73 @@ export class AtomPlan {
     return this.writer.has(source);
   }
 
-  /** A copy written as its text: said, unless it shows nothing. */
+  /**
+   * A copy written as its text, or a note kept as is as a new footnote: said,
+   * unless it shows nothing (a bookmark, a range, a break).
+   */
   copied(node: NodeJSON): void {
     const atom = readWordAtom(node.attrs ?? {});
-    const text = (atom.label || atom.text || wordAtomText(atom)).trim();
-    if (!text && atom.kind !== "picture" && atom.kind !== "textBox" && atom.kind !== "shape")
-      return;
-    const key = `copy:${atom.source ?? ""}`;
+    const note = atom.kind === "footnote" || atom.kind === "endnote";
+    const text = (note ? atom.text : atom.label || atom.text || wordAtomText(atom)).trim();
+    if (!text && (INVISIBLE_WORD_ATOMS.has(atom.kind) || BREAK_WORD_ATOMS.has(atom.kind))) return;
+    const key = `copy:${atom.source ?? `${atom.kind}:${text}`}`;
     if (this.losses.some((each) => each.key === key)) return;
-    this.losses.push({ key, kind: "copy", author: null, text: text.slice(0, QUOTED) });
+    const kind = note && !text ? "note" : "copy";
+    this.losses.push({ key, kind, author: null, text: text.slice(0, QUOTED) });
   }
 }
 
-/** Every atom in some Blocks, by source, with the paragraph or Block it is in. */
+/**
+ * Whether a node is at the place it names: the file has a note's mark of its
+ * kind or a page break there, the same picture (`imported`, what the import
+ * read there), or the atom itself (`isFilesAtom`).
+ */
+function isAt(node: NodeJSON, file: PlaceFile, imported: NodeJSON | undefined): boolean {
+  const source = sourceOf(node);
+  const element = source ? file.places.get(source) : undefined;
+  if (node.type === IMAGE_NODE) {
+    return imported?.type === IMAGE_NODE && imported.attrs?.src === node.attrs?.src;
+  }
+  if (node.type === FOOTNOTE_NODE) {
+    const mark = node.attrs?.endnote === true ? "w:endnoteReference" : "w:footnoteReference";
+    return element?.name === mark;
+  }
+  if (node.type === PAGE_BREAK_NODE) {
+    return element?.name === "w:br" && element.attrs["w:type"] === "page";
+  }
+  return isFilesAtom(node, file);
+}
+
+/**
+ * Whether what the import kept as is is the file's own at the place it names
+ * (#746), judged by what the file has there, never by the text an import
+ * read, which another version reads otherwise: the file's XML there hashes as
+ * it did when the atom was imported. One imported before the hash was
+ * recorded is the file's where the file has what an import puts there for
+ * its kind (a note's mark, a field's runs, a drawing).
+ */
+export function isFilesAtom(node: NodeJSON, file: PlaceFile): boolean {
+  const { kind, source, hash } = readWordAtom(node.attrs ?? {});
+  if (!source) return false;
+  if (hash === null) return kindAt(file, source, kind);
+  return placeHash(file, source) === hash;
+}
+
+/** What a copy of an atom written as its text reads: a note's text for a note kept as is. */
+export function copiedText(node: NodeJSON): string {
+  if (node.type !== WORD_ATOM_NODE && node.type !== WORD_BLOCK_NODE) return "";
+  const atom = readWordAtom(node.attrs ?? {});
+  return atom.kind === "footnote" || atom.kind === "endnote" ? atom.text : wordAtomText(atom);
+}
+
+/**
+ * Every atom in some Blocks, by source, with the paragraph or Block it is in;
+ * those with no source, a copy from another file's Note, into `placeless`.
+ */
 function occurrences(
   blocks: readonly NodeJSON[],
   keyOf: (node: NodeJSON) => string | null,
+  placeless: NodeJSON[] = [],
 ): Map<string, Occurrence[]> {
   const found = new Map<string, Occurrence[]>();
   const add = (source: string, occurrence: Occurrence) =>
@@ -183,12 +268,8 @@ function occurrences(
     for (const counterpart of counterparts) {
       if (counterpart.kind === "kept") {
         const source = readWordAtom(counterpart.node.attrs ?? {}).source;
-        if (source)
-          add(source, {
-            node: counterpart.node,
-            owner: counterpart.node,
-            ownerKey: counterpart.key,
-          });
+        if (source) add(source, { node: counterpart.node, ownerKey: counterpart.key });
+        else placeless.push(counterpart.node);
       } else if (counterpart.kind === "table") {
         for (const row of counterpart.node.content ?? []) {
           for (const cell of row.content ?? []) visit(counterpartsOf(cell.content ?? [], keyOf));
@@ -196,7 +277,8 @@ function occurrences(
       } else if (counterpart.kind === "paragraph") {
         for (const node of counterpart.node.content ?? []) {
           const source = sourceOf(node);
-          if (source) add(source, { node, owner: counterpart.node, ownerKey: counterpart.key });
+          if (source) add(source, { node, ownerKey: counterpart.key });
+          else if (node.type === WORD_ATOM_NODE) placeless.push(node);
         }
       }
     }

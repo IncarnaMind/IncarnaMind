@@ -4,23 +4,27 @@
  * sentences stay exactly as they are, so each claim is a sentence of the Mind.
  */
 import { generateText } from "ai";
-import type { ProviderError } from "../../api";
+import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
+import { outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { slots } from "../../runs/stop";
 import { answerTemperature } from "../engine";
 import {
   CLAIM_BATCH,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
-  readClaimDecisions,
+  readClaimParts,
 } from "./claims";
+import { claimsAtOnce } from "./runChecks";
 
 export type ClaimsFound =
   | {
       kind: "found";
       /** The indexes, in `texts`, of the sentences that make claims. */
       claims: ReadonlySet<number>;
+      parts: ReadonlyMap<number, readonly ClaimPartPlan[]>;
       /** The indexes of those no reply decided, asked about twice (#1682): neither claims nor left out. */
       undecided: ReadonlySet<number>;
     }
@@ -28,7 +32,7 @@ export type ClaimsFound =
   | { kind: "cancelled" };
 
 type Asked =
-  | { kind: "read"; decisions: Map<number, boolean> }
+  | { kind: "read"; parts: Map<number, readonly ClaimPartPlan[]> }
   | { kind: "unread" }
   | Exclude<ClaimsFound, { kind: "found" }>;
 
@@ -39,6 +43,10 @@ export async function claimsAmong(
   whose: "someone-else" | "own",
   signal: AbortSignal,
 ): Promise<ClaimsFound> {
+  // A sort's reply repeats each part's words, so a batch takes as long as its words: batches go
+  // at once, within the provider's limit, and the first that fails ends the rest.
+  const ended = new AbortController();
+  const sorting = AbortSignal.any([signal, ended.signal]);
   const ask = async (
     batch: readonly { number: number; text: string }[],
     tries: number,
@@ -50,56 +58,89 @@ export async function claimsAmong(
           instructions: whose === "own" ? FIND_OWN_CLAIMS_INSTRUCTIONS : FIND_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: 4_000,
+          maxOutputTokens: outputTokens("find-claims"),
           maxRetries: 1,
-          abortSignal: signal,
+          abortSignal: sorting,
         });
-        const decisions = readClaimDecisions(
-          text,
-          batch.map((each) => each.number),
-        );
-        if (decisions) return { kind: "read", decisions };
+        const parts = readClaimParts(text, batch);
+        if (parts) return { kind: "read", parts };
       } catch (error) {
-        if (signal.aborted) return { kind: "cancelled" };
+        if (sorting.aborted) return { kind: "cancelled" };
         return { kind: "failed", error: classifyProviderError(error) };
       }
     }
     return { kind: "unread" };
   };
 
-  const claims = new Set<number>();
-  const undecided = new Set<number>();
-  for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
-    const batch = texts
-      .slice(start, start + CLAIM_BATCH)
-      .map((text, index) => ({ number: start + index + 1, text }));
+  type Sorted =
+    | { kind: "read"; inventories: Map<number, readonly ClaimPartPlan[]> }
+    | Exclude<ClaimsFound, { kind: "found" }>;
+  const sortBatch = async (batch: readonly { number: number; text: string }[]): Promise<Sorted> => {
     // A reply that can't be read is asked for once more.
     const first = await ask(batch, 2);
     if (first.kind === "unread") {
       return {
         kind: "failed",
-        error: { kind: "no-answer", message: "The model's reply named no sentences." },
+        error: {
+          kind: "no-answer",
+          message: "The model's reply did not describe readable original sentence parts.",
+        },
       };
     }
     if (first.kind !== "read") return first;
-    const { decisions } = first;
+    const inventories = first.parts;
     // A sentence the reply says nothing of was never decided, so it isn't one that makes no claim.
-    const unanswered = batch.filter((each) => !decisions.has(each.number));
+    const unanswered = batch.filter((each) => !inventories.has(each.number));
     if (unanswered.length > 0) {
       const again = await ask(unanswered, 1);
       if (again.kind === "cancelled" || again.kind === "failed") return again;
       if (again.kind === "read") {
         for (const { number } of unanswered) {
-          const decision = again.decisions.get(number);
-          if (decision !== undefined) decisions.set(number, decision);
+          const inventory = again.parts.get(number);
+          if (inventory !== undefined) inventories.set(number, inventory);
         }
       }
     }
+    return { kind: "read", inventories };
+  };
+
+  const batches: { number: number; text: string }[][] = [];
+  for (let start = 0; start < texts.length; start += CLAIM_BATCH) {
+    batches.push(
+      texts
+        .slice(start, start + CLAIM_BATCH)
+        .map((text, index) => ({ number: start + index + 1, text })),
+    );
+  }
+  const limit = slots(claimsAtOnce(prepared));
+  const sorted = await Promise.all(
+    batches.map((batch) =>
+      limit.run(async () => {
+        if (sorting.aborted) return { kind: "cancelled" } as const;
+        const outcome = await sortBatch(batch);
+        if (outcome.kind === "failed") ended.abort();
+        return outcome;
+      }),
+    ),
+  );
+  if (signal.aborted) return { kind: "cancelled" };
+  const failure = sorted.find((outcome) => outcome.kind === "failed");
+  if (failure) return failure;
+
+  const claims = new Set<number>();
+  const parts = new Map<number, readonly ClaimPartPlan[]>();
+  const undecided = new Set<number>();
+  for (const [at, batch] of batches.entries()) {
+    const outcome = sorted[at];
+    if (outcome?.kind !== "read") return { kind: "cancelled" };
     for (const { number } of batch) {
-      const decision = decisions.get(number);
-      if (decision === undefined) undecided.add(number - 1);
-      else if (decision) claims.add(number - 1);
+      const inventory = outcome.inventories.get(number);
+      if (inventory === undefined) undecided.add(number - 1);
+      else {
+        parts.set(number - 1, inventory);
+        if (inventory.some((part) => part.kind === "fact")) claims.add(number - 1);
+      }
     }
   }
-  return signal.aborted ? { kind: "cancelled" } : { kind: "found", claims, undecided };
+  return signal.aborted ? { kind: "cancelled" } : { kind: "found", claims, parts, undecided };
 }

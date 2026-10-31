@@ -517,27 +517,32 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
     await setWindowSize(again.app, again.window, 1440, 900);
     try {
       await leaveFirstOpen(again.window);
-      // One of the User's own, filed slowly: the count is theirs alone, never the example's too.
+      // One of the User's own, which Organize works on after the restart and can't finish: the
+      // model stays unreachable, so the run ends in a failure the footer keeps saying.
       const own = join(sources, "Note 1.txt");
-      await writeFile(own, "Note 1. The tide tables are read slowly.\n");
+      await writeFile(own, "Note 1. The tide server stays unreachable.\n");
       await again.window.getByTestId("add-documents-input").setInputFiles([own]);
-      // The line is a transient: it is up while the run works, which a scripted model finishes in
-      // about a second, so it is waited for as long as this file's other states, never the default.
+      // The assignments as the core keeps them, not a line that is up only while Organize works.
+      const assignments = () =>
+        again.window.evaluate(async (exampleOne) => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const { assignments } = await core.getLibrary();
+          const statusOf = (id: string) =>
+            assignments.find((each) => each.documentId === id)?.status ?? null;
+          const owned = await core.listDocuments({ linkedFolderId: null });
+          return { own: owned.map((each) => statusOf(each.id)), example: statusOf(exampleOne) };
+        }, exampleId);
+      await expect
+        .poll(assignments, { timeout: 60_000 })
+        .toEqual({ own: ["failed"], example: "pending" });
+      // The footer shows Organize's lines, and the example's waiting assignment adds none to them:
+      // its "Organizing" line would sit behind "+N".
+      await expect(statusLabel(again.window, "organization-attention")).toHaveText(
+        "Needs attention",
+      );
       await expect(
-        again.window
-          .getByTestId("sidebar-status")
-          .getByTestId("organization-progress")
-          .getByTestId("status-label"),
-      ).toHaveText(/^Organizing 1 Document\b/, { timeout: 60_000 });
-      // It ends when the User's own is filed: the example's waiting assignment owes nothing.
-      await expect(again.window.getByTestId("organization-progress")).toHaveCount(0, {
-        timeout: 60_000,
-      });
-      const stored = await again.window.evaluate(async (id) => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        return (await core.getLibrary()).assignments.find((each) => each.documentId === id)?.status;
-      }, exampleId);
-      expect(stored).toBe("pending");
+        again.window.getByTestId("sidebar-status").getByTestId("status-more"),
+      ).toHaveCount(0);
       await expect(again.window.getByTestId("sidebar")).not.toContainText("Organizing");
     } finally {
       await again.app.close();

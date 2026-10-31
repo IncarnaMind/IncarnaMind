@@ -80,6 +80,7 @@ export function ReferencesBlock({
   const entries: BibliographyEntry[] = numbered
     ? sourcesOf(counted, { language, documents }).map((source) => ({
         documentId: source.documentId,
+        workDocumentId: source.documentId,
         label: null,
         runs: [{ text: sourceEntry(source, language) }],
         needsDetails: false,

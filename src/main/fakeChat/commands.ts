@@ -8,9 +8,19 @@
  * exports the Mind in focus, to the folder after "to" when there is one, marking the text IncarnaMind
  * wrote ("with the AI marks") or not ("without the AI marks") when it says so, and "Delete this Mind"
  * sends it to Recently deleted; "Add the PDFs in /path"
- * adds a folder's PDFs. Each then replies with the first sentence of what its calls returned.
+ * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
+ * leases into it" (新建一个叫“租约”的文件夹，把租约移进去) moves what it found into the Folder it
+ * names, made for it; "Open the X beside this one" (在旁边打开“X”) opens the Document it found to
+ * the side; "Check this Note" (核对这篇笔记) checks the Note in front; "Bring back the X I deleted"
+ * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
+ * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
+ * "Rent"; "Start recording a meeting" (开始录制会议) starts one; and "Turn on Local mode"
+ * (打开本地模式) asks for what is the User's alone. Each then
+ * replies with the first sentence of what its calls returned, or nothing after one whose card is
+ * the reply: a window's command it marked done, or what is the User's alone. Asked once more to
+ * say a refusal, it says nothing again, so the reply is the refusal's own line (#2252).
  */
-import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
+import { lastResult, type Prompt, type Reply, toolResults, userText } from "./prompt";
 
 interface Found {
   id: string;
@@ -40,7 +50,7 @@ const said = (prompt: Prompt): Reply => {
 
 function findThen(
   prompt: Prompt,
-  query: { kind: "document" | "mind"; name?: string },
+  query: { kind: "document" | "mind" | "deleted"; name?: string },
   act: (found: Found[]) => Record<string, unknown> | null,
 ): Reply {
   const listed = lastResult(prompt, "list_commands");
@@ -59,6 +69,23 @@ const DELETE_ID = /\bdelete the document with id (\S+?)[.?!]*$/i;
 const DELETE_MIND = /\bdelete this mind\b/i;
 const EXPORT = /\bexport this mind as word(?: (with|without) the ai marks)?(?: to (\S+?))?[.?!]*$/i;
 const ADD = /\badd the pdfs in (\S+?)[.?!]*$/i;
+const FOLDER_AND_MOVE =
+  /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
+const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
+const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
+const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
+const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
+const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
+const RESTORE = /\bbring back the (.+?) i deleted\b|把删掉的“(.+?)”恢复/i;
+const RECORD = /\bstart recording a meeting\b|开始录制会议/i;
+const EMPTY_REPLY = /\bYour reply is empty\./;
+
+function runOnce(prompt: Prompt, input: Record<string, unknown>): Reply {
+  if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
+  return { tool: "run_command", input };
+}
+
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** The scripted assistant's choice with the commands' Tools: a call, the reply, or null. */
 export function commandsReply(
@@ -67,6 +94,24 @@ export function commandsReply(
   names: readonly string[],
 ): Reply | null {
   if (!names.includes("run_command")) return null;
+  // The ask can come with the last step's own note after it, in a message of its own.
+  const asked = prompt.filter((message) => message.role === "user").slice(-2);
+  if (
+    asked.some((message) => EMPTY_REPLY.test(userText(message))) &&
+    lastResult(prompt, "run_command") !== undefined
+  ) {
+    return { text: "" };
+  }
+  const made = FOLDER_AND_MOVE.exec(question);
+  if (made) {
+    const folder = made[1] ?? made[3] ?? "";
+    const name = made[2] ?? made[4] ?? "";
+    return findThen(prompt, { kind: "document", name }, (found) => ({
+      command: "document.moveTo",
+      ids: found.map((each) => each.id),
+      folder,
+    }));
+  }
   const rename = RENAME.exec(question);
   if (rename) {
     const name = rename[1] ?? rename[2] ?? "";
@@ -126,6 +171,43 @@ export function commandsReply(
           }
         : null;
     });
+  }
+  const beside = BESIDE.exec(question);
+  if (beside) {
+    return findThen(prompt, { kind: "document", name: beside[1] ?? beside[2] ?? "" }, (found) =>
+      found[0] ? { command: "document.openBeside", ids: [found[0].id], done: true } : null,
+    );
+  }
+  if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check", done: true });
+  const about = ORGANIZE_ABOUT.exec(question);
+  if (about) {
+    const topic = (about[1] ?? about[2] ?? "").trim();
+    return runOnce(prompt, {
+      command: "documents.organize",
+      folder: capitalized(topic),
+      about: topic,
+    });
+  }
+  const restore = RESTORE.exec(question);
+  if (restore) {
+    return findThen(prompt, { kind: "deleted", name: restore[1] ?? restore[2] ?? "" }, (found) => ({
+      command: "deleted.restore",
+      ids: found.map((each) => each.id),
+    }));
+  }
+  if (RECORD.test(question)) return runOnce(prompt, { command: "meeting.record" });
+  if (WALL_OFF.test(question)) {
+    // The card under the reply says the wall is the User's, and opens the Folder's menu.
+    if (lastResult(prompt, "run_command") !== undefined) return { text: "" };
+    return { tool: "run_command", input: { command: "folder.keepInside" } };
+  }
+  if (LOCAL_MODE.test(question)) {
+    // The card under the reply says where the User changes it: there is nothing to add.
+    if (lastResult(prompt, "run_command") !== undefined) return { text: "" };
+    return {
+      tool: "run_command",
+      input: { command: "settings.change", setting: "localMode", value: "on" },
+    };
   }
   const add = ADD.exec(question);
   if (add) {

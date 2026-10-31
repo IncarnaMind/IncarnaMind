@@ -1,6 +1,10 @@
 import { COMPARISON_TABLE_NODE } from "../../../core/api";
 import { comparisonCellOf, comparisonQuestionsOf } from "../../../shared/comparisons";
-import { comparisonCellHandles, comparisonCellRef } from "../comparisonCellHandle";
+import {
+  type ComparisonCellHandle,
+  comparisonCellHandles,
+  comparisonCellRef,
+} from "../comparisonCellHandle";
 import { useComparisonCells } from "../comparisonCellState";
 import {
   comparisonCellLocation,
@@ -107,10 +111,14 @@ const oneCell = (ctx: CommandContext) => {
   const handle = editableCellHere(ctx);
   return handle !== null && comparisonCellsSelected(handle).length === 1;
 };
+/** The cells a cell command acts on: from ⌘K the visible selection alone, as ⌘C copies it. */
+const cellsFor = (ctx: CommandContext, handle: ComparisonCellHandle) =>
+  comparisonCellsSelected(handle, ctx.surface !== "palette");
+
 const reviewedEnabled = (ctx: CommandContext) => {
   const handle = editableCellHere(ctx);
   if (!handle) return cellUnavailable;
-  return comparisonCellsSelected(handle).some((target) => {
+  return cellsFor(ctx, handle).some((target) => {
     const location = comparisonCellLocation({ ...handle, ...target });
     return location && comparisonCellOf(location.cell.attrs).status === "done";
   })
@@ -486,6 +494,7 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.column.reviewed",
     label: "comparison.column.reviewed",
+    assistant: { never: "signOff" },
     checked: (ctx) => {
       const here = columnHere(ctx);
       const cells = here
@@ -541,7 +550,7 @@ export const comparisonCommands: readonly Command[] = [
     run: (ctx) => {
       const handle = editableCellHere(ctx);
       if (!handle) return;
-      const selected = comparisonCellsSelected(handle, ctx.surface !== "palette");
+      const selected = cellsFor(ctx, handle);
       const location = comparisonCellLocation(handle);
       if (selected.length === 1 && location && comparisonCellOf(location.cell.attrs).edited) {
         useComparisonCells.getState().openCard(comparisonCellRef(handle), true);
@@ -564,10 +573,10 @@ export const comparisonCommands: readonly Command[] = [
   {
     id: "comparison.cell.reviewed",
     label: "comparison.cell.markReviewed",
+    assistant: { never: "signOff" },
     checked: (ctx) => {
       const handle = cellHere(ctx);
-      const selected = handle ? comparisonCellsSelected(handle) : [];
-      return handle ? comparisonCellsAllReviewed(handle, selected) : false;
+      return handle ? comparisonCellsAllReviewed(handle, cellsFor(ctx, handle)) : false;
     },
     group: "main",
     appliesTo: ["comparisonCell"],
@@ -575,7 +584,7 @@ export const comparisonCommands: readonly Command[] = [
     enabled: reviewedEnabled,
     run: (ctx) => {
       const handle = editableCellHere(ctx);
-      if (handle) toggleComparisonCellsReviewed(handle, comparisonCellsSelected(handle));
+      if (handle) toggleComparisonCellsReviewed(handle, cellsFor(ctx, handle));
     },
   },
   {

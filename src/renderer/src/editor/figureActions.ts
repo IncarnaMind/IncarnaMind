@@ -16,6 +16,7 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../../core/api";
 import { chartCheckText, readChart } from "../../../shared/charts";
+import { keepCheckAsView } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { pruneFigureRuns } from "../../../shared/figureRuns";
 import { FORMULA_VERSION, showResult } from "../../../shared/formula";
@@ -175,6 +176,14 @@ export function keepFigureViews(
     if (seen.has(span.check.id)) continue;
     seen.add(span.check.id);
     const previous = span.check;
+    if (previous.parts) {
+      writeSentenceCheck(
+        tr,
+        { ...span, ...(span.kind === "chart" && { node: true as const }) },
+        keepCheckAsView(previous, chosen),
+      );
+      continue;
+    }
     const { figures: _figures, remainder: _remainder, kept: _kept, ...basis } = previous;
     const own = schedule.rows.filter((candidate) => {
       const at = figurePlace(tr.doc, candidate);

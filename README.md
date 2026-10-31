@@ -13,7 +13,9 @@
 
 <p align="center"><b>From messy files to a checked report.</b></p>
 
-<p align="center">Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
+<p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Write, ask questions, analyse spreadsheets and take meeting notes from your own files,<br>then check every sentence and figure against the page it came from.</p>
+
+<p align="center">No IncarnaMind account needed. Works with ChatGPT, Claude, Gemini or a local model through Ollama.</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
@@ -29,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/demo-tour-2026-10-25-en.gif" width="880" alt="A credit memo says 36.8% where the Q3 results say 38.6%, and the figure is marked in the margin. Then the app sorts scattered files, drafts from them, charts a spreadsheet with every bar linked to its cell, checks the whole memo and fixes the wrong figure in one click, exports to Word with footnotes, and takes notes on an expert call that cite what was said. Recorded in the app with Claude Sonnet 5.5."></p>
+<p align="center"><img src="docs/images/demo-check-en.gif" width="880" alt="A credit memo checked against its files. One figure is marked: the memo says 36.8% where the Q3 results say 38.6%, and the card quotes the page. The page opens, the figure is fixed, and a calculated figure shows its formula and sources. Recorded in the app with Claude Sonnet 5.5."></p>
 
-<p align="center"><sub>Everything shown is in the app today. <a href="docs/images/demo-tour-2026-10-25-en.mp4">Watch the full film in HD</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
+<p align="center"><sub>Everything shown is in the app today. <a href="#see-it-in-one-minute">Watch the one-minute tour</a>.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
 ## Download
 
@@ -41,7 +43,7 @@
 | Windows | `.exe` |
 | Linux | `.deb` for Ubuntu and Debian, or `.AppImage` |
 
-Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Builds up to 0.1.0-alpha.4 still use the old name for a Note. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
+Macs with an Intel processor aren't supported. Test builds change often and aren't signed yet, so your system warns you the first time. Windows builds will be signed through the SignPath Foundation ([code signing policy](docs/code-signing-policy.md)).
 
 <details>
 <summary>If your system won't open it</summary>
@@ -74,7 +76,7 @@ npm install && npm run dev
 | **Analyse** | Calculate and chart from spreadsheets, every input cited. |
 | **Check** | Check a Note or any PDF against your files, sentence by sentence. |
 | **Compare** | Ask many documents the same questions and get one cited table. |
-| **Export** | Edit a Word file and save it back: untouched parts stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
+| **Export** | Edit a Word file and export it as Word again: the parts you didn't touch stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
 | **Meet** | A live transcript, help during the call, and notes that cite what was said. |
 
 Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
@@ -89,9 +91,15 @@ Works fully offline with [Ollama](https://ollama.com): nothing leaves your compu
 
 </details>
 
+## See it in one minute
+
+**A credit memo from start to finish: sort the files, draft, chart a spreadsheet, check every figure, export to Word, and take notes on an expert call.** Recorded in the app with Claude Sonnet 5.5.
+
+[Watch the film (MP4, 7 MB)](docs/images/demo-tour-2026-10-25-en.mp4)
+
 ## How the check works
 
-For each sentence, the check finds the passages in your files that it relies on and marks whether they support it. The page is one click away.
+For each sentence, the check finds or reads the passages in your files that it relies on and marks whether they support it. The page is one click away.
 
 Figures are compared as numbers. One rounded from the source passes, a different one is marked, and a calculated one shows its formula and where each input came from.
 
@@ -107,7 +115,7 @@ Figures are compared as numbers. One rounded from the source passes, a different
 | Your ChatGPT or Claude plan, or your key | ✓ | ✗ | ◐ | ◐ |
 | Citation opens the page, quote highlighted | ✓ | ◐ | ✗ | ✗ |
 | Checks your own draft | ✓ | ✗ | ✗ | ✗ |
-| Edits your Word file and saves it back | ✓ | ✗ | ✗ | ✗ |
+| Edits a Word file, untouched parts kept | ✓ | ✗ | ✗ | ✗ |
 | Spreadsheet analysis | ✓ | ✓ | ✗ | ◐ |
 | Meetings | ✓ | ✗ | ✗ | ✓ |
 

@@ -75,11 +75,12 @@ function check(text = INLINE_NODE): ClaimCheckAttributes {
 }
 
 test("an atom-only numerical sentence is selectable without changing its one-character coordinates", () => {
-  const { doc, blocks } = setup();
+  const { doc, block, blocks } = setup();
   const sentences = everySentence(blocks);
   expect(sentences).toHaveLength(1);
+  expect(textOf(block)).toBe(INLINE_NODE);
   expect(sentences[0]).toMatchObject({
-    text: INLINE_NODE,
+    text: "10",
     from: 0,
     to: 1,
     figures: [{ id: "figure", reading: { chars: "10" } }],

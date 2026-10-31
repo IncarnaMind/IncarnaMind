@@ -1,7 +1,8 @@
 import { formatDate } from "../../shared/dates";
 import { translate } from "../../shared/i18n";
+import { recordCiteResultLabel } from "../checkRecord/labels";
 import type { Language } from "../language";
-import type { FailedSentence, Footnote } from "../mindText";
+import type { FailedSentence, Footnote, RecordCiteComment } from "../mindText";
 import type { NotedChange } from "../shownChanges";
 
 export interface ExportLabels {
@@ -30,6 +31,8 @@ export interface ExportLabels {
   figureNote(worked: FigureWorked, figure: string, sources: readonly FigureNoteSource[]): string;
   /** The words before and after a calculated figure's inputs' cluster in a citation style: "calculated from ", "". */
   figureCluster(note: boolean): [before: string, after: string];
+  /** A table of contents' heading: "Contents", "目录". */
+  contents: string;
 }
 
 /** How a calculated figure was worked out: its formula in words, or the saved Analysis it came from. */
@@ -62,6 +65,7 @@ export function exportLabels(language: Language): ExportLabels {
     translate(language, key, params);
   return {
     question: t("export.question"),
+    contents: t("export.contents"),
     notes: t("export.html.notes"),
     backToText: t("export.html.back"),
     unverified: t("export.unverified"),
@@ -83,53 +87,110 @@ export function exportLabels(language: Language): ExportLabels {
       return failed.verdict ? `${said}\n${failed.verdict}` : said;
     },
     failedSentence: (sentence) => {
+      const citeText = (cite: RecordCiteComment) => {
+        const lines = [
+          t("export.comment.recordCite.result", {
+            raw: cite.raw,
+            outcome: recordCiteResultLabel(cite.outcome, language, t),
+          }),
+        ];
+        if (cite.source) lines.push(cite.source);
+        if (cite.passage) {
+          lines.push(t("export.comment.recordCite.passage", { passage: cite.passage }));
+        }
+        if (cite.covered && cite.uncovered) {
+          lines.push(
+            t("claim.recordCites.covered", {
+              covered: cite.covered,
+              uncovered: cite.uncovered,
+            }),
+          );
+        } else if (cite.covered) {
+          lines.push(t("claim.recordCites.covers", { covered: cite.covered }));
+        } else if (cite.uncovered) {
+          lines.push(t("claim.recordCites.doesNotCover", { uncovered: cite.uncovered }));
+        }
+        if (cite.candidates.length > 0) {
+          lines.push(
+            t("export.comment.recordCite.candidates", {
+              candidates: cite.candidates.join(t("export.parts.separator")),
+            }),
+          );
+        }
+        if (cite.nearby) lines.push(t("export.comment.recordCite.nearby", cite.nearby));
+        return lines.join("\n");
+      };
+      const done = (overall: string) =>
+        [overall, ...(sentence.recordCites ?? []).map(citeText)]
+          .filter((text) => text !== "")
+          .join("\n");
+      if (sentence.check === "record-cites") return done("");
       if (sentence.check === "needs-recheck") {
-        return t(`export.comment.sentence.needs-recheck.${sentence.why}`);
+        return done(t(`export.comment.sentence.needs-recheck.${sentence.why}`));
       }
       if (sentence.check === "cited-case-unchecked") {
-        return t("export.comment.sentence.citedCaseUnchecked");
+        return done(t("export.comment.sentence.citedCaseUnchecked"));
       }
-      if (sentence.check === "own-workings") return t("export.comment.sentence.ownWorkings");
+      if (sentence.check === "own-workings") {
+        return done(t("export.comment.sentence.ownWorkings"));
+      }
       if (sentence.check === "contradicted") {
-        if (sentence.says)
-          return t("export.comment.sentence.contradicted", { says: sentence.says });
-        return sentence.worked
-          ? t(
-              sentence.worked.relation
-                ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
-                : "export.comment.sentence.contradicted.worked",
-              sentence.worked,
-            )
-          : t("export.comment.sentence.contradicted.plain");
+        const said = sentence.says
+          ? t("export.comment.sentence.contradicted", { says: sentence.says })
+          : sentence.worked
+            ? t(
+                sentence.worked.relation
+                  ? `export.comment.sentence.contradicted.worked.${sentence.worked.relation}`
+                  : "export.comment.sentence.contradicted.worked",
+                sentence.worked,
+              )
+            : t("export.comment.sentence.contradicted.plain");
+        return done(
+          sentence.quoted
+            ? t("export.comment.sentence.quoted", {
+                said: said.replace(/[.。]$/u, ""),
+                ...sentence.quoted,
+              })
+            : said,
+        );
       }
-      if (sentence.nearest)
-        return t("export.comment.sentence.unsupported.differs", sentence.nearest);
-      if (sentence.covers) return t("export.comment.sentence.unsupported.covers", sentence.covers);
+      if (sentence.nearest) {
+        return done(t("export.comment.sentence.unsupported.differs", sentence.nearest));
+      }
+      if (sentence.covers) {
+        return done(t("export.comment.sentence.unsupported.covers", sentence.covers));
+      }
       if (sentence.citations) {
         const { count, ...part } = sentence.citations;
-        return t(
-          count === 1
-            ? "export.comment.sentence.unsupported.citation"
-            : "export.comment.sentence.unsupported.citations",
-          part,
+        return done(
+          t(
+            count === 1
+              ? "export.comment.sentence.unsupported.citation"
+              : "export.comment.sentence.unsupported.citations",
+            part,
+          ),
         );
       }
       if (!sentence.notFound) {
-        return sentence.reason
-          ? t("export.comment.sentence.unsupported.reason", { reason: sentence.reason })
-          : t("export.comment.sentence.unsupported.plain");
+        return done(
+          sentence.reason
+            ? t("export.comment.sentence.unsupported.reason", { reason: sentence.reason })
+            : t("export.comment.sentence.unsupported.plain"),
+        );
       }
       const { scope } = sentence;
       const name = scope
         ? (scope.name ?? t(`scope.chip.deleted.${scope.kind}`))
         : t("composer.scope.all");
-      return scope && scope.more > 0
-        ? t("export.comment.sentence.notFound.more", {
-            scope: name,
-            count: scope.more,
-            total: scope.more + 1,
-          })
-        : t("export.comment.sentence.notFound", { scope: name });
+      return done(
+        scope && scope.more > 0
+          ? t("export.comment.sentence.notFound.more", {
+              scope: name,
+              count: scope.more,
+              total: scope.more + 1,
+            })
+          : t("export.comment.sentence.notFound", { scope: name }),
+      );
     },
     change: ({ kind, pending }) => {
       const author = pending.by || t("export.change.someone");

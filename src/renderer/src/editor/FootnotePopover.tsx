@@ -15,6 +15,7 @@ import {
   returnToFootnote,
 } from "./footnoteSchema";
 import { useMindId } from "./mindContext";
+import { noteMarker } from "./noteLabels";
 import { Popover } from "./Popover";
 import { asOwnUndoStep } from "./selectionCommands";
 
@@ -43,12 +44,10 @@ export function FootnotePopover({
     editor,
     selector: ({ editor: current }) => {
       const id = openFootnoteOf(current.state);
-      const number = id
-        ? (numberedFootnotes(current.state).find((each) => each.id === id)?.number ?? 0)
-        : 0;
-      return id ? { id, number } : null;
+      const found = id ? numberedFootnotes(current.state).find((each) => each.id === id) : null;
+      return id ? { id, number: found?.number ?? 0, endnote: found?.endnote === true } : null;
     },
-    equalityFn: (a, b) => a?.id === b?.id && a?.number === b?.number,
+    equalityFn: (a, b) => a?.id === b?.id && a?.number === b?.number && a?.endnote === b?.endnote,
   });
   const text = useRef<FootnoteTextHandle>(null);
   const id = open?.id ?? null;
@@ -69,7 +68,8 @@ export function FootnotePopover({
 
   if (!open || !anchor) return null;
   const close = () => closeFootnote(editor);
-  const label = t("editor.footnote.text", { number: open.number });
+  const number = noteMarker(editor, open.number, open.endnote);
+  const label = t(open.endnote ? "editor.endnote.text" : "editor.footnote.text", { number });
   return createPortal(
     <Popover
       key={open.id}
@@ -87,7 +87,7 @@ export function FootnotePopover({
         mind={editor}
         id={open.id}
         label={label}
-        placeholder={t("editor.footnote.placeholder")}
+        placeholder={t(open.endnote ? "editor.endnote.placeholder" : "editor.footnote.placeholder")}
         variant="popover"
         citationView={citationView}
         onLeave={() => {
@@ -118,7 +118,7 @@ export function FootnotePopover({
               focusNow(editor);
             }}
           >
-            {t("editor.footnote.remove")}
+            {t(open.endnote ? "editor.endnote.remove" : "editor.footnote.remove")}
           </button>
         </div>
       )}

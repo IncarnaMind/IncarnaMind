@@ -982,6 +982,67 @@ describe("New Blocks come in as the model writes them", { timeout: 30_000 }, () 
       },
     ]);
   });
+
+  /**
+   * A model that writes CONTENT and a third paragraph with `tool`, its input streamed; `cut`: the
+   * reply reaches its output limit inside the third paragraph, so the call is never whole.
+   */
+  function writing(tool: "add_to_mind" | "create_mind", cut: boolean) {
+    const content = `${CONTENT}\n\nThe warehouse lease ends in March.`;
+    const input = tool === "create_mind" ? { title: "Risks", content } : { content };
+    const json = JSON.stringify(input);
+    return scriptedModel(
+      ({ results }): ScriptedReply =>
+        results.length === 0
+          ? {
+              calls: [
+                {
+                  tool,
+                  input,
+                  streamInput: true,
+                  ...(cut && { raw: json.slice(0, json.indexOf("lease ends")) }),
+                },
+              ],
+              cutOff: cut,
+            }
+          : { text: "Added a risks section." },
+    );
+  }
+
+  // protects=a write cut at its output limit partway leaves the Note as it was, with no Note made for it, and asks nothing more, so Try again can't write it twice; fails_when=the paragraphs it finished stay, a Note it made stays, or a second request carries the cut call back (#2275).
+  test.each(["add_to_mind", "create_mind"] as const)(
+    "%s cut at its limit takes back what it wrote, where a whole one stays",
+    async (tool) => {
+      const whole = await setUp(writing(tool, false));
+      await ask(whole.core, { text: "Add a risks section", mindId: whole.mind.id });
+      await whole.client.settled();
+      const model = writing(tool, true);
+      const { core, mind, client } = await setUp(model);
+
+      const answer = await ask(core, { text: "Add a risks section", mindId: mind.id }, "failed");
+
+      await client.settled();
+      expect(answer.errorKind).toBe("cut-short");
+      expect(answerRequests(model)).toHaveLength(1);
+      expect(changesIn(answer)).toEqual([]);
+      const before = ["Summary", "The quarter was very good, and sales were really strong."];
+      expect(shownWithChanges(client)).toEqual(before);
+      const risks = async (each: Core) =>
+        (await each.listMinds()).filter((listed) => listed.title === "Risks");
+      if (tool === "create_mind") {
+        expect(await risks(whole.core)).toHaveLength(1);
+        expect(await risks(core)).toEqual([]);
+      } else {
+        expect(shownWithChanges(whole.client)).toEqual([
+          ...before,
+          "+ Risks",
+          "+ The supplier is late.",
+          "+ The courier contract renews in February.",
+          "+ The warehouse lease ends in March.",
+        ]);
+      }
+    },
+  );
 });
 
 describe("A name that fits several places asks which one", { timeout: 30_000 }, () => {

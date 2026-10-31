@@ -11,7 +11,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { useDayOne, useOwnDocuments } from "../ownDocuments";
+import { useDayOne, useLibraryDocuments } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -88,7 +88,7 @@ const NO_DOCUMENTS: readonly Document[] = [];
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
-  const ownDocuments = useOwnDocuments();
+  const libraryDocuments = useLibraryDocuments();
   const dayOne = useDayOne();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
@@ -117,16 +117,9 @@ export function DocumentsSection() {
     [foldExamples, exampleFolders],
   );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
-  const documents = useAppStore((state) => state.documents);
-  const shownDocuments = useMemo(
-    () =>
-      folded.size === 0
-        ? documents
-        : documents.filter((each) => !folded.has(each.linkedFolderId ?? "")),
-    [documents, folded],
-  );
   // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
-  // Documents (#1942); once the fold's Mind is deleted, its row is the way back to them (#1944).
+  // Documents (#1942); once the fold's Mind is deleted, its row opens the Source locations view on
+  // that folder, the examples' Documents included (#1944).
   const hasLinkedFolders = useAppStore((state) => {
     const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
     const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
@@ -221,7 +214,7 @@ export function DocumentsSection() {
               data-testid="library-row-count"
               className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
             >
-              {formatCount(ownDocuments.length, language)}
+              {formatCount(libraryDocuments.length, language)}
             </span>
           </button>
           <div className={rowActionsClass}>
@@ -246,11 +239,10 @@ export function DocumentsSection() {
           while the tree lists nothing, so the first section to arrive moves neither (#2142). */}
       <div ref={tree} data-testid="sidebar-sections" {...treeKeys} className="flow-root">
         <LibraryFolders
-          documents={quiet ? NO_DOCUMENTS : shownDocuments}
+          documents={quiet ? NO_DOCUMENTS : libraryDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
           hideExamples={foldExamples}
-          dayOne={dayOne}
         />
         {!quiet && treeIsEmpty && (
           <ProblemLine
@@ -271,9 +263,11 @@ export function DocumentsSection() {
             {t("library.none")}
           </ProblemLine>
         )}
-        {!quiet && hasLinkedFolders && (
-          <SidebarSection testId="linked-folders-section" title={t("sidebar.linkedFolders")}>
-            <LinkedFolderRows hideExamples={foldExamples} />
+        {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
+            being read, where the rest of the Library waits for the first Document (#763). */}
+        {hasLinkedFolders && (
+          <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
+            <LinkedFolderRows hideExamples={exampleMindId !== null} />
           </SidebarSection>
         )}
         {!quiet && <SidebarTags />}

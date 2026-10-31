@@ -16,6 +16,12 @@ export const channelFor = (method: CoreApiMethod): string => `core:${method}`;
 export const EVENT_CHANNEL = "core:event";
 
 /**
+ * Answers once the main process serves every channel. The first window's page loads before the
+ * core starts (#2104), so the preload holds each call and message until then.
+ */
+export const SERVED_CHANNEL = "host:served";
+
+/**
  * Helpers the preload script adds next to the core, as `window.incarnamindFiles`.
  * They need Electron (in the renderer's process, or the main process's dialogs
  * and shell), so they aren't part of the core's API.
@@ -25,6 +31,12 @@ export const FILES_BRIDGE_KEY = "incarnamindFiles";
 export interface FilesBridge {
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
   pathForFile(file: File): string;
+  /**
+   * A picture the web engine can't read, as macOS's HEIC, as a PNG of this
+   * computer's own decoder (#1937); null where this computer has none, and
+   * the picture says it can't be read.
+   */
+  decodePicture(bytes: Uint8Array): Promise<Uint8Array | null>;
   /** Shows a file IncarnaMind saved (`CoreApi.saveMindExport`), selected in the system's file manager. */
   showSavedFile(path: string): Promise<void>;
   /** Opens a file IncarnaMind saved (`CoreApi.saveMindExport`) in the system's default app for it. */
@@ -94,8 +106,8 @@ export interface FilesBridge {
    * if the User cancelled.
    */
   pickWordFile(): Promise<string | null>;
-  /** As `pickWordFile`, for a PDF to verify (see `CoreApi.verifyDocument`). */
-  pickPdfFile(): Promise<string | null>;
+  /** As `pickWordFile`, for a PDF or a Word file to verify (see `CoreApi.verifyDocument`). */
+  pickFileToVerify(): Promise<string | null>;
   /**
    * Shows a Linked folder selected in the system's file manager (Finder,
    * Explorer). Rejects for an unknown Linked folder, or one that can't be
@@ -194,6 +206,7 @@ export interface RendererErrorReport {
 /** The main process's channels for the `FilesBridge` methods that need it. */
 export const FILES_CHANNELS = {
   showSavedFile: "files:showSavedFile",
+  decodePicture: "files:decodePicture",
   openSavedFile: "files:openSavedFile",
   pickOutputLocation: "files:pickOutputLocation",
   saveMindCopy: "files:saveMindCopy",
@@ -207,7 +220,7 @@ export const FILES_CHANNELS = {
   pickDocumentsOrFolder: "files:pickDocumentsOrFolder",
   pickReferenceFile: "files:pickReferenceFile",
   pickWordFile: "files:pickWordFile",
-  pickPdfFile: "files:pickPdfFile",
+  pickFileToVerify: "files:pickFileToVerify",
   showLinkedFolder: "files:showLinkedFolder",
   runsWithoutSandbox: "files:runsWithoutSandbox",
   logError: "files:logError",

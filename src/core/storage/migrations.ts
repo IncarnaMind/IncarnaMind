@@ -1985,6 +1985,110 @@ export const migrations: readonly Migration[] = [
       UPDATE documents SET keywords_version = processing_version WHERE processing_version >= 15;
     `,
   },
+  {
+    version: 115,
+    description: "A Folder can keep its work inside it (#1934)",
+    sql: `
+      -- 1: a Folder's Notes, Answers and checks may read only its own Documents.
+      -- 0 by default. Kept with the Folder so it follows the User to other devices.
+      ALTER TABLE library_groups ADD COLUMN keep_inside INTEGER NOT NULL DEFAULT 0;
+      -- A Question's Folder when it was asked, judged against today's walls: '' is asked in no
+      -- Folder, which outside Notes may read; NULL is not recorded, and is read by no Note.
+      -- No Folder was walled before this, so each older Question's Note, or else its
+      -- conversation, still holds the Folder it was asked in.
+      ALTER TABLE conversation_messages ADD COLUMN folder_asked_in TEXT;
+      UPDATE conversation_messages
+      SET folder_asked_in = CASE
+        WHEN asked_from_mind_id IS NULL THEN COALESCE(
+          (SELECT conversations.folder_id FROM conversations WHERE conversations.id = conversation_messages.conversation_id),
+          ''
+        )
+        ELSE COALESCE(
+          (SELECT minds.folder_id FROM minds WHERE minds.id = asked_from_mind_id),
+          ''
+        )
+      END
+      WHERE kind = 'question' AND folder_asked_in IS NULL;
+
+      -- The Folder of the Note a file IncarnaMind wrote came from, judged against today's walls:
+      -- a copy that comes back as a Document stays behind its Note's wall. NULL: no Note, no
+      -- Folder, or written before this was recorded.
+      ALTER TABLE own_files ADD COLUMN folder_id TEXT;
+      -- That Folder, on each Document a version of such a file became; kept when the User edits
+      -- the file, as own_file is. Derived on each device, so updated_at is left alone.
+      ALTER TABLE documents ADD COLUMN own_file_folder_id TEXT;
+      CREATE TRIGGER documents_own_file_folder_added AFTER INSERT ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER documents_own_file_folder_versioned AFTER UPDATE OF content_hash ON documents
+      WHEN EXISTS (
+        SELECT 1 FROM own_files WHERE content_hash = new.content_hash AND deleted_at IS NULL
+          AND folder_id IS NOT NULL
+      ) BEGIN
+        UPDATE documents SET own_file_folder_id = (
+          SELECT folder_id FROM own_files WHERE content_hash = new.content_hash
+            AND deleted_at IS NULL AND folder_id IS NOT NULL
+          ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        ) WHERE id = new.id;
+      END;
+      CREATE TRIGGER own_files_folder_recorded AFTER INSERT ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+      CREATE TRIGGER own_files_folder_changed AFTER UPDATE OF folder_id ON own_files
+      WHEN new.deleted_at IS NULL AND new.folder_id IS NOT NULL BEGIN
+        UPDATE documents SET own_file_folder_id = new.folder_id
+        WHERE content_hash = new.content_hash AND deleted_at IS NULL;
+      END;
+    `,
+  },
+  {
+    version: 116,
+    description: "A version's Units keep when that version was made (#2159)",
+    sql: `
+      -- When the version whose text a row holds was made: its file's last change, as the app saw
+      -- it when it read that version. A Citation opens the version it was made from after its
+      -- Document changed, marked with this date (#2159). A current version's date is its file's
+      -- modified time, already kept; a file dated 0 has none the app can use. Older versions know
+      -- none, and read as when their text was kept; a saved page's fetch is read from web_pages.
+      ALTER TABLE document_pages ADD COLUMN version_at TEXT;
+      UPDATE document_pages
+      SET version_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', d.file_mtime_ms / 1000.0, 'unixepoch')
+        FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+      )
+      WHERE version_at IS NULL AND EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = document_pages.document_id AND d.content_hash = document_pages.content_hash
+          AND d.file_mtime_ms > 0
+      );
+    `,
+  },
+  {
+    version: 117,
+    description:
+      "A duplicate of an imported Note keeps its Word file, so its checks leave it out (#1935)",
+    sql: `
+      -- The Document the file was imported as, beside document_id, which says which Mind is the
+      -- import: a duplicate sets document_id NULL but keeps this, so its checks leave that file
+      -- out by its Document and every version of it, not only by the bytes it was imported from
+      -- (#1935). Imported files already linked to a Document know the same.
+      ALTER TABLE word_packages ADD COLUMN source_document_id TEXT;
+      UPDATE word_packages SET source_document_id = document_id WHERE document_id IS NOT NULL;
+      CREATE INDEX word_packages_by_source_document ON word_packages (source_document_id)
+        WHERE source_document_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

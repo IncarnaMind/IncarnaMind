@@ -34,7 +34,7 @@ import { citationLocation, formatLocation } from "../../../shared/locations";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useLanguage, useT } from "../i18n";
-import { openCitedFollowing, quoteSaysSo } from "../openCited";
+import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
 import { ChartFoot } from "./ChartFoot";
 import { ChartKindMenu } from "./ChartKindMenu";
@@ -349,7 +349,7 @@ export function ChartView({ node, editor, getPos, deleteNode }: ReactNodeViewPro
     const documentId = state.documentId ?? value.citation.documentId;
     if (!documentId) return;
     const location = citationLocation(value.citation);
-    void openCitedFollowing(
+    void openCited(
       { ...value.citation, documentId },
       {
         check: state.check,

@@ -87,6 +87,7 @@ import type {
 import { ONE_SEARCH_PARAMETERS, type SearchToolParameters } from "../documents/searchTool";
 import { detectLanguage } from "../documents/textLanguage";
 import type { ChatLanguageModel, ContextWindow } from "../providers/models";
+import { type ModelCallKind, outputTokens } from "../providers/outputLimits";
 import { cacheProviderOptions, stablePrefixOptions, tokenUsageOf } from "../providers/promptCache";
 import {
   classifyProviderError,
@@ -109,7 +110,7 @@ import { DOCUMENT_TOOLS, offeredTools, type Tool, type ToolProviderInfo } from "
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
 import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
-import { earlierContext, type RequestMind, withLineBefore } from "./context";
+import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import {
   NOTHING_SHOWN_YET,
@@ -119,7 +120,8 @@ import {
   translateQueryPrompt,
   withPassageNotes,
 } from "./prompt";
-import { retryQuotes } from "./quoteRetry";
+import { replyJson, retryQuotes } from "./quoteRetry";
+import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
 import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
@@ -136,6 +138,11 @@ export interface AnswerMessage {
    * cache keeps (see ../providers/promptCache).
    */
   stablePrefix?: number;
+  /**
+   * Pictures the User selected in the Note to ask about (#1937), which only the
+   * Answer's own Run reads: the calls that search send the text alone.
+   */
+  pictures?: readonly AskedPicture[];
 }
 
 /** A Citation record, as the model gives it for one marker. */
@@ -178,6 +185,15 @@ export interface AnswerSearchOptions {
   document?: string;
 }
 
+/** A page range, a Document opening, or the Passages around one already shown. */
+export interface ReadDocumentRequest {
+  document: string;
+  pages?: string;
+  passage?: string;
+  before?: number;
+  after?: number;
+}
+
 /** What a search gives the model. */
 export interface SearchResultForModel {
   /** The Passages, formatted for the model, or a sentence saying there are none. */
@@ -191,6 +207,8 @@ export interface SearchResultForModel {
    * relevant (see ./window). Absent: their order is their relevance.
    */
   ranks?: number[];
+  /** App-computed page coverage of the results that survived fitting; null when it isn't partial. */
+  coverage?(fittedText: string): string | null;
   /**
    * The third-party text among the Passages: "web-page" when one is a saved
    * web page's (#78). Reading it makes the Run third-party. Absent: none.
@@ -228,6 +246,8 @@ export interface AnswerTools {
     signal?: AbortSignal,
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel>;
+  /** Reads pages of a Document in the Search scope, when the Answer offers `read_document`. */
+  readDocument?(request: ReadDocumentRequest): Promise<SearchResultForModel>;
   /** Takes Citation records; returns what to tell the model about them. */
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
@@ -386,6 +406,8 @@ export interface AnswerRequest {
   quickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
   documents: AnswerTools;
+  /** The Passage ids a search actually fitted into the model's request, for exact whole-read coverage. */
+  fitted?(passageIds: readonly string[]): void;
   /**
    * The other Tools a model that can call Tools is offered, from their
    * providers: the Skills' and the Connectors' (see ../tools). Within a
@@ -437,6 +459,8 @@ export interface AnswerRequest {
   maxOutput?: number;
   /** The model needs the Tools in every request, the last step's too (`ModelFacts.toolsEveryRequest`). */
   toolsEveryRequest?: boolean;
+  /** False when the model refuses a named or required Tool choice. */
+  forcedToolChoice?: boolean;
   /**
    * In structured output, ask the model once more for the quotes the check
    * doesn't find (see ./quoteRetry): a local model, never a cloud one.
@@ -460,6 +484,11 @@ export interface AnswerRequest {
    */
   isReply?(text: string): boolean;
   /**
+   * Told what the first model call wrote once its Tools have returned, before any further call:
+   * a Run it stops there makes none.
+   */
+  afterFirstStep?(text: string): void;
+  /**
    * How much of a reply being written may show while it streams: up to the
    * first sentence that may claim a change, which waits for the checks.
    * Absent: all of it.
@@ -472,6 +501,8 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
+  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
+  refusalSuffix?(): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -579,6 +610,8 @@ export interface AiSdkAnswerEngineOptions {
 
 /** Model calls per Answer: a few searches, the records, and the Answer, with room to spare. */
 const MAX_STEPS = 10;
+/** The most model calls one Answer's Tool loop sends: its steps, and one more that writes after a call on the last. */
+export const MOST_TOOL_LOOP_CALLS = MAX_STEPS + 1;
 /** More model calls for an Answer offered `run_analysis` (#447): its runs, and fixing their code. */
 const ANALYSIS_STEPS = 6;
 
@@ -604,6 +637,17 @@ export const ANSWER_TEMPERATURE = 0.2;
 export function answerTemperature(takesTemperature: boolean | undefined): number | undefined {
   return takesTemperature === false ? undefined : ANSWER_TEMPERATURE;
 }
+
+const writingKind = (request: AnswerRequest): ModelCallKind =>
+  request.toolSet === "check" ? "check-step" : "answer";
+
+/** Within the model's own most, and the room its window keeps for a reply, so the request fits. */
+const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
+  Math.min(
+    outputTokens(kind),
+    request.maxOutput ?? Number.POSITIVE_INFINITY,
+    request.window?.outputTokens ?? Number.POSITIVE_INFINITY,
+  );
 
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };
@@ -718,7 +762,7 @@ const recordsSchema = {
 } as const;
 
 /** Records from the model's JSON, kept only where they have the right shape. */
-function parseRecords(value: unknown): CitationRecordInput[] {
+export function parseRecords(value: unknown): CitationRecordInput[] {
   // Some models send the array as a JSON string, or one record alone.
   if (typeof value === "string") {
     try {
@@ -756,7 +800,10 @@ function parseRecords(value: unknown): CitationRecordInput[] {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence. */
+/**
+ * The JSON a model is writing, parsed as far as it goes, even inside a Markdown code fence: only
+ * to show as it streams. What is recorded comes from the reply parsed whole (#2275).
+ */
 const parseAnswerJson = (raw: string) =>
   parsePartialJson(raw.replace(/^\s*```(?:json)?[ \t]*\n?/i, "").replace(/\n?```\s*$/, ""));
 
@@ -848,7 +895,7 @@ async function searchQuery(
       prompt: searchQueryPrompt(earlier, question),
       temperature,
       // A short query; a cut-off reply falls back to the Question.
-      maxOutputTokens: 256,
+      maxOutputTokens: outputTokens("search-query"),
       // A failure falls back to the Question at once; the Answer's own request still retries.
       maxRetries: 0,
       abortSignal: signal,
@@ -905,22 +952,32 @@ const PASSAGE_BLOCK = /<passage id="([^"]+)"[^>]*>[\s\S]*?<\/passage>/g;
  * the best of each. With no Passages in any, the first's text.
  */
 export function mergeSearches(results: readonly SearchResultForModel[]): SearchResultForModel {
-  const passages: { id: string; text: string; rank: number }[] = [];
+  const passages: { id: string; text: string; rank: number; passageId?: string }[] = [];
   results.forEach((result, which) => {
     [...result.text.matchAll(PASSAGE_BLOCK)].forEach((match, index) => {
       const rank = (result.ranks?.[index] ?? index) * results.length + which;
       const seen = passages.find((passage) => passage.id === match[1]);
       if (seen) seen.rank = Math.min(seen.rank, rank);
-      else passages.push({ id: match[1] as string, text: match[0], rank });
+      else {
+        const passageId = result.passageIds?.[index];
+        passages.push({
+          id: match[1] as string,
+          text: match[0],
+          rank,
+          ...(passageId && { passageId }),
+        });
+      }
     });
   });
   const [first] = results;
   if (passages.length === 0 || !first) return first ?? { text: "", passageCount: 0 };
   if (results.length === 1) return first;
+  const passageIds = passages.flatMap(({ passageId }) => (passageId ? [passageId] : []));
   return {
     text: passages.map((passage) => passage.text).join("\n\n"),
     passageCount: passages.length,
     ranks: passages.map((passage) => passage.rank),
+    ...(passageIds.length === passages.length && { passageIds }),
   };
 }
 
@@ -942,7 +999,7 @@ async function translatedQuery(
       prompt: translateQueryPrompt(query, language),
       temperature,
       // A short query; a cut-off reply means no second search.
-      maxOutputTokens: 256,
+      maxOutputTokens: outputTokens("search-query"),
       maxRetries: 0,
       abortSignal: request.signal,
     });
@@ -981,9 +1038,15 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
 
   return {
     async *generate(asked) {
+      // A request the model refuses as too long goes again with fewer Passages: only the Passages
+      // of the attempt it takes were read (#1554).
+      const accepted = asked.fitted;
+      let attemptRead: string[] = [];
       // Only an ordinary Answer is offered the Tools the request brings (see `ToolSet`).
-      const request: AnswerRequest =
-        asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked;
+      const request: AnswerRequest = {
+        ...(asked.toolSet && asked.toolSet !== "answer" ? { ...asked, tools: [] } : asked),
+        ...(accepted && { fitted: (passageIds) => attemptRead.push(...passageIds) }),
+      };
       const failed = (error: unknown): AnswerEngineEvent => ({
         type: "failed",
         error: classifyProviderError(error),
@@ -1029,6 +1092,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       async function* fitted(make: () => TemperedAttempt): FittedAttempt {
         for (let tries = 0; ; tries++) {
           let overflow: Overflow | null = null;
+          attemptRead = [];
           for await (const event of make()) {
             if (event.type === "overflow") {
               overflow = event;
@@ -1036,6 +1100,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             }
             yield event;
           }
+          if (!overflow && attemptRead.length > 0) accepted?.(attemptRead);
           // Only a request sized to a window can overflow.
           if (!overflow || !budget || signal.aborted) return;
           if (tries === 0 && overflow.promptTokens) {
@@ -1055,6 +1120,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
       const onePass = (mode: CitationSupport | "no-documents", found?: SearchResultForModel) =>
         fitted(async function* () {
           if (!budget) {
+            if (found) request.fitted?.(fittedPassageIds(found, found.text));
             const instructions = request.instructions(mode, { passages: found?.text });
             yield* tempered((sent) =>
               mode === "structured-output"
@@ -1072,6 +1138,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
                   request.question,
                   found.ranks,
                 );
+          if (found && kept !== undefined) request.fitted?.(fittedPassageIds(found, kept));
           const instructions = request.instructions(mode, { passages: kept });
           const fit = budget.fit({
             instructions,
@@ -1312,6 +1379,8 @@ export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}):
 interface DocumentToolsHooks {
   /** A search's result as the model gets it: within a window, the Passages that fit (see ./window). */
   fit(found: SearchResultForModel): SearchResultForModel;
+  /** The Passage ids that survived that fit. */
+  fitted?(passageIds: readonly string[]): void;
   /** A search gave the model `count` Passages, of those it found (`passageIds`): its Tool-call card says so. */
   searched(toolCallId: string, count: number, passageIds?: readonly string[]): void;
   /** A search failed: its card says why. */
@@ -1326,6 +1395,15 @@ interface DocumentToolsHooks {
  * A search's result as the model reads it: the Passages that fit, then what every search's
  * result says beside them (Documents not read, dates, the Answer's language).
  */
+function fittedPassageIds(found: SearchResultForModel, fitted: string): readonly string[] {
+  if (fitted === found.text) return found.passageIds ?? [];
+  const handles = (text: string) =>
+    [...text.matchAll(/<passage id="([^"]+)"/g)].map((match) => match[1] ?? "");
+  const original = handles(found.text);
+  const kept = new Set(handles(fitted));
+  return (found.passageIds ?? []).filter((_, index) => kept.has(original[index] ?? ""));
+}
+
 function searchResultText(
   fitted: string,
   documents: AnswerTools,
@@ -1341,6 +1419,17 @@ function searchResultText(
   return note ? `${passages}\n\n${note}` : passages;
 }
 
+function fittedResultText(
+  found: SearchResultForModel,
+  fitted: SearchResultForModel,
+  documents: AnswerTools,
+  languageNote: (() => string | null) | undefined,
+): string {
+  const text = searchResultText(fitted.text, documents, languageNote);
+  const coverage = found.coverage?.(fitted.text);
+  return coverage ? `${text}\n\n${coverage}` : text;
+}
+
 /**
  * The Documents as a Tool provider, for one go of the Tool-calling loop:
  * `search_documents`, which reads the Documents; `cite`, whose records become
@@ -1352,7 +1441,7 @@ export function documentTools(
   documents: AnswerTools,
   hooks: DocumentToolsHooks,
   toolSet: ToolSet = "answer",
-): { search: Tool; cite: Tool; calculate: Tool | null } {
+): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
   return {
@@ -1399,10 +1488,76 @@ export function documentTools(
         }
         for (const source of found.thirdParty ?? []) readThirdParty?.(source);
         const result = hooks.fit(found);
+        hooks.fitted?.(fittedPassageIds(found, result.text));
         hooks.searched(toolCallId, result.passageCount, found.passageIds);
-        return searchResultText(result.text, documents, hooks.languageNote);
+        return fittedResultText(found, result, documents, hooks.languageNote);
       },
     },
+    read:
+      !checking && documents.readDocument
+        ? {
+            ...own(DOCUMENT_TOOLS.read),
+            description:
+              'Read pages of a Document in the Question\'s Search scope when search did not show them. Give the Document name exactly as the instructions list it. Use pages as "16" or "15-17", or give a Passage id already shown with optional before/after counts (up to 3). Omit both to read the opening. Read where the answer would be before saying the Document does not state it.',
+            inputSchema: {
+              type: "object",
+              properties: {
+                document: {
+                  type: "string",
+                  description: "The Document to read, named as the instructions list it.",
+                },
+                pages: {
+                  type: "string",
+                  description: 'One page or a page range, such as "16" or "15-17".',
+                },
+                passage: {
+                  type: "string",
+                  description: "A Passage id already shown, to read around.",
+                },
+                before: {
+                  type: "number",
+                  description: "Passages to include before the given Passage, from 0 to 3.",
+                },
+                after: {
+                  type: "number",
+                  description:
+                    "Passages to include after the given Passage or from the opening, from 0 to 3.",
+                },
+              },
+              required: ["document"],
+            },
+            shownInput: ({ document, pages, passage, before, after }) => {
+              const effective = typeof pages === "string" ? readDocumentPages(pages) : null;
+              return {
+                document: String(document ?? ""),
+                ...(typeof pages === "string" &&
+                  pages !== "" && { pages: effective ? formatDocumentPages(effective) : pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
+              };
+            },
+            effects: () => [{ action: "read", scope: { kind: "documents" } }],
+            untrustedResult: true,
+            async call(
+              { document, pages, passage, before, after },
+              { toolCallId, readThirdParty },
+            ) {
+              const found = await documents.readDocument?.({
+                document: String(document ?? ""),
+                ...(typeof pages === "string" && pages !== "" && { pages }),
+                ...(typeof passage === "string" && passage !== "" && { passage }),
+                ...(typeof before === "number" && { before }),
+                ...(typeof after === "number" && { after }),
+              });
+              if (!found) throw new Error("read_document is unavailable");
+              for (const source of found.thirdParty ?? []) readThirdParty?.(source);
+              const result = hooks.fit(found);
+              hooks.searched(toolCallId, result.passageCount, found.passageIds);
+              return fittedResultText(found, result, documents, hooks.languageNote);
+            },
+          }
+        : null,
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
       description:
@@ -1423,7 +1578,7 @@ export function documentTools(
     calculate: documents.calculate
       ? {
           ...own(DOCUMENT_TOOLS.calculate),
-          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
+          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
             checking
               ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
@@ -1462,6 +1617,7 @@ const runMessage = (message: AnswerMessage): RunMessage =>
         role: "user",
         text: message.content,
         ...(message.stablePrefix && { stablePrefix: message.stablePrefix }),
+        ...(message.pictures?.length && { pictures: message.pictures }),
       }
     : { role: "assistant", text: message.content, toolCalls: [] };
 
@@ -1499,10 +1655,39 @@ function presearchMessages(
         read(passages),
       ])
     : result;
+  request.fitted?.(fittedPassageIds(result, fitted.text));
   return [
     { role: "assistant", text: "", toolCalls: [{ id, tool, input }] },
     { role: "tool", id, tool, result: read(fitted.text), ok: true },
   ];
+}
+
+/** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
+function offeredWith(
+  documents: ReturnType<typeof documentTools> | null,
+  others: readonly Tool[],
+): Tool[] {
+  const offered = new Map(
+    offeredTools([
+      ...(documents
+        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        : []),
+      ...(documents?.calculate ? [documents.calculate] : []),
+      ...others,
+    ]).map((each) => [each.name, each]),
+  );
+  return [...offered.values()];
+}
+
+const MEASURING: DocumentToolsHooks = {
+  fit: (found) => found,
+  searched: () => undefined,
+  cited: () => undefined,
+};
+
+/** The Tools' definitions each request of a Run on these Documents sends, as its Tool loop offers them. */
+export function documentToolDefinitions(documents: AnswerTools, toolSet: ToolSet): string {
+  return definitions(offeredWith(documentTools(documents, MEASURING, toolSet), []));
 }
 
 /**
@@ -1556,6 +1741,7 @@ async function* toolLoop(
           {
             fit: (found) =>
               loop ? loop.passages(found.text, found.passageCount, found.ranks) : found,
+            ...(request.fitted && { fitted: request.fitted }),
             searched: (toolCallId, count, passageIds) => {
               results.set(toolCallId, count);
               if (passageIds) found.set(toolCallId, passageIds);
@@ -1568,6 +1754,7 @@ async function* toolLoop(
         )
       : null;
   const search = documents?.search ?? null;
+  const read = documents?.read ?? null;
   const cite = documents?.cite ?? null;
   const calculate = documents?.calculate ?? null;
   /** `cite` and `calculate` record something for the Answer: they have no Tool-call card. */
@@ -1598,10 +1785,12 @@ async function* toolLoop(
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
+  const endedTurn = new Set<string>();
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
-   * so for its card; one that read third-party text says so.
+   * so for its card; one that read third-party text says so; one whose result
+   * ends the turn says so.
    */
   const tracked = (tool: Tool): Tool => ({
     ...tool,
@@ -1611,6 +1800,7 @@ async function* toolLoop(
         counted: (count) => results.set(context.toolCallId, count),
         readThirdParty,
       });
+      if (tool.endsTurn?.(result, input)) endedTurn.add(context.toolCallId);
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
         ? (results.get(context.toolCallId) ?? 0) > 0
@@ -1627,14 +1817,8 @@ async function* toolLoop(
       return result;
     },
   });
-  /** The Tools offered, by the name the model calls them; never a Connector's with one of ours. */
-  const offered = new Map(
-    offeredTools([
-      ...(documents ? [documents.search, documents.cite] : []),
-      ...(calculate ? [calculate] : []),
-      ...request.tools,
-    ]).map((each) => [each.name, each]),
-  );
+  /** The Tools offered, by the name the model calls them. */
+  const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);
@@ -1680,7 +1864,10 @@ async function* toolLoop(
     window = {
       // What another provider's Tool returns (or the gate gives instead) is cut to the room left.
       fitResult: (text, tool) =>
-        tool === search?.name || tool === cite?.name || tool === calculate?.name
+        tool === search?.name ||
+        tool === read?.name ||
+        tool === cite?.name ||
+        tool === calculate?.name
           ? text
           : account.result(text),
       canCallTools: () => account.canCallTools(),
@@ -1700,6 +1887,7 @@ async function* toolLoop(
   let answered = false;
   /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
   let besideRecords = "";
+  let stepped = false;
   const owesNothing = (text: string) => {
     const left = request.documents.owed?.(text);
     return left === undefined || left.citations.length + left.figures.length === 0;
@@ -1722,6 +1910,8 @@ async function* toolLoop(
   let again: readonly RunMessage[] | null = null;
   /** The Tool the ask said to call: the asked-again Run's first step calls it. */
   let mustCall: string | null = null;
+  /** The ask lets the model only write: the asked-again Run is one step, which calls no Tool. */
+  let writeOnly = false;
   /** Model calls made so far: asked once more, the model gets what is left of `maxSteps`. */
   let steps = 0;
   const nudges = createNudges(maxSteps, () => steps);
@@ -1748,15 +1938,22 @@ async function* toolLoop(
     yield* release(keptText.length);
     yield* flag(keptText);
   }
-  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    if (!request.documents.wroteIntoMind?.()) {
-      const figured = request.documents.citeFigures?.(keptText) ?? keptText;
-      yield* textEdits(keptText, figured);
-      keptText = figured;
-      const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
-      yield* citeUnmarked(request, placed, temperature, budget, () =>
-        nudges.take("unmarked-quotes"),
-      );
+  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+    if (keptText.trim() !== "" || suffix === null) {
+      if (!request.documents.wroteIntoMind?.()) {
+        const figured = request.documents.citeFigures?.(keptText) ?? keptText;
+        yield* textEdits(keptText, figured);
+        keptText = figured;
+        const placed = yield* missingMarkerEvents(keptText, cited, request.documents);
+        yield* citeUnmarked(request, placed, temperature, budget, () =>
+          nudges.take("unmarked-quotes"),
+        );
+      }
+    }
+    if (suffix) {
+      const withRefusal = keptText.trim() === "" ? suffix : `${keptText}\n\n${suffix}`;
+      yield* textEdits(keptText, withRefusal);
+      keptText = withRefusal;
     }
     yield { type: "finished" };
   }
@@ -1764,13 +1961,16 @@ async function* toolLoop(
   async function* runs(): AsyncGenerator<RunEvent> {
     let history: readonly RunMessage[] = [...messages.map(runMessage), ...first];
     let calls: string | null = null;
+    let stepsLeft = maxSteps;
     for (;;) {
-      yield* engine.run(runRequest(history, maxSteps - steps, calls));
+      yield* engine.run(runRequest(history, stepsLeft, calls));
       if (!again) return;
       history = [...history, ...again];
       again = null;
       calls = mustCall;
       mustCall = null;
+      stepsLeft = writeOnly ? 1 : maxSteps - steps;
+      writeOnly = false;
     }
   }
   const runRequest = (
@@ -1783,12 +1983,13 @@ async function* toolLoop(
     messages: history,
     tools: runTools,
     maxSteps: stepsLeft,
-    ...(firstTool && { firstTool }),
+    ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
-    lastStep: {
-      ...(request.maxOutput !== undefined && { tokens: request.maxOutput }),
-      ...(request.toolsEveryRequest && { keepTools: true }),
+    outputTokens: {
+      step: outputOf(request, request.toolSet === "check" ? "check-step" : "answer-step"),
+      last: outputOf(request, writingKind(request)),
     },
+    lastStep: { ...(request.toolsEveryRequest && { keepTools: true }) },
     gate: async (call) => {
       const tool = offered.get(call.tool);
       return tool && request.gate
@@ -1804,6 +2005,12 @@ async function* toolLoop(
     // another call would only write it again. Written then cited (#489), it is complete once the
     // Run owes nothing (`AnswerTools.owed`), whichever step took the records.
     endsAfter: (step) => {
+      if (!stepped) {
+        stepped = true;
+        request.afterFirstStep?.(step.text);
+      }
+      if (signal.aborted) return true;
+      if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
@@ -1932,7 +2139,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         // Too long only with a window, so sized to one.
@@ -1951,12 +2158,13 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
+        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -1969,7 +2177,7 @@ async function* toolLoop(
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer();
+          yield* endAnswer(request.refusalSuffix?.() ?? null);
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
@@ -1998,6 +2206,7 @@ async function* toolLoop(
           setAside = [];
           again = [...event.messages, { role: "user", text: settled.nudge }];
           mustCall = settled.requires ?? null;
+          writeOnly = settled.writeOnly === true;
           break;
         }
         const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
@@ -2011,7 +2220,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer();
+        yield* endAnswer(refused);
         return;
       }
     }
@@ -2054,6 +2263,7 @@ async function* structured(
     messages: modelMessages(request.messages),
     temperature,
     providerOptions: cacheProviderOptions(request.cacheKey),
+    maxOutputTokens: outputOf(request, writingKind(request)),
     output: Output.object({
       schema: jsonSchema<{ answer: string; citations: unknown; calculations?: unknown }>({
         type: "object",
@@ -2114,11 +2324,19 @@ async function* structured(
     return;
   }
   if (signal.aborted) return;
-  const { value } = await parseAnswerJson(raw);
+  const value = await replyJson(raw);
   const answer = (value as { answer?: unknown } | undefined)?.answer;
   // The model didn't answer in JSON after all: it can't do structured output.
   if (typeof answer !== "string" && !emitted) {
     yield { type: "unsupported" };
+    return;
+  }
+  if (value === undefined) {
+    yield { type: "text-retracted", length: emitted.length };
+    yield {
+      type: "failed",
+      error: { kind: "no-answer", message: "The model's reply ended before its JSON was whole." },
+    };
     return;
   }
   const records = parseRecords((value as { citations?: unknown } | undefined)?.citations);
@@ -2184,6 +2402,7 @@ async function* plain(
       messages: modelMessages(request.messages),
       temperature,
       providerOptions: cacheProviderOptions(request.cacheKey),
+      maxOutputTokens: outputOf(request, writingKind(request)),
       abortSignal: signal,
       onError: () => undefined,
     });

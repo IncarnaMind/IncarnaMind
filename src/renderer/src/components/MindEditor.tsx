@@ -1,4 +1,6 @@
 import { fingerprintOfMind } from "../../../shared/mindState";
+import { OpinionMenu } from "../editor/OpinionMenu";
+import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
@@ -15,7 +17,7 @@ import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
-import { checkSentences } from "../checks";
+import { checkSentences, useChecks } from "../checks";
 import {
   citationForm,
   useCitationFormattingFor,
@@ -87,8 +89,11 @@ import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
+import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
+import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
+import { Pictures } from "../editor/pictures";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
 import { QuestionView } from "../editor/QuestionView";
@@ -100,10 +105,12 @@ import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
+import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
 import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
+import { TableOfContentsView } from "../editor/TableOfContentsView";
 import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
@@ -261,6 +268,18 @@ const chartView = ReactNodeViewRenderer(ChartView, {
 });
 
 /**
+ * A picture pasted into the Note (#1937): it takes its own pointer over the
+ * alt text's line, so the editor doesn't type into it; the picture itself is
+ * the editor's to select and drag like any Block.
+ */
+const pictureView = ReactNodeViewRenderer(PictureView, {
+  stopEvent: ({ event }) => {
+    const target = event.target;
+    return target instanceof Element && target.closest("[data-picture-alt]") !== null;
+  },
+});
+
+/**
  * A comparison table (#98): its title line, heading row and "+ Question" take
  * their own pointer and keys, so the editor doesn't select or type over them;
  * its cells are content the editor draws, never typed in.
@@ -350,10 +369,14 @@ function MindEditorView({
   const emptyFormula = t("editor.math.empty");
   /** How a footnote's marker is named, in the interface's language as it is now. */
   const footnoteLabel = useRef<FootnoteLabel>(() => "");
-  footnoteLabel.current = (number, text) =>
-    text
-      ? t("editor.footnote.labelWithText", { number, text })
-      : t("editor.footnote.label", { number });
+  footnoteLabel.current = (number, text, endnote) =>
+    endnote
+      ? text
+        ? t("editor.endnote.labelWithText", { number, text })
+        : t("editor.endnote.label", { number })
+      : text
+        ? t("editor.footnote.labelWithText", { number, text })
+        : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
@@ -385,9 +408,14 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          pageBreakView,
+          tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
+          pictureView,
         }),
         // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
         CitationNumbers.configure({ form: () => formRef.current }),
+        // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
+        Pictures,
         CitationClusters,
         ClaimChecks,
         CopyCitations.configure({
@@ -447,6 +475,7 @@ function MindEditorView({
         BlockCommands,
         FindInMind,
         HeldSelection,
+        ShiftClickSelection,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({
@@ -496,26 +525,22 @@ function MindEditorView({
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
-  const signOffRecords = useSignOffs(doc);
-  const signOffs = useMemo(
-    () => ({
-      records: signOffRecords,
-      rows: schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null,
-    }),
-    [signOffRecords, schedule, doc],
-  );
-  const figureContexts = useMemo(
-    () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
-        ? new Map(schedule.rows.map((row) => [row.id, row.context ?? ""]))
-        : null,
+  // The same array while a change leaves the rows as they were, so what is read from them is too.
+  const rows = useMemo(
+    () => (schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null),
     [schedule, doc],
+  );
+  const signOffRecords = useSignOffs(doc);
+  const signOffs = useMemo(() => ({ records: signOffRecords, rows }), [signOffRecords, rows]);
+  const figureContexts = useMemo(
+    () => (rows ? new Map(rows.map((row) => [row.id, row.context ?? ""])) : null),
+    [rows],
   );
   const figurePlaces = useMemo(
     () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
+      rows
         ? figurePlacesOf(
-            schedule.rows.flatMap(({ locator, place }) =>
+            rows.flatMap(({ locator, place }) =>
               locator.kind === "text" && place.table
                 ? [
                     {
@@ -528,7 +553,7 @@ function MindEditorView({
             ),
           )
         : null,
-    [schedule, doc],
+    [rows],
   );
   useEffect(() => {
     if (!editor.isDestroyed)
@@ -637,6 +662,17 @@ function MindEditorView({
       },
       { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
       {
+        id: "check-anyway",
+        label: "claim.checkAnyway",
+        icon: <CheckLineIcon className="size-3.5" />,
+        available: (current) =>
+          !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
+        run: (current) => {
+          const opinion = opinionAt(current, doc);
+          if (opinion) checkOpinion(current, mindId, doc, opinion, place);
+        },
+      },
+      {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
         icon: <CheckLineIcon className="size-3.5" />,
@@ -654,7 +690,7 @@ function MindEditorView({
         run: (current) => void markSelectionAsMine(current),
       },
     ];
-  }, [mindId, doc, hasDocuments]);
+  }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
   const editField = useMemo(
@@ -680,10 +716,12 @@ function MindEditorView({
   );
 
   // When the language changes: relabel. Setting the props also redraws the placeholder,
-  // and the footnotes' markers and checklist boxes are named anew.
+  // and the footnotes' markers, checklist boxes and breaks are named anew.
   useEffect(() => {
     editor.setOptions({ editorProps: editorPropsFor(label, emptyFormula) });
-    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+    if (editor.isDestroyed) return;
+    redrawFootnotes(editor.view);
+    relabelBreaks(editor.view.dom);
   }, [editor, label, emptyFormula]);
 
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone
@@ -886,7 +924,9 @@ function MindEditorView({
           {wordLook && <style>{wordLook.css}</style>}
           {wordLook && <WordTableFades frame={frame} />}
           {!readOnly && <ProposalBars editor={editor} mindId={mindId} />}
-          <EditorContent editor={editor} />
+          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+            <EditorContent editor={editor} />
+          </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           {!readOnly && <TableMenu editor={editor} />}

@@ -42,16 +42,9 @@ export function deletedName(item: Pick<DeletedItem, "kind" | "name">): string {
 
 const refsOf = (items: readonly DeletedItem[]) => items.map(({ kind, id }) => ({ kind, id }));
 
-/** Deletes again what a restore brought back, as deleting it did. */
+/** Deletes again what a restore brought back, at the time each was deleted before it. */
 async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
-  const documents = items.filter((item) => item.kind === "document").map((item) => item.id);
-  if (documents.length > 0) await core.deleteDocuments(documents);
-  for (const { kind, id } of items) {
-    if (kind === "mind") await core.deleteMind(id);
-    else if (kind === "conversation") await core.deleteConversation(id);
-    else if (kind === "folder") await core.deleteLibraryGroup(id);
-    else if (kind === "tag") await core.deleteTag(id);
-  }
+  await core.deleteAgain(items.map(({ kind, id, deletedAt }) => ({ kind, id, deletedAt })));
 }
 
 /** What the undo line says a restore did: where one item went back to, if it was in a Folder still there. */

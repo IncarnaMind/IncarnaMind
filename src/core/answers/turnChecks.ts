@@ -18,6 +18,8 @@ export interface TurnFinding {
    * 5.5, told to call `cite`, wrote the same reply again in about one ask in twenty.
    */
   requires?: string;
+  /** The ask lets the model only write: what it asks about has run, and calling again would repeat it. */
+  writeOnly?: true;
   /** What flags the reply if it stands: none, for a check that only asks. */
   claims: readonly ClaimedChange[];
   /** The Tools the reply says ran that didn't (#1796), which flag it too. */
@@ -61,7 +63,9 @@ export interface Flags {
  * the ask is about, which the Answer shows as a step, and the one it must call
  * first), or what to flag it with.
  */
-export type Settled = { nudge: string; requires?: string; tools?: readonly ClaimedTool[] } | Flags;
+export type Settled =
+  | { nudge: string; requires?: string; writeOnly?: true; tools?: readonly ClaimedTool[] }
+  | Flags;
 
 export async function settleReply(
   checks: readonly TurnCheck[],
@@ -77,6 +81,7 @@ export async function settleReply(
       return {
         nudge: found.note,
         ...(found.requires && { requires: found.requires }),
+        ...(found.writeOnly && { writeOnly: true }),
         ...(found.tools && found.tools.length > 0 && { tools: found.tools }),
       };
     }

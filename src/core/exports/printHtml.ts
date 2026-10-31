@@ -13,7 +13,15 @@
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
-import { type Block, type Footnote, type Inline, type Marks, tableLayout } from "../mindText";
+import {
+  type Block,
+  type Footnote,
+  type HeadingEntry,
+  headingEntries,
+  type Inline,
+  type Marks,
+  tableLayout,
+} from "../mindText";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
@@ -52,6 +60,9 @@ export const safeLink: LinkTest = (href): href is string =>
 export const webLink: LinkTest = (href): href is string =>
   typeof href === "string" && /^https?:/i.test(href);
 
+/** Where a page break was: the print page starts a new page there, and so does a browser printing it. */
+const PAGE_BREAK = '<div class="page-break"></div>';
+
 export function renderPrintHtml(
   blocks: readonly Block[],
   labels: PrintLabels,
@@ -71,9 +82,23 @@ export function renderPrintHtml(
     linkNotes,
     citations,
     isLink,
+    headingEntries(blocks),
   );
   const body = writer.blocks(blocks);
   return { body, notes, footnotes: notes.length };
+}
+
+/** A table of contents as the page draws it: its heading, then the Note's headings indented. */
+function tocHtml(entries: readonly HeadingEntry[], labels: PrintLabels): string {
+  if (entries.length === 0) return "";
+  const lowest = Math.min(...entries.map((entry) => entry.level));
+  const items = entries
+    .map(
+      (entry) =>
+        `<li class="toc-entry toc-level-${entry.level}" style="padding-left:${(entry.level - lowest) * 16}px">${escapeHtml(entry.text)}</li>`,
+    )
+    .join("");
+  return `<nav class="toc"><p class="toc-title">${escapeHtml(labels.contents)}</p><ul>${items}</ul></nav>`;
 }
 
 /** A style's formatted runs: italics, bold, small capitals, underlining, raised text and links. */
@@ -172,10 +197,25 @@ class PrintWriter {
     private readonly linkNotes: boolean,
     private readonly citations: CitationWriter | null,
     private readonly isLink: LinkTest,
+    private readonly headings: readonly HeadingEntry[] = [],
   ) {}
 
   blocks(blocks: readonly Block[]): string {
     return blocks.map((block) => this.block(block)).join("");
+  }
+
+  /**
+   * A paragraph's text, split where it has a page break (#746): the parts
+   * apart, each in `wrap`, with a break between them that starts a new page.
+   */
+  private pages(content: readonly Inline[], wrap: (html: string) => string): string {
+    if (!content.some((item) => item.kind === "pageBreak")) return wrap(this.inline(content));
+    const parts: Inline[][] = [[]];
+    for (const item of content) {
+      if (item.kind === "pageBreak") parts.push([]);
+      else parts.at(-1)?.push(item);
+    }
+    return parts.map((part) => (part.length > 0 ? wrap(this.inline(part)) : "")).join(PAGE_BREAK);
   }
 
   private marker(note: string, adjacent = false): string {
@@ -190,10 +230,16 @@ class PrintWriter {
   private block(block: Block): string {
     switch (block.kind) {
       case "paragraph":
-        return `<p${formatStyle(block.format)}>${this.inline(changedContent(block))}</p>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<p${formatStyle(block.format)}>${html}</p>`,
+        );
       case "heading": {
         const level = Math.min(block.level + 1, 6);
-        return `<h${level}${formatStyle(block.format)}>${this.inline(changedContent(block))}</h${level}>`;
+        return this.pages(
+          changedContent(block),
+          (html) => `<h${level}${formatStyle(block.format)}>${html}</h${level}>`,
+        );
       }
       case "question":
         return `<p class="question"><span class="question-label">${escapeHtml(this.labels.question)}</span> ${this.inline(changedContent(block))}</p>`;
@@ -219,6 +265,8 @@ class PrintWriter {
       }
       case "chart":
         return this.chart(block);
+      case "toc":
+        return tocHtml(this.headings, this.labels);
       case "bibliography": {
         const entries = block.items
           .map((item) => {

@@ -189,6 +189,7 @@ describe("Numerical Citation place", () => {
       if (!document) throw new Error("No Document");
       expect(
         await core.recheckCitation({
+          mindId: null,
           documentId: document.id,
           contentHash: document.contentHash,
           pageFrom: 2,

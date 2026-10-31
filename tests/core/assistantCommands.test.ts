@@ -363,7 +363,7 @@ describe("Commands inside IncarnaMind run at once, and one Undo takes back the R
     ).toEqual([
       ["failed", "error.commands.noDocument"],
       // Not one of the Tool's commands: refused before anything runs.
-      ["failed", undefined],
+      ["failed", "error.commands.unknown"],
     ]);
     expect(await names(core)).toEqual(before);
     expect((await core.listDeleted()).length).toBe(0);

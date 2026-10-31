@@ -10,6 +10,7 @@ type IconProps = SVGProps<SVGSVGElement>;
  */
 function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { children: ReactNode }) {
   return (
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative unless the caller supplies an accessible name.
     <svg
       viewBox="0 0 24 24"
       fill="none"
@@ -17,11 +18,27 @@ function LineIcon({ children, strokeWidth = 1.75, ...props }: IconProps & { chil
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
+      aria-hidden={props["aria-label"] || props["aria-labelledby"] ? undefined : true}
+      role={props["aria-label"] || props["aria-labelledby"] ? "img" : undefined}
       {...props}
     >
+      {props["aria-label"] && <title>{props["aria-label"]}</title>}
       {children}
     </svg>
+  );
+}
+
+/**
+ * Insert Page Break, as Word's and Google Docs' buttons draw it: two parts of a
+ * page, open where they meet, and a dashed line across between them.
+ */
+export function PageBreakLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M6 9V4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V9" />
+      <path d="M6 15v4.5A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V15" />
+      <path d="M3 12h2M8 12h2M14 12h2M19 12h2" />
+    </LineIcon>
   );
 }
 
@@ -86,6 +103,15 @@ export function FolderLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
       <path d={FOLDER} />
+    </LineIcon>
+  );
+}
+
+export function LockLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
     </LineIcon>
   );
 }
@@ -303,10 +329,30 @@ export function KeyLineIcon(props: IconProps) {
   );
 }
 
+/** What only the User changes (#1421): a shield, as the prototype draws it. */
+export function ShieldLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M12 3 5 6v5.5c0 4.3 2.9 8 7 9.5 4.1-1.5 7-5.2 7-9.5V6l-7-3Z" />
+    </LineIcon>
+  );
+}
+
 export function SortLineIcon(props: IconProps) {
   return (
     <LineIcon strokeWidth={2} {...props}>
       <path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" />
+    </LineIcon>
+  );
+}
+
+/** A picture in a Note: a frame with a mountain and the sun (#1937). */
+export function ImageLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m4 17 4.5-4.5L13 17m3.5-3.5L20 17" />
     </LineIcon>
   );
 }

@@ -174,8 +174,14 @@ for (const language of ["en", "zh-CN"] as const) {
     // The boxes of the outline are one to a line of the paragraph's words, and enclose them.
     const outlinesWords = async (paragraph: Locator) => {
       const words = await paragraph.evaluate((element) => {
+        // The sentence's words are its text, not the room a folded Mind keeps for its check mark.
+        const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const texts: Text[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
         const range = document.createRange();
-        range.selectNodeContents(element);
+        range.setStart(texts[0] as Text, 0);
+        const last = texts.at(-1) as Text;
+        range.setEnd(last, last.data.length);
         const rect = range.getBoundingClientRect();
         const tops = Array.from(range.getClientRects(), (each) => Math.round(each.top));
         return { ...rect.toJSON(), lines: new Set(tops).size };
@@ -308,9 +314,11 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const page = await box(first);
     expect(page.height).toBeGreaterThanOrEqual(lineHeight * 3 - 1);
+    // In the margin a mark is level with its sentence's first line; in a folded Mind, on its last.
+    const folded = (await box(window.locator(".mind-column"))).width < 760;
     const middle = await box(marks.first()).then((rect) => rect.y + rect.height / 2);
     expect(middle).toBeGreaterThanOrEqual(page.y);
-    expect(middle).toBeLessThanOrEqual(page.y + lineHeight);
+    expect(middle).toBeLessThanOrEqual(page.y + (folded ? page.height : lineHeight));
 
     await marks.nth(1).focus();
     await expect(card).toHaveAttribute("data-check", "unsupported");

@@ -73,7 +73,8 @@ export interface Recorder {
   transcript: string[];
 }
 
-export function createRecorder(): Recorder {
+/** `onChat` hears each chat request once its tokens are counted. */
+export function createRecorder(options: { onChat?: () => void } = {}): Recorder {
   const chat = noTokens();
   const judging = noTokens();
   const transcript: string[] = [];
@@ -100,7 +101,10 @@ export function createRecorder(): Recorder {
           if (part.type === "text-delta") said += part.delta;
           else if (part.type === "tool-call")
             calls.push(`calls ${part.toolName} ${cut(part.input)}`);
-          else if (part.type === "finish") add(chat, part.usage);
+          else if (part.type === "finish") {
+            add(chat, part.usage);
+            options.onChat?.();
+          }
           controller.enqueue(part);
         },
         flush() {
@@ -114,6 +118,7 @@ export function createRecorder(): Recorder {
       speaking(params.prompt, params.tools ?? []);
       const done = await doGenerate();
       add(chat, done.usage);
+      options.onChat?.();
       return done;
     },
   };

@@ -424,6 +424,36 @@ export function passagesBetween(
     .map(toWindowed);
 }
 
+/** Live Passages covering or, when `overlapping`, intersecting pages `from` to `to`, in reading order. */
+export function passagesCovering(
+  db: Database,
+  documentId: string,
+  from: number | null,
+  to: number | null,
+  overlapping = false,
+): (WindowedPassage & { id: string })[] {
+  const range = from === null || to === null ? "" : "AND p.page_from <= ? AND p.page_to >= ?";
+  const params =
+    from === null || to === null
+      ? []
+      : overlapping
+        ? [BigInt(to), BigInt(from)]
+        : [BigInt(from), BigInt(to)];
+  return db
+    .all<WindowedRow>(
+      `SELECT ${WINDOWED_COLUMNS}
+       FROM passages p JOIN documents d ON d.id = p.document_id
+       WHERE p.document_id = ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND p.content_hash = d.content_hash ${range}
+       ORDER BY p.position`,
+      [documentId, ...params],
+    )
+    .map((row) => {
+      const passage = toWindowed(row);
+      return { ...passage, id: passage.passageId };
+    });
+}
+
 /**
  * The live Passages of one sliding window of a Document, in reading order:
  * those whose own window range takes in `window`. With windows of 3 and step 1,

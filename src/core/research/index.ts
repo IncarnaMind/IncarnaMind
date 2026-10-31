@@ -26,6 +26,7 @@ import {
   MAX_RESEARCH_TOPIC,
   RESEARCH_TASK,
 } from "../../shared/research";
+import { filingFolder } from "../../shared/searchScope";
 import type { CellAnswer } from "../answers";
 import type { QuestionContext } from "../answers/context";
 import type {
@@ -52,6 +53,7 @@ import {
   NotFoundError,
 } from "../errors";
 import type { PreparedChatModel } from "../providers/chat";
+import { CutShortError, outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { StepRecord } from "../runs/journal";
 import { RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
@@ -80,6 +82,8 @@ interface ResearchInput {
   writeInto: ResearchTarget;
   /** It made its own Mind at its Start, so the draft's Folder is that Mind's too. */
   ownMind: boolean;
+  /** The Folder wall it was started behind; null: outside every wall. */
+  wallId: string | null;
   scope: SearchScope | null;
   providerId: string;
   modelId: string;
@@ -132,6 +136,10 @@ export interface ResearchOptions extends FinishOptions {
   };
   /** A Mind's name, as the window shows it; null once it is gone. */
   mindName(mindId: string): string | null;
+  /** The Folder wall of a Mind, or null for ordinary scope. */
+  walledFolder(mindId: string | null): string | null;
+  /** The Folder itself when it is walled now; null for any other, or none. */
+  walledFolderId(folderId: string | null): string | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
   /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -233,6 +241,8 @@ function inputOf(input: unknown): ResearchInput | null {
     sources: { web: sources.web, library: sources.library },
     writeInto: target,
     ownMind: input.ownMind === true,
+    // A Task started before Folders could be walled was started outside every wall.
+    wallId: typeof input.wallId === "string" ? input.wallId : null,
     scope: within,
     providerId,
     modelId,
@@ -638,20 +648,28 @@ export function createResearch(options: ResearchOptions) {
           : { planned: false, reason: "consent-declined" };
       }
       let reply: string;
-      let thoughtOnly = false;
       try {
         const result = await generateText({
           model: ready.prepared.model,
           instructions: PLAN_INSTRUCTIONS,
           prompt: planPrompt(topic, sources, change),
-          // Room for a model that thinks whatever it is asked, before its plan.
-          maxOutputTokens: 4_096,
+          maxOutputTokens: outputTokens("research-plan"),
           maxRetries: 1,
           abortSignal: AbortSignal.timeout(PLAN_TIMEOUT_MS),
         });
         reply = result.text;
-        thoughtOnly = result.finishReason === "length" && reply.trim() === "";
       } catch (error) {
+        if (error instanceof CutShortError && !error.wrote) {
+          return {
+            planned: false,
+            reason: "failed",
+            error: {
+              kind: "no-answer",
+              message: "The model spent its whole reply thinking.",
+              wording: { key: "error.research.plan.thoughtOnly" },
+            },
+          };
+        }
         return { planned: false, reason: "failed", error: classifyProviderError(error) };
       }
       const plan = readPlan(reply, topic);
@@ -661,12 +679,8 @@ export function createResearch(options: ResearchOptions) {
           reason: "failed",
           error: {
             kind: "no-answer",
-            message: thoughtOnly
-              ? "The model spent its whole reply thinking."
-              : "The model's reply had no steps.",
-            wording: {
-              key: thoughtOnly ? "error.research.plan.thoughtOnly" : "error.research.plan.noSteps",
-            },
+            message: "The model's reply had no steps.",
+            wording: { key: "error.research.plan.noSteps" },
           },
         };
       }
@@ -693,15 +707,28 @@ export function createResearch(options: ResearchOptions) {
       // With no Mind in focus, the new Mind its draft goes into is the Task's own, made first so
       // its progress shows there from the start; a Mind chosen to write into is that Mind.
       const ownMind = asked === null && !("mindId" in chosen);
-      const mindId = asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), null);
+      // With no Mind in focus, a scope of one walled Folder is work inside it (#1934).
+      const wall =
+        asked === null
+          ? options.walledFolderId(filingFolder(within, null))
+          : options.walledFolder(asked);
+      const filed = options.filedWithin(wall, null);
+      if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
+      const mindId =
+        asked ?? chosenMind ?? options.createMind(cutTitle(plan.title), filed.folderId);
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
-      const scope = options.searchedScope(within, mindId);
+      const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
+      if (wall !== options.walledFolder(targetMind)) {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      }
+      const scope = options.searchedScope(within, targetMind);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {
         topic,
         plan,
         sources,
         writeInto,
         ownMind,
+        wallId: wall,
         scope,
         providerId: ready.model.providerId,
         modelId: ready.model.modelId,

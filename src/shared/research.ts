@@ -1,6 +1,9 @@
 /** The kind of Task that does research (#130). */
 export const RESEARCH_TASK = "research";
 
+/** Why a Task behind a Folder wall made nothing: that Folder can't be filed in now (#1934). */
+export const KEPT_INSIDE = "kept-inside";
+
 /** The longest topic Research takes, in characters. */
 export const MAX_RESEARCH_TOPIC = 2_000;
 /** The longest step of a plan, in characters. */
