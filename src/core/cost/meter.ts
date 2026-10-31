@@ -56,14 +56,7 @@ import { currentTask } from "../runs/current";
 import type { TokenUsage } from "../runs/engine";
 import type { Database } from "../storage";
 import type { Timings } from "../timing/timings";
-import {
-  costOf,
-  inCurrency,
-  priceFor,
-  promptTokensOf,
-  reservationOf,
-  TYPICAL_ANSWER,
-} from "./price";
+import { costOf, inCurrency, promptTokensOf, reservationOf, TYPICAL_ANSWER } from "./price";
 
 type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
 type CallOptions = Wrapped["params"];
@@ -748,16 +741,11 @@ export function createMeter(options: {
       const at = now();
       const cap = options.cap();
       const fee = searchFeeOf(model.kind);
-      // A search's pages join a call's prompt, so they pay that call's tier.
       const searchCost = (price: Price) =>
         fee
           ? searches *
             (inCurrency(fee.amount, fee.currency, price.currency) +
-              costOf(
-                { inputTokens: SEARCH_INPUT_TOKENS },
-                priceFor(price, call.inputTokens + SEARCH_INPUT_TOKENS),
-                at,
-              ))
+              costOf({ inputTokens: SEARCH_INPUT_TOKENS }, price, at))
           : 0;
       return {
         billing: "per-token",

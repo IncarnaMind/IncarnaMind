@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { APICallError, generateText, streamText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import type { ChatProvider, Core, MonthlyCap, TaskKind } from "../../src/core";
+import type {
+  ChatProvider,
+  Core,
+  MonthlyCap,
+  SaveChatProviderInput,
+  TaskKind,
+} from "../../src/core";
 import { createAiSdkChatModel, InvalidInputError } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core/core";
 import {
@@ -100,7 +106,7 @@ const haikuPrice = (): Price => {
 /** A core whose chat model is `model` on a provider of `kind`, with Questions to its service allowed. */
 async function cloudCore(
   model: MockLanguageModelV4,
-  provider: { kind: "anthropic" | "openai" | "openrouter" | "ollama"; modelId: string } = {
+  provider: Pick<SaveChatProviderInput, "kind" | "modelId" | "endpoint"> = {
     kind: "anthropic",
     modelId: HAIKU,
   },
@@ -1209,7 +1215,7 @@ describe("What a whole read sets aside (#2275)", () => {
   });
 });
 
-describe("Claude Haiku 5.5 over 100,000 prompt tokens costs five times as much (#2285)", () => {
+describe("A model priced by prompt length is metered at its tier (#2285)", () => {
   /**
    * A core on Claude Haiku 5.5 that has sent one request of "a", and the length of text whose
    * request the meter counts at `tokens`: each three more characters count one more token.
@@ -1300,8 +1306,8 @@ describe("Claude Haiku 5.5 over 100,000 prompt tokens costs five times as much (
     expect(summary.providers[0]?.spent).toEqual(summary.spent);
   });
 
-  // protects=the estimate before a long run prices each call at its length's tier, the pages a search adds included; fails_when=an estimate of long calls is priced at the base prices; no_claim=how long a run's calls will be.
-  test("the estimate before a run of long calls prices each call, and the pages its searches read, at the higher prices", async () => {
+  // protects=the estimate before a long run prices each call at its length's tier, and a search's pages at the search request's own; fails_when=an estimate of long calls is priced at the base prices; no_claim=how long a run's calls will be.
+  test("the estimate before a run of long calls prices each call at the higher prices, and its searches' pages at their own request's", async () => {
     const { core } = await cloudCore(reportingModel([{ input: 150_000, output: 1_000 }]));
     for (let call = 0; call < 6; call++) await request(core);
 
@@ -1313,8 +1319,8 @@ describe("Claude Haiku 5.5 over 100,000 prompt tokens costs five times as much (
     }
     // Six calls of 150,000 tokens at $0.50 and 1,000 out at $2.50.
     expect(run.cost?.amount).toBeCloseTo(0.465, 12);
-    // A search's $0.01, and its 30,000 tokens of pages at $0.50.
-    expect((searching.cost?.amount ?? 0) - (run.cost?.amount ?? 0)).toBeCloseTo(0.025, 12);
+    // A search is a request of its own: its $0.01, and its 30,000 tokens of pages at $0.10.
+    expect((searching.cost?.amount ?? 0) - (run.cost?.amount ?? 0)).toBeCloseTo(0.013, 12);
   });
 
   // protects=a search's pages count toward the prompt a request is reserved for, so it is reserved at the tier it may reach; fails_when=the tier comes from the prompt before the search; no_claim=how much a real search reads.
@@ -1336,6 +1342,66 @@ describe("Claude Haiku 5.5 over 100,000 prompt tokens costs five times as much (
       ((prompt + 30_000) * 0.625 + (call?.maxOutputTokens ?? Number.NaN) * 2.5) / 1_000_000 + 0.01,
       12,
     );
+  });
+
+  // protects=Qwen 3.7 Flash is billed by prompt length on every route the catalog has it on, in its route's currency; fails_when=a route prices it flat, or a prompt of exactly 32,000 tokens pays the higher prices; no_claim=Alibaba Cloud's cache prices.
+  test.each([
+    {
+      route: "Beijing, in yuan",
+      provider: { kind: "qwen" as const, modelId: "qwen3.7-flash" },
+      currency: "CNY",
+      // ¥0.2 and ¥0.8; ¥0.6 and ¥2.4 over 32K; ¥1.2 and ¥4.8 over 256K.
+      costs: [0.0072, 0.0216006, 0.3120012],
+    },
+    {
+      route: "Singapore, in dollars",
+      provider: { kind: "qwen" as const, endpoint: "intl", modelId: "qwen3.7-flash" },
+      currency: "USD",
+      // $0.03 and $0.13; $0.10 and $0.40 over 32K; $0.20 and $0.80 over 256K.
+      costs: [0.00109, 0.0036001, 0.0520002],
+    },
+    {
+      route: "OpenRouter",
+      provider: { kind: "openrouter" as const, modelId: "qwen/qwen3.7-flash" },
+      currency: "USD",
+      costs: [0.00109, 0.0036001, 0.0520002],
+    },
+  ])(
+    "Qwen 3.7 Flash ($route) pays its base prices up to 32,000 prompt tokens, and more over 32,000 and over 256,000",
+    async ({ provider, currency, costs }) => {
+      const counts = [
+        { input: 32_000, output: 1_000 },
+        { input: 32_001, output: 1_000 },
+        { input: 256_001, output: 1_000 },
+      ];
+      const { core, dataDir } = await cloudCore(reportingModel(counts), provider);
+
+      for (const _ of counts) await request(core);
+
+      expect(rows(dataDir).map((row) => [row.currency, row.cost])).toEqual(
+        costs.map((cost) => [currency, expect.closeTo(cost, 12)]),
+      );
+    },
+  );
+
+  // protects=xAI's higher prices start at a prompt of 200,000 tokens, not one more; fails_when=the catalog's tier starts above 200,000; no_claim=xAI's cache prices.
+  test("Grok 4.3 pays its base prices up to 199,999 prompt tokens and twice them from 200,000", async () => {
+    const counts = [
+      { input: 199_999, output: 1_000 },
+      { input: 200_000, output: 1_000 },
+    ];
+    const { core, dataDir } = await cloudCore(reportingModel(counts), {
+      kind: "xai",
+      modelId: "grok-4.3",
+    });
+
+    for (const _ of counts) await request(core);
+
+    // $1.25 in and $2.50 out; then $2.50 and $5.
+    expect(settledCosts(dataDir)).toEqual([
+      expect.closeTo(0.25249875, 12),
+      expect.closeTo(0.505, 12),
+    ]);
   });
 
   // protects=a model priced flat keeps its one price however long its prompt; fails_when=a tier applies to a model without one; no_claim=other providers' billing.

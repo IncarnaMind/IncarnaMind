@@ -96,6 +96,28 @@ export const OVERRIDES: CatalogOverrides = {
         },
       },
     },
+    xai: {
+      // xAI bills a prompt that reaches 200K tokens at the higher prices (docs.x.ai/docs/models);
+      // models.dev's tier starts above it.
+      "grok-4.3": {
+        price: {
+          currency: "USD",
+          input: 1.25,
+          output: 2.5,
+          cacheRead: 0.2,
+          tiers: [{ above: 199_999, input: 2.5, output: 5, cacheRead: 0.4 }],
+        },
+      },
+      "grok-4.7": {
+        price: {
+          currency: "USD",
+          input: 2,
+          output: 6,
+          cacheRead: 0.5,
+          tiers: [{ above: 199_999, input: 4, output: 12, cacheRead: 1 }],
+        },
+      },
+    },
     mistral: {
       // Strict JSON schema works on Mistral's current models (its docs); models.dev leaves this one out.
       "mistral-small-2603": { structuredOutput: "json_schema" },
@@ -128,19 +150,19 @@ export const OVERRIDES: CatalogOverrides = {
       },
     },
     qwen: {
-      // Beijing, up to 32K input unless a note says otherwise (Alibaba Cloud's price page).
+      // Beijing, from Alibaba Cloud's price page, where K is 1,000.
       "qwen3.7-plus": {
         structuredOutput: "json_schema",
-        price: yuan(2, 8, undefined, {
-          en: "Prompts over 256K tokens: ¥6 / ¥24",
-          zh: "提示超过 256K token：¥6 / ¥24",
-        }),
+        price: { ...yuan(2, 8), tiers: [{ above: 256_000, input: 6, output: 24 }] },
       },
       "qwen3.7-flash": {
-        price: yuan(0.2, 0.8, undefined, {
-          en: "Prompts over 32K tokens: ¥0.6 / ¥2.4; over 256K: ¥1.2 / ¥4.8",
-          zh: "提示超过 32K token：¥0.6 / ¥2.4；超过 256K：¥1.2 / ¥4.8",
-        }),
+        price: {
+          ...yuan(0.2, 0.8),
+          tiers: [
+            { above: 32_000, input: 0.6, output: 2.4 },
+            { above: 256_000, input: 1.2, output: 4.8 },
+          ],
+        },
       },
       "qwen3.8-max": { price: yuan(12, 36) },
       "qwen3.8-flash": { price: yuan(0.8, 2.7) },
