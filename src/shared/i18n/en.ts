@@ -447,6 +447,7 @@ export const en = {
   "object.restoredTo": "Restored “{name}” to {folder}",
   "object.restored.count": "Restored {count} items",
   "undo.name.restore": "Restore",
+  "undo.notes": "{first} {then}",
   "deleted.title": "Recently deleted",
   "deleted.command": "Show Recently deleted",
   "deleted.intro": "Kept here for 30 days, then deleted for good. Files on disk aren’t touched.",

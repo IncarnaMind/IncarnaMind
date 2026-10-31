@@ -635,6 +635,23 @@ describe("changes the User can take back", () => {
     );
   });
 
+  // protects=Undo of several things deleted together still says when a Note's Meeting came back without its audio (#1253); fails_when=the grouped Undo drops the note; no_claim=how the core finds the audio gone.
+  test("Undo of a selection deleted together says when a Meeting's audio couldn't come back", async () => {
+    method("restore").mockImplementation(async (refs: { kind: string }[]) => ({
+      audioLost: refs.some((ref) => ref.kind === "mind") ? ["m"] : [],
+    }));
+    await useAppStore.getState().deleteSelection([
+      { kind: "mind", id: "m" },
+      { kind: "document", id: "a" },
+    ]);
+    expect(said(top())).toBe("Moved 2 items to Recently deleted");
+    await useUndo.getState().undo();
+    expect(method("restore")).toHaveBeenCalledWith([{ kind: "mind", id: "m" }], { reopen: true });
+    expect(useUndo.getState().line?.note?.(words)).toBe(
+      "Restored “Plan” without its audio: it was no longer on this computer.",
+    );
+  });
+
   // protects=Restore from Recently deleted says so when a Note's Meeting came back without its audio, for one item or several, and only then, in English and Chinese (#1253); fails_when=lost audio goes unsaid, or a whole restore says audio was lost; no_claim=how the core finds the audio gone.
   test("Restore from Recently deleted says when a Meeting's audio couldn't come back, and only then", async () => {
     const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");

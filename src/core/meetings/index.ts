@@ -645,17 +645,19 @@ export function createMeetings(options: MeetingsOptions) {
 
   /**
    * Deletes the audio, the Transcript's working state and the health record of Meetings whose
-   * Mind was deleted permanently; again at each start, for a quit that cut it short.
+   * Mind was deleted permanently; again at each start, for a quit that cut it short. Audio whose
+   * day had ended is gone already, but its Meeting's other files still go.
    */
   function dropPurged(): void {
-    const purged = db.all<{ id: string }>(
-      `SELECT id FROM meetings WHERE audio_deleted_at IS NULL
-         AND mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
+    const purged = db.all<Pick<MeetingRow, "id" | "audio_deleted_at">>(
+      `SELECT id, audio_deleted_at FROM meetings
+       WHERE mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
     );
     const at = now();
-    for (const { id } of purged) {
+    for (const { id, audio_deleted_at } of purged) {
       transcripts?.forget(id);
       health.forget(id);
+      if (audio_deleted_at !== null) continue;
       deleteAudio(id, "purged");
       save(id, { audio_deleted_at: at, audio_expires_at: null });
     }
@@ -1001,15 +1003,15 @@ export function createMeetings(options: MeetingsOptions) {
     /**
      * The Mind went to Recently deleted at `at`, in this transaction: its Meetings go with it, at
      * its time, as they are, their audio kept until Recently deleted drops it or its day ends
-     * (#1253). One recording is stopped first (`stop`). Returns their Transcript Documents, which
-     * go with them.
+     * (#1253). One recording is stopped first (`stop`). Returns their ids, and their Transcript
+     * Documents, which go with them.
      */
-    deletedWith(mindId: string, at: string): string[] {
+    deletedWith(mindId: string, at: string): { meetingIds: string[]; transcripts: string[] } {
       const rows = db.all<MeetingRow>(
         `SELECT ${COLUMNS} FROM meetings WHERE mind_id = ? AND deleted_at IS NULL`,
         [mindId],
       );
-      if (rows.length === 0) return [];
+      if (rows.length === 0) return { meetingIds: [], transcripts: [] };
       if (rows.some(isLiveRow)) {
         throw new Error("A Meeting being recorded is stopped before its Mind is deleted.");
       }
@@ -1020,7 +1022,7 @@ export function createMeetings(options: MeetingsOptions) {
       );
       for (const meetingId of ids) log.info("meeting.deleted", { meetingId });
       changed();
-      return transcriptsOf(ids);
+      return { meetingIds: ids, transcripts: transcriptsOf(ids) };
     },
 
     /** The Transcript Documents of the Mind's Meetings deleted with it at `deletedAt`. */

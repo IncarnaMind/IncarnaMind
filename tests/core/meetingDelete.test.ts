@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { CitationAttributes, Core, Meeting } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
-import { FAKE_LINES } from "../../src/core/transcription/fake";
+import { FAKE_LINES, type FakeTranscriberOptions } from "../../src/core/transcription/fake";
 import { citationState } from "../../src/shared/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { transcribingCore, until } from "../helpers/transcription";
@@ -62,9 +62,9 @@ function citationOf(documentId: string, contentHash: string): Partial<CitationAt
   };
 }
 
-async function recordedMeeting(language: keyof typeof NAMES) {
+async function recordedMeeting(language: keyof typeof NAMES, engine: FakeTranscriberOptions = {}) {
   const dataDir = await createTempDataFolder();
-  const recording = await transcribingCore(dataDir);
+  const recording = await transcribingCore(dataDir, { engine });
   await recording.core.updateSettings({ user: { language } });
   const meeting = await recording.core.createMeeting();
   await recording.core.startMeeting({ meetingId: meeting.id });
@@ -212,8 +212,11 @@ for (const language of ["en", "zh-CN"] as const) {
 describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
   test("is kept for its day in Recently deleted, then deleted as it would be, which Restore doesn't call a failure", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const { core, clock, dataDir, meeting } = await recordedMeeting("en");
+    // A line the engine couldn't read gives the Meeting a health record, its recording details.
+    const { core, clock, dataDir, meeting } = await recordedMeeting("en", { failing: [1] });
     await stopped(core, dataDir, meeting.id);
+    const details = join(dataDir, "meetings", `${meeting.id}.health.json`);
+    expect(existsSync(details)).toBe(true);
     await core.deleteMind(meeting.mindId);
 
     clock.advance(23 * HOUR);
@@ -230,6 +233,13 @@ describe("A deleted Meeting's audio", { timeout: 60_000 }, () => {
       deletedAt: "2026-10-07T10:00:09.000Z",
     });
     expect((await meetingOf(core, meeting.id))?.transcript?.state).toBe("saved");
+
+    // Deleted for good after its audio's day, its recording details go too.
+    expect(existsSync(details)).toBe(true);
+    await core.deleteMind(meeting.mindId);
+    await core.deletePermanently([{ kind: "mind", id: meeting.mindId }]);
+    expect(existsSync(details)).toBe(false);
+    expect(await core.listDeleted()).toEqual([]);
   });
 
   test("goes when the Note is deleted permanently, with its Transcript", async () => {

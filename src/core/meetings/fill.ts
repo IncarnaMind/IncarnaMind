@@ -539,6 +539,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
       route = { problem: { kind: "no-model", message: words("meetings.fill.problem.noModel") } };
     }
+    // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
+    if (meetings.isDeleted(meetingId)) return;
     if ("problem" in route && meeting.kind === "meeting") {
       set(meetingId, { state: "off", problem: route.problem });
       return;
@@ -550,6 +552,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         meeting.kind === "memo" || "problem" in route
           ? await memo(meeting, transcriptId, route, controller.signal)
           : await notes(meeting, transcriptId, route, controller.signal);
+      if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
       options.checkpoint(meeting.mindId);
       const added = content.edit(meeting.mindId, written.place);
       const done = set(meetingId, {
@@ -574,6 +577,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
               message: error instanceof Error ? error.message : String(error),
             };
       log.warn("meeting.fillFailed", { meetingId, kind: problem.kind, message: problem.message });
+      // In Recently deleted it stays "filling": once back, it says it stopped (`restored`).
+      if (meetings.isDeleted(meetingId)) return;
       set(meetingId, { state: "failed", problem, blocks: [] });
     } finally {
       if (running.get(meetingId) === controller) running.delete(meetingId);
@@ -689,6 +694,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
     /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */
     resume(): void {
       for (const { meetingId, fill } of meetings.unfinishedFills()) pickUp(meetingId, fill);
+    },
+
+    /** The Meeting's note went to Recently deleted (#1253): a fill under way stops, writing nothing. */
+    halt(meetingId: string): void {
+      running.get(meetingId)?.abort();
     },
 
     /** Meetings back from Recently deleted (#1253): their fills go on as after a start. */

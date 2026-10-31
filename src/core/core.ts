@@ -2364,15 +2364,17 @@ export function createCore(adapters: CoreAdapters): Core {
   const removeMind = (mindId: unknown, at: string = now()) => {
     const recording = typeof mindId === "string" ? meetings.liveOf(mindId) : null;
     if (recording) stopMeeting(recording.id);
-    const deleted = db.transaction(() => {
+    const { deleted, meetingIds } = db.transaction(() => {
       const mind = minds.delete(mindId, at);
       content.remove(mind.id, at);
+      const meeting = meetings.deletedWith(mind.id, at);
       removeDocuments(
-        meetings.deletedWith(mind.id, at).filter((id) => liveDocument(id)),
+        meeting.transcripts.filter((id) => liveDocument(id)),
         at,
       );
-      return mind;
+      return { deleted: mind, meetingIds: meeting.meetingIds };
     });
+    for (const meetingId of meetingIds) meetingFill.halt(meetingId);
     content.removed(deleted.id, at);
     mindsChanged();
     layouts.forgetDeletedMinds();

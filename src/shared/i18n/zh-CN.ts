@@ -436,6 +436,7 @@ export const zhCN = {
   "object.restoredTo": "已将“{name}”恢复到“{folder}”",
   "object.restored.count": "已恢复 {count} 项",
   "undo.name.restore": "恢复",
+  "undo.notes": "{first}{then}",
   "deleted.title": "回收站",
   "deleted.command": "打开回收站",
   "deleted.intro": "删除的内容保留 30 天，之后彻底删除。磁盘上的文件不受影响。",
