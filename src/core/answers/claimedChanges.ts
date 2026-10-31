@@ -54,7 +54,7 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "Read every sentence of the reply. For each claim that a Mind was made, written in, added to, changed, shortened, lengthened, replaced or removed from, return it with its kind and whether the record backs it. Return every such claim, backed or not backed.",
   "A change whose state is applied counts as made. A change that only waits for the User does not. A failed call, a denied call and no call change nothing. A revision of text the assistant wrote into a Mind earlier is a change, like any other change to a Mind.",
   "When the record has no Tool calls, or no change to a Mind, every affirmative report of a change is unbacked; never return an empty list just to be cautious. / 如果没有工具调用或没有改动，任何声称已经改动的话都没有依据，必须返回，不能留空。",
-  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Mind's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Mind.",
+  "Never flag a sentence about the reply itself, searching, a Document, or something that wasn't or couldn't be done. Never flag a sentence about the app's own checks of the text it wrote — that sentences in the Note were marked, flagged, not supported or couldn't be checked: the app makes those marks, not a Tool. Never flag a sentence only for its wording, coverage or length, for where a page sits, for a Mind's name, or for details the record doesn't give, such as which paragraph changed. A translation or other text in the reply itself is not a change to a Mind.",
   "For every claim, about says what the sentence is about: mind when it is a Mind — a Note, a page, a part of one — that the assistant says it changed; reply when it is this reply's own text, such as what it sets out, lists, orders, sorts, organizes or summarizes; document when it is a Document; offer_or_question when the assistant offers to do something or asks; negation when it says nothing was or could be done. Only a claim about a mind counts.",
   "Examples:",
   "- Record: create_mind made “Notes”, applied. Reply: “I made a page, “Notes”, covering both papers.” Back it.",
@@ -71,6 +71,8 @@ export const CLAIM_CHECK_INSTRUCTIONS = [
   "- Record: no calls. Reply: “第二版中，已经修改了摘要部分的实验结论。” Return no claim: this reports what a Document's second edition says, not what the assistant changed.",
   "- Record: no calls. Reply: “这份总结已经完成于2023年。” Return no claim: a Document's completion date is not a change the assistant made.",
   "- Record: add_to_mind “Q3 review” proposed 2 changes, applied. Reply: “I added a risks section to “Q3 review”.” Back it.",
+  "- Record: edit_mind “Q3 review” proposed 3 changes, applied. Reply: “I lengthened the summary. Some sentences are marked in the Note as not supported by their citations, so please review them.” Back the lengthening; return no claim for the marked sentences.",
+  "- Record: create_mind made “读书会总结”. Reply: “我写好了总结。有几句话在笔记里被标记为引用不支持，请审阅。” Back the Note; return no claim for the marked sentences.",
   "- Record: edit_mind “Plan” proposed 1 change, waiting for the User. Reply: “I shortened Plan.” Do not back it.",
   'Copy each claimed sentence exactly as it appears in the reply. Reply with one JSON object: {"claims":[{"sentence":"…","kind":"added","about":"mind","backed":false}]}, with an empty list when the reply claims nothing.',
 ].join("\n");

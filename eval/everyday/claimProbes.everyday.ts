@@ -16,6 +16,17 @@ const MINDS = [
 ];
 const names = (id: string) => MINDS.find((mind) => mind.id === id)?.name ?? null;
 
+/** An edit_mind call whose changes wait for the User, as these probes' records have no states. */
+const editCall: AnswerToolCall = {
+  id: "edit-1",
+  tool: "edit_mind",
+  source: "minds",
+  input: { instruction: "Make it longer" },
+  status: "done",
+  resultCount: null,
+  mindChange: { mindId: "q3", created: false, request: "r4", proposals: 3, changed: 3 },
+};
+
 const probes = [
   { id: "unmade-page-en", reply: "Done — the summary is now on the page.", unbacked: true },
   { id: "unmade-note-en", reply: "Your summary is in “Q3 review” now.", unbacked: true },
@@ -60,6 +71,21 @@ const probes = [
   },
   { id: "reply-self-zh", reply: "我整理了手册的要点。", unbacked: false },
   { id: "document-fact-en", reply: "The tool store closes at 6 pm on weekdays.", unbacked: false },
+  // The app's own checks of what it wrote, which are not a Tool's change to the Note.
+  {
+    id: "check-marks-en",
+    reply:
+      "The summary section in “Q3 review” is now longer, at about 422 words. Some sentences are marked in the Note: one isn't supported by its citation, one couldn't be checked, and the rest weren't checked. Please review those marked sentences before Thursday.",
+    unbacked: false,
+    calls: [editCall],
+  },
+  {
+    id: "check-marks-zh",
+    reply:
+      "“Q3 review”里的总结现在更长了，大约 422 词。有几句话在笔记里被标记了：一句的引用不支持它，一句没能核对，其余的没有核对。请在发出前审阅这些标记的句子。",
+    unbacked: false,
+    calls: [editCall],
+  },
 ] as const;
 
 const writeCall: AnswerToolCall = {
