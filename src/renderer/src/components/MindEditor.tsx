@@ -89,6 +89,7 @@ import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
 import { registerMindEditor } from "../editor/openEditors";
+import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
 import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
@@ -368,10 +369,14 @@ function MindEditorView({
   const emptyFormula = t("editor.math.empty");
   /** How a footnote's marker is named, in the interface's language as it is now. */
   const footnoteLabel = useRef<FootnoteLabel>(() => "");
-  footnoteLabel.current = (number, text) =>
-    text
-      ? t("editor.footnote.labelWithText", { number, text })
-      : t("editor.footnote.label", { number });
+  footnoteLabel.current = (number, text, endnote) =>
+    endnote
+      ? text
+        ? t("editor.endnote.labelWithText", { number, text })
+        : t("editor.endnote.label", { number })
+      : text
+        ? t("editor.footnote.labelWithText", { number, text })
+        : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
@@ -403,6 +408,7 @@ function MindEditorView({
           chartView,
           wordAtomView,
           wordBlockView,
+          pageBreakView,
           tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
           pictureView,
         }),
@@ -710,10 +716,12 @@ function MindEditorView({
   );
 
   // When the language changes: relabel. Setting the props also redraws the placeholder,
-  // and the footnotes' markers and checklist boxes are named anew.
+  // and the footnotes' markers, checklist boxes and breaks are named anew.
   useEffect(() => {
     editor.setOptions({ editorProps: editorPropsFor(label, emptyFormula) });
-    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+    if (editor.isDestroyed) return;
+    redrawFootnotes(editor.view);
+    relabelBreaks(editor.view.dom);
   }, [editor, label, emptyFormula]);
 
   // The cursor is where Add to note puts an Answer while the focus is in the editor, or has gone

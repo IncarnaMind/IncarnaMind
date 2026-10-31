@@ -138,6 +138,54 @@ async function rename(window: Page, title: string): Promise<void> {
   }, title);
 }
 
+/** What the focus probes below leave on the page for the test to read. */
+type FocusProbe = { __keysGoTo?: Promise<string | undefined>; __noteHasKeys?: Promise<boolean> };
+
+/**
+ * Presses ⌥⌘F and goes to the Replace field the moment the bar has put the cursor in Find, before
+ * the next frame, as a quick hand does on a busy computer. Returns the test id of the field that
+ * has the keys two frames on.
+ */
+async function goToReplaceAtOnce(window: Page): Promise<string | undefined> {
+  await window.evaluate(() => {
+    (globalThis as unknown as FocusProbe).__keysGoTo = new Promise((resolve) => {
+      const moved = (event: FocusEvent) => {
+        if (!(event.target instanceof HTMLElement)) return;
+        if (event.target.dataset.testid !== "find-field") return;
+        document.removeEventListener("focusin", moved);
+        queueMicrotask(() => {
+          document.querySelector<HTMLElement>('[data-testid="replace-field"]')?.focus();
+          const focused = () =>
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement.dataset.testid
+              : undefined;
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(focused())));
+        });
+      };
+      document.addEventListener("focusin", moved);
+    });
+  });
+  await window.keyboard.press("ControlOrMeta+Alt+f");
+  return window.evaluate(() => (globalThis as unknown as FocusProbe).__keysGoTo);
+}
+
+/** Presses Esc in the find bar. Returns whether the Note has the keys the moment the bar is gone. */
+async function noteHasKeysAsFindCloses(window: Page): Promise<boolean> {
+  await window.evaluate(() => {
+    const bar = document.querySelector('[data-testid="find-bar"]');
+    (globalThis as unknown as FocusProbe).__noteHasKeys = new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (bar?.isConnected) return;
+        observer.disconnect();
+        resolve(document.activeElement?.closest('[data-testid="mind-editor"]') != null);
+      });
+      observer.observe(document.body, { childList: true });
+    });
+  });
+  await window.keyboard.press("Escape");
+  return window.evaluate(() => (globalThis as unknown as FocusProbe).__noteHasKeys ?? false);
+}
+
 const citationNode = () =>
   mindNode("citation", {
     passageId: "passage-1",
@@ -183,11 +231,14 @@ test("find and replace: Match case and Whole word, Replace and Replace all, the 
   await expect(count).toHaveText("1 of 20");
   await window.getByTestId("find-whole-word").click();
 
-  // ⌥⌘F shows Replace. Replace all is one step, and its line offers Undo.
-  await window.keyboard.press("ControlOrMeta+Alt+f");
+  // ⌥⌘F shows Replace, and the Replace field keeps the cursor when the User goes to it at once.
+  // Replace all is one step, and its line offers Undo.
+  await expect(field).not.toBeFocused();
+  expect(await goToReplaceAtOnce(window)).toBe("replace-field");
   const replacement = window.getByTestId("replace-field");
   await expect(replacement).toBeVisible();
   await replacement.fill("wave");
+  await expect(field).toHaveValue("tide");
   await window.getByTestId("replace-all").click();
   const line = window.getByTestId("find-replaced");
   await expect(line).toHaveText("Replaced 20 · Undo");
@@ -207,7 +258,8 @@ test("find and replace: Match case and Whole word, Replace and Replace all, the 
   await expect(editor).toContainText("A wave rises.");
   await window.getByTestId("find-replaced").click();
   await expect(editor).toContainText("A tide rises.");
-  await window.keyboard.press("Escape");
+  // Esc gives the Note the keys at once: what is typed straight after lands in it.
+  expect(await noteHasKeysAsFindCloses(window)).toBe(true);
   await expect(window.getByTestId("find-bar")).toHaveCount(0);
 
   // In Chinese the line says the same in its own words.

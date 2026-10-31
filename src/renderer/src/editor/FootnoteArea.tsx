@@ -12,44 +12,73 @@ import { FootnoteText } from "./FootnoteText";
 import { focusNow, returnToFootnote } from "./footnoteSchema";
 import { CheckMarkIcon } from "./icons";
 import { useMindId } from "./mindContext";
+import { noteMarker } from "./noteLabels";
 import { StyledRuns } from "./StyledRuns";
 
-/** One footnote of the area, in the Mind's one numbering. */
+/** One footnote of the area, in the Mind's one numbering, or an endnote, in theirs (#746). */
 type Row =
-  | { kind: "footnote"; number: number; id: string }
+  | { kind: "footnote"; number: number; id: string; endnote: boolean }
+  /** A Word file's note kept as is: its text, read-only. */
+  | { kind: "kept"; number: number; id: string; endnote: boolean; text: string }
   | { kind: "citation"; number: number; key: string; attributes: CitationAttributes };
 
-/** The Mind's footnotes in order, or none while the User has written no footnote of their own. */
-function rowsOf(editor: Editor): Row[] {
-  const footnotes = numberedFootnotes(editor.state);
-  if (footnotes.length === 0) return [];
-  const rows: Row[] = [
-    ...footnotes.map(({ number, id }): Row => ({ kind: "footnote", number, id })),
+interface Rows {
+  footnotes: Row[];
+  endnotes: Row[];
+}
+
+/** The Mind's footnotes and endnotes in order, or none while the User has written no footnote of their own. */
+function rowsOf(editor: Editor): Rows {
+  const notes = numberedFootnotes(editor.state);
+  if (notes.length === 0) return { footnotes: [], endnotes: [] };
+  const rowOf = ({ number, id, endnote, kept, node }: (typeof notes)[number]): Row =>
+    kept
+      ? { kind: "kept", number, id, endnote, text: String(node.attrs.text ?? "") }
+      : { kind: "footnote", number, id, endnote };
+  const footnotes: Row[] = [
+    ...notes.filter((note) => !note.endnote).map(rowOf),
     // Only the Citations the Mind's citation style makes footnotes of (#289).
     ...numberedCitations(editor.state)
       .filter((citation) => citation.footnote)
       .map(({ number, key, attributes }): Row => ({ kind: "citation", number, key, attributes })),
   ];
-  return rows.sort((a, b) => a.number - b.number);
+  return {
+    footnotes: footnotes.sort((a, b) => a.number - b.number),
+    endnotes: notes.filter((note) => note.endnote).map(rowOf),
+  };
 }
 
-const sameRows = (a: readonly Row[], b: readonly Row[] | null) =>
+const sameRow = (row: Row, other: Row | undefined) => {
+  if (!other || row.kind !== other.kind || row.number !== other.number) return false;
+  if (row.kind === "citation") {
+    return (
+      other.kind === "citation" && row.key === other.key && row.attributes === other.attributes
+    );
+  }
+  return (
+    other.kind !== "citation" &&
+    row.id === other.id &&
+    row.endnote === other.endnote &&
+    (row.kind !== "kept" || (other.kind === "kept" && row.text === other.text))
+  );
+};
+
+const sameRows = (a: Rows, b: Rows | null) =>
   b !== null &&
-  a.length === b.length &&
-  a.every((row, index) => {
-    const other = b[index];
-    if (!other || row.kind !== other.kind || row.number !== other.number) return false;
-    return row.kind === "footnote"
-      ? other.kind === "footnote" && row.id === other.id
-      : other.kind === "citation" && row.key === other.key && row.attributes === other.attributes;
-  });
+  a.footnotes.length === b.footnotes.length &&
+  a.endnotes.length === b.endnotes.length &&
+  a.footnotes.every((row, index) => sameRow(row, b.footnotes[index])) &&
+  a.endnotes.every((row, index) => sameRow(row, b.endnotes[index]));
 
 /**
  * The footnote area at the end of the Mind, once the User has written a
- * footnote: every footnote in the Mind's one numbering, as the export will
- * have them. The User's own are edited in place (`FootnoteText`); a
- * Citation's is its reference and its check, quieter. A footnote's number
- * takes the cursor to its marker in the text.
+ * footnote, under a short rule as Word's separator: every footnote in the
+ * Mind's one numbering, as the export will have them, then a Word file's
+ * endnotes, in theirs, under their heading (#746); the footnotes are headed
+ * only when endnotes follow them. The User's own
+ * are edited in place (`FootnoteText`), a Word file's too; a Citation's is
+ * its reference and its check, quieter, and a note kept as is its text,
+ * read-only. A footnote's number takes the cursor to its marker in the text.
  */
 export function FootnoteArea({
   editor,
@@ -65,55 +94,94 @@ export function FootnoteArea({
     equalityFn: sameRows,
   });
   const numbers = useRef<Map<string, HTMLButtonElement>>(new Map());
-  if (rows.length === 0) return null;
+  if (rows.footnotes.length === 0 && rows.endnotes.length === 0) return null;
 
-  return (
-    <section
-      className="footnote-area"
-      data-testid="footnote-area"
-      aria-label={t("editor.footnotes.title")}
-    >
-      <h2 className="footnote-area-title">{t("editor.footnotes.title")}</h2>
-      <ol className="footnote-area-list">
-        {rows.map((row) =>
-          row.kind === "footnote" ? (
-            <li
-              key={row.id}
-              className="footnote-area-row"
-              data-testid="footnote-row"
-              data-number={row.number}
-              data-footnote-id={row.id}
+  const list = (shown: readonly Row[]) => (
+    <ol className="footnote-area-list">
+      {shown.map((row) => {
+        if (row.kind === "citation") return <CitationRow key={row.key} editor={editor} row={row} />;
+        const label = noteMarker(editor, row.number, row.endnote);
+        const goTo = t(row.endnote ? "editor.endnotes.goTo" : "editor.footnotes.goTo", {
+          number: label,
+        });
+        return (
+          <li
+            key={row.id}
+            className="footnote-area-row"
+            data-testid={row.endnote ? "endnote-row" : "footnote-row"}
+            data-number={row.number}
+            data-footnote-id={row.id}
+          >
+            <button
+              ref={(element) => {
+                if (element) numbers.current.set(row.id, element);
+                else numbers.current.delete(row.id);
+              }}
+              type="button"
+              className="footnote-area-number"
+              data-testid="footnote-row-number"
+              aria-label={goTo}
+              title={goTo}
+              onClick={() => {
+                if (row.kind === "footnote") {
+                  returnToFootnote(editor, row.id);
+                  return;
+                }
+                const found = numberedFootnotes(editor.state).find((each) => each.id === row.id);
+                if (!found) return;
+                const after = TextSelection.create(editor.state.doc, found.pos + 1);
+                editor.view.dispatch(editor.state.tr.setSelection(after).scrollIntoView());
+                focusNow(editor);
+              }}
             >
-              <button
-                ref={(element) => {
-                  if (element) numbers.current.set(row.id, element);
-                  else numbers.current.delete(row.id);
-                }}
-                type="button"
-                className="footnote-area-number"
-                data-testid="footnote-row-number"
-                aria-label={t("editor.footnotes.goTo", { number: row.number })}
-                title={t("editor.footnotes.goTo", { number: row.number })}
-                onClick={() => returnToFootnote(editor, row.id)}
-              >
-                {row.number}
-              </button>
+              {label}
+            </button>
+            {row.kind === "kept" ? (
+              <span className="footnote-area-source" title={t("wordAtom.keptAsIs.note")}>
+                {row.text}
+              </span>
+            ) : (
               <FootnoteText
                 mind={editor}
                 id={row.id}
-                label={t("editor.footnote.text", { number: row.number })}
-                placeholder={t("editor.footnote.placeholder")}
+                label={t(row.endnote ? "editor.endnote.text" : "editor.footnote.text", {
+                  number: label,
+                })}
+                placeholder={t(
+                  row.endnote ? "editor.endnote.placeholder" : "editor.footnote.placeholder",
+                )}
                 variant="area"
                 citationView={citationView}
                 // Back on its number, from where Tab goes on and Enter goes to its marker.
                 onLeave={() => numbers.current.get(row.id)?.focus()}
               />
-            </li>
-          ) : (
-            <CitationRow key={row.key} editor={editor} row={row} />
-          ),
-        )}
-      </ol>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  return (
+    <section
+      className="footnote-area"
+      data-testid="footnote-area"
+      aria-label={t(rows.footnotes.length > 0 ? "editor.footnotes.title" : "editor.endnotes.title")}
+    >
+      {rows.footnotes.length > 0 && (
+        <>
+          {rows.endnotes.length > 0 && (
+            <h2 className="footnote-area-title">{t("editor.footnotes.title")}</h2>
+          )}
+          {list(rows.footnotes)}
+        </>
+      )}
+      {rows.endnotes.length > 0 && (
+        <>
+          <h2 className="footnote-area-title">{t("editor.endnotes.title")}</h2>
+          {list(rows.endnotes)}
+        </>
+      )}
     </section>
   );
 }

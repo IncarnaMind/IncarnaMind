@@ -268,7 +268,7 @@ describe("a Word file becomes a Mind", () => {
     });
   });
 
-  test("fields, controls, text boxes, shapes, equations, footnotes, headers and footers are kept as they are, their text read", async () => {
+  test("fields, controls, text boxes, shapes, equations, headers and footers are kept as they are, their text read; a footnote is the Note's own", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const path = await saveFile(
@@ -323,7 +323,6 @@ describe("a Word file becomes a Mind", () => {
         info: { display: true },
       },
       { kind: "equation", label: "E=mc", text: "", source: "m:oMath#0" },
-      { kind: "footnote", label: "1", text: "Einstein, 1905.", source: "w:footnoteReference#0" },
       {
         kind: "control",
         label: "",
@@ -341,12 +340,19 @@ describe("a Word file becomes a Mind", () => {
       control: 2,
       textBox: 1,
       equation: 1,
-      footnote: 1,
       other: 2,
       sectionBreak: 1,
       header: 1,
       footer: 1,
     });
+    expect(wordReportOf(client.doc)?.footnotes).toBe(1);
+    const footnotes: JSONContent[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "footnote") footnotes.push(node.toJSON());
+    });
+    expect(footnotes.map((note) => [note.attrs?.source, note.content])).toEqual([
+      ["w:footnoteReference#0", [text("Einstein, 1905.")]],
+    ]);
 
     // Their text is read, as a text box's is for Questions: the exports read a Mind the same way.
     const markdown = new TextDecoder().decode(
@@ -367,7 +373,7 @@ describe("a Word file becomes a Mind", () => {
     }
   });
 
-  test("bookmarks and section breaks are invisible marks, comments are kept read-only, and someone else's tracked changes wait to be accepted or rejected, with their author and date", async () => {
+  test("bookmarks are invisible marks, a section break is kept, a page break is the Note's own, comments are kept read-only, and someone else's tracked changes wait to be accepted or rejected, with their author and date", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const comment = commented(0, "Marcus Hale", "We can't accept this.", run("vacant possession"));
@@ -401,9 +407,12 @@ describe("a Word file becomes a Mind", () => {
       ["range", "", null],
       ["range", "", null],
       ["comment", "", { author: "Marcus Hale", date: "2026-10-02T09:00:00Z" }],
-      ["pageBreak", "", null],
       ["sectionBreak", "", null],
     ]);
+    expect(shown.child(2).toJSON().content).toContainEqual({
+      type: "pageBreak",
+      attrs: { source: "w:br#0" },
+    });
     const commentAtom = atomsOf(client).find((atom) => atom.kind === "comment");
     expect(commentAtom?.text).toBe("We can't accept this.");
 

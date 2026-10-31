@@ -4993,6 +4993,46 @@
     white-space: nowrap;
     opacity: 0;
   }
+  /*
+   * A page break, or a Word file's section break (#746): a faint line across
+   * the text, with what it is in the middle, as Word draws one with its marks
+   * shown. In the line, as a box is, so the cursor's marks beside it leave no gap.
+   */
+  .page-break {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    height: var(--text-meta--line-height);
+    vertical-align: middle;
+    font-family: var(--font-sans);
+    font-size: var(--text-meta);
+    font-weight: 400;
+    font-style: normal;
+    line-height: var(--text-meta--line-height);
+    text-decoration: none;
+    color: var(--color-ink-meta);
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+
+    &::before,
+    &::after {
+      content: "";
+      flex: 1;
+      border-top: 1px solid var(--color-rule);
+    }
+    &.ProseMirror-selectednode {
+      border-radius: 4px;
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
+  .page-break-label::before {
+    content: attr(data-label);
+  }
+
   /* A picture in the text, at the size Word drew it, never wider than the text. */
   .mind-image {
     display: inline;
@@ -5147,13 +5187,20 @@
 
   /*
    * The footnote area at the end of the Mind, once the User has written a
-   * footnote: every footnote in the one numbering, as in print, under a rule.
+   * footnote: every footnote in the one numbering, as in print, under a short
+   * rule, as Word's separator, unlike the break lines across the text.
    * The User's own are edited in place; a Citation's is its reference, quieter.
    */
   .footnote-area {
     margin-top: 48px;
-    padding-top: 12px;
-    border-top: 1px solid var(--color-rule);
+
+    &::before {
+      content: "";
+      display: block;
+      width: 33%;
+      margin-bottom: 12px;
+      border-top: 1px solid var(--color-rule);
+    }
   }
   .footnote-area-title {
     margin: 0 0 8px;
@@ -5226,6 +5273,10 @@
     width: 11px;
     height: 11px;
     flex-shrink: 0;
+  }
+  /* A Word file's endnotes after its footnotes, as the file has them at its end (#746). */
+  .footnote-area-list + .footnote-area-title {
+    margin-top: 16px;
   }
   .footnote-area-row--citation[data-check="found"] .footnote-area-check {
     color: var(--color-success);

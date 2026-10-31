@@ -10,6 +10,7 @@
 import "../src/fonts.css";
 import "./print.css";
 import { PAPER, PRINT_ENTRY, type PrintDocument } from "../../shared/printDocument";
+import { apartAtBreaks } from "./pageBreaks";
 
 /** Room left at each page's foot, so rounding never pushes a page onto a second sheet. */
 const SAFETY_PX = 2;
@@ -107,6 +108,8 @@ const splitsByChild = (block: Element) => block.matches("ul, ol, li, blockquote"
 class Paginator {
   private readonly pages: HTMLElement[] = [];
   private page: Page;
+  /** The page being filled was opened because the one before it was full, not by a break or the start. */
+  private full = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -195,6 +198,12 @@ class Paginator {
     const queue = [...blocks];
     for (let block = queue.shift(); block; block = queue.shift()) {
       const page = this.page;
+      if (block.classList.contains("page-break")) {
+        // What follows a break starts a page, as in Word, so two in a row leave a page empty.
+        if (page.body.childElementCount > 0 || !this.full) this.page = this.newPage();
+        this.full = false;
+        continue;
+      }
       if (block.classList.contains("pack-page") && page.body.childElementCount > 0) {
         this.page = this.newPage();
         queue.unshift(block);
@@ -206,6 +215,7 @@ class Paginator {
         // Taller than a page and nowhere to split it: it is made to fit, smaller.
         this.shrinkOnto(page, block);
         this.page = this.newPage();
+        this.full = true;
         continue;
       }
       // A heading, and a chart's picture and caption, stay with what follows them.
@@ -220,6 +230,7 @@ class Paginator {
         queue.unshift(last);
       }
       this.page = this.newPage();
+      this.full = true;
     }
     if (this.pages.length > 1 && this.page.body.childElementCount === 0) {
       this.pages.pop()?.remove();
@@ -368,7 +379,7 @@ function blocksOf(source: HTMLElement): HTMLElement[] {
         blocks.push(entry);
       }
     } else {
-      blocks.push(child);
+      blocks.push(...apartAtBreaks(child));
     }
   }
   return blocks;
