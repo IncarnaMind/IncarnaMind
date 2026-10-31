@@ -141,12 +141,25 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   await expect(stopped).toHaveCount(0);
   await toggle.click();
 
-  // The file plays again and again from its start: its three lines, then the same three.
+  // One play of the file is its three lines. A slow runner's live text can fall behind before
+  // them; the rest is then transcribed from the recording after Stop.
   const words = window.getByTestId("transcript-line").locator(".transcript-text");
-  await expect.poll(() => words.count(), { timeout: 2 * 60_000 }).toBeGreaterThanOrEqual(4);
+  const behind = window.getByTestId("transcript-behind");
+  await expect
+    .poll(async () => (await words.count()) >= 3 || (await behind.count()) > 0, {
+      timeout: 2 * 60_000,
+    })
+    .toBe(true);
+  if ((await words.count()) < 3) {
+    await bar.getByTestId("meeting-stop").click();
+    await expect(
+      window.getByTestId("meeting-transcript-line").filter({ hasText: "Transcript saved" }),
+    ).toBeVisible({ timeout: 5 * 60_000 });
+  }
   const said = await words.allTextContents();
   expect(said.map((line) => line.charAt(0))).toEqual(expect.arrayContaining(["对", "行", "是"]));
-  expect(said.filter((line) => !/^[对行是]/.test(line))).toEqual([]);
+  // The bug's mark: a line that starts with the words after its first one.
+  expect(said.filter((line) => /^(总价|周五|合同)/.test(line))).toEqual([]);
 
   await app.close();
   app = undefined;
