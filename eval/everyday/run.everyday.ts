@@ -33,7 +33,8 @@ import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
 
-/** Every request the judge makes, for the report's count of its tokens. */
+/** Every request the Answers and the judge make, for the report's count of their tokens. */
+const answerTokens = watchTokens();
 const judgeTokens = watchTokens();
 
 /** Arm C (./decisions): INCARNAMIND_EVAL_EVERYDAY_DECIDE names the decision provider, and INCARNAMIND_EVAL_DECIDE_KEY is its key. */
@@ -97,8 +98,8 @@ async function runModel(
     const library = await openLibrary({
       name: `everyday-${name}`,
       chatModels: decider
-        ? (inner) => forced.chatModels(watch.chatModels(inner))
-        : watch.chatModels,
+        ? (inner) => forced.chatModels(watch.chatModels(answerTokens.chatModels(inner)))
+        : (inner) => watch.chatModels(answerTokens.chatModels(inner)),
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
@@ -218,7 +219,7 @@ function report(
   results: readonly CaseResult[],
   rows: ReturnType<typeof rowRates>,
   judge: string,
-  judged: string,
+  tokens: { answers: string; judge: string },
 ): string {
   const runs: RequestRun[] = results.map((each) => ({
     id: each.id,
@@ -264,7 +265,7 @@ function report(
     "",
     `${rows.length - under.length} of ${rows.length} requests at or above their floor; ${runs.filter((run) => run.passed).length} of ${runs.length} runs passed. Claims judged by ${judge}.`,
     "",
-    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache, ${sum("cacheWriteTokens")} written to it), ${sum("outputTokens")} out. The judge's: ${judged}. Edit with AI's and the cited sentences' checks aren't counted.`,
+    `The Answers' tokens: ${sum("inputTokens")} in (${sum("cachedInputTokens")} of them from the cache, ${sum("cacheWriteTokens")} written to it), ${sum("outputTokens")} out. Each request: the Answers' ${tokens.answers}; the judge's ${tokens.judge}. Edit with AI's and the cited sentences' checks aren't counted.`,
     "",
     `An Answer is ${averageLength(answered).toLocaleString("en")} characters long on average (${answered.length} Answers)${researched.length > 0 ? `, ${averageLength(researched).toLocaleString("en")} for the research questions (${researched.length})` : ""}.`,
     "",
@@ -471,7 +472,10 @@ test("everyday requests", async () => {
   await mkdir(folder, { recursive: true });
   await writeFile(
     join(folder, "report.md"),
-    report(results, rows, `${judging.kind}/${judging.modelId}`, tokenLine(judgeTokens.take())),
+    report(results, rows, `${judging.kind}/${judging.modelId}`, {
+      answers: tokenLine(answerTokens.take()),
+      judge: tokenLine(judgeTokens.take()),
+    }),
   );
   await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));
   const under = rows.filter((row) => row.under);

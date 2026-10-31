@@ -9,6 +9,8 @@ import type { ChatModelFactory } from "../../src/core";
 /** One model request's tokens as its provider counted them, and what its instructions start with. */
 export interface RequestTokens {
   instructions: string;
+  /** What the model replied, its text and Tool calls. */
+  reply: string;
   uncached: number;
   cacheRead: number;
   cacheWrite: number;
@@ -27,12 +29,13 @@ const instructionsOf = (prompt: LanguageModelV4Prompt) =>
 /** Counts every request of the models it wraps, so a report can give each one's tokens. */
 export function watchTokens() {
   let requests: RequestTokens[] = [];
-  const record = (prompt: LanguageModelV4Prompt, usage: LanguageModelV4Usage) => {
+  const record = (prompt: LanguageModelV4Prompt, usage: LanguageModelV4Usage, reply: string) => {
     const total = usage.inputTokens.total ?? 0;
     const cacheRead = usage.inputTokens.cacheRead ?? 0;
     const cacheWrite = usage.inputTokens.cacheWrite ?? 0;
     requests.push({
       instructions: instructionsOf(prompt),
+      reply,
       uncached: usage.inputTokens.noCache ?? Math.max(0, total - cacheRead - cacheWrite),
       cacheRead,
       cacheWrite,
@@ -43,15 +46,27 @@ export function watchTokens() {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate, params }) => {
       const result = await doGenerate();
-      record(params.prompt, result.usage);
+      const reply = result.content
+        .map((part) =>
+          part.type === "text"
+            ? part.text
+            : part.type === "tool-call"
+              ? `${part.toolName} ${part.input}`
+              : "",
+        )
+        .join("");
+      record(params.prompt, result.usage, reply);
       return result;
     },
     wrapStream: async ({ doStream, params }) => {
       const result = await doStream();
+      let reply = "";
       const stream = result.stream.pipeThrough(
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
-            if (part.type === "finish") record(params.prompt, part.usage);
+            if (part.type === "text-delta") reply += part.delta;
+            else if (part.type === "tool-call") reply += `${part.toolName} ${part.input}`;
+            else if (part.type === "finish") record(params.prompt, part.usage, reply);
             controller.enqueue(part);
           },
         }),
