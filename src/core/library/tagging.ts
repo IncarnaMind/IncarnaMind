@@ -228,7 +228,7 @@ export function createTagging(options: TaggingOptions) {
     const baseUrl = ollamaUrl(providers);
     const { order: list, models } = baseUrl
       ? await installedModels(baseUrl, fresh)
-      : { order: 0, models: [] };
+      : { order: ++listsAsked, models: [] };
     const defaultModel = chat.defaultModel();
     const described = defaultModel ? chat.describeModel(defaultModel) : undefined;
     // On this computer: the default chat model, else Ollama's own small model when it is installed.

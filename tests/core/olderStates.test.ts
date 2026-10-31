@@ -281,6 +281,36 @@ describe("Automatic tagging after a model is installed", () => {
   });
 });
 
+describe("Automatic tagging with no Ollama on this computer", () => {
+  test("a pick made with no list to read follows what changed since an earlier list", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      // Ollama's own address is another computer's, so only a saved local provider is asked.
+      ollamaUrl: "http://192.168.1.20:11434",
+      localModels: async () => ["tev1:4b"],
+      ollamaModels: {
+        describe: async () => null,
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const local = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: await unusedLocalUrl(),
+      modelId: "qwen3:4b",
+    });
+    await core.saveChatProvider({ kind: "openai", apiKey: OPENAI_KEY, modelId: "gpt-5.4-mini" });
+    await core.setLocalOnly(true);
+    const switchOf = async () => (await core.getLibrary()).settings.automatic;
+    // Local mode: the decision model in the local provider's Ollama tags.
+    expect(await switchOf()).toBe(true);
+
+    await core.deleteChatProvider(local.id);
+
+    // Nothing on this computer tags now: the switch follows the cloud model, off.
+    expect(await switchOf()).toBe(false);
+  });
+});
+
 describe("The chat model list", () => {
   test("a list asked for after a model was added isn't replaced by an older one that answers last", async () => {
     let models = ["deepseek-chat"];

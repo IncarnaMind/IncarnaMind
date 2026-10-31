@@ -512,6 +512,9 @@ async function finishIn(
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
     if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
+    // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
+    // change: nothing is left to hold this apply back (#2302).
+    if (each.application?.undoId !== application.undoId) return;
     if (opened && editorDoc(opened)) applyCore(each, opened, application);
     return;
   }

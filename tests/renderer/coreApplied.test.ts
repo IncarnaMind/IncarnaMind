@@ -1393,3 +1393,42 @@ test("an editor opened while the card's Undo runs doesn't ask the core to apply 
   expect(useAskedChanges.getState().outcomes[answer.id]?.mind).toBe("undone");
   doc.destroy();
 });
+
+// Value: protects=a change undone on the card stays undone when its Note's editor opens after a newer change dropped that Undo; fails_when=the open applies the application it was given, with no card Undo left to hold it back; why_new=#2302 review; seam=held layout change, card Undo, a newer change, then the editor; no_claim=the failed open (covered above)
+test("Undo while the Note opens, then another change, leaves it undone when the editor opens (#2302)", async () => {
+  const { doc, application } = applicationWithChange(false);
+  const opening = Promise.withResolvers<WindowLayout>();
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => (input.mindId === "mind" ? application : null),
+      layout: () => opening.promise,
+    },
+  );
+  const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const answer = conversationWithChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
+  undoAsked(answer.id, "mind");
+  await eventually(() =>
+    useAskedChanges.getState().outcomes[answer.id]?.mind === "undone" ? "undone" : null,
+  );
+  useUndo.getState().push({ said: () => "Another change", undo: async () => undefined });
+  opening.resolve(OPEN_LAYOUT);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  const editor = editorWith(doc);
+  onTestFinished(registerMindEditor("mind", editor));
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  await undoSettled();
+
+  expect(appliedLineIn(editor.state)).toBeNull();
+  expect(useUndo.getState().done).toHaveLength(1);
+  doc.destroy();
+});
