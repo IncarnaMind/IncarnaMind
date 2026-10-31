@@ -500,26 +500,22 @@ function MindEditorView({
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
-  const signOffRecords = useSignOffs(doc);
-  const signOffs = useMemo(
-    () => ({
-      records: signOffRecords,
-      rows: schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null,
-    }),
-    [signOffRecords, schedule, doc],
-  );
-  const figureContexts = useMemo(
-    () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
-        ? new Map(schedule.rows.map((row) => [row.id, row.context ?? ""]))
-        : null,
+  // The same array while a change leaves the rows as they were, so what is read from them is too.
+  const rows = useMemo(
+    () => (schedule && schedule.basis === fingerprintOfMind(doc) ? schedule.rows : null),
     [schedule, doc],
+  );
+  const signOffRecords = useSignOffs(doc);
+  const signOffs = useMemo(() => ({ records: signOffRecords, rows }), [signOffRecords, rows]);
+  const figureContexts = useMemo(
+    () => (rows ? new Map(rows.map((row) => [row.id, row.context ?? ""])) : null),
+    [rows],
   );
   const figurePlaces = useMemo(
     () =>
-      schedule && schedule.basis === fingerprintOfMind(doc)
+      rows
         ? figurePlacesOf(
-            schedule.rows.flatMap(({ locator, place }) =>
+            rows.flatMap(({ locator, place }) =>
               locator.kind === "text" && place.table
                 ? [
                     {
@@ -532,7 +528,7 @@ function MindEditorView({
             ),
           )
         : null,
-    [schedule, doc],
+    [rows],
   );
   useEffect(() => {
     if (!editor.isDestroyed)

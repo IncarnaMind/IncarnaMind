@@ -1470,6 +1470,12 @@ export interface WordAtomInfo {
   display?: boolean;
   /** A bookmark's name. */
   name?: string;
+  /**
+   * For a Block kept as is that the file draws as paragraphs (a table of
+   * contents, a field over several paragraphs): each line's paragraph look,
+   * by its key in the Mind's Word look, so the look draws it at the file's height.
+   */
+  looks?: string[];
 }
 
 /**
@@ -1683,6 +1689,15 @@ export interface WordLook {
    * left cell margin into the margin, so the cells' text lines up with the page's.
    */
   tablesHang?: true;
+  /**
+   * The document grid's line pitch, in points, when the first section puts
+   * lines on it (`w:docGrid` of type "lines", "linesAndChars" or
+   * "snapToChars"), as Chinese and Japanese files do: each line then takes a
+   * whole number of pitches.
+   */
+  linePitch?: number;
+  /** The file's text has Chinese, Japanese or Korean in it, so its East Asian fonts are drawn. */
+  eastAsian?: true;
   paragraphs: Record<string, WordParagraphLook>;
   runs: Record<string, WordRunLook>;
   tables: Record<string, WordTableLook>;
@@ -1763,6 +1778,8 @@ export interface WordParagraphLook {
   keepLines?: true;
   pageBreakBefore?: true;
   widowControl?: boolean;
+  /** Off: the paragraph's lines keep their own height on a document grid (`w:snapToGrid`). */
+  snapToGrid?: false;
 }
 
 export interface WordWidth {
@@ -5960,6 +5977,21 @@ export interface FigureSchedule {
   progress: { done: number; total: number } | null;
 }
 
+/**
+ * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
+ * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
+ */
+export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
+  /** Names this schedule, for asking for the next as a change to it. */
+  token: string;
+  since: string | null;
+  from: number;
+  to: number;
+  /** How many paragraphs the rows after `to` moved down; their numbers move with `rows`. */
+  shift: number;
+  rows: FigureScheduleRow[];
+}
+
 export type FigureCheckResult = FigureFinding & { result: ClaimJudgment };
 
 export type ClaimCheckResult = ClaimJudgment & {
@@ -10084,6 +10116,12 @@ export interface CoreApi {
    * InvalidInputError for one not imported from Word.
    */
   addWordOriginal(mindId: string, path: string): Promise<boolean>;
+  /**
+   * The fonts a Mind imported from Word draws its text in, as its Word look names them
+   * (#746), for Get info to say which aren't installed; none for any other Mind. Throws
+   * NotFoundError for an unknown Mind.
+   */
+  wordFonts(mindId: string): Promise<string[]>;
   /** Minds that are not deleted, most recently updated first. Editing a Mind's content updates it. */
   listMinds(): Promise<Mind[]>;
   /** Changes a Mind's title (trimmed; empty means "Untitled") and returns the Mind. */
@@ -11102,6 +11140,12 @@ export interface CoreApi {
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
+  /**
+   * `getFigureSchedule` as a change to the schedule `since` names, one this call gave before:
+   * the rows that differ, so the window asks again after every change without the whole
+   * schedule crossing over. The whole schedule once the core no longer keeps that one.
+   */
+  getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -12057,6 +12101,7 @@ const methods: Record<CoreApiMethod, true> = {
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
+  wordFonts: true,
   listMinds: true,
   renameMind: true,
   deleteMind: true,
@@ -12232,6 +12277,7 @@ const methods: Record<CoreApiMethod, true> = {
   findMindClaims: true,
   checkMind: true,
   getFigureSchedule: true,
+  getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
