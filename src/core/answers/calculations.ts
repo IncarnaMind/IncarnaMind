@@ -19,7 +19,7 @@
  *   when the result depends on it, until the model gives that line as
  *   `unitQuote`: a unit is never guessed, a line states only the numbers below
  *   it in its own table column, a Passage that names two currencies gives
- *   neither, and a scale the line doesn't apply is refused;
+ *   neither, and a Document scale the line doesn't apply is refused;
  * - what the evaluator refuses: a syntax error, units that don't combine,
  *   division by zero;
  * - a formula that changes an amount's scale itself ("rev / 10000" for 万 to
@@ -45,6 +45,7 @@ import {
   readFigures,
   readStatedUnits,
   type StatedCurrency,
+  scaleMarkerIn,
 } from "../../shared/figures";
 import {
   evaluateFormula,
@@ -419,14 +420,6 @@ const plainNumber = (value: number) => String(Number(value.toPrecision(12)));
 const DEDUCTION_LINE =
   /(?:^|[\s|:：(（])(?:less|deduct(?:ion|ions|ed)?|minus|减|扣除|减去)(?![A-Za-z])/i;
 
-/**
- * A scale a Document writes in a form the figure reader doesn't apply ("£000", "€000", "TEUR",
- * "(000's omitted)"): an amount under it is worth that scale, so a currency read from another
- * line must not apply without it.
- */
-const SCALE_IN_UNKNOWN_FORM =
-  /(?<![\d.,])(?:[$€£¥]\s?0{3}(?:['’]?s)?|TEUR|T€|0{3}['’]s)(?![A-Za-z\d])/i;
-
 function signNote(negatives: readonly { name: string; chars: string; value: number }[]): string {
   const them = negatives.length > 1 ? "them" : "it";
   const read = negatives
@@ -552,6 +545,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
   const failed = new Map<number, FigureProblem>();
   let calls = 0;
   const contexts = new Map<string, FigureContext>();
+  const scales = new Map<string, string | null>();
 
   /** How a Document version writes its numbers, read once from all its text. */
   const contextOf = (citation: Citation): FigureContext => {
@@ -564,6 +558,22 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       contexts.set(key, context);
     }
     return context;
+  };
+
+  /** The first scale a Document version writes anywhere, read once; null when it writes none. */
+  const scaleOf = (citation: Citation): string | null => {
+    const key = `${citation.documentId}\n${citation.contentHash}`;
+    if (!scales.has(key))
+      scales.set(
+        key,
+        scaleMarkerIn(
+          documents
+            .pageTexts(citation.documentId, citation.contentHash, null, null)
+            .map((unit) => unit.text)
+            .join("\n"),
+        ),
+      );
+    return scales.get(key) ?? null;
   };
 
   /** Where a Citation's quote is, for messages: "p. 12", "Revenue, rows 3–4". */
@@ -678,16 +688,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return beforeOnLine(text, at + figure.start);
   }
 
-  /** A scale a Passage states in a line, in words the reader applies or a form it doesn't ("£000"); null when none. */
-  function statedScale(text: string, context: FigureContext): string | null {
-    const known = readStatedUnits(text, context).find((each) => each.scale !== 1);
-    return known?.chars ?? SCALE_IN_UNKNOWN_FORM.exec(text)?.[0] ?? null;
-  }
-
   /**
    * Why the line a model gave as `unitQuote` can't state the currency of `figure`: a statement
    * states the currency of the bare numbers below it in its Passage, in its own table column
-   * only, and not one it writes at a scale it doesn't apply (#1001).
+   * only, and nothing in a Document that scales its amounts anywhere, which the line doesn't
+   * apply (#1001).
    */
   function statementProblem(
     quoted: Quoted,
@@ -711,7 +716,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return `the unitQuote "${unit.citation.quote}" is not in the table column of ${figure.chars} in ${quoted.passage}; a table row's currency states only its own column.`;
     const first = readFigures(unit.citation.quote, { ...context, header: null })[0];
     const ownScale = first && (first.scale !== 1 || first.scaleWord !== null) ? first.chars : null;
-    const scale = ownScale ?? statedScale(passage, context);
+    const scale = ownScale ?? scaleOf(quoted.citation);
     if (scale)
       return `the unitQuote "${unit.citation.quote}" gives ${line.code}, but a scale is stated ("${scale}") that this line doesn't apply; quote the line that states both as unitQuote.`;
     return null;

@@ -1256,8 +1256,12 @@ describe("how a Document writes its numbers", () => {
   });
 
   // protects=#2226; fails_when=a Chinese Document's ¥ is read as the yen because a line names 日元, or a Japanese one's isn't the yen.
-  test("reads a simplified Chinese Document's ¥ as the yuan even when a line names 日元", () => {
-    expect(figureContextOf("费用为54,000日元。成交价 ¥3,850,000", "zh-CN").yen).toBe("CNY");
+  // protects=#2226; fails_when=a Chinese Document that names 日元 reads its ¥ as the yuan or the yen, or a Japanese one's ¥ isn't the yen.
+  test("leaves ¥ unsettled when the Document names the other currency", () => {
+    expect(figureContextOf("日本子公司（以日元列示）\n收入 ¥120,000,000", "zh-CN").yen).toBe(
+      "unsure",
+    );
+    expect(figureContextOf("营业成本 1,200", "zh-CN").yen).toBe("CNY");
     expect(figureContextOf("料金は54,000円。売上高 ¥3,850,000", "ja").yen).toBe("JPY");
     expect(figureContextOf("Fee is 54,000 yen. Sale price ¥3,850,000", "en").yen).toBe("JPY");
   });

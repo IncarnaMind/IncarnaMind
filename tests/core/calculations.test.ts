@@ -1577,7 +1577,7 @@ describe("A currency on a statement's first amount (#1001)", { timeout: 60_000 }
     );
 
     expect(told(model, "calculate")[0]).toContain(
-      'gives GBP, but a scale is stated ("in thousands") that this line doesn\'t apply',
+      'gives GBP, but a scale is stated ("thousands") that this line doesn\'t apply',
     );
     expect(answer.figures).toEqual([]);
     expect(finished.uncalculated).toBe(1);

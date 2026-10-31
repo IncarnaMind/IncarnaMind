@@ -127,8 +127,11 @@ export interface FigureContext {
   language?: string | null;
   /** The separators the Document's other numbers use (see `figureContextOf`). */
   separators?: Separators | null;
-  /** What "¥" stands for in the Document, when its text says. */
-  yen?: "CNY" | "JPY" | null;
+  /**
+   * What "¥" stands for in the Document, when its text says: "unsure" when the text names the
+   * other currency too ("日元" in Chinese text), so the number is refused rather than guessed.
+   */
+  yen?: "CNY" | "JPY" | "unsure" | null;
   /** A table header or caption that applies to the text: the scale or currency it states. */
   header?: string | null;
   /** Read years, dates, quarters and periods as plain figures too. */
@@ -662,14 +665,16 @@ export function figureContextOfFacts(
   }
   const cny = parts.some((part) => part.cny);
   const jpy = parts.some((part) => part.jpy);
-  // In simplified Chinese text "¥" is the yuan, whatever else the text names (#2226).
+  const tag = language ? tagOf(language) : null;
+  // A Chinese text that names the yen leaves "¥" open, as a Japanese text naming yuan does.
+  const disputed = (tag?.language === "zh" && jpy) || (tag?.language === "ja" && cny);
   const byLanguage = settle({ language }).yen;
   const [only] = byLanguage;
   const settled = byLanguage.length === 1 && (only === "CNY" || only === "JPY") ? only : null;
   return {
     language,
     separators: separatorsFrom(evidence),
-    yen: settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null),
+    yen: disputed ? "unsure" : (settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null)),
     accounts: parts.some((part) => part.accounts),
   };
 }
@@ -733,9 +738,9 @@ function settle(context: FigureContext): Settled {
   // "¥" is yuan in mainland Chinese, yen in Japanese; elsewhere the Document's own words must say.
   const traditional = tag?.script === "Hant" || YUAN[region] !== undefined;
   let yen = ["CNY", "JPY"];
-  if (context.yen) yen = [context.yen];
-  else if (tag?.language === "zh" && !traditional) yen = ["CNY"];
-  else if (tag?.language === "ja") yen = ["JPY"];
+  if (context.yen === "CNY" || context.yen === "JPY") yen = [context.yen];
+  else if (!context.yen && tag?.language === "zh" && !traditional) yen = ["CNY"];
+  else if (!context.yen && tag?.language === "ja") yen = ["JPY"];
   return {
     decimal: separators?.decimal ?? null,
     spaceGroups: separators?.group === " ",
@@ -1245,6 +1250,29 @@ export function currencyOnItsFigure(
   return codes.size === 1
     ? { chars: first.currency, code: first.unit.code, at: first.start }
     : null;
+}
+
+// A scale word or form: the reader applies some ("millions", "万") and can't apply others ("'000", "Tsd. €").
+const SCALE_MARKER =
+  /\bthousands?\b|\bmillions?\b|\bbillions?\b|\b(?:mio|mrd|tsd)\b\.?|\b(?:mn|bn|m)\b|(?<![\d,.])['’]?0{3}s?(?![\d,.])|[千万亿]/iu;
+// A line that states a unit or scale for the amounts under it, whether the reader applies it or not.
+const UNIT_MARKER = /\bunits?\b|单位|^\s*in\b/i;
+
+/**
+ * The first scale a Document writes anywhere: a scale word or form ("thousands", "'000",
+ * "€ Mio.", "Tsd. €", "金额（万）") or a line that states a unit ("Unit: …", "单位：…", "in
+ * millions"); null when it writes none. A currency a line states for a bare number must not
+ * apply in a Document that scales its amounts anywhere, since the line may not apply the scale.
+ */
+export function scaleMarkerIn(text: string): string | null {
+  const written = SCALE_MARKER.exec(text)?.[0];
+  if (written) return written;
+  return (
+    text
+      .split(LINE_BREAK)
+      .find((line) => UNIT_MARKER.test(line))
+      ?.trim() || null
+  );
 }
 
 // Numerals -------------------------------------------------------------------

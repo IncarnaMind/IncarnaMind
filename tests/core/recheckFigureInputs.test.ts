@@ -5,7 +5,7 @@ import type { FigureInput } from "../../src/core/api";
 
 type Unit = ReturnType<AnswerDocuments["pageTexts"]>[number];
 
-function source(units: Unit[], language: "en" | "zh-CN" = "en") {
+function source(units: Unit[], language: "en" | "zh-CN" = "en", passageText?: string) {
   let pages = units;
   let hash = "v1";
   let deleted = false;
@@ -25,7 +25,7 @@ function source(units: Unit[], language: "en" | "zh-CN" = "en") {
             documentKind: pages[0]?.kind === "rows" ? "xlsx" : "pdf",
             documentDeleted: deleted,
             notCited: false,
-            text: pages.map((unit) => unit.text).join("\n"),
+            text: passageText ?? pages.map((unit) => unit.text).join("\n"),
             pageFrom: 1,
             pageTo: 1,
           }
@@ -368,6 +368,59 @@ describe("a currency a statement writes on its first amount", () => {
     expect(() => session.read("(4.0)", { unitQuote: "Sale price £380.4 thousand" })).toThrow(
       /scale is stated/,
     );
+  });
+
+  test.each([
+    "All figures in thousands",
+    "Thousands",
+    "'000",
+    "000s",
+    "(000 omitted)",
+    "€ Mio.",
+    "Tsd. €",
+    "Unit: tonnes",
+    "in millions",
+  ])("refuses a statement when the Document writes %s anywhere", (marker) => {
+    const document = [
+      "Completion statement: 14 Mill Lane",
+      marker,
+      "Sale price £6.1",
+      "Less: agent's fee (6.1)",
+    ].join("\n");
+    const session = source(page(document), "en", "Sale price £6.1\nLess: agent's fee (6.1)");
+    expect(() => session.read("(6.1)", { unitQuote: "Sale price £6.1" })).toThrow(
+      /scale is stated/,
+    );
+  });
+
+  test.each(["单位：万元", "金额（万）", "单位：吨"])(
+    "refuses a statement when the Chinese Document writes %s anywhere",
+    (marker) => {
+      const document = ["房产交易结算表", marker, "成交价 ¥6.12", "减：中介费 （6.12）"].join("\n");
+      const session = source(page(document), "zh-CN", "成交价 ¥6.12\n减：中介费 （6.12）");
+      expect(() => session.read("（6.12）", { unitQuote: "成交价 ¥6.12" })).toThrow(
+        /scale is stated/,
+      );
+    },
+  );
+
+  test("a scale outside the cited Passage still refuses the statement", () => {
+    const document = [
+      "Completion statement: 14 Mill Lane",
+      "All figures in thousands",
+      "Sale price £6.1",
+      "Less: agent's fee (6.1)",
+    ].join("\n");
+    const session = source(page(document), "en", "Sale price £6.1\nLess: agent's fee (6.1)");
+    expect(() => session.read("(6.1)", { unitQuote: "Sale price £6.1" })).toThrow(
+      /gives GBP, but a scale is stated \("thousands"\)/,
+    );
+  });
+
+  test("a Chinese Document that names 日元 leaves its ¥ amounts unsettled", () => {
+    const text = "日本子公司（以日元列示）\n收入 ¥120,000,000";
+    const session = source(page(text), "zh-CN");
+    expect(() => session.read("收入 ¥120,000,000")).toThrow(/could be CNY or JPY/);
   });
 
   test("a Chinese statement naming its scale's own line still applies that scale", () => {
