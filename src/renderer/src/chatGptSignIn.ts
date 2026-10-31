@@ -96,10 +96,12 @@ async function signIn(options: ContinueOptions): Promise<SignedIn | ChatGptSignI
   const modelId = inUse && chatModel ? chatModel.modelId : result.status.models[0]?.id;
   if (!modelId) return { kind: "failed", message: "OpenAI offered no models for this plan." };
   if (existing && (inUse || options.keepDefault)) return { provider: existing, modelId };
-  const provider = await core.saveChatProvider({ kind: "chatgpt", modelId });
-  // Saving makes the plan the default for new Minds; from the model chip, only the Mind changes.
-  if (options.keepDefault && chatModel) {
-    await useAppStore.getState().updateSettings({ user: { chatModel } });
-  }
+  // Saving makes the plan the default for new Minds; from the model chip, only the Mind changes,
+  // and the core keeps the default as it saves, so one chosen meanwhile stays too (#2302).
+  const provider = await core.saveChatProvider({
+    kind: "chatgpt",
+    modelId,
+    keepDefault: options.keepDefault === true,
+  });
   return { provider, modelId };
 }

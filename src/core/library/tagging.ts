@@ -20,7 +20,6 @@
  */
 import type { ChatModelChoice, ChatProvider, ExternalService } from "../api";
 import { priceFor } from "../cost/price";
-import { newestReads } from "../newest";
 import { catalogProvider, catalogRoleModel } from "../providers/catalog";
 import type { DescribedModel } from "../providers/chat";
 import { serviceForUrl } from "../providers/kinds";
@@ -167,7 +166,12 @@ export function createTagging(options: TaggingOptions) {
   let listsAsked = 0;
   /** What the last resolution gave, for the checks that can't wait (see `lastResolved`). */
   let last: TaggingClassifier | null = null;
-  const resolution = newestReads();
+  /**
+   * The order of the list of installed models Automatic's last pick was made from: a pick from an
+   * older list doesn't replace it, however late it ends, as a lookup that asked Ollama afresh can
+   * end after one that read what it said before (#2302).
+   */
+  let lastList = 0;
 
   /**
    * Ollama on this computer: a saved Ollama provider's address there, else the
@@ -178,15 +182,19 @@ export function createTagging(options: TaggingOptions) {
     providers.find((each) => each.kind === "ollama" && each.baseUrl && each.service === null)
       ?.baseUrl ?? (serviceForUrl(options.ollamaUrl) ? null : options.ollamaUrl);
 
-  async function installedModels(baseUrl: string, fresh = false): Promise<readonly string[]> {
+  /** What Ollama has installed, with the order the list was asked for in. */
+  async function installedModels(
+    baseUrl: string,
+    fresh = false,
+  ): Promise<{ order: number; models: readonly string[] }> {
     const cached = lists.get(baseUrl);
     const asked = { order: ++listsAsked, at: options.now() };
-    if (!fresh && cached && asked.at - cached.at < INSTALLED_TTL_MS) return cached.models;
+    if (!fresh && cached && asked.at - cached.at < INSTALLED_TTL_MS) return cached;
     const models = await options.localModels(baseUrl);
     // A list asked for after this one and answered first is newer (#2302).
     const kept = lists.get(baseUrl);
     if (!kept || kept.order < asked.order) lists.set(baseUrl, { ...asked, models });
-    return models;
+    return { order: asked.order, models };
   }
 
   /**
@@ -212,10 +220,15 @@ export function createTagging(options: TaggingOptions) {
     } as const;
   }
 
-  async function automatic(fresh = false): Promise<AutomaticTagging | null> {
+  /** Automatic's pick, and the order of the list of installed models it was made from. */
+  async function automatic(
+    fresh = false,
+  ): Promise<{ picked: AutomaticTagging | null; list: number }> {
     const providers = await chat.list();
     const baseUrl = ollamaUrl(providers);
-    const models = baseUrl ? await installedModels(baseUrl, fresh) : [];
+    const { order: list, models } = baseUrl
+      ? await installedModels(baseUrl, fresh)
+      : { order: 0, models: [] };
     const defaultModel = chat.defaultModel();
     const described = defaultModel ? chat.describeModel(defaultModel) : undefined;
     // On this computer: the default chat model, else Ollama's own small model when it is installed.
@@ -227,14 +240,22 @@ export function createTagging(options: TaggingOptions) {
         : ollama && ollamaModel && hasOllamaModel(models, ollamaModel)
           ? { providerId: ollama.id, modelId: ollamaModel }
           : null;
-    return automaticTagging({
+    const picked = automaticTagging({
       localOnly: options.localOnly(),
       jev: { enabled: jev.enabled(), local: jev.service() === null },
       chat: described ? providerTagging(described) : null,
       decision: baseUrl ? { baseUrl, models } : null,
       localChat,
     });
+    return { picked, list };
   }
+
+  /** Keeps Automatic's pick for `lastResolved`, unless the last one came from a newer list. */
+  const keepPick = (classifier: TaggingClassifier | null, list: number) => {
+    if (list < lastList) return;
+    lastList = list;
+    last = classifier;
+  };
 
   /**
    * The model a setting tags with: itself, or Automatic's pick (null when there is none).
@@ -244,10 +265,13 @@ export function createTagging(options: TaggingOptions) {
     setting: LibraryClassifier = options.setting(),
     fresh = false,
   ): Promise<TaggingClassifier | null> {
-    const newest = resolution();
-    const resolved =
-      setting.kind === "automatic" ? ((await automatic(fresh))?.classifier ?? null) : setting;
-    if (newest()) last = resolved;
+    if (setting.kind !== "automatic") {
+      last = setting;
+      return setting;
+    }
+    const { picked, list } = await automatic(fresh);
+    const resolved = picked?.classifier ?? null;
+    keepPick(resolved, list);
     return resolved;
   }
 
@@ -355,7 +379,7 @@ export function createTagging(options: TaggingOptions) {
      * Clef-Flash. Null when none is installed.
      */
     async textDecisionModel(baseUrl: string): Promise<string | null> {
-      const models = await installedModels(baseUrl);
+      const { models } = await installedModels(baseUrl);
       return DECISION_MODELS.find((model) => hasOllamaModel(models, model)) ?? null;
     },
 
@@ -364,11 +388,10 @@ export function createTagging(options: TaggingOptions) {
 
     /** What the Tagging section shows (see `CoreApi.getTaggingModels`). */
     async models(): Promise<TaggingModels> {
-      const newest = resolution();
-      const picked = await automatic(true);
+      const { picked, list: pickedFrom } = await automatic(true);
       const providers = await chat.list();
       const baseUrl = ollamaUrl(providers);
-      const models = baseUrl ? await installedModels(baseUrl) : [];
+      const models = baseUrl ? (await installedModels(baseUrl)).models : [];
       const defaultModel = chat.defaultModel();
       const list: TaggingModelOption[] = [];
       const add = (option: TaggingModelOption | null) => {
@@ -423,7 +446,7 @@ export function createTagging(options: TaggingOptions) {
           order[a.group] - order[b.group] || Number(b.goodForTagging) - Number(a.goodForTagging),
       );
       const saved = options.setting();
-      if (saved.kind === "automatic" && newest()) last = picked?.classifier ?? null;
+      if (saved.kind === "automatic") keepPick(picked?.classifier ?? null, pickedFrom);
       const option = picked && optionOf(picked.classifier, PICKED_FOR_TAGGING.has(picked.reason));
       return {
         automatic: option && picked ? { ...option, reason: picked.reason } : null,

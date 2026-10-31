@@ -19,7 +19,7 @@
  * table changes: the renderer marks them "Example", and `remove` deletes both.
  */
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import * as Y from "yjs";
 import { withCitations } from "../shared/blockJson";
@@ -709,15 +709,20 @@ export function createExamples(options: ExamplesOptions) {
     const sameFolder = resolve(examples.folder) === resolve(join(options.dataDir, set.folder));
     // A folder of the same name would mix the two languages' files: the old ones go first.
     if (sameFolder) await discardFiles(examples);
+    const madeHere = await access(join(options.dataDir, set.folder)).then(
+      () => false,
+      () => true,
+    );
     const { folder, linked } = await copyAndLink(source, set);
     // Written in or deleted while the files were copied: it stays as the User left it (#2302).
     if (
       !options.mindExists(examples.mindId) ||
       !untouched(examples, EXAMPLE_SETS[group][examples.language])
     ) {
-      // A Linked folder of the User's that holds the copy is theirs: only one made for it goes.
-      if (resolve(linked.path) === resolve(folder)) options.unlinkFolder(linked.id);
-      await removeCopies(folder);
+      // Only what the switch made goes: a Linked folder of the User's that holds the copy is
+      // theirs, and so are files in a folder that was there before.
+      if (linked.path === (await realpath(folder))) options.unlinkFolder(linked.id);
+      if (madeHere) await removeCopies(folder);
       return;
     }
     const questionId = randomUUID();

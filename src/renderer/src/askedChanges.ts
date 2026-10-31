@@ -512,8 +512,6 @@ async function finishIn(
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
     if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
-    // Undone on the card while the Note opened: it stays undone (#2302).
-    if (each.application?.undoId !== application.undoId) return;
     if (opened && editorDoc(opened)) applyCore(each, opened, application);
     return;
   }
@@ -552,6 +550,9 @@ async function recover(each: Asked, editor: Editor): Promise<void> {
   try {
     const pending = finishing.get(each.answerId);
     if (pending) await pending;
+    // The card's Undo of these changes, still running, decides whether there is anything to apply.
+    const headless = headlessChanges.get(key);
+    if (headless && useUndo.getState().running?.change === headless.change) await undoSettled();
     if (asked.get(key) !== each || each.applied || !each.application) return;
     const application = await core.applyAskedChanges({
       answerId: each.answerId,

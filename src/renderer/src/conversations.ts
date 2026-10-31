@@ -205,11 +205,13 @@ export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
     // The last ask's problem is not this ask's: the row says what this one is reading.
     settleAsk(composerKey(null), null);
     useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
+    const move = moves;
     try {
       const { conversationId, stopped } = await core.askExampleReadyQuestion();
       // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
       if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
-      await openConversation(conversationId);
+      // Moved elsewhere while the Documents were read: the Answer waits in History (#2302).
+      if (move === moves) await openConversation(conversationId);
       return !stopped;
     } catch (error) {
       // Why not, and what to do, where the card's button is, rather than a notice that passes.

@@ -252,6 +252,35 @@ describe("Automatic tagging", () => {
   });
 });
 
+describe("Automatic tagging after a model is installed", () => {
+  test("a fresh lookup that answers last wins over a check that read what Ollama said before", async () => {
+    const lists = holds();
+    let installed: string[] = [];
+    const clock = heldClock();
+    const core = startCore(await createTempDataFolder(), {
+      paceTimers: clock.timers,
+      localModels: () => lists.hold([...installed]),
+    });
+    await core.saveChatProvider({ kind: "openai", apiKey: OPENAI_KEY, modelId: "gpt-5.4-mini" });
+    await core.setLocalOnly(true);
+    const switchOf = async () => (await core.getLibrary()).settings.automatic;
+    expect(await switchOf()).toBe(false);
+
+    installed = ["tev1:4b"];
+    lists.holding = true;
+    // The Tagging section opens and asks Ollama afresh.
+    const fresh = core.getTaggingModels();
+    await vi.waitFor(() => expect(lists.waiting.length).toBeGreaterThan(0));
+    lists.holding = false;
+    // Meanwhile a check goes by what Ollama said a moment ago, and ends first.
+    await core.listRegisteredDataFlows();
+    lists.release();
+
+    expect((await fresh).automatic).toMatchObject({ classifier: { kind: "auto" } });
+    expect(await switchOf()).toBe(true);
+  });
+});
+
 describe("The chat model list", () => {
   test("a list asked for after a model was added isn't replaced by an older one that answers last", async () => {
     let models = ["deepseek-chat"];

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { access, mkdir, realpath, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
 import type { Document, Examples, LinkedFolder, Mind } from "../../src/core";
@@ -100,6 +101,8 @@ async function exampleOverFakes() {
       return change(held.blocks);
     },
     linkFolder: async (path) => {
+      // As the library gives it: the real path, whatever the data folder's link says.
+      const real = await realpath(path);
       const held = linkHeld;
       linkHeld = null;
       if (held) {
@@ -117,7 +120,7 @@ async function exampleOverFakes() {
       setImmediate(() => reports.push({ folder: id, shownFolder: shown?.linkedFolderId }));
       return {
         id,
-        path: outer?.path ?? path,
+        path: outer?.path ?? real,
         folderId: randomUUID(),
         status: "scanning",
         layout: "tree",
@@ -159,9 +162,11 @@ async function exampleOverFakes() {
     setLanguage: (next: Language) => {
       language = next;
     },
-    /** The User links the folder that holds the data folder. */
+    dataDir,
+    /** The User links the folder holding the data folder: it takes in the Linked folders inside. */
     linkOuter: () => {
       outer = { id: randomUUID(), path: dirname(dataDir) };
+      folders.clear();
       folders.add(outer.id);
       return outer.id;
     },
@@ -322,5 +327,28 @@ test("an example written in while it follows the language leaves the User's own 
   await switching;
 
   expect(mind.blocks.toString()).toContain("My own note on the covenants.");
-  expect([...folders].sort()).toEqual([made.linkedFolderId, theirs].sort());
+  expect([...folders]).toEqual([theirs]);
+});
+
+// protects=files the User keeps in a folder of the example's name stay when a switch gives way to their words (#2302); fails_when=giving way deletes the whole folder it copied into; no_claim=the copies the switch added there, which stay unlinked.
+test("an example written in while it follows the language leaves a folder that was there before", async () => {
+  const { examples, setLanguage, holdLink, minds, dataDir } = await exampleOverFakes();
+  const made = await examples.create();
+  const mind = minds.get(made.mindId as string);
+  if (!mind) throw new Error("The example Mind wasn't made.");
+  const there = join(dataDir, EXAMPLE_SETS.credit["zh-CN"].folder);
+  await mkdir(there, { recursive: true });
+  await writeFile(join(there, "My notes.txt"), "Kept by the User.\n");
+
+  const link = holdLink();
+  setLanguage("zh-CN");
+  const switching = examples.followLanguage();
+  await link.reached;
+  const note = new Y.XmlElement("paragraph");
+  note.insert(0, [new Y.XmlText("My own note on the covenants.")]);
+  mind.blocks.insert(mind.blocks.length, [note]);
+  link.release();
+  await switching;
+
+  await expect(access(join(there, "My notes.txt"))).resolves.toBeUndefined();
 });

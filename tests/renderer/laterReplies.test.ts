@@ -204,7 +204,7 @@ describe("Meetings", () => {
 const provider = (id: string, kind: ChatProvider["kind"]) => ({ id, kind }) as ChatProvider;
 
 describe("Signing in from Settings keeps the default model", () => {
-  test.each(["claude-account", "copilot"] as const)(
+  test.each(["claude-account", "copilot", "chatgpt"] as const)(
     "a model chosen while the %s provider is saved stays the default",
     async (kind) => {
       const { useAppStore } = await import("../../src/renderer/src/store");
@@ -219,15 +219,23 @@ describe("Signing in from Settings keeps the default model", () => {
       }));
       method("getClaudeAccount").mockResolvedValue({ account: { state: "signed-in" } });
       method("getCopilot").mockResolvedValue({ models: [{ id: "gpt-5.5" }] });
+      method("getChatGptPlan").mockResolvedValue({
+        account: { state: "signed-in" },
+        models: [{ id: "gpt-6.1-sol" }],
+      });
 
       const signedIn =
         kind === "copilot"
           ? (await import("../../src/renderer/src/copilotSignIn")).chooseCopilotPlan({
               keepDefault: true,
             })
-          : (await import("../../src/renderer/src/claudeSignIn")).signInWithClaude({
-              keepDefault: true,
-            });
+          : kind === "chatgpt"
+            ? (await import("../../src/renderer/src/chatGptSignIn"))
+                .continueWithChatGpt({ keepDefault: true })
+                .then((result) => result !== null && !("kind" in result))
+            : (await import("../../src/renderer/src/claudeSignIn")).signInWithClaude({
+                keepDefault: true,
+              });
       await vi.waitFor(() => expect(method("saveChatProvider")).toHaveBeenCalled());
       await useAppStore.getState().updateSettings({ user: { chatModel: chosen } });
       saving.resolve(provider("plan", kind));
@@ -252,6 +260,21 @@ describe("Signing in from Settings keeps the default model", () => {
     // Removed in Settings › Models before the save's reply came: the core lists none.
     saving.resolve(provider("plan", "copilot"));
     await signedIn;
+
+    expect(useCopilot.getState().providerSaved).toBe(false);
+  });
+
+  test("an older list of providers doesn't say whether Copilot's is saved over a newer one", async () => {
+    const { useCopilot } = await import("../../src/renderer/src/copilotSignIn");
+    const older = Promise.withResolvers<ChatProvider[]>();
+    method("listChatProviders").mockReturnValueOnce(older.promise).mockResolvedValueOnce([]);
+
+    // Saved, then removed: each changes the readiness, and each reads the providers again.
+    emit("chatReadiness.changed", { ready: true } as CoreEvents["chatReadiness.changed"]);
+    emit("chatReadiness.changed", { ready: false, reason: "no-provider" });
+    await settle();
+    older.resolve([provider("plan", "copilot")]);
+    await settle();
 
     expect(useCopilot.getState().providerSaved).toBe(false);
   });
