@@ -8,9 +8,10 @@
  * note and what it cost.
  */
 import { appendFile } from "node:fs/promises";
+import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting } from "../../src/core";
-import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { note, readMind, shownWithAiText, writeMind } from "../helpers/minds";
@@ -20,6 +21,46 @@ const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1);
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+
+type Wrapped = Parameters<NonNullable<LanguageModelMiddleware["wrapStream"]>>[0];
+type StreamPart =
+  Awaited<ReturnType<Wrapped["doStream"]>>["stream"] extends ReadableStream<infer Part>
+    ? Part
+    : never;
+type Usage = Extract<StreamPart, { type: "finish" }>["usage"];
+
+/** Every request's tokens, as the provider reported them, for the report's cost. */
+const tokens = { requests: 0, input: 0, cachedInput: 0, output: 0 };
+const count = (usage: Usage) => {
+  tokens.requests++;
+  tokens.input += usage.inputTokens.total ?? 0;
+  tokens.cachedInput += usage.inputTokens.cacheRead ?? 0;
+  tokens.output += usage.outputTokens.total ?? 0;
+};
+const counted: ChatModelFactory = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate }) => {
+        const result = await doGenerate();
+        count(result.usage);
+        return result;
+      },
+      wrapStream: async ({ doStream }) => {
+        const result = await doStream();
+        const stream = result.stream.pipeThrough(
+          new TransformStream<StreamPart, StreamPart>({
+            transform(part, controller) {
+              if (part.type === "finish") count(part.usage);
+              controller.enqueue(part);
+            },
+          }),
+        );
+        return { ...result, stream };
+      },
+    },
+  });
 
 interface Call {
   name: string;
@@ -114,7 +155,7 @@ async function filled(call: Call, withNotes: boolean) {
   const dataDir = await createTempDataFolder();
   const { core, record } = await transcribingCore(dataDir, {
     engine: { lines: call.me, theirLines: call.them },
-    createChatModel: createAiSdkChatModel,
+    createChatModel: counted,
   });
   await core.updateSettings({ user: { language: call.language } });
   await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
@@ -169,7 +210,7 @@ describe.skipIf(!KEY)("A Meeting's notes, on a real model", { timeout: 1_800_000
     if (REPORT) {
       await appendFile(
         REPORT,
-        `# ${MODEL}: ${failed.length} of ${RUNS * CALLS.length * 2} notes wrong, $${spent.toFixed(4)}\n\n${failed.join("\n")}\n\n`,
+        `# ${MODEL}: ${failed.length} of ${RUNS * CALLS.length * 2} notes wrong, $${spent.toFixed(4)}; ${tokens.requests} requests, ${tokens.input} input tokens (${tokens.cachedInput} from the cache), ${tokens.output} output tokens\n\n${failed.join("\n")}\n\n`,
       );
     }
     expect(failed).toEqual([]);
