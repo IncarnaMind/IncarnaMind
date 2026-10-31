@@ -270,13 +270,22 @@ export interface CreateMindInput {
  *   kept in the Note's data with its size and alt text. An older editor would
  *   drop it when it saves the Note, so it opens these Notes read-only. Older
  *   content is version 41 content as it is.
- * - 42: a confirmed contradiction's correction (#1481): `correction` on a
+ * - 42: a Word file's footnotes and endnotes are the Note's own footnotes
+ *   (#746): `FOOTNOTE_NODE` gains `source` and `endnote`, and its text may hold
+ *   what the import keeps as is (`WORD_ATOM_NODE`); page breaks are
+ *   `PAGE_BREAK_NODE`, in every Note; a column break is an atom of its own
+ *   kind. An older version's editor would strip the attributes and the node,
+ *   so it opens these Notes read-only. A Note imported before keeps its
+ *   read-only notes and breaks until it is opened, when they are converted
+ *   from its kept package (`convertWordParts`). What the import keeps as is
+ *   gains `hash`, of the file's XML at its place.
+ * - 43: a confirmed contradiction's correction (#1481): `correction` on a
  *   contradicted part of a `claimCheck` mark (and on its figure or remainder)
  *   holds the exact old words and up to two Document wordings with their
- *   Citations, which an older editor would strip. Older content is version 42
+ *   Citations, which an older editor would strip. Older content is version 43
  *   content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 42;
+export const CONTENT_SCHEMA_VERSION = 43;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1394,8 +1403,21 @@ export const CALCULATED_FIGURE_NODE = "calculatedFigure";
  * across edits. User footnotes and Citations share one numbering, in the
  * order they appear: a Citation's footnote is its reference, and a Citation
  * inside a footnote is part of that footnote's text, with no number of its own.
+ *
+ * A Word file's footnote or endnote is one too (#746): `source` names its
+ * reference in the main document part ("w:footnoteReference#2"), as an atom's
+ * does, and its text may hold what the import keeps as is (`WORD_ATOM_NODE`).
+ * An endnote (`endnote: true`) is numbered on its own, as the file numbers
+ * them, and export writes it back as an endnote.
  */
 export const FOOTNOTE_NODE = "footnote";
+
+/**
+ * The node type of a page break, in any Note (#746): an inline node, drawn as
+ * a line across the text, which export writes as Word's page break. One
+ * imported from a Word file names its XML in `source`, as an atom does.
+ */
+export const PAGE_BREAK_NODE = "pageBreak";
 
 /**
  * The node type of a Document chip, which the User writes with "@" in a Note:
@@ -1438,8 +1460,12 @@ export const PICTURE_NODE = "picture";
 
 /**
  * What a kept-as-is atom is. Bookmarks, other ranges (a comment's, an
- * editing permission's, a move's), section breaks and page breaks are
- * invisible; the rest show their text, or a mark of their own.
+ * editing permission's, a move's) and column breaks are invisible; a section
+ * break is a line across the text; the rest show their text, or a mark of
+ * their own. "pageBreak", "footnote" and "endnote" are what a Note imported
+ * before #746 holds until it is converted (`PAGE_BREAK_NODE`, `FOOTNOTE_NODE`),
+ * and a note the Note's footnote can't hold (a table, someone's tracked
+ * change) stays one.
  */
 export type WordAtomKind =
   | "field"
@@ -1461,6 +1487,7 @@ export type WordAtomKind =
   | "range"
   | "sectionBreak"
   | "pageBreak"
+  | "columnBreak"
   | "table"
   | "header"
   | "footer"
@@ -1483,6 +1510,12 @@ export interface WordAtomAttributes {
   /** Its text, read for Questions and search: a text box's, a comment's, a footnote's. */
   text: string;
   source: string | null;
+  /**
+   * What the file has at its place, as the import found it (#746): a hash of
+   * its XML there, which no later import reads otherwise, so export tells the
+   * file's own atom from a copy. Null for one imported before it was recorded.
+   */
+  hash: string | null;
   /** More about it: a change's or a comment's author and date, a field's type. */
   info: WordAtomInfo | null;
 }
@@ -1604,6 +1637,20 @@ export interface WordImportReport {
    * Absent on reports from before #108.
    */
   keptChanges?: Partial<Record<KeptChangeKind, number>>;
+  /** Footnotes, endnotes and page breaks made the Note's own (#746); absent on reports from before. */
+  footnotes?: number;
+  endnotes?: number;
+  pageBreaks?: number;
+}
+
+/**
+ * How a Word file numbers its footnotes and endnotes (#746), from its
+ * settings: Word's number format ("decimal", "lowerRoman", "chicago"…) and
+ * the number the first one takes.
+ */
+export interface WordNoteNumbering {
+  footnote: { format: string; start: number };
+  endnote: { format: string; start: number };
 }
 
 /**
@@ -1854,13 +1901,14 @@ export interface WordSource {
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
+ * - "note": a copy of a note kept as is that holds no text the Note knows, written as an empty footnote;
  * - "edit": an edit next to a field, which is written as it was;
  * - "signature": the file's digital signature, which no longer matches once it changes.
  */
 export interface WordExportLoss {
   /** The same for the same thing at the next export, so going ahead applies to what the User saw. */
   key: string;
-  kind: "comment" | "change" | "copy" | "edit" | "signature";
+  kind: "comment" | "change" | "copy" | "note" | "edit" | "signature";
   /** Whose comment or change it is. */
   author: string | null;
   /** Its text, shortened; "" for none. */

@@ -82,6 +82,7 @@ import {
   DOCUMENT_CHIP_NODE,
   FOOTNOTE_NODE,
   GENERATED_MARK,
+  PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
   PICTURE_NODE,
@@ -216,6 +217,9 @@ export interface Pendings {
 export interface Image {
   src: string;
   alt: string;
+  /** The size the Note shows it at, in pixels: an imported Word picture's, as Word drew it. */
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -240,6 +244,8 @@ export type Inline = (
     }
   | { kind: "math"; latex: string }
   | { kind: "break" }
+  /** A page break (#746): where the text after it starts a new page, in a writer with pages. */
+  | { kind: "pageBreak" }
   | { kind: "citation"; footnote: Footnote; work: CitedWork }
   /**
    * A calculated figure (ADR-0021), written as `figure.shown` where a writer has nothing more to
@@ -674,6 +680,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   FOOTNOTE_NODE,
+  PAGE_BREAK_NODE,
   WORD_ATOM_NODE,
   DOCUMENT_CHIP_NODE,
 ]);
@@ -1041,7 +1048,18 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
 }
 
 function readImage(element: Y.XmlElement): Image {
-  return { src: stringAttribute(element, "src"), alt: stringAttribute(element, "alt") };
+  const size = (name: string) => {
+    const value: unknown = element.getAttribute(name);
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+  };
+  const width = size("width");
+  const height = size("height");
+  return {
+    src: stringAttribute(element, "src"),
+    alt: stringAttribute(element, "alt"),
+    ...(width !== undefined && { width }),
+    ...(height !== undefined && { height }),
+  };
 }
 
 export const NO_MARKS: Marks = {
@@ -1152,6 +1170,9 @@ function readInlineElement(
       break;
     case "hardBreak":
       add({ kind: "break" });
+      break;
+    case PAGE_BREAK_NODE:
+      if (!inFootnote) add({ kind: "pageBreak" });
       break;
     case "image":
       add({ kind: "image", image: readImage(child) });

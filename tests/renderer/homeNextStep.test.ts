@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
-import type { ConversationAnswer } from "../../src/core/api";
+import type { ConversationAnswer, ConversationQuestion } from "../../src/core/api";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
-import { chooseHomeNextStep, type HomeNote, ownAnswer } from "../../src/renderer/src/homeNextStep";
+import {
+  chooseHomeNextStep,
+  type HomeNote,
+  ownAnswer,
+  shownAnswer,
+} from "../../src/renderer/src/homeNextStep";
 import { noteStateOf } from "../../src/renderer/src/noteState";
 import { translate } from "../../src/shared/i18n";
 
@@ -236,5 +241,91 @@ describe("An own Answer", () => {
         new Set(),
       ),
     ).toBe(false);
+  });
+});
+
+describe("The Answer Home offers to write", () => {
+  const question: ConversationQuestion = {
+    kind: "question",
+    id: "q1",
+    conversationId: "shown",
+    text: "What are the payment terms?",
+    askedFrom: null,
+    focus: null,
+    scope: null,
+    model: null,
+    forcedSkill: null,
+    analyse: false,
+    quotes: [],
+    createdAt: "2026-10-20T09:00:00.000Z",
+  };
+  const said = (
+    id: string,
+    updatedAt: string,
+    text = "Payment is due in 30 days.",
+  ): ConversationAnswer => ({
+    kind: "answer",
+    id,
+    conversationId: "shown",
+    questionId: "q1",
+    text,
+    citations: [],
+    figures: [],
+    analyses: [],
+    model: null,
+    status: "done",
+    errorKind: null,
+    errorMessage: null,
+    errorSignInRoute: null,
+    citationSupport: null,
+    toolCalls: [],
+    textOrigin: null,
+    read: null,
+    steps: null,
+    createdAt: updatedAt,
+    updatedAt,
+  });
+  const none = new Set<string>();
+  const older = said("older", "2026-10-20T09:20:00.000Z");
+  const newer = said("newer", "2026-10-20T09:30:00.000Z");
+  const thread = [question, older, question, newer];
+  const shown = { folded: false, onItsWay: false, examples: none, filed: none };
+
+  test("is the newest one in the conversation the assistant shows", () => {
+    expect(shownAnswer(thread, shown)).toEqual({
+      id: "newer",
+      conversationId: "shown",
+      updatedAt: "2026-10-20T09:30:00.000Z",
+    });
+    expect(shownAnswer(thread, { ...shown, filed: new Set(["newer"]) })?.id).toBe("older");
+    expect(shownAnswer([question, said("empty", newer.updatedAt, " "), older], shown)?.id).toBe(
+      "older",
+    );
+  });
+
+  test("is none in a new chat, as after a relaunch, so Home says to ask, in English and Chinese", () => {
+    const after = shownAnswer([], shown);
+    expect(after).toBeNull();
+    const step = choose({ hasDocuments: true, answers: after ? [after] : [] });
+    expect(step).toEqual({ kind: "ask" });
+    expect(translate("en", "home.next.ask")).toBe("Ask about your files");
+    expect(translate("zh-CN", "home.next.ask")).toBe("向你的文件提问");
+  });
+
+  test("is none while the assistant is folded, the example's, or filed", () => {
+    expect(shownAnswer(thread, { ...shown, folded: true })).toBeNull();
+    expect(shownAnswer(thread, { ...shown, examples: new Set(["older", "newer"]) })).toBeNull();
+    expect(shownAnswer(thread, { ...shown, filed: new Set(["older", "newer"]) })).toBeNull();
+  });
+
+  test("is none while a follow-up's Answer is on its way, then that new Answer once it is done", () => {
+    const followUp = said("follow-up", "2026-10-20T09:40:00.000Z", "Payment is due in 60 days.");
+    const asking = [question, older, question];
+    expect(shownAnswer(asking, { ...shown, onItsWay: true })).toBeNull();
+    const streaming = [...asking, { ...followUp, status: "streaming" as const }];
+    expect(shownAnswer(streaming, { ...shown, onItsWay: true })).toBeNull();
+    expect(shownAnswer([...asking, followUp], shown)?.id).toBe("follow-up");
+    expect(translate("en", "home.next.write")).toBe("Write the Answer as a note");
+    expect(translate("zh-CN", "home.next.write")).toBe("把回答写成笔记");
   });
 });
