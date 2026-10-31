@@ -1668,8 +1668,10 @@ describe("Word's rules", () => {
     const { mindId, client } = await importFile(core, Buffer.from(made.data));
 
     const atoms: { kind?: unknown; label?: unknown; info?: unknown }[] = [];
+    const notes: JSONContent[] = [];
     const visit = (node: JSONContent) => {
       if (node.type === WORD_ATOM_NODE) atoms.push(node.attrs ?? {});
+      if (node.type === "footnote") notes.push(node);
       for (const child of node.content ?? []) visit(child);
     };
     visit(readMind(client).toJSON());
@@ -1677,13 +1679,12 @@ describe("Word's rules", () => {
     expect(atoms.filter((atom) => atom.kind === "bookmark")).toHaveLength(2);
     const shown = atoms.filter((atom) => atom.kind !== "bookmark");
     expect(shown.map((atom) => [atom.kind, atom.label])).toEqual([
-      ["footnote", "1"],
       ["field", "1"],
       ["field", "1"],
     ]);
-    expect(shown.slice(1).map((atom) => atom.info)).toEqual([
-      { field: "NOTEREF" },
-      { field: "NOTEREF" },
+    expect(shown.map((atom) => atom.info)).toEqual([{ field: "NOTEREF" }, { field: "NOTEREF" }]);
+    expect(notes.map((note) => note.content?.map((each) => each.text).join(""))).toEqual([
+      expect.stringContaining("Tides"),
     ]);
 
     const before = unzip(made.data);
