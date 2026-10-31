@@ -83,8 +83,17 @@ export function* missingMarkerEvents(
   return placed;
 }
 
-/** The most Citations added to one Answer. */
+/**
+ * The most Citations added to one Answer where its model wrote no marker. A marker it wrote with no
+ * record is its own Citation still to place: a Meeting's notes hold dozens (#2306).
+ */
 export const MAX_ADDED = 12;
+
+/** `matches` with at most `MAX_ADDED` where the Answer had no marker, in its order. */
+function capped<T extends { marker?: number }>(matches: readonly T[]): T[] {
+  let added = 0;
+  return matches.filter((match) => match.marker !== undefined || ++added <= MAX_ADDED);
+}
 /** Quoted text with fewer words than this (or CJK characters, by pairs) says too little to match. */
 const MIN_QUOTED_WORDS = 3;
 /** A sentence matches a Passage's sentence when they share this many words… */
@@ -201,7 +210,7 @@ function closestSentence(
  * The Citations to add to `answer`: for each sentence without a marker, the
  * first quotation starting in it that the check finds in a Passage, else the
  * Passage sentence it is worded closely like, if the check finds that; in
- * the Answer's order, at most `MAX_ADDED`.
+ * the Answer's order, at most `MAX_ADDED` where it wrote no marker.
  */
 export function matchUnmarked(
   answer: string,
@@ -218,8 +227,13 @@ export function matchUnmarked(
   /** Markers without records a sentence has taken: a later sentence holding one gets its own. */
   const taken = new Set<number>();
   for (const { start, end, text: sentence, markers } of uncitedSentences(answer, recorded)) {
-    if (matches.length >= MAX_ADDED) break;
     const orphan = markers.find((marker) => !taken.has(marker));
+    if (
+      orphan === undefined &&
+      matches.filter((each) => each.marker === undefined).length >= MAX_ADDED
+    ) {
+      continue;
+    }
     const own = { start, end, ...(orphan === undefined ? {} : { marker: orphan }) };
     const byQuotation = quotations
       .filter(({ at }) => at >= start && at < end)
@@ -530,10 +544,7 @@ export async function* citeUnmarked(
       const given = await askForCitations(request, answer, toAsk, temperature);
       if (signal.aborted) return answer;
       const asking = given.filter((each) => found(each.passage, each.quote));
-      matches = [...matches, ...takingMarkers(asking, answer, recorded, matches)].slice(
-        0,
-        MAX_ADDED,
-      );
+      matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
     }
   }
   if (matches.length === 0) {

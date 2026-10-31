@@ -768,6 +768,46 @@ describe("How a fill asks its model (#2306)", { timeout: 60_000 }, () => {
   });
 });
 
+describe("A long reply's records, asked for afterwards (#2306)", { timeout: 60_000 }, () => {
+  // protects=when a fill's reply writes many markers and gives no records, the records asked for afterwards place every one: the cap on Citations added where an Answer wrote no marker doesn't drop the model's own markers, so no bullet past the twelfth is lost as uncited; fails_when=a marked bullet past the twelfth loses its Citation and is dropped; no_claim=Citations added to sentences with no marker, still capped.
+  test("every marker of a long reply keeps its Citation", async () => {
+    const points = Array.from(
+      { length: 14 },
+      (_, index) => `Point ${index + 1} of the call is noted here`,
+    );
+    const sentence = "The enterprise price is 45 dollars a seat";
+    const model = scriptedModel((call) => {
+      if (call.json && call.system === CITE_RETRY_INSTRUCTIONS) {
+        const passage = [
+          ...call.prompt.matchAll(/<passage id="(P\d+)">\n([\s\S]*?)\n<\/passage>/g),
+        ][0];
+        // The fake engine says its lines again: only the whole Passage is one place.
+        const quote = passage?.[2]?.replace(/\[\d{1,2}:\d{2}(?: [^\]\n]+)?\]\s*/g, "");
+        const citations = passage
+          ? [sentence, ...points].map((each) => ({ sentence: each, passage: passage[1], quote }))
+          : [];
+        return { text: JSON.stringify({ citations }) };
+      }
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      return {
+        text: [
+          `### L1\n${sentence} [^1].`,
+          "### DECISIONS",
+          ...points.map((point, index) => `- ${point} [^${index + 2}].`),
+        ].join("\n"),
+      };
+    });
+    const { core, meeting, client } = await recorded(model, [note("price")]);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(17));
+    const cited = shown(client).filter((line) => line.includes("\uFFFC"));
+    expect(cited).toHaveLength(15);
+    expect(cited.at(-1)).toBe("«Point 14 of the call is noted here »\uFFFC«.»");
+    core.close();
+  });
+});
+
 describe("A long Transcript is read in parts", () => {
   const passage = (index: number, words: number): WindowedPassage =>
     ({ text: "word ".repeat(words), seq: index }) as unknown as WindowedPassage;
