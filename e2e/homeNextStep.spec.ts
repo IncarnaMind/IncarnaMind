@@ -4,7 +4,9 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  addDocuments,
   askInAssistant,
+  assistantAnswers,
   useOutputLocation as chooseOutputLocation,
   useLocalChatModel as connectLocalChatModel,
   coreOf,
@@ -14,8 +16,10 @@ import {
   interceptOpenDialog,
   interceptOpenPath,
   launchApp,
+  motionRunning,
   nameMind,
   newMind,
+  paletteOffers,
   pathsOpened,
   removeDataFolder,
   runCommand,
@@ -216,3 +220,112 @@ for (const language of ["en", "zh-CN"] as const)
       }
     });
   }
+
+async function reopenFromPalette(window: Page, name: string) {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(name);
+  const found = window
+    .getByTestId("palette")
+    .locator('[data-testid="palette-group"][data-group="conversations"]')
+    .getByTestId("palette-item")
+    .first();
+  await expect(found).toContainText(name);
+  await found.click();
+  await expect(window.getByTestId("palette")).toBeHidden();
+  await expect.poll(() => motionRunning(window)).toBe(0);
+}
+
+for (const language of ["en", "zh-CN"] as const)
+  test(`Home offers to write an Answer only while the assistant shows it, across a relaunch (${language})`, async () => {
+    test.setTimeout(120_000);
+    const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+    const question = language === "en" ? "Payment terms" : "付款条件";
+    const minds = async (window: Page) =>
+      (await coreOf(window)).evaluate(async (core) => (await core.listMinds()).length);
+    const commandOffers = (window: Page, id: string, label: Parameters<typeof translate>[1]) =>
+      paletteOffers(window, id, t(label));
+    const writtenFrom = (window: Page, asked: string) =>
+      expect(window.getByTestId("mind-editor").filter({ visible: true })).toContainText(
+        `scripted Answer to: ${asked}`,
+      );
+    let { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      await connectLocalChatModel(window);
+      const path = join(sources, "Tides.pdf");
+      await writeFile(path, TIDES);
+      await addDocuments(window, [path]);
+      await goHome(window);
+      const answer = await askInAssistant(window, question);
+      const answerId = await answer.getAttribute("data-answer-id");
+      await expect(await shown(window, "write")).toHaveText(t("home.next.write"));
+      expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(1);
+      expect(await commandOffers(window, "answer.addToNote", "command.answer.addToNote")).toBe(1);
+
+      // The Answer leaves the assistant, folded or for a new chat, and the offer goes with it.
+      await runCommand(window, "assistant.fold", t("command.assistant.fold"));
+      await expect(answer).toBeHidden();
+      await expect(await shown(window, "ask")).toHaveText(t("home.next.ask"));
+      expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(0);
+      expect(await commandOffers(window, "answer.addToNote", "command.answer.addToNote")).toBe(0);
+      await runCommand(window, "assistant.fold", t("command.assistant.unfold"));
+      await expect(answer).toBeVisible();
+      await shown(window, "write");
+      await runCommand(window, "assistant.newChat", t("assistant.newChat"));
+      await expect(assistantAnswers(window)).toHaveCount(0);
+      await shown(window, "ask");
+      await app.close();
+
+      ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
+      await expect(window.getByTestId("home")).toBeVisible();
+      await expect(window.getByTestId("assistant-title")).toHaveText(t("conversation.untitled"));
+      await expect(assistantAnswers(window)).toHaveCount(0);
+      await expect
+        .poll(async () =>
+          (await coreOf(window)).evaluate(async (core) => (await core.listConversations()).length),
+        )
+        .toBe(1);
+      await picture(window, `home-offer-relaunch-${language}`);
+      await expect(await shown(window, "ask")).toHaveText(t("home.next.ask"));
+      expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(0);
+      const before = await minds(window);
+
+      // Opened again, the Answer is on screen, and the offer is back.
+      await reopenFromPalette(window, question);
+      const again = window
+        .getByTestId("assistant")
+        .locator(`[data-testid="assistant-answer"][data-answer-id="${answerId}"]`);
+      await expect(again).toBeVisible();
+      await shown(window, "write");
+      await picture(window, `home-offer-reopened-${language}`);
+
+      // A follow-up on its way: "the Answer" would mean the older one, so neither offers it.
+      const followUp = language === "en" ? "Notice period, slowly" : "通知期限 slowly";
+      await window.keyboard.press("ControlOrMeta+j");
+      await expect(window.getByTestId("composer-input")).toBeFocused();
+      await window.keyboard.type(followUp);
+      await window.keyboard.press("Enter");
+      const coming = assistantAnswers(window).last();
+      await expect(assistantAnswers(window)).toHaveCount(2);
+      await expect(coming).toHaveAttribute("data-status", "streaming");
+      await shown(window, "ask");
+      expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(0);
+      await expect(coming).toHaveAttribute("data-status", "done", { timeout: 45_000 });
+      // Done, it is the Answer offered, and the one written.
+      await (await shown(window, "write")).click();
+      await expect.poll(() => minds(window)).toBe(before + 1);
+      await writtenFrom(window, followUp);
+      await expect(coming).toBeVisible();
+      // ⌘K's own command writes that newest Answer too, as a second note in a tab of its own.
+      const tabs = await window.getByTestId("mind-tab").count();
+      await runCommand(window, "assistant.writeNote", t("assistant.writeNote"));
+      await expect.poll(() => minds(window)).toBe(before + 2);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(tabs + 1);
+      await writtenFrom(window, followUp);
+      await expect(coming).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
