@@ -158,7 +158,9 @@ class MarkdownWriter {
     private readonly number: (footnote: Written) => number,
     private readonly headings: readonly HeadingEntry[] = [],
     /** Where a picture goes; null when the text reads the alt text instead. */
-    private readonly picture: ((image: Image) => { src: string; alt?: string } | null) | null = null,
+    private readonly picture:
+      | ((image: Image) => { src: string; alt?: string } | null)
+      | null = null,
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
