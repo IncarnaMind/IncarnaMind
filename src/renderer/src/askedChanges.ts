@@ -318,6 +318,12 @@ export function applyWhatIsAsked(answerId: string): void {
   syncArriving();
 }
 
+/** An Answer this window asked for that nothing will be written for: nothing of it is on its way. */
+export function applyNotAsked(answerId: string): void {
+  if (!askedHere.delete(answerId)) return;
+  syncArriving();
+}
+
 /**
  * An Answer this window asks for again: what it was asked to write or change applies here, and
  * what it applied before makes way for what it writes now, while nothing was done in the Mind

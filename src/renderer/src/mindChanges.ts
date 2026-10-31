@@ -187,7 +187,6 @@ export function useWaitingIn(mindId: string | null): Waiting {
   return useWaitingChanges(rows)[0]?.count ?? null;
 }
 
-/** How many changes wait in a Mind besides the ones this window is applying at once, as they change. */
 export function useWaitingBesidesApplied(
   mindId: string | null,
   arriving?: ArrivingInMind,

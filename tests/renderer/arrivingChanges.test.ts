@@ -143,7 +143,8 @@ describe("The changes a card leaves out (#1325)", () => {
     expect(arrivingNow(doc, "r2", arrived)).toBe(false);
   });
 
-  test("an Answer's requests in another Note are no one's here", () => {
+  // protects=a request this Note's thread doesn't name is deferred while any Answer is arriving, since it may be that Answer's next call, and counts once none is; fails_when=it is left out for good, or counted while it may still be arriving; no_claim=which Answer it belongs to.
+  test("an unnamed request here is deferred while any Answer arrives, and counts once none does", () => {
     const { doc } = mind([{ request: "r1", asked: true }]);
     const other = {
       kind: "answer",
@@ -156,11 +157,13 @@ describe("The changes a card leaves out (#1325)", () => {
       ],
     } as unknown as ConversationMessage;
 
-    expect(arrivingInMind([other], MIND, new Set(["a1"]))).toEqual({
-      requests: new Set(),
-      known: new Set(),
-      open: true,
-    });
-    expect(arrivingNow(doc, "r1", arrivingInMind([other], MIND, new Set(["a1"])))).toBe(true);
+    const arriving = arrivingInMind([other], MIND, new Set(["a1"]));
+    expect(arriving).toEqual({ requests: new Set(), known: new Set(), open: true });
+    expect(arrivingNow(doc, "r1", arriving)).toBe(true);
+    expect(stillWaiting(doc, arriving)).toBe(0);
+
+    const settled = arrivingInMind([other], MIND, new Set());
+    expect(arrivingNow(doc, "r1", settled)).toBe(false);
+    expect(stillWaiting(doc, settled)).toBe(1);
   });
 });
