@@ -5700,6 +5700,7 @@ export const zhCN = {
   "assistant.writeNote": "把回答写成笔记",
   "assistant.writeNote.unavailable": "此对话中还没有回答",
   "assistant.answer.folded": "先展开助手，查看回答",
+  "assistant.answer.onItsWay": "等新的回答生成完",
   "note.chat": "这篇笔记的对话",
   "assistant.clear": "清空此对话",
   "assistant.clear.unavailable": "此对话是空的",

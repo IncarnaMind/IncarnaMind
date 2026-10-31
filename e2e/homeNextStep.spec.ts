@@ -245,9 +245,9 @@ for (const language of ["en", "zh-CN"] as const)
       (await coreOf(window)).evaluate(async (core) => (await core.listMinds()).length);
     const commandOffers = (window: Page, id: string, label: Parameters<typeof translate>[1]) =>
       paletteOffers(window, id, t(label));
-    const writtenFrom = (window: Page) =>
+    const writtenFrom = (window: Page, asked: string) =>
       expect(window.getByTestId("mind-editor").filter({ visible: true })).toContainText(
-        `scripted Answer to: ${question}`,
+        `scripted Answer to: ${asked}`,
       );
     let { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -292,25 +292,39 @@ for (const language of ["en", "zh-CN"] as const)
       expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(0);
       const before = await minds(window);
 
-      // Opened again, the Answer is on screen, and the offer writes exactly that one.
+      // Opened again, the Answer is on screen, and the offer is back.
       await reopenFromPalette(window, question);
       const again = window
         .getByTestId("assistant")
         .locator(`[data-testid="assistant-answer"][data-answer-id="${answerId}"]`);
       await expect(again).toBeVisible();
-      const write = await shown(window, "write");
+      await shown(window, "write");
       await picture(window, `home-offer-reopened-${language}`);
-      await write.click();
+
+      // A follow-up on its way: "the Answer" would mean the older one, so neither offers it.
+      const followUp = language === "en" ? "Notice period, slowly" : "通知期限 slowly";
+      await window.keyboard.press("ControlOrMeta+j");
+      await expect(window.getByTestId("composer-input")).toBeFocused();
+      await window.keyboard.type(followUp);
+      await window.keyboard.press("Enter");
+      const coming = assistantAnswers(window).last();
+      await expect(assistantAnswers(window)).toHaveCount(2);
+      await expect(coming).toHaveAttribute("data-status", "streaming");
+      await shown(window, "ask");
+      expect(await commandOffers(window, "assistant.writeNote", "assistant.writeNote")).toBe(0);
+      await expect(coming).toHaveAttribute("data-status", "done", { timeout: 45_000 });
+      // Done, it is the Answer offered, and the one written.
+      await (await shown(window, "write")).click();
       await expect.poll(() => minds(window)).toBe(before + 1);
-      await writtenFrom(window);
-      await expect(again).toBeVisible();
-      // ⌘K's own command writes the same Answer on screen, as a second note in a tab of its own.
+      await writtenFrom(window, followUp);
+      await expect(coming).toBeVisible();
+      // ⌘K's own command writes that newest Answer too, as a second note in a tab of its own.
       const tabs = await window.getByTestId("mind-tab").count();
       await runCommand(window, "assistant.writeNote", t("assistant.writeNote"));
       await expect.poll(() => minds(window)).toBe(before + 2);
       await expect(window.getByTestId("mind-tab")).toHaveCount(tabs + 1);
-      await writtenFrom(window);
-      await expect(again).toBeVisible();
+      await writtenFrom(window, followUp);
+      await expect(coming).toBeVisible();
     } finally {
       await app.close();
     }

@@ -97,7 +97,7 @@ export function newChat(): void {
 /**
  * The Answer an Answer's command acts on: the one the focus is in, else the newest. None while
  * the assistant is folded: no command writes, copies or asks again from an Answer out of sight
- * (#2291).
+ * (#2291). Nor the newest while another is on its way, when it would not be the one coming.
  */
 function answerInFocus(): ConversationAnswer | undefined {
   if (folded()) return undefined;
@@ -106,16 +106,21 @@ function answerInFocus(): ConversationAnswer | undefined {
   const focused = useConversations
     .getState()
     .messages.find((each) => each.kind === "answer" && each.id === id);
-  return focused?.kind === "answer" && focused.status !== "streaming" ? focused : lastAnswer();
+  if (focused?.kind === "answer" && focused.status !== "streaming") return focused;
+  return answerBeingWritten() === null ? lastAnswer() : undefined;
 }
 
 /** Whether an Answer has something to keep: not one that failed before writing a word. */
 const keepable = (answer: ConversationAnswer | undefined): answer is ConversationAnswer =>
   answer !== undefined && hasText(answerBlocks(answer));
 
-/** Why an Answer's command can't run now: the assistant is folded, else `otherwise`. */
+/** Why an Answer's command can't run now: the assistant is folded, an Answer is coming, else `otherwise`. */
 const unavailable = (otherwise: MessageKey): { reason: MessageKey } => ({
-  reason: folded() ? "assistant.answer.folded" : otherwise,
+  reason: folded()
+    ? "assistant.answer.folded"
+    : answerBeingWritten() !== null
+      ? "assistant.answer.onItsWay"
+      : otherwise,
 });
 
 const noAnswer = (): true | { reason: MessageKey } =>

@@ -289,21 +289,22 @@ describe("The Answer Home offers to write", () => {
   const older = said("older", "2026-10-20T09:20:00.000Z");
   const newer = said("newer", "2026-10-20T09:30:00.000Z");
   const thread = [question, older, question, newer];
+  const shown = { folded: false, onItsWay: false, examples: none, filed: none };
 
   test("is the newest one in the conversation the assistant shows", () => {
-    expect(shownAnswer(thread, false, none, none)).toEqual({
+    expect(shownAnswer(thread, shown)).toEqual({
       id: "newer",
       conversationId: "shown",
       updatedAt: "2026-10-20T09:30:00.000Z",
     });
-    expect(shownAnswer(thread, false, none, new Set(["newer"]))?.id).toBe("older");
-    expect(
-      shownAnswer([question, said("empty", newer.updatedAt, " "), older], false, none, none)?.id,
-    ).toBe("older");
+    expect(shownAnswer(thread, { ...shown, filed: new Set(["newer"]) })?.id).toBe("older");
+    expect(shownAnswer([question, said("empty", newer.updatedAt, " "), older], shown)?.id).toBe(
+      "older",
+    );
   });
 
   test("is none in a new chat, as after a relaunch, so Home says to ask, in English and Chinese", () => {
-    const after = shownAnswer([], false, none, none);
+    const after = shownAnswer([], shown);
     expect(after).toBeNull();
     const step = choose({ hasDocuments: true, answers: after ? [after] : [] });
     expect(step).toEqual({ kind: "ask" });
@@ -312,8 +313,19 @@ describe("The Answer Home offers to write", () => {
   });
 
   test("is none while the assistant is folded, the example's, or filed", () => {
-    expect(shownAnswer(thread, true, none, none)).toBeNull();
-    expect(shownAnswer(thread, false, new Set(["older", "newer"]), none)).toBeNull();
-    expect(shownAnswer(thread, false, none, new Set(["older", "newer"]))).toBeNull();
+    expect(shownAnswer(thread, { ...shown, folded: true })).toBeNull();
+    expect(shownAnswer(thread, { ...shown, examples: new Set(["older", "newer"]) })).toBeNull();
+    expect(shownAnswer(thread, { ...shown, filed: new Set(["older", "newer"]) })).toBeNull();
+  });
+
+  test("is none while a follow-up's Answer is on its way, then that new Answer once it is done", () => {
+    const followUp = said("follow-up", "2026-10-20T09:40:00.000Z", "Payment is due in 60 days.");
+    const asking = [question, older, question];
+    expect(shownAnswer(asking, { ...shown, onItsWay: true })).toBeNull();
+    const streaming = [...asking, { ...followUp, status: "streaming" as const }];
+    expect(shownAnswer(streaming, { ...shown, onItsWay: true })).toBeNull();
+    expect(shownAnswer([...asking, followUp], shown)?.id).toBe("follow-up");
+    expect(translate("en", "home.next.write")).toBe("Write the Answer as a note");
+    expect(translate("zh-CN", "home.next.write")).toBe("把回答写成笔记");
   });
 });

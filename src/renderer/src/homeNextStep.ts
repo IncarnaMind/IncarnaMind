@@ -42,16 +42,25 @@ export const ownAnswer = (
 
 /**
  * The Answer Home may offer to write: the User's newest own one with text that no note holds, in
- * the conversation the assistant shows, and none while it is folded. Home never writes an Answer
- * the User can't read first (#2291), such as one from before a relaunch, which opens on a new chat.
+ * the conversation the assistant shows. None while the assistant is folded, or while a newer
+ * Answer is on its way, when "the Answer" would mean an older one. Home never writes an Answer the
+ * User can't read first (#2291), such as one from before a relaunch, which opens on a new chat.
  */
 export function shownAnswer(
   messages: readonly ConversationMessage[],
-  folded: boolean,
-  examples: ReadonlySet<string>,
-  filed: ReadonlySet<string>,
+  {
+    folded,
+    onItsWay,
+    examples,
+    filed,
+  }: {
+    folded: boolean;
+    onItsWay: boolean;
+    examples: ReadonlySet<string>;
+    filed: ReadonlySet<string>;
+  },
 ): HomeAnswer | null {
-  if (folded) return null;
+  if (folded || onItsWay) return null;
   const answers = messages.filter(
     (each): each is ConversationAnswer =>
       each.kind === "answer" && ownAnswer(each, examples) && !filed.has(each.id),

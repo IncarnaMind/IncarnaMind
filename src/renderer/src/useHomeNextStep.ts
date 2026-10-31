@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Mind } from "../../core/api";
 import { useChecks } from "./checks";
-import { useConversations } from "./conversations";
+import { useAnswerBeingWritten, useConversations } from "./conversations";
 import { chooseHomeNextStep, type HomeSavedWord, shownAnswer } from "./homeNextStep";
 import type { NoteReading } from "./noteState";
 import { allExamples, isOwnDocument, useAppStore } from "./store";
@@ -19,6 +19,7 @@ export function useHomeNextStep(
 ) {
   const messages = useConversations((state) => state.messages);
   const folded = useAppStore((state) => state.layout?.assistant.folded ?? false);
+  const onItsWay = useAnswerBeingWritten() !== null;
   const examples = useAppStore((state) =>
     allExamples(state)
       .map((each) => each.answerId ?? "")
@@ -34,8 +35,9 @@ export function useHomeNextStep(
     [notes],
   );
   const answer = useMemo(
-    () => shownAnswer(messages, folded, new Set(examples.split("|")), filed),
-    [messages, folded, examples, filed],
+    () =>
+      shownAnswer(messages, { folded, onItsWay, examples: new Set(examples.split("|")), filed }),
+    [messages, folded, onItsWay, examples, filed],
   );
   const latest = minds[0];
   // Still reading that note, or its content this version can't read: no step rather than a wrong one.

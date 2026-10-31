@@ -5997,6 +5997,7 @@ export const en = {
   "assistant.writeNote": "Write the Answer as a note",
   "assistant.writeNote.unavailable": "There’s no Answer in this conversation yet",
   "assistant.answer.folded": "Show the assistant to see its Answer first",
+  "assistant.answer.onItsWay": "Wait until the new Answer is written",
   "note.chat": "This note’s chat",
   "assistant.clear": "Clear this conversation",
   "assistant.clear.unavailable": "This conversation is empty",
