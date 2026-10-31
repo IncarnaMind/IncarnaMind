@@ -251,7 +251,7 @@ const citationView = ReactNodeViewRenderer(CitationView, {
  * cards), so the editor doesn't select or type over it; a press on its edge
  * still selects it as a Block, and ⌘Z / ⌘⇧Z reach the editor's undo from it.
  */
-const chartView = ReactNodeViewRenderer(ChartView, {
+const chartEvents: Parameters<typeof ReactNodeViewRenderer>[1] = {
   stopEvent: ({ event }) => {
     const target = event.target;
     if (!(target instanceof Element) || !target.closest("[data-chart-ui]")) return false;
@@ -264,7 +264,7 @@ const chartView = ReactNodeViewRenderer(ChartView, {
       !(target instanceof HTMLInputElement);
     return !undo;
   },
-});
+};
 
 /**
  * A picture pasted into the Note (#1937): it takes its own pointer over the
@@ -400,7 +400,10 @@ function MindEditorView({
           footnoteView: footnoteView(() => footnoteLabel.current),
           documentChipView: ReactNodeViewRenderer(DocumentChipView, { as: "span" }),
           comparisonViews,
-          chartView,
+          chartView: ReactNodeViewRenderer(
+            (props) => <ChartView {...props} doc={doc} />,
+            chartEvents,
+          ),
           wordAtomView,
           wordBlockView,
           tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),

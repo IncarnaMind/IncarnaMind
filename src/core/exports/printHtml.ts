@@ -273,6 +273,7 @@ class PrintWriter {
     const sources: string[] = [];
     const cited = this.inline(block.sources);
     if (cited) sources.push(escapeHtml(labels.chartSources) + cited);
+    if (block.calculated > 0) sources.push(escapeHtml(labels.chartCalculated(block.calculated)));
     if (block.uncited > 0) sources.push(escapeHtml(labels.chartUncited(block.uncited)));
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null) sources.push(escapeHtml(labels.chartCut(rows.length, cutFrom)));
