@@ -14,7 +14,7 @@ import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
 import { toolCallsOf } from "../../shared/toolCalls";
-import { checkUnreadOf, unreadFileNamesOf } from "../../shared/unreadFiles";
+import { checkUnreadOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
 import { checkedSentences, figuresNow } from "../answers/checks/sentences";
@@ -25,7 +25,6 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type CitationAttributes,
   type KeptCitationText,
-  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   QUESTION_BLOCK,
   type UnreadFile,
@@ -127,8 +126,6 @@ export interface AiUseFigures {
   sentences: SentenceCounts;
   checked: CheckedSentence[];
   unread: UnreadFile[];
-  /** Whether the statement names them: the Mind's own choice, off until the User ticks it. */
-  unreadNames: boolean;
 }
 
 export interface FigureSources {
@@ -372,6 +369,5 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     sentences,
     checked,
     unread: fragment.doc ? checkUnreadOf(fragment.doc, requests) : [],
-    unreadNames: fragment.doc ? unreadFileNamesOf(fragment.doc.getMap(MIND_SETTINGS_FIELD)) : false,
   };
 }

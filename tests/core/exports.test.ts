@@ -446,8 +446,6 @@ describe("exporting a Mind", () => {
       hiddenColumns: 0,
       fromWord: false,
       theirChanges: 0,
-      unreadFiles: 0,
-      unreadFileNames: false,
       citationPlace: "footnotes",
       markAiText: false,
       othersFile: false,

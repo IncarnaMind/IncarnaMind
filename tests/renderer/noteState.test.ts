@@ -15,6 +15,7 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
   noteStateOf,
   noteStateParts,
+  noteStateUnreadWords,
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
@@ -562,6 +563,23 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     const { state } = read(doc);
     expect(state).toMatchObject({ kind: "checked", unread: 1, unreadMatters: false });
     doc.destroy();
+  });
+
+  test("the Saved line's words for unread files are singular, plural, and nothing when none", () => {
+    const checked = (unread: number) =>
+      noteStateOf(health({ checkable: 2, supported: 2, checkedAt: CHECKED_AT }), unread);
+    const words = (language: "en" | "zh-CN", unread: number) =>
+      noteStateUnreadWords(
+        checked(unread) ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+    expect(words("en", 1)).toBe("1 file couldn’t be read");
+    expect(words("en", 3)).toBe("3 files couldn’t be read");
+    expect(words("zh-CN", 1)).toBe("1 个文件未能读取");
+    expect(words("zh-CN", 3)).toBe("3 个文件未能读取");
+    expect(words("en", 0)).toBeNull();
+    expect(words("zh-CN", 0)).toBeNull();
   });
 
   test("names the Answers its live Blocks hold, not one whose Block was deleted since", () => {

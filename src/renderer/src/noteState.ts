@@ -152,8 +152,7 @@ export function noteStateParts(
   now?: Date,
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
-  const unreadWords = () =>
-    t(state.unread === 1 ? "unread.count.one" : "unread.count", { count: count(state.unread) });
+  const unread = noteStateUnreadWords(state, t, language);
   if (state.kind === "not-checked") return [t("health.state.notChecked")];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
@@ -164,14 +163,26 @@ export function noteStateParts(
         }),
       );
     }
-    if (state.unreadMatters && state.unread > 0) parts.push(unreadWords());
+    if (unread !== null) parts.push(unread);
     return parts;
   }
   const time =
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
   const said = time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
-  if (state.unread === 0) return [said];
-  return [said, unreadWords()];
+  return unread === null ? [said] : [said, unread];
+}
+
+/** "3 files couldn't be read": the files the state counts as unread, for the Saved line's Show (#740); null when it counts none. */
+export function noteStateUnreadWords(
+  state: NoteState,
+  t: Translate,
+  language: Language,
+): string | null {
+  if (state.unread === 0) return null;
+  if (state.kind !== "checked" && !(state.kind === "needs-look" && state.unreadMatters))
+    return null;
+  const count = new Intl.NumberFormat(language).format(state.unread);
+  return t(state.unread === 1 ? "unread.count.one" : "unread.count", { count });
 }
 
 let schema: ReturnType<typeof getSchema> | undefined;

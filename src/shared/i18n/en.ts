@@ -4078,9 +4078,6 @@ export const en = {
   "export.commentFailedChecks.hint":
     "Contradicted, Unsupported, Not found, Quote not found or Needs re-check",
   "export.commentFailedChecks.hint.others": "Comments quote your Documents and name them",
-  "export.unreadNames": "Name the files",
-  "export.unreadNames.hint":
-    "The section about what couldn’t be read lists the files by name. Off, it says how many.",
   "aiStatement.command": "Export AI use statement",
   "aiStatement.keywords": "AI use disclosure declaration thesis dissertation paper record",
   "aiStatement.title": "AI use statement: {name}",
@@ -4144,12 +4141,8 @@ export const en = {
     "Each sentence checked, cut after its first {count} words, with the latest result of its check:",
   "aiStatement.sentences.column.sentence": "Sentence",
   "aiStatement.sentences.column.checked": "Checked",
-  "aiStatement.unread.one":
-    "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it:",
   "aiStatement.unread.one.fullStop":
     "When these sentences were checked, 1 file they were checked against couldn’t be read, so the checks didn’t search it.",
-  "aiStatement.unread":
-    "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them:",
   "aiStatement.unread.fullStop":
     "When these sentences were checked, {count} files they were checked against couldn’t be read, so the checks didn’t search them.",
   "aiStatement.note":
@@ -4518,8 +4511,6 @@ export const en = {
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
   "error.document.notCitedChoice": "Whether a Document is cited must be true or false.",
-  "error.mind.unreadFileNames":
-    "Whether an export names the files it couldn’t read must be true or false.",
   "error.document.fileMissing": "The Document’s file is missing.",
   "error.verify.request": "That isn’t a request to verify a document that IncarnaMind can read.",
   "error.verify.notVerifying": "This note doesn’t verify a document.",
