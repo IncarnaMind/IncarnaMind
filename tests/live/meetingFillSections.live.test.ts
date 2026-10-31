@@ -914,7 +914,7 @@ async function run(call: Call) {
   await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
-  writeMind(client, call.notes);
+  if (call.notes.length > 0) writeMind(client, call.notes);
   await client.settled();
   const typed = unitsOf(readMind(client)).map((each) => each.text);
   await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
@@ -980,7 +980,14 @@ const shownNote = (doc: ProseMirrorNode) => {
   return lines.join("\n");
 };
 
-const chosen = CALLS.filter((call) => !PICKED || PICKED.includes(call.id));
+/** The walk's calls with nothing typed: the sections alone, as before #2306, for comparison. */
+const UNTYPED = CALLS.filter((call) => call.id.startsWith("walk-")).map((call) => ({
+  ...call,
+  id: `${call.id}-untyped`,
+  notes: [],
+}));
+
+const chosen = [...CALLS, ...UNTYPED].filter((call) => !PICKED || PICKED.includes(call.id));
 
 describe.skipIf(!KEY)(
   "Notes typed in a call, filled in on a real model (#2306)",
@@ -1005,6 +1012,7 @@ describe.skipIf(!KEY)(
             "",
             `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
             `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
+            `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
             "",
             "| Kind | Fact | Times in the note | Cited rightly | In the claims list |",
             "|---|---|---|---|---|",
@@ -1014,7 +1022,7 @@ describe.skipIf(!KEY)(
             shownNote(doc),
             "```",
             "",
-            ...(fill.state === "filled"
+            ...(fill.state === "filled" && !process.env.INCARNAMIND_LIVE_REPLIES
               ? []
               : usage.replies.flatMap((reply, index) => [
                   `Reply ${index + 1}: ${reply.output} tokens out, ${reply.reasoning} reasoning, Tools: ${reply.tools.join(", ") || "none"}.`,

@@ -98,9 +98,9 @@ export const lineMarker = (index: number) => `L${index + 1}`;
 const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
   ...SECTION_ASKS,
   summary:
-    "two to four sentences on what the call was about and how it ended. Any fact in it is one that no line's part or other section says",
+    "two or three sentences on what the call was about and how it ended, then each figure, date or term said in the call that nothing written above has",
   decisions: "what was decided that no line's part already says, a bullet each",
-  questions: "what the call left open, not what it settled, a bullet each",
+  questions: "what the call left open, not what it settled or gave someone to do, a bullet each",
 };
 
 /** How what the call said is shared out between the User's lines and the sections. */
@@ -109,6 +109,16 @@ const NOTES_SECTION_RULES: Readonly<Partial<Record<FillSection, string>>> = {
     "- Every action goes in ACTIONS, each once, with the one person who will do it. Only a line of the User's that is itself an action is filled out in place instead.",
   claims: "- CLAIMS alone lists the facts again, to be checked.",
 };
+
+/**
+ * The order the model writes the sections in: the summary after the others, so it can leave out
+ * what they hold. They go into the notes in the template's order all the same.
+ */
+const writtenOrder = (sections: readonly FillSection[]): FillSection[] => [
+  ...sections.filter((section) => section !== "summary" && section !== "claims"),
+  ...sections.filter((section) => section === "summary"),
+  ...sections.filter((section) => section === "claims"),
+];
 
 const callIntro =
   "The transcript above is of a meeting the User just recorded: each line starts with its time and who spoke ([12:07 Them]).";
@@ -138,7 +148,7 @@ export function notesContext(
       ? []
       : [
           "Then, after the lines' parts, write these sections, each starting with its marker alone as a heading, in this order:",
-          ...sections.map(
+          ...writtenOrder(sections).map(
             (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
           ),
           "- Write each fact, decision, date and figure once in all the notes: under the line it belongs to, else in the one section it fits. Before writing a sentence in a section, check that no line's part says it already. A line's part says where the call ended up about it, not each offer on the way.",

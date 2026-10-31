@@ -1049,6 +1049,11 @@ export function createAnswers(options: AnswersOptions) {
     toolSet?: ToolSet;
     /** The output limit of its replies, when it writes more than an Answer (see `AnswerRequest`). */
     outputKind?: ModelCallKind;
+    /**
+     * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
+     * does: at a Task's effort the thinking alone filled their replies' limits (#2306).
+     */
+    thinking?: "answer";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -2075,7 +2080,9 @@ export function createAnswers(options: AnswersOptions) {
         prepared = await options.prepareModel(
           model,
           // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : input.task ? "summary" : careful ? "careful" : "answer",
+          help
+            ? "off"
+            : (input.thinking ?? (input.task ? "summary" : careful ? "careful" : "answer")),
         );
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
@@ -4084,6 +4091,7 @@ export function createAnswers(options: AnswersOptions) {
           outside: true,
           toolSet: "check",
           outputKind: "meeting-fill",
+          thinking: "answer",
           task: true,
           transcript: input.passages,
         });
