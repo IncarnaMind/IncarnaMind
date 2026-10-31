@@ -145,6 +145,37 @@ describe("the strings of #1774", () => {
   });
 });
 
+describe("emphasis beside full-width punctuation with a number or a Latin word beyond it", () => {
+  test.each([
+    ["**上限：**5000 元", [bold("上限："), plain("5000 元")]],
+    ["**金额（万元）：**1,200", [bold("金额（万元）："), plain("1,200")]],
+    ["每月5000**（含税）**", [plain("每月5000"), bold("（含税）")]],
+    ["**期限：**2026 年 3 月", [bold("期限："), plain("2026 年 3 月")]],
+    ["**上限：**USD 5,000", [bold("上限："), plain("USD 5,000")]],
+    ["**风险：**Brexit 影响", [bold("风险："), plain("Brexit 影响")]],
+    ["每月5000**（含税）**。", [plain("每月5000"), bold("（含税）"), plain("。")]],
+    ["见**《合同法》**5条", [plain("见"), bold("《合同法》"), plain("5条")]],
+    ["**Total：**5,000 元", [bold("Total："), plain("5,000 元")]],
+  ])("%s", (markdown, expected) => {
+    expect(runs(markdown)).toEqual(expected);
+  });
+
+  test("the rewrite reader reads the same words with the same looks", () => {
+    const read = emphasisOf("**上限：**5000 元");
+    expect(read?.plain).toBe("上限：5000 元");
+    expect(read?.looks.slice(0, 3)).toEqual([{ bold: true }, { bold: true }, { bold: true }]);
+    expect(read?.looks[3]).toEqual({});
+  });
+
+  test("stars that are not emphasis stay as written", () => {
+    expect(runs("2**10")).toEqual([plain("2**10")]);
+    expect(runs("5 * 3 * 2")).toEqual([plain("5 * 3 * 2")]);
+    expect(runs("*.txt")).toEqual([plain("*.txt")]);
+    expect(runs("* item")).toEqual([plain("item")]);
+    expect(runs("`**上限：**5000 元`")).toEqual([code("**上限：**5000 元")]);
+  });
+});
+
 describe("emphasisOf", () => {
   test("gives the plain words and the look of each character", () => {
     const read = emphasisOf("**Role.** The *post* is senior");

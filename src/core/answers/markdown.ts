@@ -446,8 +446,18 @@ type Token =
 
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/;
 const isWhitespace = (char: string | undefined) => char === undefined || /\s/.test(char);
+/**
+ * Chinese writes its punctuation with no spaces around it, so a full-width or CJK punctuation mark
+ * beside a delimiter counts like a letter, never like the ASCII punctuation CommonMark would hold
+ * the emphasis back for: `**上限：**5000 元` and `每月5000**（含税）**` are bold (#1774), as
+ * markdown-cjk-friendly reads them.
+ */
+const isCjkPunctuation = (char: string | undefined) =>
+  char !== undefined &&
+  /[\u3000-\u303f\ufe10-\ufe19\ufe30-\ufe4f\uff00-\uffef]/u.test(char) &&
+  /[\p{P}\p{S}]/u.test(char);
 const isPunctuation = (char: string | undefined) =>
-  char !== undefined && /[\p{P}\p{S}]/u.test(char);
+  char !== undefined && /[\p{P}\p{S}]/u.test(char) && !isCjkPunctuation(char);
 /**
  * Chinese has no spaces, so CommonMark's flanking rule leaves `**仍未确定：**下一步` unclosed
  * (#790). Beside punctuation, a CJK letter counts like a space, as in markdown-cjk-friendly.
@@ -688,10 +698,18 @@ function tokenize(source: string, open: boolean): Token[] {
       const after = source[i + run];
       const leftFlanking =
         !isWhitespace(after) &&
-        (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before) || isCjk(before));
+        (!isPunctuation(after) ||
+          isWhitespace(before) ||
+          isPunctuation(before) ||
+          isCjk(before) ||
+          isCjkPunctuation(before));
       const rightFlanking =
         !isWhitespace(before) &&
-        (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after) || isCjk(after));
+        (!isPunctuation(before) ||
+          isWhitespace(after) ||
+          isPunctuation(after) ||
+          isCjk(after) ||
+          isCjkPunctuation(after));
       flush();
       tokens.push({
         kind: "delimiter",

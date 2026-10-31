@@ -13,15 +13,37 @@ const TIDES = {
   contents: "# Tides\n\nSpring tides happen at new moon and at full moon.",
 };
 
-/** The #1774 strings, each paragraph one sentence, as a model writes them into a Note. */
+/** The #1774 strings and the shapes a number or a Latin word makes, each paragraph one sentence. */
 const PARAGRAPHS = [
   "**上限：**每月五千元。",
   "**上限**：每月五千元。",
   "每月五千元**（含税）**。",
   "**上限，**五千元。",
   "**上限。**五千元。",
+  "**上限：**5000 元。",
+  "**金额（万元）：**1,200。",
+  "每月5000**（含税）**。",
+  "**期限：**2026 年 3 月。",
+  "见**《合同法》**5条。",
+  "**Total：**5,000 元。",
 ];
 const PAGE = `## 费用\n\n${PARAGRAPHS.join("\n\n")}`;
+const BOLD = [
+  "上限：",
+  "上限",
+  "（含税）",
+  "上限，",
+  "上限。",
+  "上限：",
+  "金额（万元）：",
+  "（含税）",
+  "期限：",
+  "《合同法》",
+  "Total：",
+];
+const PHRASES = PARAGRAPHS.map((each) => each.replace(/\*\*/g, ""));
+/** What a check reads as sentences: one per 。, which a bold label can end. */
+const SENTENCES = PHRASES.flatMap((phrase) => phrase.match(/[^。]*。|[^。]+$/g) ?? []);
 
 interface Run {
   text: string;
@@ -29,7 +51,7 @@ interface Run {
 }
 
 describe("bold beside Chinese punctuation in a Note's page and a check card", () => {
-  test("a Note the assistant writes holds the words bold, with no asterisks, and its check's card reads them as words", async () => {
+  test("a Note the assistant writes holds the words bold, with no asterisks, and its check's card reads every sentence as words", async () => {
     const model = scriptedModel((call): ScriptedReply => {
       if (isCheckRun(call)) return checkReply(call, {});
       if (call.results.some((result) => result.tool === "create_mind")) {
@@ -58,37 +80,32 @@ describe("bold beside Chinese punctuation in a Note's page and a check card", ()
       return true;
     });
     expect(runs.map((run) => run.text).join("")).not.toContain("*");
-    expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual([
-      "上限：",
-      "上限",
-      "（含税）",
-      "上限，",
-      "上限。",
-    ]);
-    const page = runs.map((run) => run.text).join("");
-    expect(page).toBe(["费用", ...PARAGRAPHS.map((each) => each.replace(/\*\*/g, ""))].join(""));
+    expect(runs.filter((run) => run.bold).map((run) => run.text)).toEqual(BOLD);
+    expect(runs.map((run) => run.text).join("")).toBe(["费用", ...PHRASES].join(""));
 
     const blocks = (readMind(client).toJSON().content ?? []) as (JSONContent & {
       attrs: { id: string };
     })[];
-    const block = blocks.find(
-      (node) =>
-        node.type === "paragraph" &&
-        (node.content ?? []).some((child) => (child.text ?? "").includes("（含税）")),
-    );
-    if (!block) throw new Error("The paragraph isn't in the Note.");
-    const text = (block.content ?? []).map((child) => child.text ?? "").join("");
+    const paragraphs = blocks.filter((node) => node.type === "paragraph");
+    const first = paragraphs[0];
+    const last = paragraphs.at(-1);
+    if (!first || !last) throw new Error("The paragraphs aren't in the Note.");
+    const lengthOf = (node: JSONContent) =>
+      (node.content ?? []).reduce(
+        (total, child) => total + (child.type === "hardBreak" ? 1 : (child.text ?? "").length),
+        0,
+      );
     const result = await core.checkSentences({
       requestId: crypto.randomUUID(),
       mindId: made.mindId,
       action: "check-against-documents",
-      from: { blockId: block.attrs.id, offset: 0 },
-      to: { blockId: block.attrs.id, offset: text.length },
+      from: { blockId: first.attrs.id, offset: 0 },
+      to: { blockId: last.attrs.id, offset: lengthOf(last) },
     });
     expect(result.kind).toBe("checked");
     await client.settled();
     const sentences = claimSpans(readMind(client)).map((span) => span.sentence.text);
-    expect(sentences).toContain("每月五千元（含税）。");
+    for (const sentence of SENTENCES) expect(sentences).toContain(sentence);
     expect(sentences.join("")).not.toContain("*");
   });
 });
