@@ -1,9 +1,9 @@
 /**
- * Starts IncarnaMind's log (./log) for the desktop app: the app's start (how
- * it ends is ./appEnd's), errors written to the console (which is where the core and the main
- * process report problems), errors nothing caught in the main process, and
- * windows and processes that crashed. The core logs through the `log`
- * adapter (./platform); the window's uncaught errors come over the files
+ * Starts IncarnaMind's log (./log) for the desktop app: the app's start (how it
+ * ends is ./appEnd's), errors written to the console (which is where the core
+ * and the main process report problems), errors nothing caught in the main
+ * process, and windows and processes that crashed. The core logs through the
+ * `log` adapter (./platform); the window's uncaught errors come over the files
  * bridge (./files).
  */
 import { arch, release } from "node:os";

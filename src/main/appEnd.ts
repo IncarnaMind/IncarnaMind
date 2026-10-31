@@ -13,17 +13,14 @@ export type QuitAsker =
   | "menu"
   /** Quit's keys: ⌘Q, Ctrl+Q. */
   | "shortcut"
-  /** An update installing. */
   | "update"
   /** The last window closed, on Windows and Linux. */
   | "lastWindow"
-  /** The core couldn't start. */
   | "startFailed"
   /** The User's answer to the unsaved-changes question. */
   | "unsavedChoice"
   /** SIGTERM, SIGINT or SIGHUP. */
   | "signal"
-  /** The computer shutting down or restarting. */
   | "shutdown"
   /** Anything else: the Dock's Quit, logging out, another program. */
   | "outside";
