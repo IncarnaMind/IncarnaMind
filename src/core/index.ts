@@ -21,6 +21,9 @@ export type {
   PageText,
 } from "../shared/citedPage";
 export type {
+  AgentProcess,
+  AgentProcesses,
+  AgentProgram,
   AnalysisRuntime,
   AudioCapture,
   AudioSink,

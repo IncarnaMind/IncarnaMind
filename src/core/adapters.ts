@@ -275,6 +275,44 @@ export interface ProcessLauncher {
   spawn(command: string, args: readonly string[], options?: SpawnOptions): Promise<ChildProcess>;
 }
 
+/** An agent the User installed, as a hosted Run starts it (#353). */
+export interface AgentProgram {
+  /** Looked up on the login shell's PATH, unless a path. */
+  command: string;
+  args: readonly string[];
+  /** Absolute. */
+  cwd: string;
+  /** Added to the login shell's environment. */
+  env: Readonly<Record<string, string>>;
+}
+
+/**
+ * A running agent, spoken to over its standard input and output as web
+ * streams, so the core's ACP client needs nothing from Node and another host
+ * can supply a socket or a WebSocket instead of a process.
+ */
+export interface AgentProcess {
+  /** Its standard input. */
+  readonly input: WritableStream<Uint8Array>;
+  /** Its standard output. */
+  readonly output: ReadableStream<Uint8Array>;
+  /** Settles once it has exited, however it ended. */
+  readonly exited: Promise<{ code: number | null; signal: string | null }>;
+  /** The end of its error output, for the line that says why it stopped. */
+  stderrTail(): string;
+  /** Stops it with every process it started; settles once it has exited. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Starts the agents hosted Runs talk to (#353). A host that can't start
+ * processes has none, and offers no hosted agent.
+ */
+export interface AgentProcesses {
+  /** Rejects when it can't start: a command that isn't found rejects with `code` "ENOENT". */
+  start(program: AgentProgram): Promise<AgentProcess>;
+}
+
 /** How the programs an `Executor` runs are confined (see `SandboxLevel` in ./api, where the UI reads it). */
 export type { SandboxLevel } from "./api";
 

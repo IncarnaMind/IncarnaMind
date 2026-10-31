@@ -110,7 +110,7 @@ export function declaredAccess(level: SandboxLevel, allow: ExecAllow): ExecAcces
  * on macOS and Linux (it was started as the group's leader), its process
  * tree on Windows. Best effort: one that has gone already is fine.
  */
-function stopProcessTree(child: ChildProcess): void {
+export function stopProcessTree(child: ChildProcess): void {
   const { pid } = child;
   if (pid === undefined) return;
   const killChild = () => {
