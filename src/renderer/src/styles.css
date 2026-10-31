@@ -8483,6 +8483,9 @@
   .answer-step-check[data-check="unsupported"] {
     color: var(--color-warning);
   }
+  .answer-step-check[data-check="contradicted"] {
+    color: var(--color-danger);
+  }
   .assistant-answer .answer-step-problem {
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);

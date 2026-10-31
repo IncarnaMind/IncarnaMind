@@ -102,6 +102,8 @@ export type StepRow =
       notFound: number;
       /** Citations whose quote is found and whose sentence it doesn't support (#2311). */
       needALook?: number;
+      /** Of those, the ones whose sentence the Documents contradict. */
+      contradicted?: number;
       running?: true;
     };
 
@@ -400,11 +402,13 @@ export function stepRows(
     const needALook = shown.filter(
       (citation) => citation.check === "unsupported" || citation.check === "contradicted",
     ).length;
+    const contradicted = shown.filter((citation) => citation.check === "contradicted").length;
     rows.push({
       kind: "check",
       count: shown.length,
       notFound: shown.filter((citation) => citation.check === "not-found").length,
       ...(needALook > 0 && { needALook }),
+      ...(contradicted > 0 && { contradicted }),
     });
   }
   return rows;

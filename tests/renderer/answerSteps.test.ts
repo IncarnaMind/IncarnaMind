@@ -530,6 +530,20 @@ describe("an Answer's steps", () => {
       notFound: 0,
       needALook: 1,
     });
+    const contradicted = input({
+      text: "Spring tides follow the new moon [^1]. They are the highest [^2].",
+      citations: [
+        { ...quoted(1, "Spring tides"), check: "contradicted" },
+        { ...quoted(2, "Full moon"), check: "unsupported" },
+      ],
+    });
+    expect(stepRows(contradicted).at(-1)).toEqual({
+      kind: "check",
+      count: 2,
+      notFound: 0,
+      needALook: 2,
+      contradicted: 1,
+    });
     expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
     expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
   });

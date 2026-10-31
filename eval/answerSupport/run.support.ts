@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { CitedQuote, ClaimCheckResult, Core, Document } from "../../src/core";
+import { findQuote } from "../../src/shared/quoteMatch";
 import { readChecksSet } from "../checks/lib/set";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
@@ -55,12 +56,14 @@ async function citedQuote(
   const found = (await core.searchPassages(quote)).filter(
     (each) => each.documentId === document.id,
   );
-  const passage = found.find((each) => each.text.includes(quote.slice(0, 12))) ?? found[0];
+  // Found as the Citation check finds a quote: a sheet's cells and a PDF's line breaks don't count.
+  const passage = found.find((each) => findQuote(each.text, quote, { numbers: "if-needed" }));
+  if (!passage) throw new Error(`No Passage of ${name} holds “${quote}”.`);
   return {
     documentName: document.name,
     documentId: document.id,
     contentHash: document.contentHash,
-    ...(passage && { passageId: passage.passageId }),
+    passageId: passage.passageId,
     quote,
   };
 }
@@ -75,12 +78,24 @@ async function checkEach(
     supported: boolean;
     cited: () => Promise<CitedQuote>;
   }[],
-  model: { providerId: string; modelId: string },
+  /** Null: a dry run, which finds each cited Passage and checks nothing. */
+  model: { providerId: string; modelId: string } | null,
   spend: { total: number; cap: number },
   log: Log,
+  skipped: { id: string; why: string }[],
 ): Promise<Row[]> {
   const rows: Row[] = [];
   for (const item of items) {
+    let cited: CitedQuote;
+    try {
+      cited = await item.cited();
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      skipped.push({ id: item.id, why });
+      log(`  ${item.id}: ${why}`);
+      continue;
+    }
+    if (!model) continue;
     if (spend.total >= spend.cap) {
       log(`Stopped before ${item.id}: $${spend.total.toFixed(4)} spent, the budget's reached.`);
       break;
@@ -89,9 +104,11 @@ async function checkEach(
     const started = Date.now();
     let result: ClaimCheckResult;
     try {
-      result = await core.checkClaim({ claim: item.sentence, cited: [await item.cited()], model });
+      result = await core.checkClaim({ claim: item.sentence, cited: [cited], model });
     } catch (error) {
-      log(`  ${item.id}: ${error instanceof Error ? error.message : String(error)}`);
+      const why = error instanceof Error ? error.message : String(error);
+      skipped.push({ id: item.id, why });
+      log(`  ${item.id}: ${why}`);
       continue;
     }
     const said =
@@ -147,7 +164,8 @@ test("Answer sentences against the quotes they cite", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
   const chat = config.chat;
-  if (!chat) {
+  const dry = process.env.INCARNAMIND_EVAL_SUPPORT_DRY === "1";
+  if (!chat && !dry) {
     log("No chat model: set INCARNAMIND_EVAL_CHAT_KIND, _MODEL and _KEY (eval/README.md).");
     return;
   }
@@ -158,6 +176,7 @@ test("Answer sentences against the quotes they cite", async () => {
   const repeats = Number(process.env.INCARNAMIND_EVAL_SUPPORT_REPEATS ?? "1") || 1;
   const spend = { total: 0, cap: Number(process.env.INCARNAMIND_EVAL_SUPPORT_BUDGET ?? "1") || 1 };
   const rows: Row[] = [];
+  const skipped: { id: string; why: string }[] = [];
 
   const run = async (
     name: string,
@@ -180,13 +199,13 @@ test("Answer sentences against the quotes they cite", async () => {
       core.on("consent.requested", (request) => {
         void core.respondToConsent(request.requestId, request.flow.id === "checks");
       });
-      const provider = await core.saveChatProvider(chatProviderOf(chat));
-      const model = { providerId: provider.id, modelId: chat.modelId };
+      const provider = chat && !dry ? await core.saveChatProvider(chatProviderOf(chat)) : null;
+      const model = chat && provider ? { providerId: provider.id, modelId: chat.modelId } : null;
       const wanted = items(library.documents.values(), core)
         .filter((each) => !only || only.split(",").includes(each.id))
         .flatMap((each) => Array.from({ length: repeats }, () => each));
-      log(`${chat.modelId} · ${arm} · ${name}: ${wanted.length} sentences`);
-      rows.push(...(await checkEach(core, wanted, model, spend, log)));
+      log(`${model?.modelId ?? "dry"} · ${arm} · ${name}: ${wanted.length} sentences`);
+      rows.push(...(await checkEach(core, wanted, model, spend, log, skipped)));
     } finally {
       await library.close();
     }
@@ -260,14 +279,22 @@ test("Answer sentences against the quotes they cite", async () => {
 
   const out = join(
     config.resultsDir,
-    `${new Date().toISOString().replace(/[:.]/g, "-")}-support-${chat.modelId}-${arm}`,
+    `${new Date().toISOString().replace(/[:.]/g, "-")}-support-${chat?.modelId ?? "dry"}-${arm}`,
   );
   await mkdir(out, { recursive: true });
   const lines = summary(rows);
   await writeFile(
     join(out, "report.json"),
     JSON.stringify(
-      { commit: commitOf(ROOT), model: chat.modelId, arm, spent: spend.total, lines, rows },
+      {
+        commit: commitOf(ROOT),
+        model: chat?.modelId ?? null,
+        arm,
+        spent: spend.total,
+        lines,
+        rows,
+        skipped,
+      },
       null,
       2,
     ),

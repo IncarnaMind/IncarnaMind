@@ -680,6 +680,7 @@ function StepItem({
           count={row.count}
           notFound={row.notFound}
           needALook={row.needALook ?? 0}
+          contradicted={row.contradicted ?? 0}
           running={row.running}
         />
       );
@@ -950,11 +951,13 @@ function CheckStep({
   count,
   notFound,
   needALook,
+  contradicted,
   running,
 }: {
   count: number;
   notFound: number;
   needALook: number;
+  contradicted: number;
   running?: boolean | undefined;
 }) {
   const t = useT();
@@ -966,7 +969,14 @@ function CheckStep({
     );
   }
   const allFound = notFound === 0 && needALook === 0;
-  const mark = notFound > 0 ? "not-found" : needALook > 0 ? "unsupported" : "found";
+  const mark =
+    contradicted > 0
+      ? "contradicted"
+      : notFound > 0
+        ? "not-found"
+        : needALook > 0
+          ? "unsupported"
+          : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
     : [

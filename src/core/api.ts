@@ -1931,7 +1931,9 @@ export interface WordExportReport {
  * - "cant-check": there is no text to look in (see `checkReason`).
  * - "unsupported", "contradicted": the verdict of checking the claim itself against
  *   the Documents, not only its quote (`verdict` says what the evidence says). An Answer in the
- *   assistant checks its sentences so before it ends (#2311): "found" then also means supported.
+ *   assistant checks its sentences so before it ends (#2311): "found" then also means supported,
+ *   for a sentence that check read and judged; for one it couldn't (no model the checks flow may
+ *   use, no verdict, a Calculated figure's sentence, a table's row), only that the quote is there.
  */
 export type CitationCheck =
   | "checking"
