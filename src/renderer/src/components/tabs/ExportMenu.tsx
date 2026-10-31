@@ -115,7 +115,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         : {
             label:
               toCheck > 0
-                ? `${t(toCheck === 1 ? "mindCheck.changed.one" : "mindCheck.changed", {
+                ? `${t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
                     count: format(toCheck),
                   })} · ${t("export.checkFirstAction")}`
                 : t("export.checkFirst"),
