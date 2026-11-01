@@ -138,6 +138,7 @@ interface LiveStream {
   stream: string;
   baseMs: number;
   doneMs: number;
+  heardMs: number;
   /** A cloud stream's audio held in the core until its connection opens; absent once it has. */
   waiting?: Int16Array[];
 }
@@ -170,6 +171,11 @@ interface Live {
   /** How far audio has gone to the engine, and how far its text is final on every stream, in the Meeting's time. */
   pushedMs: number;
   doneMs: number;
+  /**
+   * How far the engine has answered for on every stream: at least `doneMs`. A cloud service that
+   * answers while nothing is final yet (a long silence, a long sentence) is keeping up.
+   */
+  heardMs: number;
   /** Audio from here on isn't transcribed live: it is transcribed after Stop. Null while it is. */
   pendingFrom: number | null;
   /**
@@ -281,7 +287,7 @@ const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): stri
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
 
-type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode";
+type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode" | "moved";
 
 /** The engine couldn't start, or stopped, while what was left was being transcribed. */
 class EngineError extends Error {}
@@ -640,7 +646,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     });
   }
 
-  function heardProgress(stream: string, doneMs: number): void {
+  function heardProgress(stream: string, doneMs: number, heardMs = doneMs): void {
     const found = owner(stream);
     if (!found?.live || !found.state.live) return;
     const { state } = found;
@@ -648,9 +654,13 @@ export function createTranscripts(options: TranscriptsOptions) {
     const own = live.streams[found.source];
     if (!own) return;
     own.doneMs = Math.max(own.doneMs, found.baseMs + doneMs);
-    live.doneMs = Math.max(
+    own.heardMs = Math.max(own.heardMs, own.doneMs, found.baseMs + heardMs);
+    const streams = Object.values(live.streams);
+    live.doneMs = Math.max(live.doneMs, Math.min(...streams.map((each) => each.doneMs)));
+    live.heardMs = Math.max(
+      live.heardMs,
       live.doneMs,
-      Math.min(...Object.values(live.streams).map((each) => each.doneMs)),
+      Math.min(...streams.map((each) => each.heardMs)),
     );
     if (live.pendingFrom === null) state.doneMs = live.doneMs;
   }
@@ -674,6 +684,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       live.stream = `${state.meetingId}:${++streams}`;
       live.streams = {};
       live.doneMs = live.pushedMs;
+      live.heardMs = live.doneMs;
       if (state.restarts.length > MAX_RESTARTS) {
         live.pendingFrom ??= live.pushedMs;
         state.state = "behind";
@@ -752,6 +763,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     live.stream = `${state.meetingId}:${++streams}`;
     live.streams = {};
     live.doneMs = live.pushedMs;
+    live.heardMs = live.doneMs;
     live.backlogEnd = live.pushedMs;
     state.partials.clear();
     if (reason !== "user") state.fellBack = { route, atMs, reason };
@@ -771,8 +783,9 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   function gateClosed(live: Live): Leaving | null {
     if (live.engine === "local") return null;
-    const now = options.cloud?.sending(live.engine) ?? "stopped";
-    return now === "ok" ? null : now === "local-mode" ? "local-mode" : "user";
+    if (!live.cloud) return "user";
+    const now = options.cloud?.sending(live.engine, live.cloud.stream) ?? "stopped";
+    return now === "ok" ? null : now === "stopped" ? "user" : now;
   }
 
   function heardOpened(stream: string): void {
@@ -904,6 +917,7 @@ export function createTranscripts(options: TranscriptsOptions) {
           ),
           baseMs: audio.atMs,
           doneMs: audio.atMs,
+          heardMs: audio.atMs,
           ...(live.cloud && { waiting: [] }),
         };
         live.streams[source] = own;
@@ -973,7 +987,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!live.started || live.pendingFrom !== null) return;
     pushTracks(state, live, audio);
     if (!live.started) return;
-    if (live.pushedMs - Math.max(live.doneMs, live.backlogEnd) > BEHIND_MS) fallBehind(state, live);
+    // Behind is the engine not keeping up, which a cloud service's answers show; what is safe to
+    // replay after a lost connection stays `doneMs`.
+    if (live.pushedMs - Math.max(live.heardMs, live.doneMs, live.backlogEnd) > BEHIND_MS)
+      fallBehind(state, live);
   }
 
   /** Live text stops; the rest is transcribed after Stop. */
@@ -1041,6 +1058,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       const end = old.atMs + old.lengthMs;
       state.pending = addRange(state.pending, { fromMs: old.atMs, toMs: end });
       live.doneMs = end;
+      live.heardMs = live.doneMs;
       live.pushedMs = end;
     }
   }
@@ -1482,6 +1500,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         held: [],
         pushedMs: offsetMs,
         doneMs: offsetMs,
+        heardMs: offsetMs,
         pendingFrom: null,
         backlogEnd: offsetMs,
         callSound,
@@ -1599,6 +1618,7 @@ export function createTranscripts(options: TranscriptsOptions) {
           live.streams = {};
           live.pushedMs = live.tracks.atMs;
           live.doneMs = live.tracks.atMs;
+          live.heardMs = live.doneMs;
           live.pendingFrom = null;
         }
         startEngine(state);
