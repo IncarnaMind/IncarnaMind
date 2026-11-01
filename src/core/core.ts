@@ -1905,7 +1905,8 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableNames: (documentIds, limit) =>
         documents.searchableNames(documentIds ?? undefined, limit),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
-      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
+      searchableHasSheets: (documentIds, workbooksOnly) =>
+        documents.searchableHasSheets(documentIds ?? undefined, workbooksOnly),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       passagesCovering: (documentId, from, to, overlapping) =>

@@ -698,6 +698,8 @@ interface Recorded {
   signAsked: boolean;
   /** Each input's quote, and its unit statement's, in order; `source`: its cite record's marker, or the quote it gave. */
   quotes: { input: Quoted; unit: Quoted | null; source: number | QuoteInput }[];
+  /** Quotes a figure recorded whole is cited to: a workbook figure's cell (#2347). */
+  cited?: readonly QuoteInput[];
 }
 
 /** A figure given in structured output that couldn't be worked out: what its one request to fix it shows. */
@@ -1526,9 +1528,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         problems.push("A figure needs a marker number (1, 2, …) that is in the Answer as [=n].");
         continue;
       }
-      if (recorded.get(marker)?.figure.analysis !== undefined) {
+      const earlierFigure = recorded.get(marker)?.figure;
+      if (earlierFigure?.analysis !== undefined || earlierFigure?.workbook !== undefined) {
         problems.push(
-          `[=${marker}] belongs to an Analysis. Keep that marker for its result; choose a new marker for this calculation.`,
+          `[=${marker}] belongs to ${earlierFigure.analysis ? "an Analysis" : "a workbook's formulas"}. Keep that marker for its result; choose a new marker for this calculation.`,
         );
         continue;
       }
@@ -1635,10 +1638,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return { input: current };
     },
 
-    /** Records a figure an Analysis gave (#447) under the next marker no figure has: that marker. */
-    record(figure: CalculatedFigure): number {
+    /**
+     * Records a figure an Analysis or a workbook's formulas gave (#447, #2347) under the next
+     * marker no figure has: that marker. `cited`: the quotes the Answer cites it to.
+     */
+    record(figure: CalculatedFigure, cited: readonly QuoteInput[] = []): number {
       const marker = Math.max(0, ...recorded.keys()) + 1;
-      recorded.set(marker, { figure, note: "", signAsked: false, quotes: [] });
+      recorded.set(marker, { figure, note: "", signAsked: false, quotes: [], cited });
       options.onRecord?.(marker, figure);
       return marker;
     },
@@ -1650,7 +1656,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
     /** Where a marker's figure's inputs quote from: a cite record's marker, or a quote given directly. */
     inputSources(marker: number): (number | QuoteInput)[] {
-      return (recorded.get(marker)?.quotes ?? []).map((each) => each.source);
+      const entry = recorded.get(marker);
+      return [...(entry?.quotes ?? []).map((each) => each.source), ...(entry?.cited ?? [])];
     },
 
     /** A marker's figure: "checking" until `check`, then with each input's check; null when none was recorded. */

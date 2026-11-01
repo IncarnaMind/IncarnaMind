@@ -37,7 +37,10 @@ export interface ExportLabels {
 }
 
 /** How a calculated figure was worked out: its formula in words, or the saved Analysis it came from. */
-export type FigureWorked = { formula: string } | { analysis: string };
+export type FigureWorked =
+  | { formula: string }
+  | { analysis: string }
+  | { cell: string; workbookFormula: string; change: { input: string; value: string } | null };
 
 export interface FigureNoteSource {
   inputs: readonly string[];
@@ -214,7 +217,21 @@ export function exportLabels(language: Language): ExportLabels {
       [
         "formula" in worked
           ? t("export.figure.calculated", { formula: worked.formula, figure })
-          : t("export.figure.analysis", { title: worked.analysis, figure }),
+          : "analysis" in worked
+            ? t("export.figure.analysis", { title: worked.analysis, figure })
+            : worked.change
+              ? t("export.figure.whatIf", {
+                  cell: worked.cell,
+                  formula: worked.workbookFormula,
+                  input: worked.change.input,
+                  value: worked.change.value,
+                  figure,
+                })
+              : t("export.figure.workbook", {
+                  cell: worked.cell,
+                  formula: worked.workbookFormula,
+                  figure,
+                }),
         ...sources.map(({ inputs, source, unverified }) =>
           t("export.figure.inputs", {
             inputs: listOf(inputs, language),

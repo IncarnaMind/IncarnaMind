@@ -62,10 +62,13 @@ import { unreadMessage } from "./unreadMessage";
  * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
  * deposition layouts keep their printed page and line anchors). 19: #1001 (a
- * PDF page keeps the scale its running header wrote). 20: #2365 (a Word
- * section's headers and footers, and more forms of a scale, are read for it).
+ * PDF's page keeps the scale its running header wrote). 20: #2347 (a
+ * workbook's rows Units keep each cell's formula beside its saved value, and
+ * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
+ * Word section's headers and footers, and more forms of a scale, are read for
+ * it).
  */
-export const PROCESSING_VERSION = 20;
+export const PROCESSING_VERSION = 21;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -90,18 +93,20 @@ export const PROCESSING_VERSION = 20;
  * cleanup took for running headers; other PDFs' pages come out as they were.
  * Version 19 only PDFs' as well: a page keeps the scale its running header
  * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
- * Version 20 Word files' and PDFs': a Word section keeps the scale its header or
- * footer writes, and a PDF's running header the forms the reader now knows
- * ("(000 omitted)", "金额（万）"), each as the Unit's scale marker; their text,
- * Passages and embeddings come out as they were (#2365).
+ * Version 20 only workbooks', whose Units gain their formulas; their text,
+ * Passages and embeddings come out as they were. Version 21 Word files' and
+ * PDFs': a Word section keeps the scale its header or footer writes, and a
+ * PDF's running header the forms the reader now knows ("(000 omitted)",
+ * "金额（万）"), each as the Unit's scale marker; their text, Passages and
+ * embeddings come out as they were (#2365).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 20,
+  pdf: 21,
   text: 5,
   markdown: 5,
-  docx: 20,
+  docx: 21,
   pptx: 5,
-  xlsx: 13,
+  xlsx: 20,
   csv: 5,
   web: 7,
   transcript: 7,
