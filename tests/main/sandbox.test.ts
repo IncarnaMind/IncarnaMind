@@ -199,6 +199,21 @@ describe("the folders no program may read", () => {
     ]);
   });
 
+  test("on macOS with a TMPDIR elsewhere, the folder holding it is not denied", () => {
+    expect(
+      readDeniedFolders({ ...user, platform: "darwin", temporaryFolder: "/Users/Ada/tmp" }),
+    ).toEqual([
+      "/Users/Ada",
+      "/home/Ada/data",
+      "/Users/Ada/tmp",
+      "/tmp",
+      "/private/tmp",
+      "/var/tmp",
+      "/private/var/tmp",
+      "/Volumes",
+    ]);
+  });
+
   test("on Linux: the same, and this User's drive and network mounts", () => {
     expect(readDeniedFolders({ ...user, platform: "linux", temporaryFolder: "/tmp" })).toEqual([
       "/Users/Ada",

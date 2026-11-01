@@ -115,10 +115,13 @@ export function readDeniedFolders(options: ReadDeniedOptions): string[] {
     if (uid !== undefined) folders.push(`/run/user/${uid}/gvfs`);
     return folders;
   }
-  // The User's other temp and cache folders beside T (.../C, .../0), and both
-  // spellings of the system's own temp folders, as /tmp and /var are links.
+  // The User's other temporary and cache folders beside T (.../C, .../0), where
+  // T is the system's per-user temporary folder: never the parent of a TMPDIR
+  // someone pointed at, which could be /opt or /var itself.
   const beside = dirname(temporaryFolder);
-  if (beside !== "/") folders.push(beside);
+  if (beside.startsWith("/var/folders/") || beside.startsWith("/private/var/folders/")) {
+    folders.push(beside);
+  }
   folders.push("/private/tmp", "/var/tmp", "/private/var/tmp", "/Volumes");
   return folders;
 }
