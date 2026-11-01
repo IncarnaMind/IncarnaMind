@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { queryDatabase } from "../../tests/helpers/core";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -21,6 +22,17 @@ import { type RepeatRow, report, summarise } from "./score";
 import { VERBATIM_SETS } from "./verbatimCases";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** Each Library's settled model requests, by model: input counts cache reads and writes too. */
+interface Usage {
+  model: string;
+  requests: number;
+  input: number;
+  cacheReads: number;
+  cacheWrites: number;
+  output: number;
+  cost: number;
+}
 const FINISHED = new Set(["ready", "failed", "no-text"]);
 
 const spentOf = async (core: Core) =>
@@ -46,6 +58,7 @@ test("repeated checks of an unchanged Mind", async () => {
   await prepareGpuFile(config, log);
   const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: RepeatRow[] = [];
+  const usage: (Usage & { sets: string[] })[] = [];
   let spentBefore = 0;
   let stopped = false;
   const libraries = new Map<string, RepeatSet[]>();
@@ -134,6 +147,18 @@ test("repeated checks of an unchanged Mind", async () => {
         }
       }
       spentBefore += await spentOf(core);
+      usage.push(
+        ...queryDatabase<Usage>(
+          library.dataDir,
+          `SELECT model_id AS model, count(*) AS requests,
+             coalesce(sum(input_tokens), 0) AS input,
+             coalesce(sum(cached_input_tokens), 0) AS cacheReads,
+             coalesce(sum(cache_write_tokens), 0) AS cacheWrites,
+             coalesce(sum(output_tokens), 0) AS output, coalesce(sum(cost), 0) AS cost
+           FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'
+           GROUP BY model_id`,
+        ).map((each) => ({ ...each, sets: ofLibrary.map((set) => set.id) })),
+      );
     } finally {
       await library.close();
       await rm(folder, { recursive: true, force: true });
@@ -146,6 +171,6 @@ test("repeated checks of an unchanged Mind", async () => {
     join(out, "report.md"),
     report(summaries, { commit: commitOf(ROOT), spent: spentBefore, repeats }),
   );
-  await writeFile(join(out, "report.json"), JSON.stringify({ model, rows }, null, 2));
+  await writeFile(join(out, "report.json"), JSON.stringify({ model, usage, rows }, null, 2));
   log(`$${spentBefore.toFixed(2)} spent; report in ${out}`);
 });

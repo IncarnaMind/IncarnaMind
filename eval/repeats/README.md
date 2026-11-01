@@ -19,7 +19,7 @@ The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core
 
 ## The sets
 
-An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds:
+An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds, with five more for sentences a Document states word for word (`verbatimCases.ts`):
 
 | Set | Sentences |
 |---|---|
@@ -29,6 +29,9 @@ An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs,
 | `en-paraphrases`, `zh-paraphrases` | A clause's duty or permission in other words, each expected Supported: "shall" for "must", "can" for "may", "is entitled to" for "may" and as the agreement says it; 需, 应, 应当, 必须 for 须, 可以 for 可, 不得泄露 for 须保密 |
 | `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer); and a holiday figure for 2024, the year before the holiday clause starts, expected "I didn’t find this" |
 | `en-periods`, `zh-periods` | An annual report for 2025 with the figures for 2024 beside it, and a supply agreement that runs from 2025 to 2027, in their own Library: a 2024 figure, a fourth-quarter figure and a 2026 delivery, each expected Supported; a wrong 2024 figure and a wrong 2026 price, expected Contradicted; and a 2023 figure, which neither states, expected "I didn’t find this" |
+| `en-walk` | The 2026-11-01 walk's Note, one paragraph of four sentences, in a Library around the repository's `Field Report.docx` and a two-page brief that repeats its Results sentence: that sentence word for word, expected Supported, beside a budget the newer notes state, a wrong churn figure and a booking no Document states |
+| `en-verbatim`, `zh-verbatim` | Held-out sentences a .docx states word for word, one paragraph each Note, expected Supported: one with two figures that a short PDF repeats, one with no figure, and one with a year (English) or a unit (Chinese) |
+| `en-verbatim-decoys`, `zh-verbatim-decoys` | The same sentences with one detail changed (a figure, a place, the parts swapped, another species), and a wrong cost: never Supported |
 
 ## Running it
 
@@ -44,6 +47,7 @@ npm run eval:repeats
 - `INCARNAMIND_EVAL_REPEATS`: checks of each Mind (10).
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
+- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
 
 ## Check against a Document, read whole
 
