@@ -4224,6 +4224,7 @@ export const en = {
   "aiStatement.uses.column.model": "Model",
   "aiStatement.uses.column.times": "Times",
   "aiStatement.uses.modelUnknown": "Not recorded",
+  "aiStatement.uses.agent": "{agent} (a connected agent; its model unknown)",
   "aiStatement.use.answer": "Answers written",
   "aiStatement.use.answer-added": "Answers added to the note",
   "aiStatement.use.edit-with-ai-accepted": "Changes from Edit with AI accepted",
@@ -6689,6 +6690,13 @@ export const en = {
   "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
   "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
   "agents.propose.twice": "{name} is named twice: change each paragraph once.",
+  "agents.propose.formula":
+    "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
+  "agents.propose.table":
+    "The text for {name} has lines that read as a table’s rows but make no table.",
+  "agents.propose.unread":
+    "IncarnaMind couldn’t read the text for {name} as written. Write it again plainly.",
+  "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",

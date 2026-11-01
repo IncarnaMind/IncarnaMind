@@ -248,7 +248,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶1, ¶2…) with its Citations as [cite:…], and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),

@@ -519,8 +519,15 @@ describe("The AI use statement", () => {
 
   test("a change a connected agent proposed and the User accepted names the agent, never a model (#352)", async () => {
     for (const [language, row] of [
-      ["en", ["Changes from a connected agent accepted", "Claude Code", "1"]],
-      ["zh-CN", ["接受已连接智能体提出的修订", "Claude Code", "1"]],
+      [
+        "en",
+        [
+          "Changes from a connected agent accepted",
+          "Claude Code (a connected agent; its model unknown)",
+          "1",
+        ],
+      ],
+      ["zh-CN", ["接受已连接智能体提出的修订", "Claude Code（已连接的智能体，模型未知）", "1"]],
     ] as const) {
       const { core, mind, client } = await setUp(language);
       const id = randomUUID();

@@ -877,4 +877,206 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(document).toMatch(/<w:ins [^>]*w:author="Claude Code"[^>]*>.*two times/);
     expect(document).not.toContain('w:author="IncarnaMind"');
   });
+
+  /** A paragraph of the User's holding a found Citation of Tides at `passageId`. */
+  const citedLine = (
+    words: string,
+    tides: { id: string; contentHash: string },
+    passageId: string,
+  ): JSONContent => ({
+    type: "paragraph",
+    attrs: { id: randomUUID() },
+    content: [
+      { type: "text", text: words },
+      {
+        type: "citation",
+        attrs: {
+          passageId,
+          documentId: tides.id,
+          documentName: "Tides",
+          contentHash: tides.contentHash,
+          quote: SPRING,
+          check: "found",
+        },
+      },
+    ],
+  });
+
+  const firstPassage = async (agent: Agent) => {
+    const [passage] = structured<{ passages: { passageId: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "spring tides new moon" } }),
+    ).passages;
+    if (!passage) throw new Error("Tides wasn't found.");
+    return passage.passageId;
+  };
+
+  it("cite anew with a token as often as they like, but keep a Citation they may only keep once", async () => {
+    for (const ownWorkings of [false, true]) {
+      const { core, agent, mind, client, tides } = await pairedWithNote([]);
+      writeMind(client, [
+        citedLine("Spring tides come at new moon ", tides, await firstPassage(agent)),
+      ]);
+      await client.settled();
+      if (ownWorkings) await core.setNotCited(tides.id, true);
+      const named = await readNamed(agent, mind.id);
+      const token = /\[cite:[a-z0-9]+\]/.exec(named.markdown)?.[0] ?? "";
+      expect(token).not.toBe("");
+      structured<Proposed>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version: named.version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: `Spring tides come at new moon ${token}. The moon is cheese ${token}. Mars is red ${token}.`,
+              },
+            ],
+          },
+        }),
+      );
+      await client.settled();
+      decide(client, undoOf(client), () => true, "accept");
+      // Citable, each claim cites it; the User's own workings, only the Citation they had stays.
+      expect(citationsIn(client)).toHaveLength(ownWorkings ? 1 : 3);
+    }
+  });
+
+  it("keep a Citation they have no token for, and a footnote, by its handle, once; a handle the User typed stays words", async () => {
+    const { core, agent, mind, client, tides } = await pairedWithNote([]);
+    const passageId = await firstPassage(agent);
+    writeMind(client, [
+      {
+        ...citedLine("Spring tides come at new moon ", tides, passageId),
+        content: [
+          ...(citedLine("Spring tides come at new moon ", tides, passageId).content ?? []),
+          { type: "text", text: " as [note:1] says " },
+          {
+            type: "footnote",
+            attrs: { id: randomUUID() },
+            content: [{ type: "text", text: "The User's own note." }],
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+    // An agent that may change this Note but can't read Tides gets handles, not tokens.
+    const notes = await core.createLibraryGroup({ name: "Notes", description: "Mine." });
+    await core.moveToFolder({ mindIds: [mind.id], folderId: notes.id });
+    const other = await core.connectAgent({ name: "Codex", folderIds: [notes.id], propose: true });
+    const codex = await connectLegacyAgent(other.launch);
+    const named = await readNamed(codex, mind.id);
+    expect(named.markdown).toBe(
+      "¶1 Spring tides come at new moon [kept:1] as \\[note:1] says [note:1]",
+    );
+    structured<Proposed>(
+      await codex.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: named.version,
+          changes: [
+            {
+              paragraph: "¶1",
+              text: "Spring tides come twice a month [kept:1] as \\[note:1] says [note:1]. Twice [kept:1] [note:1].",
+            },
+          ],
+        },
+      }),
+    );
+    await client.settled();
+    decide(client, undoOf(client), () => true, "accept");
+    expect(citationsIn(client)).toHaveLength(1);
+    expect(nodesNamed(client, "footnote")).toBe(1);
+    const line = shown(readMind(client).child(0)).replaceAll("\u2060", "");
+    expect(line).toBe(
+      `Spring tides come twice a month ${CITED} as [note:1] says ‹F›. Twice [kept:1] [note:1].`,
+    );
+  });
+
+  it("change no word they echo as it was, a bracket or a typed <removed> among them", async () => {
+    const { agent, mind, client } = await pairedWithNote([
+      paragraph("See [sic] here, and the <removed> tag I typed."),
+    ]);
+    const named = await readNamed(agent, mind.id);
+    expect(named.markdown).toBe("¶1 See [sic] here, and the \\<removed> tag I typed.");
+    structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: named.version,
+          changes: [
+            { paragraph: "¶1", text: "See [sic] here, and the \\<removed> tag I typed, again." },
+          ],
+        },
+      }),
+    );
+    await client.settled();
+    // One change, the words it adds: "[sic]" and the tag the User typed are left as they were.
+    expect(pendingProposals(client.blocks)).toHaveLength(1);
+    decide(client, undoOf(client), () => true, "accept");
+    expect(readMind(client).textContent).toBe(
+      "See [sic] here, and the <removed> tag I typed, again.",
+    );
+  });
+
+  it("are refused, with nothing written, when a token sits where it would be read as a formula, or a table makes no table", async () => {
+    const { agent, mind, client } = await pairedWithNote([
+      paragraph("Costs rose."),
+      paragraph("Neap tides are small."),
+    ]);
+    const spring = await tokenFor(agent, "spring tides new moon", SPRING);
+    const propose = async (changes: object[]) =>
+      agent.callTool({
+        name: "propose_changes",
+        arguments: { mindId: mind.id, version: (await readNamed(agent, mind.id)).version, changes },
+      });
+    const fine = { paragraph: "¶2", text: "Neap tides are the smallest." };
+    expect(
+      refusal(await propose([fine, { paragraph: "¶1", text: `Costs were $5 ${spring} and $6.` }])),
+    ).toBe(
+      "In ¶1, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
+    );
+    expect(
+      refusal(
+        await propose([fine, { paragraph: "¶1", text: "Costs rose.\n| a | b |\nnot a row" }]),
+      ),
+    ).toBe("The text for ¶1 has lines that read as a table’s rows but make no table.");
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    // Outside the dollar signs, the same token cites.
+    structured<Proposed>(
+      await propose([fine, { paragraph: "¶1", text: `Costs were $5 and $6 ${spring}.` }]),
+    );
+    await client.settled();
+    decide(client, undoOf(client), () => true, "accept");
+    expect(citationsIn(client)).toHaveLength(1);
+  });
+
+  it("can't propose until the User allows it: a pairing made without the grant only reads", async () => {
+    const { core, mind, coast } = await pairedWithNote([paragraph("Tides rise twice a day.")]);
+    const { launch, pairing } = await core.connectAgent({ name: "Codex", folderIds: [coast.id] });
+    expect(pairing.propose).toBe(false);
+    const codex = await connectLegacyAgent(launch);
+    const { version } = await readNamed(codex, mind.id);
+    const changes = [{ paragraph: "¶1", text: "Tides rise two times a day." }];
+    expect(
+      refusal(
+        await codex.callTool({
+          name: "propose_changes",
+          arguments: { mindId: mind.id, version, changes },
+        }),
+      ),
+    ).toMatch(/may only read/);
+    expect((await core.updateAgent(pairing.id, { propose: true })).propose).toBe(true);
+    expect(
+      structured<Proposed>(
+        await codex.callTool({
+          name: "propose_changes",
+          arguments: { mindId: mind.id, version, changes },
+        }),
+      ).waiting,
+    ).toBeGreaterThan(0);
+  });
 });

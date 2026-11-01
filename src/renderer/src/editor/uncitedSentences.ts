@@ -15,6 +15,8 @@ export interface SentenceRange {
   to: number;
 }
 
+const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
+
 /** What a node does in a change: a Proposal adds it or takes it out, or none. */
 const proposalOf = (node: ProseMirrorNode) =>
   readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE] ?? null);
@@ -22,8 +24,8 @@ const proposalOf = (node: ProseMirrorNode) =>
 /**
  * The sentences a change would leave with no Citation once accepted (#352): each sentence its
  * words are in, read as its paragraph will read with this change accepted and the others not,
- * that makes a claim (`isClaim`, as the Note's checks count them) and holds no Citation. A
- * change that only takes words out leaves none of its own.
+ * that makes a claim (`isClaim`, as the Note's checks count them) and holds no Citation, outside
+ * headings and tables. A change that only takes words out leaves none of its own.
  */
 export function uncitedSentences(
   doc: ProseMirrorNode,
@@ -39,18 +41,20 @@ export function uncitedSentences(
   const found: SentenceRange[] = [];
   for (const at of [...paragraphs].sort((a, b) => a - b)) {
     const paragraph = doc.nodeAt(at);
-    if (!paragraph) continue;
+    // Headings and table cells aren't sentences that make claims of their own, as for the agent.
+    if (!paragraph || paragraph.type.name === "heading") continue;
     // A Block this change, or another, adds whole decides for every word in it.
     let wholly = false;
-    let absent = false;
+    let skipped = false;
     const place = doc.resolve(at + 1);
     for (let depth = place.depth; depth > 0; depth--) {
+      if (CELLS.has(place.node(depth).type.name)) skipped = true;
       const whole = proposalOf(place.node(depth));
       if (!whole) continue;
       if (whole.kind === "insert" && whole.id === proposal.id) wholly = true;
-      else if (whole.kind === "insert" || whole.id === proposal.id) absent = true;
+      else if (whole.kind === "insert" || whole.id === proposal.id) skipped = true;
     }
-    if (absent) continue;
+    if (skipped) continue;
     let text = "";
     const positions: number[] = [];
     const mine = new Set<number>();

@@ -42,8 +42,10 @@ import {
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
+import { isRecord } from "../errors";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import {
+  ChangeRefused,
   type CitedToken,
   HeldParagraph,
   type NamedChange,
@@ -493,10 +495,7 @@ function parseChanges(value: unknown, t: Say): AskedChange[] {
     throw new AgentRefusedError("invalid", t("agents.propose.list", { max: MAX_CHANGES }));
   }
   return value.map((entry): AskedChange => {
-    const change = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
-      string,
-      unknown
-    >;
+    const change = isRecord(entry) ? entry : {};
     const name = typeof change.paragraph === "string" ? change.paragraph.trim() : "";
     const read = PARAGRAPH_NAME.exec(name);
     if (!read) {
@@ -793,18 +792,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
 
   /**
    * How an agent reads a Note by name: each Citation of its Folders that was found as its
-   * token, to keep or cite again, and the others in words. `cited` hears the Documents.
+   * token, to keep or cite again, and the others as handles that only keep them. `cited`
+   * hears the Documents.
    */
   const namedWords = (pairing: AdmittedPairing, inScope: ReadonlySet<string>, cited: string[]) => ({
     citation: (attributes: Record<string, unknown>) => {
       const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
-      if (!inScope.has(documentId)) return `[${t("agents.mind.outsideCitation")}]`;
+      if (!inScope.has(documentId)) return null;
       const citation = citationOf(attributes);
-      if (citation.check !== "found" || citation.passageId === "") {
-        return t(
-          citation.check === "cant-check" ? "agents.answer.cantCheck" : "agents.answer.notFound",
-        );
-      }
+      if (citation.check !== "found" || citation.passageId === "") return null;
       cited.push(documentId);
       return citeTag(mint(pairing, citation).token);
     },
@@ -1082,7 +1078,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const id = text(input?.mindId, "mindId", 200);
         const offset = whole(input?.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0);
         if (input?.named !== undefined && typeof input.named !== "boolean") {
-          throw new AgentRefusedError("invalid", "named must be true or false.");
+          throw new AgentRefusedError("invalid", t("agents.mind.namedChoice"));
         }
         const mind = mindInScope(pairing, id);
         const inScope = new Set(scopeOf(pairing, undefined));
@@ -1230,7 +1226,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const texts = asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text]));
         for (const each of texts) {
           for (const match of each.matchAll(CITATION_TOKEN)) {
-            const token = match[1] as string;
+            const token = match[1] ?? "";
             if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
           }
         }
@@ -1255,6 +1251,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             });
           });
         } catch (error) {
+          if (error instanceof ChangeRefused) {
+            throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
+          }
           if (!(error instanceof HeldParagraph)) throw error;
           throw new AgentRefusedError(
             "waiting",

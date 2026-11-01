@@ -14,7 +14,7 @@
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
-import { pendingProposals, proposalRequestOf } from "../../shared/proposals";
+import { pendingProposals, proposalRequestOf, readProposalAttribute } from "../../shared/proposals";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -24,6 +24,7 @@ import {
   MIND_TEXT_ORIGINS_FIELD,
   type MindFocus,
   PICTURE_NODE,
+  PROPOSAL_ATTRIBUTE,
   QUESTION_BLOCK,
   type ThirdPartySource,
 } from "../api";
@@ -222,7 +223,9 @@ function originsIn(
   visit(block);
   const { doc } = block;
   if (review && doc) {
-    const fromAgent = pendingProposals(block).some(
+    // A Block it adds whole carries its change on itself, which `pendingProposals` doesn't read.
+    const own = readProposalAttribute(block.getAttribute(PROPOSAL_ATTRIBUTE));
+    const fromAgent = [...(own ? [own] : []), ...pendingProposals(block)].some(
       (ref) =>
         !review.skips(ref.id) && proposalRequestOf(doc, ref.request)?.source === "outside-agent",
     );
