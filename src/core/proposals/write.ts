@@ -1727,7 +1727,7 @@ const HAN_CHAR = /^\p{Script=Han}$/u;
 const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
 /** An opening bracket or quote: the word after it starts there. */
 const OPENING = /^[([{«“‘"'（【《「『]$/u;
-/** Where a table's text sits: a paragraph there is struck, never removed, so the table keeps its shape. */
+/** Where a table's text sits: removals never leave one with no Block, so the table keeps its shape. */
 const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
 
 /**
@@ -1947,13 +1947,27 @@ export function createRewriteStream(
 
   const remove = (gone: readonly Segment[]) => {
     const blocks: Y.XmlElement[] = [];
+    const strike = (segment: Segment) =>
+      markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
     for (const segment of gone) {
       if (segment.whole) blocks.push(removedWith(segment.element));
-      else markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
+      else strike(segment);
       for (const token of segment.tokens) noteCitation(notes.removed, token);
       notes.characters.removed += lengthOf(segment.tokens);
     }
-    for (const removed of wholeWrappers(blocks)) {
+    const units = wholeWrappers(blocks);
+    for (const removed of units) {
+      // A table cell left with no Block is dropped by the editor beyond Undo's reach (#2180):
+      // what it holds keeps its shape, and its text is struck.
+      const cell = removed.parent;
+      const empties =
+        cell instanceof Y.XmlElement &&
+        CELLS.has(cell.nodeName) &&
+        cell.toArray().every((child) => !(child instanceof Y.XmlElement) || units.includes(child));
+      if (empties) {
+        for (const segment of gone) if (isInside(segment.element, removed)) strike(segment);
+        continue;
+      }
       setProposal(removed, { ...refOf(next(targetText(removed))), kind: "delete" });
     }
   };
@@ -2128,8 +2142,7 @@ export function createRewriteStream(
       const { chars, at } = read.get(segment) ?? { chars: "", at: [] };
       const taken = new Array<boolean>(chars.length).fill(false);
       for (const { first, end } of places) taken.fill(true, first, end);
-      const parent = segment.element.parent;
-      if (taken.every(Boolean) && !(parent instanceof Y.XmlElement && CELLS.has(parent.nodeName))) {
+      if (taken.every(Boolean)) {
         whole.push(segment);
         continue;
       }

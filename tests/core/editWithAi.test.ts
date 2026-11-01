@@ -3058,6 +3058,105 @@ describe("An edit the User asked for (#880)", () => {
     expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
   });
 
+  // protects=a removal never leaves a table cell with no Block, however deep the quoted text sits: a cell holding a one-item list, or a list item holding a paragraph and a nested list, keeps its shape with its text struck; Undo of the accept and a reject give the table back exactly (#2180); fails_when=the list goes, the cell with it, and the row is left short; no_claim=none beyond protects.
+  test.each([
+    {
+      case: "a one-item list",
+      content: (): JSONContent[] => [
+        { type: "bulletList", content: [{ type: "listItem", content: [paragraph(text("TBD"))] }] },
+      ],
+      reply: "<removed>TBD</removed>",
+    },
+    {
+      case: "a list item holding a paragraph and a nested list",
+      content: (): JSONContent[] => [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                paragraph(text("TBD")),
+                {
+                  type: "bulletList",
+                  content: [{ type: "listItem", content: [paragraph(text("TBC"))] }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      reply: "<removed>TBD\n\nTBC</removed>",
+    },
+  ])("a cell holding $case keeps its shape when all its text is quoted", async (each) => {
+    const cell = (content: JSONContent[]): JSONContent => ({ type: "tableCell", content });
+    const { core, mind, client } = await setUp(editingModel(() => each.reply));
+    writeMind(client, [
+      paragraph(text("The costs, as agreed so far.")),
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [cell([paragraph(text("Item"))]), cell([paragraph(text("Amount"))])],
+          },
+          { type: "tableRow", content: [cell([paragraph(text("Rent"))]), cell(each.content())] },
+        ],
+      },
+    ]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+    const shape = () => {
+      const kinds: string[] = [];
+      readMind(client).descendants((node) => {
+        if (node.isTextblock) return false;
+        kinds.push(node.type.name);
+        return true;
+      });
+      return kinds;
+    };
+    const shaped = shape();
+
+    const result = await core.editWithAi(
+      wholeMind(client, mind.id, "Take TBD out of the rent cell"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+    await resolveChanges(client, "accept");
+    expect(shape()).toEqual(shaped);
+    expect(readMind(client).textContent).not.toContain("TBD");
+    undo.undo();
+    await client.settled();
+    await resolveChanges(client, "reject");
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
+  // protects=a quote whose span holds a footnote is refused, so the User's own footnote never goes with words around it (#2180); fails_when=the footnote and its text go with the quote; no_claim=none beyond protects.
+  test("a quote across a footnote is refused, and the footnote stays", async () => {
+    const water = "Water is billed separately each quarter.";
+    const { core, mind, client } = await setUp(editingModel(() => "<removed>TBD TBC</removed>"));
+    writeMind(client, [
+      paragraph(
+        text("Owner: Sam TBD"),
+        { type: "footnote", attrs: { id: "fn-legal" }, content: [text("Pending legal sign-off.")] },
+        text(" TBC."),
+      ),
+      paragraph(text(water)),
+    ]);
+    await client.settled();
+    const before = JSON.stringify(client.blocks.toJSON());
+
+    // A footnote reads as one character in the selection's text, its own words left out.
+    const result = await core.editWithAi({
+      ...wholeMind(client, mind.id, "Remove TBD TBC"),
+      text: `Owner: Sam TBD\uFFFC TBC.\n${water}`,
+    });
+
+    expect(result).toEqual({ kind: "unplaced", quotes: ["TBD TBC"] });
+    expect(JSON.stringify(client.blocks.toJSON())).toBe(before);
+  });
+
   // protects=a word taken out right before a full stop or comma takes the space before it, so no space is left before the punctuation; one taken out mid-sentence takes the space after it (#2180); fails_when=the line reads "Owner: Sam ." or two words run together; no_claim=none beyond protects.
   test.each([
     { line: "Owner: Sam TBD.", after: "Owner: Sam." },
