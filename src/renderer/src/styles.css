@@ -4844,6 +4844,9 @@
       display: block;
     }
   }
+  .citation-marker[data-judging] {
+    padding: 0 4px;
+  }
   /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
   .citation-marker[data-recheck] {
     padding: 0 5px 0 3px;
@@ -5374,8 +5377,8 @@
     --check-wash: none;
   }
   .margin-check[data-check="checking"],
-  .citation-marker[data-check="checking"],
-  .citation-card--checking {
+  .citation-marker:is([data-check="checking"], [data-check="not-checked"]),
+  .citation-card:is(.citation-card--checking, .citation-card--not-checked) {
     --check-ink: var(--color-ink-meta);
     --check-wash: var(--color-chip);
   }
@@ -8479,8 +8482,15 @@
   .answer-step-check[data-check="found"] {
     color: var(--color-success);
   }
-  .answer-step-check[data-check="not-found"] {
+  .answer-step-check[data-check="not-found"],
+  .answer-step-check[data-check="unsupported"] {
     color: var(--color-warning);
+  }
+  .answer-step-check[data-check="not-checked"] {
+    color: var(--color-ink-meta);
+  }
+  .answer-step-check[data-check="contradicted"] {
+    color: var(--color-danger);
   }
   .assistant-answer .answer-step-problem {
     font-size: var(--text-ui);

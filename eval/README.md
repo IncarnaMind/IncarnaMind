@@ -515,6 +515,10 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
 
 `npm run eval:repeats` presses Check this Mind ten times on Minds nobody edits, with a real chat model and the app's real search, and counts each sentence's verdict and how its card shows it: how steady the verdicts are, false Supported, and a sentence a Document states reported as not found (#1608). `npm run eval` doesn't run it. See `repeats/README.md`; `tests/eval/repeatsScoring.test.ts` checks its scoring.
 
+## Answer sentences against their quotes
+
+`npm run eval:support` checks sentences an Answer might write against the quote each cites, as an Answer in the assistant checks them before it ends, on a real chat model (#2311): the walk's two sentences that kept a green check, held-out sentences of the same two mistakes, controls their quotes support, and Find support's supported sentences that state a date. `npm run eval` doesn't run it. See `answerSupport/README.md`.
+
 ## The hard tier
 
 `npm run eval:hard` asks harder Questions of a library at scale: public Documents across domains, fetched at evaluation time and never committed, in every retrieval mode with embeddings on, reported per domain and difficulty and never gating. `npm run eval` doesn't run it. See `hard/README.md`.

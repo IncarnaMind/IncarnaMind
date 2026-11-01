@@ -75,6 +75,7 @@ const CHECKS: readonly CitationCheck[] = [
   "found",
   "not-found",
   "cant-check",
+  "not-checked",
   "unsupported",
   "contradicted",
 ];

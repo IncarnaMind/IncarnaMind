@@ -10,13 +10,7 @@ import type {
   MarkedCitation,
   MarkedFigure,
 } from "../../src/core";
-import { FIGURE_MARKER } from "../../src/shared/figureMarkers";
-import {
-  comparableSentence,
-  INLINE_NODE,
-  isClaim,
-  sentenceSpans,
-} from "../../src/shared/sentences";
+import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */
@@ -35,17 +29,6 @@ export interface SentenceSupport {
 /** The share of the research requests' cited sentences the check must judge supported (#1073). */
 export const SUPPORTED_TARGET = 0.95;
 
-const MARKER = /\[\^(\d+)\]/g;
-const FOOTNOTE_LINE = /^\s*\[\^\d+\]:/;
-const BLOCK_MARKUP = /^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/;
-
-const BEFORE_MARKER = /\s+(?=\uFFFC)/gu;
-
-const inlineNodes = (text: string) => text.split(INLINE_NODE).length - 1;
-
-/** A marker leaves nothing behind, not even the space before it: "is quadratic [^2]." reads "is quadratic.". */
-const withoutMarkers = (text: string) => comparableSentence(text.replace(BEFORE_MARKER, ""));
-
 /** The sentences of an Answer's Markdown that cite at least one Citation, with what they cite. */
 export function citedSentences(
   text: string,
@@ -55,45 +38,22 @@ export function citedSentences(
   >[],
   figures: readonly Pick<MarkedFigure, "marker" | "shown">[] = [],
 ): CitedSentence[] {
-  const found: CitedSentence[] = [];
-  for (const line of text.split("\n")) {
-    if (FOOTNOTE_LINE.test(line)) continue;
-    const markers: number[] = [];
-    const marked = line
-      .replace(BLOCK_MARKUP, "")
-      .replace(
-        FIGURE_MARKER,
-        (marker, number: string) =>
-          figures.find((each) => each.marker === Number(number))?.shown ?? marker,
-      )
-      .replace(MARKER, (_, number: string) => {
-        markers.push(Number(number));
-        return INLINE_NODE;
-      })
-      .replace(/[*_`]/g, "")
-      .replace(/\|/g, " ");
-    const context = withoutMarkers(marked);
-    for (const { from, to } of sentenceSpans(marked)) {
-      const before = inlineNodes(marked.slice(0, from));
-      const inside = inlineNodes(marked.slice(from, to));
-      const cited = markers.slice(before, before + inside).flatMap((marker) => {
-        const citation = citations.find((each) => each.marker === marker);
-        return citation
-          ? [
-              {
-                documentName: citation.documentName,
-                documentId: citation.documentId,
-                contentHash: citation.contentHash,
-                quote: citation.quote,
-              },
-            ]
-          : [];
-      });
-      const sentence = withoutMarkers(marked.slice(from, to));
-      if (cited.length > 0 && isClaim(sentence)) found.push({ sentence, context, cited });
-    }
-  }
-  return found;
+  return markedSentences(text, figures).flatMap(({ sentence, context, markers }) => {
+    const cited = markers.flatMap((marker) => {
+      const citation = citations.find((each) => each.marker === marker);
+      return citation
+        ? [
+            {
+              documentName: citation.documentName,
+              documentId: citation.documentId,
+              contentHash: citation.contentHash,
+              quote: citation.quote,
+            },
+          ]
+        : [];
+    });
+    return cited.length > 0 ? [{ sentence, context, cited }] : [];
+  });
 }
 
 /**

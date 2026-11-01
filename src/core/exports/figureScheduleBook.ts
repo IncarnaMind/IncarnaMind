@@ -33,6 +33,7 @@ const CHECK_WORDS: Readonly<Record<Citation["check"], MessageKey>> = {
   found: "aiStatement.citations.found",
   "not-found": "aiStatement.citations.notFound",
   "cant-check": "aiStatement.citations.cantCheck",
+  "not-checked": "aiStatement.citations.cantCheck",
   unsupported: "aiStatement.citations.unsupported",
   contradicted: "aiStatement.citations.contradicted",
   checking: "aiStatement.citations.checking",

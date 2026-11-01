@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
+import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { CLAIM_CHECK_INSTRUCTIONS } from "../../src/core/answers/claimedChanges";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { listedSentences } from "./claimSentences";
@@ -198,10 +199,33 @@ export function failingStreamModel(statusCode: number | undefined, message: stri
 }
 
 /** What a model was asked, simplified: the instructions, then each message's role and text. */
-/** The index of the model's last request in an Answer itself, not the one request for its Citations (#760). */
+type StreamCall = MockLanguageModelV4["doStreamCalls"][number];
+
+/** A request that checks one of an Answer's sentences against what it cites, before it ends (#2311). */
+const checksASentence = (call: StreamCall) =>
+  call.prompt.some(
+    (message) => message.role === "system" && message.content.startsWith("You check one sentence"),
+  );
+
+/** The requests an Answer itself sent, without the checks of its sentences (#2311). */
+export const answerRequests = (model: MockLanguageModelV4): StreamCall[] =>
+  model.doStreamCalls.filter((call) => !checksASentence(call));
+
+/** Where an Answer's own request `nth` (from the end when negative) is among all the model's requests. */
+export function answerRequestIndex(model: MockLanguageModelV4, nth: number): number {
+  const call = answerRequests(model).at(nth);
+  if (!call) throw new Error(`No Answer sent request ${nth}.`);
+  return model.doStreamCalls.indexOf(call);
+}
+
+/**
+ * The index of the model's last request in an Answer itself: not the one request for its
+ * Citations (#760), nor a check of its sentences (#2311).
+ */
 export function lastAnswerCall(model: MockLanguageModelV4): number {
   return model.doStreamCalls.findLastIndex(
     (call) =>
+      !checksASentence(call) &&
       !call.prompt.some(
         (message) => message.role === "system" && message.content === CITE_RETRY_INSTRUCTIONS,
       ),
@@ -254,7 +278,13 @@ export type GeneratedReply =
    * `cutOff`: the reply ran out of output tokens, as one does when the model's thinking takes them all.
    * `usage`: the tokens this reply reports instead of the model's.
    */
-  | { text: string; cutOff?: boolean; usage?: ReportedUsage }
+  | {
+      text: string;
+      cutOff?: boolean;
+      usage?: ReportedUsage;
+      /** It replies once this resolves, or fails once its request is aborted. */
+      until?: Promise<void>;
+    }
   | { error: { status: number; message: string } };
 
 export function claimCheckReply(
@@ -363,17 +393,32 @@ export function scriptedModel(
     modelId,
     generate,
     usage = STREAM_USAGE,
+    judgesItsAnswers = false,
   }: {
     chunkSize?: number;
     modelId?: string;
     generate?: (call: GenerateCall) => GeneratedReply;
     usage?: ReportedUsage;
+    /**
+     * Whether a batch of an Answer's sentences, judged once the Answer ends (#2311), is answered
+     * each supported by what it cites, as an Answer that keeps to its quotes is, instead of as
+     * `generate` says: for a test of something other than that judgement.
+     */
+    judgesItsAnswers?: boolean;
   } = {},
 ): MockLanguageModelV4 {
   let index = 0;
   return new MockLanguageModelV4({
     modelId,
     doGenerate: async (options) => {
+      if (judgesItsAnswers && systemOf(options.prompt) === SENTENCE_BATCH_INSTRUCTIONS) {
+        return {
+          content: [{ type: "text", text: allSupported(promptText(options.prompt)) }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage,
+          warnings: [],
+        };
+      }
       if (!generate && systemOf(options.prompt).startsWith("You sort the sentences")) {
         const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
           number,
@@ -401,6 +446,7 @@ export function scriptedModel(
         options,
       });
       if ("error" in reply) throw providerError(reply.error);
+      if (reply.until) await heldUntil(reply.until, options.abortSignal);
       return {
         content: [{ type: "text", text: reply.text }],
         finishReason: { unified: reply.cutOff ? "length" : "stop", raw: undefined },
@@ -488,6 +534,33 @@ export function scriptedModel(
       });
       return { stream };
     },
+  });
+}
+
+/** Waits for `until`, or fails as an aborted request does once `signal` aborts. */
+function heldUntil(until: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    until.then(resolve, reject);
+  });
+}
+
+/** A batch of an Answer's sentences judged, each supported by what it cites (#2311). */
+function allSupported(prompt: string): string {
+  const numbers = [...prompt.matchAll(/<sentence number="(\d+)">/g)].map((match) =>
+    Number(match[1]),
+  );
+  return JSON.stringify({
+    sentences: numbers.map((number) => ({
+      number,
+      kind: "fact",
+      verdict: "supported",
+      roles: "same",
+      time: "same",
+      says: "The Document says so.",
+    })),
   });
 }
 
