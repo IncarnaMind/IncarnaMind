@@ -241,19 +241,16 @@ export function AppliedLine({
   const accepted = useAcceptedChanges(answerId, row.mindId);
   const settled =
     typeof waiting?.count === "number" ? appliedWaiting(waiting.pending, accepted) : null;
+  // On show, the count is the changes still waiting after this apply took its share. Hidden, the
+  // applied row keeps no count of its own: the waiting row beside it already says its count, and a
+  // count kept there would leave a line for words that never show (#400).
   const appliedLeft =
-    outcome !== "undone" && settled !== null && settled.count > 0
+    shown && outcome !== "undone" && settled !== null && settled.count > 0
       ? leftText(t, row, settled.count)
       : null;
   // The count keeps its room from the first frame of the applied row; it shows once the Mind's copy
   // has the apply, so it neither shows what was taken nor moves anything when it appears (#1325).
   const countShown = settled === null || settled.settled;
-  // What waited before the apply took its changes: the waiting row's count, which the room keeps
-  // after they stop waiting (#400).
-  const countRoom =
-    accepted === undefined || outcome === "undone"
-      ? null
-      : leftText(t, row, accepted.length + (settled?.count ?? 0));
   const kept = keptText(t, row);
   const total = useWaitingBesidesApplied(row.mindId, arriving);
   // The Note's copy can still hold the changes this apply took for a frame after the Answer stops
@@ -313,12 +310,6 @@ export function AppliedLine({
         </span>
       )}
       <AppliedActions answerId={answerId} row={row} name={name} live={shown} />
-      {!appliedLeft && countRoom && (
-        <span className="mind-changes-count whitespace-nowrap invisible" aria-hidden="true">
-          {" "}
-          {countRoom}
-        </span>
-      )}
     </p>
   );
 }

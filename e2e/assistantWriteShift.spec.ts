@@ -204,7 +204,13 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("at 900px in en, the changes card keeps its height as its waiting row becomes the applied one", async () => {
-  test.setTimeout(90_000);
-  await writeShift("en", "Q3 review", { width: 900, question: false, finalWaiting: true });
-});
+for (const language of ["en", "zh-CN"] as const) {
+  test(`at 900px in ${language}, the changes card keeps its height as its waiting row becomes the applied one`, async () => {
+    test.setTimeout(90_000);
+    await writeShift(language, "Q3 review", {
+      width: 900,
+      question: false,
+      finalWaiting: true,
+    });
+  });
+}
