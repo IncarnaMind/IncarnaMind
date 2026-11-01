@@ -43,18 +43,12 @@ export function CalculatedFigureCard({
 }) {
   const t = useT();
   const check = figure.analysis ? retainedCheck(sources, figure.analysis.result) : null;
-  // A figure() figure the core worked out again from its cells is checked, the way a
-  // calculated figure whose Inputs were found is: only the core's own result says so.
-  const state: ClaimCheckShown =
-    shown.state === "not-checked" && shown.reason === "unread" && check?.kind === "same"
-      ? { state: "supported" }
-      : shown;
   const stateKey =
-    state.state === "kept" ? "claim.keptAsView" : (`claim.state.${state.state}` as const);
+    shown.state === "kept" ? "claim.keptAsView" : (`claim.state.${shown.state}` as const);
   const needsLook =
-    state.state === "unsupported" ||
-    state.state === "contradicted" ||
-    state.state === "needs-recheck";
+    shown.state === "unsupported" ||
+    shown.state === "contradicted" ||
+    shown.state === "needs-recheck";
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
   const traced = sources?.analysis?.values.find(
     (value) => value.name === figure.analysis?.result,
@@ -67,7 +61,7 @@ export function CalculatedFigureCard({
       <h3>
         {t("figures.calculated")} · <strong>{figure.shown}</strong>
       </h3>
-      <p className="calculated-figure-state" data-state={state.state}>
+      <p className="calculated-figure-state" data-state={shown.state}>
         {needsLook ? (
           <>
             {t("figures.filter.look")} · {t(stateKey)}

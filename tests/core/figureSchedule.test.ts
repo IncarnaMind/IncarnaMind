@@ -1001,6 +1001,75 @@ test.each([
   },
 );
 
+test("a kept Analysis figure shows the core's own recalculation, and needs a re-check once its Document changes", async () => {
+  const { installFigureRuns } = await import("../../src/shared/figureRuns");
+  const source = sourceTable(["Item\tAmount", "A\t10", "B\t20"]);
+  const input = source.input(2);
+  const atom = calculatedFigureNode(
+    {
+      label: "Total",
+      formula: "",
+      inputs: [],
+      value: 20,
+      unit: { kind: "plain" },
+      approximate: false,
+      shown: "20",
+      show: { language: "en", as: "number", decimals: 0, scale: null },
+      literals: [],
+      engine: FORMULA_VERSION,
+      written: null,
+      analysis: { analysis: 1, result: "total" },
+    },
+    "figure-a",
+    "run-a",
+  );
+  const blocks = note({ type: "paragraph", attrs: { id: "a" }, content: [atom] });
+  const doc = blocks.doc;
+  if (!doc) throw new Error("No Note document");
+  installFigureRuns(doc, [
+    {
+      id: "run-a",
+      title: "Total",
+      language: "python",
+      code: 'figure("total", df["Amount"], "sum")',
+      inputs: [
+        {
+          kind: "range",
+          name: "sales",
+          citation: input.citation,
+          range: "A1:B3",
+          rows: 2,
+          columns: 2,
+          rowCount: 2,
+          cut: false,
+          sha256: "range",
+        },
+      ],
+      versions: null,
+      codeSha256: "code",
+      ranAt: "2026-11-01T00:00:00.000Z",
+      values: [
+        {
+          kind: "figure",
+          name: "total",
+          label: "Total",
+          unit: null,
+          value: 20,
+          check: { kind: "same", value: 20 },
+        },
+      ],
+    },
+  ]);
+  const shownWith = (versions: ReadonlyMap<string, string>) =>
+    figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.shown;
+  expect(shownWith(new Map([["accounts", "v1"]]))).toEqual({ state: "supported" });
+  expect(shownWith(new Map([["accounts", "v2"]]))).toEqual({
+    state: "needs-recheck",
+    why: "new-version",
+  });
+  expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
+});
+
 function scheduleInput(blocks: Y.XmlFragment) {
   return {
     mindId: "note",

@@ -2609,7 +2609,6 @@ export function createAnswers(options: AnswersOptions) {
               minds,
               ids,
               prepared,
-              analyses,
               rewriting: () => {
                 rewriting ??= options.prepareModel(model, "off").catch((error: unknown) => {
                   console.warn(

@@ -24,7 +24,13 @@ export function ChartValueFigure({
   const evidence = useFigureEvidence(attributes, doc);
   const shown = useEditorState({
     editor,
-    selector: ({ editor: current }) => figureShownIn(current.state, attributes.id),
+    selector: ({ editor: current }) =>
+      figureShownIn(
+        current.state,
+        attributes.id,
+        evidence?.sources?.analysis ?? null,
+        attributes.figure.analysis?.result ?? null,
+      ),
   });
   const { signOff, canSignOff, toggle } = useFigureSignOff(attributes, editor.isEditable);
   const { figure } = attributes;

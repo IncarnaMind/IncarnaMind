@@ -395,6 +395,10 @@ test("clipboard receipts stay inert provenance and import no execution or check 
         executionVerified: true,
         check: "supported",
         output: { printed: "not copied" },
+        values: source.record.values.map((value) => ({
+          ...value,
+          check: { kind: "same", value: 10 },
+        })),
       },
     ]),
   );
@@ -406,6 +410,7 @@ test("clipboard receipts stay inert provenance and import no execution or check 
   expect(record).not.toHaveProperty("executionVerified");
   expect(record).not.toHaveProperty("check");
   expect(record).not.toHaveProperty("output");
+  expect(record?.values[0]).not.toHaveProperty("check");
   expect(target.editor.view.dom.querySelector("script")).toBeNull();
 });
 

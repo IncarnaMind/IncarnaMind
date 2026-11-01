@@ -266,6 +266,8 @@ for (const language of ["en", "zh-CN"] as const) {
         "data-state",
         "supported",
       );
+      // The inline figure says what its card says: the state is worked out once (#2378).
+      await expect(markers.nth(1).locator("xpath=..")).toHaveAttribute("data-state", "supported");
       if (evidence) {
         await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
@@ -288,6 +290,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.locator(".calculated-figure-state")).not.toContainText(
         t("claim.state.supported"),
       );
+      await expect(markers.nth(0).locator("xpath=..")).toHaveAttribute("data-state", "not-checked");
       await expect(card.locator(".calculated-figure-input")).toHaveCount(2);
       await pointAndClick(window, card.locator(".calculated-figure-code summary"));
       await expect(card.locator(".calculated-figure-code pre")).toContainText("smf.ols");
@@ -335,6 +338,13 @@ for (const language of ["en", "zh-CN"] as const) {
       const citation = table.locator("tr").first().locator("th").nth(1).getByTestId("citation");
       await expect(citation).toHaveCount(1);
       await expect(citation).toHaveAttribute("data-check", "found");
+      // A heading cell names its column; it is no claim, so the Note has nothing needing a look.
+      const badge = window.getByTestId("check-badge");
+      await expect(badge).toBeVisible({ timeout: 30_000 });
+      await expect(badge).not.toHaveAttribute("data-state", "needs-look");
+      await expect(badge.locator(".check-badge-words")).not.toContainText(
+        language === "en" ? "needs a look" : "需要留意",
+      );
     } finally {
       await app.close();
     }

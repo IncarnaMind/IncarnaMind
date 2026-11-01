@@ -819,6 +819,25 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
+  // protects=a table's heading cell with a Citation is a heading, not a claim (#2378); fails_when=the heading is sent to a check and lands unsupported; no_claim=whether a real check would misread a heading.
+  test("a table's heading cell with a Citation is a heading, not a claim to check", async () => {
+    const { core, change, client } = await write({
+      content: "| Region | Revenue [^1] |\n| --- | --- |\n| North | 10 |",
+    });
+    expect(change).not.toHaveProperty("selfCheck");
+    expect(await marksIn(core, client)).toEqual([]);
+    const headers: string[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name !== "tableHeader") return true;
+      node.descendants((cell) => {
+        if (cell.type.name === "citation") headers.push(cell.attrs.documentId ?? "");
+        return true;
+      });
+      return true;
+    });
+    expect(headers).toEqual([expect.any(String)]);
+  });
+
   test("a nested proposed write resolves Id. against its own preceding sentence", async () => {
     const { core, change, client } = await write({
       into: true,

@@ -16,12 +16,14 @@ import {
   CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type RetainedFigureAnalysis,
   type SearchScope,
 } from "../../../core/api";
 import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
+  analysisFigureShown,
   type ClaimCheckShown,
   claimCheckShown,
   claimMarkState,
@@ -533,6 +535,8 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
 export function figureShownIn(
   state: EditorState,
   id: string,
+  run: RetainedFigureAnalysis | null = null,
+  result: string | null = null,
 ): ClaimCheckShown & { recalculated?: true } {
   const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
   for (const span of claimSpans(state.doc)) {
@@ -540,13 +544,21 @@ export function figureShownIn(
     if (!child) continue;
     const now = { ...context, text: span.sentence.text };
     if (span.check.kept) return claimCheckShown(span.check, now);
-    const shown = figureCheckShown(child, now);
+    const shown = analysisFigureShown(figureCheckShown(child, now), {
+      checked: true,
+      run,
+      result,
+      versions: now.versions,
+    });
     // A workbook's figure shows how it was worked out on its own card (#2347).
     return shown.state === "supported" && child.calculation && !child.calculation.figure.workbook
       ? { ...shown, recalculated: true }
       : shown;
   }
-  return { state: "not-checked", reason: "unread" };
+  return analysisFigureShown(
+    { state: "not-checked", reason: "unread" },
+    { checked: false, run, result, versions: context.versions },
+  );
 }
 
 const NONE_KEPT: readonly KeptMark[] = [];

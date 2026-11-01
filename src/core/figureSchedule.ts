@@ -3,6 +3,7 @@ import type { NodeJSON } from "../shared/blockJson";
 import { MAX_INPUTS_PER_FIGURE } from "../shared/calculatedFigures";
 import { gridOfTable, readChart, type SourceGrid } from "../shared/charts";
 import {
+  analysisFigureShown,
   type ClaimCheckNow,
   claimCheckShown,
   figureCheckShown,
@@ -744,6 +745,14 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       )
         shown = legacy;
     }
+    shown = analysisFigureShown(shown, {
+      checked: Boolean(state?.child ?? state?.owner),
+      run:
+        retained.analyses.find((analysis) => analysis.id === occurrence.calculated?.analysisId) ??
+        null,
+      result: occurrence.calculated?.figure.analysis?.result ?? null,
+      versions: input.versions,
+    });
     if (
       shown.state !== "needs-recheck" &&
       shown.state !== "kept" &&

@@ -26,7 +26,7 @@ import { figureHandle } from "../../src/renderer/src/editor/figureHandle";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { useCitationPeek } from "../../src/renderer/src/editor/peek";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
-import type { ClaimCheckShown } from "../../src/shared/claimChecks";
+import { analysisFigureShown, type ClaimCheckShown } from "../../src/shared/claimChecks";
 import {
   type CalculatedSources,
   calculatedCitations,
@@ -480,11 +480,16 @@ function tracedDoc(check?: NonNullable<RetainedFigureAnalysis["values"][number][
 async function tracedCard(
   check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
   shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
+  {
+    checked = false,
+    versions = new Map([["source", "v2"]]),
+  }: { checked?: boolean; versions?: ReadonlyMap<string, string> | null } = {},
 ) {
+  const run = tracedRecords(check);
   const sources = calculatedSources(attrs(summed), tracedDoc(check));
   await card({
     figure: summed,
-    shown,
+    shown: analysisFigureShown(shown, { checked, run, result: "summed", versions }),
     replayed: false,
     sources,
     problem: false,
@@ -536,7 +541,31 @@ test.each(["en", "zh-CN"] as const)(
 );
 
 test("a check the Note's own Check gave the figure stays what its card says", async () => {
-  await tracedCard({ kind: "same", value: 300 }, { state: "needs-recheck", why: "edited" });
+  await tracedCard(
+    { kind: "same", value: 300 },
+    { state: "needs-recheck", why: "edited" },
+    {
+      checked: true,
+    },
+  );
+  expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
+  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
+});
+
+test("a claim check that ran and left the figure unread never shows it checked", async () => {
+  await tracedCard(
+    { kind: "same", value: 300 },
+    { state: "not-checked", reason: "unread" },
+    { checked: true },
+  );
+  expect(container.textContent).toContain(translate("en", "claim.state.not-checked"));
+  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
+});
+
+test("a figure needs a re-check once a Document its Analysis read changed", async () => {
+  await tracedCard({ kind: "same", value: 300 }, undefined, {
+    versions: new Map([["source", "v3"]]),
+  });
   expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
   expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
 });

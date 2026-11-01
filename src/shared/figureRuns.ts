@@ -201,6 +201,26 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   };
 }
 
+/**
+ * The records a clipboard gives, without a check: only a record this app keeps of an Analysis it ran
+ * proves what the core made of its figure, and a clipboard's can say anything (#2378).
+ */
+export function withoutChecks(records: unknown): unknown {
+  if (!Array.isArray(records)) return records;
+  return records.map((record) => {
+    if (!isRecord(record) || !Array.isArray(record.values)) return record;
+    return {
+      ...record,
+      values: record.values.map((value) => {
+        if (!isRecord(value)) return value;
+        const copy: Record<string, unknown> = { ...value };
+        delete copy.check;
+        return copy;
+      }),
+    };
+  });
+}
+
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
