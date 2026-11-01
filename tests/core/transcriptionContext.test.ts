@@ -78,6 +78,24 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       ).toBe("陈经理，你好，我是星河科技的王丽。项目经理李明会把施工图发给你。");
     });
 
+    test("a told name is written as the User writes it, whatever case the model wrote", () => {
+      expect(
+        withToldWords(
+          "I want to go over the harbor logistics renewal.",
+          "I want to go over the harbor logistics renewal.",
+          english,
+        ),
+      ).toBe("I want to go over the Harbor Logistics renewal.");
+      expect(withToldWords("Thanks, Pria.", "Thanks, Priya.", english)).toBe("Thanks, Priya.");
+      // A part of a name only where the model wrote it as a name.
+      expect(
+        withToldWords("The ships are in the harbour.", "The ships are in the harbor.", english),
+      ).toBe("The ships are in the harbour.");
+      expect(withToldWords("Thanks, everyone.", "Thanks, everyone.", english)).toBe(
+        "Thanks, everyone.",
+      );
+    });
+
     test("everything else stays as first read: words the told reading dropped or changed", () => {
       expect(
         withToldWords(

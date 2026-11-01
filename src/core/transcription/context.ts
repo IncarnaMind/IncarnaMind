@@ -124,26 +124,31 @@ function alignUnits(plain: readonly string[], told: readonly string[]): Step[] {
   return steps.reverse();
 }
 
-/** Where each word is written in the units, as [first, last] unit, longest words first, none overlapping. */
-function writtenAt(units: readonly string[], words: readonly string[]): [number, number][] {
+/** Where each word is written in the units, as its first and last unit, longest words first, none overlapping. */
+function writtenAt(
+  units: readonly string[],
+  words: readonly { word: string; capitalised: boolean }[],
+): { first: number; last: number; word: string }[] {
   const taken = new Uint8Array(units.length);
-  const found: [number, number][] = [];
-  const keys = [...words]
-    .map((word) =>
-      unitsOf(word)
+  const found: { first: number; last: number; word: string }[] = [];
+  const keys = words
+    .map(({ word, capitalised }) => ({
+      word,
+      key: unitsOf(word)
         .filter((unit) => WORDLIKE.test(unit))
-        .map(fold),
-    )
-    .filter((key) => key.length > 0)
-    .sort((a, b) => b.length - a.length);
-  for (const key of keys) {
+        .map((unit) => (capitalised ? unit : fold(unit))),
+      capitalised,
+    }))
+    .filter(({ key }) => key.length > 0)
+    .sort((a, b) => b.key.length - a.key.length);
+  for (const { word, key, capitalised } of keys) {
     for (let start = 0; start < units.length; start++) {
       let k = 0;
       let end = start;
       for (let at = start; at < units.length && k < key.length; at++) {
         const unit = units[at] as string;
         if (taken[at]) break;
-        if (fold(unit) === key[k]) {
+        if ((capitalised ? unit : fold(unit)) === key[k]) {
           k++;
           end = at;
         } else if (!(k > 0 && /^\s$/u.test(unit))) {
@@ -152,7 +157,7 @@ function writtenAt(units: readonly string[], words: readonly string[]): [number,
       }
       if (k < key.length) continue;
       for (let at = start; at <= end; at++) taken[at] = 1;
-      found.push([start, end]);
+      found.push({ first: start, last: end, word });
     }
   }
   return found;
@@ -170,14 +175,18 @@ const lettersIn = (units: readonly string[]) =>
  */
 /**
  * The told words, and the capitalised parts of a name of several words: a call says "Priya" as
- * often as "Priya Raman".
+ * often as "Priya Raman". A part counts only where the model wrote it capitalised too: "harbor"
+ * alone is a place for ships, not Harbor Logistics.
  */
-function namesAndParts(words: readonly string[]): string[] {
+function namesAndParts(words: readonly string[]): { word: string; capitalised: boolean }[] {
   const parts = words.flatMap((word) => {
     const each = word.split(/\s+/u);
     return each.length > 1 ? each.filter((part) => /^\p{Lu}\p{L}{2,}$/u.test(part)) : [];
   });
-  return [...words, ...parts];
+  return [
+    ...words.map((word) => ({ word, capitalised: false })),
+    ...parts.map((word) => ({ word, capitalised: true })),
+  ];
 }
 
 export function withToldWords(plain: string, told: string, words: readonly string[]): string {
@@ -193,16 +202,17 @@ export function withToldWords(plain: string, told: string, words: readonly strin
     else linedUp.push(i++);
   }
   const swaps: { from: number; to: number; units: string[] }[] = [];
-  for (const [first, last] of writtenAt(toldUnits, namesAndParts(words))) {
+  for (const { first, last, word } of writtenAt(toldUnits, namesAndParts(words))) {
     const heard = linedUp
       .slice(first, last + 1)
       .filter((at, k) => at >= 0 && WORDLIKE.test(toldUnits[first + k] as string));
     if (heard.length === 0) continue;
     const from = Math.min(...heard);
     const to = Math.max(...heard);
-    const said = toldUnits.slice(first, last + 1);
+    // Written as the User writes it, which the model may not have: "harbor logistics".
+    const said = unitsOf(word);
     const was = plainUnits.slice(from, to + 1);
-    if (was.map(fold).join("") === said.map(fold).join("")) continue;
+    if (was.join("") === word) continue;
     const ratio = lettersIn(was) / Math.max(1, lettersIn(said));
     if (ratio < 0.5 || ratio > 2) continue;
     if (swaps.some((swap) => swap.from <= to && from <= swap.to)) continue;
