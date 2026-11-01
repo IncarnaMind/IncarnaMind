@@ -99,6 +99,8 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   if (end.kind === "done") {
     const results = resultLines(analysis, language);
     if (results.length > 0) lines.push("Results:", ...results);
+    const untraced = untracedLine(analysis);
+    if (untraced) lines.push(untraced);
   } else {
     lines.push("Its figures, tables and charts can't be used because this run did not finish.");
   }
@@ -167,6 +169,20 @@ function resultLines(analysis: AnswerAnalysis, language: Language): string[] {
     lines.push(`- [=picture ${marker}] ${picture.title || "Untitled"} (a picture matplotlib drew)`);
   });
   return lines;
+}
+
+/**
+ * The figures that name no rows, when the Analysis read a range: their cards can cite only the
+ * whole range, so the model is told how to say which rows a model's figure used (#2346).
+ */
+function untracedLine(analysis: AnswerAnalysis): string | null {
+  const marked = new Set(analysis.markers.figures.map((each) => each.result));
+  const names = analysis.output.results.flatMap((result) =>
+    result.kind === "figure" && !result.of && marked.has(result.name) ? [result.name] : [],
+  );
+  const ranges = analysis.inputs.flatMap((input) => (input.kind === "range" ? [input.name] : []));
+  if (names.length === 0 || ranges.length === 0) return null;
+  return `${names.join(", ")} ${names.length === 1 ? "names" : "name"} no rows, so ${names.length === 1 ? "its card cites" : "their cards cite"} all of ${ranges.join(", ")}. If a model or test worked one out from only some of those rows (after dropping or filtering rows), give it with of=, the rows it used, and run it again.`;
 }
 
 function refusal(
