@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { currencyScaleMarker, readStatedUnits } from "../../shared/figures";
+import { statedScale } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
@@ -604,14 +604,10 @@ async function processBytes(
         : stripped;
     // The running header a page had before it was stripped, kept as its scale marker: a page
     // that wrote "(£'000)" there scaled its amounts, which the stored text no longer shows (#1001).
-    const pages = laid.map((unit, index) => {
-      const written = extracted.units[index]?.text ?? "";
-      const scaleMarker =
-        currencyScaleMarker(written) ??
-        readStatedUnits(written, {}).find((each) => each.scale !== 1)?.chars ??
-        "";
-      return { ...unit, scaleMarker };
-    });
+    const pages = laid.map((unit, index) => ({
+      ...unit,
+      scaleMarker: statedScale(extracted.units[index]?.text ?? "") ?? "",
+    }));
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
