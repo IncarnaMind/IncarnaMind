@@ -2434,7 +2434,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const field = card.getByTestId("setup-key");
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      // Once the key works, the steps left wait as a line above the composer (#2310).
+      await openSetupSteps(window);
       await pointAndClick(window, card.getByTestId("setup-step-sorting-open"));
       await expect(card.getByTestId("setup-sorting-use")).toBeEnabled({ timeout: 15_000 });
 

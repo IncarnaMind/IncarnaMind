@@ -915,3 +915,25 @@ describe("A Linked folder linked in the same millisecond as the turn-on", () => 
     expect(providers.sent("anthropic")).toBe(1);
   });
 });
+
+describe("Turned on again where it is on", () => {
+  test("keeps its time: a Document that failed while it was on goes once the User turns it on again there", async () => {
+    const providers = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: providers.createChatModel,
+    });
+    const anthropic = await core.saveChatProvider(ANTHROPIC);
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    providers.fail("anthropic", true);
+    const failed = await add(core, "Failed.txt");
+    await waitForTagging(core, [failed.id], (each) => each.tagging === "failed");
+    expect(providers.sent("anthropic")).toBe(1);
+    providers.fail("anthropic", false);
+
+    // As Use this does again after the User fixes the key.
+    await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
+    await waitForTagging(core, [failed.id]);
+
+    expect(providers.sent("anthropic")).toBe(2);
+  });
+});

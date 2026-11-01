@@ -3246,6 +3246,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const classifier = organizeModelOf(settings);
       return classifier && tagging.service(classifier);
     },
+    taggingAllowed: (service) => consent.allows("tagging", service),
     consentedAt: (service) =>
       consent.acceptedAt("tagging", service) ?? consent.acceptedAt("classification", service),
     pagesWaitFor: (classifier) => {

@@ -325,6 +325,8 @@ export function createLibrary(options: {
   }): ExternalService[];
   /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
   consentedAt(service: ExternalService): string | null;
+  /** Whether the User's consent to tagging sending to this service stands (../consent). */
+  taggingAllowed(service: ExternalService): boolean;
   /**
    * The service an Organize request with these settings sends a Document to; none on this
    * computer. A scan's page images may go to the image model's too, which the User allows for
@@ -1361,10 +1363,26 @@ export function createLibrary(options: {
           ? false
           : before.automatic;
       const at = turnOnTime(db, now());
+      // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
+      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // turning it on is a new consent.
+      const onFor = new Set(
+        showing
+          ? options
+              .sendsTo(before)
+              .filter((service) => options.taggingAllowed(service))
+              .map((service) => service.id)
+          : [],
+      );
       const automaticSince = turnOn
         ? {
             ...sinceOf(before),
-            ...Object.fromEntries(options.sendsTo(next).map((service) => [service.id, at])),
+            ...Object.fromEntries(
+              options
+                .sendsTo(next)
+                .filter((service) => !onFor.has(service.id))
+                .map((service) => [service.id, at]),
+            ),
           }
         : sinceOf(before);
       if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
