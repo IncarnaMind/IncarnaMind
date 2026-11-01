@@ -120,6 +120,16 @@ export function workbookInstructions(offered: boolean): string {
   ].join("\n");
 }
 
+/**
+ * Asked again when an Answer recorded figures from a workbook's formulas and writes none of their
+ * markers (#2372): Claude Haiku 5.5 traced a figure, then wrote its number with a Citation instead,
+ * which leaves the figure uncalculated and unchecked against its cell.
+ */
+export const unplacedWorkbookFiguresNote = (
+  figures: readonly { marker: number; shown: string; label: string }[],
+) =>
+  `You recorded ${figures.map(({ marker, shown, label }) => `[=${marker}] = ${shown} (${label})`).join(", ")} from the workbook's formulas, but your reply writes none of these markers. Write your whole reply again with each marker in place of its figure's number wherever the reply gives that figure, with no number or Citation marker beside it; leave out a figure the reply doesn't give. The User will not read your earlier reply: don't mention it.`;
+
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
   return [

@@ -51,7 +51,7 @@ import { appliedAsAsked } from "../../shared/askedChanges";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
-import { withFigures, withFigureText } from "../../shared/figureMarkers";
+import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { translate } from "../../shared/i18n";
 import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
@@ -327,6 +327,7 @@ import {
   sourcesInstructions,
   stillReadingNote,
   THIS_DOCUMENT_RULE,
+  unplacedWorkbookFiguresNote,
   unrecordedMarkersNote,
   webInstructions,
   withPassageNotes,
@@ -1544,6 +1545,8 @@ export function createAnswers(options: AnswersOptions) {
      * A workbook's figure, cited as an input quoted directly is (#2347): to its cell, or a
      * what-if to the input it changed, never to the cell whose number it isn't.
      */
+    /** The markers a workbook's Tools gave their figures, which the model never chose itself. */
+    const workbookMarkers: number[] = [];
     const recordWorkbookFigure = (figure: CalculatedFigure): number => {
       const change = figure.workbook?.change;
       const cell = change
@@ -1563,6 +1566,7 @@ export function createAnswers(options: AnswersOptions) {
           : [],
       );
       recordInputQuotes(marker);
+      workbookMarkers.push(marker);
       return marker;
     };
     const citeRecords = (records: readonly CitationRecordInput[], citeOptions?: CiteOptions) => {
@@ -3049,6 +3053,23 @@ export function createAnswers(options: AnswersOptions) {
             );
             return unrecorded.length > 0
               ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
+              : null;
+          },
+        },
+        {
+          name: "unplaced-workbook-figures",
+          check: (text) => {
+            const written = new Set(
+              [...text.matchAll(FIGURE_MARKER)].map((each) => Number(each[1])),
+            );
+            if (text.trim() === "" || workbookMarkers.some((marker) => written.has(marker)))
+              return null;
+            const recorded = workbookMarkers.flatMap((marker) => {
+              const figure = figures.figure(marker);
+              return figure ? [{ marker, shown: figure.shown, label: figure.label }] : [];
+            });
+            return recorded.length > 0
+              ? { claims: [], writeOnly: true, note: unplacedWorkbookFiguresNote(recorded) }
               : null;
           },
         },

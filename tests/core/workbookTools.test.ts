@@ -428,6 +428,55 @@ describe("a workbook's formulas in an Answer", () => {
   });
 
   test.each([
+    ["en", "What drives 2027 EBITDA?", "2027 EBITDA is 254.7.", "2027 EBITDA is [=1]."],
+    [
+      "zh-CN",
+      "2027 年的 EBITDA 由什么驱动？",
+      "2027 年的 EBITDA 是 254.7。",
+      "2027 年的 EBITDA 是 [=1]。",
+    ],
+  ])(
+    "%s: a reply that writes a traced figure's number instead of its marker is asked once to write the marker",
+    async (_language, question, asNumber, asMarker) => {
+      const model = scriptedModel((call) => {
+        if (!call.results.some((result) => result.tool === "search_documents"))
+          return { calls: [{ tool: "search_documents", input: { query: "EBITDA" } }] };
+        if (!call.results.some((result) => result.tool === "trace_formulas")) {
+          const passage =
+            call.results
+              .flatMap((result) => shownPassages(result.text))
+              .find((each) => each.text.includes("EBITDA"))?.id ?? "P1";
+          return { calls: [traceEbitda(passage)] };
+        }
+        return { text: call.prompt.includes("writes none of these markers") ? asMarker : asNumber };
+      });
+      const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+      const answer = await ask(core, question);
+      expect(model.doStreamCalls.at(-1)?.prompt.at(-1)).toMatchObject({ role: "user" });
+      expect(JSON.stringify(model.doStreamCalls.at(-1)?.prompt)).toContain(
+        "You recorded [=1] = 254.7 (EBITDA 2027) from the workbook's formulas, but your reply writes none of these markers.",
+      );
+      expect(answer.figures).toEqual([
+        expect.objectContaining({ value: 254.6775, label: "EBITDA 2027" }),
+      ]);
+    },
+  );
+
+  test("a reply that writes a traced figure's marker isn't asked again", async () => {
+    const model = modelling({
+      query: "EBITDA revenue growth",
+      calls: [traceEbitda],
+      answer: "2027 EBITDA is [=1].",
+    });
+    const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
+    const answer = await ask(core, "What drives 2027 EBITDA?");
+    expect(JSON.stringify(model.doStreamCalls.map((each) => each.prompt))).not.toContain(
+      "writes none of these markers",
+    );
+    expect(answer.figures).toHaveLength(1);
+  });
+
+  test.each([
     ["en", "What drives 2027 EBITDA?"],
     ["zh-CN", "2027 年的 EBITDA 由什么驱动？"],
   ])(
