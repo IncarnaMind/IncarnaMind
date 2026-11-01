@@ -781,11 +781,18 @@ def packages_for(code):
     return json.dumps(sorted({_packages[module] for module in modules if module in _packages}))
 
 
-def prepare_plots():
-    """Has matplotlib draw into PNGs, and keeps each figure pyplot makes while code runs."""
+def prepare_plots(font):
+    """Has matplotlib draw into PNGs, with `font` for what its own fonts lack, and keeps each
+    figure pyplot makes while code runs."""
     import matplotlib
+    from matplotlib import font_manager
 
     matplotlib.use("Agg")
+    font_manager.fontManager.addfont(font)
+    # After the usual family, so Latin text looks as it always did; matplotlib falls back to it
+    # for each character the first has no glyph for.
+    family = font_manager.FontProperties(fname=font).get_name()
+    matplotlib.rcParams["font.family"] = [*matplotlib.rcParams["font.family"], family]
     import matplotlib.pyplot as plt
 
     made = plt.figure
@@ -825,7 +832,8 @@ def _draw_pictures(limits):
             continue
         dpi = min(PICTURE_DPI, edge / max(*drawn.get_size_inches(), 0.01))
         title = _text(_title_of(drawn), limits["labelCharacters"])
-        # matplotlib's fonts have no Chinese, Japanese or Korean: such text would be drawn as boxes.
+        # A character no font here has (Japanese, Korean, a Chinese one outside GB2312) would be
+        # drawn as a box: such a plot is left out, and the model told why.
         with warnings.catch_warnings():
             warnings.filterwarnings("error", message=r"Glyph \d+ .*missing from font")
             try:
@@ -860,6 +868,13 @@ _environment = dict(os.environ)
 warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive")
 # threadpoolctl, which scikit-learn imports, still calls a Pyodide API Pyodide warns is going.
 warnings.filterwarnings("ignore", message=r"JsProxy\.as_object_map\(\) is deprecated")
+# Pyodide's build of matplotlib's Agg renderer takes the whole numbers matplotlib's own draw_text
+# passes as floats, so every savefig() would warn twice for each text it draws.
+warnings.filterwarnings(
+    "ignore",
+    message=r"The [xy] parameter as float was deprecated in Matplotlib 3\.10",
+    category=DeprecationWarning,
+)
 _warning_filters = list(warnings.filters)
 _numpy_errors = np.geterr()
 _recursion = sys.getrecursionlimit()

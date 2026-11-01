@@ -2,9 +2,9 @@
  * The packaged app's engine check (#1239). Started with `--check-engines=<file>`, the app opens no
  * window of its own and uses a data folder of its own. It starts each engine process as the app
  * does and has it load its modules through the engine's own loaders (../core/engineModules), loads
- * the OS sandbox's module here, and runs a regression, a forecast, a clustering and a plot in the
- * hidden Analyses window, with every package Analyses bring (ADR-0025). It writes
- * what it found to <file> as JSON and exits, with 1 when anything didn't load. No model is
+ * the OS sandbox's module here, and runs a regression, a forecast, a clustering and a plot with a
+ * Chinese title in the hidden Analyses window, with every package Analyses bring (ADR-0025). It
+ * writes what it found to <file> as JSON and exits, with 1 when anything didn't load. No model is
  * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
  * uploads anything.
  */
@@ -131,6 +131,8 @@ const PYTHON_CHECK = [
   'assert ahead[2] > ahead[0], f"forecast: {list(ahead)}"',
   'assert len(set(groups)) == 3, f"clustering: {set(groups)}"',
   "plt.plot(df.x, df.y)",
+  // Drawn with the bundled Chinese font: without it the plot would be left out for its glyphs.
+  'plt.title("各地区收入")',
 ].join("\n");
 
 async function checkPython(log: FileLogger): Promise<EngineCheck> {
@@ -138,11 +140,16 @@ async function checkPython(log: FileLogger): Promise<EngineCheck> {
   const { end, output } = await runtime
     .run({ language: "python", code: PYTHON_CHECK, inputs: [] }, new AbortController().signal)
     .finally(() => runtime.close());
-  const drawn = end.kind !== "done" || (output.pictures ?? []).length === 1;
+  const plotProblem =
+    (output.withoutGlyphs ?? []).length > 0
+      ? "matplotlib couldn't draw a plot's Chinese title with the bundled font"
+      : (output.pictures ?? []).length === 1
+        ? null
+        : "matplotlib drew no picture";
   return {
     process: "Analyses window",
     module: "Pyodide, numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib",
-    problem: problemOf(end) ?? (drawn ? null : "matplotlib drew no picture"),
+    problem: problemOf(end) ?? (end.kind === "done" ? plotProblem : null),
   };
 }
 

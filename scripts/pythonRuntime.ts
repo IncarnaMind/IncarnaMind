@@ -3,9 +3,10 @@
  * which electron-builder ships beside app.asar: Pyodide's own files,
  * unmodified, from the pyodide package, and the wheels of numpy, pandas,
  * scipy, statsmodels, scikit-learn, matplotlib and what they depend on, from
- * Pyodide's CDN, each checked against the SHA-256 its lock file records.
- * packages.json lists each with the names code imports it by, for the Worker
- * to load a job's packages. Files already there and matching are kept;
+ * Pyodide's CDN, each checked against the SHA-256 its lock file records, and
+ * the font plots draw Chinese with (resources/fonts, scripts/plotFont.py).
+ * packages.json lists each package with the names code imports it by, for the
+ * Worker to load a job's packages, and the font. Files already there and matching are kept;
  * anything else in the folder goes. The build runs it
  * (electron.vite.config.ts), so the app never fetches a package itself.
  */
@@ -13,6 +14,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { PLOT_FONT } from "../src/shared/analysisWindow";
 
 /** What Analyses import; the wheels they depend on come with them. */
 export const PYTHON_PACKAGES = [
@@ -89,8 +91,14 @@ export function packagesFor(lock: Lock): (LockedPackage & { name: string })[] {
     .map(([name, found]) => ({ ...found, name }));
 }
 
-/** Fills `folder` (resources/python) for this checkout's Pyodide; says what it had to fetch. */
-export async function preparePythonRuntime(folder: string): Promise<{ fetched: string[] }> {
+/**
+ * Fills `folder` (resources/python) for this checkout's Pyodide, with the plot font from `fonts`
+ * (resources/fonts, beside it); says what it had to fetch.
+ */
+export async function preparePythonRuntime(
+  folder: string,
+  fonts = join(dirname(folder), "fonts"),
+): Promise<{ fetched: string[] }> {
   const require = createRequire(import.meta.url);
   const pyodide = dirname(require.resolve("pyodide/package.json"));
   const { version } = JSON.parse(await readFile(join(pyodide, "package.json"), "utf8")) as {
@@ -101,9 +109,13 @@ export async function preparePythonRuntime(folder: string): Promise<{ fetched: s
   const fetched: string[] = [];
   const kept = new Set<string>(["packages.json"]);
 
-  for (const name of PYODIDE_FILES) {
+  const copied = [
+    ...PYODIDE_FILES.map((name) => ({ name, from: join(pyodide, name) })),
+    { name: PLOT_FONT, from: join(fonts, PLOT_FONT) },
+  ];
+  for (const { name, from } of copied) {
     kept.add(name);
-    const bytes = await readFile(join(pyodide, name));
+    const bytes = await readFile(from);
     if ((await hashOf(join(folder, name))) !== sha256(bytes)) {
       await writeFile(join(folder, name), bytes);
     }
@@ -141,6 +153,7 @@ export async function preparePythonRuntime(folder: string): Promise<{ fetched: s
         file,
         imports,
       })),
+      fonts: [PLOT_FONT],
     },
     null,
     2,

@@ -4,13 +4,14 @@
  * helper every job runs through (./incarnamind.py). The other bundled
  * packages (scipy, statsmodels, scikit-learn, matplotlib) are loaded for a job
  * only when its code uses them, so a job that needs only pandas starts as fast
- * as it did without them (ADR-0025).
+ * as it did without them (ADR-0025); so is the font its plots draw Chinese with.
  */
-import { PYTHON_PATH } from "../../shared/analysisWindow";
+import { PLOT_FONT, PYTHON_PATH } from "../../shared/analysisWindow";
 import helper from "./incarnamind.py?raw";
 import { loadPython } from "./loadPyodide";
 
 const HELPER_FOLDER = "/incarnamind";
+const FONT_FOLDER = "/fonts";
 const BASE_PACKAGES = ["numpy", "pandas"];
 
 type Python = Awaited<ReturnType<typeof loadPython>>;
@@ -59,7 +60,16 @@ async function start(): Promise<Run> {
     const packages = JSON.parse(String(runner.packages_for(code))) as string[];
     if (packages.length > 0) {
       await load(pyodide, packages);
-      if (packages.includes("matplotlib")) runner.prepare_plots();
+      if (packages.includes("matplotlib")) {
+        const font = await fetch(`${base}${PLOT_FONT}`);
+        if (!font.ok) throw new Error(`The plot font didn't load (${font.status}).`);
+        pyodide.FS.mkdirTree(FONT_FOLDER);
+        pyodide.FS.writeFile(
+          `${FONT_FOLDER}/${PLOT_FONT}`,
+          new Uint8Array(await font.arrayBuffer()),
+        );
+        runner.prepare_plots(`${FONT_FOLDER}/${PLOT_FONT}`);
+      }
     }
     started();
     return String(runner.run(job));

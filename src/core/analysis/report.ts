@@ -115,7 +115,7 @@ export function analysisReport(analysis: AnswerAnalysis, language: Language): st
   if (end.kind === "done" && withoutGlyphs.length > 0) {
     const titles = withoutGlyphs.map((title) => `"${title || "Untitled"}"`).join(", ");
     lines.push(
-      `Left out: ${withoutGlyphs.length === 1 ? "a picture" : `${count(withoutGlyphs.length)} pictures`} (${titles}) whose text has characters matplotlib here has no font for, such as Chinese, Japanese or Korean, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text in English.`,
+      `Left out: ${withoutGlyphs.length === 1 ? "a picture" : `${count(withoutGlyphs.length)} pictures`} (${titles}) whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text without them.`,
     );
   }
   lines.push(endLine(analysis, end));

@@ -78,6 +78,7 @@ const TYPES: Readonly<Record<string, string>> = {
   ".json": "application/json",
   ".zip": "application/zip",
   ".whl": "application/zip",
+  ".otf": "font/otf",
 };
 
 /**

@@ -13,6 +13,7 @@ const engines = vi.hoisted(() => ({
   forks: [] as { path: string; args: string[]; serviceName: string }[],
   pythonEnd: { kind: "done" } as AnalysisEnd,
   pictures: 1,
+  withoutGlyphs: [] as string[],
   exits: [] as number[],
 }));
 
@@ -50,6 +51,7 @@ vi.mock("../../src/main/platform", () => ({
     run: async () => ({
       end: engines.pythonEnd,
       output: {
+        withoutGlyphs: engines.withoutGlyphs,
         pictures: Array.from({ length: engines.pictures }, () => ({
           title: "",
           png: "iVBORw0KGgo",
@@ -74,6 +76,7 @@ beforeEach(() => {
   engines.exits.length = 0;
   engines.pythonEnd = { kind: "done" };
   engines.pictures = 1;
+  engines.withoutGlyphs = [];
   engines.answers.set("embedder.js", { found: [loaded("onnxruntime-node")] });
   engines.answers.set("transcriber.js", { found: [loaded("sherpa-onnx-node")] });
 });
@@ -144,6 +147,15 @@ describe("The engine check", () => {
     engines.pictures = 1;
     const again = await checkEngines(log);
     expect(again.find((each) => each.process === "Analyses window")?.problem).toBeNull();
+  });
+
+  it("says so when a plot's Chinese couldn't be drawn with the bundled font", async () => {
+    engines.pictures = 0;
+    engines.withoutGlyphs = ["各地区收入"];
+    const checks = await checkEngines(log);
+    expect(checks.find((each) => each.process === "Analyses window")?.problem).toBe(
+      "matplotlib couldn't draw a plot's Chinese title with the bundled font",
+    );
   });
 });
 

@@ -7,7 +7,8 @@
 //      other, unpacked beside app.asar. On Windows its ONNX Runtime library is the app's own, byte
 //      for byte (#2152).
 //   4. Each app has what Analyses run with (ADR-0023) in python/ beside app.asar, as
-//      packages.json lists it.
+//      packages.json lists it, and every shared library in its wheels has an entry in the
+//      notices beside it (scripts/pythonNotices.mjs).
 //   5. macOS is Apple silicon only (#2199): no app that runs on Intel Macs (lipo reads each one's
 //      architectures on macOS), no Intel or universal installer, and latest-mac.yml, which the
 //      auto-updater reads, offers arm64 files and nothing else.
@@ -18,18 +19,19 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { listPackage } from "@electron/asar";
 import { speechRuntimes } from "./afterPack.mjs";
+import { hasEntry, noticesFor, zipNames } from "./pythonNotices.mjs";
 
 const ALLOWED_TOP_LEVEL = new Set(["out", "node_modules", "package.json"]);
 
 // Set from the fixed macOS arm64 build (app.asar 130.8 MB) plus about 20%. The asar holds
 // JavaScript and pure-JS dependencies; the native libraries are unpacked beside it.
 const MAX_ASAR_BYTES = 157_000_000;
-// The largest installer, the Linux AppImage with what Analyses run with (231.3 MB, ADR-0023),
-// plus about 14 MB: the next real growth trips it, to be argued for. The macOS and Windows
-// installers are checked against the same limit.
-const MAX_INSTALLER_BYTES = 245_000_000;
-// The .deb of the Linux x64 build (170 MB before Analyses, which add about 14 MB) plus about 15 MB.
-const MAX_DEB_BYTES = 199_000_000;
+// The largest installer, the Linux AppImage: 231.3 MB with what Analyses run with (ADR-0023), the
+// 37.5 MB ADR-0025's packages and plot font added to the macOS dmg, and about 14 MB, so the next
+// real growth trips it, to be argued for. The macOS and Windows installers share the limit.
+const MAX_INSTALLER_BYTES = 283_000_000;
+// The .deb of the Linux x64 build: 183.4 MB in 0.1.0-alpha.5, ADR-0025's 37.5 MB and about 15 MB.
+const MAX_DEB_BYTES = 236_000_000;
 
 const distDir = resolve(process.argv[2] ?? "dist");
 const INSTALLER_EXT = /\.(dmg|zip|exe|AppImage|deb)$/;
@@ -128,10 +130,11 @@ for (const asar of asars) {
 for (const asar of asars) {
 	const python = join(dirname(asar), "python");
 	let listed = [];
+	let packages = [];
 	try {
-		listed = JSON.parse(readFileSync(join(python, "packages.json"), "utf8")).packages.map(
-			(each) => each.file,
-		);
+		const listing = JSON.parse(readFileSync(join(python, "packages.json"), "utf8"));
+		packages = listing.packages;
+		listed = [...packages.map((each) => each.file), ...(listing.fonts ?? [])];
 	} catch {
 		failures.push(`${asar} has no python/packages.json beside it`);
 		continue;
@@ -142,6 +145,21 @@ for (const asar of asars) {
 	);
 	if (missing.length > 0) {
 		failures.push(`${asar} is missing Python files beside it: ${missing.join(", ")}`);
+		continue;
+	}
+	const notice = readFileSync(join(dirname(asar), "notices", "python.txt"), "utf8");
+	for (const each of packages) {
+		for (const path of zipNames(join(python, each.file)).filter((name) => /\.so$/.test(name))) {
+			const notices = noticesFor(each.name, path);
+			if (!notices) {
+				failures.push(`${each.file}'s ${path} is a shared library no notice rule covers`);
+				continue;
+			}
+			const absent = notices.filter((name) => !hasEntry(notice, name));
+			if (absent.length > 0) {
+				failures.push(`${each.file}'s ${path} has no entry in notices/python.txt for ${absent.join(", ")}`);
+			}
+		}
 	}
 }
 

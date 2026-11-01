@@ -740,7 +740,7 @@ describe("an Analysis an Answer runs", () => {
     const { core } = await setUp(model, () => ({
       output: {
         pictures: [{ title: "Revenue by quarter", png, width: 1200, height: 900 }],
-        withoutGlyphs: ["各地区收入"],
+        withoutGlyphs: ["매출 지역별"],
       },
     }));
 
@@ -750,7 +750,7 @@ describe("an Analysis an Answer runs", () => {
     const report = told(model, "run_analysis")[0];
     expect(report).toContain("- [=picture 1] Revenue by quarter (a picture matplotlib drew)");
     expect(report).toContain(
-      'Left out: a picture ("各地区收入") whose text has characters matplotlib here has no font for, such as Chinese, Japanese or Korean, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot\'s text in English.',
+      "Left out: a picture (\"매출 지역별\") whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. Draw it with chart(), which the app draws in any language, or write the plot's text without them.",
     );
     const picture = {
       type: "picture",

@@ -404,13 +404,19 @@ test("a regression, a forecast and a clustering run offline with scipy, statsmod
         "plt.savefig('fit.png')",
         "plt.close(fig)",
         "plt.figure()",
+        // A less common character of GB2312 (level 2), which the bundled font keeps.
         'plt.bar(["北区", "南区"], [3, 1])',
-        'plt.title("各地区收入")',
+        'plt.title("各地区收入（鄞州）")',
+        "plt.figure()",
+        'plt.bar(["서울", "부산"], [3, 1])',
+        'plt.title("매출 지역별")',
       ].join("\n"),
       [MARKETING],
     ),
   );
   expect(regression.result.end).toEqual({ kind: "done" });
+  // savefig() in the code itself prints nothing for the model to read past.
+  expect(regression.result.output.printed).toBe("");
   expect(regression.versions?.packages).toMatchObject({
     scipy: "1.18.0",
     statsmodels: "0.14.6",
@@ -436,11 +442,13 @@ test("a regression, a forecast and a clustering run offline with scipy, statsmod
   });
   // pandas' own sum, which IncarnaMind works out again to Excel's 15 digits.
   expect(total?.kind === "figure" && total.value).toBeCloseTo(2590.7, 9);
-  // Closed after it was saved, the plot still comes back; one whose Chinese no font draws doesn't.
+  // Closed after it was saved, the plot still comes back, and so does one in Chinese, drawn with
+  // the bundled font; one in Korean, which no font here has, doesn't.
   expect(regression.result.output.pictures).toEqual([
     expect.objectContaining({ title: "Revenue against ad spend" }),
+    expect.objectContaining({ title: "各地区收入（鄞州）" }),
   ]);
-  expect(regression.result.output.withoutGlyphs).toEqual(["各地区收入"]);
+  expect(regression.result.output.withoutGlyphs).toEqual(["매출 지역별"]);
   const [picture] = regression.result.output.pictures ?? [];
   expect(picture?.png.startsWith("iVBORw0KGgo")).toBe(true);
   expect(Math.max(picture?.width ?? 0, picture?.height ?? 0)).toBeLessThanOrEqual(1600);
