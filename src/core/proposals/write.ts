@@ -460,13 +460,33 @@ export interface PartPlace {
 /** A selection edited in parts, at the boundaries between its Blocks. */
 export type PartsResult =
   | { ok: true; parts: PartPlace[] }
-  /** `block`: one Block alone is more than the model takes at once. `changed`: the text can't be read now. */
-  | { ok: false; reason: "block" | "changed" };
+  /**
+   * `block`: one Block alone is more than the model takes at once, `part` being it.
+   * `changed`: the text can't be read now.
+   */
+  | { ok: false; reason: "block"; part: Selection }
+  | { ok: false; reason: "changed" };
+
+/**
+ * The Block a text segment is part of, as a part may end between it and the next: a table is
+ * one Block however many cells it has, and so is each list item.
+ */
+function blockOf(segment: Segment, blocks: Y.XmlFragment): unknown {
+  let block: Y.XmlElement = segment.element;
+  for (let at: unknown = segment.element; at instanceof Y.XmlElement; at = at.parent) {
+    if (at.nodeName === "table") return at;
+    if (at.nodeName === "listItem") block = at;
+    // An XmlElement is an XmlFragment too: only the Mind's own fragment is the top.
+    if (at.parent === blocks) return block;
+  }
+  return block;
+}
 
 /**
  * The parts a selection too long for the model is edited in (#2348): each a run of whole
  * Blocks that `fits`, in order, and no part left out. A Block that alone doesn't fit is
- * the whole answer: a Block can't be split.
+ * the whole answer: a Block can't be split. A Block the selection has no text of, such as
+ * an empty line at its edge, is in no part: there is nothing in it to edit.
  */
 export function selectionParts(
   blocks: Y.XmlFragment,
@@ -485,31 +505,40 @@ export function selectionParts(
     const result = readSelection(blocks, from, to);
     return result.ok ? result.selection : null;
   };
-  const { segments } = selection;
+  // The runs of segments inside one Block: a part is whole ones of these.
+  const runs: { first: Segment; last: Segment }[] = [];
+  for (const segment of selection.segments) {
+    const last = runs.at(-1);
+    if (last && blockOf(last.first, blocks) === blockOf(segment, blocks)) last.last = segment;
+    else runs.push({ first: segment, last: segment });
+  }
+  const editable = runs.filter((run) => (read(run.first, run.last)?.text ?? "") !== "");
   const parts: PartPlace[] = [];
   let start = 0;
-  while (start < segments.length) {
-    const first = segments[start];
+  while (start < editable.length) {
+    const first = editable[start];
     if (!first) return { ok: false, reason: "changed" };
-    const alone = read(first, first);
+    const alone = read(first.first, first.last);
     if (!alone) return { ok: false, reason: "changed" };
-    if (!fits(alone)) return { ok: false, reason: "block" };
+    if (!fits(alone)) return { ok: false, reason: "block", part: alone };
     let end = start;
     for (;;) {
-      const last = segments[end + 1];
-      if (!last) break;
-      const next = read(first, last);
-      if (!next) return { ok: false, reason: "changed" };
-      if (!fits(next)) break;
+      const next = editable[end + 1];
+      if (!next) break;
+      const more = read(first.first, next.last);
+      if (!more) return { ok: false, reason: "changed" };
+      if (!fits(more)) break;
       end += 1;
     }
-    const to = segments[end];
-    const from = placeOf(first, "from");
-    const place = to && placeOf(to, "to");
+    const to = editable[end];
+    const from = placeOf(first.first, "from");
+    const place = to && placeOf(to.last, "to");
     if (!from || !place) return { ok: false, reason: "changed" };
     parts.push({ from, to: place });
     start = end + 1;
   }
+  // Nothing the model could edit: the selection is empty lines.
+  if (parts.length === 0) return { ok: false, reason: "changed" };
   return { ok: true, parts };
 }
 

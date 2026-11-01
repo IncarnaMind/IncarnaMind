@@ -7,34 +7,24 @@ import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { mindSearchScope } from "../../../shared/searchScope";
 import { useComposer } from "../composer";
-import { askInAssistant } from "../conversations";
+import { askInAssistant, whenNoAnswerWritten } from "../conversations";
 import { core } from "../core";
 import { translateNow } from "../i18n";
 import { modelInUseOf } from "../modelInUse";
+import { revealAssistant } from "../quietAssistant";
 import { scopeWithin } from "../scope";
 import { folderHoldsDocumentsNow } from "../scopeDocuments";
 import { useAppStore } from "../store";
-import { selectionForEdit } from "./editSelection";
+import { quoteOf, selectionForEdit } from "./editSelection";
 import { mindFocusOf } from "./mindFocus";
 import { closeSelectionMenu } from "./selectionDismissal";
-
-/** How much of the selection the Question's words quote: the chip above it holds all of it. */
-const QUOTE_CHARS = 48;
-
-/** The selection in one line, cut short as a chip shows it. */
-function quoteOf(text: string): string {
-  const flat = text.replace(/￼/g, "").replace(/\s+/g, " ").trim();
-  const characters = [...flat];
-  return characters.length > QUOTE_CHARS
-    ? `${characters.slice(0, QUOTE_CHARS - 1).join("")}…`
-    : flat;
-}
 
 /**
  * Asks the assistant to explain what is selected in a Note, as the prototype does: the
  * selection goes with the Question as a chip, the assistant opens where the User left it
- * (unfolded, and docked as it was), and nothing in the Note changes. False when nothing is
- * selected.
+ * (revealed and unfolded, docked as it was), and nothing in the Note changes. An Answer
+ * being written is waited for, as the composer waits: one Answer at a time, one Stop.
+ * False when nothing is selected.
  */
 export async function explainSelection(
   editor: Editor,
@@ -54,9 +44,9 @@ export async function explainSelection(
   );
   // The menu goes, as for an edit: its answer is elsewhere (#2348).
   closeSelectionMenu(editor);
-  // The Assistant's own opening: the rail unfolds, and the note keeps the cursor where it was.
-  if (state.layout?.assistant.folded) void state.placeAssistant({ folded: false });
+  revealAssistant();
   const wall = await core.wallOfTurn({ mindId, conversationId: null }).catch(() => null);
+  await whenNoAnswerWritten();
   return askInAssistant({
     mindId,
     text: translateNow("editor.ai.explain.ask", {

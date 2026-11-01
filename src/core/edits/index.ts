@@ -438,6 +438,31 @@ function editCall(
   return { instructions, prompt, maxOutputTokens };
 }
 
+/** Why a passage is more than one request edits: the app's own cap, or this model's window. */
+type TooLongCause = "cap" | "model";
+
+/**
+ * Why the model can't take `selection` in one request; null when it can. "cap": the app's own
+ * limits, which no model changes (12,000 characters, or a reply past an edit's 16,000 tokens).
+ * "model": this model's window, or the room it leaves, which a larger one may take.
+ */
+function tooLongCause(
+  prepared: PreparedChatModel,
+  ask: Pick<Ask, "action" | "instruction">,
+  selection: Parameters<typeof editCall>[2],
+): TooLongCause | null {
+  if (selection.characters > MAX_SELECTION_CHARACTERS) return "cap";
+  if (editCall(prepared, ask, selection) !== null) return null;
+  const passage =
+    selection.named === undefined
+      ? selection.text
+      : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const { window } = prepared;
+  const tokens = window ? createWindowBudget(window).tokens(passage) : estimateTokens(passage);
+  const expected = ask.action === "explain" ? 512 : Math.ceil(tokens * 1.5) + 64;
+  return expected > outputTokens("edit") ? "cap" : "model";
+}
+
 /**
  * Streams the model's reply to a request: `onText` hears it grow, the reply
  * so far and the piece just come, and stops it by returning true. `failure`:
@@ -551,7 +576,7 @@ export function createEdits(options: EditsOptions) {
     // A Block alone over what one request edits can't be edited in parts (#2348): said before
     // anything is sent, and before a model is asked for.
     if (draft.selection.segments.some((part) => part.characters > MAX_SELECTION_CHARACTERS)) {
-      return { kind: "block-too-long" };
+      return { kind: "block-too-long", cause: "cap" };
     }
 
     const choice = ask.model ?? options.defaultModel();
@@ -608,7 +633,11 @@ export function createEdits(options: EditsOptions) {
         part.characters <= MAX_SELECTION_CHARACTERS &&
         editCall(prepared, ask, { ...part, quotes: quotesOf(part) }) !== null,
     );
-    if (!split.ok) return { kind: split.reason === "block" ? "block-too-long" : "changed" };
+    if (!split.ok) {
+      if (split.reason === "changed") return { kind: "changed" };
+      const cause = tooLongCause(prepared, ask, { ...split.part, quotes: quotesOf(split.part) });
+      return { kind: "block-too-long", cause: cause ?? "model" };
+    }
     const request = randomUUID();
     const total = split.parts.length;
     // How many, before the first part streams: a cloud model's estimate shows first (#83).
@@ -617,6 +646,7 @@ export function createEdits(options: EditsOptions) {
     const notes: Notes = { unmatchedMarkers: 0, unlinkedSources: 0, extraCells: 0 };
     let droppedCitations = 0;
     let held = false;
+    let stopped = false;
     let made = 0;
     let said: string | undefined;
     // One Checkpoint for the whole edit, as for one request (#113).
@@ -631,7 +661,10 @@ export function createEdits(options: EditsOptions) {
     };
     try {
       for (const [index, place] of split.parts.entries()) {
-        if (signal.aborted) break;
+        if (signal.aborted) {
+          stopped = true;
+          break;
+        }
         const read = readForEdit(mindId, place.from, place.to);
         if (!read.ok) {
           return takeBackAll(mindId, request, {
@@ -663,7 +696,10 @@ export function createEdits(options: EditsOptions) {
           continue;
         }
         // Stopped between two parts: what is finished stays, as for a request stopped midway.
-        if (result.kind === "cancelled" || signal.aborted) break;
+        if (result.kind === "cancelled" || signal.aborted) {
+          stopped = true;
+          break;
+        }
         return takeBackAll(mindId, request, result);
       }
     } finally {
@@ -681,8 +717,8 @@ export function createEdits(options: EditsOptions) {
     return {
       kind: "proposed",
       request,
-      // How many parts the changes came from: all of them, unless the User stopped it partway.
-      ...(made > 1 && { parts: made }),
+      // How many parts it was, all of them unless the User stopped it partway.
+      ...((stopped ? made : total) > 1 && { parts: stopped ? made : total }),
       proposals: now.count,
       droppedCitations,
       outOfDate: now.outOfDate.length,

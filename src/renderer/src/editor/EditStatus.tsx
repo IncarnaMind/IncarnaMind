@@ -87,20 +87,23 @@ export function editProblemParts(
       };
     }
     case "block-too-long":
-      return {
-        // A Block can't be split: the model that can't take it is the one to change.
-        text: t("edit.problem.block-too-long", {
-          model: problem.model ?? t("answer.error.thisModel"),
-        }),
-        action: {
-          label: t("edit.problem.chooseAnotherModel"),
-          run: () => {
-            dismissEditProblem(mindId);
-            openSettings("models");
-          },
-        },
-        role: "alert",
-      };
+      // A Block can't be split: the app's own limit says to split the paragraph, and a model's
+      // window says which model to change. No model helps the first (#2348).
+      return problem.cause === "cap"
+        ? { text: t("edit.problem.block-too-long.cap"), role: "alert" }
+        : {
+            text: t("edit.problem.block-too-long", {
+              model: problem.model ?? t("answer.error.thisModel"),
+            }),
+            action: {
+              label: t("edit.problem.chooseAnotherModel"),
+              run: () => {
+                dismissEditProblem(mindId);
+                openSettings("models");
+              },
+            },
+            role: "alert",
+          };
     case "local-mode":
       return {
         text: t("edit.problem.local-mode"),

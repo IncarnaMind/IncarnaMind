@@ -5860,9 +5860,11 @@ export type EditWithAiResult =
   | { kind: "too-long" }
   /**
    * Nothing was sent: one Block of the selection is more than the model takes at once, and a
-   * Block can't be edited in parts (#2348).
+   * Block can't be edited in parts (#2348). `cause`: "cap" is the app's own limit, which no
+   * model changes (12,000 characters, or a reply past an edit's 16,000 tokens); "model" is this
+   * model's window, which a larger one may take.
    */
-  | { kind: "block-too-long" }
+  | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
   /**

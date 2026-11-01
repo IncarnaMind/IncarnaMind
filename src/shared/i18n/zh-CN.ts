@@ -1368,6 +1368,7 @@ export const zhCN = {
   "edit.problem.has-proposals": "选中的文字里有待处理的修订，请先接受或拒绝。",
   "edit.problem.too-long": "选中的文字太长，请少选一些。",
   "edit.problem.block-too-long": "这一段对 {model} 来说太长了",
+  "edit.problem.block-too-long.cap": "这一段超出了一次编辑能处理的长度，请把它拆成更短的段落。",
   "edit.problem.chooseAnotherModel": "换一个模型",
   "edit.problem.local-mode": "未能编辑：已开启“所有内容都留在这台电脑上”。",
   "edit.problem.chooseModel": "选择模型",

@@ -25,7 +25,7 @@ import { core } from "./core";
 import { type EstimateLine, estimateLine } from "./cost";
 import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
-import { selectionForEdit } from "./editor/editSelection";
+import { quoteOf, selectionForEdit } from "./editor/editSelection";
 import {
   editorDoc,
   editTarget,
@@ -83,6 +83,8 @@ export type EditProblem = (
   menu?: MenuEdit;
   /** What names the model, for a line about what it can't take at once (#2348). */
   model?: string;
+  /** A Block too long: the app's own cap, which no model changes, or this model's window. */
+  cause?: "cap" | "model";
 };
 
 /** An edit asked in the selection menu: where the first Block of its text is, for the line that reports it once the menu is closed. */
@@ -196,13 +198,6 @@ export const setMenuShows = (mindId: string, shown: boolean) =>
 
 export const noteBusy = (mindId: string, menu?: MenuEdit) =>
   set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
-
-/** A selection shown short, for the composer's chip. */
-function quoteOf(text: string): string {
-  const flat = text.replace(/￼/g, "").replace(/\s+/g, " ").trim();
-  const chars = [...flat];
-  return chars.length > 48 ? `${chars.slice(0, 47).join("")}…` : flat;
-}
 
 /** Waits until the editor shows the request's Proposals; the first, or null after a while. */
 function whenShown(editor: Editor, request: string): Promise<PendingProposal | null> {

@@ -142,3 +142,31 @@ test("with the assistant folded, Explain opens it where the User left it", async
   await screenshot(window, "explain-unfolds");
   await app.close();
 });
+
+test("Explain while an Answer is being written waits for it: one Answer at a time, one Stop", async () => {
+  const words = WORDS.en;
+  const { app, window } = await start("en", 1_280);
+  const note = await writeNote(window, words.title, words.line);
+  const answers = assistantAnswers(window);
+  const questions = window.getByTestId("assistant-question");
+
+  // A slow Answer, still being written when Explain is asked.
+  await pointAndClick(window, window.getByTestId("composer-input"));
+  await window.keyboard.type("Summarise my notes slowly");
+  await window.keyboard.press("Enter");
+  await expect(answers).toHaveCount(1);
+  await expect(answers.first()).toHaveAttribute("data-status", "streaming");
+
+  await slideSelect(window, note, words.selected);
+  await pointAndClick(window, explainRow(window));
+
+  // Its Question waits its turn: when it comes, the Answer before it is already done.
+  await expect(questions).toHaveCount(2, { timeout: 40_000 });
+  await expect(answers.first()).toHaveAttribute("data-status", "done");
+  await expect(questions.last()).toContainText(words.question);
+  await expect(answers.last()).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await expect(questions.last().getByTestId("assistant-question-quote")).toHaveText(
+    new RegExp(`“${words.selected}”`),
+  );
+  await app.close();
+});

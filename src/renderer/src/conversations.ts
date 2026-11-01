@@ -496,6 +496,29 @@ export function useAnswerBeingWritten(): string | null {
 }
 
 /**
+ * Resolves once no Answer is being written in the assistant, as `answerBeingWritten` says: a
+ * Question asked from outside the composer (#2348) waits its turn rather than starting a second
+ * stream under the one Stop.
+ */
+export function whenNoAnswerWritten(): Promise<void> {
+  if (answerBeingWritten() === null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let offConversations: () => void = () => undefined;
+    let offAnswers: () => void = () => undefined;
+    const done = () => {
+      if (answerBeingWritten() !== null) return;
+      offConversations();
+      offAnswers();
+      resolve();
+    };
+    offConversations = useConversations.subscribe(done);
+    offAnswers = useAnswers.subscribe(done);
+    // It may have ended between the check above and these.
+    done();
+  });
+}
+
+/**
  * Stop, in the composer and on the Answer on its way: stops the open
  * conversation's Answer being written, keeping what it has; one whose
  * Question is still on its way stops as soon as it starts.

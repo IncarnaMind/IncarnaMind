@@ -1423,6 +1423,8 @@ export const en = {
     "The selection holds changes that are waiting: accept or reject them first.",
   "edit.problem.too-long": "Too much text for the model: select less.",
   "edit.problem.block-too-long": "This paragraph is too long for {model}",
+  "edit.problem.block-too-long.cap":
+    "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
   "edit.problem.chooseAnotherModel": "Choose another model",
   "edit.problem.local-mode": "Couldn’t edit: “Keep everything on this computer” is on.",
   "edit.problem.chooseModel": "Choose a model",

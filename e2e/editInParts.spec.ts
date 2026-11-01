@@ -5,6 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -139,8 +140,12 @@ test("a selection three times the model's limit is edited in parts, streamed Blo
 
   await askOnAll(window, "Shorten this");
 
-  // Part by part, said where the edit reports: the first Block changes while the last is still as it was.
+  // Part by part, said where the edit reports and where it writes: the first Block changes
+  // while the last is still as it was.
   await expect(window.getByTestId("edit-pending")).toContainText("Writing part 1 of 3…");
+  await expect(editor.getByTestId("mind-writing")).toContainText(/Writing part \d of 3…/, {
+    timeout: 20_000,
+  });
   await expect(paragraphs.first()).toHaveText(EN(0).replaceAll(" very", ""), {
     useInnerText: true,
   });
@@ -219,3 +224,71 @@ for (const { language, block, instruction, said } of TOO_LONG) {
     await app.close();
   });
 }
+
+/** A Block over the app's own 12,000-character limit: no model changes that, so none is offered. */
+const CAP = [
+  {
+    language: "en",
+    block: `${EN(0)}${LINE.repeat(150)}`,
+    instruction: "Shorten this",
+    said: "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
+    choose: "Choose another model",
+  },
+  {
+    language: "zh-CN",
+    block: `${ZH(0)}${ZH_LINE.repeat(420)}`,
+    instruction: "缩短一下",
+    said: "这一段超出了一次编辑能处理的长度，请把它拆成更短的段落。",
+    choose: "换一个模型",
+  },
+] as const;
+
+for (const { language, block, instruction, said, choose } of CAP) {
+  test(`in ${language}, one Block over the app's own limit says to split the paragraph, and offers no model`, async () => {
+    const { app, window } = await start(language);
+    await writeParagraphs(window, [block]);
+    const editor = window.getByTestId("mind-editor");
+
+    await askOnAll(window, instruction);
+
+    const problem = window.getByTestId("edit-problem");
+    await expect(problem).toContainText(said);
+    // No model can take it: changing the model would show the same line again.
+    await expect(problem.getByRole("button", { name: choose })).toHaveCount(0);
+    await expect(editor.getByTestId("applied-line")).toHaveCount(0);
+    await screenshot(window, `block-cap-${language}`);
+    await app.close();
+  });
+}
+
+test("on a cloud model with a monthly cap, the estimate of the parts shows before they are written", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1_280, 820);
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await bridge.allowDataFlow("edits", "https://api.anthropic.com");
+    await bridge.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
+  });
+  // Three Blocks of about 6,150 characters: two of them take more than one request's 12,000,
+  // so the edit is in three parts. Chinese streams fast, which leaves the estimate in view.
+  const big = (index: number) => `潮汐表${index}：今天的水位非常的高。${ZH_LINE.repeat(220)}`;
+  await writeParagraphs(window, [big(0), big(1), big(2)]);
+
+  await askOnAll(window, "Shorten this");
+
+  // Three parts, each measured at 6,900 tokens in and 3,000 out: 29,700 tokens, shown first.
+  const pending = window.getByTestId("edit-pending");
+  await expect(pending).toContainText("29.7K tokens");
+  await expect(pending).toContainText("of $20.00 used this month");
+  const line = window.getByTestId("mind-editor").getByTestId("applied-line");
+  await expect(line.getByTestId("applied-parts")).toHaveText("3 parts", { timeout: 30_000 });
+  await screenshot(window, "parts-estimate-en");
+  await app.close();
+});

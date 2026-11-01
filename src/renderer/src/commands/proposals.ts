@@ -114,10 +114,10 @@ function withAiText() {
   return note && !note.editor.isDestroyed && holdsAiText(note.editor.state) ? note : null;
 }
 
-/** An AI action of the selection menu, on the selected text. */
+/** An AI action of the selection menu that changes the selected text, applying at once. */
 const editAction = (
-  action: Extract<EditAction, "improve" | "shorten" | "explain">,
-  label: "editor.ai.improve" | "editor.ai.shorten" | "editor.ai.explain",
+  action: Extract<EditAction, "improve" | "shorten">,
+  label: "editor.ai.improve" | "editor.ai.shorten",
 ): Command => ({
   id: `edit.${action}`,
   label,
@@ -127,10 +127,7 @@ const editAction = (
   when: () => withSelection() !== null,
   run() {
     const note = withSelection();
-    if (!note) return;
-    // Explain answers in the assistant, as the selection menu's does, and changes nothing (#2348).
-    if (action === "explain") void explainSelection(note.editor, note.mindId, note.doc);
-    else void requestEdit(note.editor, note.mindId, note.doc, action);
+    if (note) void requestEdit(note.editor, note.mindId, note.doc, action);
   },
 });
 
@@ -313,7 +310,18 @@ export const proposalCommands: readonly Command[] = [
       useComposer.getState().requestFocus();
     },
   },
-  editAction("explain", "editor.ai.explain"),
+  {
+    // It changes nothing in the Note: the answer goes to the assistant (#2348).
+    id: "edit.explain",
+    label: "editor.ai.explain",
+    group: "main",
+    reversible: true,
+    when: () => withSelection() !== null,
+    run() {
+      const note = withSelection();
+      if (note) void explainSelection(note.editor, note.mindId, note.doc);
+    },
+  },
   {
     id: "edit.markAsMine",
     label: "editor.ai.markAsMine",
