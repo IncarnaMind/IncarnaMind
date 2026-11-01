@@ -337,7 +337,7 @@ export interface FigureCheckOptions {
   ): UnsupportedReason | null;
   /** A cited Document version's Units, for a workbook's figure worked out again (#2347). */
   units(citation: Citation): readonly UnitText[];
-  /** The texts a bare quote is in, its cited pages and its Document, where its row label or heading is. */
+  /** The texts a quote is in, its cited pages first: where its table's headings or its sentence are. */
   around(citation: Citation): readonly string[];
   /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
   otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
