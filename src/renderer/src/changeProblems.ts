@@ -135,6 +135,8 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.unplaced", { mind });
     case "misnamed":
       return t("mindCall.failed.misnamed", { mind });
+    case "typed-tag":
+      return t("mindCall.failed.typedTag", { mind });
     case "uncited":
       return t("mindCall.failed.uncited", { mind });
     case "no-chart":

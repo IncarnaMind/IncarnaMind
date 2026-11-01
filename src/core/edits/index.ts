@@ -691,6 +691,16 @@ export function createEdits(options: EditsOptions) {
     const showWriting = () => {
       if (stream) options.writing(mindId, placeOf(stream.writingAt()));
     };
+    /**
+     * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed:
+     * none of it goes in.
+     */
+    const untrusted = (): EditWithAiResult | null => {
+      const written = stream?.written();
+      if (written?.misnamed) return { kind: "misnamed" };
+      if (written?.droppedTypedTag) return { kind: "typed-tag" };
+      return null;
+    };
 
     let shown = false;
     let afterBreak = false;
@@ -711,7 +721,7 @@ export function createEdits(options: EditsOptions) {
         }
         if (!reread) return false;
         step(() => stream.write(sofar));
-        if (refused || stream.written().misnamed) return true;
+        if (refused || untrusted()) return true;
         showWriting();
         return false;
       });
@@ -721,10 +731,10 @@ export function createEdits(options: EditsOptions) {
     const { raw, failure } = streamed;
 
     if (signal.aborted && closing) return ended({ kind: "cancelled" });
-    // A paragraph named wrongly: which the others replace can't be trusted either, so none goes in.
-    if (stream?.written().misnamed && failure === null) {
+    const early = failure === null ? untrusted() : null;
+    if (early) {
       takeBackWritten();
-      return ended({ kind: "misnamed" });
+      return ended(early);
     }
     if (signal.aborted && !refused) {
       // Stopped: what is finished stays.
@@ -771,6 +781,7 @@ export function createEdits(options: EditsOptions) {
       const more = stream.write(reply, true);
       if (stream.written().unmadeTable) return false;
       const finished = stream.finish();
+      if (stream.written().onlyAside) return false;
       if (requestId !== undefined) held = holdsBack(stream);
       // Written before the reason came: recorded again with it.
       return finished || more || held || (wrote && reason !== null);
@@ -783,9 +794,10 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended({ kind: "no-table", text: textOf(reply, named) });
     }
-    if (stream?.written().misnamed) {
+    const late = untrusted();
+    if (late) {
       takeBackWritten();
-      return ended({ kind: "misnamed" });
+      return ended(late);
     }
     // Text marked to go that isn't there: what else it wrote may lean on that going, so none of it goes in.
     const unplaced = stream?.written().unplaced;
@@ -793,7 +805,12 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended({ kind: "unplaced", quotes: unplaced });
     }
-    if (!wrote) return ended({ kind: "unchanged" });
+    // What the model said beside the paragraphs it names, or instead of any, is shown, never written (#2356).
+    const aside = stream?.written().aside;
+    if (!wrote || stream?.written().onlyAside) {
+      takeBackWritten();
+      return ended({ kind: "unchanged", ...(aside && { said: aside.join(" ") }) });
+    }
     return { result: arrived(), reply: textOf(reply, named), reason };
   }
 
@@ -947,8 +964,10 @@ export function createEdits(options: EditsOptions) {
       const after = acceptedText(stretch(), request);
       if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply, named) });
       if (written.misnamed) return nothing({ kind: "misnamed" });
+      if (written.droppedTypedTag) return nothing({ kind: "typed-tag" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
-      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
+      if (written.proposals.length === 0 || written.onlyAside)
+        return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
       const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {

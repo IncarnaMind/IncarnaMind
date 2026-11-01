@@ -86,6 +86,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "the text it marked to take out isn't there word for word";
     case "misnamed":
       return "the rewrite didn't say clearly which paragraph each of its own replaces";
+    case "typed-tag":
+      return "the rewrite left out a <removed> tag the User typed";
     case "new-mind":
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":

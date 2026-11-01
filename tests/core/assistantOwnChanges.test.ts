@@ -658,7 +658,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
         return {
           text:
             revisions === 1
-              ? `${passage.replace(/\b(?:very|really) /g, "")}\n\nAdded sentence.`
+              ? `${passage.replace(/\b(?:very|really) /g, "")}\n\n¶+ Added sentence.`
               : "## Summary\n\nThe quarter was good.",
         };
       }

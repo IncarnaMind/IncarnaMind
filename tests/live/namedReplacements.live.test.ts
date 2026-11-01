@@ -1,14 +1,16 @@
 /**
  * Named replacements against real models, on Notes and requests written after the design of
- * #2356 was fixed and never used to tune it: a Note in English and one in Chinese, each with
- * headings, paragraphs, a list and a table, and requests that change one line, add one or two,
- * take one out, rewrite a short list item, turn the list into a table, find nothing to do, or meet
- * the output limit.
+ * #2356 was fixed and never used to tune it: Notes in English and Chinese, each with headings,
+ * paragraphs, a list and a table, and requests that change one line, add one or two, take one
+ * out, rewrite a short list item, turn the list into a table, find nothing to do, or meet the
+ * output limit. The garden club and 读书会 Notes were written later, once a reply's own words
+ * were kept out of the Note, and are held out from that.
  * Once the changes are accepted, the Note is checked: every line the request didn't name is there
  * word for word (none lost or written over), and the request is done as asked.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY.
  *
  * INCARNAMIND_LIVE_RUNS sets how many times each request runs (10 by default),
+ * INCARNAMIND_LIVE_NOTES which Notes run, by name, comma-separated (all by default),
  * INCARNAMIND_LIVE_ANTHROPIC_MODEL the model, INCARNAMIND_LIVE_CONCURRENCY how many run at once
  * (4), and INCARNAMIND_LIVE_REPORT a file to keep the numbers and each miss in.
  */
@@ -43,6 +45,7 @@ interface Case {
 }
 
 interface Note {
+  name: string;
   language: "English" | "Chinese";
   blocks: Block[];
   /** The list's items, which a table made of the list may take the place of. */
@@ -51,6 +54,7 @@ interface Note {
 }
 
 const EN: Note = {
+  name: "Office move",
   language: "English",
   blocks: [
     ["heading", "Move"],
@@ -123,6 +127,7 @@ const EN: Note = {
 };
 
 const ZH: Note = {
+  name: "年会",
   language: "Chinese",
   blocks: [
     ["heading", "活动"],
@@ -175,6 +180,93 @@ const ZH: Note = {
     { kind: "none", ask: "看看有没有错别字，有就改掉。" },
   ],
 };
+
+const GARDEN: Note = {
+  name: "Garden club",
+  language: "English",
+  blocks: [
+    ["heading", "Plot"],
+    ["paragraph", "The club garden is behind the library on Mill Lane."],
+    ["paragraph", "Members water the beds on Tuesday and Saturday mornings."],
+    ["heading", "Jobs"],
+    ["bullet", "Ada orders the seeds."],
+    ["bullet", "Ben fixes the fence."],
+    ["bullet", "Cleo keeps the tool shed key."],
+    ["heading", "Fees"],
+    ["row", ["Fee", "Amount"]],
+    ["row", ["Membership", "20"]],
+    ["row", ["Plot rent", "45"]],
+    ["paragraph", "New members get a free trowel."],
+  ],
+  list: ["Ada orders the seeds.", "Ben fixes the fence.", "Cleo keeps the tool shed key."],
+  cases: [
+    {
+      kind: "change",
+      ask: "Members now water the beds on Wednesday instead of Tuesday.",
+      target: "Members water the beds on Tuesday and Saturday mornings.",
+      says: ["Wednesday"],
+    },
+    {
+      kind: "change",
+      ask: "Ben paints the fence now rather than fixing it.",
+      target: "Ben fixes the fence.",
+      says: ["paint"],
+    },
+    { kind: "change", ask: "Plot rent is 50 now.", target: "45", says: ["50"] },
+    { kind: "add", ask: "Add Dev to the jobs: he empties the compost.", says: ["Dev"], added: 1 },
+    {
+      kind: "remove",
+      ask: "Remove the line about the free trowel.",
+      target: "New members get a free trowel.",
+    },
+    {
+      kind: "table",
+      ask: "Make the jobs list a table with a name column and a job column.",
+      says: ["Ada", "Ben", "Cleo"],
+    },
+    { kind: "none", ask: "Check the spelling and fix any mistakes." },
+  ],
+};
+
+const READING: Note = {
+  name: "读书会",
+  language: "Chinese",
+  blocks: [
+    ["heading", "安排"],
+    ["paragraph", "读书会每月第一个周六下午举行。"],
+    ["paragraph", "地点在社区图书馆二楼。"],
+    ["heading", "分工"],
+    ["bullet", "小雨负责选书。"],
+    ["bullet", "阿杰负责借场地。"],
+    ["bullet", "老何负责准备茶点。"],
+    ["heading", "费用"],
+    ["row", ["项目", "金额"]],
+    ["row", ["会费", "50"]],
+    ["row", ["茶点", "120"]],
+    ["paragraph", "新成员第一次活动免费。"],
+  ],
+  list: ["小雨负责选书。", "阿杰负责借场地。", "老何负责准备茶点。"],
+  cases: [
+    {
+      kind: "change",
+      ask: "地点改到社区图书馆三楼。",
+      target: "地点在社区图书馆二楼。",
+      says: ["三楼"],
+    },
+    { kind: "change", ask: "老何改为负责拍照。", target: "老何负责准备茶点。", says: ["拍照"] },
+    { kind: "change", ask: "茶点费用改成150。", target: "120", says: ["150"] },
+    { kind: "add", ask: "加一条：小美负责发通知。", says: ["小美"], added: 1 },
+    { kind: "remove", ask: "删掉新成员免费那一句。", target: "新成员第一次活动免费。" },
+    {
+      kind: "table",
+      ask: "把分工做成表格，一列人名，一列任务。",
+      says: ["小雨", "阿杰", "老何"],
+    },
+    { kind: "none", ask: "检查一下有没有错别字，有的话改掉。" },
+  ],
+};
+
+const NOTES = [EN, ZH, GARDEN, READING];
 
 /** A Note's Blocks as Mind content: a list's items in one list, a table's rows in one table, its first row the heading row. */
 function contentOf(blocks: readonly Block[]): JSONContent[] {
@@ -263,7 +355,7 @@ function verdict(
       ? null
       : `not as asked: ${result.kind}`;
   }
-  if (result.kind === "misnamed") return "refused: misnamed";
+  if (result.kind === "misnamed" || result.kind === "typed-tag") return `refused: ${result.kind}`;
   if (asked.kind === "none") {
     return fresh.length === 0 ? null : `not as asked: text came in ${JSON.stringify(fresh)}`;
   }
@@ -331,7 +423,9 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
       await core.saveChatProvider({ kind: "anthropic", apiKey: KEY, modelId: MODEL });
 
       const only = process.env.INCARNAMIND_LIVE_ASK;
-      const jobs = [EN, ZH].flatMap((note) =>
+      const named = process.env.INCARNAMIND_LIVE_NOTES?.split(",");
+      const notes = NOTES.filter((note) => !named || named.includes(note.name));
+      const jobs = notes.flatMap((note) =>
         note.cases
           .filter((asked) => !only || asked.ask.includes(only))
           .flatMap((asked) => Array.from({ length: runs }, () => ({ note, asked }))),
@@ -340,6 +434,8 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
       const lost = new Map<Case, number>();
       const grew = new Map<Case, number>();
       const refused = new Map<Case, number>();
+      /** Replies whose own words were shown instead of written: they named no paragraph and changed none. */
+      const shown = new Map<Case, number>();
       const misses: string[] = [];
       const said: string[] = [];
 
@@ -369,6 +465,8 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
         await client.settled();
         const raw = runOf.getStore()?.raw ?? "";
         if (asked.kind !== "cut") said.push(raw);
+        if (result.kind === "unchanged" && result.said !== undefined)
+          shown.set(asked, (shown.get(asked) ?? 0) + 1);
         client.doc.transact(() => {
           resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
         }, "editor");
@@ -383,7 +481,7 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
         if (wrong.startsWith("grew")) grew.set(asked, (grew.get(asked) ?? 0) + 1);
         if (wrong.startsWith("refused")) refused.set(asked, (refused.get(asked) ?? 0) + 1);
         misses.push(
-          `- MISS ${note.language} ${asked.kind} “${asked.ask}” (${result.kind}; ${wrong}): ${JSON.stringify(after)}`,
+          `- MISS ${note.name} ${asked.kind} “${asked.ask}” (${result.kind}; ${wrong}): ${JSON.stringify(after)}`,
           `  reply: ${JSON.stringify(raw)}`,
         );
       };
@@ -396,7 +494,8 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
       let lostTotal = 0;
       let grewTotal = 0;
       let refusedTotal = 0;
-      for (const note of [EN, ZH]) {
+      let shownTotal = 0;
+      for (const note of notes) {
         for (const asked of note.cases) {
           const ran = jobs.filter((job) => job.asked === asked).length;
           if (ran === 0) continue;
@@ -405,13 +504,14 @@ describe("Named replacements on held-out Notes, live (#2356)", () => {
           lostTotal += lost.get(asked) ?? 0;
           grewTotal += grew.get(asked) ?? 0;
           refusedTotal += refused.get(asked) ?? 0;
+          shownTotal += shown.get(asked) ?? 0;
           report.push(
-            `  ${note.language} ${asked.kind} “${asked.ask}”: exact ${exact.get(asked) ?? 0}/${ran}, lines lost ${lost.get(asked) ?? 0}, written over with every word kept ${grew.get(asked) ?? 0}, refused as misnamed ${refused.get(asked) ?? 0}`,
+            `  ${note.name} ${asked.kind} “${asked.ask}”: exact ${exact.get(asked) ?? 0}/${ran}, lines lost ${lost.get(asked) ?? 0}, written over with every word kept ${grew.get(asked) ?? 0}, refused ${refused.get(asked) ?? 0}, its words shown instead ${shown.get(asked) ?? 0}`,
           );
         }
       }
       report.push(
-        `  all: exact ${exactTotal}/${total}; runs that lost a line ${lostTotal}/${total}; runs that wrote over a line, every word kept, ${grewTotal}/${total}; refused as misnamed ${refusedTotal}/${total}; ${namedSaid(said)}`,
+        `  all: exact ${exactTotal}/${total}; runs that lost a line ${lostTotal}/${total}; runs that wrote over a line, every word kept, ${grewTotal}/${total}; refused ${refusedTotal}/${total}; its words shown instead ${shownTotal}/${total}; ${namedSaid(said)}`,
         ...spentBy(dataDir),
         ...misses,
       );

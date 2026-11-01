@@ -913,6 +913,11 @@ function notProposed(
         { kind: "misnamed", mindId },
         `Nothing was proposed in “${name}”: the rewrite didn't say clearly which paragraph each of its own replaces. The text is as it was: don't say it was changed. You may try again once.`,
       );
+    case "typed-tag":
+      return new Refusal(
+        { kind: "typed-tag", mindId },
+        `Nothing was proposed in “${name}”: the rewrite left out a <removed> tag the User typed there, which would take their words out. The text is as it was: don't say it was changed. You may try again once, keeping each tag the User typed as it is.`,
+      );
     case "proposed":
       return "";
   }

@@ -83,3 +83,28 @@ describe("an Edit with AI whose reply named a paragraph wrongly (#2356)", () => 
     expect(say("en")("edit.problem.misnamed")).not.toBe(say("en")("edit.problem.unplaced"));
   });
 });
+
+describe("an Edit with AI whose reply was only the AI's own words (#2356)", () => {
+  // protects=a reply that changed nothing but said something has a line showing what it said, in English and Chinese, apart from the plain one; fails_when=the words are lost in a language; no_claim=where the line sits.
+  test("shows what the AI said, in English and Chinese", () => {
+    const said = "I checked the passage for typos and found none, so nothing needs changing.";
+    expect(say("en")("edit.problem.unchanged.said", { said })).toBe(
+      `Nothing changed. The AI said: “${said}”`,
+    );
+    expect(say("zh-CN")("edit.problem.unchanged.said", { said: "没有发现错别字。" })).toBe(
+      "没有改动。AI 说：“没有发现错别字。”",
+    );
+  });
+});
+
+describe("an Edit with AI whose rewrite dropped a tag the User typed (#2356)", () => {
+  // protects=a rewrite left out a <removed> the User typed has its own line in English and Chinese, saying nothing changed and to try again; fails_when=the line is missing in a language, or reads as another refusal; no_claim=where the line sits.
+  test("has a line of its own in English and Chinese", () => {
+    expect(say("en")("edit.problem.typed-tag")).toBe(
+      "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
+    );
+    expect(say("zh-CN")("edit.problem.typed-tag")).toBe(
+      "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
+    );
+  });
+});

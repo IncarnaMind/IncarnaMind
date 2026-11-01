@@ -1037,6 +1037,19 @@ export interface Written {
    * words for it: nothing from there on was written (#2356).
    */
   misnamed?: true;
+  /**
+   * A paragraph of it rewrote one of the selection's without a <removed> the User typed there:
+   * nothing from there on was written, for the edit to be refused (#2356).
+   */
+  droppedTypedTag?: true;
+  /**
+   * In a passage shown with names, the text's own words: its paragraphs with no name in a text
+   * that names others, which are never written; or all of it, when it names none and would only
+   * add lines (`onlyAside`). For the panel, when nothing else changes (#2356).
+   */
+  aside?: string[];
+  /** The text names no paragraph, writes over none and takes none out: what it would add is only `aside`. */
+  onlyAside?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
@@ -2000,6 +2013,28 @@ export function proposeRewrite(
   return rewrite.written();
 }
 
+/** A <removed> tag as the User may type it, in any of the shapes a model writes the mark. */
+const TYPED_TAG = /<\/?removed(?=[\s/>])[^<>]*?\/?>/gi;
+
+const typedTagsIn = (tokens: readonly { text?: string }[]) =>
+  tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .match(TYPED_TAG)?.length ?? 0;
+
+/** A line of plain words, as a model talks: no table, list item, heading or quote. */
+const isPlain = (paragraph: NewParagraph) =>
+  !paragraph.table &&
+  !paragraph.asOther &&
+  (paragraph.kind === null || paragraph.kind === "paragraph");
+
+/** A paragraph's words as written, without its inline nodes. */
+const plainWords = (tokens: readonly { text?: string }[]) =>
+  tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .trim();
+
 /** How many of the selection's paragraphs a new one may pass over to pair with one much like it: those it passes go. */
 const LOOKAHEAD = 2;
 
@@ -2026,13 +2061,16 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * Yjs transaction on the document `selection` was read from.
  *
  * With `named`, the passage was shown with its paragraphs' names (`Selection.named`), and a text
- * whose first paragraph starts with one says which paragraph each of its own replaces (#2356):
- * each is written into the paragraph it names, one named after a later one moves there, and one
- * named ¶+ (or not at all) is new, after the one before it in the text or, first, before the next
- * it names. A paragraph it doesn't name is never written over or taken out, nor counted as left
- * out: only a quote takes one out. A name twice, one the passage hasn't, or one with no words
- * after it is `misnamed`: nothing more is written, for the edit to be refused. A text whose first
- * paragraph has no name is paired as above.
+ * that names any of its paragraphs says which paragraph each of its own replaces (#2356): each is
+ * written into the paragraph it names, one named after a later one moves there, and one named ¶+
+ * is new, after the one before it in the text or, first, before the next it names. A plain line
+ * with no name is the text's own words (`aside`), never written; a table, list item or heading
+ * with none is new. A paragraph it doesn't name is never written over or taken out, nor counted
+ * as left out: only a quote takes one out. A name twice, one the passage hasn't, or one with no
+ * words after it is `misnamed`: nothing more is written, for the edit to be refused. A text that
+ * names none is paired as above, and is `onlyAside` when it would only add plain lines. Until a
+ * name comes or the text ends, nothing is written. A rewrite that leaves out a <removed> the
+ * User typed is `droppedTypedTag`, refused too.
  */
 export function createRewriteStream(
   selection: Selection,
@@ -2167,6 +2205,12 @@ export function createRewriteStream(
   /** Where the next new paragraph the text names as following one of the selection's goes: after those before it. */
   const following = new Map<Segment, Place>();
   let misnamed = false;
+  let droppedTypedTag = false;
+  const aside: string[] = [];
+  let onlyAside = false;
+  /** Finished paragraphs of a text not yet known to name any: none is written until one does, or it ends. */
+  let waiting: NewParagraph[] = [];
+  let waited = false;
   /** The name of the paragraph being written now. */
   let writingName: ParagraphName | undefined;
 
@@ -2220,7 +2264,11 @@ export function createRewriteStream(
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
-    if (!segment) return;
+    if (!segment || droppedTypedTag) return;
+    if (dropsTypedTag(segment, paragraph)) {
+      droppedTypedTag = true;
+      return;
+    }
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
     removeUpTo(index);
@@ -2322,9 +2370,21 @@ export function createRewriteStream(
         between.indexOf(segment) === held.indexOf(paragraph)) ||
       (!paragraph.table && readsAs(segment, paragraph, { standIn: true }));
     const byPlace = !keeps || rewritesAll;
-    for (const segment of replacedIn(between, held, paired, byPlace ? null : takesPlace)) {
-      replaced.add(segment);
+    const standsIn = replacedIn(between, held, paired, byPlace ? null : takesPlace);
+    const rewritten = new Set([
+      ...standsIn,
+      ...paired.flatMap((pair) => (pair === null || pair === undefined ? [] : [between[pair]])),
+    ]);
+    // What takes the place of the User's paragraphs keeps each <removed> they typed there (#2356).
+    if (
+      typedTagsIn([...rewritten].flatMap((segment) => segment?.tokens ?? [])) >
+      typedTagsIn(held.flatMap((paragraph) => paragraph.tokens))
+    ) {
+      droppedTypedTag = true;
+      held.length = 0;
+      return;
     }
+    for (const segment of standsIn) replaced.add(segment);
     // Nothing written yet: what is added goes before the paragraph the text pairs with next, or
     // with none, after the selection's last, never in place of the first.
     if (keeps && !placed && !placedAny) {
@@ -2333,6 +2393,7 @@ export function createRewriteStream(
         place = { element: anchor.element, kind: anchor.kind, side: bounded ? "before" : "after" };
     }
     for (const [index, paragraph] of held.entries()) {
+      if (droppedTypedTag) break;
       const pair = paired[index];
       if (pair === null || pair === undefined) addNew(paragraph);
       else pairWith(paragraph, from + pair);
@@ -2376,6 +2437,13 @@ export function createRewriteStream(
   };
 
   /**
+   * Whether a rewrite of `segment` leaves out a <removed> the User typed there, which the passage
+   * showed escaped: Claude Haiku 5.5 rewrote one as a quoted word when asked to be formal (#2356).
+   */
+  const dropsTypedTag = (segment: Segment, paragraph: NewParagraph) =>
+    typedTagsIn(paragraph.tokens) < typedTagsIn(segment.tokens);
+
+  /**
    * A name the paragraph's own words contradict: they share no word with the paragraph it names,
    * and read as another the text hasn't named. A model can miscount (Claude Haiku 5.5 named ¶7
    * for a rewrite of ¶6, #2356), and that paragraph would be written over; this refuses, and pairs
@@ -2394,6 +2462,13 @@ export function createRewriteStream(
 
   /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
   const takeNamed = (paragraph: NewParagraph) => {
+    // A line with no name is the text's own words ("Changed to:"), never the Note's; a table,
+    // list item or heading with none is new text after the one before it.
+    if (paragraph.name === undefined && isPlain(paragraph)) {
+      const words = plainWords(paragraph.tokens);
+      if (words !== "") aside.push(words);
+      return;
+    }
     const written = paragraph.name ?? { follows: null };
     // A name just past the last paragraph names none it could write over: the reply numbered a
     // new one (Claude Haiku 5.5 writes ¶16 for a sixteenth), which goes after the last.
@@ -2432,6 +2507,10 @@ export function createRewriteStream(
     }
     if (namesAnother(paragraph, index)) {
       misnamed = true;
+      return;
+    }
+    if (dropsTypedTag(segment, paragraph)) {
+      droppedTypedTag = true;
       return;
     }
     namedSoFar.add(index);
@@ -2668,7 +2747,7 @@ export function createRewriteStream(
      */
     write: (text: string, done = false): boolean =>
       wrote(() => {
-        if (unmade || misnamed) return;
+        if (unmade || misnamed || droppedTypedTag) return;
         const { text: said, quoted } = readRemovals(named ? unnameRemovals(text) : text, done);
         const paragraphs = newParagraphs(said, selection, fresh(said), named);
         if (done) quotes = quoted.flatMap((quote) => quotedRuns(quote, selection, named));
@@ -2690,16 +2769,28 @@ export function createRewriteStream(
           misnamed = true;
           return;
         }
-        if (byName === null && finished > 0) byName = paragraphs[0]?.name !== undefined;
+        // A text names the paragraph each of its own replaces once any of them carries a name;
+        // until one does, or it ends, none is written.
+        if (byName === null) {
+          if (paragraphs.slice(0, finished).some((paragraph) => paragraph.name !== undefined))
+            byName = true;
+          else if (done) byName = false;
+          else {
+            waiting = paragraphs.slice(0, finished);
+            waited ||= finished > 0;
+            return;
+          }
+        }
         if (byName) {
-          for (; taken < finished && !misnamed; taken++) {
+          for (; taken < finished && !misnamed && !droppedTypedTag; taken++) {
             const paragraph = paragraphs[taken];
             if (paragraph) takeNamed(paragraph);
           }
           writingName = paragraphs[finished]?.name;
           return;
         }
-        if (done && taken === 0) {
+        // A text written at once pairs all at once; one held for a name pairs as it came.
+        if (done && taken === 0 && !waited) {
           held.push(...paragraphs);
           taken = paragraphs.length;
         }
@@ -2718,13 +2809,18 @@ export function createRewriteStream(
      */
     stop: (): boolean =>
       wrote(() => {
-        if (misnamed) return;
+        if (misnamed || droppedTypedTag) return;
+        if (byName === null) {
+          byName = false;
+          for (const paragraph of waiting.slice(taken)) take(paragraph);
+        }
         placeComingFirst();
         for (const paragraph of held) {
           const segment = segments[at];
           const alike =
             segment !== undefined &&
             (paragraph.kind === null || paragraph.kind === segment.kind) &&
+            !dropsTypedTag(segment, paragraph) &&
             (keeps
               ? readsAs(segment, paragraph)
               : placeLikeness(segment, paragraph) >= MOVED_LIKENESS);
@@ -2744,7 +2840,7 @@ export function createRewriteStream(
     /** The model is done: the selection's paragraphs it never reached go, and those it quotes as taken out. */
     finish: (): boolean =>
       wrote(() => {
-        if (unmade || misnamed) return;
+        if (unmade || misnamed || droppedTypedTag) return;
         if (byName) {
           placeComingFirst();
           kept.push(
@@ -2759,6 +2855,22 @@ export function createRewriteStream(
           removeUpTo(segments.length);
         }
         settleLeftOut();
+        // Shown names, a text that names none, writes in no paragraph's place, quotes none and
+        // would add only plain lines is talking: "I found no typos." is its words, never the
+        // Note's (#2356).
+        const talks =
+          named &&
+          byName === false &&
+          pairedSoFar === 0 &&
+          replaced.size === 0 &&
+          quotes.length === 0 &&
+          notes.characters.removed === 0 &&
+          addedAnew.length > 0 &&
+          addedAnew.every(isPlain);
+        if (talks) {
+          onlyAside = true;
+          aside.push(...addedAnew.map((paragraph) => plainWords(paragraph.tokens)));
+        }
       }),
 
     /** The Proposals written so far. */
@@ -2768,6 +2880,9 @@ export function createRewriteStream(
       ...(unmade && { unmadeTable: true }),
       ...(unplaced.length > 0 && { unplaced: [...unplaced] }),
       ...(misnamed && { misnamed: true }),
+      ...(droppedTypedTag && { droppedTypedTag: true }),
+      ...(aside.length > 0 && { aside: [...aside] }),
+      ...(onlyAside && { onlyAside: true }),
       notes: { ...notesWritten },
     }),
 

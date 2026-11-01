@@ -288,6 +288,8 @@ describe("The edges of an edit, live (#2333)", () => {
       const exact = new Map<Case, number>();
       const lost = new Map<Case, number>();
       const dropped = new Map<Case, number>();
+      /** Results other than Proposals, by kind: an exact run may be a refusal that kept the Note. */
+      const notProposed = new Map<Case, Map<string, number>>();
       const misses: string[] = [];
       /** The whole replies to requests in the User's words, whose passage shows its paragraphs' names. */
       const said: string[] = [];
@@ -327,6 +329,11 @@ describe("The edges of an edit, live (#2333)", () => {
         await client.settled();
         const after = textsOf(client);
         const raw = kept?.raw ?? "";
+        if (result.kind !== "proposed") {
+          const kinds = notProposed.get(asked) ?? new Map<string, number>();
+          kinds.set(result.kind, (kinds.get(result.kind) ?? 0) + 1);
+          notProposed.set(asked, kinds);
+        }
         if ((asked.action ?? "instruction") === "instruction" && asked.kind !== "cut")
           said.push(raw);
         if (asked.kind === "typed" && /(?<!\\)<removed>(?:draft|草稿)/.test(raw)) {
@@ -362,8 +369,11 @@ describe("The edges of an edit, live (#2333)", () => {
         exactTotal += exact.get(asked) ?? 0;
         lostTotal += lost.get(asked) ?? 0;
         const escapes = asked.kind === "typed" ? `, escape dropped ${dropped.get(asked) ?? 0}` : "";
+        const others = [...(notProposed.get(asked) ?? [])].map(
+          ([kind, count]) => `${kind} ${count}`,
+        );
         report.push(
-          `  ${asked.language} ${asked.kind} “${asked.ask || asked.action}”: exact ${exact.get(asked) ?? 0}/${ran}, words lost ${lost.get(asked) ?? 0}${escapes}`,
+          `  ${asked.language} ${asked.kind} “${asked.ask || asked.action}”: exact ${exact.get(asked) ?? 0}/${ran}, words lost ${lost.get(asked) ?? 0}${escapes}${others.length > 0 ? `, not proposed: ${others.join(", ")}` : ""}`,
         );
       }
       report.push(
