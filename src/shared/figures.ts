@@ -1276,6 +1276,26 @@ export function readStatedUnits(
   return statedUnitsOf(prepared, text, statements);
 }
 
+// A scale line that says it holds for the whole Document ("All amounts in £'000", "所有金额单位：千元"),
+// and the words that keep it to one table or section instead ("in this table", "下表").
+const WHOLE_DOCUMENT =
+  /\b(?:all|every)\s+(?:of\s+(?:the|its)\s+)?(?:amounts?|figures?|sums?|values?|numbers?)\b|\b(?:throughout|across)\s+(?:this|the)\s+(?:document|report)\b/i;
+const LOCAL_SCOPE =
+  /\b(?:this|the following|the above)\s+(?:table|section|statement|note|schedule|chart)\b|\b(?:below|above)\s+are\b|本(?:表|节|页)|上(?:表|节)|下(?:表|节)|表中|表内/i;
+const WHOLE_DOCUMENT_ZH =
+  /(?:所有|全部|一切)(?:的)?(?:金额|价款|数字|数据|款项)|本(?:文件|报告|报表|说明书|年报)(?:中|内|全文)?|全文/;
+
+/**
+ * Whether a scale line says it holds for the whole Document ("All amounts in £'000", "All figures
+ * are in thousands", "所有金额单位：千元"), rather than for a table or section under it. Only such a
+ * line may state the scale of a figure on a later page, which isn't in its section (#2365).
+ */
+export function statesForWholeDocument(text: string): boolean {
+  const line = text.normalize("NFKC");
+  if (LOCAL_SCOPE.test(line)) return false;
+  return WHOLE_DOCUMENT.test(line) || WHOLE_DOCUMENT_ZH.test(line);
+}
+
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;

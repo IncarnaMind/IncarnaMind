@@ -19,6 +19,7 @@ import {
   figureContextOf,
   readFigures,
   readStatedUnits,
+  statesForWholeDocument,
   unsettledScales,
 } from "../../src/shared/figures";
 
@@ -1109,6 +1110,27 @@ describe("stated units", () => {
     expect(asHeader("Revenue was 10 million")).toEqual([]);
     expect(asHeader("a total of 100 million shares")).toEqual([]);
     expect(stated("100million USD", EN)).toEqual([]);
+  });
+
+  test("a line says it holds for the whole Document only in so many words (#2365)", () => {
+    for (const line of [
+      "All amounts in £'000",
+      "All figures are in thousands",
+      "Every amount is stated in millions",
+      "所有金额单位：千元",
+      "本报告金额单位：万元",
+      "全文金额均以千元列示",
+    ])
+      expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
+    for (const line of [
+      "Amounts in £'000",
+      "Figures in 000s",
+      "All amounts in this table are in £'000",
+      "All figures in the section below are in thousands",
+      "金额单位：千元",
+      "本表金额单位：万元",
+    ])
+      expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
   });
 
   test("an amount's own compound scale states nothing: “4,979.6百万元” holds “万元” but is a figure", () => {

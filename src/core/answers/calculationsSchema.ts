@@ -51,7 +51,7 @@ export const calculationsSchema = {
             unitQuote: {
               type: "string",
               description:
-                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"): that line, copied word for word from the same Passage.',
+                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"), a parent heading\'s section ("All amounts in £\'000") or an earlier page that says it holds for the whole Document: that line, copied word for word.',
             },
             reading: {
               type: "integer",

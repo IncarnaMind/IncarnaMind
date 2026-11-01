@@ -1936,6 +1936,47 @@ export function createCitationSession(
       return problem ? { problem } : quotedOf(taken.record);
     },
 
+    /**
+     * A line another Passage of the same Document holds, given the Unit it is in, which the model
+     * wasn't shown: the Passage that holds it, kept as its own Citation (#2365).
+     */
+    quoteIn(
+      document: { documentId: string; contentHash: string },
+      unit: PageText,
+      quote: string,
+    ): Quoted | { problem: string } {
+      const clean = cleanQuote(quote);
+      const covering =
+        unit.page === null
+          ? []
+          : (documents.passagesCovering?.(document.documentId, unit.page, unit.page) ?? []);
+      for (const passage of covering) {
+        const source = documents.citationSource(passage.passageId);
+        if (!source || source.documentDeleted || source.notCited) continue;
+        if (source.contentHash !== document.contentHash) continue;
+        const units = documents.pageTexts(
+          source.documentId,
+          source.contentHash,
+          source.pageFrom,
+          source.pageTo,
+        );
+        if (!quoteInUnits(units, clean, matchingFor(source))) continue;
+        const taken = {
+          marker: 0,
+          handle: passageLocation(units) ?? source.passageId,
+          source,
+          given: { location: null, pageFrom: unit.page, pageTo: unit.page },
+          range: { pageFrom: unit.page, pageTo: unit.page },
+          requested: null,
+          unresolved: false,
+          quote: clean,
+          result: null,
+        };
+        return quotedOf({ ...taken, location: locationFor(taken) });
+      }
+      return { problem: `no Passage of the Document holds the line "${clean}"` };
+    },
+
     /** A Passage's text, as the model was given it, by its id ("P3"); "" for one it wasn't. */
     passageText: (passage: string): string => shownTexts.get(passage) ?? "",
   };
