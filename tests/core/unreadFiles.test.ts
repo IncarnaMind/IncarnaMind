@@ -179,18 +179,12 @@ describe("what a workbook didn't read", () => {
     );
   });
 
-  test("counts them where a file names nothing, in English and Chinese", () => {
+  test("counts them for the AI use statement, which names no file", () => {
     const two: UnreadParts = {
       hiddenSheets: ["Q3 raw", "Q4 raw"],
       rowsCut: [{ sheet: "Planning", from: 5001 }],
       sheetsNotRead: [],
     };
-    expect(unreadFileText(budget(two), t("en"), false)).toBe(
-      "Budget 2026.xlsx: 2 hidden sheets weren’t read; 1 sheet has rows that weren’t read",
-    );
-    expect(unreadFileText(budget(two), t("zh-CN"), false)).toBe(
-      "Budget 2026.xlsx：2 个隐藏工作表未读取；1 个工作表有部分行未读取",
-    );
     expect(unreadPartsCounts([budget(two), budget(parts)], t("en"))).toEqual([
       "3 hidden sheets weren’t read",
       "3 sheets have rows that weren’t read",

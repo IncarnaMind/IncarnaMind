@@ -8,8 +8,7 @@
 import type { CitationForm } from "../../shared/citationStyles";
 import { type DrawnPage, type PageBox, quoteBoxes } from "../../shared/citedPage";
 import { translate } from "../../shared/i18n";
-import { unreadPartsCounts, unreadSection } from "../../shared/unreadFiles";
-import type { CitationAttributes, UnreadFile } from "../api";
+import type { CitationAttributes } from "../api";
 import { citedPageKey } from "../citedPages";
 import type { Language } from "../language";
 import type { Block, Footnote, Inline } from "../mindText";
@@ -204,8 +203,6 @@ export function renderSourcePack(
   pages: readonly PackPage[],
   language: Language,
   readQuote: QuoteReader,
-  unread: readonly UnreadFile[] = [],
-  names = false,
 ): string {
   const t = (key: Parameters<typeof translate>[1]) => escapeHtml(translate(language, key));
   const unverified = ` <span class="unverified">${t("export.unverified")}</span>`;
@@ -235,22 +232,5 @@ export function renderSourcePack(
       "</section>"
     );
   });
-  const section =
-    unread.length === 0
-      ? null
-      : unreadSection(
-          unread,
-          (key, params) => translate(language, key, params),
-          names,
-          unreadPartsCounts(unread, (key, params) => translate(language, key, params)),
-        );
-  const unreadHtml =
-    section === null
-      ? ""
-      : `<section class="pack-unread"><h2>${escapeHtml(section.heading)}</h2><p>${escapeHtml(section.count)}</p>` +
-        (section.items.length > 0
-          ? `<ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-          : section.counts.map((count) => `<p>${escapeHtml(count)}</p>`).join("")) +
-        "</section>";
-  return cover + sheets.join("") + unreadHtml;
+  return cover + sheets.join("");
 }

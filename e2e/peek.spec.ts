@@ -207,12 +207,15 @@ async function addAndShow(
   language: "en" | "zh-CN" = "en",
 ): Promise<void> {
   await window.getByTestId("add-documents-input").setInputFiles(paths);
+  // A 2 MB file takes longer than the 5 s default to read on a loaded runner (#1741).
   await expect
-    .poll(async () =>
-      (await coreOf(window)).evaluate(
-        async (core) =>
-          (await core.listDocuments()).filter((each) => each.status === "ready").length,
-      ),
+    .poll(
+      async () =>
+        (await coreOf(window)).evaluate(
+          async (core) =>
+            (await core.listDocuments()).filter((each) => each.status === "ready").length,
+        ),
+      { timeout: 30_000 },
     )
     .toBe(paths.length);
   await setLanguage(window, language);
