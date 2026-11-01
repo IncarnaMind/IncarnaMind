@@ -9,6 +9,7 @@ import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import {
   type CalculatedFigure,
+  type Citation,
   type FigureInput,
   MIND_CONTENT_FIELD,
   type RetainedFigureAnalysis,
@@ -414,6 +415,150 @@ test("a retained Analysis card never becomes a fresh execution claim", async () 
   expect(container.textContent).toContain("Saved Analysis · not run again");
   expect(container.textContent).toContain(record.code);
   expect(container.textContent).not.toContain("Inputs found · recalculated");
+});
+
+const rangeCitation: Citation = {
+  documentId: "source",
+  passageId: "p",
+  documentName: "Invented sales",
+  contentHash: "v2",
+  pageFrom: 1,
+  pageTo: 1,
+  location: { kind: "rows", sheet: "Sales", from: 1, to: 25 },
+  quote: "Region\tRevenue",
+  check: "found",
+  checkReason: null,
+};
+const usedRows: [number, number][] = [
+  [2, 6],
+  [8, 9],
+];
+const summed: CalculatedFigure = {
+  ...analysis,
+  label: "Total revenue",
+  value: 300,
+  shown: "300",
+  analysis: { analysis: 1, result: "summed" },
+};
+const tracedRecords = (
+  check?: NonNullable<RetainedFigureAnalysis["values"][number]["check"]>,
+): RetainedFigureAnalysis => ({
+  ...record,
+  id: "run",
+  code: 'figure("summed", df["Revenue"], "sum")',
+  inputs: [
+    {
+      kind: "range",
+      name: "sales",
+      citation: rangeCitation,
+      range: "A1:C25",
+      rows: 24,
+      columns: 3,
+      rowCount: 24,
+      cut: false,
+      sha256: "c".repeat(64),
+    },
+  ],
+  values: [
+    {
+      kind: "figure",
+      name: "summed",
+      label: "Total revenue",
+      value: 300,
+      unit: null,
+      of: { input: "sales", columns: ["Revenue"], rows: usedRows, count: 7, how: "sum" },
+      ...(check && { check }),
+    },
+  ],
+});
+function tracedDoc(check?: NonNullable<RetainedFigureAnalysis["values"][number]["check"]>) {
+  const doc = new Y.Doc();
+  docs.push(doc);
+  installFigureRuns(doc, [tracedRecords(check)]);
+  return doc;
+}
+async function tracedCard(
+  check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
+  shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
+) {
+  const sources = calculatedSources(attrs(summed), tracedDoc(check));
+  await card({
+    figure: summed,
+    shown,
+    replayed: false,
+    sources,
+    problem: false,
+    onCopyFormula: () => {},
+  });
+}
+
+test.each(["en", "zh-CN"] as const)(
+  "%s card shows the core's own recalculation of a figure() figure as checked",
+  async (language) => {
+    state.language = language;
+    await tracedCard({ kind: "same", value: 300 });
+    const stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.textContent).toContain(translate(language, "claim.state.supported"));
+    expect(stateLine?.getAttribute("data-state")).toBe("supported");
+    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.not-checked"));
+    expect(container.textContent).toContain(
+      translate(language, "figures.analysisRows.recalculated"),
+    );
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "%s card's Citation opens at the rows the figure named, not the whole input",
+  async (language) => {
+    state.language = language;
+    await tracedCard({ kind: "same", value: 300 });
+    const open = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === translate(language, "figures.inline.openInput"),
+    );
+    await act(() => {
+      open?.click();
+    });
+    expect(state.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        location: { kind: "rows", sheet: "Sales", from: 2, to: 9 },
+      }),
+      { check: "found", withQuote: true },
+    );
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "%s card never shows a figure the core didn't work out again as checked",
+  async (language) => {
+    state.language = language;
+    await tracedCard(undefined);
+    expect(container.textContent).toContain(translate(language, "claim.state.not-checked"));
+    expect(container.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).not.toContain(
+      translate(language, "figures.analysisRows.recalculated"),
+    );
+
+    await act(() => root?.unmount());
+    root = null;
+    await tracedCard({ kind: "differs", value: 250 });
+    expect(container.textContent).toContain(translate(language, "claim.state.not-checked"));
+    expect(container.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).toContain(
+      translate(language, "figures.analysisCheck.differs", { value: "250" }),
+    );
+
+    await act(() => root?.unmount());
+    root = null;
+    await tracedCard({ kind: "unchecked", reason: "sales has no row 7" });
+    expect(container.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).toContain(translate(language, "figures.analysisCheck.unchecked"));
+  },
+);
+
+test("a check the Note's own Check gave the figure stays what its card says", async () => {
+  await tracedCard({ kind: "same", value: 300 }, { state: "needs-recheck", why: "edited" });
+  expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
+  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
 });
 
 test("shared figure commands use the same callbacks and refuse another row or a read-only edit", () => {

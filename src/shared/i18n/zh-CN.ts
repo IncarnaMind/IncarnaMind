@@ -789,6 +789,9 @@ export const zhCN = {
   "figures.analysisRows.how.count": "计数",
   "figures.analysisRows.recalculated":
     "数据分析运行时，IncarnaMind 已按这些单元格重新计算，结果相同。",
+  "figures.analysisCheck.differs":
+    "数据分析运行时，IncarnaMind 按这些单元格重新计算，得到 {value}。",
+  "figures.analysisCheck.unchecked": "数据分析运行时，IncarnaMind 无法按这些单元格重新计算。",
   "figures.analysisRows.used.one": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.used.other": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.list.one": "第 {runs} 行",

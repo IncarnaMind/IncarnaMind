@@ -258,6 +258,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.locator(".calculated-figure-state")).toContainText(
         t("figures.inline.retained"),
       );
+      // The core worked this figure out again from its cells: its check is shown, not left grey.
+      await expect(card.locator(".calculated-figure-state")).toContainText(
+        t("claim.state.supported"),
+      );
+      await expect(card.locator(".calculated-figure-state")).toHaveAttribute(
+        "data-state",
+        "supported",
+      );
       if (evidence) {
         await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
@@ -273,6 +281,13 @@ for (const language of ["en", "zh-CN"] as const) {
           : "根据“marketing”第 2–6、8–25 行（共 23 行）计算，用到 AdSpend、Revenue",
       );
       await expect(card).not.toContainText(t("figures.analysisRows.recalculated"));
+      // A figure the app didn't work out again is never shown as checked.
+      await expect(card.locator(".calculated-figure-state")).toContainText(
+        t("claim.state.not-checked"),
+      );
+      await expect(card.locator(".calculated-figure-state")).not.toContainText(
+        t("claim.state.supported"),
+      );
       await expect(card.locator(".calculated-figure-input")).toHaveCount(2);
       await pointAndClick(window, card.locator(".calculated-figure-code summary"));
       await expect(card.locator(".calculated-figure-code pre")).toContainText("smf.ols");
@@ -291,6 +306,35 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(analysis?.recalculations).toEqual([
         { result: "total", check: { kind: "same", value: expect.any(Number) } },
       ]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`${language}: [=table 1] writes the Analysis's own table into a Note, its figures cited to the rows it read`, async () => {
+    test.setTimeout(180_000);
+    const { app, window } = await launchWithSheets(language, 1200);
+    try {
+      await askInAssistant(
+        window,
+        language === "en"
+          ? "What was revenue by region? Put the table in the note."
+          : "按地区汇总 Revenue，把表格写进笔记。",
+        { timeout: 120_000 },
+      );
+      const editor = window.getByTestId("mind-editor");
+      const table = editor.locator("table");
+      await expect(table).toHaveCount(1);
+      await expect(table).toContainText("North");
+      await expect(table).toContainText("270.5");
+      await expect(table).toContainText("South");
+      await expect(editor).not.toContainText("[=table");
+      // The table's figures cite the rows the Analysis read, not text typed again.
+      const citation = table.locator("tr").first().locator("th").nth(1).getByTestId("citation");
+      await expect(citation).toHaveCount(1);
+      await expect(citation).toHaveAttribute("data-check", "found");
     } finally {
       await app.close();
     }

@@ -70,6 +70,7 @@ import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
+  type AnswerAnalysis,
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   CHART_NODE,
@@ -243,6 +244,8 @@ export interface MindToolsOptions {
     folderId: string | null;
     answer: Pick<ConversationAnswer, "id" | "analyses">;
   } | null;
+  /** The Analyses this Answer has run: a marker of theirs writes the Analysis's own table (#2378). */
+  analyses: readonly AnswerAnalysis[];
   /** The language the Answer is written in, which the model is told to ask the User in. */
   language: Language;
   /**

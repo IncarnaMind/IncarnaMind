@@ -594,11 +594,25 @@ function regressionReply(prompt: Prompt, question: string, searched: string): Re
   };
 }
 const WITH_MANAGERS = /\bmanager|负责人/i;
+/** Asks for the Analysis's table in a Note rather than in the Answer (#2378). */
+const PUT_TABLE_IN_NOTE =
+  /\bput (?:it|the table|that table) in (?:a|the) note|把表格写进笔记|写进笔记/i;
 
 function analysisReply(prompt: Prompt, question: string, searched: string): Reply | null {
   const ran = toolResults(prompt, "run_analysis");
   const chinese = /\p{Script=Han}/u.test(question);
   if (ran.length > 0) {
+    if (PUT_TABLE_IN_NOTE.test(question)) {
+      if (toolResults(prompt, "add_to_mind").length === 0) {
+        return {
+          tool: "add_to_mind",
+          input: {
+            content: chinese ? "各地区收入：\n\n[=table 1]" : "Revenue by region:\n\n[=table 1]",
+          },
+        };
+      }
+      return { text: chinese ? "已写入笔记。" : "Written into the note." };
+    }
     return {
       text: chinese
         ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"

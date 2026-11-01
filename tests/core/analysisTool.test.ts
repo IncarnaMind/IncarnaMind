@@ -747,8 +747,13 @@ describe("an Analysis an Answer runs", () => {
     expect(report).not.toContain("[=3]");
 
     const blocks = answerBlocks(answer);
-    expect(figureRunsOfAnswer(answer, blocks)[0]?.values).toEqual([
-      expect.objectContaining({ name: "total", of: sales([[2, 5]], "sum") }),
+    const [run] = figureRunsOfAnswer(answer, blocks);
+    expect(run?.values).toEqual([
+      expect.objectContaining({
+        name: "total",
+        of: sales([[2, 5]], "sum"),
+        check: { kind: "same", value: 350.5 },
+      }),
       expect.objectContaining({
         name: "slope",
         of: sales(
@@ -761,6 +766,8 @@ describe("an Analysis an Answer runs", () => {
         ),
       }),
     ]);
+    // The app doesn't work a model's own figure out again, so its Note record says no check.
+    expect(run?.values[1]).not.toHaveProperty("check");
   });
 
   test("every plot left out for its characters is counted, past the five whose titles are listed", async () => {

@@ -44,6 +44,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
+import { countCitations, withAnalysisTableCitations } from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
@@ -2587,6 +2588,7 @@ export function createAnswers(options: AnswersOptions) {
               minds,
               ids,
               prepared,
+              analyses,
               rewriting: () => {
                 rewriting ??= options.prepareModel(model, "off").catch((error: unknown) => {
                   console.warn(
@@ -2634,7 +2636,19 @@ export function createAnswers(options: AnswersOptions) {
                 const written = withoutSearchTalk(
                   session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
                 );
-                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
+                // A marker this Answer's Analysis gave is the Analysis's own table, not text the
+                // model typed again; the last Answer's, for a marker that names none of this one's.
+                const lastAnalyses = input.assistant?.lastAnswer?.answer.analyses ?? [];
+                const markdown = withAnalysisResults(
+                  withAnalysisResults(
+                    calculating ? citeFigures(written.markdown) : written.markdown,
+                    analyses,
+                    answerLanguage(context.question),
+                  ),
+                  lastAnalyses,
+                  answerLanguage(context.question),
+                );
+                const analysisPictures = [...analyses, ...lastAnalyses];
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2648,7 +2662,11 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
-                const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
+                const drawn = withAnalysisPictures(
+                  markdownToBlocks(tables.markdown),
+                  analysisPictures,
+                );
+                const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
                     const node = session.checkedNode(marker);
                     if (!node) {
@@ -2659,17 +2677,19 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                const blocks = asGenerated(
-                  calculating
-                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                        id: answerId,
-                        analyses,
-                      })
-                    : cited,
-                );
+                const uncited = calculating
+                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
+                  : cited;
+                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
+                const analysisTables = withAnalysisTableCitations(uncited, analysisPictures);
+                const blocks = asGenerated(analysisTables);
                 return {
                   blocks,
-                  cited: found + notFound,
+                  cited:
+                    found + notFound + countCitations(analysisTables) - countCitations(uncited),
                   notFound,
                   unrecorded,
                   firstUnrecorded,

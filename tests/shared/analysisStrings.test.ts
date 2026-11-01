@@ -76,3 +76,23 @@ describe("the rows an Analysis figure was worked out from (#2346)", () => {
     );
   });
 });
+
+describe("what the core made of a figure when the Analysis ran (#2378)", () => {
+  test("a figure the cells come to another number says what they come to, in both languages", () => {
+    expect(translate("en", "figures.analysisCheck.differs", { value: "250" })).toBe(
+      "When the Analysis ran, IncarnaMind worked this out again from these cells and got 250.",
+    );
+    expect(translate("zh-CN", "figures.analysisCheck.differs", { value: "250" })).toBe(
+      "数据分析运行时，IncarnaMind 按这些单元格重新计算，得到 250。",
+    );
+  });
+
+  test("one it couldn't work out again says so, in both languages", () => {
+    expect(translate("en", "figures.analysisCheck.unchecked")).toBe(
+      "When the Analysis ran, IncarnaMind couldn’t work this out again from these cells.",
+    );
+    expect(translate("zh-CN", "figures.analysisCheck.unchecked")).toBe(
+      "数据分析运行时，IncarnaMind 无法按这些单元格重新计算。",
+    );
+  });
+});

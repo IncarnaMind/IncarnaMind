@@ -5,11 +5,16 @@ import type {
   FigureInput,
   SignOffNow,
 } from "../../../core/api";
-import type { AnalysisFigureRows } from "../../../shared/analysis";
+import type { AnalysisFigureRows, AnalysisRecalculation } from "../../../shared/analysis";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
-import type { CalculatedSources } from "../../../shared/figureRuns";
+import {
+  type CalculatedSources,
+  figureRowsCitation,
+  retainedCheck,
+} from "../../../shared/figureRuns";
 import { shownNumber } from "../../../shared/figureSchedule";
+import { figureText } from "../../../shared/figures";
 import { formulaText } from "../../../shared/formula";
 import { sourceText } from "../../../shared/sources";
 import { buttonStyle } from "../components/ui";
@@ -41,12 +46,19 @@ export function CalculatedFigureCard({
   onSignOff: (() => void) | null;
 }) {
   const t = useT();
+  const check = figure.analysis ? retainedCheck(sources, figure.analysis.result) : null;
+  // A figure() figure the core worked out again from its cells is checked, the way a
+  // calculated figure whose Inputs were found is: only the core's own result says so.
+  const state: ClaimCheckShown =
+    shown.state === "not-checked" && shown.reason === "unread" && check?.kind === "same"
+      ? { state: "supported" }
+      : shown;
   const stateKey =
-    shown.state === "kept" ? "claim.keptAsView" : (`claim.state.${shown.state}` as const);
+    state.state === "kept" ? "claim.keptAsView" : (`claim.state.${state.state}` as const);
   const needsLook =
-    shown.state === "unsupported" ||
-    shown.state === "contradicted" ||
-    shown.state === "needs-recheck";
+    state.state === "unsupported" ||
+    state.state === "contradicted" ||
+    state.state === "needs-recheck";
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
   const traced = sources?.analysis?.values.find(
     (value) => value.name === figure.analysis?.result,
@@ -59,7 +71,7 @@ export function CalculatedFigureCard({
       <h3>
         {t("figures.calculated")} · <strong>{figure.shown}</strong>
       </h3>
-      <p className="calculated-figure-state">
+      <p className="calculated-figure-state" data-state={state.state}>
         {needsLook ? (
           <>
             {t("figures.filter.look")} · {t(stateKey)}
@@ -109,7 +121,7 @@ export function CalculatedFigureCard({
           input={input}
         />
       ))}
-      {traced && <TracedRows of={traced} />}
+      {traced && <TracedRows of={traced} check={check} />}
       {ranges?.map((range) => (
         <div
           key={JSON.stringify([range.name, range.citation.passageId, range.range])}
@@ -118,7 +130,9 @@ export function CalculatedFigureCard({
           <strong>
             {range.name} · {range.range}
           </strong>
-          <CalculationQuote citation={range.citation} />
+          <CalculationQuote
+            citation={traced ? figureRowsCitation(range.citation, traced) : range.citation}
+          />
         </div>
       ))}
       {!figure.analysis &&
@@ -172,8 +186,16 @@ export function CalculatedFigureCard({
 }
 
 /** The rows of its input an Analysis figure was worked out from (#2346), and how. */
-function TracedRows({ of }: { of: AnalysisFigureRows }) {
+function TracedRows({
+  of,
+  check,
+}: {
+  of: AnalysisFigureRows;
+  /** What the core made of it when the Analysis ran; null when the Note kept no check. */
+  check: AnalysisRecalculation | null;
+}) {
   const t = useT();
+  const language = useLanguage();
   const plural = of.count === 1 ? "one" : "other";
   const shown = of.rows
     .slice(0, 6)
@@ -199,7 +221,17 @@ function TracedRows({ of }: { of: AnalysisFigureRows }) {
               names: of.columns.join(t("figures.analysisRows.separator")),
             })}
       </p>
-      {of.how && <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>}
+      {of.how && check?.kind === "same" && (
+        <p className="calculated-figure-note">{t("figures.analysisRows.recalculated")}</p>
+      )}
+      {of.how && check?.kind === "differs" && (
+        <p className="calculated-figure-note">
+          {t("figures.analysisCheck.differs", { value: figureText(language, check.value) })}
+        </p>
+      )}
+      {of.how && check?.kind === "unchecked" && (
+        <p className="calculated-figure-note">{t("figures.analysisCheck.unchecked")}</p>
+      )}
     </div>
   );
 }

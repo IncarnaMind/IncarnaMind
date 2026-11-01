@@ -11,9 +11,16 @@ import {
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
+  type RetainedFigureValue,
 } from "../core/api";
 import { InvalidInputError, isRecord } from "../core/errors";
-import { ANALYSIS_LIMITS, type AnalysisVersions, readFigureRows } from "./analysis";
+import {
+  ANALYSIS_LIMITS,
+  type AnalysisFigureRows,
+  type AnalysisRecalculation,
+  type AnalysisVersions,
+  readFigureRows,
+} from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
   calculatedFigureNode,
@@ -117,6 +124,17 @@ function readVersions(value: unknown): AnalysisVersions | null {
   };
 }
 
+/** What IncarnaMind made of a kept figure when its Analysis ran; null for a record that isn't one. */
+function readRecalculation(value: unknown): AnalysisRecalculation | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "unchecked")
+    return text(value.reason) ? { kind: "unchecked", reason: value.reason } : null;
+  if (value.kind !== "same" && value.kind !== "differs") return null;
+  return typeof value.value === "number" && Number.isFinite(value.value)
+    ? { kind: value.kind, value: value.value }
+    : null;
+}
+
 /** Reads provenance only; a clipboard record is not proof that its code ran. */
 export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   if (
@@ -156,6 +174,8 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       return null;
     const of = result.of === undefined ? undefined : readFigureRows(result.of);
     if (of === null) return null;
+    const check = result.check == null ? undefined : readRecalculation(result.check);
+    if (result.check != null && check === null) return null;
     names.add(result.name);
     values.push({
       kind: "figure",
@@ -164,6 +184,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       unit: result.unit,
       value: result.value,
       ...(of && { of }),
+      ...(check && { check }),
     });
   }
   const versions = value.versions === null ? null : readVersions(value.versions);
@@ -191,10 +212,13 @@ export function retainFigureAnalysis(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
   if (uses.length === 0) return null;
-  const results = analysis.output.results.filter(
-    (result) =>
-      result.kind === "figure" && uses.some((node) => node.figure.analysis?.result === result.name),
-  );
+  const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
+  const results: RetainedFigureValue[] = analysis.output.results.flatMap((result) => {
+    if (result.kind !== "figure") return [];
+    if (!uses.some((node) => node.figure.analysis?.result === result.name)) return [];
+    const check = checks.get(result.name);
+    return [check ? { ...result, check } : result];
+  });
   if (
     uses.some(
       (node) =>
@@ -394,3 +418,23 @@ export function labelledCitations(
 
 export const calculatedCitations = (sources: CalculatedSources): Citation[] =>
   labelledCitations(sources).map(({ citation }) => citation);
+
+/** What IncarnaMind made of a kept figure when the Analysis ran; null when the Note kept no check. */
+export function retainedCheck(
+  sources: CalculatedSources | null,
+  result: string | undefined,
+): AnalysisRecalculation | null {
+  if (!sources?.analysis || result === undefined) return null;
+  return sources.analysis.values.find((value) => value.name === result)?.check ?? null;
+}
+
+/**
+ * A range's Citation, as the figure that named its rows cites it: the first and last
+ * rows the figure used, where its input's Location is one of rows.
+ */
+export function figureRowsCitation(citation: Citation, of: AnalysisFigureRows): Citation {
+  const first = of.rows[0];
+  const last = of.rows.at(-1);
+  if (!first || !last || citation.location?.kind !== "rows") return citation;
+  return { ...citation, location: { ...citation.location, from: first[0], to: last[1] } };
+}

@@ -807,6 +807,10 @@ export const en = {
   "figures.analysisRows.how.count": "Count",
   "figures.analysisRows.recalculated":
     "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+  "figures.analysisCheck.differs":
+    "When the Analysis ran, IncarnaMind worked this out again from these cells and got {value}.",
+  "figures.analysisCheck.unchecked":
+    "When the Analysis ran, IncarnaMind couldn’t work this out again from these cells.",
   "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
   "figures.analysisRows.used.other":
     "Worked out from {count} rows of {input}: {rows}, using {names}",
